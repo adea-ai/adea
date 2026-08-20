@@ -1,0 +1,35 @@
+{
+  "name": "@agent-hq/hq",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/sync-assets.mjs && next build",
+    "dev": "node ../../scripts/sync-assets.mjs && next dev --hostname 0.0.0.0",
+    "lint": "eslint .",
+    "start": "next start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-hq/asset-manifests": "workspace:*",
+    "@agent-hq/ithappy": "workspace:*",
+    "@agent-hq/rooms": "workspace:*",
+    "@agent-hq/scene-runtime": "workspace:*",
+    "@agent-hq/scene-hq-home": "workspace:*",
+    "@agent-hq/scene-hq-work": "workspace:*",
+    "@agent-hq/ui": "workspace:*",
+    "@tanstack/react-query": "^5.101.4",
+    "lucide-react": "^1.32.0",
+    "next": "^16.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "eslint-config-next": "^16.3.1"
+  }
+}
