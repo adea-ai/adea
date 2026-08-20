@@ -1,0 +1,25 @@
+{
+  "name": "agent-hq",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.13.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "format:check": "prettier --check .",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.1",
+    "prettier": "^3.9.6",
+    "turbo": "^2.10.11",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
