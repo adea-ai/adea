@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "scene": "hq-home",
+  "placements": {
+    "top-left": "bedroom-modern",
+    "top-right": "bedroom-basic",
+    "side-left-top": "basketball-court",
+    "side-left-bottom": "home-entrance",
+    "side-right-top": "bedroom-cartoon",
+    "side-right-bottom": "pool",
+    "bottom-left": "lounge",
+    "bottom-center": "home-theatre",
+    "bottom-right": "dining"
+  }
+}

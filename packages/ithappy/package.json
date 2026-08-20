@@ -1,0 +1,37 @@
+{
+  "name": "@agent-hq/ithappy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./characters": {
+      "types": "./dist/characters.d.ts",
+      "import": "./dist/characters.js"
+    },
+    "./animals": {
+      "types": "./dist/animals.d.ts",
+      "import": "./dist/animals.js"
+    },
+    "./props": {
+      "types": "./dist/props.d.ts",
+      "import": "./dist/props.js"
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0"
+  }
+}

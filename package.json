@@ -12,7 +12,8 @@
     "format:check": "prettier --check .",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "sync-assets": "node scripts/sync-assets.mjs"
   },
   "devDependencies": {
     "eslint": "^9.39.5",

@@ -19,6 +19,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-hq/ithappy": "workspace:*",
+    "@agent-hq/rooms": "workspace:*",
     "three": "^0.185.1"
   },
   "devDependencies": {
