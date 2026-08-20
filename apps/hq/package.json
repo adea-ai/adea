@@ -1,18 +1,23 @@
 {
-  "name": "@agent-hq/web",
+  "name": "@agent-hq/hq",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build",
-    "dev": "next dev --hostname 0.0.0.0",
+    "build": "node ../../scripts/sync-assets.mjs && next build",
+    "dev": "node ../../scripts/sync-assets.mjs && next dev --hostname 0.0.0.0",
     "lint": "eslint .",
     "start": "next start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-hq/asset-manifests": "workspace:*",
+    "@agent-hq/ithappy": "workspace:*",
+    "@agent-hq/rooms": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
+    "@agent-hq/scene-hq-home": "workspace:*",
+    "@agent-hq/scene-hq-work": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@tanstack/react-query": "^5.101.4",
     "lucide-react": "^1.32.0",

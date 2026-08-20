@@ -27,8 +27,23 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.2.0)(vite@8.2.1(@types/node@26.2.0))
 
-  apps/web:
+  apps/hq:
     dependencies:
+      '@agent-hq/asset-manifests':
+        specifier: workspace:*
+        version: link:../../packages/asset-manifests
+      '@agent-hq/ithappy':
+        specifier: workspace:*
+        version: link:../../packages/ithappy
+      '@agent-hq/rooms':
+        specifier: workspace:*
+        version: link:../../packages/rooms
+      '@agent-hq/scene-hq-home':
+        specifier: workspace:*
+        version: link:../../scenes/hq-home
+      '@agent-hq/scene-hq-work':
+        specifier: workspace:*
+        version: link:../../scenes/hq-work
       '@agent-hq/scene-runtime':
         specifier: workspace:*
         version: link:../../packages/scene-runtime
@@ -67,8 +82,36 @@ importers:
         specifier: ^16.3.1
         version: 16.3.1(@typescript-eslint/parser@8.67.0(eslint@9.39.5)(typescript@5.9.3))(eslint@9.39.5)(typescript@5.9.3)
 
+  packages/asset-manifests: {}
+
+  packages/ithappy:
+    dependencies:
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.185.0
+        version: 0.185.4
+
+  packages/rooms:
+    dependencies:
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+    devDependencies:
+      '@types/three':
+        specifier: ^0.185.0
+        version: 0.185.4
+
   packages/scene-runtime:
     dependencies:
+      '@agent-hq/ithappy':
+        specifier: workspace:*
+        version: link:../ithappy
+      '@agent-hq/rooms':
+        specifier: workspace:*
+        version: link:../rooms
       three:
         specifier: ^0.185.1
         version: 0.185.1
@@ -107,6 +150,24 @@ importers:
       react:
         specifier: ^19.2.8
         version: 19.2.8
+
+  scenes/hq-home:
+    dependencies:
+      '@agent-hq/asset-manifests':
+        specifier: workspace:*
+        version: link:../../packages/asset-manifests
+      '@agent-hq/rooms':
+        specifier: workspace:*
+        version: link:../../packages/rooms
+
+  scenes/hq-work:
+    dependencies:
+      '@agent-hq/asset-manifests':
+        specifier: workspace:*
+        version: link:../../packages/asset-manifests
+      '@agent-hq/rooms':
+        specifier: workspace:*
+        version: link:../../packages/rooms
 
 packages:
 
