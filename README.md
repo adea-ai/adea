@@ -15,8 +15,14 @@ The initial web foundation follows the accepted frontend stack decision:
 
 ```text
 apps/
-  web/                         Next.js App Router application
+  hq/                          Next.js App Router application
+scenes/
+  hq-home/                     Home scene manifest and authored assets
+  hq-work/                     Work scene manifest and authored assets
 packages/
+  asset-manifests/             Scene and layout contracts
+  ithappy/                     HQ character, animation, and prop assets
+  rooms/                       Room gallery and designer contracts/assets
   scene-runtime/               React-independent Three.js controller boundary
   ui/                          Shared shadcn-compatible primitives
 docs/decisions/                Accepted architecture decisions
@@ -38,9 +44,11 @@ pnpm install
 pnpm dev
 ```
 
-The web app is available on port 3000 by default. The initial `/api/agents`
-route is a local fixture boundary for the first UI slice and should be replaced
-by the backend contract when that service is introduced.
+The web app is available on port 3000 by default. The `/api/agents` and
+`/api/layout` routes are local contract boundaries for the first UI slice and
+should be replaced by backend contracts when that service is introduced.
+Nifty League World assets, audio, and World scene runtime code are intentionally
+outside this repository.
 
 ## Verification commands
 
