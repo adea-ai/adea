@@ -45,6 +45,20 @@ export type RoomDesignerPlacement = {
   footprint?: [number, number];
 };
 
+export function hasPlacementResetTarget(
+  placement: RoomDesignerPlacement,
+  savedPlacements: readonly RoomDesignerPlacement[],
+): boolean {
+  const saved = savedPlacements.find((candidate) => candidate.id === placement.id);
+  if (!saved) return false;
+  return (
+    placement.modelId !== saved.modelId ||
+    placement.p.some((value, index) => value !== saved.p[index]) ||
+    placement.q.some((value, index) => value !== saved.q[index]) ||
+    placement.s.some((value, index) => value !== saved.s[index])
+  );
+}
+
 type RoomDesignerDocument = {
   version?: number;
   scene?: string;
@@ -1751,8 +1765,8 @@ export function RoomDesigner({
     ? placements.find((placement) => placement.id === actionId)
     : null;
   const actionAsset = actionPlacement ? catalogById.get(actionPlacement.modelId) : undefined;
-  const actionSaved = actionId
-    ? savedPlacementsRef.current.some((placement) => placement.id === actionId)
+  const actionCanReset = actionPlacement
+    ? hasPlacementResetTarget(actionPlacement, savedPlacementsRef.current)
     : false;
 
   return enabled ? (
@@ -1790,7 +1804,7 @@ export function RoomDesigner({
           >
             <RotateCw className="size-4.5" aria-hidden="true" />
           </Button>
-          {actionSaved ? (
+          {actionCanReset ? (
             <Button
               type="button"
               size="icon-sm"
