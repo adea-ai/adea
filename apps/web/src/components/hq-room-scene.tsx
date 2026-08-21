@@ -227,14 +227,13 @@ const hqCameraBounds = {
   zMax: ROOM_GALLERY_BOUNDS.zMax + hqCameraTopPadding,
 } as const;
 const hqOrthographicHalfHeight = 720;
-// Use the camera-only top envelope for a simple streetscape: a short sidewalk
-// immediately outside the fence and a roadway across the remaining clearance.
-// These layers are visual only; the property envelope remains the gameplay
-// navigation and collision boundary.
+// Use the camera-only top envelope for a simple streetscape: matching
+// sidewalks on both edges of the roadway. These layers are visual only; the
+// property envelope remains the gameplay navigation and collision boundary.
 const hqFrontSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
-// Fill the normal front camera envelope and the Room Designer backdrop after
-// the perimeter sidewalk so the roadway never ends inside the visible map.
-const hqFrontRoadVisibleDepth = hqCameraTopPadding - hqFrontSidewalkDepth;
+// Fill the normal front camera envelope between two equal sidewalk strips and
+// extend the roadway farther for the Room Designer backdrop.
+const hqFrontRoadVisibleDepth = Math.max(0, hqCameraTopPadding - hqFrontSidewalkDepth * 2);
 const hqFrontRoadDepth = hqFrontRoadVisibleDepth + hqRoomDesignerBackdropPadding;
 const hqFrontRoadWidth =
   ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqRoomDesignerBackdropPadding) * 2;
@@ -399,17 +398,20 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   exteriorSurface.receiveShadow = true;
   visual.add(exteriorSurface);
 
+  const createSidewalkMaterial = (sidewalkWidth: number, sidewalkDepth: number) => {
+    const material = createHqMaterial(theme, "sidewalk", sidewalkWidth / 96, sidewalkDepth / 96);
+    material.polygonOffset = true;
+    material.polygonOffsetFactor = -4;
+    material.polygonOffsetUnits = -4;
+    return material;
+  };
   const frontSidewalk = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
-    createHqMaterial(theme, "sidewalk", hqFrontRoadWidth / 96, hqFrontSidewalkDepth / 96),
+    createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth),
   );
   frontSidewalk.name = "hq-front-sidewalk";
   frontSidewalk.rotation.x = -Math.PI / 2;
   frontSidewalk.position.set(0, -0.46, ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth / 2);
-  const sidewalkMaterial = frontSidewalk.material as THREE.MeshStandardMaterial;
-  sidewalkMaterial.polygonOffset = true;
-  sidewalkMaterial.polygonOffsetFactor = -4;
-  sidewalkMaterial.polygonOffsetUnits = -4;
   frontSidewalk.receiveShadow = true;
   visual.add(frontSidewalk);
 
@@ -422,7 +424,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   ) => {
     const sidewalk = new THREE.Mesh(
       new THREE.PlaneGeometry(sidewalkWidth, sidewalkDepth),
-      sidewalkMaterial,
+      createSidewalkMaterial(sidewalkWidth, sidewalkDepth),
     );
     sidewalk.name = `hq-perimeter-sidewalk-${name}`;
     sidewalk.rotation.x = -Math.PI / 2;
@@ -469,6 +471,23 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   roadwayMaterial.polygonOffsetUnits = -4;
   roadway.receiveShadow = true;
   visual.add(roadway);
+
+  const farSidewalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
+    createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth),
+  );
+  farSidewalk.name = "hq-front-sidewalk-far";
+  farSidewalk.rotation.x = -Math.PI / 2;
+  farSidewalk.position.set(
+    0,
+    -0.46,
+    ROOM_GALLERY_BOUNDS.zMax +
+      hqFrontSidewalkDepth +
+      hqFrontRoadVisibleDepth +
+      hqFrontSidewalkDepth / 2,
+  );
+  farSidewalk.receiveShadow = true;
+  visual.add(farSidewalk);
 
   const roadMarkingMaterial = new THREE.MeshStandardMaterial({
     color: 0xf4c542,
