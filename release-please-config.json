@@ -136,13 +136,9 @@
       "release-type": "node",
       "package-name": "@agent-hq/ui"
     },
-    "scenes/hq-home": {
+    "scenes/hq": {
       "release-type": "node",
-      "package-name": "@agent-hq/scene-hq-home"
-    },
-    "scenes/hq-work": {
-      "release-type": "node",
-      "package-name": "@agent-hq/scene-hq-work"
+      "package-name": "@agent-hq/hq-scenes"
     }
   }
 }

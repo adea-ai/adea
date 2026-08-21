@@ -22,6 +22,5 @@
   "packages/state": "0.1.0",
   "packages/types": "0.1.0",
   "packages/ui": "0.1.0",
-  "scenes/hq-home": "0.1.0",
-  "scenes/hq-work": "0.1.0"
+  "scenes/hq": "0.1.0"
 }
