@@ -110,10 +110,6 @@ export function WorkspaceShell({
                   );
                 })}
               </nav>
-
-              <div className="workspace-toolbar" aria-label="Workspace tools">
-                <div id="workspace-room-designer-slot" className="workspace-tool-slot" />
-              </div>
             </div>
 
             <div className="workspace-topbar__actions">
@@ -125,6 +121,7 @@ export function WorkspaceShell({
               <div className="workspace-music-toggle" aria-label="Music controls">
                 <MusicToggle />
               </div>
+              <div id="workspace-room-designer-slot" className="workspace-room-designer-slot" />
               <div id="workspace-account-slot" className="workspace-account-slot" />
             </div>
           </div>
