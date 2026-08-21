@@ -7,21 +7,6 @@ export type RoomPlacement = readonly [
   scale?: readonly [number, number, number],
 ];
 
-export type RoomFootprintCategory = "3x3" | "6x3";
-export type RoomGallerySlotKind = "square" | "rectangle";
-
-export type RoomGalleryPlaceableSlot = Readonly<{
-  id: string;
-  category: RoomFootprintCategory;
-  kind: RoomGallerySlotKind;
-  x: number;
-  z: number;
-  width: number;
-  depth: number;
-  scale: readonly [number, number, number];
-  quaternion: readonly [number, number, number, number];
-}>;
-
 /** Converts authored centimetres to the shared World metre coordinate space. */
 export const ROOM_GALLERY_AUTHORED_UNIT_SCALE = 0.01;
 /** Real-world scale: 600 authored units (6 m) render as exactly 6 m.
@@ -564,45 +549,9 @@ function buildRoomGalleryWallSegments(): readonly RoomGalleryWallSegment[] {
 
 export const ROOM_GALLERY_WALL_SEGMENTS = buildRoomGalleryWallSegments();
 
-/** Full-height interior/exterior wall height in authored centimetres.
- * At runtime scale (0.005), 300 cm = 1.5 m — dollhouse-style half walls. */
-export const ROOM_GALLERY_WALL_HEIGHT = 300;
-
-/** Wall colors extracted from each room model's original wall material.
- * Used by scripts/add-hq-office-walls.mjs to color per-room wall segments.
- * Rooms without original walls use a warm neutral default. */
-export const ROOM_WALL_COLORS: Readonly<Record<string, readonly [number, number, number]>> = {
-  office: [1, 1, 1],
-  "bedroom-modern": [1, 1, 1],
-  "basketball-court": [0.85, 0.83, 0.78],
-  "bedroom-cartoon": [1, 1, 1],
-  "home-entrance": [0.429, 0.268, 0.035],
-  "gaming-room": [0.8, 0.611, 0.441],
-  "home-theatre": [0.678, 0.52, 0.406],
-  "living-room": [0.13, 0.13, 0.13],
-  pool: [0.85, 0.83, 0.78],
-  "bedroom-basic": [0.85, 0.83, 0.78],
-  dining: [0.8, 0.741, 0.528],
-  kitchen: [0.85, 0.83, 0.78],
-  lounge: [0.85, 0.83, 0.78],
-  "tv-room": [1, 1, 1],
-} as const;
-
-/** Default wall color for rooms without an extracted color. */
-export const ROOM_WALL_COLOR_DEFAULT: readonly [number, number, number] = [0.85, 0.83, 0.78];
-
-/** Room-model scales that match the approved centimetre footprints.
- *
- * Room models are normalized to a 10 m × 10 m footprint (see
- * scripts/normalize-room-footprints.mjs). The X/Z scales convert from
- * the 10-unit model space to authored centimetres (60 → 600 cm for
- * square slots, 120 → 1200 cm for the long rectangle axis). The Y
- * scale mirrors the X scale so the room's authored height is carried
- * through the same centimetre-to-runtime conversion as the floor area.
- * A Y of 1 would leave the height in model-units, producing rooms that
- * are 100× flatter than intended at runtime. */
-export const ROOM_GALLERY_SQUARE_SCALE = [60, 60, 60] as const;
-export const ROOM_GALLERY_RECTANGLE_SCALE = [120, 120, 60] as const;
+/** Room-model scales that match the approved centimetre footprints. */
+export const ROOM_GALLERY_SQUARE_SCALE = [60, 1, 60] as const;
+export const ROOM_GALLERY_RECTANGLE_SCALE = [120, 1, 60] as const;
 /** Backwards-compatible alias for callers that classify non-square slots. */
 export const ROOM_GALLERY_HORIZONTAL_SCALE = ROOM_GALLERY_RECTANGLE_SCALE;
 
@@ -616,36 +565,3 @@ export const ROOM_GALLERY_SLOTS = {
   bottomRectangleX: centralHalfWidth,
   bottomCenterX: 0,
 } as const;
-
-/** Slot quaternions rotate each room so its door (the open +Z face) points
- * toward the gallery hub at the centre of the building. Room models have
- * walls on the back (-Z) and left (-X) faces and openings on the front
- * (+Z, door) and right (+X, adjacent room) faces.
- *
- * All rotations are exact 90° increments — no diagonal orientation. */
-const topFacing = [0, 1, 0, 0] as const; // 180°: door faces -Z → hub
-const leftFacing = [0, Math.SQRT1_2, 0, Math.SQRT1_2] as const; // +90°: door faces +X → hub
-const rightFacing = [0, -Math.SQRT1_2, 0, Math.SQRT1_2] as const; // -90°: door faces -X → hub
-const bottomFacing = [0, 0, 0, 1] as const; // 0°: door faces +Z → hub
-
-const slotQuaternion = (id: string): readonly [number, number, number, number] =>
-  id.startsWith("top-")
-    ? topFacing
-    : id.startsWith("side-left-")
-      ? leftFacing
-      : id.startsWith("side-right-")
-        ? rightFacing
-        : bottomFacing;
-
-export const ROOM_GALLERY_PLACEABLE_SLOTS: readonly RoomGalleryPlaceableSlot[] =
-  ROOM_GALLERY_FOUNDATION_PIECES.filter((piece) => piece.kind !== "hub").map((piece) => ({
-    id: piece.id,
-    category: piece.kind === "square" ? "3x3" : "6x3",
-    kind: piece.kind,
-    x: piece.x,
-    z: piece.z,
-    width: piece.width,
-    depth: piece.depth,
-    scale: piece.kind === "square" ? ROOM_GALLERY_SQUARE_SCALE : ROOM_GALLERY_RECTANGLE_SCALE,
-    quaternion: slotQuaternion(piece.id),
-  })) as readonly RoomGalleryPlaceableSlot[];

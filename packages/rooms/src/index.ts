@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import type { RoomFootprintCategory } from "./gallery-config";
 export {
   ROOM_GALLERY_AUTHORED_UNIT_SCALE,
   ROOM_GALLERY_BOUNDS,
@@ -27,14 +26,7 @@ export {
   ROOM_GALLERY_SQUARE_SCALE,
   ROOM_GALLERY_SQUARE_SIZE,
   ROOM_GALLERY_SLOTS,
-  ROOM_GALLERY_PLACEABLE_SLOTS,
   ROOM_GALLERY_WALL_SEGMENTS,
-  ROOM_GALLERY_WALL_HEIGHT,
-  ROOM_WALL_COLORS,
-  ROOM_WALL_COLOR_DEFAULT,
-  type RoomFootprintCategory,
-  type RoomGalleryPlaceableSlot,
-  type RoomGallerySlotKind,
   type RoomPlacement,
   type RoomGalleryDoorway,
   type RoomGalleryWallSegment,
@@ -48,55 +40,35 @@ export const ROOM_FOOTPRINT = { width: 10, length: 10 } as const;
 export const ROOM_CELL_SPACING = 11;
 
 const roomDefinitions = [
-  ["office", "Office", 6, "6x3"],
-  ["bedroom-modern", "Bedroom Modern", 6, "6x3"],
-  ["basketball-court", "Basketball Court", 6, "3x3"],
-  ["bedroom-cartoon", "Bedroom Cartoon", 6, "3x3"],
-  ["home-entrance", "Home Entrance", 6, "3x3"],
-  ["gaming-room", "Gaming Room", 10, "3x3"],
-  ["home-theatre", "Home Theatre", 6, "3x3"],
-  ["living-room", "Living Room", 6, "3x3"],
-  ["pool", "Pool", 11, "3x3"],
-  ["bedroom-basic", "Bedroom Basic", 6, "6x3"],
-  ["dining", "Dining", 6, "6x3"],
-  ["kitchen", "Kitchen", 6, "6x3"],
-  ["lounge", "Lounge", 6, "6x3"],
-  ["tv-room", "TV Room", 6, "3x3"],
-] as const satisfies readonly (readonly [string, string, number, RoomFootprintCategory])[];
+  ["office", "Office", 1],
+  ["bedroom-modern", "Bedroom Modern", 1],
+  ["basketball-court", "Basketball Court", 1],
+  ["bedroom-cartoon", "Bedroom Cartoon", 1],
+  ["home-entrance", "Home Entrance", 1],
+  ["gaming-room", "Gaming Room", 5],
+  ["home-theatre", "Home Theatre", 1],
+  ["living-room", "Living Room", 1],
+  ["pool", "Pool", 6],
+  ["bedroom-basic", "Bedroom Basic", 1],
+  ["dining", "Dining", 1],
+  ["kitchen", "Kitchen", 1],
+  ["lounge", "Lounge", 1],
+  ["tv-room", "TV Room", 1],
+] as const satisfies readonly (readonly [string, string, number])[];
 
-export const roomTemplates = roomDefinitions.map(([id, label, version, category]) => ({
-  id,
-  label,
-  category,
-  visualUrl: `${roomsAssetRoot}/${id}/visual.glb?v=${version}`,
-  collisionUrl: `${roomsAssetRoot}/${id}/collision.glb?v=${version}`,
-})) as readonly {
-  id: string;
-  label: string;
-  category: RoomFootprintCategory;
-  visualUrl: string;
-  collisionUrl: string;
-}[];
-
-export type RoomId = (typeof roomTemplates)[number]["id"];
-
-export type RoomLayoutDocument = {
-  version: number;
-  scene: string;
-  placements: Partial<Record<string, RoomId>>;
-};
-
-export const roomAssets = roomTemplates.map(({ id, label, visualUrl }) => ({
+export const roomAssets = roomDefinitions.map(([id, label, version]) => ({
   id,
   label,
   kind: "room" as const,
-  assetUrl: visualUrl,
+  assetUrl: `${roomsAssetRoot}/${id}/visual.glb?v=${version}`,
 })) as readonly {
   id: string;
   label: string;
   kind: "room";
   assetUrl: string;
 }[];
+
+export type RoomId = (typeof roomAssets)[number]["id"];
 
 export type RoomModelKind = "room";
 
