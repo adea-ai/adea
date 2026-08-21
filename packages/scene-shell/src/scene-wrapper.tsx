@@ -90,6 +90,8 @@ export type SceneWrapperProps = {
   orthographicHalfHeight?: number;
   /** Scene-specific orthographic pitch in radians; defaults preserve existing views. */
   orthographicPitch?: number;
+  /** Initial authored-world pan applied only to the orthographic camera target. */
+  orthographicPan?: { x: number; z: number };
   /** Override the perspective camera follow distance for scenes with a
    *  miniature environment scale so the character and room are both visible. */
   perspectiveCameraDistance?: number;
@@ -194,6 +196,7 @@ export function SceneWrapper({
   orthographicMovementSpeedFactor,
   orthographicHalfHeight,
   orthographicPitch,
+  orthographicPan,
   perspectiveCameraDistance,
   waterVolumes,
   cameraViewMode = "perspective",
@@ -454,6 +457,7 @@ export function SceneWrapper({
         orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
         orthographicHalfHeight={orthographicHalfHeight}
         orthographicPitch={orthographicPitch}
+        orthographicPan={orthographicPan}
         perspectiveCameraDistance={perspectiveCameraDistance}
         waterVolumes={waterVolumes}
         initialCameraViewMode={effectiveCameraViewMode}

@@ -227,6 +227,8 @@ export type SceneHostProps = {
   orthographicHalfHeight?: number;
   /** Scene-specific orthographic pitch in radians; defaults preserve existing views. */
   orthographicPitch?: number;
+  /** Initial authored-world pan applied only to the orthographic camera target. */
+  orthographicPan?: { x: number; z: number };
   /** Override the perspective camera follow distance for scenes with a
    *  miniature environment scale so the character and room are both visible. */
   perspectiveCameraDistance?: number;
@@ -1166,6 +1168,7 @@ export function SceneHost({
   cameraBounds,
   orthographicHalfHeight,
   orthographicPitch,
+  orthographicPan,
   perspectiveCameraDistance: _perspectiveCameraDistance,
   waterVolumes = EMPTY_WATER_VOLUMES,
   initialCameraViewMode = "perspective",
@@ -1220,6 +1223,9 @@ export function SceneHost({
     const runtimeCameraBounds = cameraBounds ? scaleBounds(cameraBounds) : undefined;
     const runtimeOrthographicHalfHeight =
       orthographicHalfHeight == null ? undefined : orthographicHalfHeight * sceneScale;
+    const runtimeOrthographicPan = orthographicPan
+      ? { x: orthographicPan.x * sceneScale, z: orthographicPan.z * sceneScale }
+      : undefined;
     const runtimeClickNavigationIndicatorScale = clickNavigationIndicatorScale * sceneScale;
     const runtimeCollisionExclusionAreas = collisionExclusionAreas.map((area) => ({
       ...area,
@@ -1337,6 +1343,7 @@ export function SceneHost({
       cameraBounds: runtimeCameraBounds,
       orthographicHalfHeight: runtimeOrthographicHalfHeight,
       orthographicPitch,
+      orthographicPan: runtimeOrthographicPan,
     });
     let camera: THREE.Camera = cameraController.camera;
     const isOrthographicClickOnly = () =>
