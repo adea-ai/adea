@@ -232,9 +232,9 @@ const hqOrthographicHalfHeight = 720;
 // property envelope remains the gameplay navigation and collision boundary.
 const hqFrontSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
 // Fill the normal front camera envelope between two equal sidewalk strips and
-// extend the roadway farther for the Room Designer backdrop.
+// keep the visible roadway bounded by those two equal sidewalk strips.
 const hqFrontRoadVisibleDepth = Math.max(0, hqCameraTopPadding - hqFrontSidewalkDepth * 2);
-const hqFrontRoadDepth = hqFrontRoadVisibleDepth + hqRoomDesignerBackdropPadding;
+const hqFrontRoadDepth = hqFrontRoadVisibleDepth;
 const hqFrontRoadWidth =
   ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqRoomDesignerBackdropPadding) * 2;
 const hqEggshellWallColor = 0xe9e2d7;
@@ -637,21 +637,24 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       Math.max(1, (size.z * object.scale.z) / 96),
     );
   });
-  visual.traverse((object) => {
-    if (!(object instanceof THREE.Mesh) || !object.name.startsWith("HQFoundationWall-")) return;
-    object.material = new THREE.MeshStandardMaterial({
-      color: 0x8a8a8a,
-      roughness: 0.92,
-      metalness: 0,
-      side: THREE.DoubleSide,
-    });
-  });
-
   const eggshellMaterial = new THREE.MeshStandardMaterial({
     color: hqEggshellWallColor,
     roughness: 0.9,
     metalness: 0,
   });
+  visual.traverse((object) => {
+    if (!(object instanceof THREE.Mesh) || !object.name.startsWith("HQFoundationWall-")) return;
+    const isExteriorWall = hqExteriorWallPrefixes.some((prefix) => object.name.startsWith(prefix));
+    object.material = isExteriorWall
+      ? new THREE.MeshStandardMaterial({
+          color: 0x8a8a8a,
+          roughness: 0.92,
+          metalness: 0,
+          side: THREE.DoubleSide,
+        })
+      : eggshellMaterial;
+  });
+
   visual.traverse((object) => {
     if (
       !(object instanceof THREE.Mesh) ||
