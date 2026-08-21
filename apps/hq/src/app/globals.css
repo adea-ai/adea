@@ -221,53 +221,14 @@
   flex: 0 0 auto;
 }
 
-.workspace-tool-divider {
-  width: 1px;
-  height: 1.1rem;
-  background: color-mix(in srgb, var(--hq-shell-border) 70%, transparent);
-}
-
-.workspace-character-control,
 .workspace-camera-control {
   display: flex;
   align-items: center;
-}
-
-.workspace-character-control {
-  gap: 0.3rem;
-  padding-left: 0.25rem;
-}
-
-.workspace-character-icon {
-  width: 0.85rem;
-  height: 0.85rem;
-  color: var(--hq-shell-muted);
-}
-
-.workspace-character-select {
-  height: 1.75rem;
-  max-width: 7.5rem;
-  border: 1px solid var(--hq-shell-border);
-  border-radius: 0.45rem;
-  background: var(--hq-shell-surface-strong);
-  color: var(--hq-shell-foreground);
-  padding: 0 0.55rem;
-  font-size: 0.7rem;
-  outline: none;
-}
-
-.workspace-character-select:focus-visible {
-  border-color: var(--hq-shell-focus);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hq-shell-focus) 25%, transparent);
-}
-
-.workspace-camera-control {
   gap: 0.2rem;
 }
 
 .workspace-camera-button {
   min-width: 0;
-  padding: 0;
 }
 
 .workspace-toolbar {
@@ -313,12 +274,6 @@
   transition:
     opacity 180ms ease,
     transform 180ms ease;
-}
-
-.workspace-shell--focus .workspace-details {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(-0.5rem);
 }
 
 .workspace-panel-heading {
@@ -444,11 +399,6 @@
 
   .workspace-status {
     display: none;
-  }
-
-  .workspace-character-select {
-    max-width: 5.6rem;
-    padding-inline: 0.4rem;
   }
 
   .workspace-view-switcher {
