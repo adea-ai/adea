@@ -1,4 +1,4 @@
-// ithappy character system for HQ.
+// models character system for HQ.
 //
 // The Casino pack ships rigged characters with all animations embedded in a
 // single GLB (22 clips for Adult-rig characters, 14 for the Plus-size rig).
@@ -21,24 +21,24 @@ import {
   type LoadedCharacterAnimations,
 } from "@agent-hq/characters";
 import {
-  assembleIthappyCharacter,
-  loadIthappyAnimationClips,
-  ithappyCustomCharacterPresets,
+  assembleModelsCharacter,
+  loadModelsAnimationClips,
+  modelsCustomCharacterPresets,
 } from "./custom-characters";
 
-const assetRoot = "/assets/ithappy/characters";
+const assetRoot = "/assets/models/characters";
 
 // --- Casino characters (pre-built) ------------------------------------------
-export const ithappyCharacterIds = [
+export const modelsCharacterIds = [
   "cashier",
   "security",
   "showgirl",
   "gambler",
   "high-roller",
 ] as const;
-export type IthappyCharacterId = (typeof ithappyCharacterIds)[number];
+export type ModelsCharacterId = (typeof modelsCharacterIds)[number];
 
-export const ithappyCharacterLabels: Record<IthappyCharacterId, string> = {
+export const modelsCharacterLabels: Record<ModelsCharacterId, string> = {
   cashier: "Cashier",
   security: "Security",
   showgirl: "Showgirl",
@@ -48,32 +48,32 @@ export const ithappyCharacterLabels: Record<IthappyCharacterId, string> = {
 
 // No SVG icons yet; the character selector shows labels without icons when
 // iconUrl is undefined.
-export const ithappyCharacterIconUrls: Partial<Record<IthappyCharacterId, string>> = {};
+export const modelsCharacterIconUrls: Partial<Record<ModelsCharacterId, string>> = {};
 
-export function isIthappyCharacterId(value: string | undefined): value is IthappyCharacterId {
-  return value !== undefined && ithappyCharacterIds.includes(value as IthappyCharacterId);
+export function isModelsCharacterId(value: string | undefined): value is ModelsCharacterId {
+  return value !== undefined && modelsCharacterIds.includes(value as ModelsCharacterId);
 }
 
 // --- Custom characters (assembled from parts) -------------------------------
-export const ithappyCustomCharacterIds = Object.keys(ithappyCustomCharacterPresets);
-export type IthappyCustomCharacterId = string;
+export const modelsCustomCharacterIds = Object.keys(modelsCustomCharacterPresets);
+export type ModelsCustomCharacterId = string;
 
-export function isIthappyCustomCharacterId(value: string | undefined): boolean {
-  return value !== undefined && value in ithappyCustomCharacterPresets;
+export function isModelsCustomCharacterId(value: string | undefined): boolean {
+  return value !== undefined && value in modelsCustomCharacterPresets;
 }
 
 export function getCustomCharacterLabel(id: string): string | undefined {
-  return ithappyCustomCharacterPresets[id]?.label;
+  return modelsCustomCharacterPresets[id]?.label;
 }
 
-// All ithappy character IDs (Casino + custom).
-export const allIthappyCharacterIds: readonly string[] = [
-  ...ithappyCharacterIds,
-  ...ithappyCustomCharacterIds,
+// All models character IDs (Casino + custom).
+export const allModelsCharacterIds: readonly string[] = [
+  ...modelsCharacterIds,
+  ...modelsCustomCharacterIds,
 ];
 
 // Map standard animation keys (used by SceneHost) to the embedded animation
-// names in the ithappy GLBs. Adult-rig characters share the same animation
+// names in the models GLBs. Adult-rig characters share the same animation
 // names; the Plus-size rig uses a "Plus-size" prefix and a smaller clip set.
 // The Casino pack has no jump/doubleJump/swim clips, so those map to the
 // closest available movement animation to avoid a frozen character when the
@@ -96,7 +96,7 @@ const PLUS_SIZE_ANIMATION_MAP: Record<string, string> = {
   swim: "Plus-sizeAdult_Walk",
 };
 
-const characterAnimationMaps: Record<IthappyCharacterId, Record<string, string>> = {
+const characterAnimationMaps: Record<ModelsCharacterId, Record<string, string>> = {
   cashier: ADULT_ANIMATION_MAP,
   security: ADULT_ANIMATION_MAP,
   showgirl: ADULT_ANIMATION_MAP,
@@ -104,7 +104,7 @@ const characterAnimationMaps: Record<IthappyCharacterId, Record<string, string>>
   "high-roller": PLUS_SIZE_ANIMATION_MAP,
 };
 
-const characterFiles: Record<IthappyCharacterId, string> = {
+const characterFiles: Record<ModelsCharacterId, string> = {
   cashier: "1_Cashier.glb",
   security: "18_Security.glb",
   showgirl: "20_Showgirl.glb",
@@ -116,51 +116,43 @@ const characterFiles: Record<IthappyCharacterId, string> = {
 // them without re-loading the GLB. Populated by the first loadCharacter call.
 const embeddedClipsCache = new Map<string, readonly THREE.AnimationClip[]>();
 
-// ithappy characters are authored at real-world scale (~1.73m tall in GLB
+// models characters are authored at real-world scale (~1.73m tall in GLB
 // units). The HQ scene uses modelScale: 1.0 so the models render at their
 // natural size with no multipliers needed.
 
 function getManifest(id: string): CharacterManifest | undefined {
-  if (isIthappyCharacterId(id)) {
+  if (isModelsCharacterId(id)) {
     return {
       id,
-      label: ithappyCharacterLabels[id],
+      label: modelsCharacterLabels[id],
       assetUrl: `${assetRoot}/${characterFiles[id]}`,
-      // Animations are embedded in the GLB; no separate animation files.
-      bodyAnimationUrls: {},
-      // No Unity UV-offset facial textures or expression clips.
-      facialTextureUrls: { eye: "", mouth: "" },
-      facialAnimationUrls: {},
     };
   }
-  if (isIthappyCustomCharacterId(id)) {
-    const preset = ithappyCustomCharacterPresets[id];
+  if (isModelsCustomCharacterId(id)) {
+    const preset = modelsCustomCharacterPresets[id];
     return {
       id,
       label: preset.label,
       // Custom characters are assembled from parts at runtime; there is no
       // single GLB URL. We use a placeholder that loadCharacter ignores.
       assetUrl: "",
-      bodyAnimationUrls: {},
-      facialTextureUrls: { eye: "", mouth: "" },
-      facialAnimationUrls: {},
     };
   }
   return undefined;
 }
 
-async function loadIthappyCharacter(loader: GLTFLoader, id: string): Promise<LoadedCharacter> {
+async function loadModelsCharacter(loader: GLTFLoader, id: string): Promise<LoadedCharacter> {
   // Custom assembled character from Creative Character parts.
-  if (isIthappyCustomCharacterId(id)) {
-    const preset = ithappyCustomCharacterPresets[id];
-    const assembled = await assembleIthappyCharacter(loader, preset.config);
+  if (isModelsCustomCharacterId(id)) {
+    const preset = modelsCustomCharacterPresets[id];
+    const assembled = await assembleModelsCharacter(loader, preset.config);
     // Cache the clips so loadCharacterAnimations can find them.
     embeddedClipsCache.set(id, assembled.clips);
     return { scene: assembled.scene, clips: assembled.clips };
   }
   // Pre-built Casino character.
   const manifest = getManifest(id);
-  if (!manifest) throw new Error(`Unknown ithappy character: ${id}`);
+  if (!manifest) throw new Error(`Unknown models character: ${id}`);
   const gltf = await loader.loadAsync(manifest.assetUrl);
   embeddedClipsCache.set(id, gltf.animations);
   return { scene: gltf.scene, clips: gltf.animations };
@@ -176,10 +168,10 @@ async function ensureEmbeddedClips(
   const cached = embeddedClipsCache.get(id);
   if (cached) return cached;
   // Custom characters: load clips directly from the Casino rig GLB.
-  // Don't call assembleIthappyCharacter here — that would conflict with
+  // Don't call assembleModelsCharacter here — that would conflict with
   // the concurrent loadCharacter call that also assembles the character.
-  if (isIthappyCustomCharacterId(id)) {
-    const clips = await loadIthappyAnimationClips(loader);
+  if (isModelsCustomCharacterId(id)) {
+    const clips = await loadModelsAnimationClips(loader);
     embeddedClipsCache.set(id, clips);
     return clips;
   }
@@ -191,15 +183,15 @@ async function ensureEmbeddedClips(
   return gltf.animations;
 }
 
-async function loadIthappyCharacterAnimations(
+async function loadModelsCharacterAnimations(
   loader: GLTFLoader,
   id: string,
   keys: readonly string[],
 ): Promise<LoadedCharacterAnimations> {
   // Custom characters use the Adult-rig animation map (same skeleton).
-  const animMap = isIthappyCustomCharacterId(id)
+  const animMap = isModelsCustomCharacterId(id)
     ? ADULT_ANIMATION_MAP
-    : isIthappyCharacterId(id)
+    : isModelsCharacterId(id)
       ? characterAnimationMaps[id]
       : null;
   if (!animMap) return { clips: [], names: {} };
@@ -220,23 +212,23 @@ async function loadIthappyCharacterAnimations(
   return { clips, names };
 }
 
-const ithappyProvider: CharacterProvider = {
-  characterIds: allIthappyCharacterIds,
+const modelsProvider: CharacterProvider = {
+  characterIds: allModelsCharacterIds,
   getManifest,
-  loadCharacter: loadIthappyCharacter,
-  loadAnimatedCharacter: loadIthappyCharacter,
-  loadCharacterAnimations: loadIthappyCharacterAnimations,
+  loadCharacter: loadModelsCharacter,
+  loadAnimatedCharacter: loadModelsCharacter,
+  loadCharacterAnimations: loadModelsCharacterAnimations,
 };
 
-// Register on module import so any scene that imports @agent-hq/ithappy/characters
+// Register on module import so any scene that imports @agent-hq/models/characters
 // automatically plugs into the shared character pipeline.
-registerCharacterProvider(ithappyProvider);
+registerCharacterProvider(modelsProvider);
 
 // --- Creative Characters parts catalog --------------------------------------
 // The Creative Characters pack is a customization kit (body parts, clothing,
 // accessories, emotions). The assets are catalogued here for a future character
 // customization UI; the runtime loader above uses the assembled Casino GLBs.
-export const ithappyCharacterPartIds = [
+export const modelsCharacterPartIds = [
   "body-010",
   "clown-nose-001",
   "costume-10-001",
@@ -268,9 +260,9 @@ export const ithappyCharacterPartIds = [
   "socks-008",
   "t-shirt-009",
 ] as const;
-export type IthappyCharacterPartId = (typeof ithappyCharacterPartIds)[number];
+export type ModelsCharacterPartId = (typeof modelsCharacterPartIds)[number];
 
-const characterPartFiles: Record<IthappyCharacterPartId, string> = {
+const characterPartFiles: Record<ModelsCharacterPartId, string> = {
   "body-010": "Body_010.glb",
   "clown-nose-001": "Clown_nose_001.glb",
   "costume-10-001": "Costume_10_001.glb",
@@ -303,9 +295,9 @@ const characterPartFiles: Record<IthappyCharacterPartId, string> = {
   "t-shirt-009": "T-Shirt_009.glb",
 };
 
-const characterPartRoot = "/assets/ithappy/character-parts";
+const characterPartRoot = "/assets/models/character-parts";
 
-export const ithappyCharacterPartAssets = ithappyCharacterPartIds.map((id) => ({
+export const modelsCharacterPartAssets = modelsCharacterPartIds.map((id) => ({
   id,
   label: id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
   assetUrl: `${characterPartRoot}/${characterPartFiles[id]}`,

@@ -244,8 +244,8 @@ export function TeleportBooths({
   }, [api]);
 
   // Carry the selected character through the teleport so the destination
-  // scene spawns the same degen instead of defaulting back to the ape. The
-  // character is a prop (known during SSR) so card hrefs never mismatch.
+  // scene preserves the selected model. The character is a prop (known during
+  // SSR) so card hrefs never mismatch.
   const hrefFor = useCallback(
     (option: { href: string }) =>
       character
@@ -254,21 +254,15 @@ export function TeleportBooths({
     [character],
   );
 
-  // Spin the character (the hoverboard-dismount animation) then navigate.
+  // Navigate directly; HQ has no mounted-vehicle transition animation.
   const handleNavigate = useCallback(
     (option: { href: string }) => {
       if (travelingRef.current) return;
-      const duration = api?.playTeleportSpin?.() ?? 0.6;
       setOpen(false);
       setTraveling(true);
-      window.setTimeout(
-        () => {
-          window.location.href = hrefFor(option);
-        },
-        (duration + 0.5) * 1000,
-      );
+      window.location.href = hrefFor(option);
     },
-    [api, hrefFor],
+    [hrefFor],
   );
 
   const handleSelfTravel = useCallback(
@@ -276,7 +270,6 @@ export function TeleportBooths({
       const currentSpots = spotsRef.current;
       const destination = currentSpots.find((_, index) => index !== spotIndex) ?? currentSpots[0];
       if (!destination || travelingRef.current) return;
-      const duration = api?.playTeleportSpin?.() ?? 0.6;
       setOpen(false);
       setTraveling(true);
       void (async () => {
@@ -300,7 +293,7 @@ export function TeleportBooths({
           const spawn = findSafeSpawn(api, destination, playerHeight, current);
           if (spawn) api.teleportTo(spawn[0], spawn[2], spawn[1], undefined, undefined, false);
         }
-        window.setTimeout(() => setTraveling(false), duration * 1000);
+        setTraveling(false);
       })();
     },
     [api, sceneId],

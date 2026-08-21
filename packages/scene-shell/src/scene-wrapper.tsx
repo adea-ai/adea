@@ -3,7 +3,6 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Button, OnScreenControls, SceneSettings, type CharacterOption } from "@agent-hq/ui";
-import type { DegenCharacterId } from "@agent-hq/characters/ui";
 import type {
   CameraBounds,
   CameraViewMode,
@@ -64,7 +63,7 @@ export type SceneWrapperProps = {
   manifest: SceneManifest;
   /** Optional URL-provided arrival position, overriding the manifest start. */
   startPosition?: SceneStartPosition;
-  character: DegenCharacterId | string;
+  character: string;
   onCharacterChange: (character: string) => void;
   characterOptions: readonly CharacterOption[];
   characterScale?: CharacterScale;
@@ -120,8 +119,6 @@ export type SceneWrapperProps = {
   coplanarMaterialMeshNames?: readonly string[];
   materialOverrides?: readonly SceneMaterialOverride[];
   playerVisibilityGroups?: readonly PlayerVisibilityGroup[];
-  trafficConfig?: import("@agent-hq/scene-runtime").TrafficConfig;
-  helicopterConfig?: import("@agent-hq/scene-runtime").FlyerConfig;
   particleConfig?: import("@agent-hq/scene-runtime").ParticleConfigFactory;
   environment?: SceneEnvironmentConfig;
   visualSetup?: SceneVisualSetup;
@@ -170,7 +167,6 @@ const DEFAULT_CHARACTER_SCALE: CharacterScale = {
   height: 1.35,
   radius: 0.18,
   modelScale: 0.3,
-  vehicleScale: 0.75,
 };
 
 /**
@@ -215,8 +211,6 @@ export function SceneWrapper({
   coplanarMaterialMeshNames,
   materialOverrides,
   playerVisibilityGroups,
-  trafficConfig,
-  helicopterConfig,
   particleConfig,
   environment,
   visualSetup,
@@ -466,8 +460,6 @@ export function SceneWrapper({
         coplanarMaterialMeshNames={coplanarMaterialMeshNames}
         materialOverrides={materialOverrides}
         playerVisibilityGroups={playerVisibilityGroups}
-        trafficConfig={trafficConfig}
-        helicopterConfig={helicopterConfig}
         particleConfig={particleConfig}
         environment={environment}
         editorOverridesUrl={
@@ -478,8 +470,6 @@ export function SceneWrapper({
         staticFieldAssetUrls={manifest.staticFieldAssetUrls}
         staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
         foliageManifestUrl={manifest.foliageManifestUrl}
-        vehiclesManifestUrl={manifest.vehiclesManifestUrl}
-        buildingsManifestUrl={manifest.buildingsManifestUrl}
         propsManifestUrl={manifest.propsManifestUrl}
       />
       {!orthographicClickOnly || activeCameraViewMode !== "orthographic" ? (

@@ -1,4 +1,4 @@
-// ithappy customizable character system.
+// models customizable character system.
 //
 // The Creative Character pack ships individual body/clothing parts (bodies,
 // hairstyles, hats, glasses, shoes, etc.) that all share the same 44-joint
@@ -16,14 +16,14 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-const partsRoot = "/assets/ithappy/character-parts";
-const charactersRoot = "/assets/ithappy/characters";
+const partsRoot = "/assets/models/character-parts";
+const charactersRoot = "/assets/models/characters";
 
 // --- Part catalog -----------------------------------------------------------
 // Each part is categorized by slot. A character definition picks one part
 // per slot (some slots are optional).
 
-export type IthappyPartSlot =
+export type ModelsPartSlot =
   | "body"
   | "face"
   | "hair"
@@ -35,14 +35,14 @@ export type IthappyPartSlot =
   | "gloves"
   | "accessory";
 
-export interface IthappyPartOption {
+export interface ModelsPartOption {
   id: string;
   label: string;
-  slot: IthappyPartSlot;
+  slot: ModelsPartSlot;
   file: string;
 }
 
-export const ithappyPartCatalog: readonly IthappyPartOption[] = [
+export const modelsPartCatalog: readonly ModelsPartOption[] = [
   // Body
   { id: "body-010", label: "Body 010", slot: "body", file: "Body_010.glb" },
 
@@ -96,7 +96,7 @@ export const ithappyPartCatalog: readonly IthappyPartOption[] = [
   { id: "pacifier", label: "Pacifier", slot: "accessory", file: "Pacifier_001.glb" },
 ];
 
-export const ithappyPartSlots: readonly IthappyPartSlot[] = [
+export const modelsPartSlots: readonly ModelsPartSlot[] = [
   "body",
   "face",
   "hair",
@@ -109,15 +109,15 @@ export const ithappyPartSlots: readonly IthappyPartSlot[] = [
   "accessory",
 ];
 
-export function ithappyPartsBySlot(slot: IthappyPartSlot): readonly IthappyPartOption[] {
-  return ithappyPartCatalog.filter((p) => p.slot === slot);
+export function modelsPartsBySlot(slot: ModelsPartSlot): readonly ModelsPartOption[] {
+  return modelsPartCatalog.filter((p) => p.slot === slot);
 }
 
 // --- Character definition ---------------------------------------------------
 // A character is defined by selecting one part per slot. Only "body" is
 // required; other slots are optional and can be left empty.
 
-export type IthappyCustomCharacterConfig = {
+export type ModelsCustomCharacterConfig = {
   body: string;
   face?: string;
   hair?: string;
@@ -131,9 +131,9 @@ export type IthappyCustomCharacterConfig = {
 };
 
 // Predefined character presets using the Creative Character parts.
-export const ithappyCustomCharacterPresets: Record<
+export const modelsCustomCharacterPresets: Record<
   string,
-  { label: string; config: IthappyCustomCharacterConfig }
+  { label: string; config: ModelsCustomCharacterConfig }
 > = {
   "custom-casual": {
     label: "Casual",
@@ -208,7 +208,7 @@ const ANIMATION_SOURCE = `${charactersRoot}/1_Cashier.glb`;
 let cachedAnimationClips: THREE.AnimationClip[] | null = null;
 let pendingAnimationClips: Promise<THREE.AnimationClip[]> | null = null;
 
-export async function loadIthappyAnimationClips(
+export async function loadModelsAnimationClips(
   loader?: GLTFLoader,
 ): Promise<THREE.AnimationClip[]> {
   if (cachedAnimationClips) return cachedAnimationClips;
@@ -232,19 +232,19 @@ export type AssembledCharacter = {
 };
 
 /**
- * Assemble a custom ithappy character from Creative Character parts.
+ * Assemble a custom models character from Creative Character parts.
  *
  * Loads each selected part GLB, extracts its skinned mesh, and parents them
  * all under a shared skeleton root. The animations from the Casino rig are
  * attached since the Creative parts have none.
  */
-export async function assembleIthappyCharacter(
+export async function assembleModelsCharacter(
   loader: GLTFLoader,
-  config: IthappyCustomCharacterConfig,
+  config: ModelsCustomCharacterConfig,
 ): Promise<AssembledCharacter> {
   // Collect all part IDs to load.
   const partIds = Object.values(config).filter(Boolean) as string[];
-  const partOptions = ithappyPartCatalog.filter((p) => partIds.includes(p.id));
+  const partOptions = modelsPartCatalog.filter((p) => partIds.includes(p.id));
 
   // Use a fresh GLTFLoader for parts — the shared scene loader has KTX2 and
   // Meshopt decoders configured which can interfere with simple part GLBs.
@@ -275,7 +275,7 @@ export async function assembleIthappyCharacter(
 
   for (const { scene, option } of partResults) {
     if (!scene) {
-      console.error(`[ithappy] scene is undefined for part ${option.file}`);
+      console.error(`[models] scene is undefined for part ${option.file}`);
       continue;
     }
     // Manually walk the tree instead of using traverse, since the GLTFLoader
@@ -315,7 +315,7 @@ export async function assembleIthappyCharacter(
   }
 
   // Load animations from the Casino rig.
-  const clips = await loadIthappyAnimationClips(loader);
+  const clips = await loadModelsAnimationClips(loader);
 
   return { scene: group, clips };
 }
@@ -323,11 +323,11 @@ export async function assembleIthappyCharacter(
 /**
  * Assemble a custom character by preset ID.
  */
-export async function assembleIthappyCharacterByPreset(
+export async function assembleModelsCharacterByPreset(
   loader: GLTFLoader,
   presetId: string,
 ): Promise<AssembledCharacter | null> {
-  const preset = ithappyCustomCharacterPresets[presetId];
+  const preset = modelsCustomCharacterPresets[presetId];
   if (!preset) return null;
-  return assembleIthappyCharacter(loader, preset.config);
+  return assembleModelsCharacter(loader, preset.config);
 }

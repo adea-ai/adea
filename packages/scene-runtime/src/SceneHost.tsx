@@ -8,44 +8,14 @@ import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { disposeObjectResources } from "./resources";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {
-  buildFacialExpressionStates,
   createCharacterAnimationController,
-  getCharacterManifest,
-  loadFacialAnimation,
-  loadFacialTextures,
   loadCharacter,
-  loadAnimatedCharacter,
   loadCharacterAnimations,
   type CharacterAnimationController,
-  type DegenCharacterId,
-  type FacialAnimationClip,
-  type FacialExpressionState,
-  type FacialTextures,
 } from "@agent-hq/characters";
-import {
-  computeHoverboardTrailAnchors,
-  computeJetpackNozzles,
-  createHoverboardTrail,
-  createJetpackFlames,
-  createVehicleController,
-  disposeVehicle,
-  JETPACK_LIFT_SPEED,
-  loadVehicle,
-  vehicleManifests,
-  type HoverboardTrail,
-  type JetpackFlames,
-  type LoadedVehicle,
-  type VehicleController,
-  type VehicleId,
-} from "@agent-hq/vehicles";
-import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
-import { soundController, type SfxId } from "@agent-hq/audio";
+import { soundController } from "@agent-hq/audio";
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
-import { loadPlacedVehicles } from "@agent-hq/vehicles/runtime";
-import { loadBuildingsField } from "@agent-hq/buildings/runtime";
 import { loadPropsField } from "@agent-hq/props/runtime";
-import { createTraffic } from "./traffic";
-import { createFlyers } from "./flyers";
 import { createScenePerformanceTelemetry } from "./performance";
 import {
   createParticleManager,
@@ -220,8 +190,8 @@ export type SceneHostProps = {
   materialOverrides?: readonly SceneMaterialOverride[];
   /** Visual-only groups that are shown only while the player is in an area. */
   playerVisibilityGroups?: readonly PlayerVisibilityGroup[];
-  characterId?: DegenCharacterId | string;
-  /** Defer optional animation and facial assets until after the scene is playable. */
+  characterId?: string;
+  /** Defer optional animation assets until after the scene is playable. */
   deferCharacterDetails?: boolean;
   /** Whether deferred character details should be fetched automatically. */
   loadDeferredCharacterDetails?: boolean;
@@ -230,10 +200,6 @@ export type SceneHostProps = {
    * by the development scene editor to raycast-pick and inspect scene objects.
    */
   debugApiRef?: React.MutableRefObject<SceneDebugApi | null>;
-  /** Optional traffic system: cars follow a closed track around the scene. */
-  trafficConfig?: import("./traffic").TrafficConfig;
-  /** Optional flyers: scene helicopter roots patrol a flight track. */
-  helicopterConfig?: import("./flyers").FlyerConfig;
   /** Builds shared particle effects from the loaded scene roots. */
   particleConfig?: ParticleConfigFactory;
   /** Optional scene-specific sky, fog, and light configuration. */
@@ -247,7 +213,7 @@ export type SceneHostProps = {
   visualSetup?: SceneVisualSetup;
   /** Updates scene-specific visual effects once per rendered frame. */
   visualUpdate?: SceneVisualUpdate;
-  /** Per-scene character size (physics capsule + visual model + mounted vehicles). */
+  /** Per-scene character size (physics capsule + visual model). */
   characterScale?: CharacterScale;
   /** Uniform authored-world scale applied to visuals, physics, navigation, and camera framing. */
   sceneScale?: number;
@@ -259,7 +225,7 @@ export type SceneHostProps = {
   clickNavigationBounds?: { xMin: number; xMax: number; zMin: number; zMax: number };
   /** World-space scale for the click destination ring. Defaults to 1. */
   clickNavigationIndicatorScale?: number;
-  /** Disable keyboard, jumping, and vehicles while orthographic click-only mode is active. */
+  /** Disable keyboard and jumping while orthographic click-only mode is active. */
   orthographicClickOnly?: boolean;
   /** Optional movement multiplier used only by orthographic click navigation. */
   orthographicMovementSpeedFactor?: number;
@@ -292,19 +258,6 @@ export type SceneHostProps = {
    */
   foliageManifestUrl?: string;
   /**
-   * Optional static-vehicle placement manifest. When set, the scene's parked
-   * vehicles are instanced at runtime from the shared @agent-hq/vehicles catalog
-   * instead of being embedded in the scene GLB.
-   */
-  vehiclesManifestUrl?: string;
-  /**
-   * Optional buildings placement manifest. When set, the scene's repeated
-   * building blocks are instanced at runtime from the shared @agent-hq/buildings
-   * catalog instead of being embedded in the scene GLB. Unique buildings are
-   * loaded individually by the scene via `loadBuilding`.
-   */
-  buildingsManifestUrl?: string;
-  /**
    * Optional props placement manifest. When set, the scene's props are
    * instanced at runtime from the shared @agent-hq/props catalog instead of being
    * embedded in the scene GLB.
@@ -333,10 +286,6 @@ export type SceneDebugApi = {
   characterController: unknown;
   characterRoot: THREE.Object3D | null;
   getState: () => Record<string, unknown>;
-  /** Play the hoverboard-dismount spin on the character and lock movement
-   * for the clip's duration. Returns the spin duration in seconds so callers
-   * can time a transition (e.g. teleport navigation). */
-  playTeleportSpin: () => number;
   /** Move the player to the given world x/z, snapping to the ground below
    * (used to spawn players beside a phone booth). An optional y seeds the
    * ground probe so cross-level teleports land on the intended floor, an
@@ -405,8 +354,7 @@ const EMPTY_COLLISION_INCLUDE_PATTERNS: readonly RegExp[] = [];
 const EMPTY_ZONES: readonly SceneZone[] = [];
 const EMPTY_MATERIAL_OVERRIDES: readonly SceneMaterialOverride[] = [];
 const EMPTY_VISIBILITY_GROUPS: readonly PlayerVisibilityGroup[] = [];
-/** Per-scene character size. All character-mounted objects (weapons,
- * wearables, hoverboard, jetpack) follow the same scale. */
+/** Per-scene character size. */
 export interface CharacterScale {
   /** The character's physics capsule height. */
   height: number;
@@ -414,8 +362,6 @@ export interface CharacterScale {
   radius: number;
   /** The visual character model scale. */
   modelScale: number;
-  /** Multiplier applied to the mounted vehicle scales (jetpack, hoverboard). */
-  vehicleScale: number;
 }
 
 export type SceneWaterVolume = {
@@ -436,7 +382,6 @@ export const DEFAULT_characterModelScale: CharacterScale = {
   height: 1.35,
   radius: 0.18,
   modelScale: 0.3,
-  vehicleScale: 0.75,
 };
 
 const EMPTY_STATIC_COLLIDERS: readonly StaticColliderConfig[] = [];
@@ -446,22 +391,6 @@ const EMPTY_OBJECTS: readonly THREE.Object3D[] = [];
 const PLAYER_SPEED = 5;
 const JUMP_SPEED = 4.5;
 const GRAVITY = -22;
-// The hoverboard FBX clips are authored with the rider standing across the
-// board (torso at +90° to the travel axis). The GLB skeleton's bind pose
-// cancels that offset at runtime, so re-apply it while riding: the character
-// faces sideways and the board keeps pointing along the movement direction.
-// A lean toward the leading (right) shoulder keeps the feet from looking
-// fully perpendicular — the rider angles into the ride like a real
-// hoverboarder instead of standing rigidly sideways.
-const HOVERBOARD_STANCE_YAW = (Math.PI * 5) / 18;
-// The board deck sits a little below the avatar's feet; lift the rider (and
-// the board with him) off the floor so the feet rest on the deck and the
-// board visibly hovers instead of clipping the ground.
-const HOVERBOARD_HOVER_HEIGHT = 0.08;
-// The board is ~0.084 units thick and its deck top sits ~0.104 above the
-// mount; raise the character by that much on top of the board hover so the
-// feet stand on the deck instead of sinking into the board.
-const HOVERBOARD_RIDER_HEIGHT = 0.065;
 // Sideways (A/D) movement is faster than forward so strafing stays responsive
 // next to the slower run speed.
 const STRAFE_SPEED_FACTOR = 1.3;
@@ -499,20 +428,6 @@ const debugLoggingEnabled = () =>
 function debugLog(message: string, ...args: unknown[]): void {
   if (debugLoggingEnabled()) console.info(message, ...args);
 }
-const VEHICLE_MOUNT_OFFSETS: Record<VehicleId, readonly [number, number, number]> = {
-  // The hoverboard FBX is authored flat; keep it just beneath the avatar's feet.
-  hoverboard: [0, 0.02, 0],
-  // The jetpack FBX geometry is authored far from its import origin and is
-  // scaled at browserScale 0.055 (the 100% character reference). These values
-  // compensate for that offset and place the pack pressed against the avatar's
-  // back (centre ~y 0.2 above the feet, just behind the spine at z -0.05).
-  // The whole offset is scaled by the per-scene character scale on mount.
-  jetpack: [0.137, -0.221, 0.759],
-};
-// A vehicle deploy that takes longer than this (slow network, hung dev server)
-// is aborted so the mount never stays stuck in "loading…"; the player can
-// re-toggle to retry.
-const VEHICLE_LOAD_TIMEOUT_MS = 10_000;
 const RAPIER_INIT_WARNING =
   "using deprecated parameters for the initialization function; pass a single object instead";
 const WATER_NAME_PATTERN = /water|ocean|sea|river|lake|pool/i;
@@ -586,24 +501,14 @@ const SWIM_WADE_AHEAD_DISTANCE = 1.2;
 // swimmer onto distant cliff tops.
 const SWIM_FLOOR_PROBE_ORIGIN = 5.0;
 const SWIM_FLOOR_PROBE_DISTANCE = 10.0;
-// The shared FBX swim clip is authored for the source rig's axis convention;
-// the browser GLBs keep that rig standing upright, so the character root needs
-// an additional quarter-turn to lay the body parallel to the water surface
-// (head leading, face down) while the clip runs.
+// The browser GLBs keep the rig upright, so the character root needs an
+// additional quarter-turn to lay the body parallel to the water surface.
 const SWIM_BODY_TILT = Math.PI / 2;
 const SWIM_BODY_TILT_DAMPING = 14;
 // The swim clip only takes over once the body has actually laid down on the
 // water; while the character is still running/wading through shallow water it
-// keeps the locomotion animation, speed, and facial state.
+// keeps the locomotion animation and speed.
 const SWIM_POSE_TILT = Math.PI / 3;
-// The hoverboard inherits gravity and a wider snap window so the rider stays
-// pinned to terrain: falling off a crest reconnects with the slope instead of
-// floating over it, and downhills are followed instead of overflown.
-const HOVERBOARD_SNAP_DISTANCE = 0.8;
-const HOVERBOARD_MAX_FALL_SPEED = -14;
-const VEHICLE_ANIMATION_KEYS = Array.from(
-  new Set(Object.values(vehicleManifests).flatMap((manifest) => manifest.animationKeys)),
-);
 
 let rapierInitPromise: Promise<void> | null = null;
 
@@ -923,13 +828,6 @@ function nearestWaterDistance(zones: readonly WaterZone[], position: THREE.Vecto
     closest = Math.min(closest, Math.hypot(dx, dz));
   }
   return closest;
-}
-
-/** Optional voice cues supplied by a deployment-specific audio pack. */
-const VOICE_POOL_BY_CHARACTER: Record<string, SfxId> = {};
-
-function voicePoolForCharacter(characterId: string): SfxId | null {
-  return VOICE_POOL_BY_CHARACTER[characterId] ?? null;
 }
 
 const disposeObjectTree = disposeObjectResources;
@@ -1261,108 +1159,6 @@ function applySceneMaterialOverrides(
   });
 }
 
-type FacialMaterialTargets = {
-  eyes: THREE.Material[];
-  mouth: THREE.Material[];
-};
-
-function collectFacialMaterialTargets(root: THREE.Object3D): FacialMaterialTargets {
-  const eyes = new Set<THREE.Material>();
-  const mouth = new Set<THREE.Material>();
-  root.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    const objectNames: string[] = [];
-    let current: THREE.Object3D | null = object;
-    while (current) {
-      objectNames.push(current.name);
-      current = current.parent;
-    }
-    materials.forEach((material) => {
-      const targetName = `${objectNames.join(" ")} ${material.name}`;
-      if (/eye/i.test(targetName)) eyes.add(material);
-      else if (/mouth/i.test(targetName)) mouth.add(material);
-    });
-  });
-  return { eyes: [...eyes], mouth: [...mouth] };
-}
-
-function applyFacialTexture(materials: readonly THREE.Material[], texture: THREE.Texture): void {
-  materials.forEach((material) => {
-    const texturedMaterial = material as THREE.Material & { map?: THREE.Texture };
-    if (texturedMaterial.map && texturedMaterial.map !== texture) texturedMaterial.map.dispose();
-    texturedMaterial.map = texture;
-    prepareImportedMaterial(material);
-  });
-}
-
-function sampleFacialTrack(
-  track: { times: readonly number[]; values: readonly number[] },
-  time: number,
-): THREE.Vector2 {
-  if (track.times.length === 0) return new THREE.Vector2();
-  let index = 0;
-  for (let candidate = 1; candidate < track.times.length; candidate += 1) {
-    if (track.times[candidate] > time) break;
-    index = candidate;
-  }
-  return new THREE.Vector2(track.values[index * 2] ?? 0, track.values[index * 2 + 1] ?? 0);
-}
-
-function applyFacialAnimation(
-  targets: FacialMaterialTargets,
-  animation: FacialAnimationClip,
-  elapsedSeconds: number,
-): void {
-  const time =
-    animation.duration > 0
-      ? ((elapsedSeconds % animation.duration) + animation.duration) % animation.duration
-      : 0;
-  const eyeOffset = sampleFacialTrack(animation.eye, time);
-  const mouthOffset = sampleFacialTrack(animation.mouth, time);
-  eyeOffset.y *= -1;
-  mouthOffset.y *= -1;
-  targets.eyes.forEach((material) => {
-    const texture = (material as THREE.Material & { map?: THREE.Texture }).map;
-    texture?.offset.copy(eyeOffset);
-  });
-  targets.mouth.forEach((material) => {
-    const texture = (material as THREE.Material & { map?: THREE.Texture }).map;
-    texture?.offset.copy(mouthOffset);
-  });
-}
-
-function applyFacialExpressionState(
-  targets: FacialMaterialTargets,
-  state: FacialExpressionState,
-): void {
-  targets.eyes.forEach((material) => {
-    const texture = (material as THREE.Material & { map?: THREE.Texture }).map;
-    texture?.offset.set(state.eye[0], -state.eye[1]);
-  });
-  targets.mouth.forEach((material) => {
-    const texture = (material as THREE.Material & { map?: THREE.Texture }).map;
-    texture?.offset.set(state.mouth[0], -state.mouth[1]);
-  });
-}
-
-function applyFacialExpressionTimeline(
-  targets: FacialMaterialTargets,
-  states: readonly FacialExpressionState[],
-  elapsedSeconds: number,
-  duration: number,
-): void {
-  if (states.length === 0) return;
-  const normalizedTime =
-    duration > 0 ? (((elapsedSeconds % duration) + duration) % duration) / duration : 0;
-  let activeState = states[0];
-  for (const state of states) {
-    if (state.normalizedTime > normalizedTime) break;
-    activeState = state;
-  }
-  applyFacialExpressionState(targets, activeState);
-}
-
 export function SceneHost({
   label = "Scene",
   assetUrl,
@@ -1380,7 +1176,7 @@ export function SceneHost({
   coplanarMaterialMeshNames = EMPTY_ASSET_URLS,
   materialOverrides = EMPTY_MATERIAL_OVERRIDES,
   playerVisibilityGroups = EMPTY_VISIBILITY_GROUPS,
-  characterId = "ape",
+  characterId = "security",
   characterScale = DEFAULT_characterModelScale,
   sceneScale = 1,
   movementSpeedFactor = 1,
@@ -1400,8 +1196,6 @@ export function SceneHost({
   loadDeferredCharacterDetails = true,
   characterGroundOffset = 0,
   debugApiRef,
-  trafficConfig,
-  helicopterConfig,
   particleConfig,
   environment,
   editorOverridesUrl,
@@ -1413,8 +1207,6 @@ export function SceneHost({
   staticFieldCollisionPatterns = EMPTY_COLLISION_INCLUDE_PATTERNS,
   collisionIncludePatterns = EMPTY_COLLISION_INCLUDE_PATTERNS,
   foliageManifestUrl,
-  vehiclesManifestUrl,
-  buildingsManifestUrl,
   propsManifestUrl,
 }: SceneHostProps) {
   const playerHeight = characterScale.height;
@@ -1423,14 +1215,8 @@ export function SceneHost({
   const jumpSpeed = JUMP_SPEED;
   const gravity = GRAVITY;
   const swimJumpSpeed = SWIM_JUMP_SPEED;
-  const hoverboardMaxFallSpeed = HOVERBOARD_MAX_FALL_SPEED;
-  const hoverboardHoverHeight = HOVERBOARD_HOVER_HEIGHT;
-  const hoverboardRiderHeight = HOVERBOARD_RIDER_HEIGHT;
-  const jetpackLiftSpeed = JETPACK_LIFT_SPEED;
-  const verticalVelocityEpsilon = 0.05;
   const groundedVelocity = -1;
   const characterModelScale = characterScale.modelScale;
-  const characterVehicleScale = characterScale.vehicleScale;
   const segmentHalfHeight = Math.max(playerHeight / 2 - playerRadius, 0.05);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const initialCameraViewModeRef = useRef(initialCameraViewMode);
@@ -1497,39 +1283,12 @@ export function SceneHost({
     let playerCollider: Collider | null = null;
     let characterRoot: THREE.Object3D | null = null;
     let animationController: CharacterAnimationController | null = null;
-    let facialTextures: FacialTextures | null = null;
-    let facialAnimations: Partial<Record<string, FacialAnimationClip>> = {};
-    let facialExpressionStatesByState: Partial<Record<string, FacialExpressionState[]>> = {};
-    let facialMaterialTargets: FacialMaterialTargets = { eyes: [], mouth: [] };
     let locomotionAction: THREE.AnimationAction | undefined;
     let idleAction: THREE.AnimationAction | undefined;
     let jumpAction: THREE.AnimationAction | undefined;
     let swimmingAction: THREE.AnimationAction | undefined;
-    const vehicleController: VehicleController = createVehicleController();
-    vehicleController.input.attach();
-    let loadedVehicle: LoadedVehicle | null = null;
-    let vehicleLoadPromise: Promise<void> | null = null;
-    // Looping ambience handles (vehicles, water) and the next time the
-    // character may drop a random voice line. Declared here so the effect
-    // cleanup can stop the loops on unmount.
-    let vehicleLoop: ReturnType<typeof soundController.playLoop> | null = null;
-    let activeVehicleLoopId: string | null = null;
+    // Looping water ambience is stopped during effect cleanup.
     let waterLoop: ReturnType<typeof soundController.playLoop> | null = null;
-    let nextVoiceAt = 0;
-    // Loaded vehicles are cached by id and reused across mounts, so deploying
-    // a vehicle is instant once it has been loaded instead of re-fetching and
-    // re-parsing the FBX on later mounts.
-    const vehicleCache = new Map<VehicleId, Promise<LoadedVehicle>>();
-    let vehicleLoadFailed: VehicleId | null = null;
-    let vehicleMount: THREE.Group | null = null;
-    let jetpackFlames: JetpackFlames | null = null;
-    let hoverboardTrail: HoverboardTrail | null = null;
-    let hoverboardLaunchRemaining = 0;
-    let hoverboardDismountName: string | null = null;
-    let hoverboardDismountRemaining = 0;
-    let hoverboardYaw = startPosition.yaw ?? 0;
-    let teleportSpinRemaining = 0;
-    let teleportSpinName: string | null = null;
     let backgroundTexture: THREE.Texture | null = null;
     const detachedCollisionRoots = new Set<THREE.Object3D>();
 
@@ -1566,7 +1325,6 @@ export function SceneHost({
       }
     })();
     if (!activeRenderer) {
-      vehicleController.dispose();
       return;
     }
     const telemetry = createScenePerformanceTelemetry(label, activeRenderer, qualityTier);
@@ -1586,10 +1344,6 @@ export function SceneHost({
       scene.fog = null;
     }
 
-    let traffic: import("./traffic").Traffic | null = null;
-    let trafficStarting = false;
-    let trafficRequestId = 0;
-    let flyers: import("./flyers").Flyers | null = null;
     let particleManager: ParticleManager | null = null;
     let textureTranscoder: KTX2Loader | null = null;
     const zoneRoots = new Map<string, THREE.Object3D>();
@@ -1600,55 +1354,6 @@ export function SceneHost({
     let proximityZonesReady = false;
     let registerZoneVisibility: (root: THREE.Object3D) => void = () => undefined;
     let unregisterZoneVisibility: (root: THREE.Object3D) => void = () => undefined;
-    // Traffic and helicopter models are optional scenery that compete with the
-    // scene GLB and character for bandwidth during the critical first paint.
-    // Kick them off only after the scene is ready so the player sees the scene
-    // as fast as possible; they attach when they finish.
-    const startAmbientTraffic = (trafficEnabled = true, flyersEnabled = true) => {
-      if (trafficEnabled && trafficConfig && !traffic && !trafficStarting) {
-        trafficStarting = true;
-        const requestId = trafficRequestId;
-        createTraffic(scene, camera, trafficConfig)
-          .then((t) => {
-            if (disposed || requestId !== trafficRequestId || !trafficEnabled) {
-              t.dispose();
-              return;
-            }
-            traffic = t;
-            const physicsWorld = world;
-            if (physicsWorld) {
-              try {
-                traffic?.attachPhysics(physicsWorld);
-              } catch (cause) {
-                const message =
-                  cause instanceof Error ? cause.message : "unknown traffic physics error";
-                console.warn(`[Agent HQ] traffic physics unavailable: ${message}`);
-              }
-            }
-          })
-          .catch((cause) => {
-            const message = cause instanceof Error ? cause.message : "unknown traffic error";
-            console.warn(`[Agent HQ] traffic unavailable: ${message}`);
-          })
-          .finally(() => {
-            trafficStarting = false;
-          });
-      }
-      if (flyersEnabled && helicopterConfig && !flyers) {
-        try {
-          flyers = createFlyers(
-            scene,
-            textureTranscoder
-              ? { ...helicopterConfig, ktx2Loader: textureTranscoder }
-              : helicopterConfig,
-          );
-        } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "unknown flyer error";
-          console.warn(`[Agent HQ] flyers unavailable: ${message}`);
-        }
-      }
-    };
-
     const cameraController = new CameraController({
       canvas,
       initialViewMode: initialCameraViewModeRef.current,
@@ -1701,131 +1406,12 @@ export function SceneHost({
     let climbFrames = 0;
     const keys = new Set<string>();
     const timer = new Timer();
-    const vehicleLoader = new FBXLoader();
-    const vehicleTextureLoader = new THREE.TextureLoader();
-
-    const getVehicle = (id: VehicleId): Promise<LoadedVehicle> => {
-      let entry = vehicleCache.get(id);
-      if (!entry) {
-        entry = loadVehicle(vehicleLoader, vehicleTextureLoader, id).catch((cause) => {
-          // Do not cache a failed load; the next deploy retries from scratch.
-          vehicleCache.delete(id);
-          throw cause;
-        });
-        vehicleCache.set(id, entry);
-      }
-      return entry;
-    };
-
-    const unloadVehicle = () => {
-      if (!loadedVehicle) return;
-      loadedVehicle.scene.parent?.remove(loadedVehicle.scene);
-      if (jetpackFlames) {
-        jetpackFlames.dispose();
-        jetpackFlames = null;
-      }
-      if (hoverboardTrail) {
-        hoverboardTrail.dispose();
-        hoverboardTrail = null;
-      }
-      hoverboardLaunchRemaining = 0;
-      hoverboardDismountName = null;
-      hoverboardDismountRemaining = 0;
-      // Keep the assets cached so the next deploy does not re-fetch or re-parse
-      // the FBX; everything is disposed once at scene teardown.
-      vehicleCache.set(loadedVehicle.id, Promise.resolve(loadedVehicle));
-      loadedVehicle = null;
-    };
-
-    const ensureVehicle = async (id: VehicleId, readyStatus: string) => {
-      if (loadedVehicle?.id === id) return;
-      unloadVehicle();
-      let settled = false;
-      let vehicle: LoadedVehicle;
-      try {
-        vehicle = await new Promise<LoadedVehicle>((resolve, reject) => {
-          const timeoutId = window.setTimeout(() => {
-            if (settled) return;
-            settled = true;
-            reject(new Error(`${vehicleManifests[id].label} load timed out`));
-          }, VEHICLE_LOAD_TIMEOUT_MS);
-          getVehicle(id).then(
-            (loaded) => {
-              if (settled) {
-                // The timeout already gave up on this attempt; keep the asset
-                // available for a later deploy instead of dropping it.
-                vehicleCache.set(id, Promise.resolve(loaded));
-                return;
-              }
-              settled = true;
-              window.clearTimeout(timeoutId);
-              resolve(loaded);
-            },
-            (cause) => {
-              if (settled) return;
-              settled = true;
-              window.clearTimeout(timeoutId);
-              reject(cause);
-            },
-          );
-        });
-      } catch (cause) {
-        vehicleLoadFailed = id;
-        throw cause;
-      }
-      if (disposed || vehicleController.activeVehicle !== id) {
-        // Dismounted or switched while loading; keep the asset for later.
-        vehicleCache.set(id, Promise.resolve(vehicle));
-        return;
-      }
-      vehicleLoadFailed = null;
-      vehicleMount ??= new THREE.Group();
-      const mount = vehicleMount;
-      if (!mount.parent) scene.add(mount);
-      mount.rotation.set(0, 0, 0);
-      const mountOffset = VEHICLE_MOUNT_OFFSETS[id];
-      vehicle.scene.position.set(
-        mountOffset[0] * characterVehicleScale,
-        mountOffset[1] * characterVehicleScale,
-        mountOffset[2] * characterVehicleScale,
-      );
-      vehicle.scene.rotation.set(0, 0, 0);
-      // apply the per-scene character scale on top of the manifest base scale
-      vehicle.scene.scale.setScalar(vehicleManifests[id].browserScale * characterVehicleScale);
-      mount.add(vehicle.scene);
-      mount.updateMatrixWorld(true);
-      if (id === "jetpack") {
-        // Nozzle anchors are computed in world space from the mounted pack;
-        // convert them back into the pack's local frame so the flames follow
-        // the vehicle wherever the mount happens to be when it deploys.
-        const nozzles = computeJetpackNozzles(vehicle.scene).map((anchor) =>
-          vehicle.scene.worldToLocal(anchor),
-        );
-        jetpackFlames = createJetpackFlames(nozzles);
-        vehicle.scene.add(jetpackFlames.group);
-      } else if (id === "hoverboard") {
-        // Anchored to the mount (unscaled) instead of the scaled board scene
-        // so particle sizes stay in world units like the jetpack flames. The
-        // anchor computation is world-space, so convert to mount-local —
-        // otherwise the trail spawns offset by the mount's position at load.
-        const anchors = computeHoverboardTrailAnchors(vehicle.scene).map((anchor) =>
-          mount.worldToLocal(anchor),
-        );
-        hoverboardTrail = createHoverboardTrail(anchors);
-        mount.add(hoverboardTrail.group);
-      }
-      loadedVehicle = vehicle;
-      setStatus(`${readyStatus} · ${vehicleManifests[id].label}`);
-    };
-
     let resourcesDisposed = false;
     const disposeResources = () => {
       if (resourcesDisposed) return;
       resourcesDisposed = true;
       const controller = characterController;
       const physicsWorld = world;
-      traffic?.dispose();
-      traffic = null;
       particleManager?.dispose();
       particleManager = null;
       characterController = null;
@@ -1846,42 +1432,10 @@ export function SceneHost({
       }
       animationController?.dispose();
       animationController = null;
-      facialTextures?.eye.dispose();
-      facialTextures?.mouth.dispose();
-      facialTextures = null;
-      facialAnimations = {};
-      facialExpressionStatesByState = {};
-      facialMaterialTargets = { eyes: [], mouth: [] };
       locomotionAction = undefined;
       idleAction = undefined;
       jumpAction = undefined;
       swimmingAction = undefined;
-      vehicleController.dispose();
-      const disposedVehicles = new Set<LoadedVehicle>();
-      const disposeAllVehicles = (vehicle: LoadedVehicle) => {
-        if (disposedVehicles.has(vehicle)) return;
-        disposedVehicles.add(vehicle);
-        disposeVehicle(vehicle);
-      };
-      vehicleCache.forEach((entry) => {
-        void entry.then(disposeAllVehicles, () => undefined);
-      });
-      vehicleCache.clear();
-      if (loadedVehicle) {
-        loadedVehicle.scene.parent?.remove(loadedVehicle.scene);
-        if (jetpackFlames) {
-          jetpackFlames.dispose();
-          jetpackFlames = null;
-        }
-        if (hoverboardTrail) {
-          hoverboardTrail.dispose();
-          hoverboardTrail = null;
-        }
-        disposeAllVehicles(loadedVehicle);
-        loadedVehicle = null;
-      }
-      vehicleMount?.removeFromParent();
-      vehicleMount = null;
       textureTranscoder?.dispose();
       textureTranscoder = null;
       backgroundTexture?.dispose();
@@ -2390,23 +1944,6 @@ export function SceneHost({
           });
         };
         const zonesById = new Map(zones.map((zone) => [zone.id, zone]));
-        const stopAmbientTraffic = () => {
-          trafficRequestId += 1;
-          traffic?.dispose();
-          traffic = null;
-        };
-        const stopAmbientFlyers = () => {
-          flyers?.dispose();
-          flyers = null;
-        };
-        const applyAmbientZone = (id?: string) => {
-          const zone = id ? zonesById.get(id) : undefined;
-          const trafficEnabled = zone?.ambientTraffic ?? true;
-          const flyersEnabled = zone?.ambientFlyers ?? true;
-          if (!trafficEnabled) stopAmbientTraffic();
-          if (!flyersEnabled) stopAmbientFlyers();
-          if (trafficEnabled || flyersEnabled) startAmbientTraffic(trafficEnabled, flyersEnabled);
-        };
         const deactivateZoneCollision = (id: string) => {
           const colliders = zoneCollisionColliders.get(id);
           if (!colliders) return;
@@ -2509,7 +2046,6 @@ export function SceneHost({
               zoneRoots.set(id, zoneRoot);
               registerZoneVisibility(zoneRoot);
               applySceneEditorOverrides(scene, await editorOverridesRequest);
-              applyAmbientZone(id);
               refreshWaterZones();
               debugLog(`[Agent HQ] ${label} loaded zone=${id} water zones=${waterZones.length}`);
               if (collisionAsset || collisionAssets.length > 0) {
@@ -2588,36 +2124,23 @@ export function SceneHost({
           ),
         ];
         const pendingAdditional = additionalAssetUrls.map((url) => loader.loadAsync(url));
-        const characterManifest = getCharacterManifest(characterId);
-        const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> =
-          characterManifest?.bodyAnimationUrls.run
-            ? loadAnimatedCharacter(loader, characterId, "run")
-            : loadCharacter(loader, characterId);
+        const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> = loadCharacter(
+          loader,
+          characterId,
+        );
         // Runtime-generated catalog fields are independent of the base scene
         // and of one another. Begin their manifest/model requests during the
         // core GLB transfer instead of serially after it has finished.
         const fieldSources = [
           staticFieldAssetUrls?.foliage ?? foliageManifestUrl,
-          staticFieldAssetUrls?.vehicles ?? vehiclesManifestUrl,
-          staticFieldAssetUrls?.buildings ?? buildingsManifestUrl,
           staticFieldAssetUrls?.props ?? propsManifestUrl,
         ] as const;
-        const fieldNames = ["foliage", "vehicles", "buildings", "props"] as const;
+        const fieldNames = ["foliage", "props"] as const;
         const pendingFields = [
           staticFieldAssetUrls?.foliage
             ? loader.loadAsync(staticFieldAssetUrls.foliage).then(({ scene }) => scene)
             : foliageManifestUrl
               ? loadLandscapeField(loader, foliageManifestUrl)
-              : null,
-          staticFieldAssetUrls?.vehicles
-            ? loader.loadAsync(staticFieldAssetUrls.vehicles).then(({ scene }) => scene)
-            : vehiclesManifestUrl
-              ? loadPlacedVehicles(loader, vehiclesManifestUrl)
-              : null,
-          staticFieldAssetUrls?.buildings
-            ? loader.loadAsync(staticFieldAssetUrls.buildings).then(({ scene }) => scene)
-            : buildingsManifestUrl
-              ? loadBuildingsField(loader, buildingsManifestUrl)
               : null,
           staticFieldAssetUrls?.props
             ? loader.loadAsync(staticFieldAssetUrls.props).then(({ scene }) => scene)
@@ -2629,8 +2152,6 @@ export function SceneHost({
         );
         const collisionFieldSources = [
           staticFieldCollisionAssetUrls?.foliage,
-          staticFieldCollisionAssetUrls?.vehicles,
-          staticFieldCollisionAssetUrls?.buildings,
           staticFieldCollisionAssetUrls?.props,
         ] as const;
         const pendingCollisionFields = collisionFieldSources.map((source, index) =>
@@ -2734,7 +2255,7 @@ export function SceneHost({
           });
           throw rejectedField.reason;
         }
-        const [foliage, vehiclesField, buildings, props] = fieldResults.map((result) =>
+        const [foliage, props] = fieldResults.map((result) =>
           result.status === "fulfilled" ? result.value : null,
         );
         const collisionFields = collisionFieldResults.map((result) =>
@@ -2744,7 +2265,7 @@ export function SceneHost({
           if (root) detachedCollisionRoots.add(root);
         });
         if (disposed) {
-          for (const field of [foliage, vehiclesField, buildings, props, ...collisionFields]) {
+          for (const field of [foliage, props, ...collisionFields]) {
             if (field) {
               disposeObjectTree(field);
               detachedCollisionRoots.delete(field);
@@ -2764,34 +2285,7 @@ export function SceneHost({
           (entryZoneId ? entryRoot : scene).add(foliage);
           debugLog(`[Agent HQ] ${label} foliage field loaded from ${fieldSources[0]}`);
         }
-        if (vehiclesField && fieldSources[1]) {
-          vehiclesField.name = "vehicles";
-          vehiclesField.scale.multiplyScalar(sceneScale);
-          vehiclesField.traverse((object) => {
-            if (!(object instanceof THREE.Mesh)) return;
-            object.castShadow = true;
-            const materials = Array.isArray(object.material) ? object.material : [object.material];
-            materials.forEach(prepareImportedMaterial);
-          });
-          applySceneMaterialOverrides(vehiclesField, materialOverrides);
-          (entryZoneId ? entryRoot : scene).add(vehiclesField);
-          debugLog(`[Agent HQ] ${label} static vehicles field loaded from ${fieldSources[1]}`);
-        }
-        if (buildings && fieldSources[2]) {
-          buildings.name = "buildings";
-          buildings.scale.multiplyScalar(sceneScale);
-          buildings.traverse((object) => {
-            if (!(object instanceof THREE.Mesh)) return;
-            object.castShadow = false;
-            object.receiveShadow = true;
-            const materials = Array.isArray(object.material) ? object.material : [object.material];
-            materials.forEach(prepareImportedMaterial);
-          });
-          applySceneMaterialOverrides(buildings, materialOverrides);
-          (entryZoneId ? entryRoot : scene).add(buildings);
-          debugLog(`[Agent HQ] ${label} buildings field loaded from ${fieldSources[2]}`);
-        }
-        if (props && fieldSources[3]) {
+        if (props && fieldSources[1]) {
           props.name = "props";
           props.scale.multiplyScalar(sceneScale);
           props.traverse((object) => {
@@ -2801,20 +2295,15 @@ export function SceneHost({
           });
           applySceneMaterialOverrides(props, materialOverrides);
           (entryZoneId ? entryRoot : scene).add(props);
-          debugLog(`[Agent HQ] ${label} props field loaded from ${fieldSources[3]}`);
+          debugLog(`[Agent HQ] ${label} props field loaded from ${fieldSources[1]}`);
         }
         if (particleConfig) {
           particleManager = createParticleManager(
             scene,
             particleConfig(
-              [
-                visual.scene,
-                ...visualLayers.slice(1),
-                foliage,
-                vehiclesField,
-                buildings,
-                props,
-              ].filter((root): root is THREE.Object3D => root !== null),
+              [visual.scene, ...visualLayers.slice(1), foliage, props].filter(
+                (root): root is THREE.Object3D => root !== null,
+              ),
             ),
           );
           debugLog(`[Agent HQ] ${label} particles initialized`);
@@ -2840,8 +2329,7 @@ export function SceneHost({
                 objects.push(object);
             });
           };
-          for (const root of [visual.scene, foliage, vehiclesField, buildings, props])
-            addRoot(root);
+          for (const root of [visual.scene, foliage, props]) addRoot(root);
           return { group, objects, visible: null as boolean | null };
         });
         const addVisibilityRoot = (root: THREE.Object3D) => {
@@ -2978,8 +2466,7 @@ export function SceneHost({
           }
         }
         // A dedicated collision asset replaces the base visual layer. Keep
-        // colliders for every extra visual layer (notably city-art vehicles)
-        // without adding the Unity terrain twice.
+        // colliders for every extra visual layer without adding the terrain twice.
         const visualCollisionLayers =
           collisionRoot && collideAdditionalVisualLayers
             ? visualLayers.slice(1)
@@ -3054,10 +2541,7 @@ export function SceneHost({
             }
             return false;
           };
-          for (const [field, exactCompanion] of [
-            [buildings, collisionFields[2]],
-            [props, collisionFields[3]],
-          ] as const) {
+          for (const [field, exactCompanion] of [[props, collisionFields[1]]] as const) {
             if (field && !exactCompanion) {
               // This filter is the explicit opt-in for otherwise visual-only
               // generated fields. Treat the selected meshes as trusted so the
@@ -3175,31 +2659,11 @@ export function SceneHost({
           `[Agent HQ] ${label} physics ready colliders=${colliderCount} player=${playerPosition.toArray().join(",")}`,
         );
 
-        // Core facial states load eagerly; hoverboard facial clips are fetched
-        // lazily alongside the vehicle body animations on the first mount.
-        const facialStates = ["idle", "run", "jump", "swim"] as const;
-        const vehicleFacialStates = [
-          "hoverboardLaunch",
-          "hoverboardTravel",
-          "hoverboardIdle",
-          "hoverboardDismountIdle",
-          "hoverboardDismountRun",
-        ] as const;
-        // Fire every remaining character-related download concurrently: the run
-        // GLB (already in flight), the core locomotion clips, the facial atlas
-        // textures, and the core facial clips are all independent fetches.
+        // Fire the optional locomotion catalog alongside the character GLB.
         const coreAnimationKeys = ["idle", "walk", "run", "jump", "doubleJump", "swim"];
         const pendingCoreAnimations = deferCharacterDetails
           ? Promise.resolve({ clips: [], names: {} })
           : loadCharacterAnimations(loader, characterId, coreAnimationKeys);
-        const pendingFacialTextures = deferCharacterDetails
-          ? Promise.resolve<FacialTextures | null>(null)
-          : loadFacialTextures(new THREE.TextureLoader(), characterId);
-        const pendingFacialAnimations = deferCharacterDetails
-          ? Promise.resolve([])
-          : Promise.allSettled(
-              facialStates.map((state) => loadFacialAnimation(characterId, state)),
-            );
         const loadedCharacter = await pendingCharacter;
         if (disposed) {
           disposeObjectTree(loadedCharacter.scene);
@@ -3217,78 +2681,6 @@ export function SceneHost({
             `[Agent HQ] ${characterId} core animation catalog partially unavailable: ${message}`,
           );
         }
-        // Vehicle animations (hoverboard/jetpack) are only needed once a vehicle
-        // mounts. They are fetched lazily and registered into the controller on
-        // first deploy so the initial scene load does not parse ~17 extra FBX
-        // clips. The fetch results are still cached by loadCharacterAnimations.
-        let vehicleClipsReady = false;
-        let vehicleAnimationsPromise: Promise<void> | null = null;
-        const ensureVehicleAnimations = async () => {
-          if (vehicleClipsReady || !animationController)
-            return vehicleAnimationsPromise ?? undefined;
-          if (vehicleAnimationsPromise) return vehicleAnimationsPromise;
-          vehicleAnimationsPromise = (async () => {
-            try {
-              const [vehicleAnimations, vehicleFacialResults] = await Promise.all([
-                loadCharacterAnimations(loader, characterId, VEHICLE_ANIMATION_KEYS),
-                Promise.allSettled(
-                  vehicleFacialStates.map((state) => loadFacialAnimation(characterId, state)),
-                ),
-              ]);
-              const currentController = animationController;
-              if (disposed || !currentController) return;
-              currentController.addClips(vehicleAnimations.clips);
-              vehicleAnimations.clips.forEach((clip) => {
-                vehicleAnimationNames[clip.name] = clip.name;
-                vehicleActions[clip.name] = currentController.actions.get(clip.name);
-              });
-              vehicleFacialResults.forEach((result, index) => {
-                if (result.status === "fulfilled") {
-                  facialAnimations[vehicleFacialStates[index]] = result.value;
-                } else {
-                  const message =
-                    result.reason instanceof Error
-                      ? result.reason.message
-                      : "unknown vehicle facial animation error";
-                  console.warn(
-                    `[Agent HQ] ${characterId} ${vehicleFacialStates[index]} facial animation unavailable: ${message}`,
-                  );
-                }
-              });
-              vehicleClipsReady = true;
-            } catch (cause) {
-              const message =
-                cause instanceof Error ? cause.message : "unknown vehicle animation error";
-              console.warn(`[Agent HQ] ${characterId} vehicle animations unavailable: ${message}`);
-            }
-          })().finally(() => {
-            vehicleAnimationsPromise = null;
-          });
-          return vehicleAnimationsPromise;
-        };
-        try {
-          facialTextures = await pendingFacialTextures;
-        } catch (cause) {
-          const message = cause instanceof Error ? cause.message : "unknown facial texture error";
-          console.warn(`[Agent HQ] ${characterId} facial textures unavailable: ${message}`);
-        }
-        const facialAnimationResults = await pendingFacialAnimations;
-        facialAnimationResults.forEach((result, index) => {
-          const state = facialStates[index];
-          if (result.status === "fulfilled") facialAnimations[state] = result.value;
-        });
-        facialAnimationResults.forEach((result, index) => {
-          if (result.status === "rejected") {
-            const state = facialStates[index];
-            const message =
-              result.reason instanceof Error
-                ? result.reason.message
-                : "unknown facial animation error";
-            console.warn(
-              `[Agent HQ] ${characterId} ${state} facial animation unavailable: ${message}`,
-            );
-          }
-        });
         const character = loadedCharacter.scene;
         characterRoot = character;
         character.scale.setScalar(characterModelScale);
@@ -3306,11 +2698,6 @@ export function SceneHost({
             prepareImportedMaterial(material);
           });
         });
-        facialMaterialTargets = collectFacialMaterialTargets(character);
-        if (facialTextures) {
-          applyFacialTexture(facialMaterialTargets.eyes, facialTextures.eye);
-          applyFacialTexture(facialMaterialTargets.mouth, facialTextures.mouth);
-        }
         scene.add(character);
         character.updateMatrixWorld(true);
         const characterBounds = new THREE.Box3();
@@ -3319,17 +2706,8 @@ export function SceneHost({
             characterBounds.expandByObject(object);
         });
         const characterBottom = characterBounds.min.y;
-        // Visual height of the character model in world units (after scaling).
-        // Used to place the camera target at the upper torso/head area instead
-        // of relying on the physics capsule height, which may not match the
-        // visual model (e.g. degen characters have a 1.8 m capsule but the
-        // model is much shorter after scaling).
-        // Camera target offset above the character's feet. The original World
-        // camera used 0.5 * (modelScale / 0.4) which happened to place the
-        // target at the upper torso of degen characters. Use the actual visual
-        // model height so the same proportional framing works for ithappy
-        // characters (whose model height matches their capsule height).
-        // 0.5 / 0.553 ≈ 0.9 — target near the top of the visual model.
+        // Aim near the upper torso/head of the visual model instead of relying
+        // on the physics capsule height.
         const cameraTargetOffset = characterGroundOffset + characterBounds.max.y * 0.9;
         const characterClips = [...loadedCharacter.clips, ...coreAnimations.clips];
         const controller = createCharacterAnimationController(character, characterClips);
@@ -3339,10 +2717,6 @@ export function SceneHost({
         let idleName = coreAnimations.names.idle;
         let jumpName = coreAnimations.names.jump;
         let swimmingName = coreAnimations.names.swim;
-        // Vehicle animation names/actions start empty: the clips are fetched
-        // lazily on first vehicle mount and registered via ensureVehicleAnimations.
-        const vehicleAnimationNames: Partial<Record<string, string>> = {};
-        const vehicleActions: Partial<Record<string, THREE.AnimationAction | undefined>> = {};
         locomotionAction = locomotionName ? controller.actions.get(locomotionName) : undefined;
         idleAction = idleName ? controller.actions.get(idleName) : undefined;
         jumpAction = jumpName ? controller.actions.get(jumpName) : undefined;
@@ -3355,20 +2729,6 @@ export function SceneHost({
         if (swimmingAction) swimmingAction.setLoop(THREE.LoopRepeat, Infinity);
         let activeAnimationName: string | null = idleName ?? null;
         let isSwimming = false;
-        let activeFacialState = "idle";
-        let facialElapsed = 0;
-        facialExpressionStatesByState = Object.fromEntries(
-          Object.entries(facialAnimations).map(([state, animation]) => [
-            state,
-            animation ? buildFacialExpressionStates(animation) : [],
-          ]),
-        );
-        if (facialAnimations.idle)
-          applyFacialAnimation(facialMaterialTargets, facialAnimations.idle, facialElapsed);
-        const runExpressionStateCount = facialExpressionStatesByState.run?.length ?? 0;
-        debugLog(
-          `[Agent HQ] ${characterId} facial targets eyes=${facialMaterialTargets.eyes.length} mouth=${facialMaterialTargets.mouth.length} runExpressionStates=${runExpressionStateCount}`,
-        );
         debugLog(
           `[Agent HQ] ${characterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
         );
@@ -3385,13 +2745,11 @@ export function SceneHost({
 
         const loadDeferredCharacterDetails = async () => {
           try {
-            const [animations, textures, facialResults] = await Promise.all([
-              loadCharacterAnimations(loader, characterId, coreAnimationKeys),
-              loadFacialTextures(new THREE.TextureLoader(), characterId),
-              Promise.allSettled(
-                facialStates.map((state) => loadFacialAnimation(characterId, state)),
-              ),
-            ]);
+            const animations = await loadCharacterAnimations(
+              loader,
+              characterId,
+              coreAnimationKeys,
+            );
             if (disposed || !animationController) return;
             animationController.addClips(animations.clips);
             coreAnimations = animations;
@@ -3416,24 +2774,6 @@ export function SceneHost({
               animationController.play(idleName);
               activeAnimationName = idleName;
             }
-            facialTextures = textures;
-            if (textures) {
-              facialMaterialTargets = collectFacialMaterialTargets(character);
-              applyFacialTexture(facialMaterialTargets.eyes, textures.eye);
-              applyFacialTexture(facialMaterialTargets.mouth, textures.mouth);
-            }
-            facialResults.forEach((result, index) => {
-              if (result.status === "fulfilled")
-                facialAnimations[facialStates[index]] = result.value;
-            });
-            facialExpressionStatesByState = Object.fromEntries(
-              Object.entries(facialAnimations).map(([state, animation]) => [
-                state,
-                animation ? buildFacialExpressionStates(animation) : [],
-              ]),
-            );
-            if (facialAnimations.idle)
-              applyFacialAnimation(facialMaterialTargets, facialAnimations.idle, 0);
           } catch (cause) {
             const message =
               cause instanceof Error ? cause.message : "unknown deferred character detail error";
@@ -3447,11 +2787,6 @@ export function SceneHost({
         const readyStatus = `${label} ready · ${colliderCount.toLocaleString()} ${colliderLabel} · ${characterId}`;
         setStatus(readyStatus);
         telemetry.markPlayable();
-        // The scene is playable; now fetch the optional traffic/helicopter
-        // models in the background so the critical path stays short.
-        applyAmbientZone(entryZoneId);
-        // Vehicle effects compile on first use. Compiling unused effects here
-        // creates a large main-thread/GPU hitch immediately after playability.
         const viewDirection = new THREE.Vector3();
         const cameraRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
         const floorRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
@@ -3627,10 +2962,6 @@ export function SceneHost({
             playerHeight,
             ...cameraController.state,
             isSwimming,
-            teleporting: teleportSpinRemaining > 0,
-            activeVehicle: vehicleController.activeVehicle,
-            vehicleVisible: vehicleMount?.visible ?? false,
-            vehicleLoaded: loadedVehicle?.id ?? null,
             characterRootPosition: characterRoot ? characterRoot.position.toArray() : null,
             characterScale: characterRoot ? characterRoot.scale.toArray() : null,
             waterZones: waterZones.map(({ bounds, surfaceY }) => ({
@@ -3639,14 +2970,6 @@ export function SceneHost({
               max: bounds.max.toArray(),
             })),
           }),
-          playTeleportSpin: () => {
-            const name = coreAnimations.names.hoverboardDismountIdle;
-            const action = name ? animationController?.actions.get(name) : undefined;
-            const duration = action?.getClip().duration ?? 0.5;
-            teleportSpinName = name;
-            teleportSpinRemaining = duration;
-            return duration;
-          },
           teleportTo: (x, z, y?, yaw?, bodyYaw?, snapToGround = true) => {
             clickNavigationActive = false;
             playerPosition.x = x;
@@ -4109,11 +3432,6 @@ export function SceneHost({
               clickNavigationActive = false;
               clickNavigationPath.length = 0;
               clickNavigationPathIndex = 0;
-              if (vehicleController.activeVehicle) vehicleController.dismount();
-              unloadVehicle();
-              hoverboardLaunchRemaining = 0;
-              hoverboardDismountName = null;
-              hoverboardDismountRemaining = 0;
             }
             if (cameraController.viewMode !== "orthographic") {
               clickNavigationActive = false;
@@ -4125,13 +3443,8 @@ export function SceneHost({
           }
           cameraController.setCameraRelativeBasis(forward, right);
           visualUpdate?.(scene, delta, timer.getElapsed());
-          // Submit traffic's next kinematic transforms before stepping Rapier,
-          // so active colliders match the visible cars in this same frame.
-          traffic?.update(delta, playerPosition);
           world.step();
-          // Freeze the player while the teleport spin plays so they cannot
-          // walk off mid-transition.
-          const inputFrozen = teleportSpinRemaining > 0;
+          const inputFrozen = false;
           const topDownClickOnlyActive = isOrthographicClickOnly();
           const desiredAutostepHeight = 0.6;
           if (desiredAutostepHeight !== activeAutostepHeight) {
@@ -4196,75 +3509,6 @@ export function SceneHost({
             (waterAtStart.forceSwimming || !characterController.computedGrounded())
           )
             isSwimming = true;
-          const vehicleFrame = vehicleController.update({
-            inputX,
-            inputZ,
-            inWater: Boolean(waterAtStart),
-          });
-          let activeVehicle = vehicleFrame.activeVehicle;
-          if (vehicleFrame.justMounted === "hoverboard") {
-            hoverboardLaunchRemaining =
-              animationController?.actions
-                .get(vehicleAnimationNames.hoverboardLaunch ?? "")
-                ?.getClip().duration ?? 0.6;
-          }
-          if (vehicleFrame.justDismounted === "hoverboard") {
-            hoverboardDismountName =
-              inputMagnitude > 0.01 ? "hoverboardDismountRun" : "hoverboardDismountIdle";
-            hoverboardDismountRemaining =
-              animationController?.actions
-                .get(vehicleAnimationNames[hoverboardDismountName] ?? "")
-                ?.getClip().duration ?? 0.5;
-          }
-          // A fresh toggle is an explicit retry, so clear any earlier failure.
-          if (vehicleFrame.justMounted) {
-            vehicleLoadFailed = null;
-            // Vehicle animation clips are fetched lazily on the first deploy;
-            // kick that off now so the mount can switch to the ride pose as soon
-            // as the clips land.
-            void ensureVehicleAnimations();
-          }
-          if (
-            activeVehicle &&
-            (!loadedVehicle || loadedVehicle.id !== activeVehicle) &&
-            !vehicleLoadPromise &&
-            vehicleLoadFailed !== activeVehicle
-          ) {
-            const mountedId = activeVehicle;
-            setStatus(`${readyStatus} · loading ${vehicleManifests[mountedId].label}…`);
-            vehicleLoadPromise = ensureVehicle(mountedId, readyStatus)
-              .catch((cause) => {
-                vehicleLoadFailed = mountedId;
-                if (vehicleController.activeVehicle === mountedId) {
-                  vehicleController.dismount();
-                  verticalVelocity = 0;
-                }
-                unloadVehicle();
-                const message =
-                  cause instanceof Error ? cause.message : "unknown vehicle loading error";
-                console.warn(`[Agent HQ] ${mountedId} unavailable: ${message}`);
-                setStatus(
-                  `${readyStatus} · ${vehicleManifests[mountedId].label} could not deploy · press toggle to retry`,
-                );
-              })
-              .finally(() => {
-                vehicleLoadPromise = null;
-              });
-          }
-          if (!activeVehicle && loadedVehicle && hoverboardDismountRemaining === 0) {
-            unloadVehicle();
-            setStatus(isSwimming ? `${readyStatus} · swimming` : readyStatus);
-          }
-          if (hoverboardLaunchRemaining > 0) {
-            hoverboardLaunchRemaining = Math.max(0, hoverboardLaunchRemaining - delta);
-          }
-          if (hoverboardDismountRemaining > 0) {
-            hoverboardDismountRemaining = Math.max(0, hoverboardDismountRemaining - delta);
-          }
-          if (teleportSpinRemaining > 0) {
-            teleportSpinRemaining = Math.max(0, teleportSpinRemaining - delta);
-            if (teleportSpinRemaining === 0) teleportSpinName = null;
-          }
 
           // The character only swims (slower, swim animation) once its body has
           // actually laid down on the water; while it is still running through
@@ -4273,8 +3517,7 @@ export function SceneHost({
           const onFootSpeed =
             (isSwimming && swimTilt > SWIM_POSE_TILT ? playerSpeed * SWIM_SPEED_FACTOR : 0) ||
             playerSpeed;
-          const movementSpeed =
-            vehicleFrame.horizontalSpeed || onFootSpeed * activeMovementSpeedFactor;
+          const movementSpeed = onFootSpeed * activeMovementSpeedFactor;
           if (clickNavigationSteering) {
             desired
               .copy(clickNavigationDirection)
@@ -4312,21 +3555,8 @@ export function SceneHost({
             }
             desired.y = verticalVelocity * delta;
             jumpQueued = false;
-          } else if (activeVehicle) {
-            if (vehicleFrame.usesGravity) {
-              // The hoverboard rides terrain: keep it pressed toward the
-              // floor so crests and downhills stay pinned instead of
-              // floating on the last flat-ground height.
-              verticalVelocity = Math.max(
-                verticalVelocity + gravity * delta,
-                hoverboardMaxFallSpeed,
-              );
-            } else {
-              verticalVelocity = vehicleFrame.verticalVelocity;
-            }
-            desired.y = verticalVelocity * delta;
           } else if (groundedBeforeMovement) {
-            const startedJump = jumpQueued || vehicleFrame.jumpRequested;
+            const startedJump = jumpQueued;
             jumpStartedThisFrame = startedJump;
             if (startedJump) intentionalJumpActive = true;
             verticalVelocity = startedJump
@@ -4338,15 +3568,9 @@ export function SceneHost({
           } else {
             verticalVelocity += gravity * delta;
           }
-          if (!isSwimming && !activeVehicle) jumpQueued = false;
-          if (vehicleFrame.snapToGround) {
-            characterController.enableSnapToGround(
-              activeVehicle === "hoverboard" ? HOVERBOARD_SNAP_DISTANCE : 0.3,
-            );
-          } else {
-            characterController.disableSnapToGround();
-          }
-          if (!isSwimming && !activeVehicle) desired.y = verticalVelocity * delta;
+          if (!isSwimming) jumpQueued = false;
+          characterController.enableSnapToGround(0.3);
+          if (!isSwimming) desired.y = verticalVelocity * delta;
           characterController.computeColliderMovement(playerCollider, {
             x: desired.x,
             y: desired.y,
@@ -4378,11 +3602,7 @@ export function SceneHost({
           ) {
             isSwimming = true;
             verticalVelocity = 0;
-            if (vehicleController.dismount()) {
-              unloadVehicle();
-            }
           }
-          activeVehicle = vehicleController.activeVehicle;
           if (wasSwimming !== isSwimming) {
             debugLog(
               `[Agent HQ] ${label} swimming=${isSwimming} surface=${waterAfterMovement?.surfaceY.toFixed(3) ?? "none"} position=${playerPosition
@@ -4585,7 +3805,7 @@ export function SceneHost({
           // Movement sound cues: a landing thud when falling back to the ground,
           // and footsteps while running. Footsteps are throttled and pitch-jittered
           // inside playSfx so rapid steps never pile up into a wall of sound.
-          if (!isSwimming && !activeVehicle) {
+          if (!isSwimming) {
             if (wasAirborne && groundedAfterMovement) {
               soundController.playSfx("land", { throttleMs: 250 });
             }
@@ -4601,34 +3821,9 @@ export function SceneHost({
             wasAirborne = false;
           }
 
-          // Vehicle and water ambience: looping cues started/stopped on state
-          // changes and re-gained every frame. Vehicle volume follows throttle,
-          // water volume follows proximity to the nearest swim zone, and both
-          // drop to silence while SFX are muted.
+          // Water volume follows proximity to the nearest swim zone and drops
+          // to silence while SFX are muted.
           const sfxAudible = soundController.sfxMuted ? 0 : 1;
-          const desiredVehicleLoop =
-            activeVehicle === "hoverboard"
-              ? "vehicleHover"
-              : activeVehicle === "jetpack"
-                ? "vehicleJetpack"
-                : null;
-          if (desiredVehicleLoop !== activeVehicleLoopId) {
-            vehicleLoop?.stop();
-            vehicleLoop = desiredVehicleLoop
-              ? soundController.playLoop(desiredVehicleLoop, { volume: 0 })
-              : null;
-            activeVehicleLoopId = desiredVehicleLoop;
-          }
-          if (vehicleLoop) {
-            const speedFactor = Math.min(1, inputMagnitude / 0.45);
-            const boost =
-              activeVehicle === "jetpack"
-                ? verticalVelocity > verticalVelocityEpsilon
-                  ? 1
-                  : 0.45
-                : speedFactor;
-            vehicleLoop.setVolume(sfxAudible * (0.28 + 0.72 * boost));
-          }
           const waterDistance = nearestWaterDistance(waterZones, playerPosition);
           const waterAudible = waterDistance <= WATER_AUDIO_RANGE;
           if (waterAudible && !waterLoop) {
@@ -4642,38 +3837,16 @@ export function SceneHost({
             waterLoop.setVolume(sfxAudible * proximity * (isSwimming ? 1 : 0.55));
           }
 
-          // Random character chatter: while moving, occasionally drop a Degen
-          // voice line for the selected character (12-32s apart).
-          const now = performance.now();
-          if (moving && now >= nextVoiceAt) {
-            const voicePool = voicePoolForCharacter(characterId);
-            nextVoiceAt = now + 15000 + Math.random() * 20000;
-            if (voicePool) {
-              soundController.playSfx(voicePool, {
-                volume: 0.7,
-                pitch: (Math.random() * 2 - 1) * 0.04,
-              });
-            }
-          }
-
           const targetSwimTilt = isSwimming && floating ? SWIM_BODY_TILT : 0;
           swimTilt = THREE.MathUtils.damp(swimTilt, targetSwimTilt, SWIM_BODY_TILT_DAMPING, delta);
           // The swim clip only takes over once the body has actually laid down
           // on the water; while the character is still running/wading through
-          // the shallows it keeps the locomotion animation and facial state.
+          // the shallows it keeps the locomotion animation.
           const laidDown = isSwimming && swimTilt > SWIM_POSE_TILT;
-          const ridingHoverboard = activeVehicle === "hoverboard";
-          const stanceActive = ridingHoverboard || hoverboardDismountRemaining > 0;
-          const hoverLift = stanceActive ? hoverboardHoverHeight : 0;
-          const riderLift = stanceActive ? hoverboardHoverHeight + hoverboardRiderHeight : 0;
           if (characterRoot) {
             characterRoot.position.set(
               playerPosition.x,
-              playerPosition.y -
-                playerHeight / 2 -
-                characterBottom +
-                characterGroundOffset +
-                riderLift,
+              playerPosition.y - playerHeight / 2 - characterBottom + characterGroundOffset,
               playerPosition.z,
             );
             const facingMovement =
@@ -4685,16 +3858,9 @@ export function SceneHost({
               facingMoving &&
               Math.hypot(facingMovement.x, facingMovement.z) > CLICK_NAVIGATION_MOVEMENT_EPSILON
                 ? Math.atan2(facingMovement.x, facingMovement.z)
-                : ridingHoverboard
-                  ? hoverboardYaw
-                  : characterYaw;
-            if (ridingHoverboard) hoverboardYaw = travelYaw;
-            // The rider stands across the board from the moment it deploys:
-            // apply the authored sideways stance while riding and keep it
-            // through the dismount window (the dismount clips share the
-            // sideways space).
-            if (moving || stanceActive) {
-              const targetYaw = travelYaw + (stanceActive ? HOVERBOARD_STANCE_YAW : 0);
+                : characterYaw;
+            if (moving) {
+              const targetYaw = travelYaw;
               const angleDelta = Math.atan2(
                 Math.sin(targetYaw - characterYaw),
                 Math.cos(targetYaw - characterYaw),
@@ -4711,80 +3877,20 @@ export function SceneHost({
               .setFromEuler(characterYawEuler.set(0, characterYaw, 0))
               .multiply(swimTiltQuaternion.setFromEuler(swimTiltEuler.set(swimTilt, 0, 0)));
           }
-          if (vehicleMount) {
-            vehicleMount.position.set(
-              playerPosition.x,
-              playerPosition.y - playerHeight / 2 - characterBottom + hoverLift,
-              playerPosition.z,
-            );
-            // The board always points along travel; only the rider's body
-            // carries the sideways stance.
-            vehicleMount.rotation.y =
-              ridingHoverboard || hoverboardDismountRemaining > 0 ? hoverboardYaw : characterYaw;
-            // Keep the board visible through the dismount animation so the
-            // rider visibly gets off before it despawns.
-            vehicleMount.visible = Boolean(
-              loadedVehicle && (activeVehicle || hoverboardDismountRemaining > 0),
-            );
-          }
-          if (jetpackFlames) {
-            if (activeVehicle === "jetpack") {
-              const throttle = Math.min(1, Math.abs(verticalVelocity) / jetpackLiftSpeed);
-              jetpackFlames.update(
-                delta,
-                verticalVelocity > verticalVelocityEpsilon ? 0.55 + throttle * 0.45 : 0.28,
-              );
-            } else {
-              jetpackFlames.update(delta, 0);
-            }
-          }
-          if (hoverboardTrail) {
-            if (activeVehicle === "hoverboard") {
-              hoverboardTrail.update(delta, inputMagnitude > 0.01 ? 1 : 0.12);
-            } else {
-              hoverboardTrail.update(delta, 0);
-            }
-          }
           const isAirborne = !isSwimming && !groundedAfterMovement;
-          const isJumping =
-            intentionalJumpActive && isAirborne && verticalVelocity > verticalVelocityEpsilon;
-          const leaningLeft = ridingHoverboard && inputX < -0.01;
-          const leaningRight = ridingHoverboard && inputX > 0.01;
-          const vehicleAnimationName = ridingHoverboard
-            ? hoverboardLaunchRemaining > 0
-              ? vehicleAnimationNames.hoverboardLaunch
-              : leaningLeft
-                ? vehicleAnimationNames.boardLeanLeft
-                : leaningRight
-                  ? vehicleAnimationNames.boardLeanRight
-                  : vehicleAnimationNames[animationMoving ? "hoverboardTravel" : "hoverboardIdle"]
-            : activeVehicle === "jetpack"
-              ? vehicleAnimationNames[
-                  verticalVelocity > verticalVelocityEpsilon
-                    ? "jetpackGoUp"
-                    : verticalVelocity < -verticalVelocityEpsilon
-                      ? "jetpackGoDown"
-                      : "jetpackIdle1"
-                ]
-              : hoverboardDismountRemaining > 0 && !isSwimming && hoverboardDismountName
-                ? vehicleAnimationNames[hoverboardDismountName]
-                : undefined;
           const targetAnimationName = topDownClickOnlyActive
             ? animationMoving && locomotionName
               ? locomotionName
               : (idleName ?? null)
-            : teleportSpinRemaining > 0 && teleportSpinName
-              ? teleportSpinName
-              : (vehicleAnimationName ??
-                (laidDown && swimmingName
-                  ? swimmingName
-                  : intentionalJumpActive && isAirborne && jumpName
-                    ? jumpName
-                    : worldAnimationMoving && locomotionName
-                      ? locomotionName
-                      : (groundedAfterMovement || isSwimming) && idleName
-                        ? idleName
-                        : (idleName ?? null)));
+            : laidDown && swimmingName
+              ? swimmingName
+              : intentionalJumpActive && isAirborne && jumpName
+                ? jumpName
+                : worldAnimationMoving && locomotionName
+                  ? locomotionName
+                  : (groundedAfterMovement || isSwimming) && idleName
+                    ? idleName
+                    : (idleName ?? null);
           if (targetAnimationName && activeAnimationName !== targetAnimationName) {
             // Use the same transition as World in both HQ camera views. The
             // short click-only fade made the run pose visibly snap and jitter.
@@ -4800,62 +3906,8 @@ export function SceneHost({
           });
           if (locomotionAction) locomotionAction.timeScale = groundedAfterMovement ? 1 : 0.8;
           animationController?.update(delta);
-          const nextFacialState =
-            teleportSpinRemaining > 0
-              ? "hoverboardDismountIdle"
-              : laidDown
-                ? "swim"
-                : ridingHoverboard
-                  ? hoverboardLaunchRemaining > 0
-                    ? "hoverboardLaunch"
-                    : animationMoving
-                      ? "hoverboardTravel"
-                      : "hoverboardIdle"
-                  : hoverboardDismountRemaining > 0
-                    ? (hoverboardDismountName ?? "hoverboardDismountRun")
-                    : isJumping
-                      ? "jump"
-                      : worldAnimationMoving
-                        ? "run"
-                        : "idle";
-          if (nextFacialState !== activeFacialState) {
-            activeFacialState = nextFacialState;
-            facialElapsed = 0;
-          } else {
-            facialElapsed += delta;
-          }
-          const activeFacialAnimation = facialAnimations[activeFacialState];
-          const facialExpressionSource = [activeFacialState, "run", "idle"].find((state) =>
-            Boolean(facialExpressionStatesByState[state]?.length),
-          );
-          const expressionStates = facialExpressionSource
-            ? (facialExpressionStatesByState[facialExpressionSource] ?? [])
-            : [];
-          if (expressionStates.length > 1) {
-            // Match CharacterGeometry.TestFacialAnimation in source asset library:
-            // hold stable eye/mouth atlas pairs and replay them at the source
-            // clip's timing. Sampling the raw FBX curve can land on an empty
-            // atlas cell, while a fixed slow cycle can hide the mouth.
-            const expressionDuration = facialExpressionSource
-              ? (facialAnimations[facialExpressionSource]?.duration ?? 0)
-              : 0;
-            applyFacialExpressionTimeline(
-              facialMaterialTargets,
-              expressionStates,
-              facialElapsed,
-              expressionDuration,
-            );
-          } else if (activeFacialAnimation) {
-            // Some exported FBX clips contain only one long stable pair even
-            // though their raw UV tracks still animate the mouth. Do not let
-            // that single fallback state mask the authored mouth curve.
-            applyFacialAnimation(facialMaterialTargets, activeFacialAnimation, facialElapsed);
-          }
-
-          // Place the camera target at the upper torso/head area of the
-          // actual visual model, not the physics capsule. Degen characters
-          // have a capsule much taller than their visual model, so using the
-          // capsule height would point the camera above the character's head.
+          // Place the camera target at the upper torso/head area of the actual
+          // visual model, not the physics capsule.
           characterTarget.set(
             playerPosition.x,
             playerPosition.y - playerHeight / 2 + cameraTargetOffset,
@@ -4890,7 +3942,6 @@ export function SceneHost({
           }
           cameraController.update(characterTarget, delta, obstructionDistance);
           camera = cameraController.camera;
-          flyers?.update(delta);
           particleManager?.update(delta);
           updatePlayerVisibility();
           // Adaptive resolution: keep a rolling average of real frame time and
@@ -4986,9 +4037,7 @@ export function SceneHost({
         colliders.forEach((collider) => world?.removeCollider(collider, true));
       }
       zoneCollisionColliders.clear();
-      vehicleLoop?.stop();
       waterLoop?.stop();
-      flyers?.dispose();
       telemetry.dispose();
       disposeResources();
     };
@@ -4996,7 +4045,6 @@ export function SceneHost({
     additionalAssetUrls,
     additionalCollisionAssetUrls,
     assetUrl,
-    buildingsManifestUrl,
     cameraBounds,
     characterGroundOffset,
     characterId,
@@ -5030,7 +4078,6 @@ export function SceneHost({
     staticFieldAssetUrls,
     staticFieldCollisionAssetUrls,
     staticFieldCollisionPatterns,
-    vehiclesManifestUrl,
     visualSetup,
     visualUpdate,
     waterVolumes,

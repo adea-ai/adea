@@ -3,17 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import {
-  ithappyCharacterIds,
-  ithappyCharacterLabels,
-  ithappyCharacterIconUrls,
-  isIthappyCharacterId,
-  ithappyCustomCharacterIds,
-  isIthappyCustomCharacterId,
+  modelsCharacterIds,
+  modelsCharacterLabels,
+  modelsCharacterIconUrls,
+  isModelsCharacterId,
+  modelsCustomCharacterIds,
+  isModelsCustomCharacterId,
   getCustomCharacterLabel,
-  ithappyInteriorPropAssets,
+  modelsInteriorPropAssets,
   createAmbientAnimals,
   type AmbientAnimals,
-} from "@agent-hq/ithappy";
+} from "@agent-hq/models";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 
@@ -44,12 +44,12 @@ import { SceneWrapper } from "@agent-hq/scene-shell";
 import { hqWorldPortals } from "./hq-world-portals";
 
 const characterOptions = [
-  ...ithappyCharacterIds.map((id) => ({
+  ...modelsCharacterIds.map((id) => ({
     id,
-    label: ithappyCharacterLabels[id],
-    iconUrl: ithappyCharacterIconUrls[id],
+    label: modelsCharacterLabels[id],
+    iconUrl: modelsCharacterIconUrls[id],
   })),
-  ...ithappyCustomCharacterIds.map((id) => ({
+  ...modelsCustomCharacterIds.map((id) => ({
     id,
     label: getCustomCharacterLabel(id) ?? id,
     iconUrl: undefined,
@@ -82,12 +82,12 @@ const hqSceneMapOptions = [
 // Use the real-world HQ scale for every environment visual, collider,
 // navigation bound, and camera bound. The environment is authored in
 // centimetres (1 authored unit = 1 cm) and rendered at 1:1 scale, so
-// 600 authored units = 6 m — a real room size that matches the ithappy
+// 600 authored units = 6 m — a real room size that matches the models
 // furniture models which are also authored in metres.
-// The character scale uses the actual ithappy model height (~1.75 m)
+// The character scale uses the actual models model height (~1.75 m)
 // with modelScale 1.0 — no multipliers or compensations needed.
 const hqRuntimeScale = ROOM_GALLERY_RUNTIME_SCALE;
-const hqCharacterScale = { height: 1.75, radius: 0.24, modelScale: 1.0, vehicleScale: 1 } as const;
+const hqCharacterScale = { height: 1.75, radius: 0.24, modelScale: 1.0 } as const;
 const hqTopDownMovementSpeedFactor = 300 * hqRuntimeScale;
 const hqFenceVisualHeight = 96;
 const hqFenceColliderHeight = 240;
@@ -229,7 +229,7 @@ const hqFrontWalkwayBlockedRect = {
   depth: ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
 };
 const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax + 120 } as const;
-const hqRoomDesignerCatalog = [...ithappyInteriorPropAssets].map((asset) => ({ ...asset }));
+const hqRoomDesignerCatalog = [...modelsInteriorPropAssets].map((asset) => ({ ...asset }));
 const hqClickNavigationBounds = {
   xMin: ROOM_GALLERY_BOUNDS.xMin + 30,
   xMax: ROOM_GALLERY_BOUNDS.xMax - 30,
@@ -731,7 +731,7 @@ export function HqRoomScene({
   );
 
   const handleCharacterChange = (nextCharacter: string) => {
-    if (!isIthappyCharacterId(nextCharacter) && !isIthappyCustomCharacterId(nextCharacter)) return;
+    if (!isModelsCharacterId(nextCharacter) && !isModelsCustomCharacterId(nextCharacter)) return;
     setCharacter(nextCharacter);
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("character", nextCharacter);
