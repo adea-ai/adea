@@ -12,7 +12,7 @@ import {
   getCustomCharacterLabel,
 } from "@agent-hq/characters";
 import { createAmbientAnimals, type AmbientAnimals } from "@agent-hq/pets";
-import { modelsInteriorPropAssets } from "@agent-hq/models";
+import { interiorPropAssets } from "@agent-hq/interior";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 
@@ -31,8 +31,8 @@ import {
   ROOM_GALLERY_PATHWAY_SIDE_WALL_EXTENSION,
   ROOM_GALLERY_RUNTIME_SCALE,
   ROOM_GALLERY_WALL_SEGMENTS,
-} from "@agent-hq/rooms";
-import type { RoomGalleryWallSegment } from "@agent-hq/rooms";
+} from "@agent-hq/interior";
+import type { RoomGalleryWallSegment } from "@agent-hq/interior";
 import type {
   SceneWaterVolume,
   StaticColliderConfig,
@@ -228,7 +228,7 @@ const hqFrontWalkwayBlockedRect = {
   depth: ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
 };
 const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax + 120 } as const;
-const hqRoomDesignerCatalog = [...modelsInteriorPropAssets].map((asset) => ({ ...asset }));
+const hqRoomDesignerCatalog = [...interiorPropAssets].map((asset) => ({ ...asset }));
 const hqClickNavigationBounds = {
   xMin: ROOM_GALLERY_BOUNDS.xMin + 30,
   xMax: ROOM_GALLERY_BOUNDS.xMax - 30,

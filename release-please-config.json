@@ -92,9 +92,9 @@
       "release-type": "node",
       "package-name": "@agent-hq/data"
     },
-    "packages/models": {
+    "packages/interior": {
       "release-type": "node",
-      "package-name": "@agent-hq/models"
+      "package-name": "@agent-hq/interior"
     },
     "packages/landscape": {
       "release-type": "node",
@@ -107,14 +107,6 @@
     "packages/placed-models": {
       "release-type": "node",
       "package-name": "@agent-hq/placed-models"
-    },
-    "packages/props": {
-      "release-type": "node",
-      "package-name": "@agent-hq/props"
-    },
-    "packages/rooms": {
-      "release-type": "node",
-      "package-name": "@agent-hq/rooms"
     },
     "packages/scene-runtime": {
       "release-type": "node",
