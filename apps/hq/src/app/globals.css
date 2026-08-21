@@ -231,15 +231,10 @@
   min-width: 0;
 }
 
-.workspace-toolbar {
+.workspace-room-designer-slot {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
   min-width: 0;
-  padding: 0.2rem;
-  border: 1px solid var(--hq-shell-border-subtle);
-  border-radius: 0.6rem;
-  background: color-mix(in srgb, var(--hq-shell-surface) 82%, transparent);
 }
 
 .workspace-status {
@@ -398,6 +393,10 @@
   }
 
   .workspace-status {
+    display: none;
+  }
+
+  .workspace-room-designer-label {
     display: none;
   }
 
