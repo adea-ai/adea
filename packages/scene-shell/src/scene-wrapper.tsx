@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Button, OnScreenControls, SceneSettings, type CharacterOption } from "@agent-hq/ui";
 import type { DegenCharacterId } from "@agent-hq/characters/ui";
 import type {
@@ -129,11 +129,13 @@ export type SceneWrapperProps = {
   portals?: readonly PortalLink[];
   teleportBooths?: boolean;
   mapOptions?: readonly import("@agent-hq/ui").SceneMapOption[];
-  /** Show the global mini-game links in the scene drawer. */
-  showGames?: boolean;
   enableSceneEditor?: boolean;
-  /** Scene-specific settings sections rendered inside the settings drawer. */
-  children?: ReactNode;
+  /** DOM target for the compact character picker in an app shell toolbar. */
+  characterTargetId?: string;
+  /** DOM target for the compact camera controls in an app shell toolbar. */
+  cameraTargetId?: string;
+  /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
+  roomDesignerTargetId?: string;
   /** Register the top-down room designer for apps with authored room maps. */
   roomDesignerAvailable?: boolean;
   enableRoomDesigner?: boolean;
@@ -172,11 +174,10 @@ const DEFAULT_CHARACTER_SCALE: CharacterScale = {
 };
 
 /**
- * Standard scene shell shared by every 3D scene: SceneHost (with the info
- * panel toggle), on-screen touch controls, teleport booths, walk-in portals,
- * the settings drawer, and the fullscreen button. Each scene supplies its
- * manifest + character plumbing; everything else is uniform so no scene can
- * drift and lose controls or the settings entry point.
+ * Standard scene shell shared by every 3D scene: SceneHost, on-screen touch
+ * controls, teleport booths, walk-in portals, and compact toolbar controls.
+ * Each scene supplies its manifest + character plumbing; everything else is
+ * uniform so no scene can drift and lose core controls.
  */
 export function SceneWrapper({
   manifest,
@@ -223,8 +224,10 @@ export function SceneWrapper({
   portals,
   teleportBooths = true,
   mapOptions,
-  showGames = true,
   enableSceneEditor = true,
+  characterTargetId,
+  cameraTargetId,
+  roomDesignerTargetId,
   roomDesignerAvailable = false,
   enableRoomDesigner = false,
   roomDesignerSceneScale = sceneScale,
@@ -243,7 +246,6 @@ export function SceneWrapper({
   enablePropColliders = false,
   propCollidersVersion = 0,
   onDebugApiReady,
-  children,
 }: SceneWrapperProps) {
   const canUseSceneEditor = enableSceneEditor && sceneEditorAvailable;
   const canUseRoomDesigner =
@@ -257,7 +259,6 @@ export function SceneWrapper({
       : null;
   const effectiveCameraViewMode: CameraViewMode = queryCameraViewMode ?? cameraViewMode;
   const cameraViewModeRef = useRef<CameraViewMode>(effectiveCameraViewMode);
-  const [showHud, setShowHud] = useState(false);
   const [activeCameraViewMode, setActiveCameraViewMode] =
     useState<CameraViewMode>(effectiveCameraViewMode);
   const [sceneEditorEnabled, setSceneEditorEnabled] = useState(false);
@@ -326,14 +327,6 @@ export function SceneWrapper({
     const value = new URLSearchParams(window.location.search).get("roomDesigner");
     setRoomDesignerEnabled(value !== null && value !== "0");
   }, [canUseRoomDesigner]);
-
-  const onSceneEditorChange = (enabled: boolean) => {
-    setSceneEditorEnabled(enabled);
-    const nextUrl = new URL(window.location.href);
-    if (enabled) nextUrl.searchParams.set("sceneEditor", "");
-    else nextUrl.searchParams.set("sceneEditor", "0");
-    window.history.replaceState(null, "", nextUrl);
-  };
 
   const applyRoomDesignerChange = (enabled: boolean) => {
     setRoomDesignerEnabled(enabled);
@@ -488,7 +481,6 @@ export function SceneWrapper({
         vehiclesManifestUrl={manifest.vehiclesManifestUrl}
         buildingsManifestUrl={manifest.buildingsManifestUrl}
         propsManifestUrl={manifest.propsManifestUrl}
-        showHud={showHud}
       />
       {!orthographicClickOnly || activeCameraViewMode !== "orthographic" ? (
         <OnScreenControls />
@@ -549,17 +541,12 @@ export function SceneWrapper({
       ) : null}
       {portals ? <Portals debugApiRef={debugApiRef} links={portals} /> : null}
       <SceneSettings
-        sceneId={manifest.id}
         characterOptions={characterOptions}
         character={character}
         onCharacterChange={onCharacterChange}
-        showHud={showHud}
         cameraViewMode={activeCameraViewMode}
         onCameraViewModeChange={onCameraViewModeChange}
         allowCameraViewModeChange={allowCameraViewModeChange}
-        onShowHudChange={setShowHud}
-        sceneEditorEnabled={canUseSceneEditor ? sceneEditorEnabled : undefined}
-        onSceneEditorChange={canUseSceneEditor ? onSceneEditorChange : undefined}
         roomDesignerEnabled={
           canUseRoomDesigner && activeCameraViewMode === "orthographic"
             ? roomDesignerEnabled
@@ -570,11 +557,10 @@ export function SceneWrapper({
             ? onRoomDesignerChange
             : undefined
         }
-        mapOptions={mapOptions}
-        showGames={showGames}
-      >
-        {children}
-      </SceneSettings>
+        characterTargetId={characterTargetId}
+        cameraTargetId={cameraTargetId}
+        roomDesignerTargetId={roomDesignerTargetId}
+      />
       {pendingRoomDesignerClose ? (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4"
