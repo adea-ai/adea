@@ -193,16 +193,6 @@
         "@types/three": "^0.185.0",
       },
     },
-    "packages/scene": {
-      "name": "@agent-hq/scene",
-      "version": "0.1.0",
-      "dependencies": {
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
     "packages/scene-runtime": {
       "name": "@agent-hq/scene-runtime",
       "version": "0.1.0",
@@ -213,7 +203,6 @@
         "@agent-hq/interior": "workspace:*",
         "@agent-hq/landscape": "workspace:*",
         "@agent-hq/particles": "workspace:*",
-        "@agent-hq/scene": "workspace:*",
         "@dimforge/rapier3d-compat": "^0.20.0",
         "three": "^0.185.1",
         "three-mesh-bvh": "^0.9.14",
@@ -292,14 +281,6 @@
         "@agent-hq/interior": "workspace:*",
       },
     },
-    "scenes/hq-work": {
-      "name": "@agent-hq/scene-hq-work",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agent-hq/asset-manifests": "workspace:*",
-        "@agent-hq/interior": "workspace:*",
-      },
-    },
   },
   "overrides": {
     "uuid": "^11.1.1",
@@ -336,10 +317,6 @@
     "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
 
     "@agent-hq/placed-models": ["@agent-hq/placed-models@workspace:packages/placed-models"],
-
-    "@agent-hq/scene": ["@agent-hq/scene@workspace:packages/scene"],
-
-    "@agent-hq/scene-hq-work": ["@agent-hq/scene-hq-work@workspace:scenes/hq-work"],
 
     "@agent-hq/scene-runtime": ["@agent-hq/scene-runtime@workspace:packages/scene-runtime"],
 
