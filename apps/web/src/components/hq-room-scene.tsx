@@ -79,7 +79,6 @@ const hqExteriorVisualPadding = ROOM_GALLERY_EXTERIOR_WALL_THICKNESS * 4;
 // Work's concrete is the sidewalk outside the fence. Extend the dirt beneath
 // the fence footprint so no concrete strip appears on its inside edge.
 const hqWorkFenceDirtOverlap = 8;
-const hqMapBounds = ROOM_GALLERY_BOUNDS;
 // Every approved HQ dimension is an exact multiple of the 12-unit interior
 // wall. Using that structural unit keeps the editor grid aligned with room
 // edges, door openings, and wall faces instead of introducing arbitrary gaps.
@@ -95,6 +94,9 @@ const hqSceneEditorLockedObjectPrefixes = [
   "hq-work-concrete-map-plane",
   "hq-work-interior-dirt",
   "hq-front-door-walkway",
+  "hq-front-sidewalk",
+  "hq-front-roadway",
+  "hq-front-road-marking-",
   "hq-map-edge-fence",
   "hq-front-gate-",
 ] as const;
@@ -107,17 +109,6 @@ const hqRoomDesignerRegions = [
     width,
     depth,
   })),
-  // Outdoor region: the entire area within the fence, so foliage and
-  // outdoor items can be placed on the grass strip and courtyard. Wall
-  // blocked rects and the walkway blocked rect prevent placement on
-  // paths, walls, and structure.
-  {
-    id: "outdoor",
-    x: 0,
-    z: 0,
-    width: ROOM_GALLERY_BOUNDS.width,
-    depth: ROOM_GALLERY_BOUNDS.depth,
-  },
 ];
 const hqOuterHorizontalBoundary = Math.max(
   ...ROOM_GALLERY_WALL_SEGMENTS.filter(
@@ -212,7 +203,7 @@ const hqFrontWalkwayBlockedRect = {
   width: hqFrontWalkwayWidth,
   depth: ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
 };
-const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax + 120 } as const;
+const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax - 120 } as const;
 const hqRoomDesignerCatalog = [...interiorPropAssets].map((asset) => ({ ...asset }));
 const hqClickNavigationBounds = {
   xMin: ROOM_GALLERY_BOUNDS.xMin + 30,
@@ -220,6 +211,22 @@ const hqClickNavigationBounds = {
   zMin: ROOM_GALLERY_BOUNDS.zMin + 30,
   zMax: ROOM_GALLERY_BOUNDS.zMax - 30,
 } as const;
+// The full-bleed canvas sits beneath the top bar. Add only enough authored
+// camera envelope above the property to let its top fence clear that overlay;
+// movement and collision bounds remain the actual property envelope.
+const hqCameraTopPadding = 432;
+const hqCameraBounds = {
+  ...ROOM_GALLERY_BOUNDS,
+  zMax: ROOM_GALLERY_BOUNDS.zMax + hqCameraTopPadding,
+} as const;
+const hqOrthographicHalfHeight = 1000;
+// Use the camera-only top envelope for a simple streetscape: a short sidewalk
+// immediately outside the fence and a roadway across the remaining clearance.
+// These layers are visual only; the property envelope remains the gameplay
+// navigation and collision boundary.
+const hqFrontSidewalkDepth = 96;
+const hqFrontRoadDepth = hqCameraTopPadding - hqFrontSidewalkDepth;
+const hqFrontRoadWidth = ROOM_GALLERY_BOUNDS.width + hqCameraTopPadding * 2;
 const hqPoolWaterVolumes = (sceneId: string): readonly SceneWaterVolume[] => [
   {
     zoneId: `${sceneId}-pool`,
@@ -381,6 +388,56 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   exteriorMaterial.polygonOffsetUnits = 4;
   exteriorSurface.receiveShadow = true;
   visual.add(exteriorSurface);
+
+  const frontSidewalk = new THREE.Mesh(
+    new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
+    createHqMaterial(theme, "sidewalk", hqFrontRoadWidth / 96, hqFrontSidewalkDepth / 96),
+  );
+  frontSidewalk.name = "hq-front-sidewalk";
+  frontSidewalk.rotation.x = -Math.PI / 2;
+  frontSidewalk.position.set(0, -0.46, ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth / 2);
+  const sidewalkMaterial = frontSidewalk.material as THREE.MeshStandardMaterial;
+  sidewalkMaterial.polygonOffset = true;
+  sidewalkMaterial.polygonOffsetFactor = -4;
+  sidewalkMaterial.polygonOffsetUnits = -4;
+  frontSidewalk.receiveShadow = true;
+  visual.add(frontSidewalk);
+
+  const roadway = new THREE.Mesh(
+    new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontRoadDepth),
+    new THREE.MeshStandardMaterial({ color: 0x171a1d, roughness: 0.94, metalness: 0 }),
+  );
+  roadway.name = "hq-front-roadway";
+  roadway.rotation.x = -Math.PI / 2;
+  roadway.position.set(
+    0,
+    -0.44,
+    ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth / 2,
+  );
+  const roadwayMaterial = roadway.material as THREE.MeshStandardMaterial;
+  roadwayMaterial.polygonOffset = true;
+  roadwayMaterial.polygonOffsetFactor = -4;
+  roadwayMaterial.polygonOffsetUnits = -4;
+  roadway.receiveShadow = true;
+  visual.add(roadway);
+
+  const roadMarkingMaterial = new THREE.MeshStandardMaterial({
+    color: 0xf4c542,
+    roughness: 0.62,
+    metalness: 0,
+  });
+  const roadCenterZ = ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth / 2;
+  for (const offset of [-14, 14]) {
+    const marking = new THREE.Mesh(
+      new THREE.PlaneGeometry(hqFrontRoadWidth - 96, 6),
+      roadMarkingMaterial,
+    );
+    marking.name = "hq-front-road-marking-center";
+    marking.rotation.x = -Math.PI / 2;
+    marking.position.set(0, -0.4, roadCenterZ + offset);
+    marking.receiveShadow = true;
+    visual.add(marking);
+  }
   if (isWork) {
     const dirtSurface = new THREE.Mesh(
       new THREE.PlaneGeometry(width + hqWorkFenceDirtOverlap, depth + hqWorkFenceDirtOverlap),
@@ -743,11 +800,12 @@ export function HqRoomScene({
       enableClickNavigation
       clickNavigationBounds={hqClickNavigationBounds}
       clickNavigationIndicatorScale={80}
-      cameraBounds={hqMapBounds}
+      cameraBounds={hqCameraBounds}
       // Keep the full HQ envelope quick to traverse while giving the shared
       // World-sized avatar enough screen presence in the fixed top-down view.
-      orthographicHalfHeight={720}
+      orthographicHalfHeight={hqOrthographicHalfHeight}
       orthographicPitch={-0.9}
+      orthographicPan={{ x: 0, z: hqCameraTopPadding }}
       waterVolumes={manifest.zones?.length ? hqPoolWaterVolumes(manifest.id) : undefined}
       deferCharacterDetails={false}
       environment={galleryEnvironment}
@@ -772,13 +830,13 @@ export function HqRoomScene({
       roomDesignerCatalog={hqRoomDesignerCatalog}
       roomDesignerPlayerPosition={hqRoomDesignerPlayerPosition}
       enablePropColliders
-      roomDesignerNormalOrthographicHalfHeight={720}
+      roomDesignerNormalOrthographicHalfHeight={hqOrthographicHalfHeight}
       // Design mode gives the catalog panel enough map clearance to place
-      // props in the rightmost rooms. Gameplay keeps the tighter 720 framing.
+      // props in the rightmost rooms while placement remains room-only.
       roomDesignerDesignOrthographicHalfHeight={1320}
       roomDesignerBackdropColor={visualTheme === "home" ? 0x668b59 : 0x778086}
-      // Design-only ground extension; camera bounds and gameplay collision
-      // remain locked to hqMapBounds.
+      // Design-only ground extension; gameplay navigation and collision remain
+      // locked to the actual property envelope.
       roomDesignerBackdropPadding={840}
       keepZoneCollisionsActive
       staticColliders={hqBoundaryColliders}

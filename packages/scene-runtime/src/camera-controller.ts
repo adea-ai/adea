@@ -20,6 +20,8 @@ export type CameraControllerOptions = {
   /** Scene-specific top-down framing; defaults preserve existing World views. */
   orthographicHalfHeight?: number;
   orthographicPitch?: number;
+  /** Initial authored-world pan applied only to the orthographic camera target. */
+  orthographicPan?: { x: number; z: number };
 };
 
 type CameraViewState = {
@@ -43,6 +45,24 @@ const DEFAULT_ORTHOGRAPHIC_PITCH = -0.9;
 const CAMERA_SMOOTHING = 14;
 const CAMERA_TRANSITION_SMOOTHING = 8;
 const CAMERA_KEY_CODES = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
+export function getOrthographicGroundHalfExtents({
+  halfHeight,
+  aspect,
+  zoom,
+  viewDirectionY,
+}: {
+  halfHeight: number;
+  aspect: number;
+  zoom: number;
+  viewDirectionY: number;
+}): { halfWidth: number; halfDepth: number } {
+  const safeZoom = Math.max(zoom, 0.001);
+  return {
+    halfWidth: (halfHeight * aspect) / safeZoom,
+    halfDepth: halfHeight / Math.max(safeZoom * Math.abs(viewDirectionY), 0.2),
+  };
+}
 
 /**
  * Owns every runtime view camera, its controls, projection setup, and follow
@@ -86,12 +106,14 @@ export class CameraController {
     cameraBounds,
     orthographicHalfHeight = DEFAULT_ORTHOGRAPHIC_HALF_HEIGHT,
     orthographicPitch = DEFAULT_ORTHOGRAPHIC_PITCH,
+    orthographicPan,
   }: CameraControllerOptions) {
     this.canvas = canvas;
     this.characterScale = characterScale;
     this.cameraBounds = cameraBounds;
     this.orthographicHalfHeight = orthographicHalfHeight;
     this.orthographicPitch = orthographicPitch;
+    this.orthographicPan.set(orthographicPan?.x ?? 0, orthographicPan?.z ?? 0);
     this.activeViewMode = initialViewMode;
     this.views = {
       perspective: { yaw: initialYaw, pitch: initialPerspectivePitch },
@@ -282,7 +304,7 @@ export class CameraController {
       this.cameraTarget.x += this.orthographicPan.x;
       this.cameraTarget.z += this.orthographicPan.y;
     }
-    this.cameraTarget.copy(this.constrainTarget(this.cameraTarget, targetDistance));
+    this.cameraTarget.copy(this.constrainTarget(this.cameraTarget));
     this.desiredPosition
       .copy(this.cameraTarget)
       .addScaledVector(this.viewDirection, -targetDistance);
@@ -325,23 +347,19 @@ export class CameraController {
     }
   }
 
-  private constrainTarget(target: THREE.Vector3, targetDistance: number): THREE.Vector3 {
+  private constrainTarget(target: THREE.Vector3): THREE.Vector3 {
     // Camera bounds are an orthographic map-framing feature. Perspective
     // scenes must retain their normal character-follow behavior even when a
     // scene also supplies a map envelope for its orthographic view.
     if (!this.cameraBounds || this.activeViewMode !== "orthographic") return target;
 
     const aspect = this.orthographicCamera.right / Math.max(this.orthographicCamera.top, 0.001);
-    const halfWidth =
-      this.activeViewMode === "orthographic"
-        ? Math.abs(this.orthographicCamera.right) / Math.max(this.orthographicZoom, 0.001)
-        : targetDistance * Math.tan(THREE.MathUtils.degToRad(this.perspectiveFov) / 2) * aspect;
-    const halfDepth =
-      this.activeViewMode === "orthographic"
-        ? this.orthographicHalfHeight /
-          Math.max(this.orthographicZoom * Math.abs(this.viewDirection.y), 0.2)
-        : (targetDistance * Math.tan(THREE.MathUtils.degToRad(this.perspectiveFov) / 2)) /
-          Math.max(Math.abs(this.viewDirection.y), 0.2);
+    const { halfWidth, halfDepth } = getOrthographicGroundHalfExtents({
+      halfHeight: this.orthographicHalfHeight,
+      aspect,
+      zoom: this.orthographicZoom,
+      viewDirectionY: this.viewDirection.y,
+    });
     const clampCenter = (value: number, min: number, max: number, halfExtent: number): number => {
       if (max - min <= halfExtent * 2) return (min + max) / 2;
       return THREE.MathUtils.clamp(value, min + halfExtent, max - halfExtent);
