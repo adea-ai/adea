@@ -1,48 +1,40 @@
-"use client";
+import type { Metadata } from "next";
+import { isIthappyCharacterId, isIthappyCustomCharacterId } from "@agent-hq/ithappy";
+import { readSceneStartPosition } from "@agent-hq/scene-shell/scene-spawn";
+import { WorkspaceShell } from "../components/workspace-shell";
+import { hqSceneFromSearchParams } from "../lib/workspace-scene";
 
-import Link from "next/link";
-import { ThemeToggle } from "@agent-hq/ui";
+export const metadata: Metadata = {
+  title: "Agent HQ",
+  description: "Agent HQ spatial workspace",
+};
 
-export default function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    camera?: string | string[];
+    character?: string | string[];
+    scene?: string | string[];
+    spawn?: string | string[];
+  }>;
+}) {
+  const params = await searchParams;
+  const requestedCharacter = Array.isArray(params.character)
+    ? params.character[0]
+    : params.character;
+  const isValidCharacter =
+    isIthappyCharacterId(requestedCharacter) || isIthappyCustomCharacterId(requestedCharacter);
+  const cameraParam = Array.isArray(params.camera) ? params.camera[0] : params.camera;
+
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-8 px-6 py-10">
-      <ThemeToggle className="fixed right-4 top-4 z-50" />
-      <header className="flex items-center gap-4">
-        <div
-          className="flex size-14 items-center justify-center rounded-2xl bg-primary text-lg font-bold text-primary-foreground"
-          aria-hidden="true"
-        >
-          HQ
-        </div>
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Agent HQ
-          </p>
-          <p className="text-sm text-muted-foreground">Agent HQ headquarters</p>
-        </div>
-      </header>
-      <section className="space-y-3" aria-labelledby="hq-title">
-        <div>
-          <h1 id="hq-title" className="text-2xl font-semibold">
-            Headquarters
-          </h1>
-          <p className="text-sm text-muted-foreground">Choose a space to explore.</p>
-        </div>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/scenes/home"
-            className="inline-flex rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            Enter home
-          </Link>
-          <Link
-            href="/scenes/work"
-            className="inline-flex rounded-md border border-border px-4 py-2 text-sm font-medium"
-          >
-            Enter work
-          </Link>
-        </div>
-      </section>
-    </main>
+    <WorkspaceShell
+      initialScene={hqSceneFromSearchParams(params)}
+      initialCharacter={isValidCharacter ? requestedCharacter! : "cashier"}
+      startPosition={readSceneStartPosition(params.spawn)}
+      cameraViewMode={
+        cameraParam === "perspective" || cameraParam === "orthographic" ? cameraParam : undefined
+      }
+    />
   );
 }
