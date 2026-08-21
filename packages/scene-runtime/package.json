@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
-    "@agent-hq/audio": "workspace:*",
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/landscape": "workspace:*",

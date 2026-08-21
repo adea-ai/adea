@@ -13,7 +13,6 @@ import {
   loadCharacterAnimations,
   type CharacterAnimationController,
 } from "@agent-hq/characters";
-import { soundController } from "@agent-hq/audio";
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
 import { loadPropsField } from "@agent-hq/interior/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
@@ -280,7 +279,7 @@ export type SceneDebugApi = {
   characterRoot: THREE.Object3D | null;
   getState: () => Record<string, unknown>;
   /** Move the player to the given world x/z, snapping to the ground below
-   * (used to spawn players beside a phone booth). An optional y seeds the
+   * (used to place players beside a portal). An optional y seeds the
    * ground probe so cross-level teleports land on the intended floor, an
    * optional yaw turns the camera, and an optional bodyYaw turns the
    * character model (independent of the camera). */
@@ -437,9 +436,6 @@ const EDITOR_MESH_PATTERN =
 // Stop after a few consecutive failures instead of warning once per mesh.
 const COLLIDER_FAILURE_BAILOUT = 5;
 const WATER_ENTRY_MARGIN = 0.1;
-// Distance within which a water loop fades in/out as the player approaches a
-// swim zone (proximity-driven ambience).
-const WATER_AUDIO_RANGE = 16;
 // Horizontal water sheets thinner than this count as swim surfaces; vertical
 // waterfall planes and river bed blocks do not (their bounds.max.y is not the
 // waterline).
@@ -810,17 +806,6 @@ function findWaterZone(
     if (best === null || surfaceY > best.surfaceY) best = zone;
   }
   return best;
-}
-
-/** Horizontal distance from a position to the nearest water zone (0 = inside). */
-function nearestWaterDistance(zones: readonly WaterZone[], position: THREE.Vector3): number {
-  let closest = Infinity;
-  for (const { bounds } of zones) {
-    const dx = Math.max(bounds.min.x - position.x, 0, position.x - bounds.max.x);
-    const dz = Math.max(bounds.min.z - position.z, 0, position.z - bounds.max.z);
-    closest = Math.min(closest, Math.hypot(dx, dz));
-  }
-  return closest;
 }
 
 const disposeObjectTree = disposeObjectResources;
@@ -1279,8 +1264,6 @@ export function SceneHost({
     let idleAction: THREE.AnimationAction | undefined;
     let jumpAction: THREE.AnimationAction | undefined;
     let swimmingAction: THREE.AnimationAction | undefined;
-    // Looping water ambience is stopped during effect cleanup.
-    let waterLoop: ReturnType<typeof soundController.playLoop> | null = null;
     let backgroundTexture: THREE.Texture | null = null;
     const detachedCollisionRoots = new Set<THREE.Object3D>();
 
@@ -2784,9 +2767,6 @@ export function SceneHost({
         // the same way instead of staring at the default +z heading.
         let characterYaw = startPosition.yaw ?? 0;
         let swimTilt = 0;
-        // True while the character fell after leaving the ground; used to fire
-        // the landing sound cue on the first grounded frame.
-        let wasAirborne = false;
         const characterYawEuler = new THREE.Euler();
         const swimTiltEuler = new THREE.Euler();
         const swimTiltQuaternion = new THREE.Quaternion();
@@ -3527,7 +3507,6 @@ export function SceneHost({
               isSwimming = false;
               verticalVelocity = swimJumpSpeed;
               swimJumpFrames = SWIM_JUMP_FRAMES;
-              soundController.playSfx("jump");
             } else {
               verticalVelocity = 0;
             }
@@ -3540,9 +3519,6 @@ export function SceneHost({
             verticalVelocity = startedJump
               ? jumpSpeed
               : Math.max(verticalVelocity, groundedVelocity);
-            if (startedJump) {
-              soundController.playSfx("jump", { pitch: (Math.random() * 2 - 1) * 0.05 });
-            }
           } else {
             verticalVelocity += gravity * delta;
           }
@@ -3780,41 +3756,6 @@ export function SceneHost({
             ? clickNavigationSteering && (moving || clickNavigationBlockedFrames < 3)
             : worldAnimationMoving;
 
-          // Movement sound cues: a landing thud when falling back to the ground,
-          // and footsteps while running. Footsteps are throttled and pitch-jittered
-          // inside playSfx so rapid steps never pile up into a wall of sound.
-          if (!isSwimming) {
-            if (wasAirborne && groundedAfterMovement) {
-              soundController.playSfx("land", { throttleMs: 250 });
-            }
-            wasAirborne = !groundedAfterMovement;
-            if (groundedAfterMovement && moving) {
-              soundController.playSfx("footstep", {
-                throttleMs: 420,
-                pitch: (Math.random() * 2 - 1) * 0.08,
-                volume: 0.6,
-              });
-            }
-          } else {
-            wasAirborne = false;
-          }
-
-          // Water volume follows proximity to the nearest swim zone and drops
-          // to silence while SFX are muted.
-          const sfxAudible = soundController.sfxMuted ? 0 : 1;
-          const waterDistance = nearestWaterDistance(waterZones, playerPosition);
-          const waterAudible = waterDistance <= WATER_AUDIO_RANGE;
-          if (waterAudible && !waterLoop) {
-            waterLoop = soundController.playLoop("waterLoop", { volume: 0 });
-          } else if (!waterAudible && waterLoop) {
-            waterLoop.stop();
-            waterLoop = null;
-          }
-          if (waterLoop) {
-            const proximity = Math.max(0, 1 - waterDistance / WATER_AUDIO_RANGE);
-            waterLoop.setVolume(sfxAudible * proximity * (isSwimming ? 1 : 0.55));
-          }
-
           const targetSwimTilt = isSwimming && floating ? SWIM_BODY_TILT : 0;
           swimTilt = THREE.MathUtils.damp(swimTilt, targetSwimTilt, SWIM_BODY_TILT_DAMPING, delta);
           // The swim clip only takes over once the body has actually laid down
@@ -4014,7 +3955,6 @@ export function SceneHost({
         colliders.forEach((collider) => world?.removeCollider(collider, true));
       }
       zoneCollisionColliders.clear();
-      waterLoop?.stop();
       telemetry.dispose();
       disposeResources();
     };
