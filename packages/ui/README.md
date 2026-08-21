@@ -1,7 +1,5 @@
-# Shared UI package
+# Shared UI
 
-## Migration plan
-
-Build reusable React UI for the HQ shell, scene controls, room authoring, loading states,
-asset errors, device capability warnings, menus, and overlays. Scene-specific branding
-and runtime HUDs remain in their owning app or package.
+Reusable Base UI/shadcn primitives and React controls for the HQ shell, scene
+controls, room authoring, themes, drawers, loading states, and overlays. Scene
+branding and Three.js runtime behavior stay in their owning packages.
