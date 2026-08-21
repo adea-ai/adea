@@ -4,6 +4,10 @@ export type SceneApp = "world" | "hq";
 
 const SPAWN_QUERY_KEY = "spawn";
 const APP_DEV_PORTS: Record<SceneApp, string> = { world: "3000", hq: "3004" };
+const APP_PORTLESS_URLS: Record<SceneApp, string> = {
+  world: "https://world.localhost",
+  hq: "https://agent-hq.localhost",
+};
 
 function firstValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
@@ -67,6 +71,7 @@ function isDevelopmentHost(hostname: string): boolean {
     hostname === "127.0.0.1" ||
     hostname === "0.0.0.0" ||
     hostname === "amf-mb-pro" ||
+    hostname.endsWith(".localhost") ||
     hostname.endsWith(".ts.net")
   );
 }
@@ -75,8 +80,14 @@ function isDevelopmentHost(hostname: string): boolean {
 export function appRouteHref(app: SceneApp, path: string, currentHref?: string): string {
   const current = new URL(currentHref ?? window.location.href);
   const configuredBase = configuredAppBase(app);
-  const target = new URL(path, configuredBase ?? current.origin);
-  if (!configuredBase && isDevelopmentHost(current.hostname)) target.port = APP_DEV_PORTS[app];
+  const isPortlessHost = current.hostname.endsWith(".localhost");
+  const target = new URL(
+    path,
+    configuredBase ?? (isPortlessHost ? APP_PORTLESS_URLS[app] : current.origin),
+  );
+  if (!configuredBase && !isPortlessHost && isDevelopmentHost(current.hostname)) {
+    target.port = APP_DEV_PORTS[app];
+  }
   return target.toString();
 }
 
