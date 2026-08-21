@@ -10,10 +10,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./animals": {
-      "types": "./dist/animals.d.ts",
-      "import": "./dist/animals.js"
-    },
     "./props": {
       "types": "./dist/props.d.ts",
       "import": "./dist/props.js"
