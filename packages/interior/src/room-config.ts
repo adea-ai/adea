@@ -67,6 +67,19 @@ export const ROOM_GALLERY_BOUNDS = {
   depth: ROOM_GALLERY_BUILDING_BOUNDS.depth + grassBuffer * 2,
 } as const;
 
+/** Width of the concrete sidewalk that surrounds the map-edge fence. */
+export const ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH = ROOM_GALLERY_EXTERIOR_WALL_THICKNESS * 4;
+
+/** Camera and visual envelope including the sidewalk outside every fence edge. */
+export const ROOM_GALLERY_PERIMETER_BOUNDS = {
+  xMin: ROOM_GALLERY_BOUNDS.xMin - ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
+  xMax: ROOM_GALLERY_BOUNDS.xMax + ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
+  zMin: ROOM_GALLERY_BOUNDS.zMin - ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
+  zMax: ROOM_GALLERY_BOUNDS.zMax + ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
+  width: ROOM_GALLERY_BOUNDS.width + ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH * 2,
+  depth: ROOM_GALLERY_BOUNDS.depth + ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH * 2,
+} as const;
+
 /** Central room from the approved floor plan. */
 export const ROOM_GALLERY_HUB = {
   xMin: -centralHalfWidth,
