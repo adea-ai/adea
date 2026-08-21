@@ -36,5 +36,13 @@ for (const scene of ["hq-home", "hq-work"]) {
 }
 
 await copyAsset(resolve(repoRoot, "packages/models/assets"), resolve(publicAssets, "models"));
+await copyAsset(
+  resolve(repoRoot, "packages/characters/assets/characters"),
+  resolve(publicAssets, "models/characters"),
+);
+await copyAsset(
+  resolve(repoRoot, "packages/characters/assets/character-parts"),
+  resolve(publicAssets, "models/character-parts"),
+);
 
 console.log(`Synced HQ assets to ${publicAssets}`);
