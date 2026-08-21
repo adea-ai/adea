@@ -2,8 +2,9 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
-import { Camera, Grid3X3, UserRound } from "lucide-react";
+import { Camera, Grid3X3 } from "lucide-react";
 import type { CharacterOption } from "./character-selector";
+import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
 
 export type SceneSettingsProps = {
@@ -16,8 +17,8 @@ export type SceneSettingsProps = {
   /** Top-down room layout and interior prop designer toggle. */
   roomDesignerEnabled?: boolean;
   onRoomDesignerChange?: (value: boolean) => void;
-  /** DOM target for the compact character picker in an app shell toolbar. */
-  characterTargetId?: string;
+  /** DOM target for the account drawer trigger in an app shell toolbar. */
+  accountTargetId?: string;
   /** DOM target for the compact camera controls in an app shell toolbar. */
   cameraTargetId?: string;
   /** DOM target for the room designer control in an app shell toolbar. */
@@ -48,38 +49,18 @@ export function SceneSettings({
   allowCameraViewModeChange = true,
   roomDesignerEnabled,
   onRoomDesignerChange,
-  characterTargetId,
+  accountTargetId,
   cameraTargetId,
   roomDesignerTargetId,
 }: SceneSettingsProps) {
-  const characterTarget = usePortalTarget(characterTargetId);
   const cameraTarget = usePortalTarget(cameraTargetId);
   const roomDesignerTarget = usePortalTarget(roomDesignerTargetId);
-
-  const characterControl = (
-    <label className="workspace-character-control" title="Character">
-      <UserRound className="workspace-character-icon" aria-hidden="true" />
-      <span className="sr-only">Character</span>
-      <select
-        aria-label="Character"
-        className="workspace-character-select"
-        value={character}
-        onChange={(event) => onCharacterChange(event.target.value)}
-      >
-        {characterOptions.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
 
   const cameraControl = (
     <div className="workspace-camera-control" role="group" aria-label="Camera view">
       <Button
         type="button"
-        size="sm"
+        size="icon-sm"
         variant={cameraViewMode === "perspective" ? "default" : "outline"}
         className="workspace-camera-button"
         aria-label="Perspective camera"
@@ -88,11 +69,10 @@ export function SceneSettings({
         onClick={() => onCameraViewModeChange("perspective")}
       >
         <Camera aria-hidden="true" />
-        <span className="sr-only">Perspective</span>
       </Button>
       <Button
         type="button"
-        size="sm"
+        size="icon-sm"
         variant={cameraViewMode === "orthographic" ? "default" : "outline"}
         className="workspace-camera-button"
         aria-label="Top-down camera"
@@ -101,7 +81,6 @@ export function SceneSettings({
         onClick={() => onCameraViewModeChange("orthographic")}
       >
         <Grid3X3 aria-hidden="true" />
-        <span className="sr-only">Top-down</span>
       </Button>
     </div>
   );
@@ -117,13 +96,17 @@ export function SceneSettings({
       onClick={() => onRoomDesignerChange?.(!roomDesignerEnabled)}
     >
       <Grid3X3 aria-hidden="true" />
-      <span className="sr-only">Room designer</span>
     </Button>
   );
 
   return (
     <>
-      {renderInTarget(characterControl, characterTarget)}
+      <AccountDrawer
+        characterOptions={characterOptions}
+        character={character}
+        onCharacterChange={onCharacterChange}
+        triggerTargetId={accountTargetId}
+      />
       {allowCameraViewModeChange ? renderInTarget(cameraControl, cameraTarget) : null}
       {roomDesignerEnabled != null && onRoomDesignerChange && cameraViewMode === "orthographic" ? (
         roomDesignerTarget ? (
