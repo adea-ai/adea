@@ -22,7 +22,7 @@
     "test": "bun test test/*.test.ts"
   },
   "dependencies": {
-    "@agent-hq/placed-models": "workspace:*",
+    "@agent-hq/scene-fields": "workspace:*",
     "three": "^0.185.1"
   },
   "devDependencies": {

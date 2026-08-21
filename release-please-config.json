@@ -88,9 +88,9 @@
       "release-type": "node",
       "package-name": "@agent-hq/landscape"
     },
-    "packages/placed-models": {
+    "packages/scene-fields": {
       "release-type": "node",
-      "package-name": "@agent-hq/placed-models"
+      "package-name": "@agent-hq/scene-fields"
     },
     "packages/scene-runtime": {
       "release-type": "node",

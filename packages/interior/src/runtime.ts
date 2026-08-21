@@ -1,5 +1,5 @@
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { loadPlacedFieldFromCatalog } from "@agent-hq/placed-models";
+import { loadSceneFieldFromCatalog } from "@agent-hq/scene-fields";
 import { propAssets } from "./catalog.js";
 import type { LoadedProp, PropId } from "./prop-types.js";
 
@@ -10,12 +10,12 @@ export async function loadProp(loader: GLTFLoader, id: PropId): Promise<LoadedPr
   return { id, scene };
 }
 
-/** Build one InstancedMesh per prop catalog model from a placement manifest.
+/** Build one InstancedMesh per prop catalog model from a scene-field manifest.
  *
- * Thin wrapper over @agent-hq/placed-models' catalog-bound field loader, bound to
+ * Thin wrapper over @agent-hq/scene-fields' catalog-bound field loader, bound to
  * the @agent-hq/interior catalog. Scenes that strip their embedded props (see
  * scripts/extract-props.mjs) instance the shared models at runtime instead.
  */
 export async function loadPropsField(loader: GLTFLoader, manifestUrl: string) {
-  return loadPlacedFieldFromCatalog(loader, manifestUrl, propAssets, "props-field");
+  return loadSceneFieldFromCatalog(loader, manifestUrl, propAssets, "props-field");
 }

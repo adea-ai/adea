@@ -10,7 +10,7 @@
   "packages/data": "0.1.0",
   "packages/interior": "0.1.0",
   "packages/landscape": "0.1.0",
-  "packages/placed-models": "0.1.0",
+  "packages/scene-fields": "0.1.0",
   "packages/scene-runtime": "0.1.0",
   "packages/scene-shell": "0.1.0",
   "packages/scene-telemetry": "0.1.0",
