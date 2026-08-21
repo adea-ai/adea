@@ -7,8 +7,8 @@ export type SceneMapOption = {
 };
 
 export const sceneMapOptions: readonly SceneMapOption[] = [
-  { id: "hq-home", label: "Home", kind: "world", href: "/scenes/home" },
-  { id: "hq-work", label: "Work", kind: "world", href: "/scenes/work" },
+  { id: "hq-home", label: "Home", kind: "world", href: "/?scene=home" },
+  { id: "hq-work", label: "Work", kind: "world", href: "/?scene=work" },
 ];
 
 export const gameMapOptions: readonly SceneMapOption[] = [];

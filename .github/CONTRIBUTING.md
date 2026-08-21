@@ -76,10 +76,10 @@ The repository runtime detects supported tools and skips checks that do not appl
 
 ```sh
 npx code-foundry doctor
-npm run format:check   # or the package manager's equivalent
-npm run lint
-npm run type-check
-npm test
+bun run format:check
+bun run lint
+bun run typecheck
+bun run test
 Security and dependency audits run through the GitHub Security workflow.
 ```
 
