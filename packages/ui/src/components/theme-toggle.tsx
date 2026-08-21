@@ -2,7 +2,6 @@
 
 import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
-import { soundController } from "@agent-hq/audio";
 import { useTheme } from "next-themes";
 import { Button } from "#components/ui/button";
 import { cn } from "#lib/utils";
@@ -40,10 +39,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         aria-label="Light theme"
         variant={!isDark ? "default" : "ghost"}
         size="icon-xs"
-        onClick={() => {
-          soundController.playSfx("uiClick");
-          setTheme("light");
-        }}
+        onClick={() => setTheme("light")}
         className="rounded-full"
       >
         <Sun className="size-3.5" aria-hidden="true" />
@@ -55,10 +51,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         aria-label="Dark theme"
         variant={isDark ? "default" : "ghost"}
         size="icon-xs"
-        onClick={() => {
-          soundController.playSfx("uiClick");
-          setTheme("dark");
-        }}
+        onClick={() => setTheme("dark")}
         className="rounded-full"
       >
         <Moon className="size-3.5" aria-hidden="true" />
