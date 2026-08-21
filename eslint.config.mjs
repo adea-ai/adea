@@ -1,18 +1,46 @@
-import nextConfig from "eslint-config-next/core-web-vitals";
+import eslint from "@eslint/js";
+import globals from "globals";
+import tseslint from "typescript-eslint";
 
-export default [
-  ...nextConfig,
+export default tseslint.config(
   {
-    ignores: ["**/.next/**", "**/dist/**", "**/node_modules/**"],
+    ignores: [
+      "**/.next/**",
+      "**/.turbo/**",
+      "**/.kilo/**",
+      "**/.playwright-mcp/**",
+      "**/dist/**",
+      "**/out/**",
+      "**/node_modules/**",
+      "**/__pycache__/**",
+      "**/public/assets/**",
+      "**/next-env.d.ts",
+    ],
+  },
+  eslint.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ["**/*.{ts,tsx,js,mjs,cjs}"],
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
   },
   {
-    rules: {
-      "@next/next/no-html-link-for-pages": "off",
-    },
-    settings: {
-      react: {
-        version: "19.2",
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
       },
     },
   },
-];
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+);

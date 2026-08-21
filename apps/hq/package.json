@@ -4,27 +4,38 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "next build",
-    "dev": "next dev --hostname 0.0.0.0",
     "lint": "eslint .",
-    "start": "next start",
-    "test": "vitest run",
+    "dev": "bun ../../scripts/sync-assets.mjs && next dev -H 0.0.0.0 -p 3004",
+    "build": "bun ../../scripts/sync-assets.mjs && next build",
+    "start": "next start -H 0.0.0.0 -p ${PORT:-3004}",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@agent-hq/scene-runtime": "workspace:*",
+    "@agent-hq/asset-manifests": "workspace:*",
+    "@agent-hq/audio": "workspace:*",
+    "@agent-hq/ithappy": "workspace:*",
+    "@agent-hq/rooms": "workspace:*",
+    "@agent-hq/scene-hq-home": "workspace:*",
+    "@agent-hq/scene-hq-work": "workspace:*",
+    "@agent-hq/scene-shell": "workspace:*",
+    "@agent-hq/scene-telemetry": "workspace:*",
     "@agent-hq/ui": "workspace:*",
-    "@tanstack/react-query": "^5.101.4",
-    "lucide-react": "^1.32.0",
-    "next": "^16.3.1",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "zustand": "^5.0.15"
+    "@agent-hq/scene-runtime": "workspace:*",
+    "lucide-react": "^1.28.0",
+    "next": "16.2.6",
+    "next-themes": "^0.4.6",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
-    "@types/node": "^26.2.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
-    "eslint-config-next": "^16.3.1"
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^22",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/three": "^0.185.0",
+    "shadcn": "^4.16.1",
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0"
   }
 }
