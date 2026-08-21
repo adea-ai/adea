@@ -31,11 +31,11 @@ export {
   ithappyPartCatalog,
   ithappyPartSlots,
   ithappyPartsBySlot,
-  ithappyCustomCharacterPresets,
   assembleIthappyCharacter,
   assembleIthappyCharacterByPreset,
   type IthappyPartSlot,
   type IthappyPartOption,
-  type IthappyCustomCharacterConfig,
   type AssembledCharacter,
 } from "./custom-characters";
+
+export { ithappyCustomCharacterPresets, type IthappyCustomCharacterConfig } from "./catalog";

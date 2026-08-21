@@ -7,8 +7,9 @@
 
 Use Turborepo, Next.js, React, and TypeScript for the Agent HQ web
 application; vanilla Three.js behind a dedicated scene-runtime abstraction for
-spatial rendering; TanStack Query for server state; Zustand for shared
-client-only state; and shadcn/ui for the application UI foundation.
+spatial rendering; TanStack Query for server state; nuqs for shareable URL
+state; Zustand for shared client-only state; and shadcn/ui for the application
+UI foundation.
 
 ## Alternatives considered
 
@@ -34,9 +35,10 @@ design.
 React and Three.js communicate through a narrow scene-controller/state boundary.
 Durable workspace, task, message, and Agent data remains authoritative on the
 backend and is cached through TanStack Query rather than mirrored into Zustand.
-Zustand is limited to client-only concerns such as selection, panels, view mode,
-camera/interaction state, and other transient coordination. React Three Fiber
-is not part of the core rendering stack.
+Shareable workspace context such as scene, camera mode, and selected agent is
+represented in the URL through nuqs. Zustand is limited to client-only concerns
+such as character choice, panel visibility, view mode, and other transient
+coordination. React Three Fiber is not part of the core rendering stack.
 
 The scene-runtime package owns detailed scene-runtime, asset, animation,
 performance, and UI implementation conventions as those systems are added.

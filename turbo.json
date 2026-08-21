@@ -1,6 +1,9 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "tasks": {
+    "sync-assets": {
+      "outputs": ["public/assets/**"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"]

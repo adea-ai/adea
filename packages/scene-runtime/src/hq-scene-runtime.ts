@@ -130,9 +130,10 @@ function wallAabb(segment: (typeof ROOM_GALLERY_WALL_SEGMENTS)[number]) {
   };
 }
 
+const ROOM_WALL_BOUNDS = ROOM_GALLERY_WALL_SEGMENTS.map(wallAabb);
+
 function intersectsWall(x: number, z: number): boolean {
-  return ROOM_GALLERY_WALL_SEGMENTS.some((segment) => {
-    const bounds = wallAabb(segment);
+  return ROOM_WALL_BOUNDS.some((bounds) => {
     return (
       x + PLAYER_RADIUS > bounds.xMin &&
       x - PLAYER_RADIUS < bounds.xMax &&
@@ -181,6 +182,7 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
   const propRoot = new THREE.Group();
   const characterRoot = new THREE.Group();
   const target = new THREE.Vector3();
+  const movement = new THREE.Vector3();
   const raycaster = new THREE.Raycaster();
   const groundPlane = new THREE.Plane(
     new THREE.Vector3(0, 1, 0),
@@ -194,6 +196,9 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
   let roomCount = 0;
   let propCount = 0;
   let loadVersion = 0;
+  let characterLoadVersion = 0;
+  let roomLoadVersion = 0;
+  let lastStateEmitAt = 0;
 
   root.scale.setScalar(AUTHORING_SCALE);
   root.add(roomRoot, propRoot, characterRoot);
@@ -215,11 +220,16 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
     position: { x: player.x, y: player.y, z: player.z },
     message: statusMessage,
   });
-  const emit = () => options.onStateChange?.(getState());
+  const emit = (force = false) => {
+    const now = globalThis.performance?.now() ?? Date.now();
+    if (!force && now - lastStateEmitAt < 100) return;
+    lastStateEmitAt = now;
+    options.onStateChange?.(getState());
+  };
   const setStatus = (next: HqSceneState["status"], message?: string) => {
     status = next;
     statusMessage = message;
-    emit();
+    emit(true);
   };
 
   function updateCamera(): void {
@@ -261,7 +271,7 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
   }
 
   function movePlayer(deltaSeconds: number): void {
-    const movement = new THREE.Vector3();
+    movement.set(0, 0, 0);
     if (pressedKeys.has("w") || pressedKeys.has("arrowup")) movement.z -= 1;
     if (pressedKeys.has("s") || pressedKeys.has("arrowdown")) movement.z += 1;
     if (pressedKeys.has("a") || pressedKeys.has("arrowleft")) movement.x -= 1;
@@ -287,45 +297,59 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
     emit();
   }
 
-  async function loadCharacter(): Promise<void> {
-    if (characterModel) {
-      disposeObject(characterModel);
-      characterRoot.remove(characterModel);
-      characterModel = undefined;
+  async function loadCharacter(nextCharacterId = characterId): Promise<void> {
+    const currentVersion = ++characterLoadVersion;
+    const loaded = await loadIthappyCharacter(loader, nextCharacterId);
+    if (disposed || currentVersion !== characterLoadVersion) {
+      disposeObject(loaded.scene);
+      return;
     }
-    mixer?.stopAllAction();
-    mixer = undefined;
-    idleAction = undefined;
-    walkAction = undefined;
-    const loaded = await loadIthappyCharacter(loader, characterId);
-    characterModel = loaded.scene;
-    characterModel.scale.setScalar(100);
-    characterModel.traverse((object) => {
+    const nextModel = loaded.scene;
+    nextModel.scale.setScalar(100);
+    nextModel.traverse((object) => {
       if (object instanceof THREE.Mesh) {
         object.castShadow = true;
         object.receiveShadow = true;
       }
     });
-    characterRoot.add(characterModel);
-    characterRoot.position.set(player.x, player.y, player.z);
-    mixer = new THREE.AnimationMixer(characterModel);
-    const animations = await loadIthappyCharacterAnimations(loader, characterId, [
+    const nextMixer = new THREE.AnimationMixer(nextModel);
+    const animations = await loadIthappyCharacterAnimations(loader, nextCharacterId, [
       "idle",
       "walk",
       "run",
     ]);
-    const idleClip = animations.clips.find((clip) => clip.name === "idle");
-    const walkClip = animations.clips.find((clip) => clip.name === "walk" || clip.name === "run");
-    if (idleClip) {
-      idleAction = mixer.clipAction(idleClip);
-      idleAction.play();
+    if (disposed || currentVersion !== characterLoadVersion) {
+      nextMixer.stopAllAction();
+      disposeObject(nextModel);
+      return;
     }
-    if (walkClip) walkAction = mixer.clipAction(walkClip);
+    const nextIdleAction = animations.clips.find((clip) => clip.name === "idle");
+    const nextWalkClip = animations.clips.find(
+      (clip) => clip.name === "walk" || clip.name === "run",
+    );
+    const nextIdle = nextIdleAction ? nextMixer.clipAction(nextIdleAction) : undefined;
+    const nextWalk = nextWalkClip ? nextMixer.clipAction(nextWalkClip) : undefined;
+    if (nextIdle) nextIdle.play();
+    if (characterModel) {
+      disposeObject(characterModel);
+      characterRoot.remove(characterModel);
+    }
+    mixer?.stopAllAction();
+    characterModel = nextModel;
+    mixer = nextMixer;
+    idleAction = nextIdle;
+    walkAction = nextWalk;
+    characterRoot.add(nextModel);
+    characterRoot.position.set(player.x, player.y, player.z);
   }
 
   async function loadFloor(): Promise<void> {
     const gltf = await loader.loadAsync(`/assets/worlds/${options.sceneId}/floor.glb`);
     const floor = gltf.scene;
+    if (disposed) {
+      disposeObject(floor);
+      return;
+    }
     floor.name = `${options.sceneId}-foundation`;
     floor.traverse((object) => {
       if (object instanceof THREE.Mesh) {
@@ -337,35 +361,48 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
   }
 
   async function loadRooms(nextLayout: RoomLayoutDocument): Promise<void> {
-    for (const child of [...roomRoot.children]) {
-      disposeObject(child);
-      roomRoot.remove(child);
-    }
-    roomCount = 0;
+    const currentVersion = ++roomLoadVersion;
+    const nextRoomRoot = new THREE.Group();
+    let nextRoomCount = 0;
     const slotMap = new Map(ROOM_GALLERY_PLACEABLE_SLOTS.map((slot) => [slot.id, slot]));
     const roomLoads = Object.entries(nextLayout.placements).flatMap(([slotId, roomId]) => {
       const slot = slotMap.get(slotId);
       const assetUrl = typeof roomId === "string" ? roomVisualUrl(roomId) : undefined;
       return slot && assetUrl ? [{ slot, assetUrl, roomId }] : [];
     });
-    await Promise.all(
-      roomLoads.map(async ({ slot, assetUrl, roomId }) => {
-        const gltf = await loader.loadAsync(assetUrl);
-        const room = gltf.scene;
-        room.name = `room:${slot.id}:${roomId}`;
-        room.position.set(slot.x, ROOM_GALLERY_FOUNDATION_TOP_Y, slot.z);
-        room.quaternion.fromArray(slot.quaternion);
-        room.scale.fromArray(slot.scale);
-        room.traverse((object) => {
-          if (object instanceof THREE.Mesh) {
-            object.castShadow = true;
-            object.receiveShadow = true;
-          }
-        });
-        roomRoot.add(room);
-        roomCount += 1;
-      }),
-    );
+    try {
+      await Promise.all(
+        roomLoads.map(async ({ slot, assetUrl, roomId }) => {
+          const gltf = await loader.loadAsync(assetUrl);
+          const room = gltf.scene;
+          room.name = `room:${slot.id}:${roomId}`;
+          room.position.set(slot.x, ROOM_GALLERY_FOUNDATION_TOP_Y, slot.z);
+          room.quaternion.fromArray(slot.quaternion);
+          room.scale.fromArray(slot.scale);
+          room.traverse((object) => {
+            if (object instanceof THREE.Mesh) {
+              object.castShadow = true;
+              object.receiveShadow = true;
+            }
+          });
+          nextRoomRoot.add(room);
+          nextRoomCount += 1;
+        }),
+      );
+    } catch (cause) {
+      disposeObject(nextRoomRoot);
+      throw cause;
+    }
+    if (disposed || currentVersion !== roomLoadVersion) {
+      disposeObject(nextRoomRoot);
+      return;
+    }
+    for (const child of [...roomRoot.children]) {
+      disposeObject(child);
+      roomRoot.remove(child);
+    }
+    for (const child of [...nextRoomRoot.children]) roomRoot.add(child);
+    roomCount = nextRoomCount;
   }
 
   async function loadProps(): Promise<void> {
@@ -375,7 +412,7 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
     if (!response.ok) return;
     const document = (await response.json()) as PropDocument;
     const catalog = new Map(ithappyInteriorPropAssets.map((asset) => [asset.id, asset]));
-    const modelCache = new Map<string, THREE.Object3D>();
+    const modelCache = new Map<string, Promise<THREE.Object3D>>();
     const placements = Object.values(document.placements ?? {}).flat();
     await Promise.all(
       placements.map(async (placement) => {
@@ -389,12 +426,15 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
           !isFiniteVector(placement.s, 3)
         )
           return;
-        let source = modelCache.get(modelId);
-        if (!source) {
-          const gltf = await loader.loadAsync(asset.assetUrl);
-          source = gltf.scene;
-          modelCache.set(modelId, source);
+        let sourcePromise = modelCache.get(modelId);
+        if (!sourcePromise) {
+          sourcePromise = loader
+            .loadAsync(asset.assetUrl)
+            .then(({ scene: loadedScene }) => loadedScene);
+          modelCache.set(modelId, sourcePromise);
         }
+        const source = await sourcePromise;
+        if (disposed) return;
         const model = source.clone(true);
         model.name = `prop:${placement.id ?? modelId}`;
         model.position.fromArray(placement.p);
@@ -406,6 +446,10 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
             object.receiveShadow = true;
           }
         });
+        if (disposed) {
+          disposeObject(model);
+          return;
+        }
         propRoot.add(model);
       }),
     );
@@ -417,13 +461,13 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
     setStatus("loading", "Loading HQ assets…");
     try {
       await loadFloor();
-      if (currentVersion !== loadVersion) return;
+      if (disposed || currentVersion !== loadVersion) return;
       await Promise.all([loadRooms(layout), loadProps(), loadCharacter()]);
-      if (currentVersion !== loadVersion) return;
+      if (disposed || currentVersion !== loadVersion) return;
       updateCamera();
       setStatus("ready");
     } catch (cause) {
-      if (currentVersion !== loadVersion) return;
+      if (disposed || currentVersion !== loadVersion) return;
       setStatus("error", cause instanceof Error ? cause.message : "The scene could not be loaded.");
     }
   }
@@ -495,6 +539,10 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
     updateCamera();
   }
 
+  function onContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+  }
+
   function onKeyDown(event: KeyboardEvent): void {
     const key = event.key.toLowerCase();
     if (["w", "a", "s", "d", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
@@ -521,7 +569,7 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
       canvas.addEventListener("pointerdown", onPointerDown);
       canvas.addEventListener("pointermove", onPointerMove);
       canvas.addEventListener("pointerup", onPointerUp);
-      canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+      canvas.addEventListener("contextmenu", onContextMenu);
       canvas.addEventListener("wheel", onWheel, { passive: false });
       window.addEventListener("keydown", onKeyDown);
       window.addEventListener("keyup", onKeyUp);
@@ -561,6 +609,7 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
       canvas?.removeEventListener("pointerdown", onPointerDown);
       canvas?.removeEventListener("pointermove", onPointerMove);
       canvas?.removeEventListener("pointerup", onPointerUp);
+      canvas?.removeEventListener("contextmenu", onContextMenu);
       canvas?.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
@@ -572,19 +621,22 @@ export function createHqSceneRuntime(options: HqSceneRuntimeOptions): HqSceneRun
       container = undefined;
     },
     setCameraMode(nextMode) {
+      if (cameraMode === nextMode) return;
       cameraMode = nextMode;
       updateCamera();
-      emit();
+      emit(true);
     },
     async setCharacter(nextCharacterId) {
+      if (characterId === nextCharacterId) return;
       characterId = nextCharacterId;
-      await loadCharacter();
-      emit();
+      await loadCharacter(nextCharacterId);
+      emit(true);
     },
     async setRoomLayout(nextLayout) {
+      if (layout === nextLayout) return;
       layout = nextLayout;
       await loadRooms(nextLayout);
-      emit();
+      emit(true);
     },
     getState,
   };

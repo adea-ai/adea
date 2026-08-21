@@ -17,6 +17,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
+import { ithappyCustomCharacterPresets, type IthappyCustomCharacterConfig } from "./catalog";
+
 const partsRoot = "/assets/ithappy/character-parts";
 const charactersRoot = "/assets/ithappy/characters";
 
@@ -117,87 +119,6 @@ export function ithappyPartsBySlot(slot: IthappyPartSlot): readonly IthappyPartO
 // --- Character definition ---------------------------------------------------
 // A character is defined by selecting one part per slot. Only "body" is
 // required; other slots are optional and can be left empty.
-
-export type IthappyCustomCharacterConfig = {
-  body: string;
-  face?: string;
-  hair?: string;
-  hat?: string;
-  top?: string;
-  bottom?: string;
-  shoes?: string;
-  glasses?: string;
-  gloves?: string;
-  accessory?: string;
-};
-
-// Predefined character presets using the Creative Character parts.
-export const ithappyCustomCharacterPresets: Record<
-  string,
-  { label: string; config: IthappyCustomCharacterConfig }
-> = {
-  "custom-casual": {
-    label: "Casual",
-    config: {
-      body: "body-010",
-      face: "face-usual",
-      hair: "hair-010",
-      top: "tshirt-009",
-      bottom: "pants-010",
-      shoes: "shoes-sneakers-009",
-    },
-  },
-  "custom-streetwear": {
-    label: "Streetwear",
-    config: {
-      body: "body-010",
-      face: "face-happy",
-      hair: "hair-012",
-      hat: "hat-010",
-      top: "outwear-029",
-      bottom: "pants-014",
-      shoes: "shoes-sneakers-009",
-      accessory: "headphones-002",
-    },
-  },
-  "custom-formal": {
-    label: "Formal",
-    config: {
-      body: "body-010",
-      face: "face-usual",
-      hair: "hair-010",
-      top: "outwear-036",
-      bottom: "pants-010",
-      shoes: "shoes-slippers-005",
-      glasses: "glasses-004",
-    },
-  },
-  "custom-costume": {
-    label: "Costume",
-    config: {
-      body: "body-010",
-      face: "face-angry",
-      hat: "hat-057",
-      top: "costume-10",
-      bottom: "shorts-003",
-      shoes: "shoes-slippers-002",
-      accessory: "clown-nose",
-    },
-  },
-  "custom-chill": {
-    label: "Chill",
-    config: {
-      body: "body-010",
-      face: "face-happy",
-      hair: "hair-012",
-      top: "costume-6",
-      bottom: "shorts-003",
-      shoes: "shoes-slippers-002",
-      glasses: "glasses-006",
-      accessory: "pacifier",
-    },
-  },
-};
 
 // --- Character assembly -----------------------------------------------------
 // The Casino characters share the same skeleton as the Creative Character
@@ -344,7 +265,8 @@ export async function assembleIthappyCharacterByPreset(
   loader: GLTFLoader,
   presetId: string,
 ): Promise<AssembledCharacter | null> {
-  const preset = ithappyCustomCharacterPresets[presetId];
+  const preset =
+    ithappyCustomCharacterPresets[presetId as keyof typeof ithappyCustomCharacterPresets];
   if (!preset) return null;
   return assembleIthappyCharacter(loader, preset.config);
 }
