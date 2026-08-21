@@ -218,8 +218,12 @@ const hqClickNavigationBounds = {
 // every fence edge, then extend only the front edge farther for the street;
 // movement and collision bounds remain the actual property envelope.
 const hqCameraTopPadding = 600;
+// Keep the rear sidewalk above the bottom camera controls in normal view.
+const hqBackSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH * 2;
+const hqRoomDesignerBackdropPadding = 840;
 const hqCameraBounds = {
   ...ROOM_GALLERY_PERIMETER_BOUNDS,
+  zMin: ROOM_GALLERY_BOUNDS.zMin - hqBackSidewalkDepth,
   zMax: ROOM_GALLERY_BOUNDS.zMax + hqCameraTopPadding,
 } as const;
 const hqOrthographicHalfHeight = 720;
@@ -228,8 +232,12 @@ const hqOrthographicHalfHeight = 720;
 // These layers are visual only; the property envelope remains the gameplay
 // navigation and collision boundary.
 const hqFrontSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
-const hqFrontRoadDepth = 432;
-const hqFrontRoadWidth = ROOM_GALLERY_BOUNDS.width + hqCameraTopPadding * 2;
+// Fill the normal front camera envelope and the Room Designer backdrop after
+// the perimeter sidewalk so the roadway never ends inside the visible map.
+const hqFrontRoadVisibleDepth = hqCameraTopPadding - hqFrontSidewalkDepth;
+const hqFrontRoadDepth = hqFrontRoadVisibleDepth + hqRoomDesignerBackdropPadding;
+const hqFrontRoadWidth =
+  ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqRoomDesignerBackdropPadding) * 2;
 const hqPoolWaterVolumes = (sceneId: string): readonly SceneWaterVolume[] => [
   {
     zoneId: `${sceneId}-pool`,
@@ -321,7 +329,7 @@ function createHqMaterial(
   repeatX: number,
   repeatY: number,
 ): THREE.MeshStandardMaterial {
-  const materialTheme = theme === "home" && role === "path" ? "work" : theme;
+  const materialTheme = theme;
   const root =
     materialTheme === "home"
       ? "/assets/worlds/hq-home/materials"
@@ -330,7 +338,7 @@ function createHqMaterial(
     materialTheme === "home"
       ? {
           exterior: "grass",
-          path: "rocks",
+          path: "concrete",
           ground: "grass",
           sidewalk: "concrete",
           floor: "wood-floor",
@@ -425,9 +433,9 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   addPerimeterSidewalk(
     "back",
     ROOM_GALLERY_PERIMETER_BOUNDS.width,
-    hqFrontSidewalkDepth,
+    hqBackSidewalkDepth,
     0,
-    ROOM_GALLERY_BOUNDS.zMin - hqFrontSidewalkDepth / 2,
+    ROOM_GALLERY_BOUNDS.zMin - hqBackSidewalkDepth / 2,
   );
   addPerimeterSidewalk(
     "left",
@@ -467,7 +475,9 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     roughness: 0.62,
     metalness: 0,
   });
-  const roadCenterZ = ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth / 2;
+  // Keep the center lines in the normal gameplay portion of the road; the
+  // additional tail exists to cover Room Designer's extended backdrop.
+  const roadCenterZ = ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadVisibleDepth / 2;
   for (const offset of [-14, 14]) {
     const marking = new THREE.Mesh(
       new THREE.PlaneGeometry(hqFrontRoadWidth - 96, 6),
@@ -879,7 +889,7 @@ export function HqRoomScene({
       roomDesignerBackdropColor={visualTheme === "home" ? 0x668b59 : 0x778086}
       // Design-only ground extension; gameplay navigation and collision remain
       // locked to the actual property envelope.
-      roomDesignerBackdropPadding={840}
+      roomDesignerBackdropPadding={hqRoomDesignerBackdropPadding}
       keepZoneCollisionsActive
       staticColliders={hqBoundaryColliders}
       collideAdditionalVisualLayers={false}
