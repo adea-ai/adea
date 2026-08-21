@@ -16,7 +16,6 @@
   "packages/particles": "0.1.0",
   "packages/placed-models": "0.1.0",
   "packages/scene-runtime": "0.1.0",
-  "packages/scene": "0.1.0",
   "packages/scene-shell": "0.1.0",
   "packages/scene-telemetry": "0.1.0",
   "packages/state": "0.1.0",
