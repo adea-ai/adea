@@ -38,7 +38,7 @@
   overflow: hidden;
   background: var(--hq-shell-background);
   color: var(--hq-shell-foreground);
-  --workspace-topbar-offset: 6.5rem;
+  --workspace-topbar-offset: 7.55rem;
 
   /* Keep the shadcn primitives on the shell's dark glass surface. */
   --background: var(--hq-shell-background);
