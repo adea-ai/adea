@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { hqSceneFromSearchParams } from "./workspace-scene";
+import { hqSceneFromSearchParams } from "../src/workspace-scene";
 
 describe("hqSceneFromSearchParams", () => {
   test("defaults the unified workspace to Home", () => {

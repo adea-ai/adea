@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { HqSceneId } from "@agent-hq/app-core";
 import { MusicToggle } from "@agent-hq/audio";
+import { useWorkspaceStore } from "@agent-hq/state";
 import { BriefcaseBusiness, Home, PanelRight, Sparkles } from "lucide-react";
 import { hqHomeManifest } from "@agent-hq/scene-hq-home";
 import { hqWorkManifest } from "@agent-hq/scene-hq-work";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
 import { Button, Card, ThemeToggle } from "@agent-hq/ui";
 import { HqRoomScene } from "./hq-room-scene";
-import type { HqSceneId } from "../lib/workspace-scene";
 
 const sceneOptions = [
   {
@@ -47,16 +48,25 @@ export function WorkspaceShell({
   startPosition,
   cameraViewMode = "orthographic",
 }: WorkspaceShellProps) {
-  const [sceneId, setSceneId] = useState<HqSceneId>(initialScene);
-  const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(true);
+  const selectedScene = useWorkspaceStore((state) => state.selectedScene);
+  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene);
+  const isDetailsPanelOpen = useWorkspaceStore((state) => state.detailsPanelOpen);
+  const setDetailsPanelOpen = useWorkspaceStore((state) => state.setDetailsPanelOpen);
+  const [storeReady, setStoreReady] = useState(false);
+  const sceneId = storeReady ? selectedScene : initialScene;
   const scene = sceneById[sceneId];
+
+  useEffect(() => {
+    setSelectedScene(initialScene);
+    setStoreReady(true);
+  }, [initialScene, setSelectedScene]);
 
   useEffect(() => {
     document.title = `Agent HQ | ${scene.label}`;
   }, [scene.label]);
 
   const selectScene = (nextScene: HqSceneId) => {
-    setSceneId(nextScene);
+    setSelectedScene(nextScene);
     const nextUrl = new URL(window.location.href);
     nextUrl.pathname = "/";
     nextUrl.searchParams.set("scene", nextScene);
@@ -136,7 +146,7 @@ export function WorkspaceShell({
               <Button
                 type="button"
                 aria-label="Close workspace details"
-                onClick={() => setIsDetailsPanelOpen(false)}
+                onClick={() => setDetailsPanelOpen(false)}
                 size="icon-sm"
                 variant="ghost"
               >
@@ -164,7 +174,7 @@ export function WorkspaceShell({
             type="button"
             className="workspace-details-reopen"
             aria-label="Open workspace details"
-            onClick={() => setIsDetailsPanelOpen(true)}
+            onClick={() => setDetailsPanelOpen(true)}
             size="icon"
             variant="secondary"
           >

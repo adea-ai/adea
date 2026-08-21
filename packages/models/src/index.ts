@@ -23,6 +23,16 @@ export {
 export { modelsInteriorPropAssets, modelsPropAssets } from "./props";
 
 export {
+  modelsCharacterIdSchema,
+  modelsCharacterSelectionSchema,
+  modelsCustomCharacterIdSchema,
+  modelsInteriorPropAssetSchema,
+  modelsInteriorPropCatalogSchema,
+  type ValidatedModelsCharacterId,
+  type ValidatedModelsInteriorPropAsset,
+} from "./schemas";
+
+export {
   modelsPartCatalog,
   modelsPartSlots,
   modelsPartsBySlot,

@@ -12,8 +12,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@agent-hq/app-core": "workspace:*",
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/audio": "workspace:*",
+    "@agent-hq/data": "workspace:*",
+    "@agent-hq/state": "workspace:*",
     "@agent-hq/models": "workspace:*",
     "@agent-hq/rooms": "workspace:*",
     "@agent-hq/scene-hq-home": "workspace:*",

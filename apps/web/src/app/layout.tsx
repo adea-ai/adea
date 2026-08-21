@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { SoundProvider } from "@agent-hq/audio";
+import { AgentHqQueryProvider } from "@agent-hq/data/provider";
 import { ThemeProvider } from "@agent-hq/ui";
 import "./globals.css";
 
@@ -22,7 +23,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <ThemeProvider>
-          <SoundProvider>{children}</SoundProvider>
+          <AgentHqQueryProvider>
+            <SoundProvider>{children}</SoundProvider>
+          </AgentHqQueryProvider>
         </ThemeProvider>
       </body>
     </html>
