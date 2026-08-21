@@ -10,10 +10,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./characters": {
-      "types": "./dist/characters.d.ts",
-      "import": "./dist/characters.js"
-    },
     "./animals": {
       "types": "./dist/animals.d.ts",
       "import": "./dist/animals.js"
@@ -29,7 +25,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@agent-hq/characters": "workspace:*",
     "@agent-hq/props": "workspace:*",
     "three": "^0.185.1",
     "zod": "^4.4.3"
