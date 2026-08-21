@@ -116,7 +116,7 @@
       "name": "@agent-hq/interior",
       "version": "0.1.0",
       "dependencies": {
-        "@agent-hq/placed-models": "workspace:*",
+        "@agent-hq/scene-fields": "workspace:*",
         "three": "^0.185.1",
         "zod": "^4.4.3",
       },
@@ -128,7 +128,7 @@
       "name": "@agent-hq/landscape",
       "version": "0.1.0",
       "dependencies": {
-        "@agent-hq/placed-models": "workspace:*",
+        "@agent-hq/scene-fields": "workspace:*",
         "three": "^0.185.1",
       },
       "devDependencies": {
@@ -145,8 +145,8 @@
         "@types/three": "^0.185.0",
       },
     },
-    "packages/placed-models": {
-      "name": "@agent-hq/placed-models",
+    "packages/scene-fields": {
+      "name": "@agent-hq/scene-fields",
       "version": "0.1.0",
       "dependencies": {
         "three": "^0.185.1",
@@ -267,7 +267,7 @@
 
     "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
 
-    "@agent-hq/placed-models": ["@agent-hq/placed-models@workspace:packages/placed-models"],
+    "@agent-hq/scene-fields": ["@agent-hq/scene-fields@workspace:packages/scene-fields"],
 
     "@agent-hq/scene-runtime": ["@agent-hq/scene-runtime@workspace:packages/scene-runtime"],
 

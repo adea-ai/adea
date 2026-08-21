@@ -1,8 +1,5 @@
-# Asset manifest package
+# Asset manifests
 
-## Migration plan
-
-Own typed metadata for lazy scene and game assets: URLs, versions, sizes, dependency
-groups, preload hints, and compatibility requirements. Keep manifests lightweight and
-source-independent so a scene can stream its content without importing all other worlds
-or games.
+Typed metadata for lazy scene assets, URLs, zones, colliders, preload hints, and
+scene start positions. Manifests stay lightweight so the runtime can stream a
+scene without importing unrelated asset catalogs.
