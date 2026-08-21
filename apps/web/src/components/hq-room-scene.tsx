@@ -713,6 +713,7 @@ export function HqRoomScene({
   accountTargetId,
   cameraTargetId,
   roomDesignerTargetId,
+  sceneEditorTargetId,
 }: {
   initialCharacter: string;
   manifest: SceneManifest;
@@ -722,6 +723,7 @@ export function HqRoomScene({
   accountTargetId?: string;
   cameraTargetId?: string;
   roomDesignerTargetId?: string;
+  sceneEditorTargetId?: string;
 }) {
   const [character, setCharacter] = useState(initialCharacter);
   const visualTheme: HqVisualTheme = manifest.id === "hq-work" ? "work" : "home";
@@ -862,6 +864,7 @@ export function HqRoomScene({
       accountTargetId={accountTargetId}
       cameraTargetId={cameraTargetId}
       roomDesignerTargetId={roomDesignerTargetId}
+      sceneEditorTargetId={sceneEditorTargetId}
       cameraViewMode={cameraViewMode}
       onCameraViewModeChange={onCameraViewModeChange}
       characterScale={hqCharacterScale}

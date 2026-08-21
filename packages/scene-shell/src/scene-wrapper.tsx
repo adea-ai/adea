@@ -137,6 +137,8 @@ export type SceneWrapperProps = {
   cameraTargetId?: string;
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
   roomDesignerTargetId?: string;
+  /** DOM target for the development scene editor trigger when an app supplies a shell toolbar. */
+  sceneEditorTargetId?: string;
   /** Register the top-down room designer for apps with authored room maps. */
   roomDesignerAvailable?: boolean;
   enableRoomDesigner?: boolean;
@@ -225,6 +227,7 @@ export function SceneWrapper({
   accountTargetId,
   cameraTargetId,
   roomDesignerTargetId,
+  sceneEditorTargetId,
   roomDesignerAvailable = false,
   enableRoomDesigner = false,
   roomDesignerSceneScale = sceneScale,
@@ -338,6 +341,14 @@ export function SceneWrapper({
     const nextUrl = new URL(window.location.href);
     if (enabled) nextUrl.searchParams.set("roomDesigner", "");
     else nextUrl.searchParams.set("roomDesigner", "0");
+    window.history.replaceState(null, "", nextUrl);
+  };
+
+  const applySceneEditorChange = (enabled: boolean) => {
+    setSceneEditorEnabled(enabled);
+    const nextUrl = new URL(window.location.href);
+    if (enabled) nextUrl.searchParams.set("sceneEditor", "");
+    else nextUrl.searchParams.set("sceneEditor", "0");
     window.history.replaceState(null, "", nextUrl);
   };
 
@@ -552,9 +563,12 @@ export function SceneWrapper({
             ? onRoomDesignerChange
             : undefined
         }
+        sceneEditorEnabled={canUseSceneEditor ? sceneEditorEnabled : undefined}
+        onSceneEditorChange={canUseSceneEditor ? applySceneEditorChange : undefined}
         accountTargetId={accountTargetId}
         cameraTargetId={cameraTargetId}
         roomDesignerTargetId={roomDesignerTargetId}
+        sceneEditorTargetId={sceneEditorTargetId}
       />
       {pendingRoomDesignerClose ? (
         <div
