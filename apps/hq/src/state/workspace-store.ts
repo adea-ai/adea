@@ -1,32 +1,33 @@
 import { create } from "zustand";
 
 export type ViewMode = "map" | "focus";
+export type CameraMode = "orbit" | "pan";
 
 export interface WorkspaceState {
-  characterId: string;
+  selectedAgentId: string | null;
   isDetailsPanelOpen: boolean;
   viewMode: ViewMode;
-  roomDesignerOpen: boolean;
-  setCharacterId(characterId: string): void;
+  cameraMode: CameraMode;
+  selectAgent(agentId: string | null): void;
   toggleDetailsPanel(): void;
   setViewMode(viewMode: ViewMode): void;
-  setRoomDesignerOpen(open: boolean): void;
+  setCameraMode(cameraMode: CameraMode): void;
 }
 
 export const initialWorkspaceState = {
-  characterId: "cashier",
+  selectedAgentId: null,
   isDetailsPanelOpen: true,
   viewMode: "map" as const,
-  roomDesignerOpen: false,
+  cameraMode: "orbit" as const,
 };
 
 export function createWorkspaceStore() {
   return create<WorkspaceState>((set) => ({
     ...initialWorkspaceState,
-    setCharacterId: (characterId) => set({ characterId }),
+    selectAgent: (selectedAgentId) => set({ selectedAgentId }),
     toggleDetailsPanel: () => set((state) => ({ isDetailsPanelOpen: !state.isDetailsPanelOpen })),
     setViewMode: (viewMode) => set({ viewMode }),
-    setRoomDesignerOpen: (roomDesignerOpen) => set({ roomDesignerOpen }),
+    setCameraMode: (cameraMode) => set({ cameraMode }),
   }));
 }
 

@@ -9,8 +9,7 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./assets/*": "./assets/*"
+    }
   },
   "scripts": {
     "lint": "eslint .",
