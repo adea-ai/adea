@@ -237,6 +237,10 @@ const hqFrontRoadVisibleDepth = Math.max(0, hqCameraTopPadding - hqFrontSidewalk
 const hqFrontRoadDepth = hqFrontRoadVisibleDepth + hqRoomDesignerBackdropPadding;
 const hqFrontRoadWidth =
   ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqRoomDesignerBackdropPadding) * 2;
+const hqEggshellWallColor = 0xe9e2d7;
+const hqExteriorWallPrefixes = ROOM_GALLERY_WALL_SEGMENTS.filter(
+  ({ wallKind }) => wallKind === "exterior",
+).map(({ id }) => `HQFoundationWall-${id}`);
 const hqPoolWaterVolumes = (sceneId: string): readonly SceneWaterVolume[] => [
   {
     zoneId: `${sceneId}-pool`,
@@ -481,10 +485,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   farSidewalk.position.set(
     0,
     -0.46,
-    ROOM_GALLERY_BOUNDS.zMax +
-      hqFrontSidewalkDepth +
-      hqFrontRoadVisibleDepth +
-      hqFrontSidewalkDepth / 2,
+    ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth + hqFrontSidewalkDepth / 2,
   );
   farSidewalk.receiveShadow = true;
   visual.add(farSidewalk);
@@ -644,6 +645,47 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       metalness: 0,
       side: THREE.DoubleSide,
     });
+  });
+
+  const eggshellMaterial = new THREE.MeshStandardMaterial({
+    color: hqEggshellWallColor,
+    roughness: 0.9,
+    metalness: 0,
+  });
+  visual.traverse((object) => {
+    if (
+      !(object instanceof THREE.Mesh) ||
+      !hqExteriorWallPrefixes.some((prefix) => object.name.startsWith(prefix))
+    ) {
+      return;
+    }
+
+    object.geometry.computeBoundingBox();
+    const bounds = object.geometry.boundingBox;
+    if (!bounds) return;
+    const size = new THREE.Vector3().subVectors(bounds.max, bounds.min);
+    const width = size.x * Math.abs(object.scale.x);
+    const height = size.y * Math.abs(object.scale.y);
+    const depth = size.z * Math.abs(object.scale.z);
+    const horizontal = width >= depth;
+    const halfThickness = (horizontal ? depth : width) / 2;
+    const panel = new THREE.Mesh(
+      new THREE.PlaneGeometry(horizontal ? width : depth, height),
+      eggshellMaterial,
+    );
+    panel.name = `hq-eggshell-interior-${object.name}`;
+    panel.position.copy(object.position);
+    if (horizontal) {
+      const facesNorth = object.position.z < 0;
+      panel.position.z += facesNorth ? halfThickness + 0.5 : -halfThickness - 0.5;
+      panel.rotation.y = facesNorth ? 0 : Math.PI;
+    } else {
+      const facesEast = object.position.x < 0;
+      panel.position.x += facesEast ? halfThickness + 0.5 : -halfThickness - 0.5;
+      panel.rotation.y = facesEast ? Math.PI / 2 : -Math.PI / 2;
+    }
+    panel.receiveShadow = true;
+    visual.add(panel);
   });
   visual.add(fence);
 }
