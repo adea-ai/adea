@@ -19,8 +19,8 @@
         "typescript-eslint": "^8.67.0",
       },
     },
-    "apps/hq": {
-      "name": "@agent-hq/hq",
+    "apps/web": {
+      "name": "@agent-hq/web",
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
@@ -232,8 +232,6 @@
 
     "@agent-hq/characters": ["@agent-hq/characters@workspace:packages/characters"],
 
-    "@agent-hq/hq": ["@agent-hq/hq@workspace:apps/hq"],
-
     "@agent-hq/landscape": ["@agent-hq/landscape@workspace:packages/landscape"],
 
     "@agent-hq/models": ["@agent-hq/models@workspace:packages/models"],
@@ -257,6 +255,8 @@
     "@agent-hq/scene-telemetry": ["@agent-hq/scene-telemetry@workspace:packages/scene-telemetry"],
 
     "@agent-hq/ui": ["@agent-hq/ui@workspace:packages/ui"],
+
+    "@agent-hq/web": ["@agent-hq/web@workspace:apps/web"],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 
