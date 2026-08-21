@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { CameraController } from "./camera-controller";
 
+export { createSceneRuntime, type SceneRuntime, type SceneRuntimeOptions } from "@agent-hq/scene";
+
 export type ThreeRuntime = {
   scene: THREE.Scene;
   camera: THREE.Camera;

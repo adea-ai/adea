@@ -7,10 +7,11 @@ export const modelsCustomCharacterIdSchema = z.string().refine(isModelsCustomCha
   message: "Unknown custom model character id",
 });
 
-export const modelsCharacterSelectionSchema = z.string().refine(
-  (value) => isModelsCharacterId(value) || isModelsCustomCharacterId(value),
-  { message: "Unknown model character id" },
-);
+export const modelsCharacterSelectionSchema = z
+  .string()
+  .refine((value) => isModelsCharacterId(value) || isModelsCustomCharacterId(value), {
+    message: "Unknown model character id",
+  });
 
 export const modelsInteriorPropAssetSchema = z.object({
   id: z.string().min(1),

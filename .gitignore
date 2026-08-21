@@ -78,3 +78,4 @@ mise.local.lock
 
 # Generated HQ asset mirror
 apps/web/public/assets
+apps/desktop/src-tauri/gen
