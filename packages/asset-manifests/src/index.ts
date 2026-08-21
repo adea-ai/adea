@@ -1,5 +1,3 @@
-export type SceneKind = "world" | "minigame";
-
 export type SceneAvailability = "ready" | "planned";
 
 export type SceneZone = {
@@ -40,7 +38,6 @@ export type StaticFieldAssetUrls = {
 export type SceneManifest = {
   id: string;
   label: string;
-  kind: SceneKind;
   availability?: SceneAvailability;
   entryAssetUrl: string;
   /** Optional id for making the initially loaded asset unloadable as a zone. */

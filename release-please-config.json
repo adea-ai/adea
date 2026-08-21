@@ -48,14 +48,6 @@
       "release-type": "node",
       "package-name": "agent-hq"
     },
-    "apps/desktop": {
-      "release-type": "node",
-      "package-name": "@agent-hq/desktop"
-    },
-    "apps/mobile": {
-      "release-type": "node",
-      "package-name": "@agent-hq/mobile"
-    },
     "apps/web": {
       "release-type": "node",
       "package-name": "@agent-hq/web"
@@ -83,10 +75,6 @@
     "packages/characters": {
       "release-type": "node",
       "package-name": "@agent-hq/characters"
-    },
-    "packages/config": {
-      "release-type": "node",
-      "package-name": "@agent-hq/config"
     },
     "packages/data": {
       "release-type": "node",
