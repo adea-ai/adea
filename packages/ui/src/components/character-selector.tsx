@@ -40,11 +40,12 @@ export function CharacterSelector({
         {visibleOptions.map((option) => {
           const selected = option.id === value;
           return (
-            <button
+            <Button
               key={option.id}
               type="button"
               role="radio"
               aria-checked={selected}
+              variant={selected ? "secondary" : "outline"}
               onClick={() => {
                 soundController.playSfx("uiClick");
                 onValueChange(option.id);
@@ -80,7 +81,7 @@ export function CharacterSelector({
                 )}
               </span>
               <span className="font-medium">{option.label}</span>
-            </button>
+            </Button>
           );
         })}
       </div>
