@@ -1,76 +1,39 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
-import {
-  createHqSceneRuntime,
-  type HqCameraMode,
-  type HqSceneId,
-  type HqSceneState,
-} from "@agent-hq/scene-runtime";
-import type { RoomLayoutDocument } from "@agent-hq/rooms";
+import { createSceneController } from "@agent-hq/scene-runtime";
 
-export const SceneViewport = memo(function SceneViewport({
-  sceneId,
-  characterId,
-  cameraMode,
-  layout,
-  designerOpen,
-}: {
-  sceneId: HqSceneId;
-  characterId: string;
-  cameraMode: HqCameraMode;
-  layout: RoomLayoutDocument;
-  designerOpen: boolean;
-}) {
+export function SceneViewport() {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const runtimeRef = useRef<ReturnType<typeof createHqSceneRuntime> | null>(null);
-  const initialConfigRef = useRef({ cameraMode, characterId, layout });
-  const [sceneState, setSceneState] = useState<HqSceneState | null>(null);
 
   useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
-    const initialConfig = initialConfigRef.current;
 
-    const runtime = createHqSceneRuntime({
-      sceneId,
-      characterId: initialConfig.characterId,
-      cameraMode: initialConfig.cameraMode,
-      initialLayout: initialConfig.layout,
-      onStateChange: setSceneState,
-    });
-    runtimeRef.current = runtime;
-    runtime.mount(viewport);
+    const controller = createSceneController();
+    controller.mount(viewport);
 
     const resizeObserver = new ResizeObserver(([entry]) => {
       if (!entry) return;
 
-      runtime.resize(entry.contentRect.width, entry.contentRect.height, window.devicePixelRatio);
+      controller.resize(entry.contentRect.width, entry.contentRect.height, window.devicePixelRatio);
     });
     resizeObserver.observe(viewport);
 
-    return () => {
-      resizeObserver.disconnect();
-      runtime.dispose();
-      runtimeRef.current = null;
+    let animationFrame = 0;
+    const renderFrame = () => {
+      controller.render();
+      animationFrame = window.requestAnimationFrame(renderFrame);
     };
-  }, [sceneId]);
+    renderFrame();
 
-  useEffect(() => {
-    if (!runtimeRef.current) return;
-    runtimeRef.current.setCameraMode(cameraMode);
-  }, [cameraMode]);
-
-  useEffect(() => {
-    if (!runtimeRef.current) return;
-    void runtimeRef.current.setCharacter(characterId).catch(() => undefined);
-  }, [characterId]);
-
-  useEffect(() => {
-    if (!runtimeRef.current || designerOpen) return;
-    void runtimeRef.current.setRoomLayout(layout).catch(() => undefined);
-  }, [designerOpen, layout]);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
+      controller.dispose();
+    };
+  }, []);
 
   return (
     <div
@@ -80,18 +43,9 @@ export const SceneViewport = memo(function SceneViewport({
       role="img"
     >
       <div className="scene-viewport__overlay" aria-hidden="true">
-        <span className="scene-viewport__grid-label">
-          {sceneState?.status === "loading" ? "LOADING HQ" : "LIVE SPATIAL VIEW"}
-        </span>
-        <span className="scene-viewport__coordinates">
-          {sceneState
-            ? `X ${sceneState.position.x.toFixed(0)} / Z ${sceneState.position.z.toFixed(0)} · ${sceneState.roomCount} rooms`
-            : "Connecting to scene runtime…"}
-        </span>
+        <span className="scene-viewport__grid-label">LIVE SPATIAL VIEW</span>
+        <span className="scene-viewport__coordinates">X 14.2 / Y 08.6 / Z 03.1</span>
       </div>
-      {sceneState?.status === "error" ? (
-        <p className="scene-viewport__error">{sceneState.message}</p>
-      ) : null}
     </div>
   );
-});
+}
