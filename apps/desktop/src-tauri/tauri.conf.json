@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Agent HQ",
+  "version": "0.1.0",
+  "identifier": "com.agenthq.desktop",
+  "build": {
+    "beforeDevCommand": "bun --cwd ../web dev",
+    "devUrl": "http://localhost:3000"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
