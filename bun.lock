@@ -53,10 +53,9 @@
         "@agent-hq/audio": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/data": "workspace:*",
+        "@agent-hq/hq-scenes": "workspace:*",
         "@agent-hq/interior": "workspace:*",
         "@agent-hq/pets": "workspace:*",
-        "@agent-hq/scene-hq-home": "workspace:*",
-        "@agent-hq/scene-hq-work": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/scene-shell": "workspace:*",
         "@agent-hq/scene-telemetry": "workspace:*",
@@ -285,8 +284,8 @@
         "@types/three": "^0.185.0",
       },
     },
-    "scenes/hq-home": {
-      "name": "@agent-hq/scene-hq-home",
+    "scenes/hq": {
+      "name": "@agent-hq/hq-scenes",
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
@@ -324,6 +323,8 @@
 
     "@agent-hq/desktop": ["@agent-hq/desktop@workspace:apps/desktop"],
 
+    "@agent-hq/hq-scenes": ["@agent-hq/hq-scenes@workspace:scenes/hq"],
+
     "@agent-hq/interior": ["@agent-hq/interior@workspace:packages/interior"],
 
     "@agent-hq/landscape": ["@agent-hq/landscape@workspace:packages/landscape"],
@@ -337,8 +338,6 @@
     "@agent-hq/placed-models": ["@agent-hq/placed-models@workspace:packages/placed-models"],
 
     "@agent-hq/scene": ["@agent-hq/scene@workspace:packages/scene"],
-
-    "@agent-hq/scene-hq-home": ["@agent-hq/scene-hq-home@workspace:scenes/hq-home"],
 
     "@agent-hq/scene-hq-work": ["@agent-hq/scene-hq-work@workspace:scenes/hq-work"],
 
