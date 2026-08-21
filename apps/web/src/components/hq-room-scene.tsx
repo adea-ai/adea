@@ -641,6 +641,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     color: hqEggshellWallColor,
     roughness: 0.9,
     metalness: 0,
+    side: THREE.DoubleSide,
   });
   visual.traverse((object) => {
     if (!(object instanceof THREE.Mesh) || !object.name.startsWith("HQFoundationWall-")) return;
