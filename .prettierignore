@@ -10,3 +10,4 @@ dist
 node_modules
 bun.lock
 apps/*/public/assets
+apps/desktop/src-tauri/gen
