@@ -8,10 +8,7 @@ The initial web foundation follows the accepted frontend stack decision:
 - Next.js, React, and TypeScript for the application shell.
 - Vanilla Three.js behind `@agent-hq/scene-runtime` for spatial rendering.
 - TanStack Query for authoritative remote/server state.
-- nuqs for shareable workspace URL state such as scene, camera, and selected
-  agent.
-- Zustand for ephemeral client-only coordination such as character, panels, and
-  view mode.
+- Zustand for ephemeral client-only coordination.
 - A shadcn-compatible `@agent-hq/ui` package for accessible, composable UI primitives.
 
 ## Repository shape
@@ -19,15 +16,14 @@ The initial web foundation follows the accepted frontend stack decision:
 ```text
 apps/
   hq/                          Next.js App Router application
-scenes/
-  hq-home/                     Home scene manifest and authored assets
-  hq-work/                     Work scene manifest and authored assets
 packages/
-  asset-manifests/             Scene and layout contracts
-  ithappy/                     HQ character, animation, and prop assets
-  rooms/                       Room gallery and designer contracts/assets
+  asset-manifests/             Authorized scene manifest contracts
+  rooms/                       Authorized room assets and contracts
   scene-runtime/               React-independent Three.js controller boundary
   ui/                          Shared shadcn-compatible primitives
+scenes/
+  hq-home/                     Authorized home scene assets
+  hq-work/                     Authorized work scene assets
 docs/decisions/                Accepted architecture decisions
 ```
 
@@ -37,9 +33,8 @@ systems. The two communicate through the controller API exported by
 `@agent-hq/scene-runtime`; React does not reach into the Three.js scene graph.
 
 Durable agent, workspace, task, and message data belongs on the backend and is
-queried through TanStack Query. Shareable workspace context belongs in the URL
-through nuqs. Zustand is intentionally limited to character choice, panel
-visibility, view mode, and other transient coordination state.
+queried through TanStack Query. Zustand is intentionally limited to selection,
+panel visibility, view mode, and other transient coordination state.
 
 ## Local development
 
@@ -48,11 +43,11 @@ pnpm install
 pnpm dev
 ```
 
-The web app is available on port 3000 by default. The `/api/agents` and
-`/api/layout` routes are local contract boundaries for the first UI slice and
-should be replaced by backend contracts when that service is introduced.
-Nifty League World assets, audio, and World scene runtime code are intentionally
-outside this repository.
+The web app is available on port 3000 by default. The initial `/api/agents`
+route is a local fixture boundary for the first UI slice and should be replaced
+by the backend contract when that service is introduced. Scene and room assets
+are retained at their authorized PR-178 baseline; the floorplan designer and
+post-PR-178 HQ runtime are not part of this repository.
 
 ## Verification commands
 
