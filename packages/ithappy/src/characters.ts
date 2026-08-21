@@ -14,12 +14,26 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { assembleIthappyCharacter, loadIthappyAnimationClips } from "./custom-characters";
 import {
-  assembleIthappyCharacter,
-  loadIthappyAnimationClips,
+  ithappyCharacterIds,
+  ithappyCharacterLabels,
+  ithappyCustomCharacterIds,
   ithappyCustomCharacterPresets,
-  type IthappyCustomCharacterConfig,
-} from "./custom-characters";
+  type IthappyCharacterId,
+  type IthappyCustomCharacterId,
+} from "./catalog";
+
+export {
+  allIthappyCharacterIds,
+  getCustomCharacterLabel,
+  ithappyCharacterIconUrls,
+  ithappyCharacterIds,
+  ithappyCharacterLabels,
+  ithappyCustomCharacterIds,
+  type IthappyCharacterId,
+  type IthappyCustomCharacterId,
+} from "./catalog";
 
 const assetRoot = "/assets/ithappy/characters";
 
@@ -40,48 +54,16 @@ export type IthappyCharacterManifest = {
 };
 
 // --- Casino characters (pre-built) ------------------------------------------
-export const ithappyCharacterIds = [
-  "cashier",
-  "security",
-  "showgirl",
-  "gambler",
-  "high-roller",
-] as const;
-export type IthappyCharacterId = (typeof ithappyCharacterIds)[number];
-
-export const ithappyCharacterLabels: Record<IthappyCharacterId, string> = {
-  cashier: "Cashier",
-  security: "Security",
-  showgirl: "Showgirl",
-  gambler: "Gambler",
-  "high-roller": "High Roller",
-};
-
-// No SVG icons yet; the character selector shows labels without icons when
-// iconUrl is undefined.
-export const ithappyCharacterIconUrls: Partial<Record<IthappyCharacterId, string>> = {};
 
 export function isIthappyCharacterId(value: string | undefined): value is IthappyCharacterId {
   return value !== undefined && ithappyCharacterIds.includes(value as IthappyCharacterId);
 }
 
-// --- Custom characters (assembled from parts) -------------------------------
-export const ithappyCustomCharacterIds = Object.keys(ithappyCustomCharacterPresets);
-export type IthappyCustomCharacterId = string;
-
-export function isIthappyCustomCharacterId(value: string | undefined): boolean {
+export function isIthappyCustomCharacterId(
+  value: string | undefined,
+): value is IthappyCustomCharacterId {
   return value !== undefined && value in ithappyCustomCharacterPresets;
 }
-
-export function getCustomCharacterLabel(id: string): string | undefined {
-  return ithappyCustomCharacterPresets[id]?.label;
-}
-
-// All ithappy character IDs (Casino + custom).
-export const allIthappyCharacterIds: readonly string[] = [
-  ...ithappyCharacterIds,
-  ...ithappyCustomCharacterIds,
-];
 
 // Map standard animation keys (used by SceneHost) to the embedded animation
 // names in the ithappy GLBs. Adult-rig characters share the same animation

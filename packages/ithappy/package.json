@@ -14,6 +14,10 @@
       "types": "./dist/characters.d.ts",
       "import": "./dist/characters.js"
     },
+    "./catalog": {
+      "types": "./dist/catalog.d.ts",
+      "import": "./dist/catalog.js"
+    },
     "./animals": {
       "types": "./dist/animals.d.ts",
       "import": "./dist/animals.js"
