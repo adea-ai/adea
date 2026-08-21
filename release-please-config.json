@@ -48,9 +48,9 @@
       "release-type": "node",
       "package-name": "agent-hq"
     },
-    "apps/hq": {
+    "apps/web": {
       "release-type": "node",
-      "package-name": "@agent-hq/hq"
+      "package-name": "@agent-hq/web"
     },
     "packages/asset-manifests": {
       "release-type": "node",

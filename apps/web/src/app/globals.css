@@ -1,0 +1,406 @@
+@import "@agent-hq/scene-shell/globals.css";
+
+:root {
+  --hq-shell-background: #f3f7f4;
+  --hq-shell-surface: #ffffff;
+  --hq-shell-surface-strong: #e7efe9;
+  --hq-shell-surface-stronger: #dce8df;
+  --hq-shell-border: #c9d8cd;
+  --hq-shell-border-subtle: #dce7df;
+  --hq-shell-foreground: #17231b;
+  --hq-shell-muted: #5b6c61;
+  --hq-shell-accent: #4d7c0f;
+  --hq-shell-accent-strong: #3f6212;
+  --hq-shell-accent-foreground: #f7fee7;
+  --hq-shell-focus: #2563eb;
+  --hq-shell-active: #15803d;
+}
+
+.dark {
+  --hq-shell-background: #0a0d11;
+  --hq-shell-surface: #11161d;
+  --hq-shell-surface-strong: #18202a;
+  --hq-shell-surface-stronger: #202a36;
+  --hq-shell-border: #27313d;
+  --hq-shell-border-subtle: #1b242f;
+  --hq-shell-foreground: #f0f4f8;
+  --hq-shell-muted: #8d9aa8;
+  --hq-shell-accent: #c9f27a;
+  --hq-shell-accent-strong: #dbff95;
+  --hq-shell-accent-foreground: #17200e;
+  --hq-shell-focus: #a8d6ff;
+  --hq-shell-active: #86efac;
+}
+
+.workspace-shell {
+  position: relative;
+  min-height: 100svh;
+  overflow: hidden;
+  background: var(--hq-shell-background);
+  color: var(--hq-shell-foreground);
+  --workspace-topbar-offset: 6.5rem;
+
+  /* Keep the shadcn primitives on the shell's dark glass surface. */
+  --background: var(--hq-shell-background);
+  --foreground: var(--hq-shell-foreground);
+  --card: var(--hq-shell-surface);
+  --card-foreground: var(--hq-shell-foreground);
+  --secondary: var(--hq-shell-surface-strong);
+  --secondary-foreground: var(--hq-shell-foreground);
+  --muted: var(--hq-shell-surface-stronger);
+  --muted-foreground: var(--hq-shell-muted);
+  --primary: var(--hq-shell-accent);
+  --primary-foreground: var(--hq-shell-accent-foreground);
+  --border: var(--hq-shell-border);
+  --input: var(--hq-shell-border);
+  --ring: var(--hq-shell-focus);
+}
+
+.workspace-ui {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  pointer-events: none;
+  transition: background 200ms ease;
+}
+
+.workspace-topbar,
+.workspace-details,
+.workspace-details-reopen,
+.workspace-view-switcher,
+.workspace-scene-caption {
+  pointer-events: auto;
+}
+
+.workspace-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  min-height: 4.75rem;
+  padding: 0.8rem 1.25rem;
+  gap: 0.45rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--hq-shell-border) 70%, transparent);
+  background: color-mix(in srgb, var(--hq-shell-surface) 88%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.workspace-topbar__main {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.workspace-topbar__secondary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0.5rem 0 0.15rem;
+}
+
+.workspace-brand,
+.workspace-topbar__actions,
+.workspace-status,
+.workspace-scene-tab,
+.workspace-panel-heading,
+.workspace-view-switcher,
+.workspace-scene-caption {
+  display: flex;
+  align-items: center;
+}
+
+.workspace-brand {
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.workspace-brand__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.55rem;
+  background: var(--hq-shell-accent);
+  color: var(--hq-shell-accent-foreground);
+}
+
+.workspace-brand h1,
+.workspace-panel-heading h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.workspace-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--hq-shell-muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.61rem;
+  letter-spacing: 0.12em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+.workspace-scene-nav {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid var(--hq-shell-border-subtle);
+  border-radius: 0.6rem;
+  background: color-mix(in srgb, var(--hq-shell-surface) 82%, transparent);
+}
+
+.workspace-topbar__actions {
+  justify-self: end;
+}
+
+.workspace-scene-nav {
+  flex: 0 0 auto;
+}
+
+.workspace-scene-tab {
+  gap: 0.45rem;
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--hq-shell-muted);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 650;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.workspace-scene-tab:hover,
+.workspace-scene-tab--selected {
+  background: var(--hq-shell-surface-strong);
+  color: var(--hq-shell-foreground);
+}
+
+.workspace-scene-tab--selected {
+  box-shadow: inset 0 0 0 1px var(--hq-shell-border);
+}
+
+.workspace-scene-tab:focus-visible,
+.workspace-details-reopen:focus-visible {
+  outline: 2px solid var(--hq-shell-focus);
+  outline-offset: 2px;
+}
+
+.workspace-topbar__actions {
+  justify-content: flex-end;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.workspace-tool-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.workspace-account-slot {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.workspace-camera-control {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.workspace-camera-button {
+  min-width: 0;
+}
+
+.workspace-room-designer-slot {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.workspace-status {
+  gap: 0.45rem;
+  color: var(--hq-shell-muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
+}
+
+.workspace-status__dot,
+.workspace-scene-caption__dot {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: var(--hq-shell-active);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hq-shell-active) 10%, transparent);
+}
+
+.workspace-details {
+  position: absolute;
+  top: 7.8rem;
+  right: 1.25rem;
+  width: 18rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--hq-shell-border) 80%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--hq-shell-surface) 88%, transparent);
+  box-shadow: 0 1rem 3rem rgb(0 0 0 / 18%);
+  backdrop-filter: blur(18px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.workspace-panel-heading {
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1.2rem;
+}
+
+.workspace-details__description,
+.workspace-detail-section__meta {
+  color: var(--hq-shell-muted);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.workspace-details__description {
+  margin: 0 0 1.4rem;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.workspace-detail-section {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--hq-shell-border-subtle);
+}
+
+.workspace-detail-section + .workspace-detail-section {
+  margin-top: 1.1rem;
+}
+
+.workspace-detail-section--accent {
+  padding: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--hq-shell-accent) 14%, transparent);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--hq-shell-accent) 4%, transparent);
+}
+
+.workspace-detail-section__title {
+  margin: 0.55rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.workspace-detail-section__meta {
+  margin: 0.4rem 0 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.59rem;
+}
+
+.workspace-details-reopen {
+  position: absolute;
+  top: 7.8rem;
+  right: 1.25rem;
+}
+
+.workspace-view-switcher {
+  position: absolute;
+  bottom: 1.4rem;
+  left: 50%;
+  gap: 0.15rem;
+  padding: 0.2rem;
+  border: 1px solid var(--hq-shell-border);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--hq-shell-surface) 86%, transparent);
+  transform: translateX(-50%);
+  backdrop-filter: blur(14px);
+}
+
+.workspace-scene-caption {
+  position: absolute;
+  bottom: 1.6rem;
+  left: 1.25rem;
+  gap: 0.45rem;
+  color: color-mix(in srgb, var(--hq-shell-foreground) 68%, transparent);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.03em;
+}
+
+.workspace-scene-caption__dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  box-shadow: none;
+}
+
+@media (max-width: 900px) {
+  .workspace-shell {
+    --workspace-topbar-offset: 7.5rem;
+  }
+
+  .workspace-topbar__main {
+    grid-template-columns: 1fr auto;
+  }
+
+  .workspace-details {
+    display: none;
+  }
+
+  .workspace-details-reopen {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace-shell {
+    --workspace-topbar-offset: 7rem;
+  }
+
+  .workspace-topbar {
+    padding: 0.7rem 0.8rem;
+  }
+
+  .workspace-topbar__main {
+    grid-template-columns: 1fr auto;
+  }
+
+  .workspace-status {
+    display: none;
+  }
+
+  .workspace-room-designer-label {
+    display: none;
+  }
+
+  .workspace-view-switcher {
+    right: 0.8rem;
+    bottom: 1rem;
+    left: auto;
+    transform: none;
+  }
+
+  .workspace-scene-caption {
+    right: 0.8rem;
+    bottom: 1.15rem;
+    left: 0.8rem;
+    max-width: calc(100% - 7rem);
+  }
+}
