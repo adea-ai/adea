@@ -14,10 +14,10 @@
   },
   "dependencies": {
     "@agent-hq/config": "workspace:*",
-    "@capacitor/core": "^7.4.0"
+    "@capacitor/core": "^8.5.0"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.4.0",
-    "@types/node": "^22"
+    "@capacitor/cli": "^8.5.0",
+    "@types/node": "^26.2.0"
   }
 }
