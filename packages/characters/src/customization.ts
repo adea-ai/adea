@@ -1,4 +1,4 @@
-// models customizable character system.
+// customizable character system.
 //
 // The Creative Character pack ships individual body/clothing parts (bodies,
 // hairstyles, hats, glasses, shoes, etc.) that all share the same 44-joint
@@ -23,7 +23,7 @@ const charactersRoot = "/assets/models/characters";
 // Each part is categorized by slot. A character definition picks one part
 // per slot (some slots are optional).
 
-export type ModelsPartSlot =
+export type CharacterPartSlot =
   | "body"
   | "face"
   | "hair"
@@ -35,14 +35,14 @@ export type ModelsPartSlot =
   | "gloves"
   | "accessory";
 
-export interface ModelsPartOption {
+export interface CharacterPartOption {
   id: string;
   label: string;
-  slot: ModelsPartSlot;
+  slot: CharacterPartSlot;
   file: string;
 }
 
-export const modelsPartCatalog: readonly ModelsPartOption[] = [
+export const characterPartCatalog: readonly CharacterPartOption[] = [
   // Body
   { id: "body-010", label: "Body 010", slot: "body", file: "Body_010.glb" },
 
@@ -96,7 +96,7 @@ export const modelsPartCatalog: readonly ModelsPartOption[] = [
   { id: "pacifier", label: "Pacifier", slot: "accessory", file: "Pacifier_001.glb" },
 ];
 
-export const modelsPartSlots: readonly ModelsPartSlot[] = [
+export const characterPartSlots: readonly CharacterPartSlot[] = [
   "body",
   "face",
   "hair",
@@ -109,15 +109,15 @@ export const modelsPartSlots: readonly ModelsPartSlot[] = [
   "accessory",
 ];
 
-export function modelsPartsBySlot(slot: ModelsPartSlot): readonly ModelsPartOption[] {
-  return modelsPartCatalog.filter((p) => p.slot === slot);
+export function characterPartsBySlot(slot: CharacterPartSlot): readonly CharacterPartOption[] {
+  return characterPartCatalog.filter((p) => p.slot === slot);
 }
 
 // --- Character definition ---------------------------------------------------
 // A character is defined by selecting one part per slot. Only "body" is
 // required; other slots are optional and can be left empty.
 
-export type ModelsCustomCharacterConfig = {
+export type CustomCharacterConfig = {
   body: string;
   face?: string;
   hair?: string;
@@ -131,9 +131,9 @@ export type ModelsCustomCharacterConfig = {
 };
 
 // Predefined character presets using the Creative Character parts.
-export const modelsCustomCharacterPresets: Record<
+export const customCharacterPresets: Record<
   string,
-  { label: string; config: ModelsCustomCharacterConfig }
+  { label: string; config: CustomCharacterConfig }
 > = {
   "custom-casual": {
     label: "Casual",
@@ -208,7 +208,7 @@ const ANIMATION_SOURCE = `${charactersRoot}/1_Cashier.glb`;
 let cachedAnimationClips: THREE.AnimationClip[] | null = null;
 let pendingAnimationClips: Promise<THREE.AnimationClip[]> | null = null;
 
-export async function loadModelsAnimationClips(
+export async function loadCharacterAnimationClips(
   loader?: GLTFLoader,
 ): Promise<THREE.AnimationClip[]> {
   if (cachedAnimationClips) return cachedAnimationClips;
@@ -232,19 +232,19 @@ export type AssembledCharacter = {
 };
 
 /**
- * Assemble a custom models character from Creative Character parts.
+ * Assemble a custom character from Creative Character parts.
  *
  * Loads each selected part GLB, extracts its skinned mesh, and parents them
  * all under a shared skeleton root. The animations from the Casino rig are
  * attached since the Creative parts have none.
  */
-export async function assembleModelsCharacter(
+export async function assembleCharacter(
   loader: GLTFLoader,
-  config: ModelsCustomCharacterConfig,
+  config: CustomCharacterConfig,
 ): Promise<AssembledCharacter> {
   // Collect all part IDs to load.
   const partIds = Object.values(config).filter(Boolean) as string[];
-  const partOptions = modelsPartCatalog.filter((p) => partIds.includes(p.id));
+  const partOptions = characterPartCatalog.filter((p) => partIds.includes(p.id));
 
   // Use a fresh GLTFLoader for parts — the shared scene loader has KTX2 and
   // Meshopt decoders configured which can interfere with simple part GLBs.
@@ -275,7 +275,7 @@ export async function assembleModelsCharacter(
 
   for (const { scene, option } of partResults) {
     if (!scene) {
-      console.error(`[models] scene is undefined for part ${option.file}`);
+      console.error(`[characters] scene is undefined for part ${option.file}`);
       continue;
     }
     // Manually walk the tree instead of using traverse, since the GLTFLoader
@@ -315,7 +315,7 @@ export async function assembleModelsCharacter(
   }
 
   // Load animations from the Casino rig.
-  const clips = await loadModelsAnimationClips(loader);
+  const clips = await loadCharacterAnimationClips(loader);
 
   return { scene: group, clips };
 }
@@ -323,11 +323,11 @@ export async function assembleModelsCharacter(
 /**
  * Assemble a custom character by preset ID.
  */
-export async function assembleModelsCharacterByPreset(
+export async function assembleCharacterByPreset(
   loader: GLTFLoader,
   presetId: string,
 ): Promise<AssembledCharacter | null> {
-  const preset = modelsCustomCharacterPresets[presetId];
+  const preset = customCharacterPresets[presetId];
   if (!preset) return null;
-  return assembleModelsCharacter(loader, preset.config);
+  return assembleCharacter(loader, preset.config);
 }
