@@ -38,7 +38,7 @@
   overflow: hidden;
   background: var(--hq-shell-background);
   color: var(--hq-shell-foreground);
-  --workspace-topbar-offset: 4.75rem;
+  --workspace-topbar-offset: 6.5rem;
 
   /* Keep the shadcn primitives on the shell's dark glass surface. */
   --background: var(--hq-shell-background);
@@ -80,6 +80,7 @@
   display: grid;
   min-height: 4.75rem;
   padding: 0.8rem 1.25rem;
+  gap: 0.45rem;
   border-bottom: 1px solid color-mix(in srgb, var(--hq-shell-border) 70%, transparent);
   background: color-mix(in srgb, var(--hq-shell-surface) 88%, transparent);
   backdrop-filter: blur(18px);
@@ -91,6 +92,13 @@
   align-items: center;
   gap: 1rem;
   min-width: 0;
+}
+
+.workspace-topbar__secondary {
+  display: flex;
+  min-height: 1.75rem;
+  align-items: center;
+  justify-content: flex-end;
 }
 
 .workspace-topbar__center {
@@ -356,7 +364,7 @@
 
 @media (max-width: 900px) {
   .workspace-shell {
-    --workspace-topbar-offset: 7.5rem;
+    --workspace-topbar-offset: 9.5rem;
   }
 
   .workspace-topbar__main {
@@ -381,7 +389,7 @@
 
 @media (max-width: 640px) {
   .workspace-shell {
-    --workspace-topbar-offset: 7rem;
+    --workspace-topbar-offset: 9.25rem;
   }
 
   .workspace-topbar {
