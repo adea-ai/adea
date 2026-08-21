@@ -28,9 +28,12 @@ await copyAsset(
   resolve(publicAssets, "basis/basis_transcoder.wasm"),
 );
 
-for (const scene of ["hq-home", "hq-work"]) {
+for (const [scene, assetDirectory] of [
+  ["hq-home", "home"],
+  ["hq-work", "work"],
+]) {
   await copyAsset(
-    resolve(repoRoot, "scenes", scene, "assets"),
+    resolve(repoRoot, "scenes", "hq", "assets", assetDirectory),
     resolve(publicAssets, "worlds", scene),
   );
 }

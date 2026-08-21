@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/scene-hq-home",
+  "name": "@agent-hq/hq-scenes",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,6 +9,14 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./home": {
+      "types": "./dist/home.d.ts",
+      "import": "./dist/home.js"
+    },
+    "./work": {
+      "types": "./dist/work.d.ts",
+      "import": "./dist/work.js"
     }
   },
   "scripts": {
