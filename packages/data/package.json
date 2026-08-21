@@ -1,0 +1,32 @@
+{
+  "name": "@agent-hq/data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./provider": {
+      "types": "./dist/provider.d.ts",
+      "import": "./dist/provider.js"
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agent-hq/api-client": "workspace:*",
+    "@agent-hq/types": "workspace:*",
+    "@tanstack/react-query": "^5.66.8",
+    "react": "18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18"
+  }
+}
