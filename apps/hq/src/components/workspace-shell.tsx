@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState } from "react";
 import {
   Activity,
@@ -17,15 +18,23 @@ import {
   ithappyCharacterIds,
   ithappyCustomCharacterIds,
   getCustomCharacterLabel,
-} from "@agent-hq/ithappy";
+} from "@agent-hq/ithappy/catalog";
 import { Button } from "@agent-hq/ui";
 import { RoomDesignerPanel } from "./room-designer-panel";
-import { SceneViewport } from "./scene-viewport";
 import { useAgentsQuery } from "@/features/agents/use-agents-query";
 import { hqSceneLabel, type HqSceneId } from "@/features/hq/hq-scene";
 import { useHqLayoutQuery } from "@/features/hq/use-hq-layout-query";
 import { useWorkspaceStore } from "@/state/workspace-store";
+import { useWorkspaceUrlState } from "@/state/use-workspace-url-state";
 import type { RoomLayoutDocument } from "@agent-hq/rooms";
+
+const SceneViewport = dynamic(
+  () => import("./scene-viewport").then((module) => module.SceneViewport),
+  {
+    loading: () => <div className="scene-viewport__loading">Preparing the HQ workspace…</div>,
+    ssr: false,
+  },
+);
 
 const characters = [
   ...ithappyCharacterIds.map((id) => ({
@@ -37,16 +46,12 @@ const characters = [
 
 export function WorkspaceShell() {
   const { data: agents, error, isLoading } = useAgentsQuery();
-  const selectedAgentId = useWorkspaceStore((state) => state.selectedAgentId);
-  const sceneId = useWorkspaceStore((state) => state.sceneId);
+  const { cameraMode, sceneId, selectedAgentId, setCameraMode, setSceneId, setSelectedAgentId } =
+    useWorkspaceUrlState();
   const characterId = useWorkspaceStore((state) => state.characterId);
-  const cameraMode = useWorkspaceStore((state) => state.cameraMode);
   const isDetailsPanelOpen = useWorkspaceStore((state) => state.isDetailsPanelOpen);
   const roomDesignerOpen = useWorkspaceStore((state) => state.roomDesignerOpen);
-  const selectAgent = useWorkspaceStore((state) => state.selectAgent);
-  const setSceneId = useWorkspaceStore((state) => state.setSceneId);
   const setCharacterId = useWorkspaceStore((state) => state.setCharacterId);
-  const setCameraMode = useWorkspaceStore((state) => state.setCameraMode);
   const toggleDetailsPanel = useWorkspaceStore((state) => state.toggleDetailsPanel);
   const setRoomDesignerOpen = useWorkspaceStore((state) => state.setRoomDesignerOpen);
   const layoutQuery = useHqLayoutQuery(sceneId);
@@ -106,7 +111,7 @@ export function WorkspaceShell() {
                     key={agent.id}
                     aria-current={isSelected ? "true" : undefined}
                     className={`agent-card${isSelected ? " agent-card--selected" : ""}`}
-                    onClick={() => selectAgent(agent.id)}
+                    onClick={() => void setSelectedAgentId(agent.id)}
                     role="listitem"
                     type="button"
                   >
@@ -154,7 +159,10 @@ export function WorkspaceShell() {
             <div className="view-switcher" aria-label="Scene controls">
               <Button
                 aria-pressed={sceneId === "hq-home"}
-                onClick={() => setSceneId("hq-home")}
+                onClick={() => {
+                  void setSceneId("hq-home");
+                  setRoomDesignerOpen(false);
+                }}
                 size="sm"
                 variant={sceneId === "hq-home" ? "default" : "ghost"}
               >
@@ -163,7 +171,10 @@ export function WorkspaceShell() {
               </Button>
               <Button
                 aria-pressed={sceneId === "hq-work"}
-                onClick={() => setSceneId("hq-work")}
+                onClick={() => {
+                  void setSceneId("hq-work");
+                  setRoomDesignerOpen(false);
+                }}
                 size="sm"
                 variant={sceneId === "hq-work" ? "default" : "ghost"}
               >
@@ -214,6 +225,7 @@ export function WorkspaceShell() {
           <div className="scene-stage">
             {layout ? (
               <SceneViewport
+                key={sceneId}
                 sceneId={sceneId}
                 characterId={characterId}
                 cameraMode={cameraMode}
