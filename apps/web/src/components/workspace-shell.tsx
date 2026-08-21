@@ -92,6 +92,7 @@ export function WorkspaceShell({
         accountTargetId="workspace-account-slot"
         cameraTargetId="workspace-camera-slot"
         roomDesignerTargetId="workspace-room-designer-slot"
+        sceneEditorTargetId="workspace-room-designer-slot"
       />
 
       <div className="workspace-ui" aria-label="Agent HQ workspace controls">
