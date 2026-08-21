@@ -62,8 +62,6 @@ export type PropCatalogCategory = {
   id: string;
   label: string;
   icon: LucideIcon;
-  /** Additional category ids that should also appear under this tab. */
-  also?: readonly string[];
 };
 
 export const defaultPropCatalogCategories: readonly PropCatalogCategory[] = [
@@ -75,7 +73,7 @@ export const defaultPropCatalogCategories: readonly PropCatalogCategory[] = [
   { id: "electronics", label: "Electronics", icon: Tv },
   { id: "plants", label: "Plants", icon: Sprout },
   { id: "wall-decor", label: "Wall decor", icon: Image },
-  { id: "drinks", label: "Food & Drinks", icon: Utensils, also: ["food"] },
+  { id: "food-and-drinks", label: "Food & Drinks", icon: Utensils },
   { id: "other", label: "Other", icon: PackageOpen },
 ];
 
@@ -333,11 +331,8 @@ export function PropCatalog({
   const categoryScrollRef = useRef<HTMLDivElement>(null);
   const categoryBarRef = useRef<HTMLDivElement>(null);
   const visibleItems = useMemo(() => {
-    const category = categories.find((c) => c.id === activeCategory);
-    const ids = category?.also ? [activeCategory, ...category.also] : [activeCategory];
-    const idSet = new Set(ids);
-    return items.filter((item) => idSet.has(item.category));
-  }, [activeCategory, categories, items]);
+    return items.filter((item) => item.category === activeCategory);
+  }, [activeCategory, items]);
 
   const updateCategoryScroll = () => {
     const element = categoryScrollRef.current;
