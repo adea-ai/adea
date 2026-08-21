@@ -425,9 +425,10 @@ export function TeleportBooths({
 
       <div
         className={cn(
-          "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 transition-opacity duration-200",
+          "fixed inset-x-0 bottom-0 z-50 flex items-center justify-center bg-black/60 p-4 transition-opacity duration-200",
           open || traveling ? "opacity-100" : "pointer-events-none opacity-0",
         )}
+        style={{ top: "var(--workspace-topbar-offset, 0px)" }}
         aria-hidden={!open && !traveling}
       >
         <div
@@ -435,6 +436,7 @@ export function TeleportBooths({
           aria-modal="true"
           aria-label={traveling ? "Traveling" : "Travel destination"}
           className="flex max-h-[min(44rem,92vh)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+          style={{ maxHeight: "calc(100dvh - var(--workspace-topbar-offset, 0px) - 2rem)" }}
         >
           <div className="flex items-center justify-between border-b px-4 py-3">
             <div>

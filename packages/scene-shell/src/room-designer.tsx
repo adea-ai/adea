@@ -1761,7 +1761,11 @@ export function RoomDesigner({
         <div
           data-room-designer-tooltip
           className="pointer-events-auto fixed z-50 flex items-center gap-1 rounded-lg border border-border/70 bg-background/35 p-1.5 text-foreground shadow-xl backdrop-blur-md"
-          style={{ left: actionAnchor.x, top: actionAnchor.y, transform: "translate(-50%, 6px)" }}
+          style={{
+            left: actionAnchor.x,
+            top: `max(var(--workspace-topbar-offset, 0px), ${actionAnchor.y}px)`,
+            transform: "translate(-50%, 6px)",
+          }}
           aria-label={`Actions for ${actionAsset?.label ?? actionPlacement.modelId}`}
           onPointerDown={(event) => {
             event.stopPropagation();
@@ -1813,7 +1817,11 @@ export function RoomDesigner({
         </div>
       ) : null}
       <aside
-        className={`pointer-events-auto fixed right-3 top-15 z-40 flex max-h-[calc(100dvh-5rem)] w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border bg-background/80 text-foreground shadow-2xl backdrop-blur-md transition-opacity ${dragActive ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        className={`pointer-events-auto fixed right-3 z-40 flex w-[min(22rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border bg-background/80 text-foreground shadow-2xl backdrop-blur-md transition-opacity ${dragActive ? "pointer-events-none opacity-0" : "opacity-100"}`}
+        style={{
+          top: "calc(var(--workspace-topbar-offset, 0px) + 0.75rem)",
+          maxHeight: "calc(100dvh - var(--workspace-topbar-offset, 0px) - 1.5rem)",
+        }}
         aria-label="Room designer"
         aria-hidden={dragActive}
       >

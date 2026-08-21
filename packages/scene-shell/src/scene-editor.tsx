@@ -1074,7 +1074,10 @@ export function SceneEditor({
   void revision;
 
   return (
-    <aside className="fixed inset-x-3 top-3 z-[80] mx-auto w-[min(28rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-white/15 bg-[#121820]/95 text-[#eef4f8] shadow-2xl backdrop-blur-md sm:left-3 sm:right-auto sm:mx-0">
+    <aside
+      className="fixed inset-x-3 z-[80] mx-auto max-h-[calc(100dvh-var(--workspace-topbar-offset,0px)-1.5rem)] w-[min(28rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-white/15 bg-[#121820]/95 text-[#eef4f8] shadow-2xl backdrop-blur-md sm:left-3 sm:right-auto sm:mx-0"
+      style={{ top: "calc(var(--workspace-topbar-offset, 0px) + 0.75rem)" }}
+    >
       <div className="h-1 bg-[linear-gradient(90deg,#f45b69_0_33%,#64d98b_33%_66%,#58a6ff_66%)]" />
       <header className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2.5">
         <div className="flex min-w-0 items-center gap-2">

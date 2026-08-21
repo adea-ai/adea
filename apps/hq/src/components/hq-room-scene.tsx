@@ -597,11 +597,17 @@ export function HqRoomScene({
   manifest,
   startPosition,
   cameraViewMode = "orthographic",
+  characterTargetId,
+  cameraTargetId,
+  roomDesignerTargetId,
 }: {
   initialCharacter: string;
   manifest: SceneManifest;
   startPosition?: SceneStartPosition;
   cameraViewMode?: "perspective" | "orthographic";
+  characterTargetId?: string;
+  cameraTargetId?: string;
+  roomDesignerTargetId?: string;
 }) {
   const [character, setCharacter] = useState(initialCharacter);
   const visualTheme: HqVisualTheme = manifest.id === "hq-work" ? "work" : "home";
@@ -739,6 +745,9 @@ export function HqRoomScene({
       character={character}
       onCharacterChange={handleCharacterChange}
       characterOptions={characterOptions}
+      characterTargetId={characterTargetId}
+      cameraTargetId={cameraTargetId}
+      roomDesignerTargetId={roomDesignerTargetId}
       cameraViewMode={cameraViewMode}
       characterScale={hqCharacterScale}
       sceneScale={hqRuntimeScale}
@@ -785,7 +794,6 @@ export function HqRoomScene({
       // Design-only ground extension; camera bounds and gameplay collision
       // remain locked to hqMapBounds.
       roomDesignerBackdropPadding={840}
-      showGames={false}
       keepZoneCollisionsActive
       staticColliders={hqBoundaryColliders}
       collideAdditionalVisualLayers={false}
