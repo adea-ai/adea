@@ -130,8 +130,8 @@ export type SceneWrapperProps = {
   teleportBooths?: boolean;
   mapOptions?: readonly import("@agent-hq/ui").SceneMapOption[];
   enableSceneEditor?: boolean;
-  /** DOM target for the compact character picker in an app shell toolbar. */
-  characterTargetId?: string;
+  /** DOM target for the account drawer trigger in an app shell toolbar. */
+  accountTargetId?: string;
   /** DOM target for the compact camera controls in an app shell toolbar. */
   cameraTargetId?: string;
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
@@ -225,7 +225,7 @@ export function SceneWrapper({
   teleportBooths = true,
   mapOptions,
   enableSceneEditor = true,
-  characterTargetId,
+  accountTargetId,
   cameraTargetId,
   roomDesignerTargetId,
   roomDesignerAvailable = false,
@@ -557,7 +557,7 @@ export function SceneWrapper({
             ? onRoomDesignerChange
             : undefined
         }
-        characterTargetId={characterTargetId}
+        accountTargetId={accountTargetId}
         cameraTargetId={cameraTargetId}
         roomDesignerTargetId={roomDesignerTargetId}
       />

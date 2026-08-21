@@ -72,7 +72,7 @@ export function WorkspaceShell({
         manifest={scene.manifest}
         startPosition={startPosition}
         cameraViewMode={cameraViewMode}
-        characterTargetId="workspace-character-slot"
+        accountTargetId="workspace-account-slot"
         cameraTargetId="workspace-camera-slot"
         roomDesignerTargetId="workspace-room-designer-slot"
       />
@@ -113,8 +113,6 @@ export function WorkspaceShell({
               </nav>
 
               <div className="workspace-toolbar" aria-label="Workspace tools">
-                <div id="workspace-character-slot" className="workspace-tool-slot" />
-                <span className="workspace-tool-divider" aria-hidden="true" />
                 <div id="workspace-camera-slot" className="workspace-tool-slot" />
                 <span className="workspace-tool-divider" aria-hidden="true" />
                 <div id="workspace-room-designer-slot" className="workspace-tool-slot" />
@@ -130,6 +128,7 @@ export function WorkspaceShell({
               <div className="workspace-music-toggle" aria-label="Music controls">
                 <MusicToggle />
               </div>
+              <div id="workspace-account-slot" className="workspace-account-slot" />
             </div>
           </div>
         </header>
