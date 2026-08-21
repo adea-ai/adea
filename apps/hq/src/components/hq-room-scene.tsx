@@ -69,13 +69,13 @@ const hqSceneMapOptions = [
     id: "hq-home",
     label: "Home",
     kind: "world" as const,
-    href: "/scenes/home",
+    href: "/?scene=home",
   },
   {
     id: "hq-work",
     label: "Work",
     kind: "world" as const,
-    href: "/scenes/work",
+    href: "/?scene=work",
   },
 ];
 
