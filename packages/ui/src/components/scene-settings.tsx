@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
-import { Camera, Focus, Grid3X3 } from "lucide-react";
+import { Box, Camera, Focus, Grid3X3 } from "lucide-react";
 import type { CharacterOption } from "./character-selector";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
@@ -23,6 +23,11 @@ export type SceneSettingsProps = {
   cameraTargetId?: string;
   /** DOM target for the room designer control in an app shell toolbar. */
   roomDesignerTargetId?: string;
+  /** DOM target for the development scene editor control in an app shell toolbar. */
+  sceneEditorTargetId?: string;
+  /** Development-only scene editor toggle, available in perspective view. */
+  sceneEditorEnabled?: boolean;
+  onSceneEditorChange?: (value: boolean) => void;
 };
 
 function usePortalTarget(targetId?: string) {
@@ -52,9 +57,13 @@ export function SceneSettings({
   accountTargetId,
   cameraTargetId,
   roomDesignerTargetId,
+  sceneEditorTargetId,
+  sceneEditorEnabled,
+  onSceneEditorChange,
 }: SceneSettingsProps) {
   const cameraTarget = usePortalTarget(cameraTargetId);
   const roomDesignerTarget = usePortalTarget(roomDesignerTargetId);
+  const sceneEditorTarget = usePortalTarget(sceneEditorTargetId);
 
   const cameraControl = (
     <div className="workspace-camera-control" role="group" aria-label="Camera view">
@@ -102,6 +111,21 @@ export function SceneSettings({
     </Button>
   );
 
+  const sceneEditorControl = (
+    <Button
+      type="button"
+      variant={sceneEditorEnabled ? "default" : "outline"}
+      size="sm"
+      aria-label={sceneEditorEnabled ? "Close scene editor" : "Open scene editor"}
+      title={sceneEditorEnabled ? "Close scene editor" : "Open scene editor"}
+      aria-pressed={sceneEditorEnabled}
+      onClick={() => onSceneEditorChange?.(!sceneEditorEnabled)}
+    >
+      <Box className="size-4" aria-hidden="true" />
+      <span className="workspace-scene-editor-label">Scene editor</span>
+    </Button>
+  );
+
   return (
     <>
       <AccountDrawer
@@ -116,6 +140,13 @@ export function SceneSettings({
           createPortal(roomDesignerControl, roomDesignerTarget)
         ) : (
           <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
+        )
+      ) : null}
+      {sceneEditorEnabled != null && onSceneEditorChange && cameraViewMode === "perspective" ? (
+        sceneEditorTarget ? (
+          createPortal(sceneEditorControl, sceneEditorTarget)
+        ) : (
+          <div className="fixed right-4 top-16 z-40">{sceneEditorControl}</div>
         )
       ) : null}
     </>

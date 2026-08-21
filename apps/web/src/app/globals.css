@@ -390,6 +390,10 @@
     display: none;
   }
 
+  .workspace-scene-editor-label {
+    display: none;
+  }
+
   .workspace-view-switcher {
     right: 0.8rem;
     bottom: 1rem;
