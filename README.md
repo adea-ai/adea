@@ -1,7 +1,7 @@
 # Agent HQ
 
 Agent HQ is a browser-based spatial workspace with Home and Work scenes,
-models characters and room props, a vanilla Three.js scene runtime, and an
+character and interior asset packages, a vanilla Three.js scene runtime, and an
 orthographic room designer.
 
 ## Stack
@@ -16,18 +16,26 @@ orthographic room designer.
 
 ```text
 bun install
-bun run dev
+portless
 ```
 
-The app runs at [http://localhost:3004](http://localhost:3004).
+Portless runs the web app at [https://agent-hq.localhost](https://agent-hq.localhost)
+with a stable named route instead of a fixed development port. Portless requires
+Node.js 24 or newer; Bun remains the repository's package manager and test runner.
 
-- Home: `/?scene=home`
-- Work: `/?scene=work`
+For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
+
+- Home: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
+- Work: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
 - Room designer: append `&roomDesigner=1` to the selected scene URL
 
-The asset sync step copies the scene foundations and the models package,
-including the small shared foliage catalog used by Home and Work, into the
-ignored Next public-assets directory.
+Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
+`NEXT_PUBLIC_AGENT_HQ_WORLD_URL` when the sibling World app uses a different
+Portless name.
+
+The asset sync step copies the HQ scene foundations and the domain asset
+packages—interior, landscape, pets, and characters—into the ignored Next
+public-assets directory.
 
 ## Verification
 
