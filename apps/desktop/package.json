@@ -1,0 +1,20 @@
+{
+  "name": "@agent-hq/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "shell:dev": "tauri dev",
+    "shell:build": "tauri build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-hq/config": "workspace:*",
+    "@tauri-apps/api": "^2.5.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/node": "^22"
+  }
+}
