@@ -14,6 +14,7 @@ Thumbs.db
 node_modules/
 .pnp/
 .pnp.js
+apps/web/AGENTS.md
 .turbo/
 *.tsbuildinfo
 next-env.d.ts
