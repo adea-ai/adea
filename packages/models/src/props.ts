@@ -1,6 +1,6 @@
 // models props for the HQ room designer.
 //
-// Exports models furniture, food & drinks, casino assets, and foliage as
+// Exports furniture, food & drinks, and interior casino assets as
 // InteriorPropAsset entries compatible with the HQ room designer catalog.
 // Each entry includes a category, default scale, footprint, and frontYaw so
 // the designer can place them on the 12-unit interior grid alongside the
@@ -16,7 +16,6 @@ import type {
 const furnitureRoot = "/assets/models/furniture";
 const foodRoot = "/assets/models/food";
 const casinoRoot = "/assets/models/casino";
-const foliageRoot = "/assets/models/foliage";
 
 // Helper to build an InteriorPropAsset from minimal authoring data.
 function prop(
@@ -800,27 +799,6 @@ const casinoProps: InteriorPropAsset[] = [
     [252, 252],
     0,
   ),
-  prop("models-casino-fence-07", "Fence", `${casinoRoot}/Fence_07.glb`, "other", 1.0, [48, 48], 0),
-  prop(
-    "models-casino-fence-08",
-    "Fence (Wall Short)",
-    `${casinoRoot}/Fence_08.glb`,
-    "wall-decor",
-    1.0,
-    [84, 36],
-    0,
-    { placementSurface: "wall", wallMountHeight: 48 },
-  ),
-  prop(
-    "models-casino-fence-09",
-    "Fence (Wall Long)",
-    `${casinoRoot}/Fence_09.glb`,
-    "wall-decor",
-    1.0,
-    [168, 36],
-    0,
-    { placementSurface: "wall", wallMountHeight: 48 },
-  ),
   prop(
     "models-casino-floor-01",
     "Casino Floor",
@@ -921,41 +899,10 @@ const casinoProps: InteriorPropAsset[] = [
   ),
 ];
 
-// --- Foliage (Cartoon City pack) --------------------------------------------
-const foliageProps: InteriorPropAsset[] = [
-  prop("models-bush-06", "Bush", `${foliageRoot}/Bush_06.glb`, "plants", 1.0, [168, 168], 0, {
-    blocksRugOverlap: true,
-  }),
-  prop(
-    "models-bush-07",
-    "Bush (Round)",
-    `${foliageRoot}/Bush_07.glb`,
-    "plants",
-    1.0,
-    [168, 168],
-    0,
-    { blocksRugOverlap: true },
-  ),
-  prop(
-    "models-bush-10",
-    "Bush (Wide)",
-    `${foliageRoot}/Bush_10.glb`,
-    "plants",
-    1.0,
-    [204, 108],
-    0,
-    { blocksRugOverlap: true },
-  ),
-  prop("models-palm-03", "Palm Tree", `${foliageRoot}/Palm_03.glb`, "plants", 1.0, [60, 60], 0, {
-    blocksRugOverlap: true,
-  }),
-];
-
 export const modelsInteriorPropAssets: readonly InteriorPropAsset[] = [
   ...furnitureProps,
   ...foodProps,
   ...casinoProps,
-  ...foliageProps,
 ];
 
 // Also export as PropManifest[] for the sync script and runtime loader.
