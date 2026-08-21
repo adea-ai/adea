@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { PointerEvent, ReactNode } from "react";
 import { cn } from "#lib/utils";
 type ControlButtonProps = {
@@ -74,34 +74,7 @@ function ControlButton({ code, label, children, className }: ControlButtonProps)
   );
 }
 
-function ActionButton({
-  code,
-  label,
-  children,
-}: {
-  code: string;
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <ControlButton code={code} label={label} className="text-xs font-semibold">
-      {children}
-    </ControlButton>
-  );
-}
-
 export function OnScreenControls() {
-  const [jetpackActive, setJetpackActive] = useState(false);
-
-  useEffect(() => {
-    const onVehicleChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ activeVehicle: string | null }>).detail;
-      setJetpackActive(detail?.activeVehicle === "jetpack");
-    };
-    window.addEventListener("agent-hq:vehicle-change", onVehicleChange);
-    return () => window.removeEventListener("agent-hq:vehicle-change", onVehicleChange);
-  }, []);
-
   return (
     <div className="pointer-events-none fixed inset-x-4 bottom-4 z-30 flex select-none items-end justify-between gap-4 pb-[env(safe-area-inset-bottom)] sm:inset-x-6 sm:bottom-6 [-webkit-touch-callout:none] [-webkit-user-select:none]">
       <div className="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-slate-950/20 p-2 backdrop-blur-[2px]">
@@ -121,38 +94,9 @@ export function OnScreenControls() {
         </ControlButton>
       </div>
       <div className="pointer-events-auto flex flex-col items-end gap-2">
-        <div className="flex justify-end gap-2">
-          <ActionButton code="Space" label="Jump">
-            JUMP
-          </ActionButton>
-          <ActionButton code="KeyV" label="Toggle hoverboard">
-            BOARD
-          </ActionButton>
-          <ActionButton code="KeyG" label="Toggle jetpack">
-            PACK
-          </ActionButton>
-        </div>
-        {jetpackActive ? (
-          <div className="flex justify-end gap-2" data-testid="jetpack-controls">
-            <ControlButton
-              code="ShiftLeft"
-              label="Jetpack ascend"
-              className="text-xs font-semibold"
-            >
-              UP
-            </ControlButton>
-            <ControlButton
-              code="ControlLeft"
-              label="Jetpack descend"
-              className="text-xs font-semibold"
-            >
-              DOWN
-            </ControlButton>
-            <ControlButton code="KeyB" label="Leave vehicle" className="text-xs font-semibold">
-              EXIT
-            </ControlButton>
-          </div>
-        ) : null}
+        <ControlButton code="Space" label="Jump" className="text-xs font-semibold">
+          JUMP
+        </ControlButton>
       </div>
     </div>
   );
