@@ -3,9 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -13,16 +12,26 @@
     }
   },
   "scripts": {
-    "build": "tsc",
-    "lint": "eslint src",
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "three": "^0.185.1"
+    "lint": "eslint .",
+    "build": "tsc -p tsconfig.json",
+    "test": "bun test test/scene-debug.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/three": "^0.185.4",
-    "eslint-config-next": "^16.3.1"
+    "@types/react": "^18.3.0",
+    "@types/three": "^0.185.0"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@agent-hq/audio": "workspace:*",
+    "@agent-hq/asset-manifests": "workspace:*",
+    "@agent-hq/buildings": "workspace:*",
+    "@agent-hq/characters": "workspace:*",
+    "@agent-hq/landscape": "workspace:*",
+    "@agent-hq/particles": "workspace:*",
+    "@agent-hq/props": "workspace:*",
+    "@agent-hq/vehicles": "workspace:*",
+    "three": "^0.185.1",
+    "three-mesh-bvh": "^0.9.14"
   }
 }
