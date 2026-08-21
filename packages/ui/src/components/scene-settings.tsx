@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
-import { Camera, Grid3X3 } from "lucide-react";
+import { Camera, Focus, Grid3X3 } from "lucide-react";
 import type { CharacterOption } from "./character-selector";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
@@ -60,7 +60,7 @@ export function SceneSettings({
     <div className="workspace-camera-control" role="group" aria-label="Camera view">
       <Button
         type="button"
-        size="icon-sm"
+        size="sm"
         variant={cameraViewMode === "perspective" ? "default" : "outline"}
         className="workspace-camera-button"
         aria-label="Perspective camera"
@@ -69,10 +69,11 @@ export function SceneSettings({
         onClick={() => onCameraViewModeChange("perspective")}
       >
         <Camera aria-hidden="true" />
+        Perspective
       </Button>
       <Button
         type="button"
-        size="icon-sm"
+        size="sm"
         variant={cameraViewMode === "orthographic" ? "default" : "outline"}
         className="workspace-camera-button"
         aria-label="Top-down camera"
@@ -80,7 +81,8 @@ export function SceneSettings({
         aria-pressed={cameraViewMode === "orthographic"}
         onClick={() => onCameraViewModeChange("orthographic")}
       >
-        <Grid3X3 aria-hidden="true" />
+        <Focus aria-hidden="true" />
+        Top-down
       </Button>
     </div>
   );

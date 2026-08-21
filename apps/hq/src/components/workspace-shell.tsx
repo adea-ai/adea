@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { MusicToggle } from "@agent-hq/audio";
-import { BriefcaseBusiness, CircleDot, Focus, Home, PanelRight, Sparkles } from "lucide-react";
+import { BriefcaseBusiness, Home, PanelRight, Sparkles } from "lucide-react";
 import { hqHomeManifest } from "@agent-hq/scene-hq-home";
 import { hqWorkManifest } from "@agent-hq/scene-hq-work";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
@@ -48,7 +48,6 @@ export function WorkspaceShell({
   cameraViewMode = "orthographic",
 }: WorkspaceShellProps) {
   const [sceneId, setSceneId] = useState<HqSceneId>(initialScene);
-  const [viewMode, setViewMode] = useState<"map" | "focus">("map");
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(true);
   const scene = sceneById[sceneId];
 
@@ -65,7 +64,7 @@ export function WorkspaceShell({
   };
 
   return (
-    <main className={`workspace-shell workspace-shell--${viewMode}`}>
+    <main className="workspace-shell">
       <HqRoomScene
         key={sceneId}
         initialCharacter={initialCharacter}
@@ -113,8 +112,6 @@ export function WorkspaceShell({
               </nav>
 
               <div className="workspace-toolbar" aria-label="Workspace tools">
-                <div id="workspace-camera-slot" className="workspace-tool-slot" />
-                <span className="workspace-tool-divider" aria-hidden="true" />
                 <div id="workspace-room-designer-slot" className="workspace-tool-slot" />
               </div>
             </div>
@@ -159,12 +156,10 @@ export function WorkspaceShell({
               </p>
             </div>
             <div className="workspace-detail-section workspace-detail-section--accent">
-              <p className="workspace-eyebrow">ACTIVE MODE</p>
-              <p className="workspace-detail-section__title">
-                {viewMode === "map" ? "Map view" : "Focus view"}
-              </p>
+              <p className="workspace-eyebrow">CAMERA MODE</p>
+              <p className="workspace-detail-section__title">Perspective or top-down.</p>
               <p className="workspace-detail-section__meta">
-                Use the scene controls to move, inspect, and design.
+                Use the camera controls below to switch the active view.
               </p>
             </div>
           </Card>
@@ -181,27 +176,8 @@ export function WorkspaceShell({
           </Button>
         )}
 
-        <div className="workspace-view-switcher" aria-label="Workspace view">
-          <Button
-            type="button"
-            aria-pressed={viewMode === "map"}
-            onClick={() => setViewMode("map")}
-            size="sm"
-            variant={viewMode === "map" ? "default" : "ghost"}
-          >
-            <CircleDot size={14} aria-hidden="true" />
-            Map
-          </Button>
-          <Button
-            type="button"
-            aria-pressed={viewMode === "focus"}
-            onClick={() => setViewMode("focus")}
-            size="sm"
-            variant={viewMode === "focus" ? "default" : "ghost"}
-          >
-            <Focus size={14} aria-hidden="true" />
-            Focus
-          </Button>
+        <div className="workspace-view-switcher" aria-label="Camera view">
+          <div id="workspace-camera-slot" className="workspace-tool-slot" />
         </div>
 
         <p className="workspace-scene-caption">
