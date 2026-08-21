@@ -1,18 +1,19 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "base": "base-ui",
-  "style": "new-york",
+  "style": "base-nova",
   "rsc": true,
   "tsx": true,
   "tailwind": {
     "config": "",
-    "css": "apps/hq/src/app/globals.css",
+    "css": "src/styles/globals.css",
     "baseColor": "neutral",
     "cssVariables": true
   },
+  "iconLibrary": "lucide",
   "aliases": {
-    "components": "@/components",
-    "utils": "@agent-hq/ui",
-    "ui": "@agent-hq/ui"
+    "components": "#components",
+    "utils": "#lib/utils",
+    "lib": "#lib",
+    "ui": "#components/ui"
   }
 }
