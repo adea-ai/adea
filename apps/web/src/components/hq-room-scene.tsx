@@ -63,21 +63,6 @@ const galleryEnvironment = {
   ],
 } as const;
 
-const hqSceneMapOptions = [
-  {
-    id: "hq-home",
-    label: "Home",
-    kind: "world" as const,
-    href: "/?scene=home",
-  },
-  {
-    id: "hq-work",
-    label: "Work",
-    kind: "world" as const,
-    href: "/?scene=work",
-  },
-];
-
 // Use the real-world HQ scale for every environment visual, collider,
 // navigation bound, and camera bound. The environment is authored in
 // centimetres (1 authored unit = 1 cm) and rendered at 1:1 scale, so
@@ -766,7 +751,6 @@ export function HqRoomScene({
       waterVolumes={manifest.zones?.length ? hqPoolWaterVolumes(manifest.id) : undefined}
       deferCharacterDetails={false}
       environment={galleryEnvironment}
-      teleportBooths={false}
       enableSceneEditor
       sceneEditorAvailable
       sceneEditorLockedObjectPrefixes={hqSceneEditorLockedObjectPrefixes}
@@ -804,7 +788,6 @@ export function HqRoomScene({
         setupAmbientAnimals(visual);
       }}
       visualUpdate={updateAmbientAnimals}
-      mapOptions={hqSceneMapOptions}
       portals={hqWorldPortals(visualTheme === "home" ? "hq-home" : "hq-work")}
       materialOverrides={
         manifest.zones?.length

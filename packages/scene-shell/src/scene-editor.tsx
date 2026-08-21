@@ -743,8 +743,8 @@ export function SceneEditor({
       const hits = raycaster
         .intersectObjects(scene.children, true)
         .filter((hit) => isPickable(hit.object, helper));
-      // Prefer editable catalog fields when an embedded decorative mesh (such
-      // as Isla Azul's sandbar boat display) overlaps the same placement.
+      // Prefer editable catalog fields when an embedded decorative mesh overlaps
+      // the same placement.
       const hit =
         hits.find((candidate) => {
           const field = findFieldHit(candidate.object, scene);

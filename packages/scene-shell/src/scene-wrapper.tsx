@@ -18,10 +18,9 @@ import type {
   StaticColliderConfig,
 } from "@agent-hq/scene-runtime";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
-import { TeleportBooths } from "./teleport-booths";
 import { Portals, type PortalLink } from "./portals";
 import { PropColliders } from "./prop-colliders";
-import { RoomDesigner, type RoomDesignerAsset, type RoomDesignerRect } from "./room-designer";
+import type { RoomDesignerAsset, RoomDesignerRect } from "./room-designer";
 
 const SceneHost = dynamic(
   () => import("@agent-hq/scene-runtime").then((module) => module.SceneHost),
@@ -31,6 +30,10 @@ const SceneHost = dynamic(
 const SceneEditor = dynamic(() => import("./scene-editor").then((module) => module.SceneEditor), {
   ssr: false,
 });
+const RoomDesigner = dynamic(
+  () => import("./room-designer").then((module) => module.RoomDesigner),
+  { ssr: false },
+);
 const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = [];
 
 function DevelopmentSceneEditor({
@@ -125,8 +128,6 @@ export type SceneWrapperProps = {
   visualSetup?: SceneVisualSetup;
   visualUpdate?: SceneVisualUpdate;
   portals?: readonly PortalLink[];
-  teleportBooths?: boolean;
-  mapOptions?: readonly import("@agent-hq/ui").SceneMapOption[];
   enableSceneEditor?: boolean;
   /** DOM target for the account drawer trigger in an app shell toolbar. */
   accountTargetId?: string;
@@ -217,8 +218,6 @@ export function SceneWrapper({
   visualSetup,
   visualUpdate,
   portals,
-  teleportBooths = true,
-  mapOptions,
   enableSceneEditor = true,
   accountTargetId,
   cameraTargetId,
@@ -529,14 +528,6 @@ export function SceneWrapper({
           cameraViewMode={activeCameraViewMode}
           sceneVersion={sceneVersion}
           propsVersion={propCollidersVersion + internalPropCollidersVersion}
-        />
-      ) : null}
-      {teleportBooths ? (
-        <TeleportBooths
-          sceneId={manifest.id}
-          debugApiRef={debugApiRef}
-          character={character}
-          mapOptions={mapOptions}
         />
       ) : null}
       {portals ? <Portals debugApiRef={debugApiRef} links={portals} /> : null}

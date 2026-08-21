@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { Check, ChevronDown, ChevronUp, UserRound } from "lucide-react";
-import { soundController } from "@agent-hq/audio";
 import { cn } from "#lib/utils";
 import { Button } from "#components/ui/button";
 
@@ -46,10 +45,7 @@ export function CharacterSelector({
               role="radio"
               aria-checked={selected}
               variant={selected ? "secondary" : "outline"}
-              onClick={() => {
-                soundController.playSfx("uiClick");
-                onValueChange(option.id);
-              }}
+              onClick={() => onValueChange(option.id)}
               className={cn(
                 "flex min-h-16 items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors",
                 "hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
@@ -90,10 +86,7 @@ export function CharacterSelector({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => {
-            soundController.playSfx("uiClick");
-            setExpanded((current) => !current);
-          }}
+          onClick={() => setExpanded((current) => !current)}
           aria-expanded={expanded}
           className="w-full"
         >

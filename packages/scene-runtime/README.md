@@ -3,8 +3,8 @@
 ## Migration plan
 
 Keep renderer, camera, resize, render-loop, disposal, capability detection, and common
-scene-host contracts here. This package must stay world-agnostic and must not import
-Party Cove, Isla Azul, or any mini-game assets.
+scene-host contracts here. This package must stay scene-agnostic and must not import
+app-specific assets.
 
 Future work should add WebGL/WebGPU selection only behind a stable runtime interface and
 measure startup and frame costs before introducing engine-wide abstractions.

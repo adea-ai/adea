@@ -4,7 +4,6 @@ import { ROOM_GALLERY_FOUNDATION_TOP_Y } from "@agent-hq/interior";
 export const hqHomeManifest: SceneManifest = {
   id: "hq-home",
   label: "Home",
-  kind: "world",
   availability: "ready",
   entryAssetUrl: "/assets/worlds/hq-home/floor.glb?v=20",
   collisionAssetUrl: "/assets/worlds/hq-home/floor-collision.glb?v=20",
