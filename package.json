@@ -1,6 +1,7 @@
 {
   "name": "agent-hq",
   "private": true,
+  "license": "Apache-2.0",
   "version": "0.1.0",
   "packageManager": "bun@1.4.0",
   "workspaces": [
