@@ -21,9 +21,9 @@ bun run dev
 
 The app runs at [http://localhost:3004](http://localhost:3004).
 
-- Home: `/scenes/home`
-- Work: `/scenes/work`
-- Room designer: append `?roomDesigner=1` to either scene route
+- Home: `/?scene=home`
+- Work: `/?scene=work`
+- Room designer: append `&roomDesigner=1` to the selected scene URL
 
 The asset sync step copies the scene foundations and the models package,
 including the small shared foliage catalog used by Home and Work, into the
