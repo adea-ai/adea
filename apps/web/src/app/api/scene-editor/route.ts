@@ -195,7 +195,7 @@ export async function POST(request: Request) {
         const publicManifestPath = path.join(
           repoRoot,
           "apps",
-          "hq",
+          "web",
           "public",
           "assets",
           "worlds",

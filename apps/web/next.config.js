@@ -14,6 +14,7 @@ const nextConfig = {
   allowedDevOrigins: ["*.ts.net", "amf-mb-pro", ...extraDevOrigins],
   turbopack: { root: path.resolve(import.meta.dirname, "../..") },
   transpilePackages: [
+    "@agent-hq/api-client",
     "@agent-hq/app-core",
     "@agent-hq/asset-manifests",
     "@agent-hq/audio",

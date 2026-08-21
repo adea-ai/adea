@@ -47,6 +47,7 @@
       "name": "@agent-hq/web",
       "version": "0.1.0",
       "dependencies": {
+        "@agent-hq/api-client": "workspace:*",
         "@agent-hq/app-core": "workspace:*",
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/audio": "workspace:*",
