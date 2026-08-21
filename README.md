@@ -8,7 +8,10 @@ The initial web foundation follows the accepted frontend stack decision:
 - Next.js, React, and TypeScript for the application shell.
 - Vanilla Three.js behind `@agent-hq/scene-runtime` for spatial rendering.
 - TanStack Query for authoritative remote/server state.
-- Zustand for ephemeral client-only coordination.
+- nuqs for shareable workspace URL state such as scene, camera, and selected
+  agent.
+- Zustand for ephemeral client-only coordination such as character, panels, and
+  view mode.
 - A shadcn-compatible `@agent-hq/ui` package for accessible, composable UI primitives.
 
 ## Repository shape
@@ -34,8 +37,9 @@ systems. The two communicate through the controller API exported by
 `@agent-hq/scene-runtime`; React does not reach into the Three.js scene graph.
 
 Durable agent, workspace, task, and message data belongs on the backend and is
-queried through TanStack Query. Zustand is intentionally limited to selection,
-panel visibility, view mode, and other transient coordination state.
+queried through TanStack Query. Shareable workspace context belongs in the URL
+through nuqs. Zustand is intentionally limited to character choice, panel
+visibility, view mode, and other transient coordination state.
 
 ## Local development
 

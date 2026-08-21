@@ -13,7 +13,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "sync-assets": "node scripts/sync-assets.mjs"
+    "sync-assets": "turbo run sync-assets"
   },
   "devDependencies": {
     "eslint": "^9.39.5",
