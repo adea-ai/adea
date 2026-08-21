@@ -18,12 +18,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "@types/react": "^18.3.0",
+    "@types/react": "^19.2.18",
     "@types/three": "^0.185.0"
   },
   "dependencies": {
     "@agent-hq/scene": "workspace:*",
-    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@dimforge/rapier3d-compat": "^0.20.0",
     "@agent-hq/audio": "workspace:*",
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/characters": "workspace:*",
