@@ -11,11 +11,8 @@ import {
   isCustomCharacterId,
   getCustomCharacterLabel,
 } from "@agent-hq/characters";
-import {
-  modelsInteriorPropAssets,
-  createAmbientAnimals,
-  type AmbientAnimals,
-} from "@agent-hq/models";
+import { createAmbientAnimals, type AmbientAnimals } from "@agent-hq/pets";
+import { modelsInteriorPropAssets } from "@agent-hq/models";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 

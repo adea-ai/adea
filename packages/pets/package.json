@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/models",
+  "name": "@agent-hq/pets",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,21 +9,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./props": {
-      "types": "./dist/props.d.ts",
-      "import": "./dist/props.js"
     }
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test test/*.test.ts"
   },
   "dependencies": {
-    "@agent-hq/props": "workspace:*",
-    "three": "^0.185.1",
-    "zod": "^4.4.3"
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/three": "^0.185.0"

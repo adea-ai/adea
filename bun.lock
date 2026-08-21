@@ -54,6 +54,7 @@
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/data": "workspace:*",
         "@agent-hq/models": "workspace:*",
+        "@agent-hq/pets": "workspace:*",
         "@agent-hq/rooms": "workspace:*",
         "@agent-hq/scene-hq-home": "workspace:*",
         "@agent-hq/scene-hq-work": "workspace:*",
@@ -166,6 +167,16 @@
     },
     "packages/particles": {
       "name": "@agent-hq/particles",
+      "version": "0.1.0",
+      "dependencies": {
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@types/three": "^0.185.0",
+      },
+    },
+    "packages/pets": {
+      "name": "@agent-hq/pets",
       "version": "0.1.0",
       "dependencies": {
         "three": "^0.185.1",
@@ -342,6 +353,8 @@
     "@agent-hq/models": ["@agent-hq/models@workspace:packages/models"],
 
     "@agent-hq/particles": ["@agent-hq/particles@workspace:packages/particles"],
+
+    "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
 
     "@agent-hq/placed-models": ["@agent-hq/placed-models@workspace:packages/placed-models"],
 

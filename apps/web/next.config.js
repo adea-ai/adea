@@ -21,6 +21,7 @@ const nextConfig = {
     "@agent-hq/characters",
     "@agent-hq/data",
     "@agent-hq/models",
+    "@agent-hq/pets",
     "@agent-hq/rooms",
     "@agent-hq/scene-hq-home",
     "@agent-hq/scene-hq-work",
