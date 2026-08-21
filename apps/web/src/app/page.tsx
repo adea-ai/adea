@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { hqSceneFromSearchParams } from "@agent-hq/app-core";
-import { isModelsCharacterId, isModelsCustomCharacterId } from "@agent-hq/models";
+import { isCharacterId, isCustomCharacterId } from "@agent-hq/characters";
 import { readSceneStartPosition } from "@agent-hq/scene-shell/scene-spawn";
 import { WorkspaceShell } from "../components/workspace-shell";
 
@@ -24,7 +24,7 @@ export default async function HomePage({
     ? params.character[0]
     : params.character;
   const isValidCharacter =
-    isModelsCharacterId(requestedCharacter) || isModelsCustomCharacterId(requestedCharacter);
+    isCharacterId(requestedCharacter) || isCustomCharacterId(requestedCharacter);
   const cameraParam = Array.isArray(params.camera) ? params.camera[0] : params.camera;
 
   return (

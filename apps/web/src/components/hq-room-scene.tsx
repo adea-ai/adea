@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import {
-  modelsCharacterIds,
-  modelsCharacterLabels,
-  modelsCharacterIconUrls,
-  isModelsCharacterId,
-  modelsCustomCharacterIds,
-  isModelsCustomCharacterId,
+  characterIds,
+  characterLabels,
+  characterIconUrls,
+  isCharacterId,
+  customCharacterIds,
+  isCustomCharacterId,
   getCustomCharacterLabel,
+} from "@agent-hq/characters";
+import {
   modelsInteriorPropAssets,
   createAmbientAnimals,
   type AmbientAnimals,
@@ -44,12 +46,12 @@ import { SceneWrapper } from "@agent-hq/scene-shell";
 import { hqWorldPortals } from "./hq-world-portals";
 
 const characterOptions = [
-  ...modelsCharacterIds.map((id) => ({
+  ...characterIds.map((id) => ({
     id,
-    label: modelsCharacterLabels[id],
-    iconUrl: modelsCharacterIconUrls[id],
+    label: characterLabels[id],
+    iconUrl: characterIconUrls[id],
   })),
-  ...modelsCustomCharacterIds.map((id) => ({
+  ...customCharacterIds.map((id) => ({
     id,
     label: getCustomCharacterLabel(id) ?? id,
     iconUrl: undefined,
@@ -733,7 +735,7 @@ export function HqRoomScene({
   );
 
   const handleCharacterChange = (nextCharacter: string) => {
-    if (!isModelsCharacterId(nextCharacter) && !isModelsCustomCharacterId(nextCharacter)) return;
+    if (!isCharacterId(nextCharacter) && !isCustomCharacterId(nextCharacter)) return;
     setCharacter(nextCharacter);
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("character", nextCharacter);

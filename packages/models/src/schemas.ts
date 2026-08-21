@@ -1,17 +1,4 @@
 import { z } from "zod";
-import { isModelsCharacterId, isModelsCustomCharacterId, modelsCharacterIds } from "./characters";
-
-export const modelsCharacterIdSchema = z.enum(modelsCharacterIds);
-
-export const modelsCustomCharacterIdSchema = z.string().refine(isModelsCustomCharacterId, {
-  message: "Unknown custom model character id",
-});
-
-export const modelsCharacterSelectionSchema = z
-  .string()
-  .refine((value) => isModelsCharacterId(value) || isModelsCustomCharacterId(value), {
-    message: "Unknown model character id",
-  });
 
 export const modelsInteriorPropAssetSchema = z.object({
   id: z.string().min(1),
@@ -47,5 +34,4 @@ export const modelsInteriorPropAssetSchema = z.object({
 
 export const modelsInteriorPropCatalogSchema = z.array(modelsInteriorPropAssetSchema);
 
-export type ValidatedModelsCharacterId = z.infer<typeof modelsCharacterIdSchema>;
 export type ValidatedModelsInteriorPropAsset = z.infer<typeof modelsInteriorPropAssetSchema>;
