@@ -1,6 +1,6 @@
-// models ambient animal system for the Home scene.
+// Agent HQ ambient pet system for the Home scene.
 //
-// The Animals pack ships rigged GLBs with embedded run/walk/idle animations.
+// The pets pack ships rigged GLBs with embedded run/walk/idle animations.
 // This module provides a createAmbientAnimals() factory that loads a set of
 // animals, places them in the scene, and wanders them around a bounded area.
 // The update(dt) method advances each animal's AnimationMixer and steering;
@@ -19,7 +19,19 @@ const animalFiles: Record<AmbientAnimalId, string> = {
   cat: "Kitty_001.glb",
 };
 
-// Embedded animation names in the models animal GLBs follow the pattern
+/** Every pet model currently packaged for Agent HQ. */
+export const petAssetCatalog = [
+  { id: "chicken", file: "Chicken_001.glb", label: "Chicken" },
+  { id: "deer", file: "Deer_001.glb", label: "Deer" },
+  { id: "dog", file: "Dog_001.glb", label: "Dog" },
+  { id: "horse", file: "Horse_001.glb", label: "Horse" },
+  { id: "cat", file: "Kitty_001.glb", label: "Cat" },
+  { id: "penguin", file: "Pinguin_001.glb", label: "Penguin" },
+  { id: "tiger", file: "Tiger_001.glb", label: "Tiger" },
+] as const;
+export type PetAssetId = (typeof petAssetCatalog)[number]["id"];
+
+// Embedded animation names in the pet GLBs follow the pattern
 // "<ModelName>_<state>". Map them to the three states we use for wandering.
 const animalAnimationNames: Record<AmbientAnimalId, { idle: string; walk: string; run: string }> = {
   dog: { idle: "Dog_001_idle", walk: "Dog_001_walk", run: "Dog_001_run" },
