@@ -112,10 +112,6 @@
       "release-type": "node",
       "package-name": "@agent-hq/scene-runtime"
     },
-    "packages/scene": {
-      "release-type": "node",
-      "package-name": "@agent-hq/scene"
-    },
     "packages/scene-shell": {
       "release-type": "node",
       "package-name": "@agent-hq/scene-shell"
