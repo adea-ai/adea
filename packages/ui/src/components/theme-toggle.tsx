@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { Moon, Sun } from "lucide-react";
 import { soundController } from "@agent-hq/audio";
 import { useTheme } from "next-themes";
+import { Button } from "#components/ui/button";
 import { cn } from "#lib/utils";
 
 /**
@@ -32,42 +33,36 @@ export function ThemeToggle({ className }: { className?: string }) {
       role="radiogroup"
       aria-label="Theme"
     >
-      <button
+      <Button
         type="button"
         role="radio"
         aria-checked={!isDark}
         aria-label="Light theme"
+        variant={!isDark ? "default" : "ghost"}
+        size="icon-xs"
         onClick={() => {
           soundController.playSfx("uiClick");
           setTheme("light");
         }}
-        className={cn(
-          "inline-flex size-6 items-center justify-center rounded-full transition-colors",
-          !isDark
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
+        className="rounded-full"
       >
         <Sun className="size-3.5" aria-hidden="true" />
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         role="radio"
         aria-checked={isDark}
         aria-label="Dark theme"
+        variant={isDark ? "default" : "ghost"}
+        size="icon-xs"
         onClick={() => {
           soundController.playSfx("uiClick");
           setTheme("dark");
         }}
-        className={cn(
-          "inline-flex size-6 items-center justify-center rounded-full transition-colors",
-          isDark
-            ? "bg-primary text-primary-foreground"
-            : "text-muted-foreground hover:text-foreground",
-        )}
+        className="rounded-full"
       >
         <Moon className="size-3.5" aria-hidden="true" />
-      </button>
+      </Button>
     </div>
   );
 }
