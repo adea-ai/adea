@@ -10,7 +10,7 @@ export type RoomPlacement = readonly [
 /** Converts authored centimetres to the shared World metre coordinate space. */
 export const ROOM_GALLERY_AUTHORED_UNIT_SCALE = 0.01;
 /** Real-world scale: 600 authored units (6 m) render as exactly 6 m.
- *  The ithappy furniture models are authored in metres, so the environment
+ *  The models furniture models are authored in metres, so the environment
  *  uses the same 1:1 scale to keep everything consistent. */
 export const ROOM_GALLERY_ENVIRONMENT_SCALE = 1.0;
 export const ROOM_GALLERY_RUNTIME_SCALE =

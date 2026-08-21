@@ -24,7 +24,6 @@
   },
   "dependencies": {
     "@agent-hq/asset-manifests": "workspace:*",
-    "@agent-hq/characters": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
     "lucide-react": "^1.28.0",

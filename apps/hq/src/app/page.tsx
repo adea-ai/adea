@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { isIthappyCharacterId, isIthappyCustomCharacterId } from "@agent-hq/ithappy";
+import { isModelsCharacterId, isModelsCustomCharacterId } from "@agent-hq/models";
 import { readSceneStartPosition } from "@agent-hq/scene-shell/scene-spawn";
 import { WorkspaceShell } from "../components/workspace-shell";
 import { hqSceneFromSearchParams } from "../lib/workspace-scene";
@@ -24,7 +24,7 @@ export default async function HomePage({
     ? params.character[0]
     : params.character;
   const isValidCharacter =
-    isIthappyCharacterId(requestedCharacter) || isIthappyCustomCharacterId(requestedCharacter);
+    isModelsCharacterId(requestedCharacter) || isModelsCustomCharacterId(requestedCharacter);
   const cameraParam = Array.isArray(params.camera) ? params.camera[0] : params.camera;
 
   return (

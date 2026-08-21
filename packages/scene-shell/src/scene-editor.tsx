@@ -41,7 +41,7 @@ type PlacementManifest = {
   placements: Record<string, Placement[]>;
 };
 
-type FieldCategory = "foliage" | "vehicles" | "buildings" | "props";
+type FieldCategory = "foliage" | "props";
 
 type TransformSnapshot = {
   position: [number, number, number];
@@ -88,10 +88,6 @@ type HistoryEntry = {
 const FIELD_GROUPS: Record<string, FieldCategory> = {
   "landscape-field": "foliage",
   foliage: "foliage",
-  "vehicles-field": "vehicles",
-  vehicles: "vehicles",
-  "buildings-field": "buildings",
-  buildings: "buildings",
   "props-field": "props",
   props: "props",
 };
@@ -246,7 +242,7 @@ function findZoneRoot(object: THREE.Object3D, scene: THREE.Scene): THREE.Object3
   return null;
 }
 
-const CATEGORIES = new Set<FieldCategory>(["foliage", "vehicles", "buildings", "props"]);
+const CATEGORIES = new Set<FieldCategory>(["foliage", "props"]);
 
 function placementIndicesForChunk(placements: Placement[], chunkKey: string): number[] {
   if (chunkKey === "all") return placements.map((_, index) => index);
@@ -294,8 +290,6 @@ function fieldRootForSelection(
 
 function fieldManifestUrl(manifest: SceneManifest, category: FieldCategory): string | undefined {
   if (category === "foliage") return manifest.foliageManifestUrl;
-  if (category === "vehicles") return manifest.vehiclesManifestUrl;
-  if (category === "buildings") return manifest.buildingsManifestUrl;
   return manifest.propsManifestUrl;
 }
 

@@ -1,6 +1,6 @@
-// ithappy props for the HQ room designer.
+// models props for the HQ room designer.
 //
-// Exports ithappy furniture, food & drinks, casino assets, and foliage as
+// Exports models furniture, food & drinks, casino assets, and foliage as
 // InteriorPropAsset entries compatible with the HQ room designer catalog.
 // Each entry includes a category, default scale, footprint, and frontYaw so
 // the designer can place them on the 12-unit interior grid alongside the
@@ -13,10 +13,10 @@ import type {
   PropManifest,
 } from "@agent-hq/props";
 
-const furnitureRoot = "/assets/ithappy/furniture";
-const foodRoot = "/assets/ithappy/food";
-const casinoRoot = "/assets/ithappy/casino";
-const foliageRoot = "/assets/ithappy/foliage";
+const furnitureRoot = "/assets/models/furniture";
+const foodRoot = "/assets/models/food";
+const casinoRoot = "/assets/models/casino";
+const foliageRoot = "/assets/models/foliage";
 
 // Helper to build an InteriorPropAsset from minimal authoring data.
 function prop(
@@ -46,9 +46,9 @@ const FACING_YAW = Math.PI;
 // --- Furniture (Cute Furniture pack) ----------------------------------------
 const furnitureProps: InteriorPropAsset[] = [
   // Bedroom
-  prop("ithappy-bed-02", "Bed", `${furnitureRoot}/Bed_02.glb`, "bedroom", 1.25, [255, 270], 0),
+  prop("models-bed-02", "Bed", `${furnitureRoot}/Bed_02.glb`, "bedroom", 1.25, [255, 270], 0),
   prop(
-    "ithappy-bed-07",
+    "models-bed-07",
     "Bed (Platform)",
     `${furnitureRoot}/Bed_07.glb`,
     "bedroom",
@@ -59,7 +59,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Seating
   prop(
-    "ithappy-armchair-02",
+    "models-armchair-02",
     "Armchair",
     `${furnitureRoot}/Armchair_02.glb`,
     "seating",
@@ -68,7 +68,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-armchair-18",
+    "models-armchair-18",
     "Armchair (Lounge)",
     `${furnitureRoot}/Armchair_18.glb`,
     "seating",
@@ -77,7 +77,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-chair-17",
+    "models-chair-17",
     "Chair",
     `${furnitureRoot}/Chair_17.glb`,
     "seating",
@@ -86,7 +86,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-chair-pc-04",
+    "models-chair-pc-04",
     "PC Chair",
     `${furnitureRoot}/Chair_PC_04.glb`,
     "seating",
@@ -95,7 +95,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-couch-08",
+    "models-couch-08",
     "Couch",
     `${furnitureRoot}/Couch_08.glb`,
     "seating",
@@ -104,7 +104,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-couch-11",
+    "models-couch-11",
     "Couch (Sectional)",
     `${furnitureRoot}/Couch_11.glb`,
     "seating",
@@ -115,7 +115,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Tables (surfaceHeight enables placeableOnTop items to stack on them)
   prop(
-    "ithappy-coffee-table-03",
+    "models-coffee-table-03",
     "Coffee Table",
     `${furnitureRoot}/Coffee_Table_03.glb`,
     "tables",
@@ -125,7 +125,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { surfaceHeight: 53 },
   ),
   prop(
-    "ithappy-kitchen-table-09",
+    "models-kitchen-table-09",
     "Kitchen Table",
     `${furnitureRoot}/Kitchen_Table_09.glb`,
     "tables",
@@ -135,7 +135,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { surfaceHeight: 94 },
   ),
   prop(
-    "ithappy-work-table-06",
+    "models-work-table-06",
     "Work Table",
     `${furnitureRoot}/Work_Table_06.glb`,
     "tables",
@@ -145,7 +145,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { surfaceHeight: 95 },
   ),
   prop(
-    "ithappy-kitchen-d-01",
+    "models-kitchen-d-01",
     "Kitchen Counter",
     `${furnitureRoot}/Kitchen_D_01.glb`,
     "tables",
@@ -155,7 +155,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { surfaceHeight: 106 },
   ),
   prop(
-    "ithappy-kitchen-d-06",
+    "models-kitchen-d-06",
     "Kitchen Counter (Corner)",
     `${furnitureRoot}/Kitchen_D_06.glb`,
     "tables",
@@ -165,7 +165,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { surfaceHeight: 94 },
   ),
   prop(
-    "ithappy-kitchen-d-08",
+    "models-kitchen-d-08",
     "Kitchen Cabinet",
     `${furnitureRoot}/Kitchen_D_08.glb`,
     "storage",
@@ -175,7 +175,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 130 },
   ),
   prop(
-    "ithappy-kitchen-d-09",
+    "models-kitchen-d-09",
     "Kitchen Cabinet (Narrow)",
     `${furnitureRoot}/Kitchen_D_09.glb`,
     "storage",
@@ -185,7 +185,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 130 },
   ),
   prop(
-    "ithappy-kitchen-d-10",
+    "models-kitchen-d-10",
     "Kitchen Cabinet (Wide)",
     `${furnitureRoot}/Kitchen_D_10.glb`,
     "storage",
@@ -197,7 +197,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Storage
   prop(
-    "ithappy-closet-01",
+    "models-closet-01",
     "Closet",
     `${furnitureRoot}/Closet_01.glb`,
     "storage",
@@ -206,7 +206,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-closet-02",
+    "models-closet-02",
     "Closet (Sliding)",
     `${furnitureRoot}/Closet_02.glb`,
     "storage",
@@ -215,7 +215,7 @@ const furnitureProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-nightstand-02",
+    "models-nightstand-02",
     "Nightstand",
     `${furnitureRoot}/Nightstand_02.glb`,
     "storage",
@@ -225,7 +225,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { surfaceHeight: 72 },
   ),
   prop(
-    "ithappy-fridge-01",
+    "models-fridge-01",
     "Fridge",
     `${furnitureRoot}/Fridge_01.glb`,
     "storage",
@@ -236,7 +236,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Lighting
   prop(
-    "ithappy-light-05",
+    "models-light-05",
     "Floor Lamp",
     `${furnitureRoot}/Light_05.glb`,
     "lighting",
@@ -247,7 +247,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Plants
   prop(
-    "ithappy-plants-05",
+    "models-plants-05",
     "Plant (Tall)",
     `${furnitureRoot}/Plants_05.glb`,
     "plants",
@@ -257,7 +257,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { blocksRugOverlap: true },
   ),
   prop(
-    "ithappy-plants-15",
+    "models-plants-15",
     "Plant (Bushy)",
     `${furnitureRoot}/Plants_15.glb`,
     "plants",
@@ -267,7 +267,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { blocksRugOverlap: true },
   ),
   prop(
-    "ithappy-plants-19",
+    "models-plants-19",
     "Plant (Small)",
     `${furnitureRoot}/Plants_19.glb`,
     "plants",
@@ -279,7 +279,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Wall decor
   prop(
-    "ithappy-picture-08",
+    "models-picture-08",
     "Picture",
     `${furnitureRoot}/Picture_08.glb`,
     "wall-decor",
@@ -289,7 +289,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 120 },
   ),
   prop(
-    "ithappy-picture-17",
+    "models-picture-17",
     "Picture (Landscape)",
     `${furnitureRoot}/Picture_17.glb`,
     "wall-decor",
@@ -299,7 +299,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 120 },
   ),
   prop(
-    "ithappy-picture-21",
+    "models-picture-21",
     "Picture (Abstract)",
     `${furnitureRoot}/Picture_21.glb`,
     "wall-decor",
@@ -311,7 +311,7 @@ const furnitureProps: InteriorPropAsset[] = [
 
   // Electronics (small items that can sit on tables/counters)
   prop(
-    "ithappy-computer-01",
+    "models-computer-01",
     "Computer",
     `${furnitureRoot}/Computer_01.glb`,
     "electronics",
@@ -321,7 +321,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-game-console-01",
+    "models-game-console-01",
     "Game Console",
     `${furnitureRoot}/GameConsole_01.glb`,
     "electronics",
@@ -331,7 +331,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-microwave-01",
+    "models-microwave-01",
     "Microwave",
     `${furnitureRoot}/Microwave_01.glb`,
     "electronics",
@@ -341,7 +341,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-mixer-08",
+    "models-mixer-08",
     "Mixer",
     `${furnitureRoot}/Mixer_08.glb`,
     "electronics",
@@ -352,10 +352,10 @@ const furnitureProps: InteriorPropAsset[] = [
   ),
 
   // Other
-  prop("ithappy-bath-03", "Bathtub", `${furnitureRoot}/Bath_03.glb`, "other", 1.25, [225, 105], 0),
-  prop("ithappy-toilet-03", "Toilet", `${furnitureRoot}/Toilet_03.glb`, "other", 1.25, [60, 90], 0),
+  prop("models-bath-03", "Bathtub", `${furnitureRoot}/Bath_03.glb`, "other", 1.25, [225, 105], 0),
+  prop("models-toilet-03", "Toilet", `${furnitureRoot}/Toilet_03.glb`, "other", 1.25, [60, 90], 0),
   prop(
-    "ithappy-wash-basin-07",
+    "models-wash-basin-07",
     "Wash Basin",
     `${furnitureRoot}/Wash_Basin_07.glb`,
     "other",
@@ -364,7 +364,7 @@ const furnitureProps: InteriorPropAsset[] = [
     0,
   ),
   prop(
-    "ithappy-toothbrush-01",
+    "models-toothbrush-01",
     "Toothbrush",
     `${furnitureRoot}/Toothbrush_01.glb`,
     "other",
@@ -374,7 +374,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-toothpaste-01",
+    "models-toothpaste-01",
     "Toothpaste",
     `${furnitureRoot}/Toothpaste_01.glb`,
     "other",
@@ -384,7 +384,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-utensils-01",
+    "models-utensils-01",
     "Utensils",
     `${furnitureRoot}/Utensils_01.glb`,
     "other",
@@ -394,7 +394,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-cutting-board-02",
+    "models-cutting-board-02",
     "Cutting Board",
     `${furnitureRoot}/Cutting_board_02.glb`,
     "other",
@@ -403,11 +403,11 @@ const furnitureProps: InteriorPropAsset[] = [
     0,
     { placeableOnTop: true },
   ),
-  prop("ithappy-book-03", "Book", `${furnitureRoot}/Book_03.glb`, "other", 1.25, [90, 30], 0, {
+  prop("models-book-03", "Book", `${furnitureRoot}/Book_03.glb`, "other", 1.25, [90, 30], 0, {
     placeableOnTop: true,
   }),
   prop(
-    "ithappy-book-08",
+    "models-book-08",
     "Book (Stack)",
     `${furnitureRoot}/Book_08.glb`,
     "other",
@@ -416,11 +416,11 @@ const furnitureProps: InteriorPropAsset[] = [
     0,
     { placeableOnTop: true },
   ),
-  prop("ithappy-paper-01", "Paper", `${furnitureRoot}/Paper_01.glb`, "other", 1.25, [45, 45], 0, {
+  prop("models-paper-01", "Paper", `${furnitureRoot}/Paper_01.glb`, "other", 1.25, [45, 45], 0, {
     placeableOnTop: true,
   }),
   prop(
-    "ithappy-paper-02",
+    "models-paper-02",
     "Paper (Stack)",
     `${furnitureRoot}/Paper_02.glb`,
     "other",
@@ -429,17 +429,17 @@ const furnitureProps: InteriorPropAsset[] = [
     0,
     { placeableOnTop: true },
   ),
-  prop("ithappy-clock-03", "Clock", `${furnitureRoot}/Clock_03.glb`, "other", 1.25, [90, 60], 0, {
+  prop("models-clock-03", "Clock", `${furnitureRoot}/Clock_03.glb`, "other", 1.25, [90, 60], 0, {
     placeableOnTop: true,
   }),
-  prop("ithappy-toy-02", "Toy (Robot)", `${furnitureRoot}/Toy_02.glb`, "other", 1.25, [30, 30], 0, {
+  prop("models-toy-02", "Toy (Robot)", `${furnitureRoot}/Toy_02.glb`, "other", 1.25, [30, 30], 0, {
     placeableOnTop: true,
   }),
-  prop("ithappy-toy-03", "Toy (Block)", `${furnitureRoot}/Toy_03.glb`, "other", 1.25, [45, 45], 0, {
+  prop("models-toy-03", "Toy (Block)", `${furnitureRoot}/Toy_03.glb`, "other", 1.25, [45, 45], 0, {
     placeableOnTop: true,
   }),
   prop(
-    "ithappy-guitar-01",
+    "models-guitar-01",
     "Guitar",
     `${furnitureRoot}/Guitar_01.glb`,
     "other",
@@ -449,7 +449,7 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-exercise-bike-01",
+    "models-exercise-bike-01",
     "Exercise Bike",
     `${furnitureRoot}/ExerciseBike_01.glb`,
     "other",
@@ -526,13 +526,13 @@ function foodLabel(filename: string): string {
 const foodProps: InteriorPropAsset[] = [
   // Drinks
   ...drinkFiles.map((f) =>
-    prop(`ithappy-${f}`, foodLabel(f), `${foodRoot}/${f}.glb`, "drinks", 1.0, [24, 24], 0, {
+    prop(`models-${f}`, foodLabel(f), `${foodRoot}/${f}.glb`, "drinks", 1.0, [24, 24], 0, {
       placeableOnTop: true,
     }),
   ),
   // Food
   ...foodFiles.map((f) =>
-    prop(`ithappy-${f}`, foodLabel(f), `${foodRoot}/${f}.glb`, "food", 1.0, [24, 24], 0, {
+    prop(`models-${f}`, foodLabel(f), `${foodRoot}/${f}.glb`, "food", 1.0, [24, 24], 0, {
       placeableOnTop: true,
     }),
   ),
@@ -542,7 +542,7 @@ const foodProps: InteriorPropAsset[] = [
 const casinoProps: InteriorPropAsset[] = [
   // Gaming tables
   prop(
-    "ithappy-casino-table-01",
+    "models-casino-table-01",
     "Casino Table",
     `${casinoRoot}/Table_01.glb`,
     "tables",
@@ -552,7 +552,7 @@ const casinoProps: InteriorPropAsset[] = [
     { surfaceHeight: 85 },
   ),
   prop(
-    "ithappy-casino-table-06",
+    "models-casino-table-06",
     "Casino Table (Large)",
     `${casinoRoot}/Table_06.glb`,
     "tables",
@@ -562,7 +562,7 @@ const casinoProps: InteriorPropAsset[] = [
     { surfaceHeight: 80 },
   ),
   prop(
-    "ithappy-casino-tablecloth-01",
+    "models-casino-tablecloth-01",
     "Tablecloth",
     `${casinoRoot}/Tablecloth_01.glb`,
     "tables",
@@ -573,7 +573,7 @@ const casinoProps: InteriorPropAsset[] = [
 
   // Slot machines
   prop(
-    "ithappy-slot-machine-01",
+    "models-slot-machine-01",
     "Slot Machine",
     `${casinoRoot}/Slot_Machine_01.glb`,
     "electronics",
@@ -582,7 +582,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-slot-machine-02",
+    "models-slot-machine-02",
     "Slot Machine (Alt)",
     `${casinoRoot}/Slot_Machine_02.glb`,
     "electronics",
@@ -591,7 +591,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-slot-machine-aquarium",
+    "models-slot-machine-aquarium",
     "Slot Machine Aquarium",
     `${casinoRoot}/Slot_Machine_Aquarium_01.glb`,
     "electronics",
@@ -602,7 +602,7 @@ const casinoProps: InteriorPropAsset[] = [
 
   // Seating
   prop(
-    "ithappy-casino-armchair-02",
+    "models-casino-armchair-02",
     "Casino Armchair",
     `${casinoRoot}/Armchair_02.glb`,
     "seating",
@@ -611,7 +611,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-casino-chair-06",
+    "models-casino-chair-06",
     "Casino Chair",
     `${casinoRoot}/Chair_06.glb`,
     "seating",
@@ -620,7 +620,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-casino-chair-office",
+    "models-casino-chair-office",
     "Office Chair",
     `${casinoRoot}/Chair_Office_01.glb`,
     "seating",
@@ -629,7 +629,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-casino-couch-05",
+    "models-casino-couch-05",
     "Casino Couch",
     `${casinoRoot}/Couch_05.glb`,
     "seating",
@@ -640,7 +640,7 @@ const casinoProps: InteriorPropAsset[] = [
 
   // ATMs & cash machines
   prop(
-    "ithappy-casino-atm-01",
+    "models-casino-atm-01",
     "ATM",
     `${casinoRoot}/ATM_01.glb`,
     "storage",
@@ -649,7 +649,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-casino-atm-03",
+    "models-casino-atm-03",
     "ATM (Wall)",
     `${casinoRoot}/ATM_03.glb`,
     "storage",
@@ -658,7 +658,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-casino-cash-machine",
+    "models-casino-cash-machine",
     "Cash Machine",
     `${casinoRoot}/Cash_Machine_01.glb`,
     "storage",
@@ -667,7 +667,7 @@ const casinoProps: InteriorPropAsset[] = [
     0,
   ),
   prop(
-    "ithappy-casino-safebox",
+    "models-casino-safebox",
     "Safe Box",
     `${casinoRoot}/SafeBox_01.glb`,
     "storage",
@@ -678,7 +678,7 @@ const casinoProps: InteriorPropAsset[] = [
 
   // Money & valuables
   prop(
-    "ithappy-casino-cash-01",
+    "models-casino-cash-01",
     "Cash Stack",
     `${casinoRoot}/Cash_01.glb`,
     "other",
@@ -688,7 +688,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-cash-02",
+    "models-casino-cash-02",
     "Cash Stack (Banded)",
     `${casinoRoot}/Cash_02.glb`,
     "other",
@@ -698,7 +698,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-cash-07",
+    "models-casino-cash-07",
     "Cash Stack (Fan)",
     `${casinoRoot}/Cash_07.glb`,
     "other",
@@ -708,7 +708,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-cash-10",
+    "models-casino-cash-10",
     "Cash Stack (Scattered)",
     `${casinoRoot}/Cash_10.glb`,
     "other",
@@ -718,7 +718,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-cash-11",
+    "models-casino-cash-11",
     "Cash Stack (Thick)",
     `${casinoRoot}/Cash_11.glb`,
     "other",
@@ -728,7 +728,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-gold-ingot-01",
+    "models-casino-gold-ingot-01",
     "Gold Ingot",
     `${casinoRoot}/Gold_Ingot_01.glb`,
     "other",
@@ -738,7 +738,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-gold-ingot-02",
+    "models-casino-gold-ingot-02",
     "Gold Ingot (Stack)",
     `${casinoRoot}/Gold_Ingot_02.glb`,
     "other",
@@ -750,7 +750,7 @@ const casinoProps: InteriorPropAsset[] = [
 
   // Playing cards
   prop(
-    "ithappy-casino-card-39",
+    "models-casino-card-39",
     "Playing Card",
     `${casinoRoot}/Card_39.glb`,
     "other",
@@ -760,7 +760,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-card-44",
+    "models-casino-card-44",
     "Playing Card (Heart)",
     `${casinoRoot}/Card_44.glb`,
     "other",
@@ -770,7 +770,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-card-48",
+    "models-casino-card-48",
     "Playing Card (Diamond)",
     `${casinoRoot}/Card_48.glb`,
     "other",
@@ -780,7 +780,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-card-53",
+    "models-casino-card-53",
     "Playing Card (Spade)",
     `${casinoRoot}/Card_53.glb`,
     "other",
@@ -792,7 +792,7 @@ const casinoProps: InteriorPropAsset[] = [
 
   // Decorative
   prop(
-    "ithappy-casino-column-17",
+    "models-casino-column-17",
     "Column",
     `${casinoRoot}/Column_17.glb`,
     "other",
@@ -800,9 +800,9 @@ const casinoProps: InteriorPropAsset[] = [
     [252, 252],
     0,
   ),
-  prop("ithappy-casino-fence-07", "Fence", `${casinoRoot}/Fence_07.glb`, "other", 1.0, [48, 48], 0),
+  prop("models-casino-fence-07", "Fence", `${casinoRoot}/Fence_07.glb`, "other", 1.0, [48, 48], 0),
   prop(
-    "ithappy-casino-fence-08",
+    "models-casino-fence-08",
     "Fence (Wall Short)",
     `${casinoRoot}/Fence_08.glb`,
     "wall-decor",
@@ -812,7 +812,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 48 },
   ),
   prop(
-    "ithappy-casino-fence-09",
+    "models-casino-fence-09",
     "Fence (Wall Long)",
     `${casinoRoot}/Fence_09.glb`,
     "wall-decor",
@@ -822,7 +822,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 48 },
   ),
   prop(
-    "ithappy-casino-floor-01",
+    "models-casino-floor-01",
     "Casino Floor",
     `${casinoRoot}/Floor_01.glb`,
     "other",
@@ -832,7 +832,7 @@ const casinoProps: InteriorPropAsset[] = [
     { floorLift: 3, allowItemsOnTop: true, canOverlapFurniture: true, blocksRugOverlap: true },
   ),
   prop(
-    "ithappy-casino-flower-03",
+    "models-casino-flower-03",
     "Casino Flower",
     `${casinoRoot}/Flower_03.glb`,
     "plants",
@@ -842,7 +842,7 @@ const casinoProps: InteriorPropAsset[] = [
     { blocksRugOverlap: true },
   ),
   prop(
-    "ithappy-casino-fruits-01",
+    "models-casino-fruits-01",
     "Fruits Bowl",
     `${casinoRoot}/Fruits_01.glb`,
     "food",
@@ -852,7 +852,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-lamp-05",
+    "models-casino-lamp-05",
     "Casino Floor Lamp",
     `${casinoRoot}/Lamp_05.glb`,
     "lighting",
@@ -861,7 +861,7 @@ const casinoProps: InteriorPropAsset[] = [
     0,
   ),
   prop(
-    "ithappy-casino-neon-sign",
+    "models-casino-neon-sign",
     "Neon Sign",
     `${casinoRoot}/Neon_Sign_01.glb`,
     "wall-decor",
@@ -871,7 +871,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placementSurface: "wall", wallMountHeight: 96 },
   ),
   prop(
-    "ithappy-casino-screens",
+    "models-casino-screens",
     "Casino Screens",
     `${casinoRoot}/Screens_01.glb`,
     "electronics",
@@ -880,7 +880,7 @@ const casinoProps: InteriorPropAsset[] = [
     FACING_YAW,
   ),
   prop(
-    "ithappy-casino-book-01",
+    "models-casino-book-01",
     "Casino Book",
     `${casinoRoot}/Book_01.glb`,
     "other",
@@ -890,7 +890,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-keyboard",
+    "models-casino-keyboard",
     "Keyboard",
     `${casinoRoot}/Keyboard_01.glb`,
     "electronics",
@@ -900,7 +900,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-monitor",
+    "models-casino-monitor",
     "Monitor",
     `${casinoRoot}/Monitor_02.glb`,
     "electronics",
@@ -910,7 +910,7 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   prop(
-    "ithappy-casino-mouse",
+    "models-casino-mouse",
     "Mouse",
     `${casinoRoot}/Mouse_01.glb`,
     "electronics",
@@ -923,11 +923,11 @@ const casinoProps: InteriorPropAsset[] = [
 
 // --- Foliage (Cartoon City pack) --------------------------------------------
 const foliageProps: InteriorPropAsset[] = [
-  prop("ithappy-bush-06", "Bush", `${foliageRoot}/Bush_06.glb`, "plants", 1.0, [168, 168], 0, {
+  prop("models-bush-06", "Bush", `${foliageRoot}/Bush_06.glb`, "plants", 1.0, [168, 168], 0, {
     blocksRugOverlap: true,
   }),
   prop(
-    "ithappy-bush-07",
+    "models-bush-07",
     "Bush (Round)",
     `${foliageRoot}/Bush_07.glb`,
     "plants",
@@ -937,7 +937,7 @@ const foliageProps: InteriorPropAsset[] = [
     { blocksRugOverlap: true },
   ),
   prop(
-    "ithappy-bush-10",
+    "models-bush-10",
     "Bush (Wide)",
     `${foliageRoot}/Bush_10.glb`,
     "plants",
@@ -946,12 +946,12 @@ const foliageProps: InteriorPropAsset[] = [
     0,
     { blocksRugOverlap: true },
   ),
-  prop("ithappy-palm-03", "Palm Tree", `${foliageRoot}/Palm_03.glb`, "plants", 1.0, [60, 60], 0, {
+  prop("models-palm-03", "Palm Tree", `${foliageRoot}/Palm_03.glb`, "plants", 1.0, [60, 60], 0, {
     blocksRugOverlap: true,
   }),
 ];
 
-export const ithappyInteriorPropAssets: readonly InteriorPropAsset[] = [
+export const modelsInteriorPropAssets: readonly InteriorPropAsset[] = [
   ...furnitureProps,
   ...foodProps,
   ...casinoProps,
@@ -959,7 +959,7 @@ export const ithappyInteriorPropAssets: readonly InteriorPropAsset[] = [
 ];
 
 // Also export as PropManifest[] for the sync script and runtime loader.
-export const ithappyPropAssets: readonly PropManifest[] = ithappyInteriorPropAssets.map((a) => ({
+export const modelsPropAssets: readonly PropManifest[] = modelsInteriorPropAssets.map((a) => ({
   id: a.id,
   label: a.label,
   assetUrl: a.assetUrl,

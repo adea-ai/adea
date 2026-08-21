@@ -11,8 +11,6 @@ export const SFX_FILES = {
   land: [],
   footstep: [],
   uiClick: [],
-  vehicleHover: [],
-  vehicleJetpack: [],
   waterLoop: [],
 } as const;
 

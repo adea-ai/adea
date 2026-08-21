@@ -1,7 +1,7 @@
 # Agent HQ
 
 Agent HQ is a browser-based spatial workspace with Home and Work scenes,
-ithappy characters and room props, a vanilla Three.js scene runtime, and an
+models characters and room props, a vanilla Three.js scene runtime, and an
 orthographic room designer.
 
 ## Stack
@@ -25,7 +25,7 @@ The app runs at [http://localhost:3004](http://localhost:3004).
 - Work: `/scenes/work`
 - Room designer: append `?roomDesigner=1` to either scene route
 
-The asset sync step copies the scene foundations and the ithappy package,
+The asset sync step copies the scene foundations and the models package,
 including the small shared foliage catalog used by Home and Work, into the
 ignored Next public-assets directory.
 

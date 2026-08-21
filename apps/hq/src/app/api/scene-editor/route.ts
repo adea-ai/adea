@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const CATEGORIES = new Set(["foliage", "vehicles", "buildings", "props"]);
+const CATEGORIES = new Set(["foliage", "props"]);
 const HQ_SCENES = new Set(["hq-home", "hq-work"]);
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]*$/;
 

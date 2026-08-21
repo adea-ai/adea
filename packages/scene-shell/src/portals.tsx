@@ -137,13 +137,7 @@ export function Portals({ debugApiRef, links }: PortalsProps) {
       suppressUntilRef.current = Date.now() + ARRIVAL_SUPPRESS_MS;
       setTransitioning(true);
       if (link.navigation) {
-        const duration = api.playTeleportSpin?.() ?? 0.6;
-        window.setTimeout(
-          () => {
-            window.location.assign(portalNavigationHref(link.navigation!));
-          },
-          (duration + 0.5) * 1000,
-        );
+        window.location.assign(portalNavigationHref(link.navigation));
         return;
       }
       if (!link.destination) {

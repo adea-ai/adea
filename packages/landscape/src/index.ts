@@ -2,8 +2,8 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 // Agent HQ scenes use this small shared foliage set. The source models live in
-// the ithappy package so the scene asset boundary stays explicit.
-const assetRoot = "/assets/ithappy/foliage";
+// the models package so the scene asset boundary stays explicit.
+const assetRoot = "/assets/models/foliage";
 
 export const foliageAssets = [
   {

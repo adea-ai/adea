@@ -61,8 +61,6 @@ export {
   type CameraControllerOptions,
   type CameraViewMode,
 } from "./camera-controller";
-export type { TrafficConfig } from "./traffic";
-export type { FlyerConfig } from "./flyers";
 export type { ScenePerformanceReport, ScenePerformanceTelemetry } from "./performance";
 export type {
   ParticleConfigFactory,

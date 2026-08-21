@@ -25,12 +25,10 @@
     "@dimforge/rapier3d-compat": "^0.19.3",
     "@agent-hq/audio": "workspace:*",
     "@agent-hq/asset-manifests": "workspace:*",
-    "@agent-hq/buildings": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/landscape": "workspace:*",
     "@agent-hq/particles": "workspace:*",
     "@agent-hq/props": "workspace:*",
-    "@agent-hq/vehicles": "workspace:*",
     "three": "^0.185.1",
     "three-mesh-bvh": "^0.9.14"
   }

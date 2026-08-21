@@ -71,15 +71,15 @@ describe("scene editor debug picking", () => {
     const outside = new THREE.Group();
     outside.name = "exchange-outside";
     const coupe = new THREE.Mesh();
-    coupe.name = "vehicles:luxury-coupe:0:all";
+    coupe.name = "props:luxury-coupe:0:all";
     outside.add(coupe);
     zone.add(outside);
     scene.add(zone);
 
     applySceneEditorOverrides(scene, {
       objects: {
-        "zone:exchange-outside / exchange-outside / vehiclesluxury-coupe0all": {
-          name: "vehiclesluxury-coupe0all",
+        "zone:exchange-outside / exchange-outside / propsluxury-coupe0all": {
+          name: "propsluxury-coupe0all",
           transform: { p: [0, 0, 0], q: [0, 0, 0, 1], s: [1, 1, 1] },
           deleted: true,
         },
