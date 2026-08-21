@@ -214,18 +214,18 @@ const hqClickNavigationBounds = {
 // The full-bleed canvas sits beneath the top bar. Add only enough authored
 // camera envelope above the property to let its top fence clear that overlay;
 // movement and collision bounds remain the actual property envelope.
-const hqCameraTopPadding = 432;
+const hqCameraTopPadding = 600;
 const hqCameraBounds = {
   ...ROOM_GALLERY_BOUNDS,
   zMax: ROOM_GALLERY_BOUNDS.zMax + hqCameraTopPadding,
 } as const;
-const hqOrthographicHalfHeight = 1000;
+const hqOrthographicHalfHeight = 720;
 // Use the camera-only top envelope for a simple streetscape: a short sidewalk
 // immediately outside the fence and a roadway across the remaining clearance.
 // These layers are visual only; the property envelope remains the gameplay
 // navigation and collision boundary.
 const hqFrontSidewalkDepth = 96;
-const hqFrontRoadDepth = hqCameraTopPadding - hqFrontSidewalkDepth;
+const hqFrontRoadDepth = 432;
 const hqFrontRoadWidth = ROOM_GALLERY_BOUNDS.width + hqCameraTopPadding * 2;
 const hqPoolWaterVolumes = (sceneId: string): readonly SceneWaterVolume[] => [
   {
@@ -329,7 +329,7 @@ function createHqMaterial(
           exterior: "grass",
           path: "rocks",
           ground: "grass",
-          sidewalk: "rocks",
+          sidewalk: "concrete",
           floor: "wood-floor",
           fence: "wood-fence",
           wall: "concrete",
@@ -365,9 +365,8 @@ function createHqMaterial(
 
 function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   // SceneHost invokes visualSetup for entry and streamed zone assets. The
-  // gallery foundation is the only layer that should receive the map-wide
-  // environment; applying it to every room duplicates coplanar floors.
-  if (!visual.getObjectByName("GalleryFoundation-hub")) return;
+  // HQ currently loads a single entry scene with no streamed zones, so the
+  // map-wide environment belongs directly on that loaded visual root.
   const { width, depth } = ROOM_GALLERY_BOUNDS;
   const exteriorWidth = width + hqExteriorVisualPadding * 2;
   const exteriorDepth = depth + hqExteriorVisualPadding * 2;
@@ -434,7 +433,8 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     );
     marking.name = "hq-front-road-marking-center";
     marking.rotation.x = -Math.PI / 2;
-    marking.position.set(0, -0.4, roadCenterZ + offset);
+    // Keep markings above the scaled road plane so the depth buffer does not hide them.
+    marking.position.set(0, 10, roadCenterZ + offset);
     marking.receiveShadow = true;
     visual.add(marking);
   }
@@ -805,7 +805,7 @@ export function HqRoomScene({
       // World-sized avatar enough screen presence in the fixed top-down view.
       orthographicHalfHeight={hqOrthographicHalfHeight}
       orthographicPitch={-0.9}
-      orthographicPan={{ x: 0, z: hqCameraTopPadding }}
+      orthographicPan={{ x: 0, z: 0 }}
       waterVolumes={manifest.zones?.length ? hqPoolWaterVolumes(manifest.id) : undefined}
       deferCharacterDetails={false}
       environment={galleryEnvironment}

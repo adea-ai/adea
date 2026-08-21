@@ -93,6 +93,7 @@ export class CameraController {
   private orthographicZoom = 1;
   private orthographicTargetZoom = 1;
   private readonly orthographicPan = new THREE.Vector2();
+  private readonly initialOrthographicPan = new THREE.Vector2();
   private orthographicBoundsPadding = 0;
   private cameraDistance = CAMERA_DISTANCE;
 
@@ -113,7 +114,8 @@ export class CameraController {
     this.cameraBounds = cameraBounds;
     this.orthographicHalfHeight = orthographicHalfHeight;
     this.orthographicPitch = orthographicPitch;
-    this.orthographicPan.set(orthographicPan?.x ?? 0, orthographicPan?.z ?? 0);
+    this.initialOrthographicPan.set(orthographicPan?.x ?? 0, orthographicPan?.z ?? 0);
+    this.orthographicPan.copy(this.initialOrthographicPan);
     this.activeViewMode = initialViewMode;
     this.views = {
       perspective: { yaw: initialYaw, pitch: initialPerspectivePitch },
@@ -191,7 +193,7 @@ export class CameraController {
   }
 
   resetOrthographicPan(): void {
-    this.orthographicPan.set(0, 0);
+    this.orthographicPan.copy(this.initialOrthographicPan);
   }
 
   setOrthographicZoom(zoom: number): void {
