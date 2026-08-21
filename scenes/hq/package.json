@@ -9,14 +9,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./home": {
-      "types": "./dist/home.d.ts",
-      "import": "./dist/home.js"
-    },
-    "./work": {
-      "types": "./dist/work.d.ts",
-      "import": "./dist/work.js"
     }
   },
   "scripts": {
