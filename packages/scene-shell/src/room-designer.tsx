@@ -1859,19 +1859,11 @@ export function RoomDesigner({
         </div>
         {hasEdits ? (
           <div className="sticky bottom-0 grid shrink-0 grid-cols-2 gap-2 border-t border-border bg-background/85 p-3">
-            <Button
-              type="button"
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
-              onClick={resetAll}
-            >
+            <Button type="button" variant="secondary" onClick={resetAll}>
               <Undo2 className="mr-2 size-4" aria-hidden="true" />
               Reset all
             </Button>
-            <Button
-              type="button"
-              className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-              onClick={() => void save()}
-            >
+            <Button type="button" variant="default" onClick={() => void save()}>
               <Save className="mr-2 size-4" aria-hidden="true" />
               Save all
             </Button>
