@@ -35,7 +35,7 @@ for (const scene of ["hq-home", "hq-work"]) {
   );
 }
 
-await copyAsset(resolve(repoRoot, "packages/models/assets"), resolve(publicAssets, "models"));
+await copyAsset(resolve(repoRoot, "packages/interior/assets"), resolve(publicAssets, "models"));
 await copyAsset(
   resolve(repoRoot, "packages/landscape/assets/foliage"),
   resolve(publicAssets, "models/foliage"),

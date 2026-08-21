@@ -3,7 +3,7 @@ import {
   ROOM_GALLERY_SLOTS,
   ROOM_GALLERY_SQUARE_SCALE,
   type RoomPlacement,
-} from "@agent-hq/rooms";
+} from "@agent-hq/interior";
 
 const { topRectangleX, topRowZ, sideX, bottomRowZ, sideRowZ, bottomRectangleX, bottomCenterX } =
   ROOM_GALLERY_SLOTS;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const modelsInteriorPropAssetSchema = z.object({
+export const interiorPropAssetSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
   assetUrl: z.string().min(1),
@@ -32,6 +32,6 @@ export const modelsInteriorPropAssetSchema = z.object({
   frontYaw: z.number(),
 });
 
-export const modelsInteriorPropCatalogSchema = z.array(modelsInteriorPropAssetSchema);
+export const interiorPropCatalogSchema = z.array(interiorPropAssetSchema);
 
-export type ValidatedModelsInteriorPropAsset = z.infer<typeof modelsInteriorPropAssetSchema>;
+export type ValidatedInteriorPropAsset = z.infer<typeof interiorPropAssetSchema>;

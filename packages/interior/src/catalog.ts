@@ -1,17 +1,17 @@
-// models props for the HQ room designer.
+// Interior props for the HQ room designer.
 //
 // Exports furniture, food & drinks, and interior casino assets as
 // InteriorPropAsset entries compatible with the HQ room designer catalog.
 // Each entry includes a category, default scale, footprint, and frontYaw so
-// the designer can place them on the 12-unit interior grid alongside the
-// existing World props.
+// the designer can place them on the interior grid alongside the existing
+// World props.
 
 import type {
   InteriorPropAsset,
   InteriorPropCategory,
   InteriorPropConfig,
   PropManifest,
-} from "@agent-hq/props";
+} from "./prop-types";
 
 const furnitureRoot = "/assets/models/furniture";
 const foodRoot = "/assets/models/food";
@@ -899,14 +899,14 @@ const casinoProps: InteriorPropAsset[] = [
   ),
 ];
 
-export const modelsInteriorPropAssets: readonly InteriorPropAsset[] = [
+export const interiorPropAssets: readonly InteriorPropAsset[] = [
   ...furnitureProps,
   ...foodProps,
   ...casinoProps,
 ];
 
-// Also export as PropManifest[] for the sync script and runtime loader.
-export const modelsPropAssets: readonly PropManifest[] = modelsInteriorPropAssets.map((a) => ({
+// Also export as PropManifest[] for the runtime field loader.
+export const propAssets: readonly PropManifest[] = interiorPropAssets.map((a) => ({
   id: a.id,
   label: a.label,
   assetUrl: a.assetUrl,

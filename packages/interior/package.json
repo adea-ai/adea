@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/models",
+  "name": "@agent-hq/interior",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -10,9 +10,9 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./props": {
-      "types": "./dist/props.d.ts",
-      "import": "./dist/props.js"
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "scripts": {
@@ -22,7 +22,7 @@
     "test": "bun test test/*.test.ts"
   },
   "dependencies": {
-    "@agent-hq/props": "workspace:*",
+    "@agent-hq/placed-models": "workspace:*",
     "three": "^0.185.1",
     "zod": "^4.4.3"
   },

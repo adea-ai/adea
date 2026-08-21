@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { modelsInteriorPropAssets } from "../src";
+import { interiorPropAssets } from "../src";
 
-const interiorPlantIds = modelsInteriorPropAssets
+const interiorPlantIds = interiorPropAssets
   .filter((asset) => asset.category === "plants")
   .map((asset) => asset.id);
 
@@ -26,6 +26,6 @@ describe("room-designer model boundary", () => {
       "models-casino-fence-09",
     ]);
 
-    expect(modelsInteriorPropAssets.some((asset) => exteriorIds.has(asset.id))).toBe(false);
+    expect(interiorPropAssets.some((asset) => exteriorIds.has(asset.id))).toBe(false);
   });
 });
