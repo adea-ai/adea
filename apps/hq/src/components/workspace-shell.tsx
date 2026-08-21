@@ -110,6 +110,7 @@ export function WorkspaceShell({
                   );
                 })}
               </nav>
+              <div id="workspace-room-designer-slot" className="workspace-room-designer-slot" />
             </div>
 
             <div className="workspace-topbar__actions">
@@ -123,9 +124,6 @@ export function WorkspaceShell({
               </div>
               <div id="workspace-account-slot" className="workspace-account-slot" />
             </div>
-          </div>
-          <div className="workspace-topbar__secondary">
-            <div id="workspace-room-designer-slot" className="workspace-room-designer-slot" />
           </div>
         </header>
 
