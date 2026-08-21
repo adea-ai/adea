@@ -25,7 +25,7 @@
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/audio": "workspace:*",
-        "@agent-hq/ithappy": "workspace:*",
+        "@agent-hq/models": "workspace:*",
         "@agent-hq/rooms": "workspace:*",
         "@agent-hq/scene-hq-home": "workspace:*",
         "@agent-hq/scene-hq-work": "workspace:*",
@@ -66,34 +66,10 @@
         "@types/react": "^18.3.0",
       },
     },
-    "packages/buildings": {
-      "name": "@agent-hq/buildings",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agent-hq/asset-manifests": "workspace:*",
-        "@agent-hq/placed-models": "workspace:*",
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
     "packages/characters": {
       "name": "@agent-hq/characters",
       "version": "0.1.0",
       "dependencies": {
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
-    "packages/ithappy": {
-      "name": "@agent-hq/ithappy",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agent-hq/characters": "workspace:*",
-        "@agent-hq/props": "workspace:*",
         "three": "^0.185.1",
       },
       "devDependencies": {
@@ -105,6 +81,18 @@
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/placed-models": "workspace:*",
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@types/three": "^0.185.0",
+      },
+    },
+    "packages/models": {
+      "name": "@agent-hq/models",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agent-hq/characters": "workspace:*",
+        "@agent-hq/props": "workspace:*",
         "three": "^0.185.1",
       },
       "devDependencies": {
@@ -158,12 +146,10 @@
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/audio": "workspace:*",
-        "@agent-hq/buildings": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/landscape": "workspace:*",
         "@agent-hq/particles": "workspace:*",
         "@agent-hq/props": "workspace:*",
-        "@agent-hq/vehicles": "workspace:*",
         "@dimforge/rapier3d-compat": "^0.19.3",
         "three": "^0.185.1",
         "three-mesh-bvh": "^0.9.14",
@@ -178,7 +164,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
-        "@agent-hq/characters": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/ui": "workspace:*",
         "lucide-react": "^1.28.0",
@@ -223,17 +208,6 @@
         "@types/three": "^0.185.0",
       },
     },
-    "packages/vehicles": {
-      "name": "@agent-hq/vehicles",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agent-hq/placed-models": "workspace:*",
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
     "scenes/hq-home": {
       "name": "@agent-hq/scene-hq-home",
       "version": "0.1.0",
@@ -256,15 +230,13 @@
 
     "@agent-hq/audio": ["@agent-hq/audio@workspace:packages/audio"],
 
-    "@agent-hq/buildings": ["@agent-hq/buildings@workspace:packages/buildings"],
-
     "@agent-hq/characters": ["@agent-hq/characters@workspace:packages/characters"],
 
     "@agent-hq/hq": ["@agent-hq/hq@workspace:apps/hq"],
 
-    "@agent-hq/ithappy": ["@agent-hq/ithappy@workspace:packages/ithappy"],
-
     "@agent-hq/landscape": ["@agent-hq/landscape@workspace:packages/landscape"],
+
+    "@agent-hq/models": ["@agent-hq/models@workspace:packages/models"],
 
     "@agent-hq/particles": ["@agent-hq/particles@workspace:packages/particles"],
 
@@ -285,8 +257,6 @@
     "@agent-hq/scene-telemetry": ["@agent-hq/scene-telemetry@workspace:packages/scene-telemetry"],
 
     "@agent-hq/ui": ["@agent-hq/ui@workspace:packages/ui"],
-
-    "@agent-hq/vehicles": ["@agent-hq/vehicles@workspace:packages/vehicles"],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 

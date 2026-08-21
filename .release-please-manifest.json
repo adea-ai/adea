@@ -3,9 +3,8 @@
   "apps/hq": "0.1.0",
   "packages/asset-manifests": "0.1.0",
   "packages/audio": "0.1.0",
-  "packages/buildings": "0.1.0",
   "packages/characters": "0.1.0",
-  "packages/ithappy": "0.1.0",
+  "packages/models": "0.1.0",
   "packages/landscape": "0.1.0",
   "packages/particles": "0.1.0",
   "packages/placed-models": "0.1.0",
@@ -15,7 +14,6 @@
   "packages/scene-shell": "0.1.0",
   "packages/scene-telemetry": "0.1.0",
   "packages/ui": "0.1.0",
-  "packages/vehicles": "0.1.0",
   "scenes/hq-home": "0.1.0",
   "scenes/hq-work": "0.1.0"
 }

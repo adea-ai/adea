@@ -35,6 +35,6 @@ for (const scene of ["hq-home", "hq-work"]) {
   );
 }
 
-await copyAsset(resolve(repoRoot, "packages/ithappy/assets"), resolve(publicAssets, "ithappy"));
+await copyAsset(resolve(repoRoot, "packages/models/assets"), resolve(publicAssets, "models"));
 
 console.log(`Synced HQ assets to ${publicAssets}`);

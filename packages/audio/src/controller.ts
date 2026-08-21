@@ -158,7 +158,7 @@ export class SoundController {
   }
 
   /**
-   * Start a looping ambience cue (vehicle hum, water, etc.). The buffer is
+   * Start a looping ambience cue (water, etc.). The buffer is
    * fetched lazily on first use, so the returned handle takes effect once it
    * loads; stop()/setVolume() are safe to call before then. Respects the SFX
    * mute at creation time.
