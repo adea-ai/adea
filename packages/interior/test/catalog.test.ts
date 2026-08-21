@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { interiorPropAssets } from "../src";
 
@@ -6,6 +8,42 @@ const interiorPlantIds = interiorPropAssets
   .map((asset) => asset.id);
 
 describe("room-designer model boundary", () => {
+  test("stores every catalog asset in its configured room-designer folder", () => {
+    const assetsRoot = join(import.meta.dir, "../assets");
+    const files: string[] = [];
+    const visit = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) visit(path);
+        else if (entry.name.endsWith(".glb")) files.push(relative(assetsRoot, path));
+      }
+    };
+    visit(assetsRoot);
+
+    const catalogFiles = interiorPropAssets.map((asset) =>
+      asset.assetUrl.replace("/assets/models/", ""),
+    );
+
+    expect(files.sort()).toEqual([...catalogFiles].sort());
+    expect(
+      interiorPropAssets.every((asset) => {
+        const folder = asset.assetUrl.split("/").at(-2);
+        if (asset.category === "food-and-drinks") {
+          return folder === "food" || folder === "drinks";
+        }
+        return folder === asset.category;
+      }),
+    ).toBe(true);
+
+    expect(
+      new Set(
+        interiorPropAssets
+          .filter((asset) => asset.category === "food-and-drinks")
+          .map((asset) => asset.assetUrl.split("/").at(-2)),
+      ),
+    ).toEqual(new Set(["food", "drinks"]));
+  });
+
   test("keeps only interior pots and plants in the plants category", () => {
     expect(interiorPlantIds).toEqual([
       "models-plants-05",

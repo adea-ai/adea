@@ -5,8 +5,7 @@ export const interiorPropAssetSchema = z.object({
   label: z.string().min(1),
   assetUrl: z.string().min(1),
   category: z.enum([
-    "drinks",
-    "food",
+    "food-and-drinks",
     "plants",
     "wall-decor",
     "tables",
@@ -15,7 +14,6 @@ export const interiorPropAssetSchema = z.object({
     "storage",
     "lighting",
     "electronics",
-    "casino",
     "other",
   ]),
   defaultScale: z.number().positive(),
