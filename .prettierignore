@@ -4,6 +4,9 @@ CHANGELOG.md
 # Runtime files are checked out under .github during CI.
 .github/.code-foundry
 
+# Project-scoped skills are vendored guidance and retain their upstream format.
+.agents
+
 # Repository-specific rules
 .next
 dist

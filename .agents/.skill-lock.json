@@ -1,0 +1,104 @@
+{
+  "version": 3,
+  "skills": {
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/shadcn/ui.git",
+      "skillPath": "skills/shadcn/SKILL.md",
+      "skillFolderHash": "5425e967ec77628fa4c73741b56ba30bcbace00b",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-animation": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-animation/SKILL.md",
+      "skillFolderHash": "d50fac8f86780683ed4c6058f40ade0aaa5e3fe6",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-fundamentals": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-fundamentals/SKILL.md",
+      "skillFolderHash": "91e864bbf2955be8849301c81b11dc41719d8a16",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-geometry": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-geometry/SKILL.md",
+      "skillFolderHash": "6c2bbd5098ddfcd71effb61a094d4850013cda9f",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-interaction": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-interaction/SKILL.md",
+      "skillFolderHash": "ce2fc639eeb6d8499ba023e2434498ec803e38e5",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-lighting": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-lighting/SKILL.md",
+      "skillFolderHash": "51f1d556da448aa23706c70b8e82b2f22139d320",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-loaders": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-loaders/SKILL.md",
+      "skillFolderHash": "884a21aa43ba145733e23b571410a410b1b6ab6f",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-materials": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-materials/SKILL.md",
+      "skillFolderHash": "ca5e9aae4d96e7d85228b41847acd09df91ffebd",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-postprocessing": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-postprocessing/SKILL.md",
+      "skillFolderHash": "1f2fb55cb982b7e13c4fc6b7faf0ec7194ca3acd",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-shaders": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-shaders/SKILL.md",
+      "skillFolderHash": "a07a56ae3181c8eaabfcce90c3687e470d2e8195",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    },
+    "threejs-textures": {
+      "source": "cloudai-x/threejs-skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/cloudai-x/threejs-skills.git",
+      "skillPath": "skills/threejs-textures/SKILL.md",
+      "skillFolderHash": "d77053ee740e69f95ed1d7114400f9ccffec7bb4",
+      "installedAt": "2026-08-17T22:10:00.000Z",
+      "updatedAt": "2026-08-17T22:10:00.000Z"
+    }
+  }
+}
