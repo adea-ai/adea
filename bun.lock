@@ -163,16 +163,6 @@
         "@types/three": "^0.185.0",
       },
     },
-    "packages/particles": {
-      "name": "@agent-hq/particles",
-      "version": "0.1.0",
-      "dependencies": {
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
     "packages/pets": {
       "name": "@agent-hq/pets",
       "version": "0.1.0",
@@ -202,7 +192,6 @@
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/interior": "workspace:*",
         "@agent-hq/landscape": "workspace:*",
-        "@agent-hq/particles": "workspace:*",
         "@dimforge/rapier3d-compat": "^0.20.0",
         "three": "^0.185.1",
         "three-mesh-bvh": "^0.9.14",
@@ -311,8 +300,6 @@
     "@agent-hq/landscape": ["@agent-hq/landscape@workspace:packages/landscape"],
 
     "@agent-hq/mobile": ["@agent-hq/mobile@workspace:apps/mobile"],
-
-    "@agent-hq/particles": ["@agent-hq/particles@workspace:packages/particles"],
 
     "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
 

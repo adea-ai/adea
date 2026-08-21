@@ -22,10 +22,3 @@ export {
   type CameraViewMode,
 } from "./camera-controller";
 export type { ScenePerformanceReport, ScenePerformanceTelemetry } from "./performance";
-export type {
-  ParticleConfigFactory,
-  ParticleManager,
-  ParticleManagerConfig,
-  ParticleFieldConfig,
-  ParticleEmitter,
-} from "@agent-hq/particles";

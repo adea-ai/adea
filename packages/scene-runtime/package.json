@@ -27,7 +27,6 @@
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/landscape": "workspace:*",
-    "@agent-hq/particles": "workspace:*",
     "@agent-hq/interior": "workspace:*",
     "three": "^0.185.1",
     "three-mesh-bvh": "^0.9.14"

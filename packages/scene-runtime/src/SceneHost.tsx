@@ -17,11 +17,6 @@ import { soundController } from "@agent-hq/audio";
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
 import { loadPropsField } from "@agent-hq/interior/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
-import {
-  createParticleManager,
-  type ParticleConfigFactory,
-  type ParticleManager,
-} from "@agent-hq/particles";
 import RAPIER, {
   type Collider,
   type KinematicCharacterController,
@@ -200,8 +195,6 @@ export type SceneHostProps = {
    * by the development scene editor to raycast-pick and inspect scene objects.
    */
   debugApiRef?: React.MutableRefObject<SceneDebugApi | null>;
-  /** Builds shared particle effects from the loaded scene roots. */
-  particleConfig?: ParticleConfigFactory;
   /** Optional scene-specific sky, fog, and light configuration. */
   environment?: SceneEnvironmentConfig;
   /** Optional persisted transforms/deletions for authored scene objects. */
@@ -1196,7 +1189,6 @@ export function SceneHost({
   loadDeferredCharacterDetails = true,
   characterGroundOffset = 0,
   debugApiRef,
-  particleConfig,
   environment,
   editorOverridesUrl,
   visualSetup,
@@ -1344,7 +1336,6 @@ export function SceneHost({
       scene.fog = null;
     }
 
-    let particleManager: ParticleManager | null = null;
     let textureTranscoder: KTX2Loader | null = null;
     const zoneRoots = new Map<string, THREE.Object3D>();
     const zonePromises = new Map<string, Promise<void>>();
@@ -1412,8 +1403,6 @@ export function SceneHost({
       resourcesDisposed = true;
       const controller = characterController;
       const physicsWorld = world;
-      particleManager?.dispose();
-      particleManager = null;
       characterController = null;
       playerCollider = null;
       world = null;
@@ -2296,17 +2285,6 @@ export function SceneHost({
           applySceneMaterialOverrides(props, materialOverrides);
           (entryZoneId ? entryRoot : scene).add(props);
           debugLog(`[Agent HQ] ${label} props field loaded from ${fieldSources[1]}`);
-        }
-        if (particleConfig) {
-          particleManager = createParticleManager(
-            scene,
-            particleConfig(
-              [visual.scene, ...visualLayers.slice(1), foliage, props].filter(
-                (root): root is THREE.Object3D => root !== null,
-              ),
-            ),
-          );
-          debugLog(`[Agent HQ] ${label} particles initialized`);
         }
         const visibilityStates: Array<{
           group: PlayerVisibilityGroup;
@@ -3942,7 +3920,6 @@ export function SceneHost({
           }
           cameraController.update(characterTarget, delta, obstructionDistance);
           camera = cameraController.camera;
-          particleManager?.update(delta);
           updatePlayerVisibility();
           // Adaptive resolution: keep a rolling average of real frame time and
           // lower the render scale when the device cannot keep up, restoring
@@ -4069,7 +4046,6 @@ export function SceneHost({
     movementSpeedFactor,
     orthographicClickOnly,
     orthographicMovementSpeedFactor,
-    particleConfig,
     playerVisibilityGroups,
     preserveEntryCollision,
     propsManifestUrl,

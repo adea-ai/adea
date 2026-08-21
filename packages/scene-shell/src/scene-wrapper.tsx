@@ -121,7 +121,6 @@ export type SceneWrapperProps = {
   coplanarMaterialMeshNames?: readonly string[];
   materialOverrides?: readonly SceneMaterialOverride[];
   playerVisibilityGroups?: readonly PlayerVisibilityGroup[];
-  particleConfig?: import("@agent-hq/scene-runtime").ParticleConfigFactory;
   environment?: SceneEnvironmentConfig;
   visualSetup?: SceneVisualSetup;
   visualUpdate?: SceneVisualUpdate;
@@ -214,7 +213,6 @@ export function SceneWrapper({
   coplanarMaterialMeshNames,
   materialOverrides,
   playerVisibilityGroups,
-  particleConfig,
   environment,
   visualSetup,
   visualUpdate,
@@ -473,7 +471,6 @@ export function SceneWrapper({
         coplanarMaterialMeshNames={coplanarMaterialMeshNames}
         materialOverrides={materialOverrides}
         playerVisibilityGroups={playerVisibilityGroups}
-        particleConfig={particleConfig}
         environment={environment}
         editorOverridesUrl={
           manifest.editorOverridesUrl ?? `/assets/worlds/${manifest.id}/editor-overrides.json`
