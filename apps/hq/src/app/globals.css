@@ -215,6 +215,12 @@
   gap: 0.25rem;
 }
 
+.workspace-account-slot {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
 .workspace-tool-divider {
   width: 1px;
   height: 1.1rem;

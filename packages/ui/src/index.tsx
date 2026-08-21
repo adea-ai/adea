@@ -33,6 +33,7 @@ export {
 export { MapSelector, type MapSelectorProps } from "./components/map-selector";
 export { gameMapOptions, sceneMapOptions, type SceneMapOption } from "./lib/scene-maps";
 export { SettingsDrawer, type SettingsDrawerProps } from "./components/settings-drawer";
+export { AccountDrawer, type AccountDrawerProps } from "./components/account-drawer";
 export { OnScreenControls } from "./components/on-screen-controls";
 export { SceneSettings, type SceneSettingsProps } from "./components/scene-settings";
 export { Card, CardContent } from "./components/ui/card";
