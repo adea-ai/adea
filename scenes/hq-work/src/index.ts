@@ -1,5 +1,5 @@
 import type { SceneManifest } from "@agent-hq/asset-manifests";
-import { ROOM_GALLERY_FOUNDATION_TOP_Y } from "@agent-hq/rooms";
+import { ROOM_GALLERY_FOUNDATION_TOP_Y } from "@agent-hq/interior";
 
 export const hqWorkManifest: SceneManifest = {
   id: "hq-work",

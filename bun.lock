@@ -53,9 +53,8 @@
         "@agent-hq/audio": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/data": "workspace:*",
-        "@agent-hq/models": "workspace:*",
+        "@agent-hq/interior": "workspace:*",
         "@agent-hq/pets": "workspace:*",
-        "@agent-hq/rooms": "workspace:*",
         "@agent-hq/scene-hq-home": "workspace:*",
         "@agent-hq/scene-hq-work": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
@@ -142,24 +141,24 @@
         "@types/react": "^19.2.18",
       },
     },
+    "packages/interior": {
+      "name": "@agent-hq/interior",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agent-hq/placed-models": "workspace:*",
+        "three": "^0.185.1",
+        "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@types/three": "^0.185.0",
+      },
+    },
     "packages/landscape": {
       "name": "@agent-hq/landscape",
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/placed-models": "workspace:*",
         "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
-    "packages/models": {
-      "name": "@agent-hq/models",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agent-hq/props": "workspace:*",
-        "three": "^0.185.1",
-        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@types/three": "^0.185.0",
@@ -195,27 +194,6 @@
         "@types/three": "^0.185.0",
       },
     },
-    "packages/props": {
-      "name": "@agent-hq/props",
-      "version": "0.1.0",
-      "dependencies": {
-        "@agent-hq/placed-models": "workspace:*",
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
-    "packages/rooms": {
-      "name": "@agent-hq/rooms",
-      "version": "0.1.0",
-      "dependencies": {
-        "three": "^0.185.1",
-      },
-      "devDependencies": {
-        "@types/three": "^0.185.0",
-      },
-    },
     "packages/scene": {
       "name": "@agent-hq/scene",
       "version": "0.1.0",
@@ -233,9 +211,9 @@
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/audio": "workspace:*",
         "@agent-hq/characters": "workspace:*",
+        "@agent-hq/interior": "workspace:*",
         "@agent-hq/landscape": "workspace:*",
         "@agent-hq/particles": "workspace:*",
-        "@agent-hq/props": "workspace:*",
         "@agent-hq/scene": "workspace:*",
         "@dimforge/rapier3d-compat": "^0.20.0",
         "three": "^0.185.1",
@@ -312,7 +290,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
-        "@agent-hq/rooms": "workspace:*",
+        "@agent-hq/interior": "workspace:*",
       },
     },
     "scenes/hq-work": {
@@ -320,7 +298,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
-        "@agent-hq/rooms": "workspace:*",
+        "@agent-hq/interior": "workspace:*",
       },
     },
   },
@@ -346,21 +324,17 @@
 
     "@agent-hq/desktop": ["@agent-hq/desktop@workspace:apps/desktop"],
 
+    "@agent-hq/interior": ["@agent-hq/interior@workspace:packages/interior"],
+
     "@agent-hq/landscape": ["@agent-hq/landscape@workspace:packages/landscape"],
 
     "@agent-hq/mobile": ["@agent-hq/mobile@workspace:apps/mobile"],
-
-    "@agent-hq/models": ["@agent-hq/models@workspace:packages/models"],
 
     "@agent-hq/particles": ["@agent-hq/particles@workspace:packages/particles"],
 
     "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
 
     "@agent-hq/placed-models": ["@agent-hq/placed-models@workspace:packages/placed-models"],
-
-    "@agent-hq/props": ["@agent-hq/props@workspace:packages/props"],
-
-    "@agent-hq/rooms": ["@agent-hq/rooms@workspace:packages/rooms"],
 
     "@agent-hq/scene": ["@agent-hq/scene@workspace:packages/scene"],
 

@@ -18,6 +18,6 @@
   },
   "dependencies": {
     "@agent-hq/asset-manifests": "workspace:*",
-    "@agent-hq/rooms": "workspace:*"
+    "@agent-hq/interior": "workspace:*"
   }
 }

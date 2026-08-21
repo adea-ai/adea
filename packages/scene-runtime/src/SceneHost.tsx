@@ -15,7 +15,7 @@ import {
 } from "@agent-hq/characters";
 import { soundController } from "@agent-hq/audio";
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
-import { loadPropsField } from "@agent-hq/props/runtime";
+import { loadPropsField } from "@agent-hq/interior/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
 import {
   createParticleManager,
@@ -259,7 +259,7 @@ export type SceneHostProps = {
   foliageManifestUrl?: string;
   /**
    * Optional props placement manifest. When set, the scene's props are
-   * instanced at runtime from the shared @agent-hq/props catalog instead of being
+   * instanced at runtime from the shared @agent-hq/interior catalog instead of being
    * embedded in the scene GLB.
    */
   propsManifestUrl?: string;
