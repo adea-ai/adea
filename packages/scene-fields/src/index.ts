@@ -1,20 +1,20 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-export type PlacedModelPlacement = {
+export type SceneFieldPlacement = {
   p: [number, number, number];
   q: [number, number, number, number];
   s: [number, number, number];
 };
 
-export type PlacedModelsManifest = {
+export type SceneFieldManifest = {
   version: number;
   scene: string;
-  placements: Record<string, PlacedModelPlacement[]>;
+  placements: Record<string, SceneFieldPlacement[]>;
 };
 
-export function composePlacedModelMatrix(
-  placement: PlacedModelPlacement,
+export function composeSceneFieldMatrix(
+  placement: SceneFieldPlacement,
   sourceMatrix: THREE.Matrix4,
   target = new THREE.Matrix4(),
 ): THREE.Matrix4 {
@@ -26,7 +26,7 @@ export function composePlacedModelMatrix(
   return target.multiply(sourceMatrix);
 }
 
-/** Build one InstancedMesh per catalog model from a placement manifest.
+/** Build one InstancedMesh per catalog model from a scene-field manifest.
  *
  * Each placement records the world transform relative to the model's
  * recentered frame (base at y = 0), so rendering every placement of a model
@@ -37,24 +37,24 @@ export function composePlacedModelMatrix(
  * (shared across scenes via the browser cache); the returned group can be
  * added to a scene and disposed with the scene's other geometry.
  */
-export async function loadPlacedField(
+export async function loadSceneField(
   loader: GLTFLoader,
   manifestUrl: string,
   resolveModelUrl: (modelId: string) => string,
-  groupName = "placed-field",
+  groupName = "scene-field",
   singlePlacementPlain = false,
 ): Promise<THREE.Group> {
   const response = await fetch(manifestUrl);
   if (!response.ok)
-    throw new Error(`Failed to load placed-models manifest: ${manifestUrl} (${response.status})`);
-  const manifest = (await response.json()) as PlacedModelsManifest;
+    throw new Error(`Failed to load scene-field manifest: ${manifestUrl} (${response.status})`);
+  const manifest = (await response.json()) as SceneFieldManifest;
 
   const group = new THREE.Group();
   group.name = groupName;
   const matrix = new THREE.Matrix4();
 
   const placementEntries = Object.entries(manifest.placements).filter(
-    (entry): entry is [string, PlacedModelPlacement[]] => entry[1]?.length > 0,
+    (entry): entry is [string, SceneFieldPlacement[]] => entry[1]?.length > 0,
   );
   // Catalog assets are independent. Start every request together so a field
   // with dozens of distinct props/buildings is bounded by its slowest model,
@@ -84,7 +84,7 @@ export async function loadPlacedField(
         const placed = new THREE.Mesh(sourceMesh.geometry, sourceMesh.material);
         placed.name = modelId;
         const placement = placements[0];
-        composePlacedModelMatrix(placement, sourceMatrix, matrix);
+        composeSceneFieldMatrix(placement, sourceMatrix, matrix);
         placed.applyMatrix4(matrix);
         placed.matrixAutoUpdate = false;
         group.add(placed);
@@ -98,7 +98,7 @@ export async function loadPlacedField(
       instanced.name = modelId;
       for (let i = 0; i < placements.length; i += 1) {
         const placement = placements[i];
-        composePlacedModelMatrix(placement, sourceMatrix, matrix);
+        composeSceneFieldMatrix(placement, sourceMatrix, matrix);
         instanced.setMatrixAt(i, matrix);
       }
       instanced.computeBoundingSphere();
@@ -116,27 +116,27 @@ export function collectMeshes(root: THREE.Object3D): THREE.Mesh[] {
   return meshes;
 }
 
-export type PlacedModelAsset = {
+export type SceneFieldAsset = {
   id: string;
   assetUrl: string;
 };
 
-/** Build one InstancedMesh per catalog model from a placement manifest.
+/** Build one InstancedMesh per catalog model from a scene-field manifest.
  *
- * Catalog-bound variant of `loadPlacedField`: ids are resolved through a
+ * Catalog-bound variant of `loadSceneField`: ids are resolved through a
  * catalog of `{id, assetUrl}` assets instead of a resolve callback. A model
  * with a single placement is added as a plain mesh (on-demand load, no
  * instancing overhead); models with several placements render as one
  * `InstancedMesh` per primitive.
  */
-export async function loadPlacedFieldFromCatalog(
+export async function loadSceneFieldFromCatalog(
   loader: GLTFLoader,
   manifestUrl: string,
-  catalog: readonly PlacedModelAsset[],
-  groupName = "placed-field",
+  catalog: readonly SceneFieldAsset[],
+  groupName = "scene-field",
 ): Promise<THREE.Group> {
   const assetsById = new Map(catalog.map((asset) => [asset.id, asset.assetUrl]));
-  return loadPlacedField(
+  return loadSceneField(
     loader,
     manifestUrl,
     (modelId) => {

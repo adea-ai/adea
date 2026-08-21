@@ -427,7 +427,7 @@ const WATER_NAME_PATTERN = /water|ocean|sea|river|lake|pool/i;
 const NOT_WATER_NAME_PATTERN = /watering/i;
 const COLLISION_WATER_PATTERN = /water|ocean|sea|river|lake|pool/i;
 const COLLISION_VFX_PATTERN =
-  /vfx|particle|effect|(?:^|[-_ ])trail(?:$|[-_ ])|smoke|fog|cloud|spark|flare|billboard|decal/i;
+  /vfx|effect|(?:^|[-_ ])trail(?:$|[-_ ])|smoke|fog|cloud|spark|flare|billboard|decal/i;
 const COLLISION_LAYER_PATTERN = /collider|collision|navmesh|trigger/i;
 const EDITOR_MESH_PATTERN =
   /editor|gizmo|helper|debug|wireframe|camera|light|reflection|probe|volume/i;
@@ -852,7 +852,7 @@ function prepareLavaTextures(root: THREE.Object3D): void {
       ancestor = ancestor.parent;
     }
     const pathName = path.join(" ");
-    if (!/lava|volcano|volcanic/i.test(pathName) || /particle|banner|spike/i.test(pathName)) return;
+    if (!/lava|volcano|volcanic/i.test(pathName) || /banner|spike/i.test(pathName)) return;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     materials.forEach((material) => {
       // The emissive mountain clone shares its RugmanMountain texture object
