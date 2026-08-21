@@ -6,6 +6,10 @@ export const runtime = "nodejs";
 
 const CATEGORIES = new Set(["foliage", "props"]);
 const HQ_SCENES = new Set(["hq-home", "hq-work"]);
+const HQ_SOURCE_DIRECTORIES = {
+  "hq-home": "home",
+  "hq-work": "work",
+} as const;
 const SAFE_ID = /^[a-z0-9][a-z0-9_-]*$/;
 
 type Placement = {
@@ -132,11 +136,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid HQ scene placement payload." }, { status: 400 });
   }
 
+  const sourceDirectory = HQ_SOURCE_DIRECTORIES[body.scene as keyof typeof HQ_SOURCE_DIRECTORIES];
   const relativePath = isRoomDesigner
-    ? path.join("scenes", body.scene, "assets", "props.json")
+    ? path.join("scenes", "hq", "assets", sourceDirectory, "props.json")
     : isPlacement
-      ? path.join("scenes", body.scene, "assets", `${body.category}.json`)
-      : path.join("scenes", body.scene, "assets", "editor-overrides.json");
+      ? path.join("scenes", "hq", "assets", sourceDirectory, `${body.category}.json`)
+      : path.join("scenes", "hq", "assets", sourceDirectory, "editor-overrides.json");
   const repoRoot = await findRepoRoot(process.cwd());
   const sourcePath = path.resolve(repoRoot, relativePath);
   if (!sourcePath.startsWith(`${repoRoot}${path.sep}`)) {
