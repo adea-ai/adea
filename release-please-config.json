@@ -48,9 +48,25 @@
       "release-type": "node",
       "package-name": "agent-hq"
     },
+    "apps/desktop": {
+      "release-type": "node",
+      "package-name": "@agent-hq/desktop"
+    },
+    "apps/mobile": {
+      "release-type": "node",
+      "package-name": "@agent-hq/mobile"
+    },
     "apps/web": {
       "release-type": "node",
       "package-name": "@agent-hq/web"
+    },
+    "packages/api-client": {
+      "release-type": "node",
+      "package-name": "@agent-hq/api-client"
+    },
+    "packages/app-core": {
+      "release-type": "node",
+      "package-name": "@agent-hq/app-core"
     },
     "packages/asset-manifests": {
       "release-type": "node",
@@ -60,9 +76,21 @@
       "release-type": "node",
       "package-name": "@agent-hq/audio"
     },
+    "packages/auth": {
+      "release-type": "node",
+      "package-name": "@agent-hq/auth"
+    },
     "packages/characters": {
       "release-type": "node",
       "package-name": "@agent-hq/characters"
+    },
+    "packages/config": {
+      "release-type": "node",
+      "package-name": "@agent-hq/config"
+    },
+    "packages/data": {
+      "release-type": "node",
+      "package-name": "@agent-hq/data"
     },
     "packages/models": {
       "release-type": "node",
@@ -92,6 +120,10 @@
       "release-type": "node",
       "package-name": "@agent-hq/scene-runtime"
     },
+    "packages/scene": {
+      "release-type": "node",
+      "package-name": "@agent-hq/scene"
+    },
     "packages/scene-shell": {
       "release-type": "node",
       "package-name": "@agent-hq/scene-shell"
@@ -99,6 +131,14 @@
     "packages/scene-telemetry": {
       "release-type": "node",
       "package-name": "@agent-hq/scene-telemetry"
+    },
+    "packages/state": {
+      "release-type": "node",
+      "package-name": "@agent-hq/state"
+    },
+    "packages/types": {
+      "release-type": "node",
+      "package-name": "@agent-hq/types"
     },
     "packages/ui": {
       "release-type": "node",

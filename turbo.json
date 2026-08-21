@@ -9,6 +9,12 @@
       "cache": false,
       "persistent": true
     },
+    "shell:build": {
+      "cache": false
+    },
+    "shell:dev": {
+      "cache": false
+    },
     "lint": {},
     "test": {
       "dependsOn": ["build"]

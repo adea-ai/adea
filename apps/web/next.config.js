@@ -14,8 +14,11 @@ const nextConfig = {
   allowedDevOrigins: ["*.ts.net", "amf-mb-pro", ...extraDevOrigins],
   turbopack: { root: path.resolve(import.meta.dirname, "../..") },
   transpilePackages: [
+    "@agent-hq/app-core",
     "@agent-hq/asset-manifests",
     "@agent-hq/audio",
+    "@agent-hq/data",
+    "@agent-hq/models",
     "@agent-hq/rooms",
     "@agent-hq/scene-hq-home",
     "@agent-hq/scene-hq-work",
@@ -23,6 +26,8 @@ const nextConfig = {
     "@agent-hq/scene-telemetry",
     "@agent-hq/ui",
     "@agent-hq/scene-runtime",
+    "@agent-hq/state",
+    "@agent-hq/types",
   ],
   async headers() {
     const assetCacheControl =
