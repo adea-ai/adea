@@ -1,15 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Activity,
-  BriefcaseBusiness,
-  CircleDot,
-  Focus,
-  Home,
-  PanelRight,
-  Sparkles,
-} from "lucide-react";
+import { MusicToggle } from "@agent-hq/audio";
+import { BriefcaseBusiness, CircleDot, Focus, Home, PanelRight, Sparkles } from "lucide-react";
 import { hqHomeManifest } from "@agent-hq/scene-hq-home";
 import { hqWorkManifest } from "@agent-hq/scene-hq-work";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
@@ -79,94 +72,67 @@ export function WorkspaceShell({
         manifest={scene.manifest}
         startPosition={startPosition}
         cameraViewMode={cameraViewMode}
+        characterTargetId="workspace-character-slot"
+        cameraTargetId="workspace-camera-slot"
+        roomDesignerTargetId="workspace-room-designer-slot"
       />
 
       <div className="workspace-ui" aria-label="Agent HQ workspace controls">
         <header className="workspace-topbar">
-          <div className="workspace-brand">
-            <div className="workspace-brand__mark" aria-hidden="true">
-              <Sparkles size={16} strokeWidth={1.8} />
+          <div className="workspace-topbar__main">
+            <div className="workspace-brand">
+              <div className="workspace-brand__mark" aria-hidden="true">
+                <Sparkles size={16} strokeWidth={1.8} />
+              </div>
+              <div>
+                <p className="workspace-eyebrow">AGENT OPERATIONS</p>
+                <h1>Agent HQ</h1>
+              </div>
             </div>
-            <div>
-              <p className="workspace-eyebrow">AGENT OPERATIONS</p>
-              <h1>Agent HQ</h1>
-            </div>
-          </div>
 
-          <nav className="workspace-scene-nav" aria-label="HQ spaces">
-            {sceneOptions.map((option) => {
-              const Icon = option.icon;
-              const isSelected = option.id === sceneId;
-              return (
-                <Button
-                  key={option.id}
-                  type="button"
-                  className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
-                  aria-pressed={isSelected}
-                  variant={isSelected ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => selectScene(option.id)}
-                >
-                  <Icon size={14} aria-hidden="true" />
-                  {option.label}
-                </Button>
-              );
-            })}
-          </nav>
+            <div className="workspace-topbar__center">
+              <nav className="workspace-scene-nav" aria-label="HQ spaces">
+                {sceneOptions.map((option) => {
+                  const Icon = option.icon;
+                  const isSelected = option.id === sceneId;
+                  return (
+                    <Button
+                      key={option.id}
+                      type="button"
+                      className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
+                      aria-pressed={isSelected}
+                      variant={isSelected ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => selectScene(option.id)}
+                    >
+                      <Icon size={14} aria-hidden="true" />
+                      {option.label}
+                    </Button>
+                  );
+                })}
+              </nav>
 
-          <div className="workspace-topbar__actions">
-            <div className="workspace-status" role="status">
-              <span className="workspace-status__dot" aria-hidden="true" />
-              <span>Workspace online</span>
+              <div className="workspace-toolbar" aria-label="Workspace tools">
+                <div id="workspace-character-slot" className="workspace-tool-slot" />
+                <span className="workspace-tool-divider" aria-hidden="true" />
+                <div id="workspace-camera-slot" className="workspace-tool-slot" />
+                <span className="workspace-tool-divider" aria-hidden="true" />
+                <div id="workspace-room-designer-slot" className="workspace-tool-slot" />
+              </div>
             </div>
-            <ThemeToggle className="workspace-theme-toggle" />
+
+            <div className="workspace-topbar__actions">
+              <div className="workspace-status" role="status">
+                <span className="workspace-status__dot" aria-hidden="true" />
+                <span>Workspace online</span>
+              </div>
+              <ThemeToggle className="workspace-theme-toggle" />
+              <div className="workspace-music-toggle" aria-label="Music controls">
+                <MusicToggle />
+              </div>
+            </div>
           </div>
         </header>
-
-        <Card className="workspace-rail" aria-labelledby="workspace-rail-title">
-          <div className="workspace-panel-heading">
-            <div>
-              <p className="workspace-eyebrow">SPACES</p>
-              <h2 id="workspace-rail-title">Your HQ</h2>
-            </div>
-            <span className="workspace-count">02</span>
-          </div>
-
-          <div className="workspace-space-list" role="list">
-            {sceneOptions.map((option) => {
-              const Icon = option.icon;
-              const isSelected = option.id === sceneId;
-              return (
-                <Button
-                  key={option.id}
-                  type="button"
-                  className={`workspace-space-card${isSelected ? " workspace-space-card--selected" : ""}`}
-                  aria-current={isSelected ? "page" : undefined}
-                  variant={isSelected ? "secondary" : "ghost"}
-                  size="default"
-                  onClick={() => selectScene(option.id)}
-                >
-                  <span className="workspace-space-card__icon" aria-hidden="true">
-                    <Icon size={16} />
-                  </span>
-                  <span className="workspace-space-card__copy">
-                    <span className="workspace-space-card__name">{option.label}</span>
-                    <span className="workspace-space-card__meta">{option.eyebrow}</span>
-                  </span>
-                  <span className="workspace-space-card__dot" aria-hidden="true" />
-                </Button>
-              );
-            })}
-          </div>
-
-          <div className="workspace-pulse">
-            <Activity size={15} aria-hidden="true" />
-            <div>
-              <p className="workspace-eyebrow">SYSTEM PULSE</p>
-              <p>Nominal · {scene.label} active</p>
-            </div>
-          </div>
-        </Card>
 
         {isDetailsPanelOpen ? (
           <Card className="workspace-details" aria-labelledby="workspace-details-title">

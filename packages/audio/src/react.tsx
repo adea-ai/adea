@@ -134,7 +134,7 @@ function MuteButton({ muted, onToggle, onLabel, offLabel, mutedIcon, activeIcon 
         onToggle();
       }}
       className={joinClassNames(
-        "inline-flex size-8 items-center justify-center rounded-full border border-input bg-background transition-colors",
+        "inline-flex size-7 items-center justify-center rounded-full border border-input bg-background transition-colors",
         muted
           ? "text-muted-foreground hover:text-foreground"
           : "bg-primary text-primary-foreground",
@@ -154,8 +154,8 @@ export function MusicToggle() {
       onToggle={toggleMusicMute}
       onLabel="Mute music"
       offLabel="Unmute music"
-      mutedIcon={<Music className="size-4" aria-hidden="true" />}
-      activeIcon={<Music2 className="size-4" aria-hidden="true" />}
+      mutedIcon={<Music className="size-3.5" aria-hidden="true" />}
+      activeIcon={<Music2 className="size-3.5" aria-hidden="true" />}
     />
   );
 }
