@@ -1,6 +1,6 @@
 {
   ".": "0.1.0",
-  "apps/hq": "0.1.0",
+  "apps/web": "0.1.0",
   "packages/asset-manifests": "0.1.0",
   "packages/audio": "0.1.0",
   "packages/characters": "0.1.0",

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const publicAssets = resolve(repoRoot, "apps/hq/public/assets");
+const publicAssets = resolve(repoRoot, "apps/web/public/assets");
 
 async function copyAsset(source, destination) {
   await mkdir(dirname(destination), { recursive: true });

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/hq",
+  "name": "@agent-hq/web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
