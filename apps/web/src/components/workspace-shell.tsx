@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createApiClient } from "@agent-hq/api-client";
 import type { HqSceneId } from "@agent-hq/app-core";
 import { MusicToggle } from "@agent-hq/audio";
+import { useWorkspaceQuery } from "@agent-hq/data";
 import { useWorkspaceStore } from "@agent-hq/state";
 import { BriefcaseBusiness, Home, PanelRight, Sparkles } from "lucide-react";
 import { hqHomeManifest } from "@agent-hq/scene-hq-home";
@@ -46,20 +48,26 @@ export function WorkspaceShell({
   initialScene,
   initialCharacter,
   startPosition,
-  cameraViewMode = "orthographic",
+  cameraViewMode: initialCameraViewMode = "orthographic",
 }: WorkspaceShellProps) {
   const selectedScene = useWorkspaceStore((state) => state.selectedScene);
   const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene);
+  const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode);
+  const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode);
   const isDetailsPanelOpen = useWorkspaceStore((state) => state.detailsPanelOpen);
   const setDetailsPanelOpen = useWorkspaceStore((state) => state.setDetailsPanelOpen);
   const [storeReady, setStoreReady] = useState(false);
+  const [apiClient] = useState(() => createApiClient());
+  const workspaceQuery = useWorkspaceQuery(apiClient, "default");
   const sceneId = storeReady ? selectedScene : initialScene;
+  const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode;
   const scene = sceneById[sceneId];
 
   useEffect(() => {
     setSelectedScene(initialScene);
+    setCameraViewMode(initialCameraViewMode);
     setStoreReady(true);
-  }, [initialScene, setSelectedScene]);
+  }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene]);
 
   useEffect(() => {
     document.title = `Agent HQ | ${scene.label}`;
@@ -80,7 +88,8 @@ export function WorkspaceShell({
         initialCharacter={initialCharacter}
         manifest={scene.manifest}
         startPosition={startPosition}
-        cameraViewMode={cameraViewMode}
+        cameraViewMode={activeCameraViewMode}
+        onCameraViewModeChange={setCameraViewMode}
         accountTargetId="workspace-account-slot"
         cameraTargetId="workspace-camera-slot"
         roomDesignerTargetId="workspace-room-designer-slot"
@@ -102,7 +111,13 @@ export function WorkspaceShell({
             <div className="workspace-topbar__actions">
               <div className="workspace-status" role="status">
                 <span className="workspace-status__dot" aria-hidden="true" />
-                <span>Workspace online</span>
+                <span>
+                  {workspaceQuery.isPending
+                    ? "Workspace syncing"
+                    : workspaceQuery.isError
+                      ? "Workspace offline"
+                      : "Workspace online"}
+                </span>
               </div>
               <ThemeToggle className="workspace-theme-toggle" />
               <div className="workspace-music-toggle" aria-label="Music controls">

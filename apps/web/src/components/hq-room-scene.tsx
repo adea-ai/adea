@@ -597,6 +597,7 @@ export function HqRoomScene({
   manifest,
   startPosition,
   cameraViewMode = "orthographic",
+  onCameraViewModeChange,
   accountTargetId,
   cameraTargetId,
   roomDesignerTargetId,
@@ -605,6 +606,7 @@ export function HqRoomScene({
   manifest: SceneManifest;
   startPosition?: SceneStartPosition;
   cameraViewMode?: "perspective" | "orthographic";
+  onCameraViewModeChange?: (viewMode: "perspective" | "orthographic") => void;
   accountTargetId?: string;
   cameraTargetId?: string;
   roomDesignerTargetId?: string;
@@ -749,6 +751,7 @@ export function HqRoomScene({
       cameraTargetId={cameraTargetId}
       roomDesignerTargetId={roomDesignerTargetId}
       cameraViewMode={cameraViewMode}
+      onCameraViewModeChange={onCameraViewModeChange}
       characterScale={hqCharacterScale}
       sceneScale={hqRuntimeScale}
       orthographicClickOnly
