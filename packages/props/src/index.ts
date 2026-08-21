@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
-/** Generic prop manifest types shared with the ithappy room catalog. */
+/** Generic prop manifest types shared with the models room catalog. */
 export type PropManifest = { id: string; label: string; assetUrl: string };
 export type PropId = string;
 
@@ -19,9 +19,6 @@ export type InteriorPropCategory =
   | "lighting"
   | "electronics"
   | "casino"
-  | "street"
-  | "vehicles"
-  | "buildings"
   | "other";
 
 export type InteriorPropConfig = {

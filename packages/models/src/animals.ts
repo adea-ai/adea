@@ -1,4 +1,4 @@
-// ithappy ambient animal system for the Home scene.
+// models ambient animal system for the Home scene.
 //
 // The Animals pack ships rigged GLBs with embedded run/walk/idle animations.
 // This module provides a createAmbientAnimals() factory that loads a set of
@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
-const assetRoot = "/assets/ithappy/animals";
+const assetRoot = "/assets/models/animals";
 
 export type AmbientAnimalId = "dog" | "cat";
 
@@ -19,7 +19,7 @@ const animalFiles: Record<AmbientAnimalId, string> = {
   cat: "Kitty_001.glb",
 };
 
-// Embedded animation names in the ithappy animal GLBs follow the pattern
+// Embedded animation names in the models animal GLBs follow the pattern
 // "<ModelName>_<state>". Map them to the three states we use for wandering.
 const animalAnimationNames: Record<AmbientAnimalId, { idle: string; walk: string; run: string }> = {
   dog: { idle: "Dog_001_idle", walk: "Dog_001_walk", run: "Dog_001_run" },

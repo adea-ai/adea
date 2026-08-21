@@ -60,17 +60,13 @@
       "release-type": "node",
       "package-name": "@agent-hq/audio"
     },
-    "packages/buildings": {
-      "release-type": "node",
-      "package-name": "@agent-hq/buildings"
-    },
     "packages/characters": {
       "release-type": "node",
       "package-name": "@agent-hq/characters"
     },
-    "packages/ithappy": {
+    "packages/models": {
       "release-type": "node",
-      "package-name": "@agent-hq/ithappy"
+      "package-name": "@agent-hq/models"
     },
     "packages/landscape": {
       "release-type": "node",
@@ -107,10 +103,6 @@
     "packages/ui": {
       "release-type": "node",
       "package-name": "@agent-hq/ui"
-    },
-    "packages/vehicles": {
-      "release-type": "node",
-      "package-name": "@agent-hq/vehicles"
     },
     "scenes/hq-home": {
       "release-type": "node",

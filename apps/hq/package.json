@@ -14,7 +14,7 @@
   "dependencies": {
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/audio": "workspace:*",
-    "@agent-hq/ithappy": "workspace:*",
+    "@agent-hq/models": "workspace:*",
     "@agent-hq/rooms": "workspace:*",
     "@agent-hq/scene-hq-home": "workspace:*",
     "@agent-hq/scene-hq-work": "workspace:*",
