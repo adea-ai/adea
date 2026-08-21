@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
+import { hqSceneFromSearchParams } from "@agent-hq/app-core";
 import { isModelsCharacterId, isModelsCustomCharacterId } from "@agent-hq/models";
 import { readSceneStartPosition } from "@agent-hq/scene-shell/scene-spawn";
 import { WorkspaceShell } from "../components/workspace-shell";
-import { hqSceneFromSearchParams } from "../lib/workspace-scene";
 
 export const metadata: Metadata = {
   title: "Agent HQ",
