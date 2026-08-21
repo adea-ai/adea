@@ -5,8 +5,7 @@ export type PropManifest = { id: string; label: string; assetUrl: string };
 export type PropId = string;
 
 export type InteriorPropCategory =
-  | "drinks"
-  | "food"
+  | "food-and-drinks"
   | "plants"
   | "wall-decor"
   | "tables"
@@ -15,7 +14,6 @@ export type InteriorPropCategory =
   | "storage"
   | "lighting"
   | "electronics"
-  | "casino"
   | "other";
 
 export type InteriorPropConfig = {
