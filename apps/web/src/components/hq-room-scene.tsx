@@ -29,6 +29,8 @@ import {
   ROOM_GALLERY_MAIN_ENTRY_WALL_SHIFT,
   ROOM_GALLERY_OUTSIDE_DOORWAY_WIDTH,
   ROOM_GALLERY_PATHWAY_SIDE_WALL_EXTENSION,
+  ROOM_GALLERY_PERIMETER_BOUNDS,
+  ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
   ROOM_GALLERY_RUNTIME_SCALE,
   ROOM_GALLERY_WALL_SEGMENTS,
 } from "@agent-hq/interior";
@@ -75,7 +77,7 @@ const hqCharacterScale = { height: 1.75, radius: 0.24, modelScale: 1.0 } as cons
 const hqTopDownMovementSpeedFactor = 300 * hqRuntimeScale;
 const hqFenceVisualHeight = 96;
 const hqFenceColliderHeight = 240;
-const hqExteriorVisualPadding = ROOM_GALLERY_EXTERIOR_WALL_THICKNESS * 4;
+const hqExteriorVisualPadding = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
 // Work's concrete is the sidewalk outside the fence. Extend the dirt beneath
 // the fence footprint so no concrete strip appears on its inside edge.
 const hqWorkFenceDirtOverlap = 8;
@@ -95,6 +97,7 @@ const hqSceneEditorLockedObjectPrefixes = [
   "hq-work-interior-dirt",
   "hq-front-door-walkway",
   "hq-front-sidewalk",
+  "hq-perimeter-sidewalk",
   "hq-front-roadway",
   "hq-front-road-marking-",
   "hq-map-edge-fence",
@@ -211,12 +214,12 @@ const hqClickNavigationBounds = {
   zMin: ROOM_GALLERY_BOUNDS.zMin + 30,
   zMax: ROOM_GALLERY_BOUNDS.zMax - 30,
 } as const;
-// The full-bleed canvas sits beneath the top bar. Add only enough authored
-// camera envelope above the property to let its top fence clear that overlay;
+// The full-bleed canvas sits beneath the top bar. Include the sidewalk outside
+// every fence edge, then extend only the front edge farther for the street;
 // movement and collision bounds remain the actual property envelope.
 const hqCameraTopPadding = 600;
 const hqCameraBounds = {
-  ...ROOM_GALLERY_BOUNDS,
+  ...ROOM_GALLERY_PERIMETER_BOUNDS,
   zMax: ROOM_GALLERY_BOUNDS.zMax + hqCameraTopPadding,
 } as const;
 const hqOrthographicHalfHeight = 720;
@@ -224,7 +227,7 @@ const hqOrthographicHalfHeight = 720;
 // immediately outside the fence and a roadway across the remaining clearance.
 // These layers are visual only; the property envelope remains the gameplay
 // navigation and collision boundary.
-const hqFrontSidewalkDepth = 96;
+const hqFrontSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
 const hqFrontRoadDepth = 432;
 const hqFrontRoadWidth = ROOM_GALLERY_BOUNDS.width + hqCameraTopPadding * 2;
 const hqPoolWaterVolumes = (sceneId: string): readonly SceneWaterVolume[] => [
@@ -401,6 +404,45 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   sidewalkMaterial.polygonOffsetUnits = -4;
   frontSidewalk.receiveShadow = true;
   visual.add(frontSidewalk);
+
+  const addPerimeterSidewalk = (
+    name: string,
+    sidewalkWidth: number,
+    sidewalkDepth: number,
+    x: number,
+    z: number,
+  ) => {
+    const sidewalk = new THREE.Mesh(
+      new THREE.PlaneGeometry(sidewalkWidth, sidewalkDepth),
+      sidewalkMaterial,
+    );
+    sidewalk.name = `hq-perimeter-sidewalk-${name}`;
+    sidewalk.rotation.x = -Math.PI / 2;
+    sidewalk.position.set(x, -0.46, z);
+    sidewalk.receiveShadow = true;
+    visual.add(sidewalk);
+  };
+  addPerimeterSidewalk(
+    "back",
+    ROOM_GALLERY_PERIMETER_BOUNDS.width,
+    hqFrontSidewalkDepth,
+    0,
+    ROOM_GALLERY_BOUNDS.zMin - hqFrontSidewalkDepth / 2,
+  );
+  addPerimeterSidewalk(
+    "left",
+    hqFrontSidewalkDepth,
+    ROOM_GALLERY_BOUNDS.depth,
+    ROOM_GALLERY_BOUNDS.xMin - hqFrontSidewalkDepth / 2,
+    0,
+  );
+  addPerimeterSidewalk(
+    "right",
+    hqFrontSidewalkDepth,
+    ROOM_GALLERY_BOUNDS.depth,
+    ROOM_GALLERY_BOUNDS.xMax + hqFrontSidewalkDepth / 2,
+    0,
+  );
 
   const roadway = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontRoadDepth),
