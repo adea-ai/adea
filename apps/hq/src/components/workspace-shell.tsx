@@ -89,30 +89,6 @@ export function WorkspaceShell({
               </div>
             </div>
 
-            <div className="workspace-topbar__center">
-              <nav className="workspace-scene-nav" aria-label="HQ spaces">
-                {sceneOptions.map((option) => {
-                  const Icon = option.icon;
-                  const isSelected = option.id === sceneId;
-                  return (
-                    <Button
-                      key={option.id}
-                      type="button"
-                      className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
-                      aria-pressed={isSelected}
-                      variant={isSelected ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={() => selectScene(option.id)}
-                    >
-                      <Icon size={14} aria-hidden="true" />
-                      {option.label}
-                    </Button>
-                  );
-                })}
-              </nav>
-              <div id="workspace-room-designer-slot" className="workspace-room-designer-slot" />
-            </div>
-
             <div className="workspace-topbar__actions">
               <div className="workspace-status" role="status">
                 <span className="workspace-status__dot" aria-hidden="true" />
@@ -124,6 +100,29 @@ export function WorkspaceShell({
               </div>
               <div id="workspace-account-slot" className="workspace-account-slot" />
             </div>
+          </div>
+          <div className="workspace-topbar__secondary">
+            <nav className="workspace-scene-nav" aria-label="HQ spaces">
+              {sceneOptions.map((option) => {
+                const Icon = option.icon;
+                const isSelected = option.id === sceneId;
+                return (
+                  <Button
+                    key={option.id}
+                    type="button"
+                    className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
+                    aria-pressed={isSelected}
+                    variant={isSelected ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => selectScene(option.id)}
+                  >
+                    <Icon size={14} aria-hidden="true" />
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </nav>
+            <div id="workspace-room-designer-slot" className="workspace-room-designer-slot" />
           </div>
         </header>
 
