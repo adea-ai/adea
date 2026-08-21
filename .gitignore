@@ -77,4 +77,4 @@ mise.local.lock
 *.code-workspace
 
 # Generated HQ asset mirror
-apps/hq/public/assets
+apps/web/public/assets
