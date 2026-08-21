@@ -91,13 +91,14 @@ export function SceneSettings({
     <Button
       type="button"
       variant={roomDesignerEnabled ? "default" : "outline"}
-      size="icon-sm"
+      size="sm"
       aria-label={roomDesignerEnabled ? "Close room designer" : "Open room designer"}
       title={roomDesignerEnabled ? "Close room designer" : "Open room designer"}
       aria-pressed={roomDesignerEnabled}
       onClick={() => onRoomDesignerChange?.(!roomDesignerEnabled)}
     >
-      <Grid3X3 aria-hidden="true" />
+      <Grid3X3 className="size-4" aria-hidden="true" />
+      <span className="workspace-room-designer-label">Room designer</span>
     </Button>
   );
 
