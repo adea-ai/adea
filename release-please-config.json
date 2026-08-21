@@ -100,10 +100,6 @@
       "release-type": "node",
       "package-name": "@agent-hq/landscape"
     },
-    "packages/particles": {
-      "release-type": "node",
-      "package-name": "@agent-hq/particles"
-    },
     "packages/placed-models": {
       "release-type": "node",
       "package-name": "@agent-hq/placed-models"
