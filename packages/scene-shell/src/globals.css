@@ -1,0 +1,31 @@
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
+@import "@agent-hq/ui/theme.css";
+
+/* Emit utilities used by the shared scene shell, including the HQ editor. */
+@source "./";
+
+html {
+  height: 100%;
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Keep the game surface gesture-friendly while preserving editor/data entry. */
+input,
+textarea,
+select,
+[contenteditable="true"],
+.select-text {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}

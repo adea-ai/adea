@@ -1,6 +1,0 @@
-packages:
-  - apps/*
-  - packages/*
-  - scenes/*
-allowBuilds:
-  unrs-resolver: true

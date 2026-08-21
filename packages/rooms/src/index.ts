@@ -1,5 +1,3 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 export {
   ROOM_GALLERY_AUTHORED_UNIT_SCALE,
   ROOM_GALLERY_BOUNDS,
@@ -32,78 +30,6 @@ export {
   type RoomGalleryWallSegment,
 } from "./gallery-config";
 
-export const roomsAssetRoot = "/assets/rooms/models";
-
-/** Horizontal dimensions shared by every normalized room model. */
+/** Horizontal dimensions shared by the Agent HQ room designer. */
 export const ROOM_FOOTPRINT = { width: 10, length: 10 } as const;
-/** Center-to-center spacing leaves a one-meter service gap between rooms. */
 export const ROOM_CELL_SPACING = 11;
-
-const roomDefinitions = [
-  ["office", "Office", 1],
-  ["bedroom-modern", "Bedroom Modern", 1],
-  ["basketball-court", "Basketball Court", 1],
-  ["bedroom-cartoon", "Bedroom Cartoon", 1],
-  ["home-entrance", "Home Entrance", 1],
-  ["gaming-room", "Gaming Room", 5],
-  ["home-theatre", "Home Theatre", 1],
-  ["living-room", "Living Room", 1],
-  ["pool", "Pool", 6],
-  ["bedroom-basic", "Bedroom Basic", 1],
-  ["dining", "Dining", 1],
-  ["kitchen", "Kitchen", 1],
-  ["lounge", "Lounge", 1],
-  ["tv-room", "TV Room", 1],
-] as const satisfies readonly (readonly [string, string, number])[];
-
-export const roomAssets = roomDefinitions.map(([id, label, version]) => ({
-  id,
-  label,
-  kind: "room" as const,
-  assetUrl: `${roomsAssetRoot}/${id}/visual.glb?v=${version}`,
-})) as readonly {
-  id: string;
-  label: string;
-  kind: "room";
-  assetUrl: string;
-}[];
-
-export type RoomId = (typeof roomAssets)[number]["id"];
-
-export type RoomModelKind = "room";
-
-export type RoomModelManifest = {
-  id: string;
-  label: string;
-  kind: RoomModelKind;
-  assetUrl: string;
-};
-
-export type LoadedRoomModel = {
-  manifest: RoomModelManifest;
-  scene: THREE.Object3D;
-};
-
-export function roomModelUrl(kind: RoomModelKind, modelId: string): string {
-  return `${roomsAssetRoot}/${modelId}/visual.glb`;
-}
-
-export async function loadRoomModel(
-  loader: GLTFLoader,
-  manifest: RoomModelManifest,
-): Promise<LoadedRoomModel> {
-  const { scene } = await loader.loadAsync(manifest.assetUrl);
-  return { manifest, scene };
-}
-
-export type LoadedRoom = {
-  id: RoomId;
-  scene: THREE.Object3D;
-};
-
-export async function loadRoom(loader: GLTFLoader, id: RoomId): Promise<LoadedRoom> {
-  const manifest = roomAssets.find((candidate) => candidate.id === id);
-  if (!manifest) throw new Error(`No room is registered for ${id}`);
-  const { scene } = await loader.loadAsync(manifest.assetUrl);
-  return { id, scene };
-}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Agent HQ</title>
+  <rect width="64" height="64" rx="16" fill="#111827"/>
+  <path d="M16 45V19h7l9 12 9-12h7v26h-7V30l-9 12-9-12v15z" fill="#f8fafc"/>
+</svg>
