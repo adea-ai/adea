@@ -1523,7 +1523,6 @@ export function SceneHost({
     let vehicleLoadFailed: VehicleId | null = null;
     let vehicleMount: THREE.Group | null = null;
     let jetpackFlames: JetpackFlames | null = null;
-    let reportedVehicle: VehicleId | null = null;
     let hoverboardTrail: HoverboardTrail | null = null;
     let hoverboardLaunchRemaining = 0;
     let hoverboardDismountName: string | null = null;
@@ -4384,12 +4383,6 @@ export function SceneHost({
             }
           }
           activeVehicle = vehicleController.activeVehicle;
-          if (activeVehicle !== reportedVehicle) {
-            reportedVehicle = activeVehicle;
-            window.dispatchEvent(
-              new CustomEvent("agent-hq:vehicle-change", { detail: { activeVehicle } }),
-            );
-          }
           if (wasSwimming !== isSwimming) {
             debugLog(
               `[Agent HQ] ${label} swimming=${isSwimming} surface=${waterAfterMovement?.surfaceY.toFixed(3) ?? "none"} position=${playerPosition
