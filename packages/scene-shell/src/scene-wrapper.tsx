@@ -93,6 +93,8 @@ export type SceneWrapperProps = {
   /** Explicit water volumes for authored pools whose meshes are not flat sheets. */
   waterVolumes?: readonly SceneWaterVolume[];
   cameraViewMode?: CameraViewMode;
+  /** Notify the host shell when the imperative runtime changes camera mode. */
+  onCameraViewModeChange?: (viewMode: CameraViewMode) => void;
   /** Hide the projection switch for scenes with a fixed camera. */
   allowCameraViewModeChange?: boolean;
   /** @deprecated The editor is now enabled only by an explicit sceneEditor query parameter. */
@@ -195,6 +197,7 @@ export function SceneWrapper({
   perspectiveCameraDistance,
   waterVolumes,
   cameraViewMode = "perspective",
+  onCameraViewModeChange: onCameraViewModeChangeProp,
   allowCameraViewModeChange = true,
   sceneEditorAvailable = process.env.NODE_ENV === "development",
   sceneEditorSelectionMode = "objects",
@@ -255,6 +258,14 @@ export function SceneWrapper({
   const cameraViewModeRef = useRef<CameraViewMode>(effectiveCameraViewMode);
   const [activeCameraViewMode, setActiveCameraViewMode] =
     useState<CameraViewMode>(effectiveCameraViewMode);
+
+  useEffect(() => {
+    if (queryCameraViewMode || cameraViewModeRef.current === cameraViewMode) return;
+    cameraViewModeRef.current = cameraViewMode;
+    setActiveCameraViewMode(cameraViewMode);
+    debugApiRef.current?.setCameraViewMode(cameraViewMode);
+  }, [cameraViewMode, queryCameraViewMode]);
+
   const [sceneEditorEnabled, setSceneEditorEnabled] = useState(false);
   const [roomDesignerEnabled, setRoomDesignerEnabled] = useState(false);
   const [roomDesignerHasEdits, setRoomDesignerHasEdits] = useState(false);
@@ -341,6 +352,7 @@ export function SceneWrapper({
       setActiveCameraViewMode(request.cameraViewMode);
       cameraViewModeRef.current = request.cameraViewMode;
       debugApiRef.current?.setCameraViewMode(request.cameraViewMode);
+      onCameraViewModeChangeProp?.(request.cameraViewMode);
       applyRoomDesignerChange(false);
     } else if (request.href) {
       window.location.assign(request.href);
@@ -414,6 +426,7 @@ export function SceneWrapper({
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("camera", nextViewMode);
     window.history.replaceState(null, "", nextUrl);
+    onCameraViewModeChangeProp?.(nextViewMode);
   };
 
   return (
@@ -580,6 +593,7 @@ export function SceneWrapper({
                     setActiveCameraViewMode(request.cameraViewMode);
                     cameraViewModeRef.current = request.cameraViewMode;
                     debugApiRef.current?.setCameraViewMode(request.cameraViewMode);
+                    onCameraViewModeChangeProp?.(request.cameraViewMode);
                     applyRoomDesignerChange(false);
                   } else applyRoomDesignerChange(false);
                 }}
@@ -599,6 +613,7 @@ export function SceneWrapper({
                     setActiveCameraViewMode(request.cameraViewMode);
                     cameraViewModeRef.current = request.cameraViewMode;
                     debugApiRef.current?.setCameraViewMode(request.cameraViewMode);
+                    onCameraViewModeChangeProp?.(request.cameraViewMode);
                     applyRoomDesignerChange(false);
                   } else applyRoomDesignerChange(false);
                 }}
