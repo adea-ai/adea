@@ -1,0 +1,124 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bump-minor-pre-major": true,
+  "changelog-sections": [
+    {
+      "type": "feat",
+      "section": "Features"
+    },
+    {
+      "type": "fix",
+      "section": "Bug Fixes"
+    },
+    {
+      "type": "perf",
+      "section": "Performance"
+    },
+    {
+      "type": "revert",
+      "section": "Reverts"
+    },
+    {
+      "type": "deps",
+      "section": "Dependencies"
+    },
+    {
+      "type": "docs",
+      "section": "Documentation"
+    },
+    {
+      "type": "test",
+      "section": "Tests"
+    },
+    {
+      "type": "ci",
+      "section": "CI"
+    },
+    {
+      "type": "refactor",
+      "section": "Maintenance"
+    },
+    {
+      "type": "chore",
+      "section": "Maintenance"
+    }
+  ],
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "agent-hq"
+    },
+    "apps/hq": {
+      "release-type": "node",
+      "package-name": "@agent-hq/hq"
+    },
+    "packages/asset-manifests": {
+      "release-type": "node",
+      "package-name": "@agent-hq/asset-manifests"
+    },
+    "packages/audio": {
+      "release-type": "node",
+      "package-name": "@agent-hq/audio"
+    },
+    "packages/buildings": {
+      "release-type": "node",
+      "package-name": "@agent-hq/buildings"
+    },
+    "packages/characters": {
+      "release-type": "node",
+      "package-name": "@agent-hq/characters"
+    },
+    "packages/ithappy": {
+      "release-type": "node",
+      "package-name": "@agent-hq/ithappy"
+    },
+    "packages/landscape": {
+      "release-type": "node",
+      "package-name": "@agent-hq/landscape"
+    },
+    "packages/particles": {
+      "release-type": "node",
+      "package-name": "@agent-hq/particles"
+    },
+    "packages/placed-models": {
+      "release-type": "node",
+      "package-name": "@agent-hq/placed-models"
+    },
+    "packages/props": {
+      "release-type": "node",
+      "package-name": "@agent-hq/props"
+    },
+    "packages/rooms": {
+      "release-type": "node",
+      "package-name": "@agent-hq/rooms"
+    },
+    "packages/scene-runtime": {
+      "release-type": "node",
+      "package-name": "@agent-hq/scene-runtime"
+    },
+    "packages/scene-shell": {
+      "release-type": "node",
+      "package-name": "@agent-hq/scene-shell"
+    },
+    "packages/scene-telemetry": {
+      "release-type": "node",
+      "package-name": "@agent-hq/scene-telemetry"
+    },
+    "packages/ui": {
+      "release-type": "node",
+      "package-name": "@agent-hq/ui"
+    },
+    "packages/vehicles": {
+      "release-type": "node",
+      "package-name": "@agent-hq/vehicles"
+    },
+    "scenes/hq-home": {
+      "release-type": "node",
+      "package-name": "@agent-hq/scene-hq-home"
+    },
+    "scenes/hq-work": {
+      "release-type": "node",
+      "package-name": "@agent-hq/scene-hq-work"
+    }
+  }
+}
