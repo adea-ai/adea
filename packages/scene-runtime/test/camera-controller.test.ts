@@ -1,7 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import * as THREE from "three";
-import { getOrthographicGroundHalfExtents } from "../src/camera-controller";
+import {
+  getOrthographicGroundHalfExtents,
+  getPerspectiveCameraDistance,
+} from "../src/camera-controller";
 import { CameraController } from "../src/camera-controller";
+
+describe("perspective camera obstruction framing", () => {
+  test("keeps the authored distance when nothing blocks the character", () => {
+    expect(
+      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: Infinity }),
+    ).toBeCloseTo(1.7, 5);
+  });
+
+  test("stops just in front of an obstructing object", () => {
+    expect(
+      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 1.2 }),
+    ).toBeCloseTo(1.05, 5);
+  });
+
+  test("allows the camera to move close enough for a nearby object to stay behind it", () => {
+    expect(
+      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 0.18 }),
+    ).toBeCloseTo(0.08, 5);
+  });
+});
 
 describe("orthographic ground framing", () => {
   test("accounts for the top-down pitch when fitting a map inside the viewport", () => {

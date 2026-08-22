@@ -8,6 +8,7 @@
     "dev": "bun ../../scripts/sync-assets.mjs && next dev -H 0.0.0.0",
     "build": "bun ../../scripts/sync-assets.mjs && next build",
     "start": "next start -H 0.0.0.0 -p ${PORT:-3004}",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

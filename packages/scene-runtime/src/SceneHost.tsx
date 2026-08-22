@@ -31,6 +31,17 @@ import {
 import { applySceneEditorOverrides, type SceneEditorOverrides } from "./sceneEditorOverrides";
 import { CameraController, type CameraBounds, type CameraViewMode } from "./camera-controller";
 
+function isCameraOccluder(object: THREE.Object3D, characterRoot: THREE.Object3D | null): boolean {
+  if (!object.visible) return false;
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (!current.visible || current === characterRoot || current.name.startsWith("scene-editor-"))
+      return false;
+    current = current.parent;
+  }
+  return object instanceof THREE.Mesh;
+}
+
 export type SceneHostStart = {
   x: number;
   y: number;
@@ -2759,6 +2770,8 @@ export function SceneHost({
         const cameraRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
         const floorRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
         const climbRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+        const cameraOcclusionRaycaster = new THREE.Raycaster();
+        const cameraOcclusionDirection = new THREE.Vector3();
         const forward = new THREE.Vector3();
         const right = new THREE.Vector3();
         const desired = new THREE.Vector3();
@@ -3857,12 +3870,19 @@ export function SceneHost({
                 undefined,
                 playerCollider,
               );
-              cameraDistance = obstruction
-                ? Math.max(
-                    0.9,
-                    Math.min(cameraController.baseDistance, obstruction.timeOfImpact - 0.35),
-                  )
-                : cameraController.baseDistance;
+              cameraDistance = obstruction?.timeOfImpact ?? cameraController.baseDistance;
+
+              // The physics layer intentionally excludes many decorative
+              // meshes. Sweep the rendered scene as well so furniture,
+              // foliage, and other visual-only objects cannot hide the avatar.
+              cameraOcclusionDirection.copy(viewDirection).negate();
+              cameraOcclusionRaycaster.set(characterTarget, cameraOcclusionDirection);
+              const visualObstruction = cameraOcclusionRaycaster
+                .intersectObjects(scene.children, true)
+                .find((hit) => isCameraOccluder(hit.object, characterRoot));
+              if (visualObstruction) {
+                cameraDistance = Math.min(cameraDistance, visualObstruction.distance);
+              }
             }
             obstructionDistance = cameraDistance;
           }

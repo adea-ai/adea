@@ -38,6 +38,8 @@ const PERSPECTIVE_FOV = 60;
 const CAMERA_NEAR = 0.05;
 const CAMERA_FAR = 2000;
 const ORTHOGRAPHIC_DISTANCE = 16;
+const CAMERA_OCCLUSION_PADDING = 0.15;
+const CAMERA_MIN_DISTANCE = 0.08;
 // Preserve the World orthographic framing default; large HQ maps opt into
 // their own half-height through CameraControllerOptions.
 const DEFAULT_ORTHOGRAPHIC_HALF_HEIGHT = 12;
@@ -62,6 +64,22 @@ export function getOrthographicGroundHalfExtents({
     halfWidth: (halfHeight * aspect) / safeZoom,
     halfDepth: halfHeight / Math.max(safeZoom * Math.abs(viewDirectionY), 0.2),
   };
+}
+
+/** Return a perspective follow distance that keeps an obstruction behind the camera. */
+export function getPerspectiveCameraDistance({
+  baseDistance,
+  obstructionDistance,
+}: {
+  baseDistance: number;
+  obstructionDistance: number;
+}): number {
+  const safeBaseDistance = Math.max(baseDistance, CAMERA_MIN_DISTANCE);
+  if (!Number.isFinite(obstructionDistance)) return safeBaseDistance;
+  return Math.min(
+    safeBaseDistance,
+    Math.max(CAMERA_MIN_DISTANCE, obstructionDistance - CAMERA_OCCLUSION_PADDING),
+  );
 }
 
 /**
@@ -293,7 +311,10 @@ export class CameraController {
     const view = this.views[this.activeViewMode];
     const targetDistance =
       this.activeViewMode === "perspective"
-        ? Math.max(0.9, Math.min(this.baseDistance, obstructionDistance))
+        ? getPerspectiveCameraDistance({
+            baseDistance: this.baseDistance,
+            obstructionDistance,
+          })
         : ORTHOGRAPHIC_DISTANCE * this.characterScale;
     this.cameraDistance = targetDistance;
     this.viewDirection.set(
