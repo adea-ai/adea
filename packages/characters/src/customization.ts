@@ -15,6 +15,7 @@
 
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 
 const partsRoot = "/assets/models/character-parts";
 const charactersRoot = "/assets/models/characters";
@@ -213,7 +214,7 @@ export async function loadCharacterAnimationClips(
 ): Promise<THREE.AnimationClip[]> {
   if (cachedAnimationClips) return cachedAnimationClips;
   if (pendingAnimationClips) return pendingAnimationClips;
-  const animLoader = loader ?? new GLTFLoader();
+  const animLoader = loader ?? new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   pendingAnimationClips = (async () => {
     const gltf = await animLoader.loadAsync(ANIMATION_SOURCE);
     cachedAnimationClips = gltf.animations;
@@ -246,9 +247,10 @@ export async function assembleCharacter(
   const partIds = Object.values(config).filter(Boolean) as string[];
   const partOptions = characterPartCatalog.filter((p) => partIds.includes(p.id));
 
-  // Use a fresh GLTFLoader for parts — the shared scene loader has KTX2 and
-  // Meshopt decoders configured which can interfere with simple part GLBs.
-  const partsLoader = new GLTFLoader();
+  // Use a fresh loader for parts so concurrent skinned assemblies do not share
+  // parser state, but keep Meshopt enabled because the packaged part GLBs are
+  // compressed just like the main character assets.
+  const partsLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
   // Load all parts fresh — don't cache, since SkinnedMesh skeletons don't
   // clone properly and concurrent assembly calls would conflict.
