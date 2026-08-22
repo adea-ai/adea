@@ -373,17 +373,26 @@ function createHqMaterial(
             fence: "concrete",
             wall: "concrete",
           }[role];
-  const colorExtension =
-    stem === "grass" || (materialTheme === "home" && stem !== "concrete") ? "jpg" : "png";
+  const materialExtension = "webp";
   const hasPbrMaps =
     (materialTheme === "work" && stem !== "grass") || stem === "wood-fence" || stem === "concrete";
   return new THREE.MeshStandardMaterial({
-    map: createHqMaterialTexture(`${root}/${stem}-color.${colorExtension}`, repeatX, repeatY, true),
+    map: createHqMaterialTexture(
+      `${root}/${stem}-color.${materialExtension}`,
+      repeatX,
+      repeatY,
+      true,
+    ),
     ...(hasPbrMaps
       ? {
-          normalMap: createHqMaterialTexture(`${root}/${stem}-normal.png`, repeatX, repeatY, false),
+          normalMap: createHqMaterialTexture(
+            `${root}/${stem}-normal.${materialExtension}`,
+            repeatX,
+            repeatY,
+            false,
+          ),
           roughnessMap: createHqMaterialTexture(
-            `${root}/${stem}-roughness.png`,
+            `${root}/${stem}-roughness.${materialExtension}`,
             repeatX,
             repeatY,
             false,
