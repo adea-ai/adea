@@ -1449,7 +1449,7 @@ export function SceneHost({
       if (resourcesDisposed) return;
       resourcesDisposed = true;
       loadScope.abort();
-      loadingManager?.abort();
+      loadingManager?.abortController.abort();
       loadingManager = null;
       const controller = characterController;
       const physicsWorld = world;
