@@ -22,12 +22,14 @@
     "lint": "turbo run lint",
     "test": "turbo run test && bun test scripts/*.test.ts",
     "typecheck": "turbo run typecheck",
-    "perf:check": "bun scripts/performance-budgets.mjs --build --assets",
+    "perf:check": "bun scripts/performance-budgets.mjs --build --assets && bun run assets:check",
     "perf:check:runtime": "bun scripts/performance-budgets.mjs --runtime .artifacts/scene-performance.json",
-    "perf:browser": "playwright test --config=playwright.config.ts --grep \"home scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"room designer loads compressed interior props\"",
+    "perf:browser": "playwright test --config=playwright.config.ts --grep \"home scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"work scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"room designer loads compressed interior props\"",
     "perf:gate": "bun run build && bun run perf:browser && bun run perf:check:runtime",
     "native:smoke": "bun scripts/native-smoke.mjs",
-    "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs"
+    "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs",
+    "assets:optimize:runtime": "bun scripts/optimize-runtime-assets.mjs",
+    "assets:check": "bun scripts/optimize-runtime-assets.mjs --check"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

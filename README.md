@@ -42,11 +42,13 @@ public-assets directory.
 Scene field catalogs use `InstancedMesh` for repeated foliage and props, and
 the runtime enables frustum culling, Meshopt GLB decoding, and KTX2/Basis
 decoding through Three.js. The checked-in interior optimization command is
-`bun run assets:optimize:interior`; it preserves authored transforms/material
-boundaries while applying Meshopt geometry compression and WebP textures.
-KTX2 remains opt-in until a Basis/KTX encoder is available in the build
-environment; the runtime loader and transcoder assets are already wired so
-normal-map candidates can be migrated without changing scene code.
+`bun run assets:optimize:interior` and `bun run assets:optimize:runtime`; they
+preserve authored transforms/material boundaries while applying Meshopt geometry
+compression and WebP base-color textures. Runtime asset validation is included
+in `bun run perf:check` and currently covers all character, pet, and landscape
+GLBs. Normal maps remain lossless until a Basis/KTX encoder is available; the
+runtime loader and transcoder assets are already wired so normal-map candidates
+can be migrated to UASTC without changing scene code.
 
 ## Verification
 
