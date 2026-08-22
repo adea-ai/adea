@@ -314,7 +314,7 @@ export function SceneWrapper({
     if (!canUseSceneEditor) return;
     const value = new URLSearchParams(window.location.search).get("sceneEditor");
     // The editor is opt-in. A missing query parameter must never cover the
-    // scene, even when a caller still passes the legacy default-open prop.
+    // scene unless the explicit query parameter opts in.
     setSceneEditorEnabled(value !== null && value !== "0");
   }, [canUseSceneEditor]);
 
