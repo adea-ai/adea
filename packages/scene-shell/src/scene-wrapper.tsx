@@ -108,8 +108,6 @@ export type SceneWrapperProps = {
   onCameraViewModeChange?: (viewMode: CameraViewMode) => void;
   /** Hide the projection switch for scenes with a fixed camera. */
   allowCameraViewModeChange?: boolean;
-  /** @deprecated The editor is now enabled only by an explicit sceneEditor query parameter. */
-  sceneEditorOpenByDefault?: boolean;
   /** Explicitly register the scene editor for apps that need it outside the shared dev default. */
   sceneEditorAvailable?: boolean;
   /** Select whole streamed zones instead of individual meshes in the editor. */
