@@ -6,10 +6,10 @@ import type { HqSceneId } from "@agent-hq/app-core";
 import { MusicToggle } from "@agent-hq/audio";
 import { useWorkspaceQuery } from "@agent-hq/data";
 import { useWorkspaceStore } from "@agent-hq/state";
-import { BriefcaseBusiness, Home, PanelRight, Sparkles } from "lucide-react";
+import { BriefcaseBusiness, Home, Sparkles } from "lucide-react";
 import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
-import { Button, Card, ThemeToggle } from "@agent-hq/ui";
+import { Button, ThemeToggle } from "@agent-hq/ui";
 import { HqRoomScene } from "./hq-room-scene";
 
 const sceneOptions = [
@@ -17,7 +17,6 @@ const sceneOptions = [
     id: "home" as const,
     label: "Home",
     eyebrow: "ROOM 01",
-    description: "A quiet planning floor for agents and ideas.",
     icon: Home,
     manifest: hqHomeManifest,
   },
@@ -25,7 +24,6 @@ const sceneOptions = [
     id: "work" as const,
     label: "Work",
     eyebrow: "ROOM 02",
-    description: "The active operations floor for focused execution.",
     icon: BriefcaseBusiness,
     manifest: hqWorkManifest,
   },
@@ -53,8 +51,6 @@ export function WorkspaceShell({
   const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene);
   const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode);
   const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode);
-  const isDetailsPanelOpen = useWorkspaceStore((state) => state.detailsPanelOpen);
-  const setDetailsPanelOpen = useWorkspaceStore((state) => state.setDetailsPanelOpen);
   const [storeReady, setStoreReady] = useState(false);
   const [apiClient] = useState(() => createApiClient());
   const workspaceQuery = useWorkspaceQuery(apiClient, "default");
@@ -91,8 +87,8 @@ export function WorkspaceShell({
         onCameraViewModeChange={setCameraViewMode}
         accountTargetId="workspace-account-slot"
         cameraTargetId="workspace-camera-slot"
-        roomDesignerTargetId="workspace-room-designer-slot"
-        sceneEditorTargetId="workspace-room-designer-slot"
+        roomDesignerTargetId="workspace-scene-tools-slot"
+        sceneEditorTargetId="workspace-scene-tools-slot"
       />
 
       <div className="workspace-ui" aria-label="Agent HQ workspace controls">
@@ -147,55 +143,15 @@ export function WorkspaceShell({
                 );
               })}
             </nav>
-            <div id="workspace-room-designer-slot" className="workspace-room-designer-slot" />
           </div>
         </header>
 
-        {isDetailsPanelOpen ? (
-          <Card className="workspace-details" aria-labelledby="workspace-details-title">
-            <div className="workspace-panel-heading">
-              <div>
-                <p className="workspace-eyebrow">CURRENT SURFACE</p>
-                <h2 id="workspace-details-title">{scene.label}</h2>
-              </div>
-              <Button
-                type="button"
-                aria-label="Close workspace details"
-                onClick={() => setDetailsPanelOpen(false)}
-                size="icon-sm"
-                variant="ghost"
-              >
-                <PanelRight size={16} aria-hidden="true" />
-              </Button>
-            </div>
-            <p className="workspace-details__description">{scene.description}</p>
-            <div className="workspace-detail-section">
-              <p className="workspace-eyebrow">RUNTIME</p>
-              <p className="workspace-detail-section__title">Spatial workspace online.</p>
-              <p className="workspace-detail-section__meta">
-                Scene rendering stays inside the dedicated Three.js runtime boundary.
-              </p>
-            </div>
-            <div className="workspace-detail-section workspace-detail-section--accent">
-              <p className="workspace-eyebrow">CAMERA MODE</p>
-              <p className="workspace-detail-section__title">Perspective or top-down.</p>
-              <p className="workspace-detail-section__meta">
-                Use the camera controls below to switch the active view.
-              </p>
-            </div>
-          </Card>
-        ) : (
-          <Button
-            type="button"
-            className="workspace-details-reopen"
-            aria-label="Open workspace details"
-            onClick={() => setDetailsPanelOpen(true)}
-            size="icon"
-            variant="secondary"
-          >
-            <PanelRight size={16} aria-hidden="true" />
-          </Button>
-        )}
+        <div
+          id="workspace-scene-tools-slot"
+          className="workspace-scene-tools"
+          role="group"
+          aria-label="Scene tools"
+        />
 
         <div className="workspace-view-switcher" aria-label="Camera view">
           <div id="workspace-camera-slot" className="workspace-tool-slot" />
