@@ -1187,11 +1187,21 @@ export function RoomDesigner({
         }),
       );
     };
-    void rebuild();
+    let cancelScheduledRebuild: (() => void) | undefined;
+    if (enabled) {
+      void rebuild();
+    } else if (typeof window.requestIdleCallback === "function") {
+      const idleId = window.requestIdleCallback(() => void rebuild(), { timeout: 1500 });
+      cancelScheduledRebuild = () => window.cancelIdleCallback(idleId);
+    } else {
+      const timeoutId = window.setTimeout(() => void rebuild(), 0);
+      cancelScheduledRebuild = () => window.clearTimeout(timeoutId);
+    }
     return () => {
       cancelled = true;
+      cancelScheduledRebuild?.();
     };
-  }, [catalogById, placements, sceneScale]);
+  }, [catalogById, enabled, placements, sceneScale]);
 
   useEffect(() => {
     const outline = outlineRef.current;
