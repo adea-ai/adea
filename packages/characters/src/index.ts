@@ -29,10 +29,3 @@ export {
   type CustomCharacterConfig,
   type AssembledCharacter,
 } from "./customization";
-
-export {
-  characterIdSchema,
-  customCharacterIdSchema,
-  characterSelectionSchema,
-  type ValidatedCharacterId,
-} from "./schemas";
