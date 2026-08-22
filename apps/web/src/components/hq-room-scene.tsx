@@ -207,7 +207,7 @@ const hqFrontWalkwayBlockedRect = {
   depth: ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
 };
 const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax - 120 } as const;
-const hqRoomDesignerCatalog = [...interiorPropAssets].map((asset) => ({ ...asset }));
+const hqRoomDesignerCatalog = interiorPropAssets;
 const hqClickNavigationBounds = {
   xMin: ROOM_GALLERY_BOUNDS.xMin + 30,
   xMax: ROOM_GALLERY_BOUNDS.xMax - 30,
@@ -395,6 +395,20 @@ function createHqMaterial(
   });
 }
 
+function createHqMaterialFactory(theme: HqVisualTheme) {
+  const materials = new Map<string, THREE.MeshStandardMaterial>();
+
+  return (role: HqMaterialRole, repeatX: number, repeatY: number) => {
+    const key = `${role}:${repeatX}:${repeatY}`;
+    const cached = materials.get(key);
+    if (cached) return cached;
+
+    const material = createHqMaterial(theme, role, repeatX, repeatY);
+    materials.set(key, material);
+    return material;
+  };
+}
+
 function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   // SceneHost invokes visualSetup for entry and streamed zone assets. The
   // HQ currently loads a single entry scene with no streamed zones, so the
@@ -412,10 +426,11 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   );
   const exteriorDepth = exteriorMaxZ - exteriorMinZ;
   const isWork = theme === "work";
+  const getMaterial = createHqMaterialFactory(theme);
 
   const exteriorSurface = new THREE.Mesh(
     new THREE.PlaneGeometry(exteriorWidth, exteriorDepth),
-    createHqMaterial(theme, "exterior", exteriorWidth / 96, exteriorDepth / 96),
+    getMaterial("exterior", exteriorWidth / 96, exteriorDepth / 96),
   );
   exteriorSurface.name = isWork ? "hq-work-grass-map-plane" : "hq-grass-map-plane";
   exteriorSurface.rotation.x = -Math.PI / 2;
@@ -431,7 +446,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   visual.add(exteriorSurface);
 
   const createSidewalkMaterial = (sidewalkWidth: number, sidewalkDepth: number) => {
-    const material = createHqMaterial(theme, "sidewalk", sidewalkWidth / 96, sidewalkDepth / 96);
+    const material = getMaterial("sidewalk", sidewalkWidth / 96, sidewalkDepth / 96);
     material.polygonOffset = true;
     material.polygonOffsetFactor = -4;
     material.polygonOffsetUnits = -4;
@@ -564,8 +579,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   if (isWork) {
     const dirtSurface = new THREE.Mesh(
       new THREE.PlaneGeometry(width + hqWorkFenceDirtOverlap, depth + hqWorkFenceDirtOverlap),
-      createHqMaterial(
-        theme,
+      getMaterial(
         "ground",
         (width + hqWorkFenceDirtOverlap) / 96,
         (depth + hqWorkFenceDirtOverlap) / 96,
@@ -581,7 +595,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   fence.name = "hq-map-edge-fence";
   const material = isWork
     ? new THREE.MeshStandardMaterial({ color: 0x25313a, metalness: 0.35, roughness: 0.52 })
-    : createHqMaterial(theme, "fence", width / 96, 1);
+    : getMaterial("fence", width / 96, 1);
   const postMaterial = isWork
     ? new THREE.MeshStandardMaterial({ color: 0x87939b, metalness: 0.7, roughness: 0.34 })
     : material;
@@ -657,8 +671,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       0.25,
       ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
     ),
-    createHqMaterial(
-      theme,
+    getMaterial(
       isWork ? "sidewalk" : "path",
       hqFrontWalkwayWidth / 48,
       (ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge) / 96,
@@ -681,8 +694,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     const size = bounds
       ? new THREE.Vector3().subVectors(bounds.max, bounds.min)
       : new THREE.Vector3(1, 1, 1);
-    object.material = createHqMaterial(
-      theme,
+    object.material = getMaterial(
       "floor",
       Math.max(1, (size.x * object.scale.x) / 96),
       Math.max(1, (size.z * object.scale.z) / 96),
