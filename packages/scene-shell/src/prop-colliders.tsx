@@ -3,7 +3,7 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 import type { SceneDebugApi } from "@agent-hq/scene-runtime";
-import type { RoomDesignerAsset, RoomDesignerPlacement } from "./room-designer";
+import type { RoomDesignerAsset } from "./room-designer";
 import { loadRoomDesignerDocument } from "./room-designer-document";
 
 export type PropCollidersProps = {
