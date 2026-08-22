@@ -5,7 +5,7 @@ import { Timer } from "three";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
-import { disposeObjectResources } from "./resources";
+import { disposeObjectResources, type DisposedObjectResources } from "./resources";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {
   createCharacterAnimationController,
@@ -1352,7 +1352,8 @@ export function SceneHost({
     if (!activeRenderer) {
       return;
     }
-    const telemetry = createScenePerformanceTelemetry(label, activeRenderer, qualityTier);
+    const scene = new THREE.Scene();
+    const telemetry = createScenePerformanceTelemetry(label, activeRenderer, qualityTier, scene);
     const onWebglContextLost = (event: Event) => {
       event.preventDefault();
       const message = "webgl_context_lost";
@@ -1362,7 +1363,6 @@ export function SceneHost({
     };
     canvas.addEventListener("webglcontextlost", onWebglContextLost, false);
 
-    const scene = new THREE.Scene();
     scene.background = new THREE.Color(environment?.background ?? 0x9fd9f7);
     if (environment?.fog) {
       scene.fog =
@@ -1440,6 +1440,11 @@ export function SceneHost({
     const keys = new Set<string>();
     const timer = new Timer();
     let resourcesDisposed = false;
+    const recordDisposedObjectTree = (root: THREE.Object3D): DisposedObjectResources => {
+      const resources = disposeObjectTree(root);
+      telemetry.recordDisposedResources(resources);
+      return resources;
+    };
     const disposeResources = () => {
       if (resourcesDisposed) return;
       resourcesDisposed = true;
@@ -1475,9 +1480,9 @@ export function SceneHost({
       backgroundTexture?.dispose();
       backgroundTexture = null;
       scene.background = null;
-      detachedCollisionRoots.forEach(disposeObjectTree);
+      detachedCollisionRoots.forEach(recordDisposedObjectTree);
       detachedCollisionRoots.clear();
-      disposeObjectTree(scene);
+      recordDisposedObjectTree(scene);
       activeRenderer.dispose();
     };
 
@@ -3979,7 +3984,10 @@ export function SceneHost({
             }
           }
           activeRenderer.render(scene, camera);
-          telemetry.recordFrame(performance.now() - frameStartedAt);
+          telemetry.recordFrame(
+            performance.now() - frameStartedAt,
+            activeRenderer.info.render.calls,
+          );
           // Refresh the on-screen coordinate readout a few times per second
           // without re-rendering the whole overlay every frame.
           if (positionFrame++ % 6 === 0) {
@@ -4056,8 +4064,8 @@ export function SceneHost({
         colliders.forEach((collider) => world?.removeCollider(collider, true));
       }
       zoneCollisionColliders.clear();
-      telemetry.dispose();
       disposeResources();
+      telemetry.dispose();
     };
   }, [
     additionalAssetUrls,

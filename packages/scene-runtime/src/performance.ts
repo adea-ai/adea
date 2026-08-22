@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import type { DisposedObjectResources } from "./resources";
 
 export type SceneNavigationType = "navigate" | "push" | "replace" | "traverse" | "scene-mount";
 
@@ -12,7 +13,7 @@ export type SceneNavigationStart = {
 
 export type ScenePerformanceReport = {
   version: 1;
-  event: "load" | "runtime" | "error";
+  event: "load" | "runtime" | "dispose" | "error";
   release?: string;
   scene: string;
   path: string;
@@ -43,10 +44,21 @@ export type ScenePerformanceReport = {
     longTasks: number;
     longTaskDurationMs: number;
     drawCalls?: number;
+    drawCallsP95?: number;
+    drawCallsMax?: number;
     triangles?: number;
     geometries?: number;
     textures?: number;
     programs?: number;
+    reactCommits?: number;
+    reactCommitDurationMs?: number;
+    reactMaxCommitMs?: number;
+  };
+  renderables: SceneRuntimeStats;
+  lifecycle: {
+    disposedGeometries: number;
+    disposedMaterials: number;
+    disposedTextures: number;
   };
   device: {
     tier: "high" | "standard" | "low";
@@ -61,11 +73,100 @@ export type ScenePerformanceReport = {
   error?: string;
 };
 
+export type SceneRuntimeStats = {
+  meshes: number;
+  visibleMeshes: number;
+  frustumCulledMeshes: number;
+  materials: number;
+  instancedMeshes: number;
+  instances: number;
+  foliageMeshes: number;
+  foliageInstances: number;
+  fenceMeshes: number;
+  fenceInstances: number;
+  repeatedGeometryGroups: number;
+  repeatedGeometryInstances: number;
+};
+
+const FOLIAGE_PATTERN = /foliage|tree|grass|plant|shrub|bush|palm/i;
+const FENCE_PATTERN = /fence|gate|perimeter|wall-boundary/i;
+
+/** Collect low-cost scene-graph signals that explain GPU pressure in reports. */
+export function collectSceneRuntimeStats(root: THREE.Object3D): SceneRuntimeStats {
+  const materials = new Set<THREE.Material>();
+  const geometryUses = new Map<string, number>();
+  const stats: SceneRuntimeStats = {
+    meshes: 0,
+    visibleMeshes: 0,
+    frustumCulledMeshes: 0,
+    materials: 0,
+    instancedMeshes: 0,
+    instances: 0,
+    foliageMeshes: 0,
+    foliageInstances: 0,
+    fenceMeshes: 0,
+    fenceInstances: 0,
+    repeatedGeometryGroups: 0,
+    repeatedGeometryInstances: 0,
+  };
+
+  root.traverse((object) => {
+    if (!(object as THREE.Mesh).isMesh) return;
+    const mesh = object as THREE.Mesh & {
+      isInstancedMesh?: boolean;
+      count?: number;
+    };
+    const instanceCount = mesh.isInstancedMesh ? Math.max(mesh.count ?? 0, 0) : 1;
+    const ancestry = [object.name];
+    let parent = object.parent;
+    while (parent) {
+      ancestry.push(parent.name);
+      parent = parent.parent;
+    }
+    const roleName = ancestry.join(" ");
+    const objectMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    objectMaterials.forEach((material) => material && materials.add(material));
+    const geometryKey = mesh.geometry?.uuid;
+    if (geometryKey)
+      geometryUses.set(geometryKey, (geometryUses.get(geometryKey) ?? 0) + instanceCount);
+
+    stats.meshes += 1;
+    stats.visibleMeshes += object.visible ? 1 : 0;
+    stats.frustumCulledMeshes += mesh.frustumCulled ? 1 : 0;
+    stats.instances += instanceCount;
+    if (mesh.isInstancedMesh) stats.instancedMeshes += 1;
+    if (FOLIAGE_PATTERN.test(roleName)) {
+      stats.foliageMeshes += 1;
+      stats.foliageInstances += instanceCount;
+    }
+    if (FENCE_PATTERN.test(roleName)) {
+      stats.fenceMeshes += 1;
+      stats.fenceInstances += instanceCount;
+    }
+  });
+
+  stats.materials = materials.size;
+  for (const instances of geometryUses.values()) {
+    if (instances <= 1) continue;
+    stats.repeatedGeometryGroups += 1;
+    stats.repeatedGeometryInstances += instances;
+  }
+  return stats;
+}
+
 type ScenePerformanceWindow = Window & {
   __AGENT_HQ_NAVIGATION_START__?: SceneNavigationStart;
   __AGENT_HQ_SCENE_PERF__?: ScenePerformanceReport[];
   __AGENT_HQ_SCENE_TELEMETRY_ENDPOINT__?: string;
   __AGENT_HQ_RELEASE__?: string;
+  __AGENT_HQ_REACT_PROFILE__?: Array<{
+    id: string;
+    phase: "mount" | "update";
+    actualDurationMs: number;
+    baseDurationMs: number;
+    startTime: number;
+    commitTime: number;
+  }>;
 };
 
 const HISTORY_LIMIT = 30;
@@ -156,6 +257,20 @@ function deviceSnapshot(
   };
 }
 
+function reactProfileSnapshot(startTime: number): {
+  commits: number;
+  durationMs: number;
+  maxDurationMs: number;
+} {
+  const entries = (window as ScenePerformanceWindow).__AGENT_HQ_REACT_PROFILE__ ?? [];
+  const relevant = entries.filter((entry) => entry.commitTime >= startTime);
+  return {
+    commits: relevant.length,
+    durationMs: relevant.reduce((total, entry) => total + entry.actualDurationMs, 0),
+    maxDurationMs: Math.max(0, ...relevant.map((entry) => entry.actualDurationMs)),
+  };
+}
+
 function publish(report: ScenePerformanceReport): void {
   const target = window as ScenePerformanceWindow;
   const history = target.__AGENT_HQ_SCENE_PERF__ ?? [];
@@ -186,7 +301,8 @@ export type ScenePerformanceTelemetry = {
   track<T>(phase: string, promise: Promise<T>): Promise<T>;
   mark(phase: string): void;
   markPlayable(): void;
-  recordFrame(workDurationMs: number): void;
+  recordFrame(workDurationMs: number, drawCalls?: number): void;
+  recordDisposedResources(resources: DisposedObjectResources): void;
   fail(cause: unknown): void;
   dispose(): void;
 };
@@ -195,6 +311,7 @@ export function createScenePerformanceTelemetry(
   scene: string,
   renderer: THREE.WebGLRenderer,
   tier: "high" | "standard" | "low",
+  root: THREE.Object3D,
 ): ScenePerformanceTelemetry {
   const navigation = currentNavigationStart();
   const startedAt = navigation.startTime;
@@ -202,6 +319,7 @@ export function createScenePerformanceTelemetry(
   const phasesMs: Record<string, number> = {};
   const frameDurations: number[] = [];
   const frameIntervals: number[] = [];
+  const frameDrawCalls: number[] = [];
   const createdAt = performance.now();
   let previousFrameAt: number | undefined;
   let firstRenderedFrameAt: number | undefined;
@@ -211,6 +329,11 @@ export function createScenePerformanceTelemetry(
   let disposed = false;
   let longTasks = 0;
   let longTaskDurationMs = 0;
+  const disposedResources: DisposedObjectResources = {
+    geometries: 0,
+    materials: 0,
+    textures: 0,
+  };
 
   let longTaskObserver: PerformanceObserver | undefined;
   if (
@@ -234,6 +357,8 @@ export function createScenePerformanceTelemetry(
     const now = performance.now();
     const sortedFrames = [...frameDurations].sort((a, b) => a - b);
     const sortedIntervals = [...frameIntervals].sort((a, b) => a - b);
+    const sortedDrawCalls = [...frameDrawCalls].sort((a, b) => a - b);
+    const reactProfile = reactProfileSnapshot(startedAt);
     const sampleWindowMs = Math.max(
       0,
       now - (runtimeSampleStartedAt ?? firstRenderedFrameAt ?? createdAt),
@@ -269,10 +394,21 @@ export function createScenePerformanceTelemetry(
         longTasks,
         longTaskDurationMs: round(longTaskDurationMs) ?? 0,
         drawCalls: info.render.calls,
+        drawCallsP95: round(percentile(sortedDrawCalls, 0.95)),
+        drawCallsMax: round(sortedDrawCalls.at(-1), 0),
         triangles: info.render.triangles,
         geometries: info.memory.geometries,
         textures: info.memory.textures,
         programs: info.programs?.length,
+        reactCommits: reactProfile.commits,
+        reactCommitDurationMs: round(reactProfile.durationMs),
+        reactMaxCommitMs: round(reactProfile.maxDurationMs),
+      },
+      renderables: collectSceneRuntimeStats(root),
+      lifecycle: {
+        disposedGeometries: disposedResources.geometries,
+        disposedMaterials: disposedResources.materials,
+        disposedTextures: disposedResources.textures,
       },
       device: deviceSnapshot(renderer, tier),
       error,
@@ -302,14 +438,16 @@ export function createScenePerformanceTelemetry(
       // runtime signal instead of the maximum of one or two loading stalls.
       frameDurations.length = 0;
       frameIntervals.length = 0;
+      frameDrawCalls.length = 0;
       longTasks = 0;
       longTaskDurationMs = 0;
       previousFrameAt = undefined;
       runtimeSampleStartedAt = undefined;
     },
-    recordFrame(workDurationMs) {
+    recordFrame(workDurationMs, drawCalls) {
       if (disposed) return;
       const now = performance.now();
+      if (drawCalls != null && Number.isFinite(drawCalls)) frameDrawCalls.push(drawCalls);
       if (firstRenderedFrameAt == null) {
         firstRenderedFrameAt = now;
         previousFrameAt = now;
@@ -332,6 +470,11 @@ export function createScenePerformanceTelemetry(
         publish(report("runtime"));
       }
     },
+    recordDisposedResources(resources) {
+      disposedResources.geometries += resources.geometries;
+      disposedResources.materials += resources.materials;
+      disposedResources.textures += resources.textures;
+    },
     fail(cause) {
       navigation.claimed = true;
       publish(report("error", cause instanceof Error ? cause.message : String(cause)));
@@ -339,7 +482,12 @@ export function createScenePerformanceTelemetry(
     dispose() {
       disposed = true;
       longTaskObserver?.disconnect();
-      if (!runtimePublished && firstRenderedFrameAt != null && frameDurations.length > 0) {
+      if (
+        disposedResources.geometries + disposedResources.materials + disposedResources.textures >
+        0
+      ) {
+        publish(report("dispose"));
+      } else if (!runtimePublished && firstRenderedFrameAt != null && frameDurations.length > 0) {
         runtimePublished = true;
         publish(report("runtime"));
       }
