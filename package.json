@@ -16,12 +16,15 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "turbo run build",
+    "build": "turbo run build && bun run perf:check",
     "dev": "turbo run dev --filter=@agent-hq/web --env-mode=loose",
     "format:check": "prettier --check .",
     "lint": "turbo run lint",
-    "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "test": "turbo run test && bun test scripts/*.test.ts",
+    "typecheck": "turbo run typecheck",
+    "perf:check": "bun scripts/performance-budgets.mjs --build --assets",
+    "perf:check:runtime": "bun scripts/performance-budgets.mjs --runtime .artifacts/scene-performance.json",
+    "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
