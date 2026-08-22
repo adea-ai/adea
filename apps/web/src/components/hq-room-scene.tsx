@@ -93,7 +93,7 @@ const hqSceneEditorLockedObjectPrefixes = [
   "HQFoundationWall-",
   "GalleryGrassFloor",
   "hq-grass-map-plane",
-  "hq-work-concrete-map-plane",
+  "hq-work-grass-map-plane",
   "hq-work-interior-dirt",
   "hq-front-door-walkway",
   "hq-front-sidewalk",
@@ -345,32 +345,38 @@ function createHqMaterial(
   repeatY: number,
 ): THREE.MeshStandardMaterial {
   const materialTheme = theme;
+  // Neighbor yards are shared landscape, so keep their grass texture owned by
+  // the Home material set instead of duplicating it under Work.
   const root =
-    materialTheme === "home"
+    role === "exterior" || materialTheme === "home"
       ? "/assets/worlds/hq-home/materials"
       : "/assets/worlds/hq-work/materials";
   const stem =
-    materialTheme === "home"
-      ? {
-          exterior: "grass",
-          path: "concrete",
-          ground: "grass",
-          sidewalk: "concrete",
-          floor: "wood-floor",
-          fence: "wood-fence",
-          wall: "concrete",
-        }[role]
-      : {
-          exterior: "concrete",
-          path: "concrete",
-          ground: "ground",
-          sidewalk: "concrete",
-          floor: "tile",
-          fence: "concrete",
-          wall: "concrete",
-        }[role];
-  const colorExtension = materialTheme === "home" && stem !== "concrete" ? "jpg" : "png";
-  const hasPbrMaps = materialTheme === "work" || stem === "wood-fence" || stem === "concrete";
+    role === "exterior"
+      ? "grass"
+      : materialTheme === "home"
+        ? {
+            exterior: "grass",
+            path: "concrete",
+            ground: "grass",
+            sidewalk: "concrete",
+            floor: "wood-floor",
+            fence: "wood-fence",
+            wall: "concrete",
+          }[role]
+        : {
+            exterior: "concrete",
+            path: "concrete",
+            ground: "ground",
+            sidewalk: "concrete",
+            floor: "tile",
+            fence: "concrete",
+            wall: "concrete",
+          }[role];
+  const colorExtension =
+    stem === "grass" || (materialTheme === "home" && stem !== "concrete") ? "jpg" : "png";
+  const hasPbrMaps =
+    (materialTheme === "work" && stem !== "grass") || stem === "wood-fence" || stem === "concrete";
   return new THREE.MeshStandardMaterial({
     map: createHqMaterialTexture(`${root}/${stem}-color.${colorExtension}`, repeatX, repeatY, true),
     ...(hasPbrMaps
@@ -411,7 +417,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     new THREE.PlaneGeometry(exteriorWidth, exteriorDepth),
     createHqMaterial(theme, "exterior", exteriorWidth / 96, exteriorDepth / 96),
   );
-  exteriorSurface.name = isWork ? "hq-work-concrete-map-plane" : "hq-grass-map-plane";
+  exteriorSurface.name = isWork ? "hq-work-grass-map-plane" : "hq-grass-map-plane";
   exteriorSurface.rotation.x = -Math.PI / 2;
   // Keep the layer-1 exterior surface visually below the foundation slab. The raw HQ scale
   // makes a 13 cm separation vulnerable to depth-buffer flicker in perspective.
