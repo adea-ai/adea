@@ -52,15 +52,28 @@ describe("performance budgets", () => {
             network: { transferBytes: 35_000_001 },
             runtime: { p95FrameMs: 30.1 },
           },
+          {
+            event: "runtime",
+            scene: "Home",
+            network: { transferBytes: 35_000_001 },
+            runtime: { p95FrameMs: 30.1 },
+          },
           { event: "error", scene: "Home", error: "webgl_context_lost" },
         ],
         budgets,
       ),
     ).toEqual([
       "Home playable scene time is 10001ms (budget 10000)",
-      "Home asset transfer is 35000001 bytes (budget 35000000)",
+      "Home p95 frame time is 30.1ms (budget 30)",
       "Home p95 frame time is 30.1ms (budget 30)",
       "Home emitted error: webgl_context_lost",
+      "Home asset transfer is 35000001 bytes (budget 35000000)",
+    ]);
+  });
+
+  test("requires both load and runtime reports for each scene", () => {
+    expect(checkRuntimeReports([{ event: "load", scene: "Home" }], budgets)).toEqual([
+      "Home is missing a runtime performance report",
     ]);
   });
 });
