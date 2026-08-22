@@ -11,7 +11,7 @@ import {
   isCustomCharacterId,
   getCustomCharacterLabel,
 } from "@agent-hq/characters";
-import { createAmbientAnimals, type AmbientAnimals } from "@agent-hq/pets";
+import type { AmbientAnimals } from "@agent-hq/pets";
 import { interiorPropAssets } from "@agent-hq/interior";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
@@ -883,22 +883,25 @@ export function HqRoomScene({
         foundationTopY,
         rand(hub.zMin + 60, hub.zMax - 60),
       ];
-      createAmbientAnimals(visual, [
-        {
-          id: "dog",
-          position: randomPos(),
-          scale: 1.0 * animalScale,
-          wanderBounds: { centerX: 0, centerZ: 0, halfWidth, halfDepth },
-          walls: animalWallAabb,
-        },
-        {
-          id: "cat",
-          position: randomPos(),
-          scale: 1.0 * animalScale,
-          wanderBounds: { centerX: 0, centerZ: 0, halfWidth, halfDepth },
-          walls: animalWallAabb,
-        },
-      ])
+      void import("@agent-hq/pets")
+        .then(({ createAmbientAnimals }) =>
+          createAmbientAnimals(visual, [
+            {
+              id: "dog",
+              position: randomPos(),
+              scale: 1.0 * animalScale,
+              wanderBounds: { centerX: 0, centerZ: 0, halfWidth, halfDepth },
+              walls: animalWallAabb,
+            },
+            {
+              id: "cat",
+              position: randomPos(),
+              scale: 1.0 * animalScale,
+              wanderBounds: { centerX: 0, centerZ: 0, halfWidth, halfDepth },
+              walls: animalWallAabb,
+            },
+          ]),
+        )
         .then((animals) => {
           ambientAnimalsRef.current = animals;
           // Apply the physics collision check if the debug API beat us to it.
