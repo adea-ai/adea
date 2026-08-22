@@ -43,8 +43,9 @@ export async function loadSceneField(
   resolveModelUrl: (modelId: string) => string,
   groupName = "scene-field",
   singlePlacementPlain = false,
+  signal?: AbortSignal,
 ): Promise<THREE.Group> {
-  const response = await fetch(manifestUrl);
+  const response = await fetch(manifestUrl, { signal });
   if (!response.ok)
     throw new Error(`Failed to load scene-field manifest: ${manifestUrl} (${response.status})`);
   const manifest = (await response.json()) as SceneFieldManifest;
@@ -134,6 +135,7 @@ export async function loadSceneFieldFromCatalog(
   manifestUrl: string,
   catalog: readonly SceneFieldAsset[],
   groupName = "scene-field",
+  signal?: AbortSignal,
 ): Promise<THREE.Group> {
   const assetsById = new Map(catalog.map((asset) => [asset.id, asset.assetUrl]));
   return loadSceneField(
@@ -146,5 +148,6 @@ export async function loadSceneFieldFromCatalog(
     },
     groupName,
     true,
+    signal,
   );
 }
