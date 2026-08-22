@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --filter=@agent-hq/web",
+    "dev": "turbo run dev --filter=@agent-hq/web --env-mode=loose",
     "format:check": "prettier --check .",
     "lint": "turbo run lint",
     "test": "turbo run test",

@@ -19,7 +19,7 @@ import {
   TransformControls,
   type TransformControlsMode,
 } from "three/examples/jsm/controls/TransformControls.js";
-import { Button } from "@agent-hq/ui";
+import { Button } from "@agent-hq/ui/components/ui/button";
 import type { SceneManifest } from "@agent-hq/asset-manifests";
 import type { CameraViewMode, SceneDebugApi } from "@agent-hq/scene-runtime";
 

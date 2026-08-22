@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { createApiClient } from "@agent-hq/api-client";
 import type { HqSceneId } from "@agent-hq/app-core";
@@ -9,8 +10,12 @@ import { useWorkspaceStore } from "@agent-hq/state";
 import { BriefcaseBusiness, Home, Sparkles } from "lucide-react";
 import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
-import { Button, ThemeToggle } from "@agent-hq/ui";
-import { HqRoomScene } from "./hq-room-scene";
+import { Button } from "@agent-hq/ui/components/ui/button";
+import { ThemeToggle } from "@agent-hq/ui/components/theme-toggle";
+
+const HqRoomScene = dynamic(() => import("./hq-room-scene").then((module) => module.HqRoomScene), {
+  ssr: false,
+});
 
 const sceneOptions = [
   {
