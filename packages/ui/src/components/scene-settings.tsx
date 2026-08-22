@@ -101,6 +101,7 @@ export function SceneSettings({
       type="button"
       variant={roomDesignerEnabled ? "default" : "outline"}
       size="sm"
+      aria-haspopup="dialog"
       aria-label={roomDesignerEnabled ? "Close room designer" : "Open room designer"}
       title={roomDesignerEnabled ? "Close room designer" : "Open room designer"}
       aria-pressed={roomDesignerEnabled}
@@ -116,6 +117,7 @@ export function SceneSettings({
       type="button"
       variant={sceneEditorEnabled ? "default" : "outline"}
       size="sm"
+      aria-haspopup="dialog"
       aria-label={sceneEditorEnabled ? "Close scene editor" : "Open scene editor"}
       title={sceneEditorEnabled ? "Close scene editor" : "Open scene editor"}
       aria-pressed={sceneEditorEnabled}
@@ -135,14 +137,20 @@ export function SceneSettings({
         triggerTargetId={accountTargetId}
       />
       {allowCameraViewModeChange ? renderInTarget(cameraControl, cameraTarget) : null}
-      {roomDesignerEnabled != null && onRoomDesignerChange && cameraViewMode === "orthographic" ? (
+      {roomDesignerEnabled != null &&
+      !roomDesignerEnabled &&
+      onRoomDesignerChange &&
+      cameraViewMode === "orthographic" ? (
         roomDesignerTarget ? (
           createPortal(roomDesignerControl, roomDesignerTarget)
         ) : (
           <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
         )
       ) : null}
-      {sceneEditorEnabled != null && onSceneEditorChange && cameraViewMode === "perspective" ? (
+      {sceneEditorEnabled != null &&
+      !sceneEditorEnabled &&
+      onSceneEditorChange &&
+      cameraViewMode === "perspective" ? (
         sceneEditorTarget ? (
           createPortal(sceneEditorControl, sceneEditorTarget)
         ) : (
