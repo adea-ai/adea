@@ -19,6 +19,11 @@ import {
 } from "@agent-hq/ui/components/prop-catalog";
 import type { SceneManifest } from "@agent-hq/asset-manifests";
 import type { SceneDebugApi } from "@agent-hq/scene-runtime";
+import {
+  invalidateRoomDesignerDocument,
+  loadRoomDesignerDocument,
+  type RoomDesignerDocument,
+} from "./room-designer-document";
 
 export type RoomDesignerAsset = PropCatalogItem & {
   /** Authored footprint after the asset's default scale, in HQ map units. */
@@ -63,12 +68,6 @@ export function hasPlacementResetTarget(
     placement.s.some((value, index) => value !== saved.s[index])
   );
 }
-
-type RoomDesignerDocument = {
-  version?: number;
-  scene?: string;
-  placements?: Record<string, Array<Partial<RoomDesignerPlacement>>>;
-};
 
 type Snapshot = { placements: RoomDesignerPlacement[] };
 
@@ -1005,10 +1004,7 @@ export function RoomDesigner({
       outlineRef.current = outline;
       setApiReady(true);
       try {
-        const response = await fetch(`/assets/worlds/${manifest.id}/props.json?v=room-designer`, {
-          cache: "no-store",
-        });
-        const document = response.ok ? ((await response.json()) as RoomDesignerDocument) : {};
+        const document = await loadRoomDesignerDocument(manifest.id);
         if (cancelled) return;
         const loadedPlacements = placementsFromDocument(document, catalogById, groundY);
         placementsRef.current = loadedPlacements;
@@ -1658,6 +1654,7 @@ export function RoomDesigner({
             `Save failed (${response.status})`,
         );
       const nextPlacements = placementsRef.current.map(clonePlacement);
+      invalidateRoomDesignerDocument(manifest.id);
       savedPlacementsRef.current = nextPlacements;
       setSavedPlacements(nextPlacements);
       setStatus("Saved.");
