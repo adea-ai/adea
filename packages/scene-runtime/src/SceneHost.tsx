@@ -239,6 +239,8 @@ export type SceneHostProps = {
   clickNavigationIndicatorScale?: number;
   /** Disable keyboard and jumping while orthographic click-only mode is active. */
   orthographicClickOnly?: boolean;
+  /** Capture canvas wheel/pinch gestures for camera zoom instead of browser zoom. */
+  cameraWheelZoomEnabled?: boolean;
   /** Optional movement multiplier used only by orthographic click navigation. */
   orthographicMovementSpeedFactor?: number;
   /** Optional camera envelope. The view is clamped to keep the map edges in frame. */
@@ -295,6 +297,8 @@ export type SceneDebugApi = {
   setOrthographicPan: (x: number, z: number) => void;
   setOrthographicZoom: (zoom: number) => void;
   setOrthographicZoomImmediate: (zoom: number) => void;
+  adjustOrthographicZoom: (delta: number) => void;
+  adjustPerspectiveZoom: (delta: number) => void;
   setOrthographicBoundsPadding: (padding: number) => void;
   resetOrthographicView: () => void;
   setClickNavigationEnabled: (enabled: boolean) => void;
@@ -1188,6 +1192,7 @@ export function SceneHost({
   clickNavigationBounds,
   clickNavigationIndicatorScale = 1,
   orthographicClickOnly = false,
+  cameraWheelZoomEnabled = true,
   orthographicMovementSpeedFactor = movementSpeedFactor,
   cameraBounds,
   orthographicHalfHeight,
@@ -1226,9 +1231,14 @@ export function SceneHost({
   const segmentHalfHeight = Math.max(playerHeight / 2 - playerRadius, 0.05);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const initialCameraViewModeRef = useRef(initialCameraViewMode);
+  const cameraWheelZoomEnabledRef = useRef(cameraWheelZoomEnabled);
   const [status, setStatus] = useState(`Loading ${label}…`);
   const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState<string>("—");
+
+  useEffect(() => {
+    cameraWheelZoomEnabledRef.current = cameraWheelZoomEnabled;
+  }, [cameraWheelZoomEnabled]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1906,9 +1916,22 @@ export function SceneHost({
       navigationIndicator.visible = true;
       event.preventDefault();
     };
+    const onCanvasWheel = (event: WheelEvent) => {
+      if (!cameraWheelZoomEnabledRef.current || event.defaultPrevented) return;
+      const rawDelta = Math.abs(event.deltaY);
+      if (rawDelta === 0) return;
+      const zoomDelta = Math.sign(event.deltaY) * -Math.min(0.15, Math.max(0.02, rawDelta * 0.003));
+      if (cameraController.isPerspective) {
+        cameraController.adjustPerspectiveZoom(zoomDelta);
+      } else {
+        cameraController.adjustOrthographicZoom(zoomDelta);
+      }
+      event.preventDefault();
+    };
     canvas.addEventListener("pointerdown", onCanvasPointerDown);
     canvas.addEventListener("pointermove", onCanvasPointerMove);
     canvas.addEventListener("pointerleave", onCanvasPointerLeave);
+    canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
 
     const load = async () => {
       try {
@@ -2799,7 +2822,7 @@ export function SceneHost({
         const climbTarget = new THREE.Vector3();
         const characterTarget = new THREE.Vector3();
         let cameraOcclusionFrame = 0;
-        let cameraDistance = cameraController.baseDistance;
+        let cameraDistance = cameraController.perspectiveDistance;
         // Face the character along the spawn view direction: the camera yaw
         // already honors startPosition.yaw, so the avatar must start turned
         // the same way instead of staring at the default +z heading.
@@ -2930,6 +2953,12 @@ export function SceneHost({
           },
           setOrthographicZoomImmediate: (zoom) => {
             cameraController.setOrthographicZoomImmediate(zoom);
+          },
+          adjustOrthographicZoom: (delta) => {
+            cameraController.adjustOrthographicZoom(delta);
+          },
+          adjustPerspectiveZoom: (delta) => {
+            cameraController.adjustPerspectiveZoom(delta);
           },
           setOrthographicBoundsPadding: (padding) => {
             cameraController.setOrthographicBoundsPadding(padding);
@@ -3882,13 +3911,13 @@ export function SceneHost({
               cameraRay.dir.z = -viewDirection.z;
               const obstruction = world.castRay(
                 cameraRay,
-                cameraController.baseDistance,
+                cameraController.perspectiveDistance,
                 true,
                 undefined,
                 undefined,
                 playerCollider,
               );
-              cameraDistance = obstruction?.timeOfImpact ?? cameraController.baseDistance;
+              cameraDistance = obstruction?.timeOfImpact ?? cameraController.perspectiveDistance;
 
               // The physics layer intentionally excludes many decorative
               // meshes. Sweep the rendered scene as well so furniture,
@@ -3999,6 +4028,7 @@ export function SceneHost({
       canvas.removeEventListener("pointerdown", onCanvasPointerDown);
       canvas.removeEventListener("pointermove", onCanvasPointerMove);
       canvas.removeEventListener("pointerleave", onCanvasPointerLeave);
+      canvas.removeEventListener("wheel", onCanvasWheel);
       navigationIndicator.geometry.dispose();
       navigationIndicator.material.dispose();
       cameraController.dispose();
