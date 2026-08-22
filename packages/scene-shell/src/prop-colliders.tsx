@@ -4,6 +4,7 @@ import { useEffect, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 import type { SceneDebugApi } from "@agent-hq/scene-runtime";
 import type { RoomDesignerAsset, RoomDesignerPlacement } from "./room-designer";
+import { loadRoomDesignerDocument } from "./room-designer-document";
 
 export type PropCollidersProps = {
   debugApiRef: MutableRefObject<SceneDebugApi | null>;
@@ -37,12 +38,6 @@ type PlacedProp = {
   scale: [number, number, number];
 };
 
-type RoomDesignerDocument = {
-  version?: number;
-  scene?: string;
-  placements?: Record<string, Array<Partial<RoomDesignerPlacement>>>;
-};
-
 function yawFromQuaternion(q: readonly [number, number, number, number]): number {
   const [, y, , w] = q;
   return Math.atan2(2 * w * y, 1 - 2 * y * y);
@@ -64,11 +59,7 @@ async function loadPlacements(
   catalogById: ReadonlyMap<string, RoomDesignerAsset>,
   groundY: number,
 ): Promise<PlacedProp[]> {
-  const response = await fetch(`/assets/worlds/${sceneId}/props.json?v=prop-colliders`, {
-    cache: "no-store",
-  });
-  if (!response.ok) return [];
-  const document = (await response.json()) as RoomDesignerDocument;
+  const document = await loadRoomDesignerDocument(sceneId);
   const entries = Object.entries(document.placements ?? {});
   const props: PlacedProp[] = [];
   for (const [modelId, placements] of entries) {
