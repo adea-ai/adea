@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { expect, test, type Page } from "@playwright/test";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 type BrowserSceneReport = {
   event: "load" | "runtime" | "dispose" | "error";
@@ -10,7 +10,7 @@ type BrowserSceneReport = {
   runtime?: { p95FrameMs?: number };
 };
 
-test("home scene meets runtime performance gates", async ({ page }) => {
+async function runScenePerformanceGate(page: Page, scene: "home" | "work") {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -18,7 +18,7 @@ test("home scene meets runtime performance gates", async ({ page }) => {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
 
-  const response = await page.goto("/?scene=home&roomDesigner=0&camera=orthographic", {
+  const response = await page.goto(`/?scene=${scene}&roomDesigner=0&camera=orthographic`, {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -53,12 +53,33 @@ test("home scene meets runtime performance gates", async ({ page }) => {
         .__AGENT_HQ_SCENE_PERF__ ?? []) as BrowserSceneReport[],
   );
   await mkdir(".artifacts", { recursive: true });
-  await writeFile(".artifacts/scene-performance.json", JSON.stringify(reports, null, 2));
+  let existingReports: BrowserSceneReport[] = [];
+  if (scene === "work") {
+    try {
+      existingReports = JSON.parse(
+        await readFile(".artifacts/scene-performance.json", "utf8"),
+      ) as BrowserSceneReport[];
+    } catch {
+      // The work gate can still run independently when no Home artifact exists.
+    }
+  }
+  await writeFile(
+    ".artifacts/scene-performance.json",
+    JSON.stringify([...existingReports, ...reports], null, 2),
+  );
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
   expect(reports.some((report) => report.event === "load")).toBe(true);
   expect(reports.some((report) => report.event === "error")).toBe(false);
+}
+
+test("home scene meets runtime performance gates", async ({ page }) => {
+  await runScenePerformanceGate(page, "home");
+});
+
+test("work scene meets runtime performance gates", async ({ page }) => {
+  await runScenePerformanceGate(page, "work");
 });
 
 test("room designer loads compressed interior props", async ({ page }) => {
