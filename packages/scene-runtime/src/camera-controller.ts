@@ -46,6 +46,8 @@ const DEFAULT_ORTHOGRAPHIC_HALF_HEIGHT = 12;
 const DEFAULT_ORTHOGRAPHIC_PITCH = -0.9;
 const CAMERA_SMOOTHING = 14;
 const CAMERA_TRANSITION_SMOOTHING = 8;
+const PERSPECTIVE_MIN_ZOOM = 0.7;
+const PERSPECTIVE_MAX_ZOOM = 1.6;
 const CAMERA_KEY_CODES = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 export function getOrthographicGroundHalfExtents({
@@ -70,16 +72,27 @@ export function getOrthographicGroundHalfExtents({
 export function getPerspectiveCameraDistance({
   baseDistance,
   obstructionDistance,
+  zoom = 1,
+  maxDistance = Infinity,
 }: {
   baseDistance: number;
   obstructionDistance: number;
+  zoom?: number;
+  maxDistance?: number;
 }): number {
   const safeBaseDistance = Math.max(baseDistance, CAMERA_MIN_DISTANCE);
-  if (!Number.isFinite(obstructionDistance)) return safeBaseDistance;
-  return Math.min(
-    safeBaseDistance,
-    Math.max(CAMERA_MIN_DISTANCE, obstructionDistance - CAMERA_OCCLUSION_PADDING),
-  );
+  const safeZoom = THREE.MathUtils.clamp(zoom, PERSPECTIVE_MIN_ZOOM, PERSPECTIVE_MAX_ZOOM);
+  let distance = safeBaseDistance / safeZoom;
+  if (Number.isFinite(obstructionDistance)) {
+    distance = Math.min(
+      distance,
+      Math.max(CAMERA_MIN_DISTANCE, obstructionDistance - CAMERA_OCCLUSION_PADDING),
+    );
+  }
+  if (Number.isFinite(maxDistance)) {
+    distance = Math.min(distance, Math.max(CAMERA_MIN_DISTANCE, maxDistance));
+  }
+  return Math.max(CAMERA_MIN_DISTANCE, distance);
 }
 
 /**
@@ -108,6 +121,8 @@ export class CameraController {
   private transitionActive = false;
   private hasInitialView = false;
   private perspectiveFov = PERSPECTIVE_FOV;
+  private perspectiveZoom = 1;
+  private perspectiveTargetZoom = 1;
   private orthographicZoom = 1;
   private orthographicTargetZoom = 1;
   private readonly orthographicPan = new THREE.Vector2();
@@ -172,6 +187,14 @@ export class CameraController {
     return CAMERA_DISTANCE * this.characterScale;
   }
 
+  get perspectiveDistance(): number {
+    return getPerspectiveCameraDistance({
+      baseDistance: this.baseDistance,
+      obstructionDistance: Infinity,
+      zoom: this.perspectiveTargetZoom,
+    });
+  }
+
   get isPerspective(): boolean {
     return this.activeViewMode === "perspective";
   }
@@ -181,6 +204,7 @@ export class CameraController {
     cameraYaw: number;
     pitch: number;
     cameraDistance: number;
+    perspectiveZoom: number;
   } {
     const view = this.views[this.activeViewMode];
     return {
@@ -188,6 +212,7 @@ export class CameraController {
       cameraYaw: view.yaw,
       pitch: view.pitch,
       cameraDistance: this.cameraDistance,
+      perspectiveZoom: this.perspectiveTargetZoom,
     };
   }
 
@@ -228,6 +253,22 @@ export class CameraController {
 
   resetOrthographicZoom(): void {
     this.orthographicTargetZoom = 1;
+  }
+
+  setPerspectiveZoom(zoom: number): void {
+    this.perspectiveTargetZoom = THREE.MathUtils.clamp(
+      zoom,
+      PERSPECTIVE_MIN_ZOOM,
+      PERSPECTIVE_MAX_ZOOM,
+    );
+  }
+
+  adjustPerspectiveZoom(delta: number): void {
+    this.setPerspectiveZoom(this.perspectiveTargetZoom + delta);
+  }
+
+  adjustOrthographicZoom(delta: number): void {
+    this.setOrthographicZoom(this.orthographicTargetZoom + delta);
   }
 
   setOrthographicBoundsPadding(padding: number): void {
@@ -309,14 +350,6 @@ export class CameraController {
   update(target: THREE.Vector3, delta: number, obstructionDistance = this.baseDistance): void {
     this.updateInput(delta);
     const view = this.views[this.activeViewMode];
-    const targetDistance =
-      this.activeViewMode === "perspective"
-        ? getPerspectiveCameraDistance({
-            baseDistance: this.baseDistance,
-            obstructionDistance,
-          })
-        : ORTHOGRAPHIC_DISTANCE * this.characterScale;
-    this.cameraDistance = targetDistance;
     this.viewDirection.set(
       Math.sin(view.yaw) * Math.cos(view.pitch),
       Math.sin(view.pitch),
@@ -328,6 +361,26 @@ export class CameraController {
       this.cameraTarget.z += this.orthographicPan.y;
     }
     this.cameraTarget.copy(this.constrainTarget(this.cameraTarget));
+    const smoothing =
+      1 -
+      Math.exp(-delta * (this.transitionActive ? CAMERA_TRANSITION_SMOOTHING : CAMERA_SMOOTHING));
+    if (this.activeViewMode === "perspective") {
+      this.perspectiveZoom = THREE.MathUtils.lerp(
+        this.perspectiveZoom,
+        this.perspectiveTargetZoom,
+        smoothing,
+      );
+    }
+    const targetDistance =
+      this.activeViewMode === "perspective"
+        ? getPerspectiveCameraDistance({
+            baseDistance: this.baseDistance,
+            obstructionDistance,
+            zoom: this.perspectiveZoom,
+            maxDistance: this.getPerspectiveBoundsDistance(),
+          })
+        : ORTHOGRAPHIC_DISTANCE * this.characterScale;
+    this.cameraDistance = targetDistance;
     this.desiredPosition
       .copy(this.cameraTarget)
       .addScaledVector(this.viewDirection, -targetDistance);
@@ -344,9 +397,6 @@ export class CameraController {
       return;
     }
 
-    const smoothing =
-      1 -
-      Math.exp(-delta * (this.transitionActive ? CAMERA_TRANSITION_SMOOTHING : CAMERA_SMOOTHING));
     this.camera.position.lerp(this.desiredPosition, smoothing);
     this.camera.quaternion.slerp(this.desiredQuaternion, smoothing);
     if (this.activeViewMode === "orthographic") {
@@ -371,9 +421,9 @@ export class CameraController {
   }
 
   private constrainTarget(target: THREE.Vector3): THREE.Vector3 {
-    // Camera bounds are an orthographic map-framing feature. Perspective
-    // scenes must retain their normal character-follow behavior even when a
-    // scene also supplies a map envelope for its orthographic view.
+    // Orthographic scenes clamp their target so the full map stays in view.
+    // Perspective scenes retain character-follow framing and instead cap the
+    // camera distance against the same envelope below.
     if (!this.cameraBounds || this.activeViewMode !== "orthographic") return target;
 
     const aspect = this.orthographicCamera.right / Math.max(this.orthographicCamera.top, 0.001);
@@ -404,6 +454,32 @@ export class CameraController {
       ),
     );
     return this.cameraTarget;
+  }
+
+  private getPerspectiveBoundsDistance(): number {
+    if (!this.cameraBounds) return Infinity;
+
+    const axisDistance = (position: number, direction: number, min: number, max: number) => {
+      const cameraMovement = -direction;
+      if (Math.abs(cameraMovement) < 0.0001) return Infinity;
+      const edge = cameraMovement > 0 ? max : min;
+      return Math.max(0, (edge - position) / cameraMovement);
+    };
+
+    return Math.min(
+      axisDistance(
+        this.cameraTarget.x,
+        this.viewDirection.x,
+        this.cameraBounds.xMin,
+        this.cameraBounds.xMax,
+      ),
+      axisDistance(
+        this.cameraTarget.z,
+        this.viewDirection.z,
+        this.cameraBounds.zMin,
+        this.cameraBounds.zMax,
+      ),
+    );
   }
 
   dispose(): void {

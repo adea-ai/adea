@@ -90,6 +90,8 @@ export type SceneWrapperProps = {
   cameraBounds?: CameraBounds;
   /** In orthographic mode, make this scene click-only and hide touch controls. */
   orthographicClickOnly?: boolean;
+  /** Capture normal-view wheel and trackpad gestures for camera zoom. */
+  cameraWheelZoomEnabled?: boolean;
   /** Optional movement multiplier used only by orthographic click navigation. */
   orthographicMovementSpeedFactor?: number;
   /** Scene-specific orthographic framing; defaults preserve existing views. */
@@ -201,6 +203,7 @@ export function SceneWrapper({
   clickNavigationIndicatorScale,
   cameraBounds,
   orthographicClickOnly = false,
+  cameraWheelZoomEnabled = true,
   orthographicMovementSpeedFactor,
   orthographicHalfHeight,
   orthographicPitch,
@@ -453,6 +456,27 @@ export function SceneWrapper({
     onCameraViewModeChangeProp?.(nextViewMode);
   };
 
+  const zoomIn = useCallback(() => {
+    if (roomDesignerEnabled) return;
+    if (activeCameraViewMode === "perspective") {
+      debugApiRef.current?.adjustPerspectiveZoom(0.15);
+    } else {
+      debugApiRef.current?.adjustOrthographicZoom(0.15);
+    }
+  }, [activeCameraViewMode, roomDesignerEnabled]);
+  const zoomOut = useCallback(() => {
+    if (roomDesignerEnabled) return;
+    if (activeCameraViewMode === "perspective") {
+      debugApiRef.current?.adjustPerspectiveZoom(-0.15);
+    } else {
+      debugApiRef.current?.adjustOrthographicZoom(-0.15);
+    }
+  }, [activeCameraViewMode, roomDesignerEnabled]);
+
+  const showNormalZoomControls = !roomDesignerEnabled;
+  const showOnScreenControls =
+    !orthographicClickOnly || activeCameraViewMode !== "orthographic" || showNormalZoomControls;
+
   return (
     <>
       <SceneHost
@@ -478,6 +502,7 @@ export function SceneWrapper({
         clickNavigationIndicatorScale={clickNavigationIndicatorScale}
         cameraBounds={cameraBounds}
         orthographicClickOnly={orthographicClickOnly}
+        cameraWheelZoomEnabled={cameraWheelZoomEnabled && !roomDesignerEnabled}
         orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
         orthographicHalfHeight={orthographicHalfHeight}
         orthographicPitch={orthographicPitch}
@@ -524,8 +549,13 @@ export function SceneWrapper({
           </div>
         </div>
       ) : null}
-      {!orthographicClickOnly || activeCameraViewMode !== "orthographic" ? (
-        <OnScreenControls />
+      {showOnScreenControls ? (
+        <OnScreenControls
+          onZoomIn={showNormalZoomControls ? zoomIn : undefined}
+          onZoomOut={showNormalZoomControls ? zoomOut : undefined}
+          showMovementControls={!orthographicClickOnly || activeCameraViewMode !== "orthographic"}
+          showJumpControl={!orthographicClickOnly || activeCameraViewMode !== "orthographic"}
+        />
       ) : null}
       {canUseSceneEditor ? (
         <DevelopmentSceneEditor

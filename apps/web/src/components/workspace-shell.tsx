@@ -159,7 +159,7 @@ export function WorkspaceShell({
 
         <p className="workspace-scene-caption">
           <span className="workspace-scene-caption__dot" aria-hidden="true" />
-          {scene.label} scene · Drag to orbit · Scroll to zoom
+          {scene.label} scene · Drag to orbit · Zoom controls
         </p>
       </div>
     </main>

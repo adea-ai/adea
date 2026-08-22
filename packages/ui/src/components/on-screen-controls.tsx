@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { PointerEvent, ReactNode } from "react";
+import { ZoomIn, ZoomOut } from "lucide-react";
+import { Button } from "#components/ui/button";
 import { cn } from "#lib/utils";
 type ControlButtonProps = {
   code: string;
@@ -74,29 +76,77 @@ function ControlButton({ code, label, children, className }: ControlButtonProps)
   );
 }
 
-export function OnScreenControls() {
+export type OnScreenControlsProps = {
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  showMovementControls?: boolean;
+  showJumpControl?: boolean;
+};
+
+export function OnScreenControls({
+  onZoomIn,
+  onZoomOut,
+  showMovementControls = true,
+  showJumpControl = true,
+}: OnScreenControlsProps = {}) {
+  const showZoomControls = Boolean(onZoomIn && onZoomOut);
+
   return (
     <div className="pointer-events-none fixed inset-x-4 bottom-4 z-30 flex select-none items-end justify-between gap-4 pb-[env(safe-area-inset-bottom)] sm:inset-x-6 sm:bottom-6 [-webkit-touch-callout:none] [-webkit-user-select:none]">
-      <div className="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-slate-950/20 p-2 backdrop-blur-[2px]">
-        <span />
-        <ControlButton code="KeyW" label="Move forward" className="size-12 rounded-xl text-xl">
-          ▲
-        </ControlButton>
-        <span />
-        <ControlButton code="KeyA" label="Move left" className="size-12 rounded-xl text-xl">
-          ◀
-        </ControlButton>
-        <ControlButton code="KeyS" label="Move backward" className="size-12 rounded-xl text-xl">
-          ▼
-        </ControlButton>
-        <ControlButton code="KeyD" label="Move right" className="size-12 rounded-xl text-xl">
-          ▶
-        </ControlButton>
-      </div>
-      <div className="pointer-events-auto flex flex-col items-end gap-2">
-        <ControlButton code="Space" label="Jump" className="text-xs font-semibold">
-          JUMP
-        </ControlButton>
+      {showMovementControls ? (
+        <div className="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-slate-950/20 p-2 backdrop-blur-[2px]">
+          <span />
+          <ControlButton code="KeyW" label="Move forward" className="size-12 rounded-xl text-xl">
+            ▲
+          </ControlButton>
+          <span />
+          <ControlButton code="KeyA" label="Move left" className="size-12 rounded-xl text-xl">
+            ◀
+          </ControlButton>
+          <ControlButton code="KeyS" label="Move backward" className="size-12 rounded-xl text-xl">
+            ▼
+          </ControlButton>
+          <ControlButton code="KeyD" label="Move right" className="size-12 rounded-xl text-xl">
+            ▶
+          </ControlButton>
+        </div>
+      ) : null}
+      <div className="pointer-events-auto ml-auto flex flex-col items-end gap-2">
+        {showZoomControls ? (
+          <div
+            className="flex items-center gap-1.5 rounded-2xl bg-slate-950/20 p-1.5 backdrop-blur-[2px]"
+            role="group"
+            aria-label="Camera zoom"
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              aria-label="Zoom out"
+              title="Zoom out"
+              className="border border-white/25 bg-slate-950/65 text-white shadow-lg backdrop-blur-sm hover:bg-slate-900/80"
+              onClick={onZoomOut}
+            >
+              <ZoomOut aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-lg"
+              aria-label="Zoom in"
+              title="Zoom in"
+              className="border border-white/25 bg-slate-950/65 text-white shadow-lg backdrop-blur-sm hover:bg-slate-900/80"
+              onClick={onZoomIn}
+            >
+              <ZoomIn aria-hidden="true" />
+            </Button>
+          </div>
+        ) : null}
+        {showJumpControl ? (
+          <ControlButton code="Space" label="Jump" className="text-xs font-semibold">
+            JUMP
+          </ControlButton>
+        ) : null}
       </div>
     </div>
   );
