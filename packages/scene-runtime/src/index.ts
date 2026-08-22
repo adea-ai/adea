@@ -22,3 +22,4 @@ export {
   type CameraViewMode,
 } from "./camera-controller";
 export type { ScenePerformanceReport, ScenePerformanceTelemetry } from "./performance";
+export { createSceneLoadScope, type SceneLoadScope } from "./loading";
