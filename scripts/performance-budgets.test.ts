@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import {
-  checkRuntimeReports,
-  checkStaticBudgets,
-  type PerformanceBudgetConfig,
-} from "./performance-budgets.mjs";
+import { checkRuntimeReports, checkStaticBudgets } from "./performance-budgets.mjs";
 
-const budgets: PerformanceBudgetConfig = {
+const budgets = {
   routeFirstLoadJsBytes: { "/": 600_000 },
   publicAssetBytes: 160_000_000,
   sceneLoadMs: 10_000,
