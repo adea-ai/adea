@@ -284,8 +284,8 @@ export const hqBoundaryColliders: readonly StaticColliderConfig[] = [
       ROOM_GALLERY_EXTERIOR_WALL_THICKNESS / 2,
     ],
   },
-  // Leave the centered gate open while retaining the fence collider on both
-  // sides of the property boundary.
+  // Keep the fence collider split around the rendered gate, then add a
+  // matching center collider below so the closed gate cannot be walked through.
   {
     x: ROOM_GALLERY_BOUNDS.xMin + (ROOM_GALLERY_BOUNDS.width - hqFrontGateWidth) / 4,
     y: hqFenceColliderHeight / 2,
@@ -302,6 +302,18 @@ export const hqBoundaryColliders: readonly StaticColliderConfig[] = [
     z: ROOM_GALLERY_BOUNDS.zMax,
     halfExtents: [
       (ROOM_GALLERY_BOUNDS.width - hqFrontGateWidth) / 4,
+      hqFenceColliderHeight / 2,
+      ROOM_GALLERY_EXTERIOR_WALL_THICKNESS / 2,
+    ],
+  },
+  {
+    // The rendered gate leaves close the opening, so keep a matching static
+    // collider across the center instead of leaving a walk-through gap.
+    x: 0,
+    y: hqFenceColliderHeight / 2,
+    z: ROOM_GALLERY_BOUNDS.zMax,
+    halfExtents: [
+      hqFrontGateWidth / 2,
       hqFenceColliderHeight / 2,
       ROOM_GALLERY_EXTERIOR_WALL_THICKNESS / 2,
     ],
@@ -539,7 +551,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     const railGeometry = horizontal
       ? new THREE.BoxGeometry(length, 5.6, 5.6)
       : new THREE.BoxGeometry(5.6, 5.6, length);
-    for (const y of [22, 42]) {
+    for (const y of [24, 72]) {
       const addRail = (railLength: number, railCenter: number) => {
         if (railLength <= 0) return;
         const rail = new THREE.Mesh(
