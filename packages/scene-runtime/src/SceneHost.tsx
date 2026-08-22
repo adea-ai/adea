@@ -5,7 +5,7 @@ import { Timer } from "three";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
-import { disposeObjectResources } from "./resources";
+import { disposeObjectResources, type DisposedObjectResources } from "./resources";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {
   createCharacterAnimationController,
@@ -16,6 +16,7 @@ import {
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
 import { loadPropsField } from "@agent-hq/interior/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
+import { createSceneLoadScope } from "./loading";
 import RAPIER, {
   type Collider,
   type KinematicCharacterController,
@@ -1293,8 +1294,10 @@ export function SceneHost({
     );
 
     let disposed = false;
+    const loadScope = createSceneLoadScope();
+    let loadingManager: THREE.LoadingManager | null = null;
     const editorOverridesRequest: Promise<SceneEditorOverrides> = editorOverridesUrl
-      ? fetch(editorOverridesUrl, { cache: "no-store" })
+      ? fetch(editorOverridesUrl, { cache: "no-store", signal: loadScope.signal })
           .then((response) =>
             response.ok ? (response.json() as Promise<SceneEditorOverrides>) : { objects: {} },
           )
@@ -1349,9 +1352,17 @@ export function SceneHost({
     if (!activeRenderer) {
       return;
     }
-    const telemetry = createScenePerformanceTelemetry(label, activeRenderer, qualityTier);
-
     const scene = new THREE.Scene();
+    const telemetry = createScenePerformanceTelemetry(label, activeRenderer, qualityTier, scene);
+    const onWebglContextLost = (event: Event) => {
+      event.preventDefault();
+      const message = "webgl_context_lost";
+      telemetry.fail(new Error(message));
+      setError("The graphics context was lost. Reload the scene to restore it.");
+      setStatus(`${label} graphics unavailable`);
+    };
+    canvas.addEventListener("webglcontextlost", onWebglContextLost, false);
+
     scene.background = new THREE.Color(environment?.background ?? 0x9fd9f7);
     if (environment?.fog) {
       scene.fog =
@@ -1429,9 +1440,17 @@ export function SceneHost({
     const keys = new Set<string>();
     const timer = new Timer();
     let resourcesDisposed = false;
+    const recordDisposedObjectTree = (root: THREE.Object3D): DisposedObjectResources => {
+      const resources = disposeObjectTree(root);
+      telemetry.recordDisposedResources(resources);
+      return resources;
+    };
     const disposeResources = () => {
       if (resourcesDisposed) return;
       resourcesDisposed = true;
+      loadScope.abort();
+      loadingManager?.abortController.abort();
+      loadingManager = null;
       const controller = characterController;
       const physicsWorld = world;
       characterController = null;
@@ -1461,9 +1480,9 @@ export function SceneHost({
       backgroundTexture?.dispose();
       backgroundTexture = null;
       scene.background = null;
-      detachedCollisionRoots.forEach(disposeObjectTree);
+      detachedCollisionRoots.forEach(recordDisposedObjectTree);
       detachedCollisionRoots.clear();
-      disposeObjectTree(scene);
+      recordDisposedObjectTree(scene);
       activeRenderer.dispose();
     };
 
@@ -1942,6 +1961,7 @@ export function SceneHost({
         world = new RAPIER.World({ x: 0, y: gravity, z: 0 });
 
         const manager = new THREE.LoadingManager();
+        loadingManager = manager;
         manager.onProgress = (_url, loaded, total) =>
           setStatus(`Loading ${label}… ${Math.round((loaded / Math.max(total, 1)) * 100)}%`);
         const loader = new GLTFLoader(manager);
@@ -2173,12 +2193,12 @@ export function SceneHost({
           staticFieldAssetUrls?.foliage
             ? loader.loadAsync(staticFieldAssetUrls.foliage).then(({ scene }) => scene)
             : foliageManifestUrl
-              ? loadLandscapeField(loader, foliageManifestUrl)
+              ? loadLandscapeField(loader, foliageManifestUrl, loadScope.signal)
               : null,
           staticFieldAssetUrls?.props
             ? loader.loadAsync(staticFieldAssetUrls.props).then(({ scene }) => scene)
             : propsManifestUrl
-              ? loadPropsField(loader, propsManifestUrl)
+              ? loadPropsField(loader, propsManifestUrl, loadScope.signal)
               : null,
         ].map((pending, index) =>
           pending ? telemetry.track(`field.${fieldNames[index]}`, pending) : null,
@@ -3964,7 +3984,10 @@ export function SceneHost({
             }
           }
           activeRenderer.render(scene, camera);
-          telemetry.recordFrame(performance.now() - frameStartedAt);
+          telemetry.recordFrame(
+            performance.now() - frameStartedAt,
+            activeRenderer.info.render.calls,
+          );
           // Refresh the on-screen coordinate readout a few times per second
           // without re-rendering the whole overlay every frame.
           if (positionFrame++ % 6 === 0) {
@@ -4032,6 +4055,7 @@ export function SceneHost({
       canvas.removeEventListener("pointermove", onCanvasPointerMove);
       canvas.removeEventListener("pointerleave", onCanvasPointerLeave);
       canvas.removeEventListener("wheel", onCanvasWheel);
+      canvas.removeEventListener("webglcontextlost", onWebglContextLost);
       navigationIndicator.geometry.dispose();
       navigationIndicator.material.dispose();
       cameraController.dispose();
@@ -4040,8 +4064,8 @@ export function SceneHost({
         colliders.forEach((collider) => world?.removeCollider(collider, true));
       }
       zoneCollisionColliders.clear();
-      telemetry.dispose();
       disposeResources();
+      telemetry.dispose();
     };
   }, [
     additionalAssetUrls,

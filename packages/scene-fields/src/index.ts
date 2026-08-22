@@ -13,6 +13,17 @@ export type SceneFieldManifest = {
   placements: Record<string, SceneFieldPlacement[]>;
 };
 
+function loadModelWithSignal(loader: GLTFLoader, url: string, signal?: AbortSignal) {
+  if (!signal) return loader.loadAsync(url);
+  if (signal.aborted) {
+    throw signal.reason ?? new DOMException("The scene load was aborted", "AbortError");
+  }
+
+  const abortLoader = () => loader.manager.abortController.abort();
+  signal.addEventListener("abort", abortLoader, { once: true });
+  return loader.loadAsync(url).finally(() => signal.removeEventListener("abort", abortLoader));
+}
+
 export function composeSceneFieldMatrix(
   placement: SceneFieldPlacement,
   sourceMatrix: THREE.Matrix4,
@@ -43,8 +54,9 @@ export async function loadSceneField(
   resolveModelUrl: (modelId: string) => string,
   groupName = "scene-field",
   singlePlacementPlain = false,
+  signal?: AbortSignal,
 ): Promise<THREE.Group> {
-  const response = await fetch(manifestUrl);
+  const response = await fetch(manifestUrl, { signal });
   if (!response.ok)
     throw new Error(`Failed to load scene-field manifest: ${manifestUrl} (${response.status})`);
   const manifest = (await response.json()) as SceneFieldManifest;
@@ -63,7 +75,7 @@ export async function loadSceneField(
     placementEntries.map(async ([modelId, placements]) => ({
       modelId,
       placements,
-      model: (await loader.loadAsync(resolveModelUrl(modelId))).scene,
+      model: (await loadModelWithSignal(loader, resolveModelUrl(modelId), signal)).scene,
     })),
   );
 
@@ -134,6 +146,7 @@ export async function loadSceneFieldFromCatalog(
   manifestUrl: string,
   catalog: readonly SceneFieldAsset[],
   groupName = "scene-field",
+  signal?: AbortSignal,
 ): Promise<THREE.Group> {
   const assetsById = new Map(catalog.map((asset) => [asset.id, asset.assetUrl]));
   return loadSceneField(
@@ -146,5 +159,6 @@ export async function loadSceneFieldFromCatalog(
     },
     groupName,
     true,
+    signal,
   );
 }

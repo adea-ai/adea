@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { Card } from "./ui/card";
 import { cn } from "../lib/utils";
 
@@ -95,7 +96,12 @@ let thumbnailRendererCanvas: HTMLCanvasElement | null = null;
 // GLB fetches/parse work.
 let sharedLoader: GLTFLoader | null = null;
 export function getSharedLoader(): GLTFLoader {
-  if (!sharedLoader) sharedLoader = new GLTFLoader();
+  if (!sharedLoader) {
+    sharedLoader = new GLTFLoader();
+    // Interior catalog GLBs are Meshopt-compressed. Configure the shared
+    // loader before thumbnails or the room designer can request any asset.
+    sharedLoader.setMeshoptDecoder(MeshoptDecoder);
+  }
   return sharedLoader;
 }
 
