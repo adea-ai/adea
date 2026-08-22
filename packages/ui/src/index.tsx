@@ -25,6 +25,7 @@ export { AccountDrawer, type AccountDrawerProps } from "./components/account-dra
 export { OnScreenControls } from "./components/on-screen-controls";
 export { SceneSettings, type SceneSettingsProps } from "./components/scene-settings";
 export { Card, CardContent } from "./components/ui/card";
+export { Spinner } from "./components/ui/spinner";
 export {
   PropCatalog,
   defaultPropCatalogCategories,
