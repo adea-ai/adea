@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import {
   Button,
   OnScreenControls,
@@ -268,6 +268,8 @@ export function SceneWrapper({
   const [activeCameraViewMode, setActiveCameraViewMode] =
     useState<CameraViewMode>(effectiveCameraViewMode);
   const [sceneReady, setSceneReady] = useState(false);
+  const handleSceneLoadingStart = useCallback(() => setSceneReady(false), []);
+  const handleSceneReady = useCallback(() => setSceneReady(true), []);
 
   useEffect(() => {
     setSceneReady(false);
@@ -506,8 +508,8 @@ export function SceneWrapper({
         staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
         foliageManifestUrl={manifest.foliageManifestUrl}
         propsManifestUrl={manifest.propsManifestUrl}
-        onLoadingStart={() => setSceneReady(false)}
-        onReady={() => setSceneReady(true)}
+        onLoadingStart={handleSceneLoadingStart}
+        onReady={handleSceneReady}
       />
       {!sceneReady ? (
         <div
