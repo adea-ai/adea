@@ -2,7 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
-import { Button, OnScreenControls, SceneSettings, type CharacterOption } from "@agent-hq/ui";
+import {
+  Button,
+  OnScreenControls,
+  SceneSettings,
+  Spinner,
+  type CharacterOption,
+} from "@agent-hq/ui";
 import type {
   CameraBounds,
   CameraViewMode,
@@ -261,6 +267,11 @@ export function SceneWrapper({
   const cameraViewModeRef = useRef<CameraViewMode>(effectiveCameraViewMode);
   const [activeCameraViewMode, setActiveCameraViewMode] =
     useState<CameraViewMode>(effectiveCameraViewMode);
+  const [sceneReady, setSceneReady] = useState(false);
+
+  useEffect(() => {
+    setSceneReady(false);
+  }, [manifest.id]);
 
   useEffect(() => {
     if (queryCameraViewMode || cameraViewModeRef.current === cameraViewMode) return;
@@ -495,7 +506,22 @@ export function SceneWrapper({
         staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
         foliageManifestUrl={manifest.foliageManifestUrl}
         propsManifestUrl={manifest.propsManifestUrl}
+        onLoadingStart={() => setSceneReady(false)}
+        onReady={() => setSceneReady(true)}
       />
+      {!sceneReady ? (
+        <div
+          className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
+          data-scene-loading
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#121820]/85 px-3 py-2 text-xs text-white shadow-lg backdrop-blur-sm">
+            <Spinner className="size-4 text-[#c9f27a]" aria-hidden="true" />
+            <span>Loading {manifest.label}</span>
+          </div>
+        </div>
+      ) : null}
       {!orthographicClickOnly || activeCameraViewMode !== "orthographic" ? (
         <OnScreenControls />
       ) : null}

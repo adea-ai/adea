@@ -42,6 +42,15 @@ function isCameraOccluder(object: THREE.Object3D, characterRoot: THREE.Object3D 
   return object instanceof THREE.Mesh;
 }
 
+function toCssColor(color: THREE.ColorRepresentation | undefined): string {
+  return new THREE.Color(color ?? 0x9fd9f7).getStyle();
+}
+
+// Keep the loading affordance visible long enough to communicate a scene
+// transition when the browser has already cached the scene assets. This only
+// delays hiding the overlay; the first rendered scene frame is not delayed.
+const MIN_LOADING_INDICATOR_MS = 180;
+
 export type SceneHostStart = {
   x: number;
   y: number;
@@ -252,6 +261,10 @@ export type SceneHostProps = {
    * Hidden by default; the settings drawer toggles it on demand.
    */
   showHud?: boolean;
+  /** Notify the owning scene shell when a new scene load begins. */
+  onLoadingStart?: () => void;
+  /** Notify the owning scene shell after the first playable frame is rendered. */
+  onReady?: () => void;
   /** Build-generated instanced field GLBs for static scenes. */
   staticFieldAssetUrls?: StaticFieldAssetUrls;
   /** Render-free exact-triangle companions for build-generated fields. */
@@ -1193,6 +1206,8 @@ export function SceneHost({
   visualSetup,
   visualUpdate,
   showHud = false,
+  onLoadingStart,
+  onReady,
   staticFieldAssetUrls,
   staticFieldCollisionAssetUrls,
   staticFieldCollisionPatterns = EMPTY_COLLISION_INCLUDE_PATTERNS,
@@ -1218,6 +1233,9 @@ export function SceneHost({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    onLoadingStart?.();
+    setError(null);
+    const loadingStartedAt = performance.now();
 
     const scaleBounds = <T extends { xMin: number; xMax: number; zMin: number; zMax: number }>(
       bounds: T,
@@ -3934,6 +3952,13 @@ export function SceneHost({
         cameraController.update(characterTarget, 1 / 60, cameraController.baseDistance);
         camera = cameraController.camera;
         render();
+        const remainingLoadingTime =
+          MIN_LOADING_INDICATOR_MS - (performance.now() - loadingStartedAt);
+        if (remainingLoadingTime > 0) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, remainingLoadingTime));
+        }
+        if (disposed) return;
+        onReady?.();
         // Let the first frame paint before starting optional animation parsing
         // or the nearest room's visual/collision decode. These tasks are useful
         // background work, but neither belongs on the entrance critical path.
@@ -4011,6 +4036,8 @@ export function SceneHost({
     loadDeferredCharacterDetails,
     materialOverrides,
     movementSpeedFactor,
+    onLoadingStart,
+    onReady,
     orthographicClickOnly,
     orthographicMovementSpeedFactor,
     playerVisibilityGroups,
@@ -4034,7 +4061,7 @@ export function SceneHost({
         width: "100vw",
         height: "100dvh",
         overflow: "hidden",
-        background: "#9fd9f7",
+        background: toCssColor(environment?.background),
       }}
     >
       <canvas
