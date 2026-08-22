@@ -19,7 +19,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function validReport(value: unknown): value is ScenePerformanceReport {
   if (!isRecord(value)) return false;
-  if (value.version !== 1 || !["load", "runtime", "error"].includes(String(value.event)))
+  if (value.version !== 1 || !["load", "runtime", "dispose", "error"].includes(String(value.event)))
     return false;
   if (typeof value.scene !== "string" || value.scene.length < 1 || value.scene.length > 80)
     return false;

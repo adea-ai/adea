@@ -10,6 +10,10 @@ import { landscapeAssets } from "./index.js";
  * their embedded copies (see scripts/extract-foliage.mjs) instance the shared
  * models at runtime instead.
  */
-export async function loadLandscapeField(loader: GLTFLoader, manifestUrl: string) {
-  return loadSceneFieldFromCatalog(loader, manifestUrl, landscapeAssets, "landscape-field");
+export async function loadLandscapeField(
+  loader: GLTFLoader,
+  manifestUrl: string,
+  signal?: AbortSignal,
+) {
+  return loadSceneFieldFromCatalog(loader, manifestUrl, landscapeAssets, "landscape-field", signal);
 }

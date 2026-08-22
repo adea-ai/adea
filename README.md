@@ -37,6 +37,26 @@ The asset sync step copies the HQ scene foundations and the domain asset
 packages—interior, landscape, pets, and characters—into the ignored Next
 public-assets directory.
 
+## Runtime and asset performance
+
+Scene field catalogs use `InstancedMesh` for repeated foliage and props, and
+the runtime enables frustum culling, Meshopt GLB decoding, and KTX2/Basis
+decoding through Three.js. The checked-in interior optimization command is
+`bun run assets:optimize:interior` and `bun run assets:optimize:runtime`; they
+preserve authored transforms/material boundaries while applying Meshopt geometry
+compression and WebP base-color textures. Runtime asset validation is included
+in `bun run perf:check` and currently covers all character, pet, and landscape
+GLBs. The packaged `75.glb` normal map is now UASTC/Basis-compressed, while the
+optimizer leaves any future normal-map candidates lossless when the KTX
+encoder is unavailable. The runtime loader and transcoder assets are already
+wired for `KHR_texture_basisu` without changing scene code.
+
+Meshopt remains the geometry default after a representative comparison: Draco
+reduced `Fence_07.glb` from 17.6 KB to 14.6 KB and `Computer_01.glb` from 26.9
+KB to 20.7 KB, but increased the animated Security character from 1.09 MB to
+1.22 MB and would require a separate Draco decoder path. Meshopt therefore
+keeps one decoder path across characters, pets, landscape, and interior assets.
+
 ## Verification
 
 ```text
@@ -46,4 +66,22 @@ bun run lint
 bun run typecheck
 bun run test
 bun run build
+
+# Browser/runtime gate (starts the dev app automatically when PERF_BASE_URL is unset)
+PERF_BASE_URL=http://localhost:4304 bun run perf:gate
 ```
+
+`bun run build` includes the static route/asset budgets, desktop Tauri checks,
+Capacitor sync, and Android `assembleDebug` plus unsigned iOS device-SDK
+compiler smoke. `bun run perf:gate` additionally runs the Chromium scene probe
+and writes `.artifacts/scene-performance.json`; the runtime gate rejects missing
+load/runtime reports, scene errors, oversized transfers, and slow frames.
+Native compiler checks skip platforms whose toolchains are unavailable on the
+current host; set `NATIVE_SMOKE_STRICT=1` in a platform-specific CI job to make
+an unavailable or missing platform fail the gate.
+
+The desktop shell currently reports the upstream GTK3/glib advisory from
+`cargo audit` because Tauri's Linux webview stack still depends on the
+unmaintained GTK3 bindings. The current Tauri release has no compatible GTK4
+replacement, so this remains an explicit dependency follow-up rather than a
+silenced audit exception.

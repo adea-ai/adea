@@ -16,6 +16,10 @@ export async function loadProp(loader: GLTFLoader, id: PropId): Promise<LoadedPr
  * the @agent-hq/interior catalog. Scenes that strip their embedded props (see
  * scripts/extract-props.mjs) instance the shared models at runtime instead.
  */
-export async function loadPropsField(loader: GLTFLoader, manifestUrl: string) {
-  return loadSceneFieldFromCatalog(loader, manifestUrl, propAssets, "props-field");
+export async function loadPropsField(
+  loader: GLTFLoader,
+  manifestUrl: string,
+  signal?: AbortSignal,
+) {
+  return loadSceneFieldFromCatalog(loader, manifestUrl, propAssets, "props-field", signal);
 }

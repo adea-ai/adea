@@ -16,18 +16,27 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "turbo run build",
+    "build": "turbo run build && bun run perf:check && bun run native:smoke",
     "dev": "turbo run dev --filter=@agent-hq/web --env-mode=loose",
     "format:check": "prettier --check .",
     "lint": "turbo run lint",
-    "test": "turbo run test",
-    "typecheck": "turbo run typecheck"
+    "test": "turbo run test && bun test scripts/*.test.ts",
+    "typecheck": "turbo run typecheck",
+    "perf:check": "bun scripts/performance-budgets.mjs --build --assets && bun run assets:check",
+    "perf:check:runtime": "bun scripts/performance-budgets.mjs --runtime .artifacts/scene-performance.json",
+    "perf:browser": "playwright test --config=playwright.config.ts --grep \"home scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"work scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"room designer loads compressed interior props\"",
+    "perf:gate": "bun run build && bun run perf:browser && bun run perf:check:runtime",
+    "native:smoke": "bun scripts/native-smoke.mjs",
+    "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs",
+    "assets:optimize:runtime": "bun scripts/optimize-runtime-assets.mjs",
+    "assets:check": "bun scripts/optimize-runtime-assets.mjs --check"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
+    "bun-types": "^1.4.0",
     "eslint": "^10.9.0",
     "eslint-config-next": "^16.3.2",
-    "bun-types": "^1.4.0",
     "prettier": "^3.9.6",
     "shadcn": "^4.18.0",
     "tailwindcss": "^4.3.3",
