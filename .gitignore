@@ -15,6 +15,7 @@ node_modules/
 .pnp/
 .pnp.js
 apps/web/AGENTS.md
+apps/web/CLAUDE.md
 .turbo/
 *.tsbuildinfo
 next-env.d.ts
