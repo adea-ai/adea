@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { Profiler, type ProfilerOnRenderCallback, useEffect, useState } from "react";
 import { createApiClient } from "@agent-hq/api-client";
 import type { HqSceneId } from "@agent-hq/app-core";
 import { MusicToggle } from "@agent-hq/audio";
@@ -38,6 +38,37 @@ const sceneById = Object.fromEntries(sceneOptions.map((option) => [option.id, op
   HqSceneId,
   (typeof sceneOptions)[number]
 >;
+
+const recordReactCommit: ProfilerOnRenderCallback = (
+  id,
+  phase,
+  actualDuration,
+  baseDuration,
+  startTime,
+  commitTime,
+) => {
+  const target = window as Window & {
+    __AGENT_HQ_REACT_PROFILE__?: Array<{
+      id: string;
+      phase: "mount" | "update";
+      actualDurationMs: number;
+      baseDurationMs: number;
+      startTime: number;
+      commitTime: number;
+    }>;
+  };
+  const entries = target.__AGENT_HQ_REACT_PROFILE__ ?? [];
+  entries.push({
+    id,
+    phase: phase === "mount" ? "mount" : "update",
+    actualDurationMs: actualDuration,
+    baseDurationMs: baseDuration,
+    startTime,
+    commitTime,
+  });
+  if (entries.length > 100) entries.splice(0, entries.length - 100);
+  target.__AGENT_HQ_REACT_PROFILE__ = entries;
+};
 
 type WorkspaceShellProps = {
   initialScene: HqSceneId;
@@ -83,18 +114,20 @@ export function WorkspaceShell({
 
   return (
     <main className="workspace-shell">
-      <HqRoomScene
-        key={sceneId}
-        initialCharacter={initialCharacter}
-        manifest={scene.manifest}
-        startPosition={startPosition}
-        cameraViewMode={activeCameraViewMode}
-        onCameraViewModeChange={setCameraViewMode}
-        accountTargetId="workspace-account-slot"
-        cameraTargetId="workspace-camera-slot"
-        roomDesignerTargetId="workspace-scene-tools-slot"
-        sceneEditorTargetId="workspace-scene-tools-slot"
-      />
+      <Profiler id="hq-room-scene" onRender={recordReactCommit}>
+        <HqRoomScene
+          key={sceneId}
+          initialCharacter={initialCharacter}
+          manifest={scene.manifest}
+          startPosition={startPosition}
+          cameraViewMode={activeCameraViewMode}
+          onCameraViewModeChange={setCameraViewMode}
+          accountTargetId="workspace-account-slot"
+          cameraTargetId="workspace-camera-slot"
+          roomDesignerTargetId="workspace-scene-tools-slot"
+          sceneEditorTargetId="workspace-scene-tools-slot"
+        />
+      </Profiler>
 
       <div className="workspace-ui" aria-label="Agent HQ workspace controls">
         <header className="workspace-topbar">

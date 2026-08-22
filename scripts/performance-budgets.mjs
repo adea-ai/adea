@@ -34,8 +34,12 @@ export function checkStaticBudgets(measurements, budgets = DEFAULT_PERFORMANCE_B
 
 export function checkRuntimeReports(reports, budgets = DEFAULT_PERFORMANCE_BUDGETS) {
   const failures = [];
+  const sceneEvents = new Map();
   for (const report of reports) {
     const scene = report.scene ?? "unknown scene";
+    const events = sceneEvents.get(scene) ?? new Set();
+    events.add(report.event);
+    sceneEvents.set(scene, events);
     if (report.event === "error") {
       failures.push(`${scene} emitted error: ${report.error ?? "unknown error"}`);
       continue;
@@ -47,17 +51,32 @@ export function checkRuntimeReports(reports, budgets = DEFAULT_PERFORMANCE_BUDGE
           `${scene} playable scene time is ${loadMs}ms (budget ${budgets.sceneLoadMs})`,
         );
       }
-      const transferBytes = report.network?.transferBytes;
-      if (typeof transferBytes === "number" && transferBytes > budgets.sceneTransferBytes) {
-        failures.push(
-          `${scene} asset transfer is ${transferBytes} bytes (budget ${budgets.sceneTransferBytes})`,
-        );
-      }
     }
     const p95FrameMs = report.runtime?.p95FrameMs;
     if (typeof p95FrameMs === "number" && p95FrameMs > budgets.runtimeP95FrameMs) {
       failures.push(
         `${scene} p95 frame time is ${p95FrameMs}ms (budget ${budgets.runtimeP95FrameMs})`,
+      );
+    }
+  }
+  for (const [scene, events] of sceneEvents) {
+    if (!events.has("load") && !events.has("error")) {
+      failures.push(`${scene} is missing a load performance report`);
+    }
+    if (!events.has("runtime") && !events.has("error")) {
+      failures.push(`${scene} is missing a runtime performance report`);
+    }
+    const sceneReports = reports.filter((report) => report.scene === scene);
+    const transferBytes = Math.max(
+      ...sceneReports
+        .filter((report) => report.event === "load" || report.event === "runtime")
+        .map((report) => report.network?.transferBytes)
+        .filter((value) => typeof value === "number"),
+      0,
+    );
+    if (transferBytes > budgets.sceneTransferBytes) {
+      failures.push(
+        `${scene} asset transfer is ${transferBytes} bytes (budget ${budgets.sceneTransferBytes})`,
       );
     }
   }
