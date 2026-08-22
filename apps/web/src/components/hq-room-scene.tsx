@@ -394,8 +394,17 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   // HQ currently loads a single entry scene with no streamed zones, so the
   // map-wide environment belongs directly on that loaded visual root.
   const { width, depth } = ROOM_GALLERY_BOUNDS;
-  const exteriorWidth = width + hqExteriorVisualPadding * 2;
-  const exteriorDepth = depth + hqExteriorVisualPadding * 2;
+  // Cover the full normal camera and Room Designer backdrop envelopes. The
+  // authored property remains bounded by its fence; this larger surface is
+  // only the visual ground beneath the surrounding neighbor yards.
+  const exteriorMinZ = ROOM_GALLERY_BOUNDS.zMin - hqRoomDesignerBackdropPadding;
+  const exteriorMaxZ = ROOM_GALLERY_BOUNDS.zMax + hqRoomDesignerBackdropPadding;
+  const exteriorWidth = Math.max(
+    width + hqExteriorVisualPadding * 2,
+    hqFrontRoadWidth,
+    width + hqRoomDesignerBackdropPadding * 2,
+  );
+  const exteriorDepth = exteriorMaxZ - exteriorMinZ;
   const isWork = theme === "work";
 
   const exteriorSurface = new THREE.Mesh(
@@ -407,6 +416,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   // Keep the layer-1 exterior surface visually below the foundation slab. The raw HQ scale
   // makes a 13 cm separation vulnerable to depth-buffer flicker in perspective.
   exteriorSurface.position.y = -0.5;
+  exteriorSurface.position.z = (exteriorMinZ + exteriorMaxZ) / 2;
   const exteriorMaterial = exteriorSurface.material as THREE.MeshStandardMaterial;
   exteriorMaterial.polygonOffset = true;
   exteriorMaterial.polygonOffsetFactor = 4;
@@ -487,6 +497,29 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   roadwayMaterial.polygonOffsetUnits = -4;
   roadway.receiveShadow = true;
   visual.add(roadway);
+
+  // Continue the roadway through the larger Room Designer backdrop so the
+  // street never ends in a dark untextured strip when the camera is zoomed
+  // out for editing.
+  const hqFrontRoadTailDepth = Math.max(0, hqRoomDesignerBackdropPadding - hqCameraTopPadding);
+  if (hqFrontRoadTailDepth > 0) {
+    const roadwayTail = new THREE.Mesh(
+      new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontRoadTailDepth),
+      roadwayMaterial,
+    );
+    roadwayTail.name = "hq-front-roadway-designer-tail";
+    roadwayTail.rotation.x = -Math.PI / 2;
+    roadwayTail.position.set(
+      0,
+      -0.44,
+      ROOM_GALLERY_BOUNDS.zMax +
+        hqFrontSidewalkDepth * 2 +
+        hqFrontRoadDepth +
+        hqFrontRoadTailDepth / 2,
+    );
+    roadwayTail.receiveShadow = true;
+    visual.add(roadwayTail);
+  }
 
   const farSidewalk = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
