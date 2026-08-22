@@ -54,8 +54,6 @@ export type PropCatalogItem = {
   placeableOnTop?: boolean;
   /** Yaw that presents the asset's authored front to the viewer. */
   frontYaw?: number;
-  /** Legacy thumbnail/placement yaw used by callers that have not migrated. */
-  defaultYaw?: number;
 };
 
 export type PropCatalogCategory = {
@@ -109,7 +107,7 @@ const thumbnailDataCache = new Map<string, string>();
 const thumbnailPromiseCache = new Map<string, Promise<string>>();
 
 function thumbnailCacheKey(item: PropCatalogItem): string {
-  return `${item.assetUrl}|${item.frontYaw ?? item.defaultYaw ?? 0}`;
+  return `${item.assetUrl}|${item.frontYaw ?? 0}`;
 }
 
 type ThumbnailRenderJob = {
@@ -137,7 +135,7 @@ function renderThumbnailToDataURL(job: ThumbnailRenderJob): string {
   scene.add(key);
   const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
   const model = job.source;
-  model.rotation.y = job.item.frontYaw ?? job.item.defaultYaw ?? 0;
+  model.rotation.y = job.item.frontYaw ?? 0;
   model.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(model);
   const size = bounds.getSize(new THREE.Vector3());

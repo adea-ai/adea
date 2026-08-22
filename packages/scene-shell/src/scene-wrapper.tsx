@@ -108,8 +108,6 @@ export type SceneWrapperProps = {
   onCameraViewModeChange?: (viewMode: CameraViewMode) => void;
   /** Hide the projection switch for scenes with a fixed camera. */
   allowCameraViewModeChange?: boolean;
-  /** @deprecated The editor is now enabled only by an explicit sceneEditor query parameter. */
-  sceneEditorOpenByDefault?: boolean;
   /** Explicitly register the scene editor for apps that need it outside the shared dev default. */
   sceneEditorAvailable?: boolean;
   /** Select whole streamed zones instead of individual meshes in the editor. */
@@ -301,46 +299,22 @@ export function SceneWrapper({
     }
     prevHasEditsRef.current = roomDesignerHasEdits;
   }, [roomDesignerHasEdits, roomDesignerEnabled]);
-  // SceneHost recreates the entire scene (renderer, scene graph, debug API)
-  // whenever characterId or other core deps change. The RoomDesigner and
-  // SceneEditor attach to the scene via debugApiRef, so they need to re-attach
-  // when the scene is recreated. This counter increments each time the debug
-  // API becomes available AFTER the initial mount, giving those components a
-  // dependency to re-trigger on. The first mount is skipped so the RoomDesigner
-  // only attaches once on initial load.
-  // Only run the debug-API change tracking when the room designer or prop
-  // colliders are enabled (HQ only). Running a RAF loop for every scene
-  // causes unnecessary re-renders that can interfere with the SceneHost's
-  // own render loop in World scenes.
-  const needsSceneVersionTracking = enablePropColliders || canUseRoomDesigner;
   const [sceneVersion, setSceneVersion] = useState(0);
-  const prevDebugApiRef = useRef<SceneDebugApi | null>(null);
-  const firstDebugApiSeenRef = useRef(false);
-  useEffect(() => {
-    if (!needsSceneVersionTracking) return;
-    let frame = 0;
-    const check = () => {
-      const api = debugApiRef.current;
-      if (api && api !== prevDebugApiRef.current) {
-        prevDebugApiRef.current = api;
-        onDebugApiReady?.(api);
-        // Always increment sceneVersion when the debug API becomes available
-        // (including the first time). PropColliders and other components need
-        // this signal to re-run their effects after the physics world is ready.
-        setSceneVersion((v) => v + 1);
-        firstDebugApiSeenRef.current = true;
+  const handleDebugApiReady = useCallback(
+    (api: SceneDebugApi) => {
+      onDebugApiReady?.(api);
+      if (enablePropColliders || canUseRoomDesigner) {
+        setSceneVersion((version) => version + 1);
       }
-      frame = requestAnimationFrame(check);
-    };
-    check();
-    return () => cancelAnimationFrame(frame);
-  }, [needsSceneVersionTracking, onDebugApiReady]);
+    },
+    [canUseRoomDesigner, enablePropColliders, onDebugApiReady],
+  );
 
   useEffect(() => {
     if (!canUseSceneEditor) return;
     const value = new URLSearchParams(window.location.search).get("sceneEditor");
     // The editor is opt-in. A missing query parameter must never cover the
-    // scene, even when a caller still passes the legacy default-open prop.
+    // scene unless the explicit query parameter opts in.
     setSceneEditorEnabled(value !== null && value !== "0");
   }, [canUseSceneEditor]);
 
@@ -513,6 +487,7 @@ export function SceneWrapper({
         loadDeferredCharacterDetails={loadDeferredCharacterDetails}
         characterGroundOffset={characterGroundOffset}
         debugApiRef={debugApiRef}
+        onDebugApiReady={handleDebugApiReady}
         staticColliders={staticColliders}
         collisionIncludePatterns={collisionIncludePatterns}
         staticFieldCollisionPatterns={staticFieldCollisionPatterns}

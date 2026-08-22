@@ -210,10 +210,11 @@ export type SceneHostProps = {
   /** Whether deferred character details should be fetched automatically. */
   loadDeferredCharacterDetails?: boolean;
   /**
-   * Receives the live scene debug API once the scene finishes loading. Used
-   * by the development scene editor to raycast-pick and inspect scene objects.
+   * Mutable reference to the live scene debug API used by shared scene tools.
    */
   debugApiRef?: React.MutableRefObject<SceneDebugApi | null>;
+  /** Notify shared scene tools when a new scene debug API is ready. */
+  onDebugApiReady?: (api: SceneDebugApi) => void;
   /** Optional scene-specific sky, fog, and light configuration. */
   environment?: SceneEnvironmentConfig;
   /** Optional persisted transforms/deletions for authored scene objects. */
@@ -1206,6 +1207,7 @@ export function SceneHost({
   loadDeferredCharacterDetails = true,
   characterGroundOffset = 0,
   debugApiRef,
+  onDebugApiReady,
   environment,
   editorOverridesUrl,
   visualSetup,
@@ -3436,6 +3438,7 @@ export function SceneHost({
           },
         };
         if (debugApiRef) debugApiRef.current = debugApi;
+        onDebugApiReady?.(debugApi);
         if (new URLSearchParams(window.location.search).has("debug")) {
           (window as unknown as { __agentHq: SceneDebugApi }).__agentHq = debugApi;
         }
@@ -4066,6 +4069,7 @@ export function SceneHost({
     loadDeferredCharacterDetails,
     materialOverrides,
     movementSpeedFactor,
+    onDebugApiReady,
     onLoadingStart,
     onReady,
     orthographicClickOnly,
