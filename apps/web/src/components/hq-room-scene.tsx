@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import {
   characterIds,
@@ -865,9 +865,44 @@ export function HqRoomScene({
     },
     [ambientAnimalsForHome],
   );
+  const setupVisual = useCallback(
+    (visual: THREE.Group) => {
+      setupEnvironment(visual);
+      setupAmbientAnimals(visual);
+    },
+    [setupAmbientAnimals, setupEnvironment],
+  );
   const updateAmbientAnimals = useCallback<SceneVisualUpdate>((_scene, delta) => {
     ambientAnimalsRef.current?.update(delta);
   }, []);
+
+  // Keep these scene-runtime inputs stable while the shell updates transient
+  // UI state such as the active camera. Changing their identities would make
+  // SceneHost tear down and reload the entire Three.js scene on every toggle.
+  const waterVolumes = useMemo(
+    () => (manifest.zones?.length ? hqPoolWaterVolumes(manifest.id) : undefined),
+    [manifest.id, manifest.zones?.length],
+  );
+  const materialOverrides = useMemo(
+    () =>
+      manifest.zones?.length
+        ? [
+            {
+              name: "PoolWaterSurface",
+              color: 0x0b8fc4,
+              opacity: 0.78,
+              transparent: true,
+              depthWrite: false,
+              side: "double" as const,
+            },
+          ]
+        : undefined,
+    [manifest.zones?.length],
+  );
+  const portals = useMemo(
+    () => hqWorldPortals(visualTheme === "home" ? "hq-home" : "hq-work"),
+    [visualTheme],
+  );
 
   useEffect(
     () => () => {
@@ -938,7 +973,7 @@ export function HqRoomScene({
       orthographicHalfHeight={hqOrthographicHalfHeight}
       orthographicPitch={-0.9}
       orthographicPan={{ x: 0, z: 0 }}
-      waterVolumes={manifest.zones?.length ? hqPoolWaterVolumes(manifest.id) : undefined}
+      waterVolumes={waterVolumes}
       deferCharacterDetails={false}
       environment={galleryEnvironment}
       enableSceneEditor
@@ -973,26 +1008,10 @@ export function HqRoomScene({
       keepZoneCollisionsActive
       staticColliders={hqBoundaryColliders}
       collideAdditionalVisualLayers={false}
-      visualSetup={(visual) => {
-        setupEnvironment(visual);
-        setupAmbientAnimals(visual);
-      }}
+      visualSetup={setupVisual}
       visualUpdate={updateAmbientAnimals}
-      portals={hqWorldPortals(visualTheme === "home" ? "hq-home" : "hq-work")}
-      materialOverrides={
-        manifest.zones?.length
-          ? [
-              {
-                name: "PoolWaterSurface",
-                color: 0x0b8fc4,
-                opacity: 0.78,
-                transparent: true,
-                depthWrite: false,
-                side: "double",
-              },
-            ]
-          : undefined
-      }
+      portals={portals}
+      materialOverrides={materialOverrides}
       onDebugApiReady={handleDebugApiReady}
     />
   );
