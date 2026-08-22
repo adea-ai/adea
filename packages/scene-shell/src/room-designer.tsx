@@ -11,7 +11,12 @@ import {
 } from "react";
 import { RotateCw, Save, Trash2, Undo2, X } from "lucide-react";
 import * as THREE from "three";
-import { Button, PropCatalog, getSharedLoader, type PropCatalogItem } from "@agent-hq/ui";
+import { Button } from "@agent-hq/ui/components/ui/button";
+import {
+  PropCatalog,
+  getSharedLoader,
+  type PropCatalogItem,
+} from "@agent-hq/ui/components/prop-catalog";
 import type { SceneManifest } from "@agent-hq/asset-manifests";
 import type { SceneDebugApi } from "@agent-hq/scene-runtime";
 

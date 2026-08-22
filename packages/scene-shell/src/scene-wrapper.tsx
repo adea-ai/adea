@@ -2,13 +2,11 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import {
-  Button,
-  OnScreenControls,
-  SceneSettings,
-  Spinner,
-  type CharacterOption,
-} from "@agent-hq/ui";
+import { Button } from "@agent-hq/ui/components/ui/button";
+import { OnScreenControls } from "@agent-hq/ui/components/on-screen-controls";
+import { SceneSettings } from "@agent-hq/ui/components/scene-settings";
+import { Spinner } from "@agent-hq/ui/components/ui/spinner";
+import type { CharacterOption } from "@agent-hq/ui/components/character-selector";
 import type {
   CameraBounds,
   CameraViewMode,

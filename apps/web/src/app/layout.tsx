@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { SoundProvider } from "@agent-hq/audio";
 import { AgentHqQueryProvider } from "@agent-hq/data/provider";
-import { ThemeProvider } from "@agent-hq/ui";
+import { ThemeProvider } from "@agent-hq/ui/components/theme-provider";
 import "./globals.css";
 
 export const metadata: Metadata = {
