@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { checkRuntimeReports, checkStaticBudgets } from "./performance-budgets.mjs";
 
 const budgets = {
-  routeFirstLoadJsBytes: { "/": 600_000 },
+  routeFirstLoadJsBytes: { "/": 700_000 },
   publicAssetBytes: 160_000_000,
   sceneLoadMs: 10_000,
   sceneTransferBytes: 35_000_000,
@@ -26,13 +26,13 @@ describe("performance budgets", () => {
     expect(
       checkStaticBudgets(
         {
-          routes: [{ route: "/", firstLoadUncompressedJsBytes: 600_001 }],
+          routes: [{ route: "/", firstLoadUncompressedJsBytes: 700_001 }],
           publicAssetBytes: 160_000_001,
         },
         budgets,
       ),
     ).toEqual([
-      "route / first-load JavaScript is 600001 bytes (budget 600000)",
+      "route / first-load JavaScript is 700001 bytes (budget 700000)",
       "public assets are 160000001 bytes (budget 160000000)",
     ]);
   });

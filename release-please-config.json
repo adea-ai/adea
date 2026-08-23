@@ -43,82 +43,137 @@
       "section": "Maintenance"
     }
   ],
+  "include-component-in-tag": false,
   "packages": {
     ".": {
       "release-type": "node",
       "package-name": "agent-hq"
-    },
-    "apps/web": {
-      "release-type": "node",
-      "package-name": "@agent-hq/web"
-    },
-    "packages/api-client": {
-      "release-type": "node",
-      "package-name": "@agent-hq/api-client"
-    },
-    "packages/app-core": {
-      "release-type": "node",
-      "package-name": "@agent-hq/app-core"
-    },
-    "packages/asset-manifests": {
-      "release-type": "node",
-      "package-name": "@agent-hq/asset-manifests"
-    },
-    "packages/audio": {
-      "release-type": "node",
-      "package-name": "@agent-hq/audio"
-    },
-    "packages/auth": {
-      "release-type": "node",
-      "package-name": "@agent-hq/auth"
-    },
-    "packages/characters": {
-      "release-type": "node",
-      "package-name": "@agent-hq/characters"
-    },
-    "packages/data": {
-      "release-type": "node",
-      "package-name": "@agent-hq/data"
-    },
-    "packages/interior": {
-      "release-type": "node",
-      "package-name": "@agent-hq/interior"
-    },
-    "packages/landscape": {
-      "release-type": "node",
-      "package-name": "@agent-hq/landscape"
-    },
-    "packages/scene-fields": {
-      "release-type": "node",
-      "package-name": "@agent-hq/scene-fields"
-    },
-    "packages/scene-runtime": {
-      "release-type": "node",
-      "package-name": "@agent-hq/scene-runtime"
-    },
-    "packages/scene-shell": {
-      "release-type": "node",
-      "package-name": "@agent-hq/scene-shell"
-    },
-    "packages/scene-telemetry": {
-      "release-type": "node",
-      "package-name": "@agent-hq/scene-telemetry"
-    },
-    "packages/state": {
-      "release-type": "node",
-      "package-name": "@agent-hq/state"
-    },
-    "packages/types": {
-      "release-type": "node",
-      "package-name": "@agent-hq/types"
-    },
-    "packages/ui": {
-      "release-type": "node",
-      "package-name": "@agent-hq/ui"
-    },
-    "scenes/hq": {
-      "release-type": "node",
-      "package-name": "@agent-hq/hq-scenes"
     }
-  }
+  },
+  "extra-files": [
+    {
+      "type": "json",
+      "path": "apps/web/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "apps/desktop/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "apps/desktop/src-tauri/tauri.conf.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "apps/mobile/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/api-client/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/app-core/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/asset-manifests/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/audio/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/auth/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/characters/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/config/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/data/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/interior/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/landscape/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/pets/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/scene-fields/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/scene-runtime/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/scene-shell/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/scene-telemetry/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/state/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/types/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/ui/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "scenes/hq/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "toml",
+      "path": "apps/desktop/src-tauri/Cargo.toml",
+      "jsonpath": "$.package.version"
+    },
+    {
+      "type": "generic",
+      "path": "apps/desktop/src-tauri/Cargo.lock"
+    }
+  ]
 }
