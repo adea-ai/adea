@@ -147,10 +147,89 @@ jobs:
           tauriScript: bun tauri
           args: ${{ matrix.args }}
 
-  verify-assets:
-    name: Verify desktop assets
+  publish-updater-channel:
+    name: Publish desktop updater channel
     needs: [validate-release, desktop]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Prepare public signed updater channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          staging="$RUNNER_TEMP/agent-hq-update-channel"
+          channel="https://0xplayerone.github.io/agent-hq/desktop-updates/"
+          mkdir -p "$staging/site/desktop-updates"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --dir "$staging"
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --jq '.assets' > "$staging/assets.json"
+          node scripts/prepare-desktop-update-channel.mjs \
+            "$staging/latest.json" \
+            "$staging/assets.json" \
+            "$channel" \
+            "$staging/site/desktop-updates/latest.json" \
+            "$staging/update-assets.json"
+          jq -e --arg version "$RELEASE_VERSION" '.version == $version' \
+            "$staging/site/desktop-updates/latest.json" >/dev/null
+          while IFS= read -r asset; do
+            gh release download "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern "$asset" \
+              --dir "$staging/site/desktop-updates"
+          done < <(jq -r '.[]' "$staging/update-assets.json")
+          test -n "$(find "$staging/site/desktop-updates" -maxdepth 1 -type f ! -name latest.json -print -quit)"
+
+      - name: Upload updater channel
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: ${{ runner.temp }}/agent-hq-update-channel/site
+
+      - name: Deploy updater channel
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+
+      - name: Verify public updater manifest
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/public-latest.json"
+          curl --fail --silent --show-error \
+            --retry 12 \
+            --retry-all-errors \
+            --retry-delay 5 \
+            "https://0xplayerone.github.io/agent-hq/desktop-updates/latest.json" \
+            --output "$manifest"
+          jq -e --arg version "$RELEASE_VERSION" \
+            '.version == $version and ([.platforms[].url | startswith("https://0xplayerone.github.io/agent-hq/desktop-updates/")] | all)' \
+            "$manifest" >/dev/null
+
+  verify-assets:
+    name: Verify desktop assets
+    needs: [validate-release, desktop, publish-updater-channel]
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-updater-channel.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
