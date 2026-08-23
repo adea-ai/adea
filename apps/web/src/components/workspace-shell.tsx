@@ -7,11 +7,13 @@ import type { HqSceneId } from "@agent-hq/app-core";
 import { MusicToggle } from "@agent-hq/audio";
 import { useWorkspaceQuery } from "@agent-hq/data";
 import { useWorkspaceStore } from "@agent-hq/state";
-import { BriefcaseBusiness, Home, Sparkles } from "lucide-react";
+import { BriefcaseBusiness, Home } from "lucide-react";
 import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
 import { Button } from "@agent-hq/ui/components/ui/button";
 import { ThemeToggle } from "@agent-hq/ui/components/theme-toggle";
+import { isDesktopRuntime } from "../lib/desktop-update";
+import { VersionDialog } from "./version-dialog";
 
 const HqRoomScene = dynamic(() => import("./hq-room-scene").then((module) => module.HqRoomScene), {
   ssr: false,
@@ -88,17 +90,27 @@ export function WorkspaceShell({
   const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode);
   const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode);
   const [storeReady, setStoreReady] = useState(false);
+  const [desktopRuntime, setDesktopRuntime] = useState(false);
   const [apiClient] = useState(() => createApiClient());
   const workspaceQuery = useWorkspaceQuery(apiClient, "default");
   const sceneId = storeReady ? selectedScene : initialScene;
   const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode;
   const scene = sceneById[sceneId];
+  const workspaceStatus = workspaceQuery.isPending
+    ? "Workspace syncing"
+    : workspaceQuery.isError
+      ? "Workspace offline"
+      : "Workspace online";
 
   useEffect(() => {
     setSelectedScene(initialScene);
     setCameraViewMode(initialCameraViewMode);
     setStoreReady(true);
   }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene]);
+
+  useEffect(() => {
+    setDesktopRuntime(isDesktopRuntime());
+  }, []);
 
   useEffect(() => {
     document.title = `Agent HQ | ${scene.label}`;
@@ -134,7 +146,7 @@ export function WorkspaceShell({
           <div className="workspace-topbar__main">
             <div className="workspace-brand">
               <div className="workspace-brand__mark" aria-hidden="true">
-                <Sparkles size={16} strokeWidth={1.8} />
+                <span>HQ</span>
               </div>
               <div>
                 <p className="workspace-eyebrow">AGENT OPERATIONS</p>
@@ -143,16 +155,6 @@ export function WorkspaceShell({
             </div>
 
             <div className="workspace-topbar__actions">
-              <div className="workspace-status" role="status">
-                <span className="workspace-status__dot" aria-hidden="true" />
-                <span>
-                  {workspaceQuery.isPending
-                    ? "Workspace syncing"
-                    : workspaceQuery.isError
-                      ? "Workspace offline"
-                      : "Workspace online"}
-                </span>
-              </div>
               <ThemeToggle className="workspace-theme-toggle" />
               <div className="workspace-music-toggle" aria-label="Music controls">
                 <MusicToggle />
@@ -199,6 +201,16 @@ export function WorkspaceShell({
           <span className="workspace-scene-caption__dot" aria-hidden="true" />
           {scene.label} scene · Drag to orbit · Zoom controls
         </p>
+
+        {desktopRuntime ? (
+          <footer className="workspace-statusbar" aria-label="Agent HQ status bar">
+            <div className="workspace-statusbar__meta" role="status" aria-live="polite">
+              <span className="workspace-status__dot" aria-hidden="true" />
+              <span>{workspaceStatus}</span>
+            </div>
+            <VersionDialog />
+          </footer>
+        ) : null}
       </div>
     </main>
   );
