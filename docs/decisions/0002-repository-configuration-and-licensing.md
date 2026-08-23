@@ -26,9 +26,11 @@ uses Base UI, not Radix. Home and Work are selected through the unified root
 route with `?scene=home` and `?scene=work`; legacy `/scenes/*` links are not
 supported.
 
-Code Foundry's standard validation, draft-PR, and release callers are active
-under `.github/workflows/`; the older files under `.github/workflows-disabled/`
-remain as inactive reference copies. Desktop release packaging is owned by the
+Code Foundry's standard validation and release callers are active under
+`.github/workflows/`. The draft-PR caller remains disabled because this private
+repository has no configured automation token or Actions permission to create
+pull requests. The older files under `.github/workflows-disabled/` remain as
+inactive reference copies. Desktop release packaging is owned by the
 repository-specific `release-assets.yml` extension. GLB model assets are
 explicitly treated as binary by Git attributes.
 
@@ -60,6 +62,7 @@ shape rather than the repository's superseded initializer state.
 - Future Code Foundry syncs should retain the single `.prettierrc` baseline.
 - New model formats should be added to `.gitattributes` when they are not
   safely recognized as text or binary automatically.
-- Standard Code Foundry automation is active. Mobile store release remains a
-  separate follow-up because signing and provisioning credentials are not part
-  of this repository.
+- Standard Code Foundry validation and release automation are active; feature
+  pull requests are opened manually until private-repository PR automation is
+  provisioned. Mobile store release remains a separate follow-up because
+  signing and provisioning credentials are not part of this repository.

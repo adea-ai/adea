@@ -8,7 +8,11 @@ feature branch -> pull request -> main -> Release Please pull request -> GitHub 
 
 Feature pull requests target `main` and use squash merges. The release workflow
 opens a separate Release Please version pull request after changes reach
-`main`; release pull requests use the configured rebase strategy.
+`main`; release pull requests use the configured rebase strategy. With no
+private-repository automation token configured, that version PR is left for
+manual readiness and merge. Feature PRs are likewise opened manually; the Code
+Foundry draft-PR caller is intentionally disabled because this repository's
+Actions policy does not permit the workflow token to create PRs.
 
 When a GitHub Release is published, `.github/workflows/release-assets.yml`
 builds the Tauri desktop shell concurrently for macOS ARM64, Linux x64, and

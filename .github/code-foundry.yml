@@ -1,7 +1,7 @@
 version: 1
 profile: monorepo
 languages: typescript
-features: validation,draft-pr,release
+features: validation,release
 # This is a private repository; do not assume GitHub Advanced Security or
 # public-repository Dependency Review support.
 codeql: false
