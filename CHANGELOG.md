@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.3](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.2...v0.3.3) (2026-08-23)
+
+
+### Bug Fixes
+
+* **release:** annotate desktop lockfile version ([#103](https://github.com/0xPlayerOne/agent-hq/issues/103)) ([8ee99ff](https://github.com/0xPlayerOne/agent-hq/commit/8ee99fff23cdc68c4ad4e0e24d50915c878f094f))
+* **release:** sync desktop lockfile and formatting ([#101](https://github.com/0xPlayerOne/agent-hq/issues/101)) ([6c1f9ee](https://github.com/0xPlayerOne/agent-hq/commit/6c1f9ee0929bd1c50475a3cacb0f865eb29b561f))
+
 ## [0.3.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.1...v0.3.2) (2026-08-23)
 
 
