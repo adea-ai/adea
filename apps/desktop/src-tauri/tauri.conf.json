@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.agenthq.desktop",
   "build": {
-    "beforeDevCommand": "bun --cwd ../web dev",
-    "devUrl": "http://localhost:3000"
+    "beforeDevCommand": "PORT=3004 bun --cwd ../web dev",
+    "devUrl": "http://127.0.0.1:3004"
   },
   "app": {
     "withGlobalTauri": false,

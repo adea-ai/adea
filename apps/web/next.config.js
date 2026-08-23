@@ -11,7 +11,7 @@ const nextConfig = {
   // Permit the stable Tailscale MagicDNS hostname to load the dev client and
   // HMR resources. Additional host/IP origins can be supplied as a comma-
   // separated NEXT_ALLOWED_DEV_ORIGINS value when using a raw tailnet IP.
-  allowedDevOrigins: ["*.localhost", "*.ts.net", "amf-mb-pro", ...extraDevOrigins],
+  allowedDevOrigins: ["*.localhost", "*.ts.net", "amf-mb-pro", "127.0.0.1", ...extraDevOrigins],
   turbopack: { root: path.resolve(import.meta.dirname, "../..") },
   transpilePackages: [
     "@agent-hq/api-client",

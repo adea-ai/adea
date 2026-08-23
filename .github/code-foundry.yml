@@ -16,10 +16,10 @@ runner: ubuntu-latest
 ci_runner: ubuntu-latest
 test_runner: ubuntu-latest
 unit_runner: ubuntu-latest
-security_runner: ubuntu-slim
+security_runner: ubuntu-latest
 codeql_runner: ubuntu-latest
-pr_runner: ubuntu-slim
-release_runner: ubuntu-slim
+pr_runner: ubuntu-latest
+release_runner: ubuntu-latest
 toolchain: auto
 prune_standard: false
 cache_packages: auto

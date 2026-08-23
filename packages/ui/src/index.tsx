@@ -27,6 +27,18 @@ export { SceneSettings, type SceneSettingsProps } from "./components/scene-setti
 export { Card, CardContent } from "./components/ui/card";
 export { Spinner } from "./components/ui/spinner";
 export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+} from "./components/ui/dialog";
+export {
   PropCatalog,
   defaultPropCatalogCategories,
   getSharedLoader,

@@ -23,7 +23,7 @@ env:
 jobs:
   validate-release:
     name: Validate release
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       desktop_release: ${{ steps.parse.outputs.desktop_release }}
@@ -161,7 +161,7 @@ jobs:
     name: Verify desktop assets
     needs: [validate-release, desktop]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
