@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/0xPlayerOne/agent-hq/compare/agent-hq-v0.2.1...agent-hq-v0.2.2) (2026-08-23)
+
+
+### CI
+
+* align Code Foundry merge policy ([#88](https://github.com/0xPlayerOne/agent-hq/issues/88)) ([6fc4ccc](https://github.com/0xPlayerOne/agent-hq/commit/6fc4cccc5b0f893d49e4f2be85c5746712f64c18))
+
 ## [0.2.1](https://github.com/0xPlayerOne/agent-hq/compare/agent-hq-v0.2.0...agent-hq-v0.2.1) (2026-08-23)
 
 
