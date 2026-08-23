@@ -15,6 +15,10 @@ The repository is licensed under Apache License 2.0. The root package metadata
 uses the SPDX identifier `Apache-2.0`, Code Foundry is configured with
 `apache-2.0`, and `LICENSE` and `NOTICE` carry matching Apache-2.0 notices.
 
+The repository is private, so CodeQL, Dependency Review, and Dependabot remain
+explicitly disabled unless the corresponding GitHub support and repository
+maintenance policy are intentionally provisioned later.
+
 Bun remains the repository package manager and test runner. Repository guidance
 uses the actual Bun scripts (`bun run format:check`, `bun run lint`,
 `bun run typecheck`, and `bun run test`). The shared UI shadcn configuration
@@ -22,9 +26,11 @@ uses Base UI, not Radix. Home and Work are selected through the unified root
 route with `?scene=home` and `?scene=work`; legacy `/scenes/*` links are not
 supported.
 
-Workflows remain parked under `.github/workflows-disabled/` until the
-application is production-ready. GLB model assets are explicitly treated as
-binary by Git attributes.
+Code Foundry's standard validation, draft-PR, and release callers are active
+under `.github/workflows/`; the older files under `.github/workflows-disabled/`
+remain as inactive reference copies. Desktop release packaging is owned by the
+repository-specific `release-assets.yml` extension. GLB model assets are
+explicitly treated as binary by Git attributes.
 
 ## Alternatives considered
 
@@ -35,7 +41,7 @@ binary by Git attributes.
 - Retaining GPL/AGPL licensing metadata from the initial Code Foundry
   baseline.
 - Continuing to document npm, Vitest, or the removed scene routes.
-- Re-enabling workflows before the production-readiness gate is complete.
+- Re-enabling workflows before the production-readiness gate was complete.
 
 ## Rationale
 
@@ -44,7 +50,7 @@ that Code Foundry will maintain. Scoped shadcn files match the monorepo package
 boundaries and make the Base UI choice explicit where components are authored.
 Apache-2.0 is the requested permissive project license and must be consistent
 across machine-readable metadata and human-readable notices. The root route,
-Bun commands, and disabled-workflow policy reflect the current application
+Bun commands, and active Code Foundry policy reflect the current application
 shape rather than the repository's superseded initializer state.
 
 ## Consequences
@@ -54,5 +60,6 @@ shape rather than the repository's superseded initializer state.
 - Future Code Foundry syncs should retain the single `.prettierrc` baseline.
 - New model formats should be added to `.gitattributes` when they are not
   safely recognized as text or binary automatically.
-- Workflow files remain available for later re-enablement without being active
-  in GitHub Actions today.
+- Standard Code Foundry automation is active. Mobile store release remains a
+  separate follow-up because signing and provisioning credentials are not part
+  of this repository.

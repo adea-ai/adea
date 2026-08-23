@@ -25,6 +25,7 @@
     "perf:check": "bun scripts/performance-budgets.mjs --build --assets && bun run assets:check",
     "perf:check:runtime": "bun scripts/performance-budgets.mjs --runtime .artifacts/scene-performance.json",
     "perf:browser": "playwright test --config=playwright.config.ts --grep \"home scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"work scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"room designer loads compressed interior props\"",
+    "test:e2e": "bunx playwright install --with-deps chromium && bun run perf:browser",
     "perf:gate": "bun run build && bun run perf:browser && bun run perf:check:runtime",
     "native:smoke": "bun scripts/native-smoke.mjs",
     "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs",
