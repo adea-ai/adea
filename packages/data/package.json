@@ -1,6 +1,6 @@
 {
   "name": "@agent-hq/data",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.1...v0.3.2) (2026-08-23)
+
+
+### Bug Fixes
+
+* **docs:** make label colors unique ([#99](https://github.com/0xPlayerOne/agent-hq/issues/99)) ([6ea1cef](https://github.com/0xPlayerOne/agent-hq/commit/6ea1cefb08dc56f040f46ccce7c18de285cf1e71))
+
 ## [0.3.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.0...v0.3.1) (2026-08-23)
 
 
