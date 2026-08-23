@@ -1,0 +1,10 @@
+"$schema" = "../gen/schemas/schema.json"
+
+[[permission]]
+identifier = "allow-desktop-updater"
+description = "Allows the desktop shell to report, check, and install signed Agent HQ updates."
+commands.allow = [
+  "desktop_update_status",
+  "desktop_update_check",
+  "desktop_update_install",
+]

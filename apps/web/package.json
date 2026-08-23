@@ -26,6 +26,7 @@
     "@agent-hq/scene-telemetry": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
+    "@tauri-apps/api": "^2.11.1",
     "lucide-react": "^1.33.0",
     "next": "16.3.2",
     "next-themes": "^0.4.6",

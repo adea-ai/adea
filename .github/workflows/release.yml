@@ -17,7 +17,7 @@ jobs:
     name: Release
     uses: 0xPlayerOne/code-foundry/.github/workflows/release.yml@v0.37.1
     with:
-      runner: ubuntu-slim
+      runner: ubuntu-latest
       runtime-repository: 0xPlayerOne/code-foundry
       runtime-ref: v0.37.1
     secrets:
