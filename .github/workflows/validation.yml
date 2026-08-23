@@ -16,6 +16,10 @@ on:
 # only the scopes their own validation path consumes.
 permissions: {}
 
+# Automatic validation is paused while the private repository is out of GitHub
+# Actions credits. Set the repository variable AGENT_HQ_CI_ENABLED to "true"
+# to resume the existing caller without changing this workflow.
+
 # Superseded PR updates cancel the previous run; schedule and dispatch runs
 # are keyed by event so periodic audits and manual runs stay independent.
 concurrency:
@@ -25,6 +29,7 @@ concurrency:
 jobs:
   mode:
     name: Mode
+    if: ${{ vars.AGENT_HQ_CI_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -57,6 +62,7 @@ jobs:
   validation:
     name: Validation
     needs: mode
+    if: ${{ vars.AGENT_HQ_CI_ENABLED == 'true' }}
     # Reusable workflows can only maintain or reduce the caller job's scopes.
     # The audit tier needs security-events: write for CodeQL uploads.
     permissions:
