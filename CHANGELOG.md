@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1](https://github.com/0xPlayerOne/agent-hq/compare/agent-hq-v0.2.0...agent-hq-v0.2.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* include Tauri bundle icons ([c5636a7](https://github.com/0xPlayerOne/agent-hq/commit/c5636a792163ea8da089cfc205180ca94c007d7a))
+* run release version alignment in bash ([#80](https://github.com/0xPlayerOne/agent-hq/issues/80)) ([b1a4435](https://github.com/0xPlayerOne/agent-hq/commit/b1a4435321198cea2d989cd0a2c195676103a4d5))
+
+
+### CI
+
+* harden desktop releases and dependency updates ([8869f88](https://github.com/0xPlayerOne/agent-hq/commit/8869f884fd1b89d9eeea3f23570fab65b368a8ca))
+
 ## [0.2.0](https://github.com/0xPlayerOne/agent-hq/compare/agent-hq-v0.1.0...agent-hq-v0.2.0) (2026-08-23)
 
 
