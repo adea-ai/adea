@@ -1,52 +1,52 @@
 # Canonical issue-label taxonomy. This file does not install a synchronization workflow.
 version: 1
-updated: '2026-08-23'
+updated: 2026-08-23
 labels:
-- name: type:feature
-  color: 0E8A16
-  description: Product or platform behavior implemented as a feature.
-- name: type:test
-  color: 5319E7
-  description: Tests, fixtures, conformance suites, or acceptance validation.
-- name: type:infrastructure
-  color: 0052CC
-  description: Infrastructure, deployment, database provisioning, CI, or operational foundations.
-- name: type:documentation
-  color: 0075CA
-  description: Documentation-only work with no runtime behavior change.
-- name: area:frontend
-  color: C5DEF5
-  description: Web, desktop, mobile, UI, or client-state work.
-- name: area:backend
-  color: BFDADC
-  description: Application services, APIs, workers, or server-side behavior.
-- name: area:data
-  color: D4C5F9
-  description: Persistence, schemas, migrations, repositories, or durable state.
-- name: area:runtime
-  color: F9D0C4
-  description: Runtime fabric, Runtime Gateway, RuntimeDrivers, adapters, or harness integration.
-- name: area:security
-  color: B60205
-  description: Authentication, authorization, trust, credentials, secrets, or isolation.
-- name: area:realtime
-  color: FBCA04
-  description: Events, SSE, replay, ordering, reconnect, or live synchronization.
-- name: area:spatial
-  color: A2EEEF
-  description: Three.js scene runtime, spatial presentation, assets, or scene lifecycle.
-- name: area:observability
-  color: 7057FF
-  description: Telemetry, diagnostics, evaluation, performance, or operational evidence.
-- name: area:integration
-  color: D4C5F9
-  description: Cross-service contracts, SDKs, external systems, or repository integration.
-- name: cross-repo
-  color: D93F0B
-  description: Requires coordinated changes or acceptance evidence across Agent HQ and Control Plane.
-- name: worktree-safe
-  color: 0E8A16
-  description: Can proceed in an isolated worktree once declared dependencies are satisfied.
-- name: blocked
-  color: D73A4A
-  description: Cannot proceed because of an unresolved dependency, decision, or external constraint.
+  - name: type:feature
+    color: 0E8A16
+    description: Product or platform behavior implemented as a feature.
+  - name: type:test
+    color: 5319E7
+    description: Tests, fixtures, conformance suites, or acceptance validation.
+  - name: type:infrastructure
+    color: 0052CC
+    description: Infrastructure, deployment, database provisioning, CI, or operational foundations.
+  - name: type:documentation
+    color: 0075CA
+    description: Documentation-only work with no runtime behavior change.
+  - name: area:frontend
+    color: C5DEF5
+    description: Web, desktop, mobile, UI, or client-state work.
+  - name: area:backend
+    color: BFDADC
+    description: Application services, APIs, workers, or server-side behavior.
+  - name: area:data
+    color: D4C5F9
+    description: Persistence, schemas, migrations, repositories, or durable state.
+  - name: area:runtime
+    color: F9D0C4
+    description: Runtime fabric, Runtime Gateway, RuntimeDrivers, adapters, or harness integration.
+  - name: area:security
+    color: B60205
+    description: Authentication, authorization, trust, credentials, secrets, or isolation.
+  - name: area:realtime
+    color: FBCA04
+    description: Events, SSE, replay, ordering, reconnect, or live synchronization.
+  - name: area:spatial
+    color: A2EEEF
+    description: Three.js scene runtime, spatial presentation, assets, or scene lifecycle.
+  - name: area:observability
+    color: 7057FF
+    description: Telemetry, diagnostics, evaluation, performance, or operational evidence.
+  - name: area:integration
+    color: D4C5F9
+    description: Cross-service contracts, SDKs, external systems, or repository integration.
+  - name: cross-repo
+    color: D93F0B
+    description: Requires coordinated changes or acceptance evidence across Agent HQ and Control Plane.
+  - name: worktree-safe
+    color: 0E8A16
+    description: Can proceed in an isolated worktree once declared dependencies are satisfied.
+  - name: blocked
+    color: D73A4A
+    description: Cannot proceed because of an unresolved dependency, decision, or external constraint.
