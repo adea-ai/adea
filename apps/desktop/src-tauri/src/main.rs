@@ -1,16 +1,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod bridge;
+mod updater;
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 fn web_app_url() -> String {
-    std::env::var("AGENT_HQ_WEB_URL").unwrap_or_else(|_| "http://localhost:3004".to_string())
+    std::env::var("AGENT_HQ_WEB_URL").unwrap_or_else(|_| "http://127.0.0.1:3004".to_string())
 }
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![bridge::native_capabilities])
+        .manage(updater::UpdaterState::default())
+        .invoke_handler(tauri::generate_handler![
+            bridge::native_capabilities,
+            updater::desktop_update_status,
+            updater::desktop_update_check,
+            updater::desktop_update_install
+        ])
         .setup(|app| {
             #[cfg(desktop)]
             app.handle()

@@ -3,5 +3,8 @@
   "identifier": "default",
   "description": "Minimal default permissions for the Agent HQ desktop shell",
   "windows": ["main"],
-  "permissions": ["core:default", "updater:default"]
+  "remote": {
+    "urls": ["http://127.0.0.1:3004/*"]
+  },
+  "permissions": ["core:default", "updater:default", "allow-desktop-updater"]
 }
