@@ -1,4 +1,4 @@
-import { cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,23 +10,38 @@ async function copyAsset(source, destination) {
   await cp(source, destination, { recursive: true, force: true });
 }
 
+async function resolveAsset(...candidates) {
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // Workspace installs may expose Three.js through the hoisted root link.
+    }
+  }
+  throw new Error(`Could not find runtime asset in any of: ${candidates.join(", ")}`);
+}
+
 await rm(publicAssets, { recursive: true, force: true });
 await mkdir(publicAssets, { recursive: true });
 
-await copyAsset(
+const basisTranscoder = await resolveAsset(
   resolve(
     repoRoot,
     "packages/scene-runtime/node_modules/three/examples/jsm/libs/basis/basis_transcoder.js",
   ),
-  resolve(publicAssets, "basis/basis_transcoder.js"),
+  resolve(repoRoot, "node_modules/three/examples/jsm/libs/basis/basis_transcoder.js"),
 );
-await copyAsset(
+const basisTranscoderWasm = await resolveAsset(
   resolve(
     repoRoot,
     "packages/scene-runtime/node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm",
   ),
-  resolve(publicAssets, "basis/basis_transcoder.wasm"),
+  resolve(repoRoot, "node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm"),
 );
+
+await copyAsset(basisTranscoder, resolve(publicAssets, "basis/basis_transcoder.js"));
+await copyAsset(basisTranscoderWasm, resolve(publicAssets, "basis/basis_transcoder.wasm"));
 
 for (const [scene, assetDirectory] of [
   ["hq-home", "home"],

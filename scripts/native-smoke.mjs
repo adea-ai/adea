@@ -6,11 +6,11 @@ import { resolve } from "node:path";
 const repoRoot = resolve(import.meta.dirname, "..");
 const bun = process.execPath;
 
-function run(label, command, args, cwd, timeoutMs = 180_000) {
+function run(label, command, args, cwd, timeoutMs = 180_000, env = process.env) {
   console.log(`\n[native-smoke] ${label}`);
   const result = spawnSync(command, args, {
     cwd,
-    env: process.env,
+    env,
     stdio: "inherit",
     timeout: timeoutMs,
   });
@@ -25,6 +25,20 @@ function run(label, command, args, cwd, timeoutMs = 180_000) {
   }
 }
 
+function androidEnvironment() {
+  const java21Home = process.env.JAVA_HOME_21_X64;
+  if (!java21Home || !existsSync(resolve(java21Home, "bin", "javac"))) {
+    return process.env;
+  }
+
+  console.log(`[native-smoke] using Android JDK 21 at ${java21Home}`);
+  return {
+    ...process.env,
+    JAVA_HOME: java21Home,
+    PATH: `${resolve(java21Home, "bin")}:${process.env.PATH ?? ""}`,
+  };
+}
+
 function commandAvailable(command, args = ["--version"]) {
   const result = spawnSync(command, args, {
     env: process.env,
@@ -33,11 +47,44 @@ function commandAvailable(command, args = ["--version"]) {
   return !result.error && result.status === 0;
 }
 
+function ensureLinuxDesktopDependencies() {
+  if (process.platform !== "linux" || process.env.CI !== "true") return;
+
+  const requiredPackages = [
+    ["glib-2.0", "libwebkit2gtk-4.1-dev"],
+    ["gtk+-3.0", "libwebkit2gtk-4.1-dev"],
+    ["webkit2gtk-4.1", "libwebkit2gtk-4.1-dev"],
+    ["javascriptcoregtk-4.1", "libwebkit2gtk-4.1-dev"],
+    ["librsvg-2.0", "librsvg2-dev"],
+  ];
+  const missingPackages = requiredPackages
+    .filter(([pkgConfigName]) => !commandAvailable("pkg-config", ["--exists", pkgConfigName]))
+    .map(([, aptPackage]) => aptPackage)
+    .filter((packageName, index, packages) => packages.indexOf(packageName) === index);
+
+  if (missingPackages.length === 0) return;
+  if (!commandAvailable("sudo", ["-n", "true"])) {
+    throw new Error(
+      `Linux desktop dependencies are missing (${missingPackages.join(", ")}) and passwordless sudo is unavailable`,
+    );
+  }
+
+  run("install Linux desktop dependencies", "sudo", ["apt-get", "update"], repoRoot, 300_000);
+  run(
+    "install Linux desktop dependencies",
+    "sudo",
+    ["apt-get", "install", "-y", ...missingPackages, "libayatana-appindicator3-dev", "patchelf"],
+    repoRoot,
+    300_000,
+  );
+}
+
 const desktopRoot = resolve(repoRoot, "apps/desktop");
 const desktopRustRoot = resolve(desktopRoot, "src-tauri");
 const mobileRoot = resolve(repoRoot, "apps/mobile");
 
 run("desktop TypeScript smoke", bun, ["run", "typecheck"], desktopRoot);
+ensureLinuxDesktopDependencies();
 run(
   "desktop Tauri/Rust smoke",
   "cargo",
@@ -86,6 +133,8 @@ if (platformChecks[0].available && platformChecks[0].toolchainAvailable) {
     process.platform === "win32" ? "gradlew.bat" : "./gradlew",
     ["--no-daemon", "assembleDebug"],
     androidRoot,
+    180_000,
+    androidEnvironment(),
   );
 }
 
