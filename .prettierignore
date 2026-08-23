@@ -8,6 +8,7 @@ CHANGELOG.md
 
 # Project-scoped skills are vendored guidance and retain their upstream format.
 .agents
+vendor/glib-0.18.5/README.md
 
 # Repository-specific rules
 .next
