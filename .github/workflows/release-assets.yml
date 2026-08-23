@@ -116,6 +116,7 @@ jobs:
       - name: Align desktop bundle version with release
         env:
           RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        shell: bash
         run: |
           set -euo pipefail
           version="${RELEASE_VERSION#v}"
