@@ -36,5 +36,5 @@ sync_mode: overlay
 custom_workflows: preserve
 license: apache-2.0
 git_workflow: direct
-merge_strategy: rebase
+merge_strategy: squash
 release_merge_strategy: rebase
