@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.0...v0.3.1) (2026-08-23)
+
+
+### Documentation
+
+* version architecture sources and label taxonomy ([#93](https://github.com/0xPlayerOne/agent-hq/issues/93)) ([818f101](https://github.com/0xPlayerOne/agent-hq/commit/818f101da154997558a8bb9121e9a2f7e9187070))
+
+
+### Maintenance
+
+* **ci:** update Code Foundry to v0.37.2 ([#95](https://github.com/0xPlayerOne/agent-hq/issues/95)) ([421da5a](https://github.com/0xPlayerOne/agent-hq/commit/421da5a08668f91e573f81c0b1e6f252cd97f947))
+
 ## [0.3.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.2.1...v0.3.0) (2026-08-23)
 
 
