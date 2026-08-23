@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing GitHub release tag to package (for example, v0.2.0).
+        description: Existing GitHub release tag to package (for example, agent-hq-v0.2.0).
         required: true
         type: string
 
@@ -25,24 +25,50 @@ jobs:
     name: Validate release
     runs-on: ubuntu-slim
     timeout-minutes: 5
+    outputs:
+      desktop_release: ${{ steps.parse.outputs.desktop_release }}
+      release_version: ${{ steps.parse.outputs.release_version }}
     steps:
       - name: Validate published release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tag must be an exact semantic version such as v0.2.0: $RELEASE_TAG" >&2
-            exit 1
-          fi
           gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --json tagName \
             --jq '.tagName' | grep -Fx "$RELEASE_TAG"
 
+      - name: Parse Release Please tag
+        id: parse
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            component=""
+            version="${BASH_REMATCH[1]}"
+          elif [[ "$RELEASE_TAG" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            component="${BASH_REMATCH[1]}"
+            version="${BASH_REMATCH[2]}"
+          else
+            echo "Release tag must be vX.Y.Z or <component>-vX.Y.Z: $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          if [[ -z "$component" || "$component" == "agent-hq" ]]; then
+            desktop_release=true
+          else
+            desktop_release=false
+          fi
+
+          {
+            echo "desktop_release=$desktop_release"
+            echo "release_version=$version"
+          } >> "$GITHUB_OUTPUT"
+
   desktop:
     name: Desktop / ${{ matrix.platform }}
     needs: validate-release
+    if: needs.validate-release.outputs.desktop_release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -89,7 +115,7 @@ jobs:
 
       - name: Align desktop bundle version with release
         env:
-          RELEASE_VERSION: ${{ env.RELEASE_TAG }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
         run: |
           set -euo pipefail
           version="${RELEASE_VERSION#v}"
@@ -132,8 +158,8 @@ jobs:
 
   verify-assets:
     name: Verify desktop assets
-    needs: desktop
-    if: ${{ !cancelled() }}
+    needs: [validate-release, desktop]
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
     runs-on: ubuntu-slim
     timeout-minutes: 10
     permissions:

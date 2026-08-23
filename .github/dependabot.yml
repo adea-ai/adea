@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: sunday
+    open-pull-requests-limit: 99
+    ignore:
+      # Code Foundry runtime pins are sync-managed by runtime_ref in
+      # code-foundry.yml and must not be independently upgraded.
+      - dependency-name: "0xPlayerOne/code-foundry*"
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: sunday
+    open-pull-requests-limit: 99
+    groups:
+      npm-dependencies:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: sunday
+    open-pull-requests-limit: 99
+    groups:
+      cargo-dependencies:
+        applies-to: version-updates
+        patterns: ["*"]
