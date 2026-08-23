@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.2.1...v0.3.0) (2026-08-23)
+
+
+### Features
+
+* **desktop:** add status bar, updater dialog, and HQ branding ([aa021b7](https://github.com/0xPlayerOne/agent-hq/commit/aa021b70d80ee0e438194ea357ee89be9ef495fb))
+
+
+### Bug Fixes
+
+* **release:** use exact tags and production desktop URL ([ef530f0](https://github.com/0xPlayerOne/agent-hq/commit/ef530f025bc10d9a7fcfeec559adc6277a2c5821))
+
+
+### CI
+
+* align Code Foundry merge policy ([#88](https://github.com/0xPlayerOne/agent-hq/issues/88)) ([6fc4ccc](https://github.com/0xPlayerOne/agent-hq/commit/6fc4cccc5b0f893d49e4f2be85c5746712f64c18))
+
 ## [0.2.1](https://github.com/0xPlayerOne/agent-hq/compare/agent-hq-v0.2.0...agent-hq-v0.2.1) (2026-08-23)
 
 
