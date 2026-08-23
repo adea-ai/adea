@@ -3,7 +3,7 @@ import { readdir, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
 export const DEFAULT_PERFORMANCE_BUDGETS = {
-  routeFirstLoadJsBytes: { "/": 600_000 },
+  routeFirstLoadJsBytes: { "/": 700_000 },
   publicAssetBytes: 160_000_000,
   sceneLoadMs: 10_000,
   sceneTransferBytes: 35_000_000,

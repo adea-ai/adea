@@ -5,8 +5,19 @@ mod updater;
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+const DEV_WEB_URL: &str = "http://127.0.0.1:3004";
+const PRODUCTION_WEB_URL: &str = "https://agent-hq-site.vercel.app";
+
 fn web_app_url() -> String {
-    std::env::var("AGENT_HQ_WEB_URL").unwrap_or_else(|_| "http://127.0.0.1:3004".to_string())
+    if let Ok(value) = std::env::var("AGENT_HQ_WEB_URL") {
+        return value;
+    }
+
+    if cfg!(debug_assertions) {
+        DEV_WEB_URL.to_string()
+    } else {
+        PRODUCTION_WEB_URL.to_string()
+    }
 }
 
 fn main() {
