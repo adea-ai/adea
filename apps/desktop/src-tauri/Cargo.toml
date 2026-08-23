@@ -5,12 +5,21 @@ description = "Thin native desktop shell for Agent HQ"
 authors = ["Agent HQ"]
 edition = "2021"
 
+[patch.crates-io]
+# Tauri's GTK3 Linux stack requires glib 0.18.5; this local crate carries the
+# upstream VariantStrIter soundness fix while GTK3 prevents upgrading to glib 0.20.
+glib = { path = "../../../vendor/glib-0.18.5" }
+
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
+serde_json = "1.0"
 tauri = { version = "2.0", features = [] }
 
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 default = ["custom-protocol"]
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-updater = "2.10.1"
