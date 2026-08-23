@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing GitHub release tag to package (for example, agent-hq-v0.2.0).
+        description: Existing GitHub release tag to package (for example, v0.2.0).
         required: true
         type: string
 
@@ -44,24 +44,14 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$RELEASE_TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            component=""
             version="${BASH_REMATCH[1]}"
-          elif [[ "$RELEASE_TAG" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            component="${BASH_REMATCH[1]}"
-            version="${BASH_REMATCH[2]}"
           else
-            echo "Release tag must be vX.Y.Z or <component>-vX.Y.Z: $RELEASE_TAG" >&2
+            echo "Release tag must be an exact semantic version such as v0.2.0: $RELEASE_TAG" >&2
             exit 1
           fi
 
-          if [[ -z "$component" || "$component" == "agent-hq" ]]; then
-            desktop_release=true
-          else
-            desktop_release=false
-          fi
-
           {
-            echo "desktop_release=$desktop_release"
+            echo "desktop_release=true"
             echo "release_version=$version"
           } >> "$GITHUB_OUTPUT"
 
