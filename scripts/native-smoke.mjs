@@ -33,11 +33,44 @@ function commandAvailable(command, args = ["--version"]) {
   return !result.error && result.status === 0;
 }
 
+function ensureLinuxDesktopDependencies() {
+  if (process.platform !== "linux" || process.env.CI !== "true") return;
+
+  const requiredPackages = [
+    ["glib-2.0", "libwebkit2gtk-4.1-dev"],
+    ["gtk+-3.0", "libwebkit2gtk-4.1-dev"],
+    ["webkit2gtk-4.1", "libwebkit2gtk-4.1-dev"],
+    ["javascriptcoregtk-4.1", "libwebkit2gtk-4.1-dev"],
+    ["librsvg-2.0", "librsvg2-dev"],
+  ];
+  const missingPackages = requiredPackages
+    .filter(([pkgConfigName]) => !commandAvailable("pkg-config", ["--exists", pkgConfigName]))
+    .map(([, aptPackage]) => aptPackage)
+    .filter((packageName, index, packages) => packages.indexOf(packageName) === index);
+
+  if (missingPackages.length === 0) return;
+  if (!commandAvailable("sudo", ["-n", "true"])) {
+    throw new Error(
+      `Linux desktop dependencies are missing (${missingPackages.join(", ")}) and passwordless sudo is unavailable`,
+    );
+  }
+
+  run("install Linux desktop dependencies", "sudo", ["apt-get", "update"], repoRoot, 300_000);
+  run(
+    "install Linux desktop dependencies",
+    "sudo",
+    ["apt-get", "install", "-y", ...missingPackages, "libayatana-appindicator3-dev", "patchelf"],
+    repoRoot,
+    300_000,
+  );
+}
+
 const desktopRoot = resolve(repoRoot, "apps/desktop");
 const desktopRustRoot = resolve(desktopRoot, "src-tauri");
 const mobileRoot = resolve(repoRoot, "apps/mobile");
 
 run("desktop TypeScript smoke", bun, ["run", "typecheck"], desktopRoot);
+ensureLinuxDesktopDependencies();
 run(
   "desktop Tauri/Rust smoke",
   "cargo",

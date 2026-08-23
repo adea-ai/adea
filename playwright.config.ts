@@ -23,7 +23,7 @@ export default defineConfig({
   webServer: process.env.PERF_BASE_URL
     ? undefined
     : {
-        command: "bun run dev",
+        command: "cd apps/web && bun run dev",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
