@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Minimal default permissions for the Agent HQ desktop shell",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "updater:default"]
 }
