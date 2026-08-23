@@ -3,6 +3,8 @@ CHANGELOG.md
 
 # Runtime files are checked out under .github during CI.
 .github/.code-foundry
+# Code Foundry copies its runtime actions here for each validation job.
+.github/actions
 
 # Project-scoped skills are vendored guidance and retain their upstream format.
 .agents
