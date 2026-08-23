@@ -6,11 +6,11 @@ import { resolve } from "node:path";
 const repoRoot = resolve(import.meta.dirname, "..");
 const bun = process.execPath;
 
-function run(label, command, args, cwd, timeoutMs = 180_000) {
+function run(label, command, args, cwd, timeoutMs = 180_000, env = process.env) {
   console.log(`\n[native-smoke] ${label}`);
   const result = spawnSync(command, args, {
     cwd,
-    env: process.env,
+    env,
     stdio: "inherit",
     timeout: timeoutMs,
   });
@@ -23,6 +23,20 @@ function run(label, command, args, cwd, timeoutMs = 180_000) {
   if (result.status !== 0) {
     throw new Error(`${label} failed with exit code ${result.status ?? "unknown"}`);
   }
+}
+
+function androidEnvironment() {
+  const java21Home = process.env.JAVA_HOME_21_X64;
+  if (!java21Home || !existsSync(resolve(java21Home, "bin", "javac"))) {
+    return process.env;
+  }
+
+  console.log(`[native-smoke] using Android JDK 21 at ${java21Home}`);
+  return {
+    ...process.env,
+    JAVA_HOME: java21Home,
+    PATH: `${resolve(java21Home, "bin")}:${process.env.PATH ?? ""}`,
+  };
 }
 
 function commandAvailable(command, args = ["--version"]) {
@@ -119,6 +133,8 @@ if (platformChecks[0].available && platformChecks[0].toolchainAvailable) {
     process.platform === "win32" ? "gradlew.bat" : "./gradlew",
     ["--no-daemon", "assembleDebug"],
     androidRoot,
+    180_000,
+    androidEnvironment(),
   );
 }
 
