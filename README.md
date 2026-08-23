@@ -37,6 +37,12 @@ The asset sync step copies the HQ scene foundations and the domain asset
 packages—interior, landscape, pets, and characters—into the ignored Next
 public-assets directory.
 
+## Architecture references
+
+- [`docs/architecture/diagram-sources.md`](docs/architecture/diagram-sources.md) contains the version-controlled Mermaid definitions for Agent HQ-owned product, architecture, data, trust, runtime, Artifact, and event diagrams.
+- [`.github/labels.yml`](.github/labels.yml) defines the shared issue-label taxonomy without installing a synchronization workflow.
+- Canonical product requirements, TDDs, specifications, ADRs, roadmap decisions, and terminology remain in the Agent HQ Google Docs corpus.
+
 ## Runtime and asset performance
 
 Scene field catalogs use `InstancedMesh` for repeated foliage and props, and
