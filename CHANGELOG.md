@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.4](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.3...v0.3.4) (2026-08-23)
+
+
+### Bug Fixes
+
+* **release:** publish private repo desktop updates ([#104](https://github.com/0xPlayerOne/agent-hq/issues/104)) ([1edc2b1](https://github.com/0xPlayerOne/agent-hq/commit/1edc2b129cb0d9117a3196a80f66eac638c9e7f2))
+
 ## [0.3.3](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.2...v0.3.3) (2026-08-23)
 
 
