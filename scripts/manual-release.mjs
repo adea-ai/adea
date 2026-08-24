@@ -21,11 +21,12 @@ function quote(value) {
   return /^[A-Za-z0-9_./:=@-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
-function run(command, args, { capture = false, displayArgs = args } = {}) {
+function run(command, args, { capture = false, displayArgs = args, env = process.env } = {}) {
   if (!capture) console.log(`\n$ ${[command, ...displayArgs].map(quote).join(" ")}`);
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
+    env,
     stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
   });
   if (result.error) throw result.error;
@@ -154,7 +155,9 @@ function main() {
     );
   }
   const releasePullRequest = releasePullRequests[0];
-  run("npx", ["code-foundry", "release", "validate-prs"]);
+  run("npx", ["code-foundry", "release", "validate-prs"], {
+    env: { ...process.env, GITHUB_REPOSITORY: repository },
+  });
   if (releasePullRequest.isDraft) {
     run("gh", ["pr", "ready", String(releasePullRequest.number)]);
   }
