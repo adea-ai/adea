@@ -23,6 +23,7 @@ const macRunnerPid = join(stateRoot, "macos-arm64.pid");
 const macRunnerLog = join(stateRoot, "macos-arm64.log");
 const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
 const linuxContainer = "agent-hq-release-runner-linux-x64";
+const linuxCargoTargetVolume = "agent-hq-release-linux-cargo-target";
 const safeHost = hostname()
   .toLowerCase()
   .replace(/[^a-z0-9-]+/g, "-");
@@ -221,6 +222,8 @@ function startLinuxRunner() {
     "linux/amd64",
     "--name",
     linuxContainer,
+    "--mount",
+    `type=volume,source=${linuxCargoTargetVolume},target=/home/runner/cache/cargo-target`,
     "--env",
     `RUNNER_NAME=${linuxRunnerName}`,
     "--env",
