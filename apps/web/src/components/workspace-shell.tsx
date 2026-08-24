@@ -125,93 +125,95 @@ export function WorkspaceShell({
   };
 
   return (
-    <main className="workspace-shell">
-      <Profiler id="hq-room-scene" onRender={recordReactCommit}>
-        <HqRoomScene
-          key={sceneId}
-          initialCharacter={initialCharacter}
-          manifest={scene.manifest}
-          startPosition={startPosition}
-          cameraViewMode={activeCameraViewMode}
-          onCameraViewModeChange={setCameraViewMode}
-          accountTargetId="workspace-account-slot"
-          cameraTargetId="workspace-camera-slot"
-          roomDesignerTargetId="workspace-scene-tools-slot"
-          sceneEditorTargetId="workspace-scene-tools-slot"
-        />
-      </Profiler>
+    <main className={`workspace-shell${desktopRuntime ? " workspace-shell--desktop" : ""}`}>
+      <div className="workspace-scene-viewport">
+        <Profiler id="hq-room-scene" onRender={recordReactCommit}>
+          <HqRoomScene
+            key={sceneId}
+            initialCharacter={initialCharacter}
+            manifest={scene.manifest}
+            startPosition={startPosition}
+            cameraViewMode={activeCameraViewMode}
+            onCameraViewModeChange={setCameraViewMode}
+            accountTargetId="workspace-account-slot"
+            cameraTargetId="workspace-camera-slot"
+            roomDesignerTargetId="workspace-scene-tools-slot"
+            sceneEditorTargetId="workspace-scene-tools-slot"
+          />
+        </Profiler>
 
-      <div className="workspace-ui" aria-label="Agent HQ workspace controls">
-        <header className="workspace-topbar">
-          <div className="workspace-topbar__main">
-            <div className="workspace-brand">
-              <div className="workspace-brand__mark" aria-hidden="true">
-                <span>HQ</span>
+        <div className="workspace-ui" aria-label="Agent HQ workspace controls">
+          <header className="workspace-topbar">
+            <div className="workspace-topbar__main">
+              <div className="workspace-brand">
+                <div className="workspace-brand__mark" aria-hidden="true">
+                  <span>HQ</span>
+                </div>
+                <div>
+                  <p className="workspace-eyebrow">AGENT OPERATIONS</p>
+                  <h1>Agent HQ</h1>
+                </div>
               </div>
-              <div>
-                <p className="workspace-eyebrow">AGENT OPERATIONS</p>
-                <h1>Agent HQ</h1>
+
+              <div className="workspace-topbar__actions">
+                <ThemeToggle className="workspace-theme-toggle" />
+                <div className="workspace-music-toggle" aria-label="Music controls">
+                  <MusicToggle />
+                </div>
+                <div id="workspace-account-slot" className="workspace-account-slot" />
               </div>
             </div>
-
-            <div className="workspace-topbar__actions">
-              <ThemeToggle className="workspace-theme-toggle" />
-              <div className="workspace-music-toggle" aria-label="Music controls">
-                <MusicToggle />
-              </div>
-              <div id="workspace-account-slot" className="workspace-account-slot" />
+            <div className="workspace-topbar__secondary">
+              <nav className="workspace-scene-nav" aria-label="HQ spaces">
+                {sceneOptions.map((option) => {
+                  const Icon = option.icon;
+                  const isSelected = option.id === sceneId;
+                  return (
+                    <Button
+                      key={option.id}
+                      type="button"
+                      className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
+                      aria-pressed={isSelected}
+                      variant={isSelected ? "secondary" : "ghost"}
+                      size="sm"
+                      onClick={() => selectScene(option.id)}
+                    >
+                      <Icon size={14} aria-hidden="true" />
+                      {option.label}
+                    </Button>
+                  );
+                })}
+              </nav>
             </div>
-          </div>
-          <div className="workspace-topbar__secondary">
-            <nav className="workspace-scene-nav" aria-label="HQ spaces">
-              {sceneOptions.map((option) => {
-                const Icon = option.icon;
-                const isSelected = option.id === sceneId;
-                return (
-                  <Button
-                    key={option.id}
-                    type="button"
-                    className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
-                    aria-pressed={isSelected}
-                    variant={isSelected ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={() => selectScene(option.id)}
-                  >
-                    <Icon size={14} aria-hidden="true" />
-                    {option.label}
-                  </Button>
-                );
-              })}
-            </nav>
-          </div>
-        </header>
+          </header>
 
-        <div
-          id="workspace-scene-tools-slot"
-          className="workspace-scene-tools"
-          role="group"
-          aria-label="Scene tools"
-        />
+          <div
+            id="workspace-scene-tools-slot"
+            className="workspace-scene-tools"
+            role="group"
+            aria-label="Scene tools"
+          />
 
-        <div className="workspace-view-switcher" aria-label="Camera view">
-          <div id="workspace-camera-slot" className="workspace-tool-slot" />
+          <div className="workspace-view-switcher" aria-label="Camera view">
+            <div id="workspace-camera-slot" className="workspace-tool-slot" />
+          </div>
+
+          <p className="workspace-scene-caption">
+            <span className="workspace-scene-caption__dot" aria-hidden="true" />
+            {scene.label} scene · Drag to orbit · Zoom controls
+          </p>
         </div>
-
-        <p className="workspace-scene-caption">
-          <span className="workspace-scene-caption__dot" aria-hidden="true" />
-          {scene.label} scene · Drag to orbit · Zoom controls
-        </p>
-
-        {desktopRuntime ? (
-          <footer className="workspace-statusbar" aria-label="Agent HQ status bar">
-            <div className="workspace-statusbar__meta" role="status" aria-live="polite">
-              <span className="workspace-status__dot" aria-hidden="true" />
-              <span>{workspaceStatus}</span>
-            </div>
-            <VersionDialog />
-          </footer>
-        ) : null}
       </div>
+
+      {desktopRuntime ? (
+        <footer className="workspace-statusbar" aria-label="Agent HQ status bar">
+          <div className="workspace-statusbar__meta" role="status" aria-live="polite">
+            <span className="workspace-status__dot" aria-hidden="true" />
+            <span>{workspaceStatus}</span>
+          </div>
+          <VersionDialog />
+        </footer>
+      ) : null}
     </main>
   );
 }

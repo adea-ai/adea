@@ -106,3 +106,74 @@ test("room designer loads compressed interior props", async ({ page }) => {
   expect(pageErrors).toEqual([]);
   expect(catalogWarnings).toEqual([]);
 });
+
+test("web layout does not reserve space for the desktop status bar", async ({ page }) => {
+  const response = await page.goto("/?scene=home&roomDesigner=0&camera=orthographic", {
+    waitUntil: "domcontentloaded",
+  });
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-agent-hq-on-screen-controls="true"]')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await expect(page.locator(".workspace-statusbar")).toHaveCount(0);
+  const bottomOffsets = await page.evaluate(() => ({
+    caption: Number.parseFloat(
+      getComputedStyle(document.querySelector<HTMLElement>(".workspace-scene-caption")!).bottom,
+    ),
+    controls: Number.parseFloat(
+      getComputedStyle(
+        document.querySelector<HTMLElement>('[data-agent-hq-on-screen-controls="true"]')!,
+      ).bottom,
+    ),
+    viewSwitcher: Number.parseFloat(
+      getComputedStyle(document.querySelector<HTMLElement>(".workspace-view-switcher")!).bottom,
+    ),
+  }));
+
+  expect(bottomOffsets.caption).toBeLessThanOrEqual(24);
+  expect(bottomOffsets.controls).toBeLessThanOrEqual(32);
+  expect(bottomOffsets.viewSwitcher).toBeLessThanOrEqual(24);
+});
+
+test("desktop status bar occupies its own row outside the scene viewport", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+  });
+  const response = await page.goto("/?scene=home&roomDesigner=0&camera=orthographic", {
+    waitUntil: "domcontentloaded",
+  });
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator(".workspace-statusbar")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("canvas")).toBeVisible({ timeout: 30_000 });
+
+  const layout = await page.evaluate(() => {
+    const viewport = document.querySelector<HTMLElement>(".workspace-scene-viewport")!;
+    const statusBar = document.querySelector<HTMLElement>(".workspace-statusbar")!;
+    const canvas = document.querySelector<HTMLCanvasElement>("canvas")!;
+    const controls = document.querySelector<HTMLElement>(
+      '[data-agent-hq-on-screen-controls="true"]',
+    )!;
+    const viewportRect = viewport.getBoundingClientRect();
+    const statusBarRect = statusBar.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    return {
+      canvasBottom: canvasRect.bottom,
+      canvasHeight: canvas.height,
+      controlsPosition: getComputedStyle(controls).position,
+      sameParent: viewport.parentElement === statusBar.parentElement,
+      statusBarTop: statusBarRect.top,
+      viewportBottom: viewportRect.bottom,
+      viewportHeight: viewportRect.height,
+      viewportNextIsStatusBar: viewport.nextElementSibling === statusBar,
+    };
+  });
+
+  expect(layout.sameParent).toBe(true);
+  expect(layout.viewportNextIsStatusBar).toBe(true);
+  expect(Math.abs(layout.viewportBottom - layout.statusBarTop)).toBeLessThanOrEqual(1);
+  expect(layout.canvasBottom).toBeLessThanOrEqual(layout.viewportBottom + 1);
+  expect(Math.abs(layout.canvasHeight - layout.viewportHeight)).toBeLessThanOrEqual(2);
+  expect(layout.controlsPosition).toBe("absolute");
+});
