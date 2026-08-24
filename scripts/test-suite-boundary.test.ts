@@ -86,6 +86,12 @@ describe("test suite boundaries", () => {
     const extraFiles = new Set(
       releaseConfig["extra-files"].map((entry: { path: string }) => entry.path),
     );
+    const tauriConfig = JSON.parse(
+      readFileSync(resolve(root, "apps/desktop/src-tauri/tauri.conf.json"), "utf8"),
+    );
+
+    expect(tauriConfig.version).toBe("../package.json");
+    expect(extraFiles.has("apps/desktop/src-tauri/tauri.conf.json")).toBeFalse();
 
     for (const workspaceGroup of ["apps", "packages", "scenes"]) {
       for (const workspace of readdirSync(resolve(root, workspaceGroup))) {
