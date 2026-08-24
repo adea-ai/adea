@@ -161,7 +161,7 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ env.RELEASE_TAG }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
-          tauriScript: bun tauri
+          tauriScript: bun scripts/tauri.mjs
           args: ${{ matrix.args }}
 
   publish-release-notes:

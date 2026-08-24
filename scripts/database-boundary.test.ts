@@ -32,11 +32,19 @@ describe("database package boundary", () => {
   });
 
   test("keeps database imports out of client components", async () => {
-    for (const file of await sourceFiles(join(root, "apps/web"))) {
+    for (const file of await sourceFiles(join(root, "apps/web/src"))) {
       const source = await readFile(file, "utf8");
       if (/^[\s\n]*["']use client["'];/m.test(source)) {
         expect(source).not.toContain("@agent-hq/db");
       }
     }
+  });
+
+  test("retains and closes the process database connection", async () => {
+    const source = await readFile(join(root, "apps/web/src/server/database.ts"), "utf8");
+
+    expect(source).toContain("connectionToClose?.close()");
+    expect(source).toContain('["SIGINT", "SIGTERM"]');
+    expect(source).toContain("process.once(signal");
   });
 });

@@ -27,8 +27,29 @@ Development enables Neon's localhost setting.
 
 Neon accepts only HTTP(S) trusted domains. Desktop OAuth therefore returns to the stable HTTPS web
 callback, which verifies state and nonce before handing off to the allowlisted
-`agent-hq://auth/callback` URI. M1.5 owns that broker and native protocol registration. A provider
-must never redirect directly to an unregistered custom scheme.
+`agent-hq://auth/callback` URI. The desktop shell registers that exact scheme, opens only the fixed
+cloud authorization endpoint in the system browser, and rejects custom-scheme callbacks containing
+tokens or session credentials. A provider must never redirect directly to an unregistered custom
+scheme.
+
+`createDesktopAuthorizationAttempt()` creates the five-minute state, nonce, and S256 PKCE binding in
+the packaged client. `createDesktopAuthorizationCodeBroker()` stores only a digest of the one-time
+code and requires its store to consume the record atomically. Exchange validates the exact redirect,
+nonce, expiry, and PKCE verifier before issuing an opaque desktop user session. The custom callback
+contains only `code`, `state`, and `nonce`; access, refresh, provider-session, and application-session
+credentials are forbidden in URLs.
+
+The web application exposes separate `authorize`, `exchange`, `refresh`, `logout`, and `revoke`
+handlers under `/api/auth/desktop`. Authorization requires a valid Neon browser session and an
+existing stable Agent HQ user mapping. Exchange and lifecycle requests accept only exact packaged
+Tauri origins (plus the explicit local Vite origin in development), use no-store responses, and
+carry opaque user credentials in request headers or bodies rather than URLs. PostgreSQL stores only
+SHA-256 digests for authorization codes and desktop credentials. Code consumption and credential
+rotation are atomic.
+
+Desktop releases package local Vite/React assets. Tauri capabilities omit `remote`, so remote web
+content receives no updater, deep-link, filesystem, process, or other native command permission.
+Server modules and Neon Auth SDK code are excluded from the client dependency graph.
 
 ## Session security
 
@@ -55,6 +76,14 @@ provider-neutral types from `@agent-hq/auth`; no other package may import `@neon
 Refresh bypasses Neon Auth's signed session-data cache. Logout clears the current provider session.
 Explicit revocation accepts the normalized session ID, resolves the provider token inside the
 driver, and never exposes that token through the application interface.
+
+The desktop session lifecycle is online-first for MVP. On restart, the platform session vault is
+loaded and the broker refreshes the user session before cloud authorization proceeds. A network
+failure is reported as an explicit offline state; invalid, expired, or revoked sessions are cleared.
+Logout and user-session revocation clear only the user session vault. RuntimeNode device credentials
+use a separate vault and lifecycle and are never reused as user credentials or implicitly unpaired.
+The packaged shell implements the user-session vault with the operating system credential store;
+provider cookies and RuntimeNode device credentials are never copied into it.
 
 ## Provider migration
 
