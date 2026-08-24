@@ -66,6 +66,8 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("--bundles nsis");
     expect(workflow).toContain("bun scripts/release-notes.mjs");
     expect(workflow).toContain("bun run --cwd packages/types build");
+    expect(workflow).toContain("timeout_minutes: 75");
+    expect(workflow).toContain("timeout-minutes: ${{ matrix.timeout_minutes }}");
     expect(workflow).toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("name: github-pages");
     expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");

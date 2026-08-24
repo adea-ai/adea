@@ -83,20 +83,23 @@ jobs:
             args: --target aarch64-apple-darwin
             self_hosted_args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
+            timeout_minutes: 45
           - runner: ubuntu-24.04
             self_hosted_runner: '["self-hosted","agent-hq-release-linux-x64"]'
             platform: Linux x64
             args: ""
             self_hosted_args: ""
             target: x86_64-unknown-linux-gnu
+            timeout_minutes: 75
           - runner: windows-latest
             self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
             platform: Windows x64
             args: ""
             self_hosted_args: --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
             target: x86_64-pc-windows-msvc
+            timeout_minutes: 45
     runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_runner || format('"{0}"', matrix.runner)) }}
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.timeout_minutes }}
     permissions:
       contents: write
     env:
