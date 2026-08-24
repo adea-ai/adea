@@ -48,6 +48,7 @@ describe("test suite boundaries", () => {
     const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
     expect(manualRelease).toContain('runReleasePlease("release-pr"');
     expect(manualRelease).toContain('runReleasePlease("github-release"');
+    expect(manualRelease).toContain("GITHUB_REPOSITORY: repository");
     expect(manualRelease).not.toContain('"workflow", "run"');
     expect(manualRelease).not.toContain('"run", "watch"');
   });
