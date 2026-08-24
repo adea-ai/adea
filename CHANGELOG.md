@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.0...v0.6.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* **release:** support transient local builders ([#125](https://github.com/0xPlayerOne/agent-hq/issues/125)) ([963cb11](https://github.com/0xPlayerOne/agent-hq/commit/963cb112d545601971b819e8aa18e428fd44230f))
+
+
+### Maintenance
+
+* **release:** shorten manual command ([#124](https://github.com/0xPlayerOne/agent-hq/issues/124)) ([295b5c0](https://github.com/0xPlayerOne/agent-hq/commit/295b5c0919cf246d064668baca60efe0ce79d9c1))
+
 ## [0.6.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.5.0...v0.6.0) (2026-08-24)
 
 
