@@ -143,8 +143,7 @@ jobs:
           node scripts/database-health.mjs
           bun run --cwd packages/db db:check
           bun run --cwd packages/db db:verify
-          bun run --cwd packages/db test:integration
-          bun run --cwd packages/auth test:integration
+          bun run test:integration
 
   delete_neon_branch:
     name: Delete Neon Branch
