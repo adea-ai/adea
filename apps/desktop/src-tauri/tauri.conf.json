@@ -32,9 +32,7 @@
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": [
-          "agent-hq"
-        ]
+        "schemes": ["agent-hq"]
       }
     },
     "updater": {

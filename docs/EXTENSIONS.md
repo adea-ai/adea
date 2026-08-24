@@ -34,7 +34,8 @@ the active branch ruleset. Pull-request, review, deletion, and non-fast-forward
 protections stay active. `resume` restores the exact gate before setting the
 flag to `false`.
 
-Every Agent HQ root workflow job, including the repository-owned Neon and
-desktop-release workflows, honors this flag. Pull-request Neon branches already
+Every Agent HQ root workflow job honors this flag. Validation and Neon jobs
+pause; the repository-owned desktop release instead routes to transient local
+self-hosted runners started by `bun release`. Pull-request Neon branches already
 have a 14-day expiration, so a skipped close-event cleanup remains bounded while
 CI is paused.

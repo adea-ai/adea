@@ -113,6 +113,11 @@
     },
     {
       "type": "json",
+      "path": "packages/db/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "packages/interior/package.json",
       "jsonpath": "$.version"
     },
