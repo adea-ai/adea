@@ -22,6 +22,7 @@
     "lint": "turbo run lint",
     "test": "turbo run test && bun test scripts/*.test.ts",
     "typecheck": "turbo run typecheck",
+    "db:health": "node scripts/database-health.mjs",
     "perf:check": "bun scripts/performance-budgets.mjs --build --assets && bun run assets:check",
     "perf:check:runtime": "bun scripts/performance-budgets.mjs --runtime .artifacts/scene-performance.json",
     "perf:browser": "playwright test --config=playwright.config.ts --grep \"home scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"work scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"room designer loads compressed interior props\"",
