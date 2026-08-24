@@ -49,6 +49,10 @@ function succeeds(command, args) {
   return spawnSync(command, args, { cwd: root, stdio: "ignore" }).status === 0;
 }
 
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
 function registrationToken() {
   return run(
     "gh",
@@ -90,6 +94,26 @@ function runnerId(name) {
     ],
     { capture: true },
   );
+}
+
+function deleteRunnerRegistration(name) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const id = runnerId(name);
+    if (!id) return;
+    const result = spawnSync(
+      "gh",
+      ["api", "--method", "DELETE", `repos/${repository}/actions/runners/${id}`],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    if (result.error) throw result.error;
+    if (result.status === 0) return;
+    const detail = (result.stderr || result.stdout).trim();
+    if (!detail.includes("currently running a job")) {
+      throw new Error(`Could not delete runner ${name}: ${detail}`);
+    }
+    sleep(1_000);
+  }
+  throw new Error(`Timed out deleting the busy runner registration ${name}.`);
 }
 
 function waitForRunner(name) {
@@ -229,12 +253,14 @@ function start() {
 }
 
 function stop() {
+  let cleanupError;
   if (succeeds("docker", ["container", "inspect", linuxContainer])) {
     run("docker", ["stop", "--timeout", "5", linuxContainer]);
   }
-  const linuxId = runnerId(linuxRunnerName);
-  if (linuxId) {
-    run("gh", ["api", "--method", "DELETE", `repos/${repository}/actions/runners/${linuxId}`]);
+  try {
+    deleteRunnerRegistration(linuxRunnerName);
+  } catch (error) {
+    cleanupError = error;
   }
   if (existsSync(macRunnerPid)) {
     const pid = Number(readFileSync(macRunnerPid, "utf8"));
@@ -251,6 +277,7 @@ function stop() {
     }
     unlinkSync(macRunnerPid);
   }
+  if (cleanupError) throw cleanupError;
   console.log("Local Agent HQ release runners are stopped.");
 }
 
