@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.2...v0.6.3) (2026-08-24)
+
+
+### Bug Fixes
+
+* **release:** tolerate transient monitor failures ([#134](https://github.com/0xPlayerOne/agent-hq/issues/134)) ([e01f480](https://github.com/0xPlayerOne/agent-hq/commit/e01f48011f95a5381d027e6f99e02a7c6d476174))
+
 ## [0.6.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.1...v0.6.2) (2026-08-24)
 
 
