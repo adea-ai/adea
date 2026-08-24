@@ -17,3 +17,24 @@ Set `custom_workflows: preserve` in `.github/code-foundry.yml` (the default). Co
 Use `post_release`, `post_release_workflow`, and `post_release_mode` for a post-release artifact workflow. The hook receives `release-tag` and `delivery-key` inputs and is dispatched at most once per tag when a release token is available.
 
 Keep deployment credentials, environment files, and project-specific secrets in the repository or organization configuration. Code Foundry never copies secret values or overwrites custom workflows in overlay mode.
+
+## CI billing pause
+
+Use the Code Foundry control when GitHub-hosted runner billing is unavailable:
+
+```bash
+npx code-foundry ci pause
+npx code-foundry ci status
+npx code-foundry ci resume
+```
+
+`pause` sets the repository variable `CI_BILLING_PAUSED=true`, cancels queued
+or active workflow runs, and backs up and removes only `Validation / Gate` from
+the active branch ruleset. Pull-request, review, deletion, and non-fast-forward
+protections stay active. `resume` restores the exact gate before setting the
+flag to `false`.
+
+Every Agent HQ root workflow job, including the repository-owned Neon and
+desktop-release workflows, honors this flag. Pull-request Neon branches already
+have a 14-day expiration, so a skipped close-event cleanup remains bounded while
+CI is paused.
