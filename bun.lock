@@ -111,6 +111,7 @@
       "name": "@agent-hq/auth",
       "version": "0.3.4",
       "dependencies": {
+        "@agent-hq/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
         "server-only": "^0.0.1",
       },
@@ -152,6 +153,7 @@
       "name": "@agent-hq/db",
       "version": "0.3.4",
       "dependencies": {
+        "@agent-hq/types": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "postgres": "^3.4.7",
         "server-only": "^0.0.1",

@@ -24,6 +24,11 @@ Use `inTransaction()` for a domain mutation that must atomically append a `Works
 outbox/inbox record. Pass the transaction object through repository helpers; never fall back to a
 process-global connection inside a transaction.
 
+`createUserWithAuthIdentity()` creates the stable `User` and provider identity in one transaction.
+Resolve sessions with `findUserPrincipalsByAuthIdentity()` and pass only the returned user
+`PrincipalRef` into authorization code. Provider subjects are authentication keys, never domain
+user IDs or workspace foreign keys.
+
 ## Migration workflow
 
 1. Change the domain schema and add or update tests.
