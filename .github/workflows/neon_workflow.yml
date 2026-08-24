@@ -54,6 +54,7 @@ jobs:
           database: neondb
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ env.EXPIRES_AT }}
+          get_auth_url: true
 
       - name: Checkout pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,6 +124,19 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Verify isolated Neon Auth endpoint
+        env:
+          NEON_AUTH_BASE_URL: ${{ steps.create_neon_branch.outputs.auth_url }}
+        run: |
+          node <<'NODE'
+          const url = process.env.NEON_AUTH_BASE_URL;
+          if (!url) throw new Error("The preview branch did not expose a Neon Auth URL");
+          const response = await fetch(`${url}/.well-known/jwks.json`);
+          if (!response.ok) throw new Error(`Neon Auth JWKS returned ${response.status}`);
+          const body = await response.json();
+          if (!Array.isArray(body.keys)) throw new Error("Neon Auth JWKS is malformed");
+          NODE
 
       - name: Verify migrations and transactions
         run: |
