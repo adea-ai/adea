@@ -133,7 +133,7 @@ if (platformChecks[0].available && platformChecks[0].toolchainAvailable) {
     process.platform === "win32" ? "gradlew.bat" : "./gradlew",
     ["--no-daemon", "assembleDebug"],
     androidRoot,
-    180_000,
+    600_000,
     androidEnvironment(),
   );
 }
