@@ -28,7 +28,7 @@ jobs:
         uses: tj-actions/branch-names@dde14ac574a8b9b1cedc59a1cf312788af43d8d8 # v8.2.1
 
   create_neon_branch:
-    name: Verify Neon Branch
+    name: Migrate Neon Branch
     needs: setup
     if: >-
       github.event.action == 'opened' ||
@@ -57,6 +57,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
 
       - name: Build restricted database URLs
         env:
@@ -114,21 +119,15 @@ jobs:
           );
           NODE
 
-      - name: Verify database connectivity and role isolation
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify migrations and transactions
         run: |
           node scripts/database-health.mjs
-          psql "$DATABASE_MIGRATION_URL" -v ON_ERROR_STOP=1 <<'SQL'
-          CREATE TABLE IF NOT EXISTS app.ci_database_probe (
-            id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-            value text NOT NULL
-          );
-          GRANT SELECT, INSERT, UPDATE, DELETE ON app.ci_database_probe TO agent_hq_dev_app;
-          GRANT USAGE, SELECT ON SEQUENCE app.ci_database_probe_id_seq TO agent_hq_dev_app;
-          SQL
-          psql "$DATABASE_URL_UNPOOLED" -v ON_ERROR_STOP=1 <<'SQL'
-          INSERT INTO app.ci_database_probe (value) VALUES ('isolated-preview');
-          SELECT value FROM app.ci_database_probe WHERE value = 'isolated-preview';
-          SQL
+          bun run --cwd packages/db db:check
+          bun run --cwd packages/db db:verify
+          bun run --cwd packages/db test:integration
 
   delete_neon_branch:
     name: Delete Neon Branch
