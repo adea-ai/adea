@@ -71,16 +71,33 @@ bun run format:check
 bun run lint
 bun run typecheck
 bun run test
+bun run test:integration
+bun run test:smoke
 bun run build
 
 # Browser/runtime gate (starts the dev app automatically when PERF_BASE_URL is unset)
 PERF_BASE_URL=http://localhost:4304 bun run perf:gate
 ```
 
-`bun run build` includes the static route/asset budgets, desktop Tauri checks,
-Capacitor sync, and Android `assembleDebug` plus unsigned iOS device-SDK
-compiler smoke. `bun run perf:gate` additionally runs the Chromium scene probe
-and writes `.artifacts/scene-performance.json`; the runtime gate rejects missing
+Code Foundry runs `test:unit`, `test:integration`, `test:e2e`, and `test:smoke`
+as independent jobs so the categories can execute in parallel. Package unit
+tests also fan out through Turborepo. Browser performance tests intentionally
+remain serial because concurrent WebGL probes would make the performance gate
+nondeterministic.
+
+`bun run test:unit` includes an 80% line-and-function coverage gate for the
+durable authentication, persistence, and repository-boundary code exercised by
+`packages/auth/tests/unit`, `packages/db/tests/unit`, and `scripts/*.test.ts`.
+It writes an ignored LCOV report to `coverage/lcov.info`. The integration entry
+point always runs provider-neutral tests; PostgreSQL cases skip locally when
+`DATABASE_URL` is absent and run against the isolated preview database in the
+Neon workflow.
+
+`bun run build` includes the static route and asset budgets. Native desktop,
+Capacitor, Android `assembleDebug`, and unsigned iOS device-SDK compiler checks
+live in the separate `bun run test:smoke` category. `bun run perf:gate`
+additionally runs the Chromium scene probe and writes
+`.artifacts/scene-performance.json`; the runtime gate rejects missing
 load/runtime reports, scene errors, oversized transfers, and slow frames.
 Native compiler checks skip platforms whose toolchains are unavailable on the
 current host; set `NATIVE_SMOKE_STRICT=1` in a platform-specific CI job to make
