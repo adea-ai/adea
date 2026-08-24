@@ -20,6 +20,7 @@ RUN curl --fail --silent --show-error --location \
 
 USER runner
 ENV PATH="/home/runner/.cargo/bin:${PATH}"
+ENV CARGO_BUILD_JOBS=2
 RUN curl --proto '=https' --tlsv1.2 --silent --show-error https://sh.rustup.rs \
   | sh -s -- -y --profile minimal --default-toolchain stable
 
