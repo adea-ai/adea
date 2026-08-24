@@ -14,6 +14,9 @@ describe("test suite boundaries", () => {
     expect(packageJson.scripts["test:unit"]).toContain("bun run test:coverage");
     expect(packageJson.scripts["test:integration"]).toBe("bun test packages/*/tests/integration");
     expect(packageJson.scripts["test:e2e"]).toContain("playwright");
+    const playwrightConfig = readFileSync(resolve(root, "playwright.config.ts"), "utf8");
+    expect(playwrightConfig).toContain('"--use-angle=metal"');
+    expect(playwrightConfig).toContain('headless: process.platform !== "darwin"');
     expect(packageJson.scripts["test:smoke"]).toBe("bun run native:smoke");
     expect(packageJson.scripts.release).toBe("bun scripts/manual-release.mjs");
     expect(packageJson.scripts["release:manual"]).toBeUndefined();
