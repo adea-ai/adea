@@ -69,6 +69,12 @@ describe("test suite boundaries", () => {
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
     expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
     expect(runnerScript).not.toContain('"Application Support"');
+
+    const linuxRunner = readFileSync(
+      resolve(root, ".github/release-runner/linux-x64/Dockerfile"),
+      "utf8",
+    );
+    expect(linuxRunner).toContain("sudo unzip xz-utils");
   });
 
   test("does not report a release before its desktop assets finish", () => {

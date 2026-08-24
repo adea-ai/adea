@@ -4,7 +4,7 @@ ARG RUNNER_VERSION=2.336.0
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential ca-certificates curl git jq libayatana-appindicator3-dev \
-    librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev patchelf pkg-config sudo xz-utils \
+    librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev patchelf pkg-config sudo unzip xz-utils \
   && useradd --create-home --shell /bin/bash runner \
   && echo 'runner ALL=(ALL) NOPASSWD:ALL' >/etc/sudoers.d/runner
 
