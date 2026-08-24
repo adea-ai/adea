@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.1...v0.6.2) (2026-08-24)
+
+
+### Bug Fixes
+
+* **release:** derive desktop version from package ([#128](https://github.com/0xPlayerOne/agent-hq/issues/128)) ([91cde97](https://github.com/0xPlayerOne/agent-hq/commit/91cde971ba0bb8d341bee38ed608aefc76bb498b))
+* **release:** harden local runner bootstrap ([#127](https://github.com/0xPlayerOne/agent-hq/issues/127)) ([f634500](https://github.com/0xPlayerOne/agent-hq/commit/f634500d38538423d2c0794c799800cc1e519348))
+* **release:** keep desktop lockfile versioned ([#132](https://github.com/0xPlayerOne/agent-hq/issues/132)) ([4619800](https://github.com/0xPlayerOne/agent-hq/commit/4619800730651bfd4a423ed5e532c18414b01d98))
+
 ## [0.6.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.0...v0.6.1) (2026-08-24)
 
 
