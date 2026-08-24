@@ -27,6 +27,7 @@
     "test:integration": "bun test tests/integration"
   },
   "dependencies": {
+    "@agent-hq/types": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
     "server-only": "^0.0.1"
   }

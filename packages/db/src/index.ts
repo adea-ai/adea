@@ -7,5 +7,12 @@ export {
   type DatabaseConnection,
 } from "./connection";
 export { readDatabaseUrl, type DatabaseEnvironment } from "./config";
+export {
+  createUserWithAuthIdentity,
+  findUserPrincipalsByAuthIdentity,
+  revokeAuthIdentity,
+  type AuthIdentityKey,
+  type NewUserIdentity,
+} from "./identity";
 export * from "./schema";
 export { appendWorkspaceEvent, inTransaction } from "./transactions";
