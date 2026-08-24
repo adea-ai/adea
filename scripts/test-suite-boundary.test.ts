@@ -55,15 +55,20 @@ describe("test suite boundaries", () => {
 
   test("routes paused desktop releases to this machine's self-hosted runners", () => {
     const workflow = readFileSync(resolve(root, ".github/workflows/release-assets.yml"), "utf8");
+    const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
     expect(workflow).toContain("agent-hq-release-macos-arm64");
     expect(workflow).toContain("agent-hq-release-linux-x64");
     expect(workflow).toContain("cargo-xwin");
     expect(workflow).toContain("rustup target add x86_64-pc-windows-msvc");
     expect(workflow).toContain("--bundles nsis");
+    expect(workflow).toContain("bun scripts/release-notes.mjs");
+    expect(workflow).toContain("bun run --cwd packages/types build");
     expect(workflow).toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("name: github-pages");
     expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
+    expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
+    expect(runnerScript).not.toContain('"Application Support"');
   });
 
   test("does not report a release before its desktop assets finish", () => {

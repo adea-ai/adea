@@ -110,6 +110,12 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+          no-cache: true
+
       - name: Load release notes
         id: release_notes
         env:
@@ -120,7 +126,7 @@ jobs:
           delimiter="release-notes-${RANDOM}-${RANDOM}"
           {
             echo "body<<$delimiter"
-            node scripts/release-notes.mjs "$RELEASE_VERSION"
+            bun scripts/release-notes.mjs "$RELEASE_VERSION"
             echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
 
@@ -144,12 +150,6 @@ jobs:
           rustup target add x86_64-pc-windows-msvc
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.4.0
-          no-cache: true
-
       - name: Align desktop bundle version with release
         env:
           RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
@@ -157,7 +157,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${RELEASE_VERSION#v}"
-          node - "$version" <<'NODE'
+          bun - "$version" <<'NODE'
           const { readFileSync, writeFileSync } = require('node:fs')
           const path = 'apps/desktop/src-tauri/tauri.conf.json'
           const config = JSON.parse(readFileSync(path, 'utf8'))
@@ -167,6 +167,9 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Build desktop workspace dependencies
+        run: bun run --cwd packages/types build
 
       - name: Build and upload desktop bundle
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
