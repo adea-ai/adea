@@ -14,7 +14,10 @@ import { join, resolve } from "node:path";
 const repository = "0xPlayerOne/agent-hq";
 const runnerVersion = "2.336.0";
 const root = resolve(import.meta.dirname, "..");
-const stateRoot = join(homedir(), "Library", "Application Support", "Agent HQ", "release-runner");
+// The Actions runner prepends its bundled tools to PATH without shell-escaping the
+// installation directory. Keep the runner beneath a path with no spaces so every
+// workflow shell can start reliably.
+const stateRoot = join(homedir(), ".local", "share", "agent-hq", "release-runner");
 const macRunnerRoot = join(stateRoot, "macos-arm64");
 const macRunnerPid = join(stateRoot, "macos-arm64.pid");
 const macRunnerLog = join(stateRoot, "macos-arm64.log");
