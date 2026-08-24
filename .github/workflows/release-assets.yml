@@ -150,21 +150,6 @@ jobs:
           rustup target add x86_64-pc-windows-msvc
           echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
 
-      - name: Align desktop bundle version with release
-        env:
-          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          version="${RELEASE_VERSION#v}"
-          bun - "$version" <<'NODE'
-          const { readFileSync, writeFileSync } = require('node:fs')
-          const path = 'apps/desktop/src-tauri/tauri.conf.json'
-          const config = JSON.parse(readFileSync(path, 'utf8'))
-          config.version = process.argv[2]
-          writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`)
-          NODE
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
