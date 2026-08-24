@@ -63,11 +63,6 @@
     },
     {
       "type": "json",
-      "path": "apps/desktop/src-tauri/tauri.conf.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
       "path": "apps/mobile/package.json",
       "jsonpath": "$.version"
     },
