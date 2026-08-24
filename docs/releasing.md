@@ -30,10 +30,11 @@ making remote changes.
 
 When a release is needed, the command runs formatting, linting, type checks,
 unit coverage, integration, build, native smoke, and browser E2E locally. It
-then dispatches the billing-pause-aware Code Foundry release workflow, validates
-and rebase-merges the generated Release Please PR when one is required, and
-dispatches the second phase that publishes the tag and GitHub Release. Every
-remote merge is pinned to the inspected release-PR head commit.
+then runs the pinned Release Please CLI locally, validates and rebase-merges the
+generated version PR, and creates the tag and GitHub Release without depending
+on a hosted Actions runner. Every remote merge is pinned to the inspected
+release-PR head commit, and the GitHub token is obtained from authenticated
+`gh` storage without printing it.
 
 When a GitHub Release is published, `.github/workflows/release-assets.yml`
 builds the Tauri desktop shell concurrently for macOS ARM64, Linux x64, and
