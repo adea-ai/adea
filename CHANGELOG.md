@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.4...v0.4.0) (2026-08-24)
+
+
+### Features
+
+* **database:** provision Neon foundation ([#106](https://github.com/0xPlayerOne/agent-hq/issues/106)) ([54afc08](https://github.com/0xPlayerOne/agent-hq/commit/54afc08aafc8e22402f5b041506a698d2c29898b))
+
 ## [0.3.4](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.3...v0.3.4) (2026-08-23)
 
 
