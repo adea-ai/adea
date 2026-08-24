@@ -94,7 +94,7 @@ function refreshMain() {
 function main() {
   const args = new Set(process.argv.slice(2));
   if (args.has("--help")) {
-    console.log("Usage: bun run release:manual [--dry-run]");
+    console.log("Usage: bun release [--dry-run]");
     return;
   }
   for (const arg of args) {

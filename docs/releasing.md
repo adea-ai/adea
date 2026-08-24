@@ -19,13 +19,13 @@ Actions policy does not permit the workflow token to create PRs.
 Run the complete manual release from a clean, synchronized `main` checkout:
 
 ```sh
-bun run release:manual
+bun release
 ```
 
 The command fetches `origin/main` and release tags, compares commits after the
 latest GitHub Release, and exits successfully without running validation or
 dispatching a workflow when no release-producing conventional commit exists.
-Use `bun run release:manual --dry-run` to inspect the detected commits without
+Use `bun release --dry-run` to inspect the detected commits without
 making remote changes.
 
 When a release is needed, the command runs formatting, linting, type checks,
