@@ -14,6 +14,11 @@ manual readiness and merge. Feature PRs are likewise opened manually; the Code
 Foundry draft-PR caller is intentionally disabled because this repository's
 Actions policy does not permit the workflow token to create PRs.
 
+Agent HQ is versioned as one private, lockstep product. The root `CHANGELOG.md`
+is therefore the only canonical release history; workspace package versions
+are updated as extra files in the same Release Please change and do not carry
+duplicate package-level changelogs.
+
 ## Guarded manual release
 
 Run the complete manual release from a clean, synchronized `main` checkout:
@@ -24,7 +29,10 @@ bun release
 
 The command fetches `origin/main` and release tags, compares commits after the
 latest GitHub Release, and exits successfully without running validation or
-dispatching a workflow when no release-producing conventional commit exists.
+dispatching a workflow when no release-producing conventional commit exists
+and the latest release already has a complete updater channel. If the tag
+exists but its desktop assets or public updater manifest are incomplete, the
+same command repairs that release instead of creating an unnecessary version.
 Use `bun release --dry-run` to inspect the detected commits without
 making remote changes.
 
@@ -37,14 +45,27 @@ release-PR head commit, and the GitHub token is obtained from authenticated
 `gh` storage without printing it.
 
 When a GitHub Release is published, `.github/workflows/release-assets.yml`
-builds the Tauri desktop shell concurrently for macOS ARM64, Linux x64, and
-Windows x64. The workflow aligns the checked-out desktop bundle version with
-the release tag, caches each target independently, uploads the bundles to the
-release, and verifies that all three target lanes produced assets.
+builds the Tauri desktop shell for macOS ARM64, Linux x64, and Windows x64. The
+workflow aligns the checked-out desktop bundle version with the release tag,
+uploads the bundles to the release, publishes the signed updater files through
+the `desktop-updater-pages` environment, and verifies both the release assets
+and public manifest.
 
-Desktop signing is intentionally not enabled yet: no signing secrets are
-committed or assumed, and macOS uses an unsigned identity. Add the repository's
-Tauri signing secrets before treating these bundles as trusted updater assets.
+With hosted Actions available, all three targets use GitHub-hosted native
+runners and the Windows lane emits both MSI and NSIS installers. While
+`CI_BILLING_PAUSED=true`, `bun release` temporarily starts two free self-hosted
+runners on this Mac: a native macOS runner handles the macOS package, Windows
+NSIS cross-compilation, and control jobs; an ephemeral amd64 Docker container
+handles Linux. The runners stop after the release, so no Windows VM or
+always-running Parallels instance is required. WiX MSI generation remains
+native-Windows-only; the local fallback publishes the supported NSIS updater
+package instead.
+
+Tauri updater packages are signed using repository secrets and the public
+channel is rejected unless all three target entries contain signatures.
+Platform-native code signing and notarization remain separate follow-ups:
+macOS currently uses an ad-hoc identity and the local Windows fallback does not
+Authenticode-sign its NSIS installer.
 
 The mobile shells remain covered by the repository build and native smoke gate.
 Android and iOS store distribution should be added as a separate release lane

@@ -22,8 +22,7 @@ env:
 jobs:
   validate-release:
     name: Validate release
-    if: vars.CI_BILLING_PAUSED != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -73,24 +72,30 @@ jobs:
   desktop:
     name: Desktop / ${{ matrix.platform }}
     needs: validate-release
-    if: vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true'
+    if: needs.validate-release.outputs.desktop_release == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: macos-14
+            self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
             platform: macOS ARM64
             args: --target aarch64-apple-darwin
+            self_hosted_args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
           - runner: ubuntu-24.04
+            self_hosted_runner: '["self-hosted","agent-hq-release-linux-x64"]'
             platform: Linux x64
             args: ""
+            self_hosted_args: ""
             target: x86_64-unknown-linux-gnu
           - runner: windows-latest
+            self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
             platform: Windows x64
             args: ""
+            self_hosted_args: --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
             target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_runner || format('"{0}"', matrix.runner)) }}
     timeout-minutes: 45
     permissions:
       contents: write
@@ -129,6 +134,16 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      - name: Install Windows cross-compilation tools
+        if: vars.CI_BILLING_PAUSED == 'true' && matrix.platform == 'Windows x64'
+        run: |
+          set -euo pipefail
+          brew list llvm >/dev/null 2>&1 || brew install llvm
+          brew list nsis >/dev/null 2>&1 || brew install nsis
+          command -v cargo-xwin >/dev/null 2>&1 || cargo install --locked cargo-xwin@0.23.1
+          rustup target add x86_64-pc-windows-msvc
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -156,19 +171,19 @@ jobs:
       - name: Build and upload desktop bundle
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
-          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macOS ARM64' && '-' || '' }}
         with:
           projectPath: apps/desktop
           tagName: ${{ env.RELEASE_TAG }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
           tauriScript: bun scripts/tauri.mjs
-          args: ${{ matrix.args }}
+          args: ${{ vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_args || matrix.args }}
 
   publish-release-notes:
     name: Publish release notes
     needs: [validate-release, desktop]
-    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
-    runs-on: ubuntu-latest
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -193,15 +208,15 @@ jobs:
   publish-updater-channel:
     name: Publish desktop updater channel
     needs: [validate-release, desktop, publish-release-notes]
-    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
-    runs-on: ubuntu-latest
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 10
     permissions:
       contents: read
       pages: write
       id-token: write
     environment:
-      name: github-pages
+      name: desktop-updater-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout release
@@ -266,14 +281,20 @@ jobs:
             "https://0xplayerone.github.io/agent-hq/desktop-updates/latest.json" \
             --output "$manifest"
           jq -e --arg version "$RELEASE_VERSION" \
-            '.version == $version and ([.platforms[].url | startswith("https://0xplayerone.github.io/agent-hq/desktop-updates/")] | all)' \
+            '. as $manifest |
+              .version == $version and
+              (["darwin-aarch64", "linux-x86_64", "windows-x86_64"] | all(
+                . as $platform |
+                ($manifest.platforms[$platform].signature | type == "string" and length > 0) and
+                ($manifest.platforms[$platform].url | startswith("https://0xplayerone.github.io/agent-hq/desktop-updates/"))
+              ))' \
             "$manifest" >/dev/null
 
   verify-assets:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-release-notes, publish-updater-channel]
-    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
-    runs-on: ubuntu-latest
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 10
     permissions:
       contents: read

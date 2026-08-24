@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
@@ -45,12 +45,50 @@ describe("test suite boundaries", () => {
     expect(neonWorkflow).not.toContain("packages/auth test:integration");
   });
 
-  test("keeps the manual release path independent from hosted runners", () => {
+  test("keeps Release Please local while allowing the asset workflow to run anywhere", () => {
     const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
     expect(manualRelease).toContain('runReleasePlease("release-pr"');
     expect(manualRelease).toContain('runReleasePlease("github-release"');
     expect(manualRelease).toContain("GITHUB_REPOSITORY: repository");
-    expect(manualRelease).not.toContain('"workflow", "run"');
-    expect(manualRelease).not.toContain('"run", "watch"');
+    expect(manualRelease).toContain('"workflow", "run", "release-assets.yml"');
+  });
+
+  test("routes paused desktop releases to this machine's self-hosted runners", () => {
+    const workflow = readFileSync(resolve(root, ".github/workflows/release-assets.yml"), "utf8");
+    expect(workflow).toContain("agent-hq-release-macos-arm64");
+    expect(workflow).toContain("agent-hq-release-linux-x64");
+    expect(workflow).toContain("cargo-xwin");
+    expect(workflow).toContain("rustup target add x86_64-pc-windows-msvc");
+    expect(workflow).toContain("--bundles nsis");
+    expect(workflow).toContain("name: desktop-updater-pages");
+    expect(workflow).not.toContain("name: github-pages");
+    expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
+    expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
+  });
+
+  test("does not report a release before its desktop assets finish", () => {
+    const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
+    expect(manualRelease).toContain("waitForPublishedReleaseAssets");
+    expect(manualRelease).toContain("verifyReleaseAssets");
+    expect(manualRelease).toContain("releaseAssetsAreComplete");
+    expect(manualRelease).toContain("dispatchReleaseAssets");
+  });
+
+  test("keeps one canonical changelog and versions every private workspace in lockstep", () => {
+    const releaseConfig = JSON.parse(
+      readFileSync(resolve(root, "release-please-config.json"), "utf8"),
+    );
+    const extraFiles = new Set(
+      releaseConfig["extra-files"].map((entry: { path: string }) => entry.path),
+    );
+
+    for (const workspaceGroup of ["apps", "packages", "scenes"]) {
+      for (const workspace of readdirSync(resolve(root, workspaceGroup))) {
+        const packagePath = `${workspaceGroup}/${workspace}/package.json`;
+        if (!existsSync(resolve(root, packagePath))) continue;
+        expect(extraFiles.has(packagePath)).toBeTrue();
+        expect(existsSync(resolve(root, workspaceGroup, workspace, "CHANGELOG.md"))).toBeFalse();
+      }
+    }
   });
 });
