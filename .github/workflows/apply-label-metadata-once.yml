@@ -1,0 +1,69 @@
+name: Apply label metadata once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-label-metadata-once.yml
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  apply:
+    name: Apply labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update repository label metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS='|' read -r name color description; do
+            [[ -z "$name" ]] && continue
+
+            if gh api "repos/${GITHUB_REPOSITORY}/labels/${name}" >/dev/null 2>&1; then
+              gh api --method PATCH "repos/${GITHUB_REPOSITORY}/labels/${name}" \
+                -f new_name="$name" \
+                -f color="$color" \
+                -f description="$description" >/dev/null
+            else
+              gh api --method POST "repos/${GITHUB_REPOSITORY}/labels" \
+                -f name="$name" \
+                -f color="$color" \
+                -f description="$description" >/dev/null
+            fi
+
+            printf 'updated %s\n' "$name"
+          done <<'LABELS'
+          type:feature|0E8A16|Product or platform behavior implemented as a feature.
+          type:test|5319E7|Tests, fixtures, conformance suites, or acceptance validation.
+          type:infrastructure|0052CC|Infrastructure, deployment, database provisioning, CI, or operational foundations.
+          type:documentation|0075CA|Documentation-only work with no runtime behavior change.
+          area:frontend|C5DEF5|Web, desktop, mobile, UI, or client-state work.
+          area:backend|BFDADC|Application services, APIs, workers, or server-side behavior.
+          area:data|D4C5F9|Persistence, schemas, migrations, repositories, or durable state.
+          area:runtime|F9D0C4|Runtime fabric, Runtime Gateway, RuntimeDrivers, adapters, or harness integration.
+          area:security|B60205|Authentication, authorization, trust, credentials, secrets, or isolation.
+          area:realtime|FBCA04|Events, SSE, replay, ordering, reconnect, or live synchronization.
+          area:spatial|A2EEEF|Three.js scene runtime, spatial presentation, assets, or scene lifecycle.
+          area:observability|7057FF|Telemetry, diagnostics, evaluation, performance, or operational evidence.
+          area:integration|1D76DB|Cross-service contracts, SDKs, external systems, or repository integration.
+          cross-repo|D93F0B|Requires coordinated changes or acceptance evidence across Agent HQ and Control Plane.
+          worktree-safe|C2E0C6|Can proceed in an isolated worktree once declared dependencies are satisfied.
+          blocked|D73A4A|Cannot proceed because of an unresolved dependency, decision, or external constraint.
+          LABELS
+
+      - name: Print resulting label metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/labels?per_page=100" \
+            --jq '.[] | [.name, .color, (.description // "")] | @tsv' \
+            | sort
