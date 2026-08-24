@@ -48,6 +48,41 @@ function sleep(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
+function waitForWorkflowRun(runId) {
+  let consecutiveApiFailures = 0;
+  for (let attempt = 0; attempt < 270; attempt += 1) {
+    let workflowRun;
+    try {
+      workflowRun = runJson("gh", [
+        "run",
+        "view",
+        String(runId),
+        "--json",
+        "status,conclusion,url",
+      ]);
+      consecutiveApiFailures = 0;
+    } catch (error) {
+      consecutiveApiFailures += 1;
+      if (consecutiveApiFailures >= 12) throw error;
+      console.warn(
+        `Release status check failed; retrying (${consecutiveApiFailures}/12): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    if (workflowRun?.status === "completed") {
+      if (workflowRun.conclusion !== "success") {
+        throw new Error(
+          `Release-assets workflow ${runId} completed with ${workflowRun.conclusion}: ${workflowRun.url}`,
+        );
+      }
+      return workflowRun;
+    }
+    sleep(10_000);
+  }
+  throw new Error(`Timed out waiting for release-assets workflow ${runId}.`);
+}
+
 function latestReleaseTag() {
   return run("gh", ["release", "view", "--json", "tagName", "--jq", ".tagName"], {
     capture: true,
@@ -138,7 +173,7 @@ function waitForPublishedReleaseAssets(tag, releaseSha) {
     sleep(2_000);
   }
   if (!releaseRun) throw new Error(`Timed out waiting for the ${tag} release-assets workflow.`);
-  run("gh", ["run", "watch", String(releaseRun.databaseId), "--exit-status"]);
+  waitForWorkflowRun(releaseRun.databaseId);
   return releaseRun;
 }
 
@@ -165,7 +200,7 @@ function dispatchReleaseAssets(tag) {
     sleep(2_000);
   }
   if (!releaseRun) throw new Error(`Timed out waiting for the ${tag} repair workflow.`);
-  run("gh", ["run", "watch", String(releaseRun.databaseId), "--exit-status"]);
+  waitForWorkflowRun(releaseRun.databaseId);
   return releaseRun;
 }
 

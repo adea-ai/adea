@@ -74,9 +74,15 @@ describe("test suite boundaries", () => {
   test("does not report a release before its desktop assets finish", () => {
     const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
     expect(manualRelease).toContain("waitForPublishedReleaseAssets");
+    expect(manualRelease).toContain("waitForWorkflowRun");
+    expect(manualRelease).toContain("Release status check failed; retrying");
     expect(manualRelease).toContain("verifyReleaseAssets");
     expect(manualRelease).toContain("releaseAssetsAreComplete");
     expect(manualRelease).toContain("dispatchReleaseAssets");
+
+    const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
+    expect(runnerScript).toContain("deleteRunnerRegistration");
+    expect(runnerScript).toContain("currently running a job");
   });
 
   test("keeps one canonical changelog and versions every private workspace in lockstep", () => {
