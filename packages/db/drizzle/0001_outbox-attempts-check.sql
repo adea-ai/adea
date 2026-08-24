@@ -1,0 +1,1 @@
+ALTER TABLE "app"."command_outbox" ADD CONSTRAINT "command_outbox_attempts_nonnegative" CHECK ("app"."command_outbox"."attempts" >= 0);
