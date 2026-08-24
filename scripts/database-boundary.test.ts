@@ -1,0 +1,42 @@
+import { describe, expect, test } from "bun:test";
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+const root = new URL("..", import.meta.url).pathname;
+
+async function sourceFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (
+    await Promise.all(
+      entries.map(async (entry) => {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) return sourceFiles(path);
+        return /\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : [];
+      }),
+    )
+  ).flat();
+}
+
+describe("database package boundary", () => {
+  test("does not expose database subpaths", async () => {
+    const manifest = JSON.parse(await readFile(join(root, "packages/db/package.json"), "utf8"));
+    expect(Object.keys(manifest.exports)).toEqual(["."]);
+  });
+
+  test("keeps database imports out of mobile and desktop bundles", async () => {
+    for (const app of ["mobile", "desktop"]) {
+      for (const file of await sourceFiles(join(root, "apps", app))) {
+        expect(await readFile(file, "utf8")).not.toContain("@agent-hq/db");
+      }
+    }
+  });
+
+  test("keeps database imports out of client components", async () => {
+    for (const file of await sourceFiles(join(root, "apps/web"))) {
+      const source = await readFile(file, "utf8");
+      if (/^[\s\n]*["']use client["'];/m.test(source)) {
+        expect(source).not.toContain("@agent-hq/db");
+      }
+    }
+  });
+});
