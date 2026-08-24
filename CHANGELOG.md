@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.5.0...v0.6.0) (2026-08-24)
+
+
+### Features
+
+* **auth:** implement desktop authentication boundary ([#119](https://github.com/0xPlayerOne/agent-hq/issues/119)) ([e88b365](https://github.com/0xPlayerOne/agent-hq/commit/e88b365ce2b0098062f24477b578b275bab60a4b))
+
+
+### Bug Fixes
+
+* **release:** provide local validation context ([#123](https://github.com/0xPlayerOne/agent-hq/issues/123)) ([76f265e](https://github.com/0xPlayerOne/agent-hq/commit/76f265e276dda4ff138e2fa8edcb9b041405fca6))
+* **release:** run manual release locally ([#121](https://github.com/0xPlayerOne/agent-hq/issues/121)) ([1ff6d1c](https://github.com/0xPlayerOne/agent-hq/commit/1ff6d1c0c23a7ce58a5dd6c3039dd9f89009275d))
+
+
+### Tests
+
+* **ci:** parallelize suites and enforce coverage ([#120](https://github.com/0xPlayerOne/agent-hq/issues/120)) ([cda950c](https://github.com/0xPlayerOne/agent-hq/commit/cda950cb2d63ea71278627224109b7ed96e0a793))
+
+
+### Maintenance
+
+* **ci:** add reversible billing pause ([#112](https://github.com/0xPlayerOne/agent-hq/issues/112)) ([b52e9f3](https://github.com/0xPlayerOne/agent-hq/commit/b52e9f308e4f07622b8a0deab208401820658b91))
+* **ci:** upgrade Code Foundry to v0.38.0 ([#117](https://github.com/0xPlayerOne/agent-hq/issues/117)) ([9aced70](https://github.com/0xPlayerOne/agent-hq/commit/9aced70cc56c8ec4e7531afd27535b573129ceb7))
+* **github:** apply live label metadata once ([#114](https://github.com/0xPlayerOne/agent-hq/issues/114)) ([0119a18](https://github.com/0xPlayerOne/agent-hq/commit/0119a188839c7b6bd934037764381c247af3452d))
+* **github:** enable cleanup-triggered label update ([#115](https://github.com/0xPlayerOne/agent-hq/issues/115)) ([22cfadb](https://github.com/0xPlayerOne/agent-hq/commit/22cfadb80217b18493127a59071fd0dbe4cd1ef3))
+* **github:** remove one-time label workflow ([#116](https://github.com/0xPlayerOne/agent-hq/issues/116)) ([509da7b](https://github.com/0xPlayerOne/agent-hq/commit/509da7b6e192d6cf4843f821bfe967b69401d930))
+
 ## [0.5.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.4.0...v0.5.0) (2026-08-24)
 
 
