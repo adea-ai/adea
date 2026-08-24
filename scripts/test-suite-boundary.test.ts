@@ -66,7 +66,7 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("--bundles nsis");
     expect(workflow).toContain("bun scripts/release-notes.mjs");
     expect(workflow).toContain("bun run --cwd packages/types build");
-    expect(workflow).toContain("timeout_minutes: 75");
+    expect(workflow).toContain("timeout_minutes: 120");
     expect(workflow).toContain("timeout-minutes: ${{ matrix.timeout_minutes }}");
     expect(workflow).toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("name: github-pages");
@@ -74,13 +74,15 @@ describe("test suite boundaries", () => {
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
     expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
     expect(runnerScript).not.toContain('"Application Support"');
+    expect(runnerScript).toContain("agent-hq-release-linux-cargo-target");
 
     const linuxRunner = readFileSync(
       resolve(root, ".github/release-runner/linux-x64/Dockerfile"),
       "utf8",
     );
     expect(linuxRunner).toContain("sudo unzip xz-utils");
-    expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=2");
+    expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=1");
+    expect(linuxRunner).toContain("ENV CARGO_TARGET_DIR=/home/runner/cache/cargo-target");
   });
 
   test("does not report a release before its desktop assets finish", () => {

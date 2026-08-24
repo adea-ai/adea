@@ -90,7 +90,7 @@ jobs:
             args: ""
             self_hosted_args: ""
             target: x86_64-unknown-linux-gnu
-            timeout_minutes: 75
+            timeout_minutes: 120
           - runner: windows-latest
             self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
             platform: Windows x64
