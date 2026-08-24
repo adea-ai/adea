@@ -19,6 +19,7 @@
     "@agent-hq/auth": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/data": "workspace:*",
+    "@agent-hq/db": "workspace:*",
     "@agent-hq/pets": "workspace:*",
     "@agent-hq/state": "workspace:*",
     "@agent-hq/interior": "workspace:*",

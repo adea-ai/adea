@@ -1,0 +1,15 @@
+"$schema" = "../gen/schemas/schema.json"
+
+[[permission]]
+identifier = "allow-desktop-auth"
+description = "Allows bundled Agent HQ code to open the fixed cloud authorization endpoint."
+commands.allow = [
+  "desktop_auth_start",
+  "desktop_auth_take_callback",
+  "desktop_auth_attempt_clear",
+  "desktop_auth_attempt_load",
+  "desktop_auth_attempt_save",
+  "desktop_user_session_clear",
+  "desktop_user_session_load",
+  "desktop_user_session_save",
+]

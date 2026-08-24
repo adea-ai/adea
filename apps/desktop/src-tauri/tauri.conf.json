@@ -4,13 +4,16 @@
   "version": "0.5.0",
   "identifier": "com.agenthq.desktop",
   "build": {
-    "beforeDevCommand": "PORT=3004 bun --cwd ../web dev",
-    "devUrl": "http://127.0.0.1:3004"
+    "beforeDevCommand": "bun run shell:client:dev",
+    "beforeBuildCommand": "bun run shell:client:build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": false,
     "security": {
-      "csp": null
+      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost https://agent-hq-site.vercel.app ws://127.0.0.1:1420; img-src 'self' asset: data:; script-src 'self'; style-src 'self'",
+      "freezePrototype": true
     }
   },
   "bundle": {
@@ -27,6 +30,11 @@
     "createUpdaterArtifacts": true
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["agent-hq"]
+      }
+    },
     "updater": {
       "dialog": false,
       "endpoints": [

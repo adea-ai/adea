@@ -66,3 +66,20 @@ export {
   verifyAuthorizationState,
   type AuthorizationTransaction,
 } from "./security";
+export {
+  createDesktopAuthorizationCodeBroker,
+  createDesktopSessionService,
+  type DesktopAuthorizationCodeIssue,
+  type DesktopAuthorizationCodeRecord,
+  type DesktopAuthorizationCodeStore,
+  type DesktopSessionCredential,
+  type DesktopSessionPrincipal,
+  type DesktopSessionRecord,
+  type DesktopSessionStore,
+} from "./desktop-server";
+export {
+  desktopCorsHeaders,
+  parseDesktopAuthorizationRequest,
+  parseDesktopExchangeRequest,
+  parseDesktopSessionRequest,
+} from "./desktop-http-server";
