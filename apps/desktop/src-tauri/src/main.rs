@@ -1,29 +1,38 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod auth;
 mod bridge;
 mod updater;
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
-
-const DEV_WEB_URL: &str = "http://127.0.0.1:3004";
-const PRODUCTION_WEB_URL: &str = "https://agent-hq-site.vercel.app";
-
-fn web_app_url() -> String {
-    if let Ok(value) = std::env::var("AGENT_HQ_WEB_URL") {
-        return value;
-    }
-
-    if cfg!(debug_assertions) {
-        DEV_WEB_URL.to_string()
-    } else {
-        PRODUCTION_WEB_URL.to_string()
-    }
-}
+use tauri_plugin_deep_link::DeepLinkExt;
 
 fn main() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
+            for argument in arguments {
+                auth::queue_callback(app, &argument);
+            }
+        }));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(auth::DesktopAuthState::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
+            auth::desktop_auth_start,
+            auth::desktop_auth_take_callback,
+            auth::desktop_auth_attempt_clear,
+            auth::desktop_auth_attempt_load,
+            auth::desktop_auth_attempt_save,
+            auth::desktop_user_session_clear,
+            auth::desktop_user_session_load,
+            auth::desktop_user_session_save,
             bridge::native_capabilities,
             updater::desktop_update_status,
             updater::desktop_update_check,
@@ -34,10 +43,23 @@ fn main() {
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            let url = web_app_url()
-                .parse()
-                .expect("AGENT_HQ_WEB_URL must be a valid URL");
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            app.deep_link().register_all()?;
+
+            if let Some(urls) = app.deep_link().get_current()? {
+                for url in urls {
+                    auth::queue_callback(app.handle(), url.as_str());
+                }
+            }
+
+            let app_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    auth::queue_callback(&app_handle, url.as_str());
+                }
+            });
+
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Agent HQ")
                 .inner_size(1440.0, 960.0)
                 .min_inner_size(960.0, 640.0)
