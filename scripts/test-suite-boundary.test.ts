@@ -15,7 +15,8 @@ describe("test suite boundaries", () => {
     expect(packageJson.scripts["test:integration"]).toBe("bun test packages/*/tests/integration");
     expect(packageJson.scripts["test:e2e"]).toContain("playwright");
     expect(packageJson.scripts["test:smoke"]).toBe("bun run native:smoke");
-    expect(packageJson.scripts["release:manual"]).toBe("bun scripts/manual-release.mjs");
+    expect(packageJson.scripts.release).toBe("bun scripts/manual-release.mjs");
+    expect(packageJson.scripts["release:manual"]).toBeUndefined();
   });
 
   test("keeps smoke validation independent from the build lane", () => {
