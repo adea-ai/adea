@@ -4,15 +4,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "shell:dev": "tauri dev",
-    "shell:build": "tauri build",
+    "build": "bun run client:build",
+    "client:build": "vite build",
+    "client:dev": "vite --host 127.0.0.1 --port 1420",
+    "client:prepare": "bun run --cwd ../../packages/auth build",
+    "shell:client:build": "bun run client:prepare && bun run client:build",
+    "shell:client:dev": "bun run client:prepare && bun run client:dev",
+    "shell:dev": "bun scripts/tauri.mjs dev",
+    "shell:build": "bun scripts/tauri.mjs build",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.5.0"
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "vite": "^8.2.2"
   },
   "dependencies": {
-    "@tauri-apps/plugin-updater": "^2.10.1"
+    "@agent-hq/auth": "workspace:*",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   }
 }

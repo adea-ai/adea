@@ -3,8 +3,5 @@
   "identifier": "default",
   "description": "Minimal default permissions for the Agent HQ desktop shell",
   "windows": ["main"],
-  "remote": {
-    "urls": ["http://127.0.0.1:3004/*", "https://agent-hq-site.vercel.app/*"]
-  },
-  "permissions": ["core:default", "updater:default", "allow-desktop-updater"]
+  "permissions": ["core:default", "updater:default", "allow-desktop-auth", "allow-desktop-updater"]
 }
