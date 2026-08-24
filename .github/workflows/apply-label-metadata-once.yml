@@ -6,6 +6,15 @@ on:
       - main
     paths:
       - .github/workflows/apply-label-metadata-once.yml
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-label-metadata-once.yml
 
 permissions:
   contents: read
@@ -14,6 +23,9 @@ permissions:
 jobs:
   apply:
     name: Apply labels
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.ref == 'chore/remove-label-metadata-workflow'
     runs-on: ubuntu-latest
     steps:
       - name: Update repository label metadata
