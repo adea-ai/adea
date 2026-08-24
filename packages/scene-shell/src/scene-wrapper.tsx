@@ -68,6 +68,8 @@ function DevelopmentSceneEditor({
 
 export type SceneWrapperProps = {
   manifest: SceneManifest;
+  /** Size the scene to a containing application shell rather than the full window. */
+  viewportMode?: "window" | "container";
   /** Optional URL-provided arrival position, overriding the manifest start. */
   startPosition?: SceneStartPosition;
   character: string;
@@ -187,6 +189,7 @@ const DEFAULT_CHARACTER_SCALE: CharacterScale = {
  */
 export function SceneWrapper({
   manifest,
+  viewportMode = "window",
   startPosition,
   character,
   onCharacterChange,
@@ -453,6 +456,7 @@ export function SceneWrapper({
     <>
       <SceneHost
         label={manifest.label}
+        viewportMode={viewportMode}
         characterId={character}
         assetUrl={manifest.entryAssetUrl}
         entryZoneId={manifest.entryZoneId}

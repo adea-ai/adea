@@ -1013,6 +1013,7 @@ export function HqRoomScene({
   return (
     <SceneWrapper
       manifest={manifest}
+      viewportMode="container"
       startPosition={startPosition}
       character={character}
       onCharacterChange={handleCharacterChange}

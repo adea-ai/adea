@@ -171,6 +171,8 @@ export type SceneEnvironmentConfig = {
 
 export type SceneHostProps = {
   label?: string;
+  /** Size the renderer to its containing layout region instead of the browser viewport. */
+  viewportMode?: "window" | "container";
   assetUrl: string;
   entryZoneId?: string;
   /** Keep the entry zone collision active while another zone is loaded. */
@@ -1171,6 +1173,7 @@ function applySceneMaterialOverrides(
 
 export function SceneHost({
   label = "Scene",
+  viewportMode = "window",
   assetUrl,
   entryZoneId,
   preserveEntryCollision = false,
@@ -1233,6 +1236,7 @@ export function SceneHost({
   const characterModelScale = characterScale.modelScale;
   const segmentHalfHeight = Math.max(playerHeight / 2 - playerRadius, 0.05);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const initialCameraViewModeRef = useRef(initialCameraViewMode);
   const cameraWheelZoomEnabledRef = useRef(cameraWheelZoomEnabled);
   const [status, setStatus] = useState(`Loading ${label}…`);
@@ -1316,6 +1320,15 @@ export function SceneHost({
     let swimmingAction: THREE.AnimationAction | undefined;
     let backgroundTexture: THREE.Texture | null = null;
     const detachedCollisionRoots = new Set<THREE.Object3D>();
+    const viewportSize = () => {
+      if (viewportMode === "container") {
+        return {
+          height: Math.max(1, hostRef.current?.clientHeight ?? canvas.clientHeight),
+          width: Math.max(1, hostRef.current?.clientWidth ?? canvas.clientWidth),
+        };
+      }
+      return { height: window.innerHeight, width: window.innerWidth };
+    };
 
     const qualityTier = detectQualityTier();
     const activeRenderer = (() => {
@@ -1335,7 +1348,8 @@ export function SceneHost({
           powerPreference: qualityTier === "high" ? "high-performance" : "default",
         });
         candidate.setPixelRatio(pixelRatio);
-        candidate.setSize(window.innerWidth, window.innerHeight, false);
+        const { height, width } = viewportSize();
+        candidate.setSize(width, height, false);
         candidate.outputColorSpace = THREE.SRGBColorSpace;
         candidate.shadowMap.enabled = true;
         candidate.shadowMap.type = THREE.PCFShadowMap;
@@ -1565,9 +1579,16 @@ export function SceneHost({
     }
 
     const resize = () => {
-      cameraController.resize(window.innerWidth, window.innerHeight);
-      activeRenderer.setSize(window.innerWidth, window.innerHeight, false);
+      const { height, width } = viewportSize();
+      cameraController.resize(width, height);
+      activeRenderer.setSize(width, height, false);
     };
+    const resizeObserver =
+      viewportMode === "container" && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(resize)
+        : undefined;
+    if (hostRef.current) resizeObserver?.observe(hostRef.current);
+    resize();
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (isOrthographicClickOnly()) {
@@ -4051,6 +4072,7 @@ export function SceneHost({
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
+      resizeObserver?.disconnect();
       canvas.removeEventListener("pointerdown", onCanvasPointerDown);
       canvas.removeEventListener("pointermove", onCanvasPointerMove);
       canvas.removeEventListener("pointerleave", onCanvasPointerLeave);
@@ -4108,16 +4130,18 @@ export function SceneHost({
     staticFieldCollisionPatterns,
     visualSetup,
     visualUpdate,
+    viewportMode,
     waterVolumes,
     zones,
   ]);
 
   return (
     <div
+      ref={hostRef}
       style={{
         position: "relative",
-        width: "100vw",
-        height: "100dvh",
+        width: viewportMode === "container" ? "100%" : "100vw",
+        height: viewportMode === "container" ? "100%" : "100dvh",
         overflow: "hidden",
         background: toCssColor(environment?.background),
       }}
