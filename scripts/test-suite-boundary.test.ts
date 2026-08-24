@@ -78,6 +78,7 @@ describe("test suite boundaries", () => {
       "utf8",
     );
     expect(linuxRunner).toContain("sudo unzip xz-utils");
+    expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=2");
   });
 
   test("does not report a release before its desktop assets finish", () => {
