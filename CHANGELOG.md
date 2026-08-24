@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.4.0...v0.5.0) (2026-08-24)
+
+
+### Features
+
+* **database:** add Drizzle persistence foundation ([#108](https://github.com/0xPlayerOne/agent-hq/issues/108)) ([ca93090](https://github.com/0xPlayerOne/agent-hq/commit/ca9309020769000b1ee439f138d297c4db941577))
+
 ## [0.4.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.4...v0.4.0) (2026-08-24)
 
 
