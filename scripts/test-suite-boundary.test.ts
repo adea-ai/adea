@@ -86,12 +86,20 @@ describe("test suite boundaries", () => {
     const extraFiles = new Set(
       releaseConfig["extra-files"].map((entry: { path: string }) => entry.path),
     );
+    const cargoLockUpdater = releaseConfig["extra-files"].find(
+      (entry: { path: string }) => entry.path === "apps/desktop/src-tauri/Cargo.lock",
+    );
     const tauriConfig = JSON.parse(
       readFileSync(resolve(root, "apps/desktop/src-tauri/tauri.conf.json"), "utf8"),
     );
 
     expect(tauriConfig.version).toBe("../package.json");
     expect(extraFiles.has("apps/desktop/src-tauri/tauri.conf.json")).toBeFalse();
+    expect(cargoLockUpdater).toEqual({
+      type: "toml",
+      path: "apps/desktop/src-tauri/Cargo.lock",
+      jsonpath: "$.package[?(@.name.value=='agent-hq-desktop')].version",
+    });
 
     for (const workspaceGroup of ["apps", "packages", "scenes"]) {
       for (const workspace of readdirSync(resolve(root, workspaceGroup))) {
