@@ -23,6 +23,7 @@ env:
 jobs:
   validate-release:
     name: Validate release
+    if: vars.CI_BILLING_PAUSED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -58,7 +59,7 @@ jobs:
   desktop:
     name: Desktop / ${{ matrix.platform }}
     needs: validate-release
-    if: needs.validate-release.outputs.desktop_release == 'true'
+    if: vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +151,7 @@ jobs:
   publish-updater-channel:
     name: Publish desktop updater channel
     needs: [validate-release, desktop]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
+    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -229,7 +230,7 @@ jobs:
   verify-assets:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-updater-channel]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-updater-channel.result == 'success' }}
+    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-updater-channel.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
