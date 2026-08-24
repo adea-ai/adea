@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      contents: write
+      contents: read
     outputs:
       desktop_release: ${{ steps.parse.outputs.desktop_release }}
       release_version: ${{ steps.parse.outputs.release_version }}
@@ -62,24 +62,12 @@ jobs:
           ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
-      - name: Ensure release notes
+      - name: Validate release notes
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ steps.parse.outputs.release_version }}
         run: |
           set -euo pipefail
-          has_notes="$(gh release view "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --json body \
-            --jq '(.body // "") | test("\\S")')"
-          if [ "$has_notes" = "true" ]; then
-            exit 0
-          fi
-
-          node scripts/release-notes.mjs "$RELEASE_VERSION" |
-            gh release edit "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --notes-file -
+          node scripts/release-notes.mjs "$RELEASE_VERSION" >/dev/null
 
   desktop:
     name: Desktop / ${{ matrix.platform }}
@@ -115,6 +103,20 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
+
+      - name: Load release notes
+        id: release_notes
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          delimiter="release-notes-${RANDOM}-${RANDOM}"
+          {
+            echo "body<<$delimiter"
+            node scripts/release-notes.mjs "$RELEASE_VERSION"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'
@@ -157,13 +159,40 @@ jobs:
         with:
           projectPath: apps/desktop
           tagName: ${{ env.RELEASE_TAG }}
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           tauriScript: bun tauri
           args: ${{ matrix.args }}
 
-  publish-updater-channel:
-    name: Publish desktop updater channel
+  publish-release-notes:
+    name: Publish release notes
     needs: [validate-release, desktop]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Publish canonical notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs "$RELEASE_VERSION" |
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file -
+
+  publish-updater-channel:
+    name: Publish desktop updater channel
+    needs: [validate-release, desktop, publish-release-notes]
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -241,8 +270,8 @@ jobs:
 
   verify-assets:
     name: Verify desktop assets
-    needs: [validate-release, desktop, publish-updater-channel]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-updater-channel.result == 'success' }}
+    needs: [validate-release, desktop, publish-release-notes, publish-updater-channel]
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
