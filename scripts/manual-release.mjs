@@ -44,6 +44,10 @@ function runJson(command, args) {
   return output ? JSON.parse(output) : null;
 }
 
+function sleep(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
 function latestReleaseTag() {
   return run("gh", ["release", "view", "--json", "tagName", "--jq", ".tagName"], {
     capture: true,
@@ -91,6 +95,140 @@ function refreshMain() {
   return run("git", ["rev-parse", "HEAD"], { capture: true });
 }
 
+function billingIsPaused() {
+  return run("gh", ["variable", "get", "CI_BILLING_PAUSED"], { capture: true }) === "true";
+}
+
+function workflowRunIds(event) {
+  return new Set(
+    runJson("gh", [
+      "run",
+      "list",
+      "--workflow",
+      "release-assets.yml",
+      "--event",
+      event,
+      "--limit",
+      "20",
+      "--json",
+      "databaseId",
+    ]).map((item) => item.databaseId),
+  );
+}
+
+function waitForPublishedReleaseAssets(tag, releaseSha) {
+  let releaseRun;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const runs = runJson("gh", [
+      "run",
+      "list",
+      "--workflow",
+      "release-assets.yml",
+      "--event",
+      "release",
+      "--commit",
+      releaseSha,
+      "--limit",
+      "10",
+      "--json",
+      "databaseId,displayTitle,headSha,status,conclusion,url",
+    ]);
+    releaseRun = runs.find((item) => item.displayTitle === tag && item.headSha === releaseSha);
+    if (releaseRun) break;
+    sleep(2_000);
+  }
+  if (!releaseRun) throw new Error(`Timed out waiting for the ${tag} release-assets workflow.`);
+  run("gh", ["run", "watch", String(releaseRun.databaseId), "--exit-status"]);
+  return releaseRun;
+}
+
+function dispatchReleaseAssets(tag) {
+  const existingRunIds = workflowRunIds("workflow_dispatch");
+  run("gh", ["workflow", "run", "release-assets.yml", "--field", `tag=${tag}`]);
+
+  let releaseRun;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const runs = runJson("gh", [
+      "run",
+      "list",
+      "--workflow",
+      "release-assets.yml",
+      "--event",
+      "workflow_dispatch",
+      "--limit",
+      "20",
+      "--json",
+      "databaseId,status,conclusion,url",
+    ]);
+    releaseRun = runs.find((item) => !existingRunIds.has(item.databaseId));
+    if (releaseRun) break;
+    sleep(2_000);
+  }
+  if (!releaseRun) throw new Error(`Timed out waiting for the ${tag} repair workflow.`);
+  run("gh", ["run", "watch", String(releaseRun.databaseId), "--exit-status"]);
+  return releaseRun;
+}
+
+function verifyReleaseAssets(tag) {
+  const release = runJson("gh", ["release", "view", tag, "--json", "assets,url"]);
+  const desktopAssets = release.assets.filter((asset) => /agent[ ._-]*hq/i.test(asset.name));
+  if (desktopAssets.length < 3 || !release.assets.some((asset) => asset.name === "latest.json")) {
+    throw new Error(
+      `${tag} is incomplete: expected latest.json and at least three Agent HQ desktop assets; found ${desktopAssets.length}.`,
+    );
+  }
+  const manifest = JSON.parse(
+    run(
+      "curl",
+      [
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--location",
+        `https://0xplayerone.github.io/agent-hq/desktop-updates/latest.json?release=${tag}`,
+      ],
+      { capture: true },
+    ),
+  );
+  const requiredPlatforms = ["darwin-aarch64", "linux-x86_64", "windows-x86_64"];
+  if (manifest.version !== tag.replace(/^v/, "")) {
+    throw new Error(`The public updater manifest is ${manifest.version}, expected ${tag}.`);
+  }
+  for (const platform of requiredPlatforms) {
+    const entry = manifest.platforms?.[platform];
+    if (
+      typeof entry?.signature !== "string" ||
+      entry.signature.length === 0 ||
+      typeof entry?.url !== "string" ||
+      !entry.url.startsWith("https://0xplayerone.github.io/agent-hq/desktop-updates/")
+    ) {
+      throw new Error(`The public updater manifest is missing a signed ${platform} package.`);
+    }
+  }
+}
+
+function releaseAssetsAreComplete(tag) {
+  try {
+    verifyReleaseAssets(tag);
+    return true;
+  } catch (error) {
+    console.log(
+      `Desktop assets for ${tag} need repair: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
+}
+
+function withReleaseRunners(callback) {
+  const localRunners = billingIsPaused();
+  if (localRunners) run("bun", ["scripts/release-runners.mjs", "start"]);
+  try {
+    return callback();
+  } finally {
+    if (localRunners) run("bun", ["scripts/release-runners.mjs", "stop"]);
+  }
+}
+
 function main() {
   const args = new Set(process.argv.slice(2));
   if (args.has("--help")) {
@@ -116,6 +254,18 @@ function main() {
   const plan = createReleasePlan({ branch, commits, head, latestTag, remoteHead, status });
 
   if (plan.action === "noop") {
+    if (!releaseAssetsAreComplete(latestTag)) {
+      if (args.has("--dry-run")) {
+        console.log(`Dry run complete; ${latestTag} requires a desktop asset repair.`);
+        return;
+      }
+      withReleaseRunners(() => {
+        dispatchReleaseAssets(latestTag);
+        verifyReleaseAssets(latestTag);
+      });
+      console.log(`Release repaired with verified desktop assets: ${latestTag}`);
+      return;
+    }
     console.log(`No releasable commits exist after ${latestTag}; release is already current.`);
     return;
   }
@@ -172,14 +322,20 @@ function main() {
   ]);
   refreshMain();
 
-  runReleasePlease("github-release", token);
-  const releasedTag = latestReleaseTag();
-  if (releasedTag === latestTag) {
-    throw new Error(`Release Please completed without publishing a release after ${latestTag}.`);
-  }
-  run("git", ["fetch", "origin", "main", "--tags"]);
-  run("git", ["rev-parse", "--verify", `${releasedTag}^{commit}`], { capture: true });
-  console.log(`Release completed: ${releasedTag}`);
+  withReleaseRunners(() => {
+    runReleasePlease("github-release", token);
+    const releasedTag = latestReleaseTag();
+    if (releasedTag === latestTag) {
+      throw new Error(`Release Please completed without publishing a release after ${latestTag}.`);
+    }
+    run("git", ["fetch", "origin", "main", "--tags"]);
+    const releaseSha = run("git", ["rev-parse", "--verify", `${releasedTag}^{commit}`], {
+      capture: true,
+    });
+    waitForPublishedReleaseAssets(releasedTag, releaseSha);
+    verifyReleaseAssets(releasedTag);
+    console.log(`Release completed with verified desktop assets: ${releasedTag}`);
+  });
 }
 
 if (import.meta.main) {
