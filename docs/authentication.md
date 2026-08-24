@@ -70,3 +70,30 @@ schema. To move to another managed or self-hosted Better Auth deployment:
 
 Never copy provider tables into Agent HQ migrations or reinterpret a provider subject as a domain
 user ID during migration.
+
+## Stable identity and principals
+
+```text
+Neon Auth session
+  -> @agent-hq/auth provider credential validation
+  -> AuthIdentity(provider, subject)
+  -> User(id)
+  -> User PrincipalRef { kind: "user", userId }
+  -> workspace membership and authorization
+
+Device credential -> Runtime Node PrincipalRef
+Service credential -> Service PrincipalRef
+Agent delegation   -> Agent PrincipalRef
+Worker execution   -> Worker PrincipalRef
+```
+
+`AuthIdentity` is the only bridge between a Neon provider subject and an Agent HQ `User`. The
+provider/subject pair is unique and belongs to exactly one stable user. Creation writes both rows
+in one transaction, so a concurrent duplicate cannot leave an orphan user. Revoked identities and
+disabled users do not resolve. Unknown, non-user, or ambiguous mappings fail closed.
+
+Provider subjects must never appear in workspace membership, control-plane foreign keys, API
+principal fields, or model context. Those boundaries use `PrincipalRef`; user principals contain
+only the stable Agent HQ `userId`. Account linking is intentionally not automatic: adding another
+provider identity to an existing user requires a future explicit, reauthenticated linking flow
+that preserves the one-provider-subject-to-one-user invariant.
