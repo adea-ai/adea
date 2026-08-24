@@ -104,12 +104,8 @@
           "tableFrom": "auth_identities",
           "tableTo": "users",
           "schemaTo": "app",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -119,10 +115,7 @@
         "auth_identities_provider_subject_unique": {
           "name": "auth_identities_provider_subject_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "provider",
-            "subject"
-          ]
+          "columns": ["provider", "subject"]
         }
       },
       "policies": {},
@@ -287,12 +280,8 @@
           "tableFrom": "command_outbox",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -380,10 +369,7 @@
         "event_inbox_source_event_unique": {
           "name": "event_inbox_source_event_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "source",
-            "source_event_id"
-          ]
+          "columns": ["source", "source_event_id"]
         }
       },
       "policies": {},
@@ -578,12 +564,8 @@
           "tableFrom": "workspace_events",
           "tableTo": "workspaces",
           "schemaTo": "app",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -661,12 +643,7 @@
     "app.outbox_status": {
       "name": "outbox_status",
       "schema": "app",
-      "values": [
-        "pending",
-        "processing",
-        "delivered",
-        "failed"
-      ]
+      "values": ["pending", "processing", "delivered", "failed"]
     }
   },
   "schemas": {
