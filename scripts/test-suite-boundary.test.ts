@@ -43,4 +43,12 @@ describe("test suite boundaries", () => {
     expect(neonWorkflow).not.toContain("packages/db test:integration");
     expect(neonWorkflow).not.toContain("packages/auth test:integration");
   });
+
+  test("keeps the manual release path independent from hosted runners", () => {
+    const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
+    expect(manualRelease).toContain('runReleasePlease("release-pr"');
+    expect(manualRelease).toContain('runReleasePlease("github-release"');
+    expect(manualRelease).not.toContain('"workflow", "run"');
+    expect(manualRelease).not.toContain('"run", "watch"');
+  });
 });
