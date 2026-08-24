@@ -17,7 +17,12 @@ export default defineConfig({
   use: {
     ...devices["Desktop Chrome"],
     baseURL,
+    headless: process.platform !== "darwin",
     ignoreHTTPSErrors: true,
+    // Headless Chromium selects SwiftShader on macOS, and forcing Metal in
+    // headless mode can stall shader compilation. A visible, hardware-backed
+    // browser keeps the 3D gate representative and deterministic on Mac.
+    launchOptions: process.platform === "darwin" ? { args: ["--use-angle=metal"] } : undefined,
     trace: "retain-on-failure",
   },
   webServer: process.env.PERF_BASE_URL
