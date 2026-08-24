@@ -10,8 +10,7 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
   group: agent-hq-release-assets-${{ github.event.release.tag_name || inputs.tag }}
@@ -26,6 +25,8 @@ jobs:
     if: vars.CI_BILLING_PAUSED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       desktop_release: ${{ steps.parse.outputs.desktop_release }}
       release_version: ${{ steps.parse.outputs.release_version }}
@@ -56,6 +57,19 @@ jobs:
             echo "release_version=$version"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Checkout release metadata
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Validate release notes
+        env:
+          RELEASE_VERSION: ${{ steps.parse.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs "$RELEASE_VERSION" >/dev/null
+
   desktop:
     name: Desktop / ${{ matrix.platform }}
     needs: validate-release
@@ -78,6 +92,8 @@ jobs:
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    permissions:
+      contents: write
     env:
       GITHUB_TOKEN: ${{ github.token }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -88,6 +104,20 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
+
+      - name: Load release notes
+        id: release_notes
+        env:
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          delimiter="release-notes-${RANDOM}-${RANDOM}"
+          {
+            echo "body<<$delimiter"
+            node scripts/release-notes.mjs "$RELEASE_VERSION"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install Tauri system dependencies
         if: runner.os == 'Linux'
@@ -103,6 +133,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.0
+          no-cache: true
 
       - name: Align desktop bundle version with release
         env:
@@ -122,22 +153,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Cache desktop build dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.bun/install/cache
-            apps/desktop/src-tauri/target
-          key: >-
-            ${{ runner.os }}-agent-hq-desktop-${{ matrix.target }}-
-            ${{ hashFiles('bun.lock', 'apps/desktop/package.json',
-            'apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-agent-hq-desktop-${{ matrix.target }}-
-            ${{ runner.os }}-agent-hq-desktop-
-
       - name: Build and upload desktop bundle
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
@@ -145,13 +160,40 @@ jobs:
         with:
           projectPath: apps/desktop
           tagName: ${{ env.RELEASE_TAG }}
+          releaseBody: ${{ steps.release_notes.outputs.body }}
           tauriScript: bun tauri
           args: ${{ matrix.args }}
 
-  publish-updater-channel:
-    name: Publish desktop updater channel
+  publish-release-notes:
+    name: Publish release notes
     needs: [validate-release, desktop]
     if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Publish canonical notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          node scripts/release-notes.mjs "$RELEASE_VERSION" |
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file -
+
+  publish-updater-channel:
+    name: Publish desktop updater channel
+    needs: [validate-release, desktop, publish-release-notes]
+    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -229,8 +271,8 @@ jobs:
 
   verify-assets:
     name: Verify desktop assets
-    needs: [validate-release, desktop, publish-updater-channel]
-    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-updater-channel.result == 'success' }}
+    needs: [validate-release, desktop, publish-release-notes, publish-updater-channel]
+    if: ${{ vars.CI_BILLING_PAUSED != 'true' && needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
