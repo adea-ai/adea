@@ -16,6 +16,7 @@
     "@agent-hq/app-core": "workspace:*",
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/audio": "workspace:*",
+    "@agent-hq/auth": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/data": "workspace:*",
     "@agent-hq/pets": "workspace:*",
