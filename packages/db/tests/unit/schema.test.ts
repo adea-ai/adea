@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { getTableConfig } from "drizzle-orm/pg-core";
 
-import { commandOutbox, eventInbox, workspaceEvents, workspaces } from "../../src/schema";
+import {
+  commandOutbox,
+  desktopAuthorizationCodes,
+  eventInbox,
+  workspaceEvents,
+  workspaces,
+} from "../../src/schema";
 
 describe("persistence schema", () => {
   test("keeps foundational tables in the app schema", () => {
@@ -20,5 +26,17 @@ describe("persistence schema", () => {
     expect(commandOutboxConfig.foreignKeys).toHaveLength(1);
     expect(commandOutboxConfig.indexes.length).toBeGreaterThan(0);
     expect(eventInboxConfig.uniqueConstraints.length).toBeGreaterThan(0);
+  });
+
+  test("uses a UUID primary key and a unique digest for desktop authorization codes", () => {
+    const config = getTableConfig(desktopAuthorizationCodes);
+
+    expect(config.primaryKeys).toHaveLength(0);
+    expect(config.columns.find((column) => column.name === "id")?.primary).toBe(true);
+    expect(
+      config.uniqueConstraints.some((constraint) =>
+        constraint.columns.some((column) => column.name === "code_digest"),
+      ),
+    ).toBe(true);
   });
 });
