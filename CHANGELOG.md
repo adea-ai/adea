@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.4](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.3...v0.6.4) (2026-08-24)
+
+
+### Bug Fixes
+
+* **release:** install unzip in Linux runner ([#136](https://github.com/0xPlayerOne/agent-hq/issues/136)) ([6c65402](https://github.com/0xPlayerOne/agent-hq/commit/6c6540226c20b50f0be08f7dcab658095dd34dd0))
+* **test:** use Metal for macOS browser gates ([6fd28da](https://github.com/0xPlayerOne/agent-hq/commit/6fd28da4dfd1acfc23c3df421d3ac4b3c122447c))
+* **web:** isolate desktop status bar layout ([495f4f4](https://github.com/0xPlayerOne/agent-hq/commit/495f4f46448b7f994112ab8a77e189ee51e42ad2))
+
 ## [0.6.3](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.2...v0.6.3) (2026-08-24)
 
 
