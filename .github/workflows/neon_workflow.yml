@@ -18,6 +18,7 @@ concurrency:
 jobs:
   setup:
     name: Setup
+    if: vars.CI_BILLING_PAUSED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -31,9 +32,10 @@ jobs:
     name: Migrate Neon Branch
     needs: setup
     if: >-
-      github.event.action == 'opened' ||
+      vars.CI_BILLING_PAUSED != 'true' &&
+      (github.event.action == 'opened' ||
       github.event.action == 'reopened' ||
-      github.event.action == 'synchronize'
+      github.event.action == 'synchronize')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -146,7 +148,7 @@ jobs:
   delete_neon_branch:
     name: Delete Neon Branch
     needs: setup
-    if: github.event.action == 'closed'
+    if: vars.CI_BILLING_PAUSED != 'true' && github.event.action == 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
