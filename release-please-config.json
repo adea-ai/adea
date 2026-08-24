@@ -172,8 +172,9 @@
       "jsonpath": "$.package.version"
     },
     {
-      "type": "generic",
-      "path": "apps/desktop/src-tauri/Cargo.lock"
+      "type": "toml",
+      "path": "apps/desktop/src-tauri/Cargo.lock",
+      "jsonpath": "$.package[?(@.name.value=='agent-hq-desktop')].version"
     }
   ]
 }
