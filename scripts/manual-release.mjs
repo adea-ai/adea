@@ -268,6 +268,10 @@ function withReleaseRunners(callback) {
   }
 }
 
+function cleanLocalReleaseState() {
+  run("bun", ["scripts/release-runners.mjs", "clean"]);
+}
+
 function main() {
   const args = new Set(process.argv.slice(2));
   if (args.has("--help")) {
@@ -302,9 +306,11 @@ function main() {
         dispatchReleaseAssets(latestTag);
         verifyReleaseAssets(latestTag);
       });
+      cleanLocalReleaseState();
       console.log(`Release repaired with verified desktop assets: ${latestTag}`);
       return;
     }
+    if (!args.has("--dry-run")) cleanLocalReleaseState();
     console.log(`No releasable commits exist after ${latestTag}; release is already current.`);
     return;
   }
@@ -375,6 +381,7 @@ function main() {
     verifyReleaseAssets(releasedTag);
     console.log(`Release completed with verified desktop assets: ${releasedTag}`);
   });
+  cleanLocalReleaseState();
 }
 
 if (import.meta.main) {

@@ -87,6 +87,17 @@ describe("test suite boundaries", () => {
     expect(runnerScript).toContain('const macCargoTarget = join(stateRoot, "macos-cargo-target")');
     expect(runnerScript).toContain("CARGO_TARGET_DIR: macCargoTarget");
     expect(runnerScript).toContain("renameSync(legacyMacCargoTarget, macCargoTarget)");
+    expect(runnerScript).toContain('const linuxBuilder = "agent-hq-release-builder"');
+    expect(runnerScript).toContain('else if (command === "clean") clean()');
+    expect(runnerScript).toContain("linuxWorkspaceVolume");
+    expect(runnerScript).toContain("runAllowMissing");
+    expect(runnerScript).toContain("no such volume");
+    expect(runnerScript).toContain('join(root, "apps", "desktop", "src-tauri", "target")');
+    expect(runnerScript).toContain('join(root, ".turbo")');
+
+    const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
+    expect(manualRelease).toContain("cleanLocalReleaseState");
+    expect(manualRelease).toContain('run("bun", ["scripts/release-runners.mjs", "clean"])');
 
     const linuxRunner = readFileSync(
       resolve(root, ".github/release-runner/linux-x64/Dockerfile"),

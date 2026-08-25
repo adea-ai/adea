@@ -6,6 +6,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -34,8 +35,10 @@ const legacyMacCargoTarget = join(
   "target",
 );
 const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
+const linuxBuilder = "agent-hq-release-builder";
 const linuxContainer = "agent-hq-release-runner-linux-x64";
 const linuxCargoTargetVolume = "agent-hq-release-linux-cargo-target";
+const linuxWorkspaceVolume = "agent-hq-release-linux-workspace";
 const runnerDeletionAttempts = 120;
 const safeHost = hostname()
   .toLowerCase()
@@ -61,6 +64,19 @@ function run(command, args, { capture = false, cwd = root, displayArgs = args } 
 
 function succeeds(command, args) {
   return spawnSync(command, args, { cwd: root, stdio: "ignore" }).status === 0;
+}
+
+function runAllowMissing(command, args, missingDetails) {
+  const result = spawnSync(command, args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error) throw result.error;
+  if (result.status === 0) return;
+  const detail = (result.stderr || result.stdout).trim().toLowerCase();
+  if (missingDetails.some((missingDetail) => detail.includes(missingDetail))) return;
+  throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}: ${detail}`);
 }
 
 function sleep(milliseconds) {
@@ -218,8 +234,15 @@ function startMacRunner() {
 }
 
 function startLinuxRunner() {
+  if (!succeeds("docker", ["buildx", "inspect", linuxBuilder])) {
+    run("docker", ["buildx", "create", "--name", linuxBuilder, "--driver", "docker-container"]);
+  }
   run("docker", [
+    "buildx",
     "build",
+    "--builder",
+    linuxBuilder,
+    "--load",
     "--quiet",
     "--platform",
     "linux/amd64",
@@ -302,7 +325,51 @@ function stop() {
   console.log("Local Agent HQ release runners are stopped.");
 }
 
+function removeDockerVolume(name) {
+  runAllowMissing("docker", ["volume", "rm", name], ["no such volume"]);
+}
+
+function clean() {
+  stop();
+  if (succeeds("docker", ["info"])) {
+    removeDockerVolume(linuxCargoTargetVolume);
+    removeDockerVolume(linuxWorkspaceVolume);
+    const images = run(
+      "docker",
+      [
+        "image",
+        "ls",
+        "--filter",
+        "reference=agent-hq-release-runner-linux-x64:*",
+        "--format",
+        "{{.Repository}}:{{.Tag}}",
+      ],
+      { capture: true },
+    )
+      .split("\n")
+      .filter(Boolean);
+    if (images.length > 0) {
+      runAllowMissing("docker", ["image", "rm", "--force", ...images], ["no such image"]);
+    }
+    if (succeeds("docker", ["buildx", "inspect", linuxBuilder])) {
+      runAllowMissing(
+        "docker",
+        ["buildx", "rm", "--force", linuxBuilder],
+        ["no builder", "not found"],
+      );
+    }
+  }
+  rmSync(stateRoot, { recursive: true, force: true });
+  rmSync(join(root, "apps", "desktop", "src-tauri", "target"), {
+    recursive: true,
+    force: true,
+  });
+  rmSync(join(root, ".turbo"), { recursive: true, force: true });
+  console.log("Disposable local Agent HQ release state has been removed.");
+}
+
 const command = process.argv[2];
 if (command === "start") start();
 else if (command === "stop") stop();
-else throw new Error("Usage: bun scripts/release-runners.mjs <start|stop>");
+else if (command === "clean") clean();
+else throw new Error("Usage: bun scripts/release-runners.mjs <start|stop|clean>");
