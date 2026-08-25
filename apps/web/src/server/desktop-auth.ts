@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   consumeDesktopAuthorizationCode,
+  createUserWithAuthIdentity,
   createDesktopSessionRecord,
   findUserPrincipalsByAuthIdentity,
   revokeDesktopSessionRecord,
@@ -82,6 +83,8 @@ export function desktopPrincipalMapping() {
   return {
     findUserPrincipals: (identity: Readonly<{ provider: string; subject: string }>) =>
       findUserPrincipalsByAuthIdentity(applicationDatabase(), identity),
+    provision: (input: Parameters<typeof createUserWithAuthIdentity>[1]) =>
+      createUserWithAuthIdentity(applicationDatabase(), input),
   };
 }
 

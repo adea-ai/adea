@@ -78,6 +78,26 @@ describe("desktop packaging and privilege boundary", () => {
     expect(schema).not.toMatch(/text\("(?:code|credential)"\)/u);
   });
 
+  test("provides an accessible browser sign-in handoff for desktop authorization", async () => {
+    const authorize = await readFile(
+      join(root, "apps/web/src/app/api/auth/desktop/authorize/route.ts"),
+      "utf8",
+    );
+    const page = await readFile(join(root, "apps/web/src/app/auth/sign-in/page.tsx"), "utf8");
+    const form = await readFile(
+      join(root, "apps/web/src/app/auth/sign-in/sign-in-form.tsx"),
+      "utf8",
+    );
+
+    expect(authorize).toContain("createDesktopSignInUrl");
+    expect(authorize).not.toContain("Authentication required");
+    expect(page).toContain("normalizeDesktopAuthorizationReturnTo");
+    expect(form).toContain('htmlFor="email"');
+    expect(form).toContain('htmlFor="password"');
+    expect(form).toContain('aria-live="polite"');
+    expect(form).toContain("createNeonClientAdapter");
+  });
+
   test("keeps provider and server-only modules out of the packaged JavaScript", async () => {
     const assets = join(root, "apps/desktop/dist/assets");
     const scripts = (await readdir(assets)).filter((file) => file.endsWith(".js"));

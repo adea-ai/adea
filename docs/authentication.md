@@ -40,10 +40,12 @@ contains only `code`, `state`, and `nonce`; access, refresh, provider-session, a
 credentials are forbidden in URLs.
 
 The web application exposes separate `authorize`, `exchange`, `refresh`, `logout`, and `revoke`
-handlers under `/api/auth/desktop`. Authorization requires a valid Neon browser session and an
-existing stable Agent HQ user mapping. Exchange and lifecycle requests accept only exact packaged
-Tauri origins (plus the explicit local Vite origin in development), use no-store responses, and
-carry opaque user credentials in request headers or bodies rather than URLs. PostgreSQL stores only
+handlers under `/api/auth/desktop`. An unauthenticated authorization request is routed through
+`/auth/sign-in` with an exact same-origin return target. Email registration creates the Neon
+account, and the first authenticated authorization provisions one stable Agent HQ user and identity
+mapping before issuing the one-time desktop code. Exchange and lifecycle requests accept only exact
+packaged Tauri origins (plus the explicit local Vite origin in development), use no-store responses,
+and carry opaque user credentials in request headers or bodies rather than URLs. PostgreSQL stores only
 SHA-256 digests for authorization codes and desktop credentials. Code consumption and credential
 rotation are atomic.
 
@@ -64,8 +66,9 @@ Server modules and Neon Auth SDK code are excluded from the client dependency gr
 - Provider tokens, cookies, raw responses, and PII never appear in the normalized auth result.
   Provider SDK logging is disabled. `createAuthEvent()` emits only event name, outcome, reason, and
   request ID.
-- Authentication and workspace authorization are separate. Application services must map the
-  provider/subject pair to a canonical identity, then run membership and permission checks.
+- Authentication and workspace authorization are separate. The desktop browser handoff may
+  provision the first canonical user identity, but application services must still map the
+  provider/subject pair to that identity and run membership and permission checks.
 
 ## Adapter use
 
