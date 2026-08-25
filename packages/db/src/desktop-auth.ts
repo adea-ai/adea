@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import type { AgentHqDatabase } from "./connection";
-import { desktopAuthorizationCodes, desktopSessions } from "./schema";
+import { desktopAuthorizationCodes, desktopSessions, users } from "./schema";
 
 export type StoredDesktopAuthorizationCode = Readonly<{
   codeChallenge: string;
@@ -120,6 +120,30 @@ export async function rotateDesktopSessionRecord(
     )
     .returning();
   return row ? sessionFromRow(row) : null;
+}
+
+export async function resolveDesktopSessionRecord(
+  database: AgentHqDatabase,
+  input: Readonly<{ credentialDigest: string; now: number; sessionId: string }>,
+): Promise<StoredDesktopSession | null> {
+  const now = new Date(input.now);
+  const [row] = await database
+    .select({ session: desktopSessions })
+    .from(desktopSessions)
+    .innerJoin(users, eq(desktopSessions.userId, users.id))
+    .where(
+      and(
+        eq(desktopSessions.sessionId, input.sessionId),
+        eq(desktopSessions.credentialDigest, input.credentialDigest),
+        isNull(desktopSessions.revokedAt),
+        gt(desktopSessions.expiresAt, now),
+        gt(desktopSessions.providerExpiresAt, now),
+        eq(users.isTemporary, false),
+        isNull(users.disabledAt),
+      ),
+    )
+    .limit(1);
+  return row ? sessionFromRow(row.session) : null;
 }
 
 export async function revokeDesktopSessionRecord(

@@ -51,6 +51,66 @@ button:disabled {
   opacity: 0.7;
 }
 
+.desktop-panel {
+  width: min(100%, 44rem);
+}
+
+.workspace-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.workspace-badge {
+  flex: 0 0 auto;
+  margin-top: 0.25rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #626b56;
+  border-radius: 999px;
+  color: #dfe8bd;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.workspace-badge--saved {
+  border-color: #6d8f65;
+  color: #b8d9b0;
+}
+
+.workspace-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem 1rem;
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  border: 1px solid #343a30;
+  border-radius: 0.75rem;
+  background: #171a15;
+}
+
+.workspace-card__label {
+  grid-column: 1 / -1;
+  color: #aeb6a1;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-card strong {
+  color: #f4f4ed;
+  font-size: 1.25rem;
+}
+
+.workspace-card > span:last-child {
+  align-self: center;
+  color: #aeb6a1;
+  font-size: 0.875rem;
+}
+
 .status {
   display: flex;
   gap: 0.75rem;
@@ -88,6 +148,11 @@ button:disabled {
   background: #b8d9b0;
 }
 
+.status-mark--guest {
+  border-color: #dfe8bd;
+  background: #dfe8bd;
+}
+
 .status-mark--offline {
   border-color: #e7c77d;
   background: #e7c77d;
@@ -96,6 +161,23 @@ button:disabled {
 .status-mark--failed {
   border-color: #f1aaa2;
   background: #f1aaa2;
+}
+
+.workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.button-secondary {
+  border-color: #626b56;
+  color: #f4f4ed;
+  background: transparent;
+}
+
+.button-secondary:hover:not(:disabled) {
+  border-color: #aeb6a1;
+  background: #22261f;
 }
 
 .privacy-note {
@@ -113,5 +195,16 @@ button:disabled {
       background-color 120ms ease,
       border-color 120ms ease,
       opacity 120ms ease;
+  }
+}
+
+@media (max-width: 36rem) {
+  .workspace-heading {
+    display: block;
+  }
+
+  .workspace-badge {
+    display: inline-block;
+    margin: 0 0 1rem;
   }
 }

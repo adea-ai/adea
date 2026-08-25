@@ -29,6 +29,27 @@
       "when": 1787557268674,
       "tag": "0003_desktop-auth-boundary",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787677504134,
+      "tag": "0004_workspace-tenancy",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787680844614,
+      "tag": "0005_slow_thaddeus_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787686268334,
+      "tag": "0006_bizarre_satana",
+      "breakpoints": true
     }
   ]
 }

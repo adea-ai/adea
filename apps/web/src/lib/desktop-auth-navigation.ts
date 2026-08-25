@@ -7,15 +7,14 @@ export function createDesktopSignInUrl(authorizationUrl: URL) {
 }
 
 export function normalizeDesktopAuthorizationReturnTo(value: string | null | undefined) {
-  if (!value?.startsWith(`${DESKTOP_AUTHORIZATION_PATH}?`)) return null;
+  if (!value?.startsWith("/") || value.startsWith("//")) return null;
   try {
     const target = new URL(value, "https://agent-hq.invalid");
-    if (
-      target.origin !== "https://agent-hq.invalid" ||
-      target.pathname !== DESKTOP_AUTHORIZATION_PATH
-    ) {
+    if (target.origin !== "https://agent-hq.invalid") {
       return null;
     }
+    if (target.pathname.startsWith("/api/") && target.pathname !== DESKTOP_AUTHORIZATION_PATH)
+      return null;
     return `${target.pathname}${target.search}`;
   } catch {
     return null;
