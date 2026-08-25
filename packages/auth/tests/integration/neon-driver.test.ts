@@ -9,6 +9,35 @@ const providerSession = {
 };
 
 describe("Neon SDK driver integration", () => {
+  test("creates an email account and returns its authenticated browser session", async () => {
+    let createdAccount: unknown;
+    const sdk = {
+      async getSession() {
+        return { data: providerSession, error: null };
+      },
+      signUp: {
+        async email(account: unknown) {
+          createdAccount = account;
+          return { data: { user: providerSession.user }, error: null };
+        },
+      },
+    } as unknown as NeonSdk;
+
+    const adapter = createAuthAdapter(createNeonAuthDriver(sdk));
+    const session = await adapter.signUp({
+      email: "operator@example.com",
+      name: "Operator",
+      password: "correct horse battery staple",
+    });
+
+    expect(createdAccount).toEqual({
+      email: "operator@example.com",
+      name: "Operator",
+      password: "correct horse battery staple",
+    });
+    expect(session.identity.subject).toBe("provider-subject");
+  });
+
   test("bypasses the session cookie cache during refresh", async () => {
     const calls: unknown[] = [];
     const sdk = {
