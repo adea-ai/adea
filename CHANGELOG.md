@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.10](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.9...v0.6.10) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** consume AppImage runtime flag ([e074a72](https://github.com/0xPlayerOne/agent-hq/commit/e074a721602326f9e1bf7d445499992e8e8dfcc7))
+
 ## [0.6.9](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.8...v0.6.9) (2026-08-25)
 
 
