@@ -18,14 +18,13 @@ export default async function SignInPage({
   );
 
   return (
-    <main className="browser-auth-shell">
-      <section className="browser-auth-panel" aria-labelledby="browser-auth-title">
-        <div className="browser-auth-brand" aria-hidden="true">
-          HQ
-        </div>
-        <p className="browser-auth-eyebrow">Agent HQ desktop</p>
-        <h1 id="browser-auth-title">Connect this desktop</h1>
-        <p className="browser-auth-introduction">
+    <main className="auth-shell">
+      <section className="auth-panel" aria-labelledby="browser-auth-title">
+        <p className="auth-eyebrow">Agent HQ desktop</p>
+        <h1 className="auth-title" id="browser-auth-title">
+          Connect this desktop
+        </h1>
+        <p className="auth-introduction">
           Sign in here, then Agent HQ will return you to the desktop app without placing your
           password or session credentials in the callback URL.
         </p>
