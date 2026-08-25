@@ -18,10 +18,11 @@ describe("desktop browser authentication navigation", () => {
     expect(signIn.searchParams.get("returnTo")).toBe(`${request.pathname}${request.search}`);
   });
 
-  test("accepts only the same-origin desktop authorization endpoint as a return target", () => {
+  test("accepts safe app and desktop authorization return targets", () => {
     expect(
       normalizeDesktopAuthorizationReturnTo("/api/auth/desktop/authorize?state=state&nonce=nonce"),
     ).toBe("/api/auth/desktop/authorize?state=state&nonce=nonce");
+    expect(normalizeDesktopAuthorizationReturnTo("/?scene=work")).toBe("/?scene=work");
     expect(normalizeDesktopAuthorizationReturnTo("https://evil.example/steal")).toBeNull();
     expect(normalizeDesktopAuthorizationReturnTo("//evil.example/steal")).toBeNull();
     expect(normalizeDesktopAuthorizationReturnTo("/api/auth/sign-out")).toBeNull();

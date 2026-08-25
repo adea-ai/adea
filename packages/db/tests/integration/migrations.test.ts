@@ -5,7 +5,13 @@ import { eq } from "drizzle-orm";
 
 import { createDatabase, type DatabaseConnection } from "../../src/connection";
 import { appendWorkspaceEvent, inTransaction } from "../../src/transactions";
-import { commandOutbox, workspaceEvents, workspaces } from "../../src/schema";
+import {
+  commandOutbox,
+  users,
+  workspaceEvents,
+  workspaceMemberships,
+  workspaces,
+} from "../../src/schema";
 
 const connectionUrl = process.env.DATABASE_URL;
 
@@ -24,9 +30,21 @@ describe.skipIf(!connectionUrl)("PostgreSQL integration", () => {
     const workspaceId = randomUUID();
     const eventId = randomUUID();
     const outboxId = randomUUID();
+    const ownerUserId = randomUUID();
 
     await inTransaction(connection.db, async (transaction) => {
-      await transaction.insert(workspaces).values({ id: workspaceId, name: "Atomic workspace" });
+      await transaction.insert(users).values({ id: ownerUserId });
+      await transaction.insert(workspaces).values({
+        id: workspaceId,
+        idempotencyKey: "atomic-create",
+        name: "Atomic workspace",
+        ownerUserId,
+      });
+      await transaction.insert(workspaceMemberships).values({
+        role: "owner",
+        userId: ownerUserId,
+        workspaceId,
+      });
       await appendWorkspaceEvent(transaction, {
         id: eventId,
         workspaceId,
@@ -50,18 +68,27 @@ describe.skipIf(!connectionUrl)("PostgreSQL integration", () => {
       await connection.db.select().from(commandOutbox).where(eq(commandOutbox.id, outboxId)),
     ).toHaveLength(1);
 
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, workspaceId));
     await connection.db.delete(workspaces).where(eq(workspaces.id, workspaceId));
+    await connection.db.delete(users).where(eq(users.id, ownerUserId));
   });
 
   test("rolls every write back when the transaction fails", async () => {
     const workspaceId = randomUUID();
     const eventId = randomUUID();
+    const ownerUserId = randomUUID();
 
     await expect(
       inTransaction(connection.db, async (transaction) => {
-        await transaction
-          .insert(workspaces)
-          .values({ id: workspaceId, name: "Rollback workspace" });
+        await transaction.insert(users).values({ id: ownerUserId });
+        await transaction.insert(workspaces).values({
+          id: workspaceId,
+          idempotencyKey: "rollback-create",
+          name: "Rollback workspace",
+          ownerUserId,
+        });
         await appendWorkspaceEvent(transaction, {
           id: eventId,
           workspaceId,
@@ -78,5 +105,8 @@ describe.skipIf(!connectionUrl)("PostgreSQL integration", () => {
     expect(
       await connection.db.select().from(workspaceEvents).where(eq(workspaceEvents.id, eventId)),
     ).toHaveLength(0);
+    expect(await connection.db.select().from(users).where(eq(users.id, ownerUserId))).toHaveLength(
+      0,
+    );
   });
 });

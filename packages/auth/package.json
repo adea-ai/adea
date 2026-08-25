@@ -18,6 +18,10 @@
       "types": "./dist/desktop.d.ts",
       "import": "./dist/desktop.js"
     },
+    "./authorization": {
+      "types": "./dist/authorization.d.ts",
+      "import": "./dist/authorization.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js"

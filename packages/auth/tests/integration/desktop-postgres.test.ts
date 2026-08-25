@@ -5,6 +5,7 @@ import {
   consumeDesktopAuthorizationCode,
   createDesktopSessionRecord,
   revokeDesktopSessionRecord,
+  resolveDesktopSessionRecord,
   rotateDesktopSessionRecord,
   saveDesktopAuthorizationCode,
 } from "../../../db/src/desktop-auth";
@@ -38,6 +39,7 @@ describe.skipIf(!connectionUrl)("desktop authorization with PostgreSQL", () => {
       store: {
         create: (record) => createDesktopSessionRecord(connection.db, record),
         revoke: (input) => revokeDesktopSessionRecord(connection.db, input),
+        resolve: (input) => resolveDesktopSessionRecord(connection.db, input),
         rotate: (input) => rotateDesktopSessionRecord(connection.db, input),
       },
     });
@@ -70,9 +72,13 @@ describe.skipIf(!connectionUrl)("desktop authorization with PostgreSQL", () => {
 
     const session = await broker.exchange(exchange);
     await expect(broker.exchange(exchange)).rejects.toThrow("unavailable");
+    await expect(sessions.resolve(session)).resolves.toMatchObject({ userId: principal.userId });
     const refreshed = await sessions.refresh(session);
     expect(refreshed.credential).not.toBe(session.credential);
+    await expect(sessions.resolve(session)).resolves.toBeNull();
+    await expect(sessions.resolve(refreshed)).resolves.toMatchObject({ userId: principal.userId });
     await sessions.revoke(refreshed);
+    await expect(sessions.resolve(refreshed)).resolves.toBeNull();
     await expect(sessions.refresh(refreshed)).rejects.toThrow("unavailable");
 
     await connection.client`DELETE FROM app.users WHERE id = ${principal.userId}`;

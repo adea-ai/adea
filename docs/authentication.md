@@ -3,8 +3,19 @@
 `@agent-hq/auth` is the only application-facing authentication provider boundary. It wraps Neon
 Auth's managed Better Auth service today, but its public result contains only a provider name,
 provider subject, non-authoritative profile hints, and session metadata. The provider subject is
-an `AuthIdentity` input for M1.4; it is never an Agent HQ `User.id` and never grants workspace
-access.
+an `AuthIdentity` input; it is never an Agent HQ `User.id` and never grants workspace access.
+
+Authentication is optional for using Agent HQ. A first web or desktop launch provisions a
+temporary canonical `User`, owner membership, and default workspace transactionally. The browser
+stores its opaque temporary credential in an HTTP-only cookie; the desktop app stores a distinct
+credential in the operating-system keychain. Temporary credentials expire after 30 days and are
+stored in PostgreSQL only as SHA-256 digests.
+
+Signing in or creating an account claims the temporary workspace. A new account promotes the
+temporary user in place; an existing account transfers memberships and ownership without exposing
+provider IDs. Claim retries are idempotent for the same account and fail closed for another
+account. Signing out affects only the account session and opens a new guest workspace; it does not
+delete the saved workspace or unpair a RuntimeNode.
 
 ## Environment topology
 
@@ -87,6 +98,25 @@ Logout and user-session revocation clear only the user session vault. RuntimeNod
 use a separate vault and lifecycle and are never reused as user credentials or implicitly unpaired.
 The packaged shell implements the user-session vault with the operating system credential store;
 provider cookies and RuntimeNode device credentials are never copied into it.
+
+## Workspace authorization
+
+Server routes call `authorizeWorkspaceAction()` with a shared named permission. Role names are
+only permission bundles: owner, admin, and member policy is evaluated in one server-side boundary,
+and non-user principals receive no user permissions implicitly. Missing membership and missing
+objects return the same opaque workspace-unavailable contract. Denials and privileged decisions
+are written to the authorization audit table.
+
+To introduce a permission:
+
+1. Add its stable identifier to `workspacePermissions` in `@agent-hq/types`.
+2. Add it only to the reviewed role bundles in `@agent-hq/auth/authorization`.
+3. Require it at each affected server route or service before repository access.
+4. Add allow, deny, cross-workspace, non-user-principal, and audit tests.
+
+Client visibility may reflect an authorization result for presentation, but it is never the policy
+boundary. Changing a bundle takes effect through the existing named-permission path and does not
+require a new role-name branch in a route.
 
 ## Provider migration
 

@@ -48,6 +48,9 @@ export type DesktopSessionRecord = Readonly<{
 export interface DesktopSessionStore {
   create(record: DesktopSessionRecord): Promise<void>;
   revoke(input: Readonly<{ credentialDigest: string; sessionId: string }>): Promise<boolean>;
+  resolve(
+    input: Readonly<{ credentialDigest: string; now: number; sessionId: string }>,
+  ): Promise<DesktopSessionRecord | null>;
   rotate(
     input: Readonly<{
       credentialDigest: string;
@@ -235,6 +238,21 @@ export function createDesktopSessionService({
       });
       if (!record) throw new Error("Desktop session is unavailable");
       return toDesktopSession(record, credential);
+    },
+    async resolve(session: DesktopSessionCredential): Promise<DesktopSessionPrincipal | null> {
+      assertDesktopSession(session);
+      const record = await store.resolve({
+        credentialDigest: digest(session.credential),
+        now: now(),
+        sessionId: session.sessionId,
+      });
+      return record
+        ? Object.freeze({
+            providerExpiresAt: record.providerExpiresAt,
+            providerSessionId: record.providerSessionId,
+            userId: record.userId,
+          })
+        : null;
     },
     async revoke(session: DesktopSessionCredential): Promise<void> {
       assertDesktopSession(session);

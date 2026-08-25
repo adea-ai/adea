@@ -6,6 +6,7 @@ import {
   createDesktopSessionRecord,
   findUserPrincipalsByAuthIdentity,
   revokeDesktopSessionRecord,
+  resolveDesktopSessionRecord,
   rotateDesktopSessionRecord,
   saveDesktopAuthorizationCode,
 } from "@agent-hq/db";
@@ -20,37 +21,9 @@ import {
 } from "@agent-hq/auth/server";
 
 import { applicationDatabase } from "./database";
+import { desktopTrustedOrigins } from "./desktop-workspace";
 
-const PRODUCTION_DESKTOP_ORIGINS = Object.freeze([
-  "http://tauri.localhost",
-  "https://tauri.localhost",
-  "tauri://localhost",
-]);
-const DEVELOPMENT_DESKTOP_ORIGIN = "http://127.0.0.1:1420";
-
-export function desktopTrustedOrigins(environment: NodeJS.ProcessEnv = process.env) {
-  const configured = environment.DESKTOP_AUTH_TRUSTED_ORIGINS?.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-  const origins = configured?.length
-    ? configured
-    : [
-        ...PRODUCTION_DESKTOP_ORIGINS,
-        ...(environment.NODE_ENV === "production" ? [] : [DEVELOPMENT_DESKTOP_ORIGIN]),
-      ];
-  if (
-    origins.some(
-      (origin) =>
-        origin.includes("*") ||
-        origin.includes("@") ||
-        origin.endsWith("/") ||
-        !/^(?:https?:\/\/|tauri:\/\/)[A-Za-z0-9.:[\]-]+$/u.test(origin),
-    )
-  ) {
-    throw new Error("Desktop auth trusted origins are invalid");
-  }
-  return Object.freeze([...new Set(origins)]);
-}
+export { desktopTrustedOrigins } from "./desktop-workspace";
 
 function codeStore(): DesktopAuthorizationCodeStore {
   return {
@@ -63,12 +36,19 @@ function sessionStore(): DesktopSessionStore {
   return {
     create: (record) => createDesktopSessionRecord(applicationDatabase(), record),
     revoke: (input) => revokeDesktopSessionRecord(applicationDatabase(), input),
+    resolve: (input) => resolveDesktopSessionRecord(applicationDatabase(), input),
     rotate: (input) => rotateDesktopSessionRecord(applicationDatabase(), input),
   };
 }
 
 export function desktopSessionService() {
   return createDesktopSessionService({ store: sessionStore() });
+}
+
+export async function resolveDesktopSessionPrincipal(request: Request) {
+  const credential = parseDesktopSessionRequest(request, desktopTrustedOrigins());
+  const principal = await desktopSessionService().resolve(credential);
+  return principal ? Object.freeze({ kind: "user" as const, userId: principal.userId }) : null;
 }
 
 export function desktopAuthorizationBroker() {

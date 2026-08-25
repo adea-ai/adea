@@ -13,6 +13,7 @@
     "shell:dev": "bun scripts/tauri.mjs dev",
     "shell:build": "bun scripts/tauri.mjs build",
     "lint": "eslint .",
+    "test": "bun test tests/unit",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
@@ -22,6 +23,7 @@
     "vite": "^8.2.2"
   },
   "dependencies": {
+    "@agent-hq/api-client": "workspace:*",
     "@agent-hq/auth": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
