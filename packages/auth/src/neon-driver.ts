@@ -1,4 +1,4 @@
-import type { AuthCredentials, AuthDriver } from "./adapter";
+import type { AuthCredentials, AuthDriver, AuthRegistration } from "./adapter";
 import type { ProviderSessionInput } from "./session";
 
 type AuthResponse<T> = Promise<{ data: T | null; error: unknown }>;
@@ -10,6 +10,9 @@ export type NeonSdk = {
   revokeSession(input: { token: string }): AuthResponse<unknown>;
   signIn: {
     email(credentials: AuthCredentials): AuthResponse<unknown>;
+  };
+  signUp: {
+    email(registration: AuthRegistration): AuthResponse<unknown>;
   };
   signOut(): AuthResponse<unknown>;
 };
@@ -48,6 +51,10 @@ export function createNeonAuthDriver(sdk: NeonSdk): AuthDriver {
     },
     async signIn(credentials) {
       requireData(await sdk.signIn.email(credentials));
+      return getFreshSession();
+    },
+    async signUp(registration) {
+      requireData(await sdk.signUp.email(registration));
       return getFreshSession();
     },
     async signOut() {

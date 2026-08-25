@@ -1,1 +1,5 @@
-{ "bunVersion": "1.x" }
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "bunVersion": "1.x",
+  "buildCommand": "bun ../../scripts/deployment-migrate.mjs && bunx turbo run build"
+}
