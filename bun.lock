@@ -20,9 +20,10 @@
     },
     "apps/desktop": {
       "name": "@agent-hq/desktop",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/auth": "workspace:*",
+        "@agent-hq/ui": "workspace:*",
         "@tauri-apps/api": "^2.11.1",
         "@tauri-apps/plugin-updater": "^2.10.1",
         "react": "19.2.8",
@@ -37,7 +38,7 @@
     },
     "apps/mobile": {
       "name": "@agent-hq/mobile",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@capacitor/android": "^8.5.0",
         "@capacitor/core": "^8.5.0",
@@ -50,7 +51,7 @@
     },
     "apps/web": {
       "name": "@agent-hq/web",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/api-client": "workspace:*",
         "@agent-hq/app-core": "workspace:*",
@@ -89,25 +90,25 @@
     },
     "packages/api-client": {
       "name": "@agent-hq/api-client",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@agent-hq/app-core",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/types": "workspace:*",
       },
     },
     "packages/asset-manifests": {
       "name": "@agent-hq/asset-manifests",
-      "version": "0.5.0",
+      "version": "0.6.10",
     },
     "packages/audio": {
       "name": "@agent-hq/audio",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "lucide-react": "^1.33.0",
         "react": "19.2.8",
@@ -118,7 +119,7 @@
     },
     "packages/auth": {
       "name": "@agent-hq/auth",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -127,7 +128,7 @@
     },
     "packages/characters": {
       "name": "@agent-hq/characters",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "three": "^0.185.1",
         "zod": "^4.4.3",
@@ -138,7 +139,7 @@
     },
     "packages/config": {
       "name": "@agent-hq/config",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@eslint/js": "^10.0.1",
         "globals": "^17.11.0",
@@ -147,7 +148,7 @@
     },
     "packages/data": {
       "name": "@agent-hq/data",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/api-client": "workspace:*",
         "@agent-hq/types": "workspace:*",
@@ -160,7 +161,7 @@
     },
     "packages/db": {
       "name": "@agent-hq/db",
-      "version": "0.3.4",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/types": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -173,7 +174,7 @@
     },
     "packages/interior": {
       "name": "@agent-hq/interior",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/scene-fields": "workspace:*",
         "three": "^0.185.1",
@@ -185,7 +186,7 @@
     },
     "packages/landscape": {
       "name": "@agent-hq/landscape",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/scene-fields": "workspace:*",
         "three": "^0.185.1",
@@ -196,7 +197,7 @@
     },
     "packages/pets": {
       "name": "@agent-hq/pets",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "three": "^0.185.1",
       },
@@ -206,7 +207,7 @@
     },
     "packages/scene-fields": {
       "name": "@agent-hq/scene-fields",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "three": "^0.185.1",
       },
@@ -216,7 +217,7 @@
     },
     "packages/scene-runtime": {
       "name": "@agent-hq/scene-runtime",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/characters": "workspace:*",
@@ -233,7 +234,7 @@
     },
     "packages/scene-shell": {
       "name": "@agent-hq/scene-shell",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
@@ -250,7 +251,7 @@
     },
     "packages/scene-telemetry": {
       "name": "@agent-hq/scene-telemetry",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/scene-runtime": "workspace:*",
       },
@@ -260,7 +261,7 @@
     },
     "packages/state": {
       "name": "@agent-hq/state",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/types": "workspace:*",
         "zustand": "^5.0.3",
@@ -268,11 +269,11 @@
     },
     "packages/types": {
       "name": "@agent-hq/types",
-      "version": "0.5.0",
+      "version": "0.6.10",
     },
     "packages/ui": {
       "name": "@agent-hq/ui",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@base-ui/react": "^1.7.0",
         "class-variance-authority": "^0.7.1",
@@ -293,7 +294,7 @@
     },
     "scenes/hq": {
       "name": "@agent-hq/hq-scenes",
-      "version": "0.5.0",
+      "version": "0.6.10",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/interior": "workspace:*",

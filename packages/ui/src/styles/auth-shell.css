@@ -1,0 +1,67 @@
+.auth-shell {
+  --auth-background: #111310;
+  --auth-surface: #191c17;
+  --auth-surface-strong: #141612;
+  --auth-border: #3b4036;
+  --auth-border-subtle: #626b56;
+  --auth-foreground: #f4f4ed;
+  --auth-muted: #c8ccbf;
+  --auth-muted-strong: #aeb6a1;
+  --auth-accent: #dfe8bd;
+  --auth-accent-hover: #eef4d5;
+  --auth-accent-foreground: #111310;
+
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  padding: 1.5rem;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px) 0 0 / 4rem 4rem,
+    var(--auth-background);
+  color: var(--auth-foreground);
+}
+
+.auth-panel {
+  width: min(100%, 40rem);
+  padding: clamp(1.5rem, 5vw, 3.5rem);
+  border: 1px solid var(--auth-border);
+  border-radius: 0.75rem;
+  background: var(--auth-surface);
+  box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 24%);
+}
+
+.auth-eyebrow {
+  margin: 0 0 0.75rem;
+  color: var(--auth-accent);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.auth-title {
+  max-width: 13ch;
+  margin: 0;
+  font-size: clamp(2rem, 7vw, 3.5rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.auth-introduction {
+  max-width: 52ch;
+  margin: 1.5rem 0;
+  color: var(--auth-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 30rem) {
+  .auth-shell {
+    padding: 0;
+  }
+
+  .auth-panel {
+    min-height: 100svh;
+    border: 0;
+    border-radius: 0;
+  }
+}

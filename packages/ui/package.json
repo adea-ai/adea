@@ -19,6 +19,7 @@
       "import": "./dist/lib/*.js"
     },
     "./globals.css": "./src/styles/globals.css",
+    "./auth-shell.css": "./src/styles/auth-shell.css",
     "./theme.css": "./src/styles/theme.css"
   },
   "imports": {
