@@ -40,6 +40,23 @@ describe("database package boundary", () => {
     }
   });
 
+  test("declares every internal package imported by the web application", async () => {
+    const manifest = JSON.parse(await readFile(join(root, "apps/web/package.json"), "utf8")) as {
+      dependencies: Record<string, string>;
+    };
+    const importedPackages = new Set<string>();
+    for (const file of await sourceFiles(join(root, "apps/web/src"))) {
+      const source = await readFile(file, "utf8");
+      for (const match of source.matchAll(/(?:from\s+|import\s*)["'](@agent-hq\/[^/"']+)/g)) {
+        importedPackages.add(match[1]!);
+      }
+    }
+
+    for (const packageName of importedPackages) {
+      expect(manifest.dependencies).toHaveProperty(packageName);
+    }
+  });
+
   test("retains and closes the process database connection", async () => {
     const source = await readFile(join(root, "apps/web/src/server/database.ts"), "utf8");
 

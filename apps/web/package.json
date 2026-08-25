@@ -22,6 +22,7 @@
     "@agent-hq/db": "workspace:*",
     "@agent-hq/pets": "workspace:*",
     "@agent-hq/state": "workspace:*",
+    "@agent-hq/types": "workspace:*",
     "@agent-hq/interior": "workspace:*",
     "@agent-hq/hq-scenes": "workspace:*",
     "@agent-hq/scene-shell": "workspace:*",
