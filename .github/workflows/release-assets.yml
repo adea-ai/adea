@@ -233,6 +233,13 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
+      - name: Install GNU tar for Pages upload
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          command -v gtar >/dev/null || brew install gnu-tar
+          command -v gtar >/dev/null
+
       - name: Prepare public signed updater channel
         env:
           GH_TOKEN: ${{ github.token }}
