@@ -141,6 +141,8 @@ describe("test suite boundaries", () => {
 
     const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
     expect(runnerScript).toContain("deleteRunnerRegistration");
+    expect(runnerScript).toContain("deleteRunnerRegistration(macRunnerName)");
+    expect(runnerScript).toContain("deleteRunnerRegistration(linuxRunnerName)");
     expect(runnerScript).toContain("currently running a job");
     expect(runnerScript).toContain("const runnerDeletionAttempts = 120");
     expect(runnerScript).toContain("attempt < runnerDeletionAttempts");
