@@ -62,6 +62,34 @@ describe("desktop packaging and privilege boundary", () => {
     expect(client).toContain("desktop_user_session_save");
   });
 
+  test("reveals and focuses the desktop window whenever a callback reaches a running app", async () => {
+    const main = await readFile(join(root, "apps/desktop/src-tauri/src/main.rs"), "utf8");
+
+    expect(main).toContain("fn reveal_main_window");
+    expect(main).toContain("window.show()");
+    expect(main).toContain("window.unminimize()");
+    expect(main).toContain("window.set_focus()");
+    expect(main.match(/receive_auth_callback/g)).toHaveLength(3);
+  });
+
+  test("uses one shared visual shell for browser and desktop authentication", async () => {
+    const desktop = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
+    const desktopStyles = await readFile(join(root, "apps/desktop/src/styles.css"), "utf8");
+    const web = await readFile(join(root, "apps/web/src/app/auth/sign-in/page.tsx"), "utf8");
+    const webStyles = await readFile(join(root, "apps/web/src/app/globals.css"), "utf8");
+    const sharedStyles = await readFile(
+      join(root, "packages/ui/src/styles/auth-shell.css"),
+      "utf8",
+    );
+
+    expect(desktopStyles).toContain('@import "@agent-hq/ui/auth-shell.css"');
+    expect(webStyles).toContain('@import "@agent-hq/ui/auth-shell.css"');
+    expect(desktop).toContain('className="auth-shell"');
+    expect(web).toContain('className="auth-shell"');
+    expect(sharedStyles).toContain(".auth-panel");
+    expect(sharedStyles).toContain(".auth-title");
+  });
+
   test("provides cloud authorization, exchange, refresh, logout, and revocation handlers", async () => {
     for (const endpoint of ["authorize", "exchange", "refresh", "logout", "revoke"]) {
       const route = await readFile(

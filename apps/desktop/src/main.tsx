@@ -114,11 +114,13 @@ function DesktopApp() {
   }
 
   return (
-    <main className="desktop-shell">
+    <main className="auth-shell">
       <section className="auth-panel" aria-labelledby="desktop-title">
-        <p className="eyebrow">Agent HQ desktop</p>
-        <h1 id="desktop-title">Your workspace, packaged for this device.</h1>
-        <p className="introduction">
+        <p className="auth-eyebrow">Agent HQ desktop</p>
+        <h1 className="auth-title" id="desktop-title">
+          Your workspace, packaged for this device.
+        </h1>
+        <p className="auth-introduction">
           The desktop app runs bundled client code and connects to Agent HQ cloud services over a
           narrow, authenticated boundary.
         </p>

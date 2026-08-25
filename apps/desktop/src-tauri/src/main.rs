@@ -4,8 +4,25 @@ mod auth;
 mod bridge;
 mod updater;
 
-use tauri::{WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
+
+fn reveal_main_window<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn receive_auth_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) {
+    if auth::queue_callback(app, raw_url) {
+        reveal_main_window(app);
+    }
+}
 
 fn main() {
     let mut builder = tauri::Builder::default();
@@ -14,7 +31,7 @@ fn main() {
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
             for argument in arguments {
-                auth::queue_callback(app, &argument);
+                receive_auth_callback(app, &argument);
             }
         }));
     }
@@ -55,7 +72,7 @@ fn main() {
             let app_handle = app.handle().clone();
             app.deep_link().on_open_url(move |event| {
                 for url in event.urls() {
-                    auth::queue_callback(&app_handle, url.as_str());
+                    receive_auth_callback(&app_handle, url.as_str());
                 }
             });
 
