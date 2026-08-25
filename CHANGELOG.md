@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.8](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.7...v0.6.8) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** preserve AppImage launchers ([#149](https://github.com/0xPlayerOne/agent-hq/issues/149)) ([9ec27b7](https://github.com/0xPlayerOne/agent-hq/commit/9ec27b75a38cbc58926daee9b731b88a50a7a23c))
+
 ## [0.6.7](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.6...v0.6.7) (2026-08-25)
 
 
