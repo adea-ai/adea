@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.11...v0.7.0) (2026-08-25)
+
+
+### Features
+
+* **workspace:** complete guest-first persistent workspace ([#160](https://github.com/0xPlayerOne/agent-hq/issues/160)) ([f247d1d](https://github.com/0xPlayerOne/agent-hq/commit/f247d1de31a9a0cd36ec2095e9e9029b525176a1))
+
+
+### Bug Fixes
+
+* **release:** persist macOS cargo build cache ([#158](https://github.com/0xPlayerOne/agent-hq/issues/158)) ([e514c7d](https://github.com/0xPlayerOne/agent-hq/commit/e514c7d36af33bff278731152c9c3333efe3b210))
+* **release:** provision GNU tar for Pages uploads ([#159](https://github.com/0xPlayerOne/agent-hq/issues/159)) ([9f1ce24](https://github.com/0xPlayerOne/agent-hq/commit/9f1ce24f7420d27ff3362f508015627edf8c01a2))
+
+
+### Tests
+
+* **workspace:** cover optional guest persistence flow ([#161](https://github.com/0xPlayerOne/agent-hq/issues/161)) ([c0ec609](https://github.com/0xPlayerOne/agent-hq/commit/c0ec609480270a653d2d1b6f3efe9e7de66193e1))
+
 ## [0.6.11](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.10...v0.6.11) (2026-08-25)
 
 
