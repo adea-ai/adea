@@ -6,6 +6,10 @@ import { createReleasePlan, parseCommitLog } from "./manual-release-core.mjs";
 const root = resolve(import.meta.dirname, "..");
 const repository = "0xPlayerOne/agent-hq";
 const releaseHeadPrefix = "release-please--branches--main";
+// The emulated Linux fallback may run for up to 120 minutes. Keep the local
+// orchestrator alive beyond that workflow deadline so it never tears down a
+// healthy self-hosted runner while GitHub still owns the job.
+const workflowWaitAttempts = 900;
 const validationCommands = [
   ["bun", ["run", "format:check"]],
   ["bun", ["run", "lint"]],
@@ -50,7 +54,7 @@ function sleep(milliseconds) {
 
 function waitForWorkflowRun(runId) {
   let consecutiveApiFailures = 0;
-  for (let attempt = 0; attempt < 270; attempt += 1) {
+  for (let attempt = 0; attempt < workflowWaitAttempts; attempt += 1) {
     let workflowRun;
     try {
       workflowRun = runJson("gh", [
