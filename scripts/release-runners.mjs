@@ -5,6 +5,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -21,6 +22,17 @@ const stateRoot = join(homedir(), ".local", "share", "agent-hq", "release-runner
 const macRunnerRoot = join(stateRoot, "macos-arm64");
 const macRunnerPid = join(stateRoot, "macos-arm64.pid");
 const macRunnerLog = join(stateRoot, "macos-arm64.log");
+const macCargoTarget = join(stateRoot, "macos-cargo-target");
+const legacyMacCargoTarget = join(
+  macRunnerRoot,
+  "_work",
+  "agent-hq",
+  "agent-hq",
+  "apps",
+  "desktop",
+  "src-tauri",
+  "target",
+);
 const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
 const linuxContainer = "agent-hq-release-runner-linux-x64";
 const linuxCargoTargetVolume = "agent-hq-release-linux-cargo-target";
@@ -181,6 +193,10 @@ function ensureMacRunner() {
 
 function startMacRunner() {
   ensureMacRunner();
+  if (!existsSync(macCargoTarget) && existsSync(legacyMacCargoTarget)) {
+    renameSync(legacyMacCargoTarget, macCargoTarget);
+  }
+  mkdirSync(macCargoTarget, { recursive: true });
   if (existsSync(macRunnerPid)) {
     const pid = Number(readFileSync(macRunnerPid, "utf8"));
     if (processGroupIsAlive(pid)) {
@@ -192,6 +208,7 @@ function startMacRunner() {
   const child = spawn(join(macRunnerRoot, "run.sh"), [], {
     cwd: macRunnerRoot,
     detached: true,
+    env: { ...process.env, CARGO_TARGET_DIR: macCargoTarget },
     stdio: ["ignore", log, log],
   });
   child.unref();
