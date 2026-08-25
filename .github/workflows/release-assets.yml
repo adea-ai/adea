@@ -160,6 +160,20 @@ jobs:
         run: bun run --cwd packages/types build
 
       - name: Build and upload desktop bundle
+        id: desktop_bundle
+        continue-on-error: true
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macOS ARM64' && '-' || '' }}
+        with:
+          projectPath: apps/desktop
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseBody: ${{ steps.release_notes.outputs.body }}
+          tauriScript: bun scripts/tauri.mjs
+          args: ${{ vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_args || matrix.args }}
+
+      - name: Retry desktop bundle upload
+        if: steps.desktop_bundle.outcome == 'failure'
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macOS ARM64' && '-' || '' }}
