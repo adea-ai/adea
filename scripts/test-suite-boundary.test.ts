@@ -68,6 +68,10 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("bun run --cwd packages/types build");
     expect(workflow).toContain("timeout_minutes: 120");
     expect(workflow).toContain("timeout-minutes: ${{ matrix.timeout_minutes }}");
+    expect(workflow).toContain("id: desktop_bundle");
+    expect(workflow).toContain("continue-on-error: true");
+    expect(workflow).toContain("steps.desktop_bundle.outcome == 'failure'");
+    expect(workflow).toContain("Retry desktop bundle upload");
     expect(workflow).toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("name: github-pages");
     expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
@@ -83,6 +87,19 @@ describe("test suite boundaries", () => {
     expect(linuxRunner).toContain("sudo unzip xdg-utils xz-utils");
     expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=1");
     expect(linuxRunner).toContain("ENV CARGO_TARGET_DIR=/home/runner/cache/cargo-target");
+    expect(linuxRunner).toContain("squashfs-tools");
+    expect(linuxRunner).toContain("extract_appimage");
+    expect(linuxRunner).toContain("LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256");
+    expect(linuxRunner).toContain("linuxdeploy-x86_64.AppImage.real");
+    expect(linuxRunner).toContain("linuxdeploy-plugin-appimage-x86_64.AppImage.real");
+
+    const appImageWrapper = readFileSync(
+      resolve(root, ".github/release-runner/linux-x64/extracted-appimage-wrapper.sh"),
+      "utf8",
+    );
+    expect(appImageWrapper).toContain('export APPIMAGE="$0"');
+    expect(appImageWrapper).toContain('export APPDIR="$0.extracted"');
+    expect(appImageWrapper).toContain('exec "$APPDIR/AppRun" "$@"');
   });
 
   test("does not report a release before its desktop assets finish", () => {
