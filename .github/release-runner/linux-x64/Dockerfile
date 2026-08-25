@@ -28,9 +28,9 @@ RUN mkdir -p /home/runner/.cache/tauri \
     --output /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage.real \
   && curl --fail --silent --show-error --location \
     https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage \
-    --output /home/runner/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage.real \
+    --output /home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage.real \
   && echo "$LINUXDEPLOY_SHA256  /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage.real" | sha256sum --check \
-  && echo "$LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256  /home/runner/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage.real" | sha256sum --check \
+  && echo "$LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256  /home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage.real" | sha256sum --check \
   && extract_appimage() { \
     real="$1"; \
     destination="${real%.real}.extracted"; \
@@ -46,14 +46,19 @@ RUN mkdir -p /home/runner/.cache/tauri \
     test -x "$destination/AppRun"; \
   }; \
   extract_appimage /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage.real \
-  && extract_appimage /home/runner/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage.real \
+  && extract_appimage /home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage.real \
   && chmod +x /home/runner/.cache/tauri/*.real \
   && chown -R runner:runner /home/runner/.cache/tauri
 
-COPY --chown=runner:runner extracted-appimage-wrapper.sh /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage
-COPY --chown=runner:runner extracted-appimage-wrapper.sh /home/runner/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage
-RUN chmod +x /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage \
-  /home/runner/.cache/tauri/linuxdeploy-plugin-appimage-x86_64.AppImage
+COPY appimage-wrapper.c /tmp/appimage-wrapper.c
+RUN cc -O2 -Wall -Wextra -Werror \
+    -o /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage \
+    /tmp/appimage-wrapper.c \
+  && cp /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage \
+    /home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage \
+  && chown runner:runner \
+    /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage \
+    /home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage
 
 USER runner
 ENV PATH="/home/runner/.cargo/bin:${PATH}"
