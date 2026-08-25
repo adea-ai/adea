@@ -91,15 +91,17 @@ describe("test suite boundaries", () => {
     expect(linuxRunner).toContain("extract_appimage");
     expect(linuxRunner).toContain("LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256");
     expect(linuxRunner).toContain("linuxdeploy-x86_64.AppImage.real");
-    expect(linuxRunner).toContain("linuxdeploy-plugin-appimage-x86_64.AppImage.real");
+    expect(linuxRunner).toContain("linuxdeploy-plugin-appimage.AppImage.real");
+    expect(linuxRunner).toContain("appimage-wrapper.c");
+    expect(linuxRunner).toContain("cc -O2 -Wall -Wextra -Werror");
 
     const appImageWrapper = readFileSync(
-      resolve(root, ".github/release-runner/linux-x64/extracted-appimage-wrapper.sh"),
+      resolve(root, ".github/release-runner/linux-x64/appimage-wrapper.c"),
       "utf8",
     );
-    expect(appImageWrapper).toContain('export APPIMAGE="$0"');
-    expect(appImageWrapper).toContain('export APPDIR="$0.extracted"');
-    expect(appImageWrapper).toContain('exec "$APPDIR/AppRun" "$@"');
+    expect(appImageWrapper).toContain('setenv("APPIMAGE", executable');
+    expect(appImageWrapper).toContain('setenv("APPDIR", appdir');
+    expect(appImageWrapper).toContain("execv(apprun, argv)");
   });
 
   test("does not report a release before its desktop assets finish", () => {
