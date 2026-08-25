@@ -24,6 +24,7 @@ const macRunnerLog = join(stateRoot, "macos-arm64.log");
 const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
 const linuxContainer = "agent-hq-release-runner-linux-x64";
 const linuxCargoTargetVolume = "agent-hq-release-linux-cargo-target";
+const runnerDeletionAttempts = 120;
 const safeHost = hostname()
   .toLowerCase()
   .replace(/[^a-z0-9-]+/g, "-");
@@ -98,7 +99,7 @@ function runnerId(name) {
 }
 
 function deleteRunnerRegistration(name) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  for (let attempt = 0; attempt < runnerDeletionAttempts; attempt += 1) {
     const id = runnerId(name);
     if (!id) return;
     const result = spawnSync(
