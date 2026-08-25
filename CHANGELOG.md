@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.7.0...v0.7.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** build desktop API client dependency ([12cb390](https://github.com/0xPlayerOne/agent-hq/commit/12cb390f63b61b54b89b8893f4256c52006beb02))
+
 ## [0.7.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.11...v0.7.0) (2026-08-25)
 
 
