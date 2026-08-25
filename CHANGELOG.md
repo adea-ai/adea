@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.6](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.5...v0.6.6) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** install Linux AppImage tools ([8eff9d4](https://github.com/0xPlayerOne/agent-hq/commit/8eff9d4f24206f0b47a01a01e1e687c3cc62e398))
+
 ## [0.6.5](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.4...v0.6.5) (2026-08-25)
 
 
