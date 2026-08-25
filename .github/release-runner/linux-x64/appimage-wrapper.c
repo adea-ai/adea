@@ -8,8 +8,6 @@
 #include <unistd.h>
 
 int main(int argc, char **argv) {
-  (void)argc;
-
   char executable[PATH_MAX];
   ssize_t length = readlink("/proc/self/exe", executable, sizeof(executable) - 1);
   if (length < 0) {
@@ -31,7 +29,17 @@ int main(int argc, char **argv) {
     return 127;
   }
 
-  execv(apprun, argv);
+  char *forwarded[argc + 1];
+  int forwarded_count = 0;
+  forwarded[forwarded_count++] = argv[0];
+  for (int index = 1; index < argc; index++) {
+    if (strcmp(argv[index], "--appimage-extract-and-run") != 0) {
+      forwarded[forwarded_count++] = argv[index];
+    }
+  }
+  forwarded[forwarded_count] = NULL;
+
+  execv(apprun, forwarded);
   fprintf(stderr, "appimage-wrapper: execv %s failed: %s\n", apprun, strerror(errno));
   return 127;
 }
