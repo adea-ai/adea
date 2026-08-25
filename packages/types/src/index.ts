@@ -2,6 +2,20 @@ export type WorkspaceSceneId = "home" | "work";
 
 export type WorkspaceViewMode = "perspective" | "orthographic";
 
+export const workspacePermissions = [
+  "workspace.create",
+  "workspace.read",
+  "workspace.update",
+  "workspace.archive",
+  "workspace.events.read",
+  "membership.read",
+  "membership.manage",
+  "runtime.invoke",
+  "billing.manage",
+] as const;
+
+export type WorkspacePermission = (typeof workspacePermissions)[number];
+
 export type AgentStatus = "idle" | "working" | "blocked" | "offline";
 
 export type UserPrincipalRef = Readonly<{ kind: "user"; userId: string }>;

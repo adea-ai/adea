@@ -85,6 +85,14 @@
   opacity: 0.65;
 }
 
+.browser-auth-continue {
+  display: block;
+  margin-top: 1rem;
+  color: var(--auth-muted-strong);
+  font-size: 0.875rem;
+  text-align: center;
+}
+
 :root {
   --hq-shell-background: #f3f7f4;
   --hq-shell-surface: #ffffff;
@@ -318,6 +326,26 @@
   display: flex;
   align-items: center;
   flex: 0 0 auto;
+}
+
+.workspace-save-account,
+.workspace-saved-account {
+  border: 1px solid var(--hq-shell-border);
+  border-radius: 999px;
+  padding: 0.42rem 0.7rem;
+  color: var(--hq-shell-foreground);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.workspace-save-account:hover {
+  background: var(--hq-shell-surface-strong);
+}
+
+.workspace-saved-account {
+  color: var(--hq-shell-muted);
 }
 
 .workspace-camera-control {

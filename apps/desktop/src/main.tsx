@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { createApiClient } from "@agent-hq/api-client";
 import {
   createDesktopAuthorizationManager,
   createDesktopAuthorizationUrl,
@@ -9,20 +8,29 @@ import {
   type DesktopSession,
   type DesktopSessionVault,
 } from "@agent-hq/auth/desktop";
-import { StrictMode, useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
+import { bootstrapDesktopWorkspace, type DesktopWorkspaceBootstrap } from "./workspace-session";
 import "./styles.css";
 
 const cloudOrigin =
   import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || "https://agent-hq-site.vercel.app";
 
-type AuthStatus = "authenticated" | "failed" | "idle" | "offline" | "opening" | "waiting";
+type AppStatus =
+  "authenticated" | "failed" | "guest" | "loading" | "offline" | "opening" | "waiting";
 
 const sessionVault: DesktopSessionVault = {
   clear: () => invoke("desktop_user_session_clear"),
   load: () => invoke<DesktopSession | null>("desktop_user_session_load"),
   save: (session) => invoke("desktop_user_session_save", { session }),
+};
+const temporaryVault = {
+  clear: () => invoke<void>("desktop_temporary_workspace_clear"),
+  load: () => invoke<string | null>("desktop_temporary_workspace_load"),
+  save: (credential: string) => invoke<void>("desktop_temporary_workspace_save", { credential }),
 };
 const authorizationManager = createDesktopAuthorizationManager({
   vault: {
@@ -37,23 +45,64 @@ const sessionManager = createDesktopSessionManager({
   vault: sessionVault,
 });
 
+function workspaceClient(session?: DesktopSession, temporaryCredential?: string) {
+  return createApiClient({
+    baseUrl: `${cloudOrigin}/api`,
+    client: "desktop",
+    getDesktopSession: session
+      ? () => ({ credential: session.credential, sessionId: session.sessionId })
+      : undefined,
+    getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
+  });
+}
+
 function DesktopApp() {
-  const [status, setStatus] = useState<AuthStatus>("idle");
-  const [message, setMessage] = useState(
-    "Sign in through your system browser. Agent HQ never places session credentials in callback URLs.",
-  );
+  const [status, setStatus] = useState<AppStatus>("loading");
+  const [message, setMessage] = useState("Opening your workspace…");
+  const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null);
+  const [session, setSession] = useState<DesktopSession | undefined>();
+
+  const openWorkspace = useCallback(async (activeSession?: DesktopSession) => {
+    setStatus("loading");
+    setMessage(
+      activeSession ? "Opening your saved workspace…" : "Opening a private guest workspace…",
+    );
+    try {
+      const storedTemporaryCredential = await temporaryVault.load();
+      const nextWorkspace = await bootstrapDesktopWorkspace({
+        createClient: ({ session: clientSession, temporaryCredential }) =>
+          workspaceClient(clientSession, temporaryCredential),
+        session: activeSession,
+        storedTemporaryCredential,
+        temporaryVault,
+      });
+      setSession(activeSession);
+      setWorkspaceState(nextWorkspace);
+      setStatus(activeSession ? "authenticated" : "guest");
+      setMessage(
+        activeSession
+          ? "Your workspace is saved to your Agent HQ account."
+          : "You can use this workspace now. Sign in whenever you want to save it to an account.",
+      );
+    } catch {
+      setStatus("offline");
+      setMessage(
+        "Agent HQ could not reach the workspace service. Your local credentials are safe.",
+      );
+    }
+  }, []);
 
   useEffect(() => {
+    let disposed = false;
     let unlisten: (() => void) | undefined;
+
     void sessionManager.restore().then((sessionState) => {
-      if (sessionState.status === "authenticated") {
-        setStatus("authenticated");
-        setMessage("Your desktop user session is active.");
-      } else if (sessionState.status === "offline") {
-        setStatus("offline");
-        setMessage("Agent HQ is offline. Your saved session remains protected on this device.");
-      }
+      if (disposed) return;
+      void openWorkspace(
+        sessionState.status === "authenticated" ? sessionState.session : undefined,
+      );
     });
+
     async function receiveCallback() {
       let callbackUrl: string | null;
       try {
@@ -61,27 +110,30 @@ function DesktopApp() {
       } catch {
         return;
       }
-      if (!callbackUrl) return;
+      if (!callbackUrl || disposed) return;
       try {
         const exchange = await authorizationManager.consume(callbackUrl);
         const sessionState = await sessionManager.completeSignIn(exchange);
         if (sessionState.status !== "authenticated") throw new Error("Authentication failed");
-        setStatus("authenticated");
-        setMessage("Sign-in complete. Your desktop user session is active.");
+        await openWorkspace(sessionState.session);
       } catch {
         setStatus("failed");
-        setMessage("The sign-in callback was invalid or expired. Start again from this app.");
+        setMessage(
+          "The sign-in callback was invalid or expired. Your guest workspace is unchanged.",
+        );
       }
     }
 
-    void listen("desktop-auth-callback-ready", () => {
-      void receiveCallback();
-    }).then((dispose) => {
+    void listen("desktop-auth-callback-ready", () => void receiveCallback()).then((dispose) => {
+      if (disposed) return dispose();
       unlisten = dispose;
       void receiveCallback();
     });
-    return () => unlisten?.();
-  }, []);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [openWorkspace]);
 
   async function beginSignIn() {
     setStatus("opening");
@@ -92,58 +144,87 @@ function DesktopApp() {
         authorizationUrl: createDesktopAuthorizationUrl(cloudOrigin, nextAttempt),
       });
       setStatus("waiting");
-      setMessage("Finish signing in in your browser, then return to Agent HQ.");
+      setMessage(
+        "Finish signing in in your browser, then return here. This app will reopen automatically.",
+      );
     } catch {
       await authorizationManager.cancel().catch(() => undefined);
-      setStatus("failed");
-      setMessage(
-        "Agent HQ could not open the trusted sign-in page. Check your connection and try again.",
-      );
+      setStatus(workspaceState?.temporary ? "guest" : "failed");
+      setMessage("Agent HQ could not open the trusted sign-in page. Your workspace is unchanged.");
     }
   }
 
   async function signOut() {
-    try {
-      await sessionManager.signOut();
-      setStatus("idle");
-      setMessage("Signed out of Agent HQ. Paired RuntimeNodes were not changed.");
-    } catch {
-      setStatus("idle");
-      setMessage("Signed out on this device. The remote session could not be reached.");
-    }
+    await sessionManager.signOut().catch(() => undefined);
+    setSession(undefined);
+    setWorkspaceState(null);
+    await openWorkspace();
   }
+
+  const busy = status === "loading" || status === "opening" || status === "waiting";
 
   return (
     <main className="auth-shell">
-      <section className="auth-panel" aria-labelledby="desktop-title">
-        <p className="auth-eyebrow">Agent HQ desktop</p>
-        <h1 className="auth-title" id="desktop-title">
-          Your workspace, packaged for this device.
-        </h1>
+      <section className="auth-panel desktop-panel" aria-labelledby="desktop-title">
+        <div className="workspace-heading">
+          <div>
+            <p className="auth-eyebrow">Agent HQ desktop</p>
+            <h1 className="auth-title" id="desktop-title">
+              {workspaceState?.workspace.name ?? "Your workspace, ready when you are."}
+            </h1>
+          </div>
+          {workspaceState ? (
+            <span
+              className={`workspace-badge workspace-badge--${workspaceState.temporary ? "guest" : "saved"}`}
+            >
+              {workspaceState.temporary ? "Guest workspace" : "Saved workspace"}
+            </span>
+          ) : null}
+        </div>
         <p className="auth-introduction">
-          The desktop app runs bundled client code and connects to Agent HQ cloud services over a
-          narrow, authenticated boundary.
+          Start immediately without an account. Sign in later to keep this workspace across devices.
         </p>
+
+        {workspaceState ? (
+          <div className="workspace-card">
+            <span className="workspace-card__label">Current scene</span>
+            <strong>{workspaceState.workspace.scene === "work" ? "Work" : "Home"}</strong>
+            <span>
+              {workspaceState.workspaces.length} workspace
+              {workspaceState.workspaces.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        ) : null}
+
         <div className="status" role="status" aria-live="polite">
           <span className={`status-mark status-mark--${status}`} aria-hidden="true" />
           <p>{message}</p>
         </div>
-        {status === "authenticated" ? (
-          <button type="button" onClick={signOut}>
-            Sign out
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={beginSignIn}
-            disabled={status === "opening" || status === "waiting"}
-          >
-            {status === "waiting" ? "Waiting for browser" : "Continue in browser"}
-          </button>
-        )}
+
+        <div className="workspace-actions">
+          {session ? (
+            <button type="button" className="button-secondary" onClick={signOut} disabled={busy}>
+              Sign out
+            </button>
+          ) : (
+            <button type="button" onClick={beginSignIn} disabled={busy || !workspaceState}>
+              {status === "waiting" ? "Waiting for browser" : "Save this workspace"}
+            </button>
+          )}
+          {(status === "offline" || status === "failed") && (
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => void openWorkspace(session)}
+            >
+              Try again
+            </button>
+          )}
+        </div>
+
         <p className="privacy-note">
-          Authentication uses PKCE, a short-lived one-time code, and the registered Agent HQ
-          callback. RuntimeNode device credentials remain separate.
+          Guest access is protected by a device-only keychain credential. Optional sign-in uses
+          PKCE; no session token is placed in the browser callback URL.
         </p>
       </section>
     </main>

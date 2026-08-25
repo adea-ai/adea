@@ -16,19 +16,26 @@ export default async function SignInPage({
   const returnTo = normalizeDesktopAuthorizationReturnTo(
     typeof requestedReturn === "string" ? requestedReturn : null,
   );
+  const desktopFlow = returnTo?.startsWith("/api/auth/desktop/authorize?") ?? false;
 
   return (
     <main className="auth-shell">
       <section className="auth-panel" aria-labelledby="browser-auth-title">
-        <p className="auth-eyebrow">Agent HQ desktop</p>
+        <p className="auth-eyebrow">{desktopFlow ? "Agent HQ desktop" : "Agent HQ workspace"}</p>
         <h1 className="auth-title" id="browser-auth-title">
-          Connect this desktop
+          {desktopFlow ? "Connect this desktop" : "Save your workspace"}
         </h1>
         <p className="auth-introduction">
-          Sign in here, then Agent HQ will return you to the desktop app without placing your
-          password or session credentials in the callback URL.
+          {desktopFlow
+            ? "Sign in here, then Agent HQ will securely return you to the desktop app."
+            : "Create an account or sign in to keep this temporary workspace across devices."}
         </p>
         <SignInForm returnTo={returnTo ?? "/"} />
+        {!desktopFlow ? (
+          <a className="browser-auth-continue" href="/">
+            Continue without an account
+          </a>
+        ) : null}
       </section>
     </main>
   );

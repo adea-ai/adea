@@ -5,7 +5,7 @@ import { Profiler, type ProfilerOnRenderCallback, useEffect, useState } from "re
 import { createApiClient } from "@agent-hq/api-client";
 import type { HqSceneId } from "@agent-hq/app-core";
 import { MusicToggle } from "@agent-hq/audio";
-import { useWorkspaceQuery } from "@agent-hq/data";
+import { useWorkspaceBootstrapQuery } from "@agent-hq/data";
 import { useWorkspaceStore } from "@agent-hq/state";
 import { BriefcaseBusiness, Home } from "lucide-react";
 import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
@@ -92,7 +92,7 @@ export function WorkspaceShell({
   const [storeReady, setStoreReady] = useState(false);
   const [desktopRuntime, setDesktopRuntime] = useState(false);
   const [apiClient] = useState(() => createApiClient());
-  const workspaceQuery = useWorkspaceQuery(apiClient, "default");
+  const workspaceQuery = useWorkspaceBootstrapQuery(apiClient);
   const sceneId = storeReady ? selectedScene : initialScene;
   const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode;
   const scene = sceneById[sceneId];
@@ -161,6 +161,13 @@ export function WorkspaceShell({
                   <MusicToggle />
                 </div>
                 <div id="workspace-account-slot" className="workspace-account-slot" />
+                {workspaceQuery.data?.principal.temporary ? (
+                  <a className="workspace-save-account" href="/auth/sign-in?returnTo=%2F">
+                    Save workspace
+                  </a>
+                ) : workspaceQuery.data ? (
+                  <span className="workspace-saved-account">Workspace saved</span>
+                ) : null}
               </div>
             </div>
             <div className="workspace-topbar__secondary">
