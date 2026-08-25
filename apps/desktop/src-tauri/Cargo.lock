@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "agent-hq-desktop"
-version = "0.6.10"
+version = "0.6.11"
 dependencies = [
  "keyring",
  "serde",
