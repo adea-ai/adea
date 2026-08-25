@@ -321,6 +321,11 @@ function stop() {
     }
     unlinkSync(macRunnerPid);
   }
+  try {
+    deleteRunnerRegistration(macRunnerName);
+  } catch (error) {
+    cleanupError ??= error;
+  }
   if (cleanupError) throw cleanupError;
   console.log("Local Agent HQ release runners are stopped.");
 }
