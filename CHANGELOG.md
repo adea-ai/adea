@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.9](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.8...v0.6.9) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** isolate AppImage source tools ([ad5e988](https://github.com/0xPlayerOne/agent-hq/commit/ad5e9886d9e8bec2d0289b941f323789517ffecd))
+
 ## [0.6.8](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.7...v0.6.8) (2026-08-25)
 
 
