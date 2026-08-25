@@ -80,7 +80,7 @@ describe("test suite boundaries", () => {
       resolve(root, ".github/release-runner/linux-x64/Dockerfile"),
       "utf8",
     );
-    expect(linuxRunner).toContain("sudo unzip xz-utils");
+    expect(linuxRunner).toContain("sudo unzip xdg-utils xz-utils");
     expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=1");
     expect(linuxRunner).toContain("ENV CARGO_TARGET_DIR=/home/runner/cache/cargo-target");
   });
