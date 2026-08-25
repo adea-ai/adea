@@ -61,6 +61,15 @@ always-running Parallels instance is required. WiX MSI generation remains
 native-Windows-only; the local fallback publishes the supported NSIS updater
 package instead.
 
+After the release assets and public updater manifest are verified, `bun release`
+removes its disposable local state: runner registrations and files, isolated
+Linux Buildx cache, release-runner images and volumes, the generated Tauri
+target, and the local Turbo cache. A failed release only stops the runners and
+retains those caches for a retry. Running `bun release` when the current GitHub
+release is already complete also performs this cleanup, so stale release state
+does not accumulate between releases. Development dependencies and application
+database volumes are preserved.
+
 Tauri updater packages are signed using repository secrets and the public
 channel is rejected unless all three target entries contain signatures.
 Platform-native code signing and notarization remain separate follow-ups:
