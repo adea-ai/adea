@@ -90,6 +90,8 @@ describe("test suite boundaries", () => {
     expect(manualRelease).toContain("waitForPublishedReleaseAssets");
     expect(manualRelease).toContain("waitForWorkflowRun");
     expect(manualRelease).toContain("Release status check failed; retrying");
+    expect(manualRelease).toContain("const workflowWaitAttempts = 900");
+    expect(manualRelease).toContain("attempt < workflowWaitAttempts");
     expect(manualRelease).toContain("verifyReleaseAssets");
     expect(manualRelease).toContain("releaseAssetsAreComplete");
     expect(manualRelease).toContain("dispatchReleaseAssets");
@@ -97,6 +99,8 @@ describe("test suite boundaries", () => {
     const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
     expect(runnerScript).toContain("deleteRunnerRegistration");
     expect(runnerScript).toContain("currently running a job");
+    expect(runnerScript).toContain("const runnerDeletionAttempts = 120");
+    expect(runnerScript).toContain("attempt < runnerDeletionAttempts");
   });
 
   test("keeps one canonical changelog and versions every private workspace in lockstep", () => {
