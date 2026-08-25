@@ -63,6 +63,8 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("agent-hq-release-linux-x64");
     expect(workflow).toContain("cargo-xwin");
     expect(workflow).toContain("rustup target add x86_64-pc-windows-msvc");
+    expect(workflow).toContain("Isolate Windows cross-compilation output");
+    expect(workflow).toContain("CARGO_TARGET_DIR=$GITHUB_WORKSPACE/apps/desktop/src-tauri/target");
     expect(workflow).toContain("--bundles nsis");
     expect(workflow).toContain("bun scripts/release-notes.mjs");
     expect(workflow).toContain("bun run --cwd packages/types build");
