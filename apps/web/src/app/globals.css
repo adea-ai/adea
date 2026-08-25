@@ -1,5 +1,156 @@
 @import "@agent-hq/scene-shell/globals.css";
 
+.browser-auth-shell {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  padding: 1.5rem;
+  background: var(--hq-shell-background);
+  color: var(--hq-shell-foreground);
+}
+
+.browser-auth-panel {
+  width: min(100%, 28rem);
+  padding: 2rem;
+  border: 1px solid var(--hq-shell-border);
+  border-radius: 0.75rem;
+  background: var(--hq-shell-surface);
+}
+
+.browser-auth-brand {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 1.5rem;
+  place-items: center;
+  border-radius: 0.55rem;
+  background: var(--hq-shell-accent);
+  color: var(--hq-shell-accent-foreground);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+}
+
+.browser-auth-eyebrow {
+  margin: 0 0 0.45rem;
+  color: var(--hq-shell-muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.browser-auth-panel h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 6vw, 2.25rem);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.browser-auth-introduction {
+  margin: 1rem 0 1.5rem;
+  color: var(--hq-shell-muted);
+  line-height: 1.6;
+}
+
+.browser-auth-mode {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--hq-shell-border-subtle);
+  border-radius: 0.6rem;
+  background: var(--hq-shell-surface-strong);
+}
+
+.browser-auth-mode button,
+.browser-auth-submit {
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 0.45rem;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.browser-auth-mode button {
+  background: transparent;
+  color: var(--hq-shell-muted);
+}
+
+.browser-auth-mode button[aria-pressed="true"] {
+  background: var(--hq-shell-surface);
+  color: var(--hq-shell-foreground);
+}
+
+.browser-auth-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+.browser-auth-form label {
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.browser-auth-form input {
+  min-height: 2.75rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--hq-shell-border);
+  border-radius: 0.45rem;
+  background: var(--hq-shell-background);
+  color: var(--hq-shell-foreground);
+  font: inherit;
+}
+
+.browser-auth-form input:focus-visible,
+.browser-auth-mode button:focus-visible,
+.browser-auth-submit:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--hq-shell-focus) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.browser-auth-error {
+  min-height: 1.25rem;
+  margin: 0;
+  color: #b42318;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.dark .browser-auth-error {
+  color: #fda29b;
+}
+
+.browser-auth-submit {
+  background: var(--hq-shell-accent);
+  color: var(--hq-shell-accent-foreground);
+}
+
+.browser-auth-mode button:disabled,
+.browser-auth-form input:disabled,
+.browser-auth-submit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+@media (max-width: 30rem) {
+  .browser-auth-shell {
+    padding: 0;
+  }
+
+  .browser-auth-panel {
+    min-height: 100svh;
+    padding: 1.5rem;
+    border: 0;
+    border-radius: 0;
+  }
+}
+
 :root {
   --hq-shell-background: #f3f7f4;
   --hq-shell-surface: #ffffff;

@@ -24,6 +24,9 @@ function createDriver(): AuthDriver & { revoked: Set<string> } {
     async signIn() {
       return activeSession;
     },
+    async signUp() {
+      return activeSession;
+    },
     async signOut() {
       revoked.add(activeSession.session.id);
     },

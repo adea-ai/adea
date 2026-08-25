@@ -52,6 +52,8 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Review committed SQL before applying it.
 - Run migrations with `DATABASE_MIGRATION_URL`; ordinary requests use `DATABASE_URL`.
 - Apply migrations once per deployment before application traffic depends on them.
+- Vercel applies the committed migration history before every web build and fails the deployment if
+  the restricted migration credential is absent or a migration is not deterministic.
 - Never edit an applied migration. Add a forward fix.
 - Prefer expand/migrate/contract changes. Roll back application code independently while the expanded schema remains compatible.
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.

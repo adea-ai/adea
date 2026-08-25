@@ -5,11 +5,17 @@ export type AuthCredentials = Readonly<{
   password: string;
 }>;
 
+export type AuthRegistration = AuthCredentials &
+  Readonly<{
+    name: string;
+  }>;
+
 export interface AuthDriver {
   getSession(): Promise<ProviderSessionInput | null>;
   refreshSession(): Promise<ProviderSessionInput | null>;
   revokeSession(sessionId: string): Promise<void>;
   signIn(credentials: AuthCredentials): Promise<ProviderSessionInput>;
+  signUp(registration: AuthRegistration): Promise<ProviderSessionInput>;
   signOut(): Promise<void>;
 }
 
@@ -18,6 +24,7 @@ export interface AuthAdapter {
   refreshSession(): Promise<AuthResult | null>;
   revokeSession(sessionId: string): Promise<void>;
   signIn(credentials: AuthCredentials): Promise<AuthResult>;
+  signUp(registration: AuthRegistration): Promise<AuthResult>;
   signOut(): Promise<void>;
 }
 
@@ -43,6 +50,11 @@ export function createAuthAdapter(driver: AuthDriver): AuthAdapter {
     },
     async signIn(credentials) {
       const session = normalizeNeonSession(await driver.signIn(credentials));
+      if (!session) throw new Error("Authentication failed");
+      return session;
+    },
+    async signUp(registration) {
+      const session = normalizeNeonSession(await driver.signUp(registration));
       if (!session) throw new Error("Authentication failed");
       return session;
     },
