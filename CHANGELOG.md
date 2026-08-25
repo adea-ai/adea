@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.5](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.4...v0.6.5) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** keep local runners alive for Linux builds ([08465a2](https://github.com/0xPlayerOne/agent-hq/commit/08465a27afa99201050c247ce60f10cf03730869))
+
+
+### Maintenance
+
+* **release:** extend emulated Linux timeout ([5217abf](https://github.com/0xPlayerOne/agent-hq/commit/5217abff461111441c1c1f43977ee49bc950cf74))
+* **release:** limit emulated Linux build jobs ([01096e6](https://github.com/0xPlayerOne/agent-hq/commit/01096e6747fe2d1a0f35a3c51b7171a7cd4a18a3))
+* **release:** persist Linux build cache ([e2ef4cd](https://github.com/0xPlayerOne/agent-hq/commit/e2ef4cdf8e82fb91818a16c94f7d19e4048d83c5))
+
 ## [0.6.4](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.3...v0.6.4) (2026-08-24)
 
 
