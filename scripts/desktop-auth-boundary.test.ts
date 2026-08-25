@@ -18,9 +18,11 @@ describe("desktop packaging and privilege boundary", () => {
 
     expect(config.build.frontendDist).toBe("../dist");
     expect(config.build.beforeBuildCommand).toBe("bun run shell:client:build");
-    expect(
-      manifestScript(await readFile(join(root, "apps/desktop/package.json"), "utf8")),
-    ).toContain("packages/auth build");
+    const prepareScript = manifestScript(
+      await readFile(join(root, "apps/desktop/package.json"), "utf8"),
+    );
+    expect(prepareScript).toContain("packages/auth build");
+    expect(prepareScript).toContain("packages/api-client build");
     expect(main).not.toContain("WebviewUrl::External");
     expect(main).not.toContain("AGENT_HQ_WEB_URL");
   });
