@@ -88,11 +88,15 @@ describe("test suite boundaries", () => {
     expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=1");
     expect(linuxRunner).toContain("ENV CARGO_TARGET_DIR=/home/runner/cache/cargo-target");
     expect(linuxRunner).toContain("squashfs-tools");
+    expect(linuxRunner).toContain("file git jq");
     expect(linuxRunner).toContain("extract_appimage");
     expect(linuxRunner).toContain("LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256");
-    expect(linuxRunner).toContain("linuxdeploy-x86_64.AppImage.real");
-    expect(linuxRunner).toContain("linuxdeploy-plugin-appimage.AppImage.real");
+    expect(linuxRunner).toContain("/tmp/linuxdeploy-source.AppImage");
+    expect(linuxRunner).toContain("/tmp/linuxdeploy-plugin-appimage-source.AppImage");
     expect(linuxRunner).toContain("appimage-wrapper.c");
+    expect(linuxRunner).not.toContain(
+      "/home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage.real",
+    );
     expect(linuxRunner).toContain("cc -O2 -Wall -Wextra -Werror");
 
     const appImageWrapper = readFileSync(
