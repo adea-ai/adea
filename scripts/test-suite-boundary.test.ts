@@ -74,6 +74,9 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("Retry desktop bundle upload");
     expect(workflow).toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("name: github-pages");
+    expect(workflow).toContain("Install GNU tar for Pages upload");
+    expect(workflow).toContain("command -v gtar");
+    expect(workflow).toContain("brew install gnu-tar");
     expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
     expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
