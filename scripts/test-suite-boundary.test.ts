@@ -105,7 +105,8 @@ describe("test suite boundaries", () => {
     );
     expect(appImageWrapper).toContain('setenv("APPIMAGE", executable');
     expect(appImageWrapper).toContain('setenv("APPDIR", appdir');
-    expect(appImageWrapper).toContain("execv(apprun, argv)");
+    expect(appImageWrapper).toContain('strcmp(argv[index], "--appimage-extract-and-run")');
+    expect(appImageWrapper).toContain("execv(apprun, forwarded)");
   });
 
   test("does not report a release before its desktop assets finish", () => {
