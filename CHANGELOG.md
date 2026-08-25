@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.11](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.10...v0.6.11) (2026-08-25)
+
+
+### Bug Fixes
+
+* **auth:** complete desktop browser sign-in ([ccfdc07](https://github.com/0xPlayerOne/agent-hq/commit/ccfdc07f0f80edc5b647a68d83a138aeee790f58))
+* **auth:** complete desktop callback UX ([#156](https://github.com/0xPlayerOne/agent-hq/issues/156)) ([cbec3dd](https://github.com/0xPlayerOne/agent-hq/commit/cbec3dd97b7138741c247be90ba6c1e9846690ca))
+
 ## [0.6.10](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.9...v0.6.10) (2026-08-25)
 
 
