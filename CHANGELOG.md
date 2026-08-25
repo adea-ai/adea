@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.7.1...v0.7.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** isolate Windows cross-build output ([0f90ae8](https://github.com/0xPlayerOne/agent-hq/commit/0f90ae83ddb608025db4cbec4b108e8d73b66ffe))
+
 ## [0.7.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.7.0...v0.7.1) (2026-08-25)
 
 
