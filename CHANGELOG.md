@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.7](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.6...v0.6.7) (2026-08-25)
+
+
+### Bug Fixes
+
+* **release:** package AppImages without FUSE ([#147](https://github.com/0xPlayerOne/agent-hq/issues/147)) ([af654f5](https://github.com/0xPlayerOne/agent-hq/commit/af654f588ccbd7e8c824ba67b3e836c37b2a3326))
+
 ## [0.6.6](https://github.com/0xPlayerOne/agent-hq/compare/v0.6.5...v0.6.6) (2026-08-25)
 
 
