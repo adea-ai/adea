@@ -299,11 +299,13 @@ pub async fn desktop_user_session_clear() -> Result<(), String> {
     .map_err(|_| "desktop user session vault task failed".to_string())?
 }
 
-pub fn queue_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) {
+pub fn queue_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) -> bool {
     if let Ok(url) = validate_callback_url(raw_url) {
         app.state::<DesktopAuthState>().replace(url.to_string());
         let _ = app.emit(CALLBACK_EVENT, ());
+        return true;
     }
+    false
 }
 
 #[cfg(test)]

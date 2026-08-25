@@ -62,6 +62,16 @@ describe("desktop packaging and privilege boundary", () => {
     expect(client).toContain("desktop_user_session_save");
   });
 
+  test("reveals and focuses the desktop window whenever a callback reaches a running app", async () => {
+    const main = await readFile(join(root, "apps/desktop/src-tauri/src/main.rs"), "utf8");
+
+    expect(main).toContain("fn reveal_main_window");
+    expect(main).toContain("window.show()");
+    expect(main).toContain("window.unminimize()");
+    expect(main).toContain("window.set_focus()");
+    expect(main.match(/receive_auth_callback/g)).toHaveLength(3);
+  });
+
   test("provides cloud authorization, exchange, refresh, logout, and revocation handlers", async () => {
     for (const endpoint of ["authorize", "exchange", "refresh", "logout", "revoke"]) {
       const route = await readFile(
