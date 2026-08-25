@@ -79,6 +79,9 @@ describe("test suite boundaries", () => {
     expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
     expect(runnerScript).not.toContain('"Application Support"');
     expect(runnerScript).toContain("agent-hq-release-linux-cargo-target");
+    expect(runnerScript).toContain('const macCargoTarget = join(stateRoot, "macos-cargo-target")');
+    expect(runnerScript).toContain("CARGO_TARGET_DIR: macCargoTarget");
+    expect(runnerScript).toContain("renameSync(legacyMacCargoTarget, macCargoTarget)");
 
     const linuxRunner = readFileSync(
       resolve(root, ".github/release-runner/linux-x64/Dockerfile"),
