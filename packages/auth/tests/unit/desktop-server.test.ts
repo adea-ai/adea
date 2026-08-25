@@ -36,6 +36,19 @@ function memorySessionStore(): DesktopSessionStore {
       records.set(credentialDigest, { ...record, revokedAt: Date.now() });
       return true;
     },
+    async resolve({ credentialDigest, now, sessionId }) {
+      const record = records.get(credentialDigest);
+      if (
+        !record ||
+        record.sessionId !== sessionId ||
+        record.revokedAt ||
+        record.expiresAt <= now ||
+        record.providerExpiresAt <= now
+      ) {
+        return null;
+      }
+      return record;
+    },
     async rotate({ credentialDigest, expiresAt, nextCredentialDigest, now, sessionId }) {
       const record = records.get(credentialDigest);
       if (
@@ -169,10 +182,17 @@ describe("desktop application sessions", () => {
 
     expect(session.credential).not.toContain("provider-session-1");
     expect(session.credential).not.toContain("user-1");
+    await expect(service.resolve(session)).resolves.toEqual({
+      providerExpiresAt: now + 3_600_000,
+      providerSessionId: "provider-session-1",
+      userId: "user-1",
+    });
     now += 1_000;
     const refreshed = await service.refresh(session);
     expect(refreshed.sessionId).toBe(session.sessionId);
     expect(refreshed.credential).not.toBe(session.credential);
+    await expect(service.resolve(session)).resolves.toBeNull();
+    await expect(service.resolve(refreshed)).resolves.toMatchObject({ userId: "user-1" });
     await expect(service.refresh(session)).rejects.toThrow("unavailable");
   });
 
@@ -186,6 +206,7 @@ describe("desktop application sessions", () => {
     });
 
     await service.revoke(session);
+    await expect(service.resolve(session)).resolves.toBeNull();
     await expect(service.refresh(session)).rejects.toThrow("unavailable");
     await expect(service.revoke(session)).rejects.toThrow("unavailable");
   });

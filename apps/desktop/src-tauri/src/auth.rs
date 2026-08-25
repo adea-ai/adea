@@ -17,6 +17,7 @@ const CALLBACK_EVENT: &str = "desktop-auth-callback-ready";
 const AUTH_ATTEMPT_KEYCHAIN_USER: &str = "desktop-authorization-attempt";
 const SESSION_KEYCHAIN_SERVICE: &str = "com.agenthq.desktop";
 const SESSION_KEYCHAIN_USER: &str = "desktop-user-session";
+const TEMPORARY_WORKSPACE_KEYCHAIN_USER: &str = "temporary-workspace-session";
 const FORBIDDEN_PARAMETERS: [&str; 5] = [
     "access_token",
     "id_token",
@@ -89,6 +90,16 @@ fn validate_user_session(session: &DesktopUserSession) -> Result<(), &'static st
     Ok(())
 }
 
+fn validate_temporary_workspace_credential(credential: &str) -> Result<(), &'static str> {
+    let Some(secret) = credential.strip_prefix("ahq_tmp_") else {
+        return Err("invalid temporary workspace credential");
+    };
+    if !base64url(secret, 43, 43) {
+        return Err("invalid temporary workspace credential");
+    }
+    Ok(())
+}
+
 fn session_entry() -> Result<Entry, String> {
     Entry::new(SESSION_KEYCHAIN_SERVICE, SESSION_KEYCHAIN_USER)
         .map_err(|_| "desktop user session vault is unavailable".to_string())
@@ -97,6 +108,11 @@ fn session_entry() -> Result<Entry, String> {
 fn authorization_attempt_entry() -> Result<Entry, String> {
     Entry::new(SESSION_KEYCHAIN_SERVICE, AUTH_ATTEMPT_KEYCHAIN_USER)
         .map_err(|_| "desktop authorization vault is unavailable".to_string())
+}
+
+fn temporary_workspace_entry() -> Result<Entry, String> {
+    Entry::new(SESSION_KEYCHAIN_SERVICE, TEMPORARY_WORKSPACE_KEYCHAIN_USER)
+        .map_err(|_| "temporary workspace vault is unavailable".to_string())
 }
 
 impl DesktopAuthState {
@@ -299,6 +315,46 @@ pub async fn desktop_user_session_clear() -> Result<(), String> {
     .map_err(|_| "desktop user session vault task failed".to_string())?
 }
 
+#[tauri::command]
+pub async fn desktop_temporary_workspace_save(credential: String) -> Result<(), String> {
+    validate_temporary_workspace_credential(&credential).map_err(str::to_owned)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        temporary_workspace_entry()?
+            .set_password(&credential)
+            .map_err(|_| "temporary workspace credential could not be saved".to_string())
+    })
+    .await
+    .map_err(|_| "temporary workspace vault task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn desktop_temporary_workspace_load() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match temporary_workspace_entry()?.get_password() {
+            Ok(credential) => {
+                validate_temporary_workspace_credential(&credential).map_err(str::to_owned)?;
+                Ok(Some(credential))
+            }
+            Err(KeyringError::NoEntry) => Ok(None),
+            Err(_) => Err("temporary workspace credential could not be loaded".to_string()),
+        }
+    })
+    .await
+    .map_err(|_| "temporary workspace vault task failed".to_string())?
+}
+
+#[tauri::command]
+pub async fn desktop_temporary_workspace_clear() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match temporary_workspace_entry()?.delete_credential() {
+            Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+            Err(_) => Err("temporary workspace credential could not be cleared".to_string()),
+        }
+    })
+    .await
+    .map_err(|_| "temporary workspace vault task failed".to_string())?
+}
+
 pub fn queue_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) -> bool {
     if let Ok(url) = validate_callback_url(raw_url) {
         app.state::<DesktopAuthState>().replace(url.to_string());
@@ -371,6 +427,20 @@ mod tests {
         assert_eq!(
             validate_user_session(&session),
             Err("invalid desktop user session")
+        );
+    }
+
+    #[test]
+    fn temporary_workspace_vault_accepts_only_opaque_guest_credentials() {
+        let valid = format!("ahq_tmp_{}", "a".repeat(43));
+        assert!(validate_temporary_workspace_credential(&valid).is_ok());
+        assert_eq!(
+            validate_temporary_workspace_credential("ahq_tmp_short"),
+            Err("invalid temporary workspace credential")
+        );
+        assert_eq!(
+            validate_temporary_workspace_credential(&format!("ahq_tmp_{}", "!".repeat(43))),
+            Err("invalid temporary workspace credential")
         );
     }
 

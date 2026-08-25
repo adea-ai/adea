@@ -1,0 +1,3 @@
+ALTER TABLE "app"."temporary_user_sessions" ADD COLUMN "claimed_by_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "app"."temporary_user_sessions" ADD CONSTRAINT "temporary_user_sessions_claimed_by_user_id_users_id_fk" FOREIGN KEY ("claimed_by_user_id") REFERENCES "app"."users"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "app"."temporary_user_sessions" ADD CONSTRAINT "temporary_user_sessions_claim_consistent" CHECK (("app"."temporary_user_sessions"."claimed_at" is null) = ("app"."temporary_user_sessions"."claimed_by_user_id" is null));
