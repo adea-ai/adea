@@ -1,10 +1,11 @@
-import { resolveAuthenticatedPrincipal } from "@agent-hq/auth";
 import { createNeonServerAdapter, parseDesktopAuthorizationRequest } from "@agent-hq/auth/server";
 
 import {
   desktopAuthorizationBroker,
   desktopPrincipalMapping,
 } from "../../../../../server/desktop-auth";
+import { createDesktopSignInUrl } from "../../../../../lib/desktop-auth-navigation";
+import { resolveOrProvisionDesktopPrincipal } from "../../../../../server/desktop-principal";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,9 +15,16 @@ export async function GET(request: Request) {
     const authorization = parseDesktopAuthorizationRequest(request);
     const authentication = await createNeonServerAdapter().getSession();
     if (!authentication) {
-      return Response.json({ error: "Authentication required" }, { status: 401 });
+      const signIn = createDesktopSignInUrl(new URL(request.url));
+      return new Response(null, {
+        status: 303,
+        headers: {
+          "cache-control": "no-store",
+          location: `${signIn.pathname}${signIn.search}`,
+        },
+      });
     }
-    const principal = await resolveAuthenticatedPrincipal(
+    const principal = await resolveOrProvisionDesktopPrincipal(
       authentication,
       desktopPrincipalMapping(),
     );
