@@ -21,8 +21,8 @@ describe("desktop packaging and privilege boundary", () => {
     const prepareScript = manifestScript(
       await readFile(join(root, "apps/desktop/package.json"), "utf8"),
     );
-    expect(prepareScript).toContain("packages/auth build");
-    expect(prepareScript).toContain("packages/api-client build");
+    expect(prepareScript).toContain("turbo run build --filter=@agent-hq/desktop^...");
+    expect(prepareScript).not.toContain("scenes/hq build");
     expect(main).not.toContain("WebviewUrl::External");
     expect(main).not.toContain("AGENT_HQ_WEB_URL");
   });
