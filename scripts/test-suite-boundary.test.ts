@@ -143,6 +143,10 @@ describe("test suite boundaries", () => {
     expect(runnerScript).toContain("deleteRunnerRegistration");
     expect(runnerScript).toContain("deleteRunnerRegistration(macRunnerName)");
     expect(runnerScript).toContain("deleteRunnerRegistration(linuxRunnerName)");
+    expect(runnerScript).toContain("removeStaleMacRunnerConfiguration");
+    expect(runnerScript).toContain('runnerStatus(macRunnerName) !== ""');
+    expect(runnerScript).toContain('[".runner", ".credentials", ".credentials_rsaparams"]');
+    expect(runnerScript).toContain("if (existsSync(path)) unlinkSync(path)");
     expect(runnerScript).toContain("currently running a job");
     expect(runnerScript).toContain("const runnerDeletionAttempts = 120");
     expect(runnerScript).toContain("attempt < runnerDeletionAttempts");

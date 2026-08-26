@@ -163,6 +163,17 @@ function processGroupIsAlive(pid) {
   }
 }
 
+function removeStaleMacRunnerConfiguration() {
+  const runnerConfig = join(macRunnerRoot, ".runner");
+  if (!existsSync(runnerConfig) || runnerStatus(macRunnerName) !== "") return;
+
+  for (const file of [".runner", ".credentials", ".credentials_rsaparams"]) {
+    const path = join(macRunnerRoot, file);
+    if (existsSync(path)) unlinkSync(path);
+  }
+  console.log(`Removed stale local registration for ${macRunnerName}.`);
+}
+
 function ensureMacRunner() {
   mkdirSync(macRunnerRoot, { recursive: true });
   if (!existsSync(join(macRunnerRoot, "config.sh"))) {
@@ -182,6 +193,7 @@ function ensureMacRunner() {
     }
     run("tar", ["-xzf", archive, "-C", macRunnerRoot]);
   }
+  removeStaleMacRunnerConfiguration();
   if (!existsSync(join(macRunnerRoot, ".runner"))) {
     run(
       "./config.sh",
