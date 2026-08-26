@@ -1,5 +1,5 @@
 import type { ApiWorkspaceBootstrapResponse } from "@agent-hq/api-client";
-import { createWorkspaceWithOwner, listWorkspacesForUser } from "@agent-hq/db";
+import { createWorkspaceWithOwner, getUserDisplayName, listWorkspacesForUser } from "@agent-hq/db";
 
 import { applicationDatabase } from "../../../../server/database";
 import {
@@ -38,10 +38,14 @@ export async function POST(request: Request) {
     });
     workspaces = [created.workspace];
   }
+  const displayName = await getUserDisplayName(applicationDatabase(), resolution.principal);
 
   const payload: ApiWorkspaceBootstrapResponse = {
     activeWorkspace: workspaces[0]!,
-    principal: { temporary: resolution.temporary },
+    principal: {
+      ...(displayName ? { displayName } : {}),
+      temporary: resolution.temporary,
+    },
     ...(resolution.createdCredential &&
     trustedDesktopWorkspaceRequest(request, desktopTrustedOrigins())
       ? { temporaryCredential: resolution.createdCredential }

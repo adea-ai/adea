@@ -48,7 +48,7 @@ describe.skipIf(!connectionUrl)("desktop auth persistence", () => {
     const session = {
       credentialDigest: crypto.randomUUID(),
       expiresAt: now + 900_000,
-      providerExpiresAt: now + 3_600_000,
+      providerExpiresAt: now - 1_000,
       providerSessionId: "provider-session",
       revokedAt: null,
       sessionId: crypto.randomUUID(),

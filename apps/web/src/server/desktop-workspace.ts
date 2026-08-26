@@ -11,11 +11,8 @@ export function desktopTrustedOrigins(environment: NodeJS.ProcessEnv = process.e
     .map((origin) => origin.trim())
     .filter(Boolean);
   const origins = configured?.length
-    ? configured
-    : [
-        ...PRODUCTION_DESKTOP_ORIGINS,
-        ...(environment.NODE_ENV === "production" ? [] : [DEVELOPMENT_DESKTOP_ORIGIN]),
-      ];
+    ? [...configured, DEVELOPMENT_DESKTOP_ORIGIN]
+    : [...PRODUCTION_DESKTOP_ORIGINS, DEVELOPMENT_DESKTOP_ORIGIN];
   if (
     origins.some(
       (origin) =>

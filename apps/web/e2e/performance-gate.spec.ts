@@ -130,14 +130,24 @@ test("web layout does not reserve space for the desktop status bar", async ({ pa
     viewSwitcher: Number.parseFloat(
       getComputedStyle(document.querySelector<HTMLElement>(".workspace-view-switcher")!).bottom,
     ),
+    verticalCenterDelta: (() => {
+      const camera = document
+        .querySelector<HTMLElement>(".workspace-view-switcher")!
+        .getBoundingClientRect();
+      const zoom = document
+        .querySelector<HTMLElement>('[aria-label="Camera zoom"]')!
+        .getBoundingClientRect();
+      return Math.abs(camera.top + camera.height / 2 - (zoom.top + zoom.height / 2));
+    })(),
   }));
 
   expect(bottomOffsets.caption).toBeLessThanOrEqual(24);
   expect(bottomOffsets.controls).toBeLessThanOrEqual(32);
   expect(bottomOffsets.viewSwitcher).toBeLessThanOrEqual(24);
+  expect(bottomOffsets.verticalCenterDelta).toBeLessThanOrEqual(2);
 });
 
-test("desktop status bar occupies its own row outside the scene viewport", async ({ page }) => {
+test("desktop status bar and overlays stay inside the scene viewport", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
   });
@@ -158,22 +168,30 @@ test("desktop status bar occupies its own row outside the scene viewport", async
     const viewportRect = viewport.getBoundingClientRect();
     const statusBarRect = statusBar.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
+    const camera = document
+      .querySelector<HTMLElement>(".workspace-view-switcher")!
+      .getBoundingClientRect();
+    const zoom = document
+      .querySelector<HTMLElement>('[aria-label="Camera zoom"]')!
+      .getBoundingClientRect();
     return {
       canvasBottom: canvasRect.bottom,
       canvasHeight: canvas.height,
       controlsPosition: getComputedStyle(controls).position,
-      sameParent: viewport.parentElement === statusBar.parentElement,
+      statusInsideViewport: statusBar.parentElement === viewport,
       statusBarTop: statusBarRect.top,
       viewportBottom: viewportRect.bottom,
       viewportHeight: viewportRect.height,
-      viewportNextIsStatusBar: viewport.nextElementSibling === statusBar,
+      controlsBottom: controls.getBoundingClientRect().bottom,
+      verticalCenterDelta: Math.abs(camera.top + camera.height / 2 - (zoom.top + zoom.height / 2)),
     };
   });
 
-  expect(layout.sameParent).toBe(true);
-  expect(layout.viewportNextIsStatusBar).toBe(true);
-  expect(Math.abs(layout.viewportBottom - layout.statusBarTop)).toBeLessThanOrEqual(1);
+  expect(layout.statusInsideViewport).toBe(true);
+  expect(layout.statusBarTop).toBeLessThan(layout.viewportBottom);
+  expect(layout.controlsBottom).toBeLessThan(layout.statusBarTop);
   expect(layout.canvasBottom).toBeLessThanOrEqual(layout.viewportBottom + 1);
   expect(Math.abs(layout.canvasHeight - layout.viewportHeight)).toBeLessThanOrEqual(2);
   expect(layout.controlsPosition).toBe("absolute");
+  expect(layout.verticalCenterDelta).toBeLessThanOrEqual(2);
 });

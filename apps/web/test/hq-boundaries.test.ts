@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ROOM_GALLERY_BOUNDS } from "@agent-hq/interior";
-import { hqBoundaryColliders } from "../src/components/hq-room-scene";
+import { hqBoundaryColliders } from "@agent-hq/hq-scenes/runtime";
 
 describe("HQ perimeter collision", () => {
   test("blocks the full front fence, including the gate opening", () => {

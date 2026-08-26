@@ -1,15 +1,15 @@
 .auth-shell {
-  --auth-background: #111310;
-  --auth-surface: #191c17;
-  --auth-surface-strong: #141612;
-  --auth-border: #3b4036;
-  --auth-border-subtle: #626b56;
-  --auth-foreground: #f4f4ed;
-  --auth-muted: #c8ccbf;
-  --auth-muted-strong: #aeb6a1;
-  --auth-accent: #dfe8bd;
-  --auth-accent-hover: #eef4d5;
-  --auth-accent-foreground: #111310;
+  --auth-background: var(--hq-shell-background);
+  --auth-surface: var(--hq-shell-surface);
+  --auth-surface-strong: var(--hq-shell-surface-strong);
+  --auth-border: var(--hq-shell-border);
+  --auth-border-subtle: var(--hq-shell-border-subtle);
+  --auth-foreground: var(--hq-shell-foreground);
+  --auth-muted: var(--hq-shell-muted);
+  --auth-muted-strong: var(--hq-shell-muted);
+  --auth-accent: var(--hq-shell-accent);
+  --auth-accent-hover: var(--hq-shell-accent-strong);
+  --auth-accent-foreground: var(--hq-shell-accent-foreground);
 
   display: grid;
   min-height: 100svh;
