@@ -42,8 +42,7 @@ function memorySessionStore(): DesktopSessionStore {
         !record ||
         record.sessionId !== sessionId ||
         record.revokedAt ||
-        record.expiresAt <= now ||
-        record.providerExpiresAt <= now
+        record.expiresAt <= now
       ) {
         return null;
       }
@@ -55,8 +54,7 @@ function memorySessionStore(): DesktopSessionStore {
         !record ||
         record.sessionId !== sessionId ||
         record.revokedAt ||
-        record.expiresAt <= now ||
-        record.providerExpiresAt <= now
+        record.expiresAt <= now
       ) {
         return null;
       }
@@ -194,6 +192,26 @@ describe("desktop application sessions", () => {
     await expect(service.resolve(session)).resolves.toBeNull();
     await expect(service.resolve(refreshed)).resolves.toMatchObject({ userId: "user-1" });
     await expect(service.refresh(session)).rejects.toThrow("unavailable");
+  });
+
+  test("keeps a granted desktop session beyond the browser provider session", async () => {
+    let now = Date.parse("2026-08-24T12:00:00.000Z");
+    const service = createDesktopSessionService({
+      now: () => now,
+      store: memorySessionStore(),
+    });
+    const session = await service.issue({
+      providerExpiresAt: now + 3_600_000,
+      providerSessionId: "provider-session-1",
+      userId: "user-1",
+    });
+
+    expect(Date.parse(session.expiresAt) - now).toBe(30 * 24 * 60 * 60 * 1_000);
+    now += 2 * 3_600_000;
+    await expect(service.resolve(session)).resolves.toMatchObject({ userId: "user-1" });
+
+    const refreshed = await service.refresh(session);
+    expect(Date.parse(refreshed.expiresAt) - now).toBe(30 * 24 * 60 * 60 * 1_000);
   });
 
   test("revocation invalidates the user session without accepting replay", async () => {

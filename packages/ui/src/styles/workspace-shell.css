@@ -1,0 +1,65 @@
+:root {
+  --hq-shell-background: #f3f7f4;
+  --hq-shell-surface: #ffffff;
+  --hq-shell-surface-strong: #e7efe9;
+  --hq-shell-surface-stronger: #dce8df;
+  --hq-shell-border: #c9d8cd;
+  --hq-shell-border-subtle: #dce7df;
+  --hq-shell-foreground: #17231b;
+  --hq-shell-muted: #5b6c61;
+  --hq-shell-accent: #4d7c0f;
+  --hq-shell-accent-strong: #3f6212;
+  --hq-shell-accent-foreground: #f7fee7;
+  --hq-shell-focus: #2563eb;
+  --hq-shell-active: #15803d;
+}
+
+.dark {
+  --hq-shell-background: #0a0d11;
+  --hq-shell-surface: #11161d;
+  --hq-shell-surface-strong: #18202a;
+  --hq-shell-surface-stronger: #202a36;
+  --hq-shell-border: #27313d;
+  --hq-shell-border-subtle: #1b242f;
+  --hq-shell-foreground: #f0f4f8;
+  --hq-shell-muted: #8d9aa8;
+  --hq-shell-accent: #c9f27a;
+  --hq-shell-accent-strong: #dbff95;
+  --hq-shell-accent-foreground: #17200e;
+  --hq-shell-focus: #a8d6ff;
+  --hq-shell-active: #86efac;
+}
+
+.workspace-shell {
+  --background: var(--hq-shell-background);
+  --foreground: var(--hq-shell-foreground);
+  --card: var(--hq-shell-surface);
+  --card-foreground: var(--hq-shell-foreground);
+  --popover: var(--hq-shell-surface);
+  --popover-foreground: var(--hq-shell-foreground);
+  --secondary: var(--hq-shell-surface-strong);
+  --secondary-foreground: var(--hq-shell-foreground);
+  --muted: var(--hq-shell-surface-stronger);
+  --muted-foreground: var(--hq-shell-muted);
+  --primary: var(--hq-shell-accent);
+  --primary-foreground: var(--hq-shell-accent-foreground);
+  --border: var(--hq-shell-border);
+  --input: var(--hq-shell-border);
+  --ring: var(--hq-shell-focus);
+}
+
+.workspace-brand__mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.55rem;
+  color: var(--hq-shell-accent-foreground);
+  background: var(--hq-shell-accent);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+}

@@ -1,7 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import { Button } from "@agent-hq/ui/components/ui/button";
 import { OnScreenControls } from "@agent-hq/ui/components/on-screen-controls";
 import { SceneSettings } from "@agent-hq/ui/components/scene-settings";
@@ -139,6 +146,12 @@ export type SceneWrapperProps = {
   enableSceneEditor?: boolean;
   /** DOM target for the account drawer trigger in an app shell toolbar. */
   accountTargetId?: string;
+  accountLabel?: string;
+  accountAuthenticated?: boolean;
+  accountBusy?: boolean;
+  accountMusicControl?: ReactNode;
+  onAccountSignIn?: () => void;
+  onAccountSignOut?: () => void;
   /** DOM target for the compact camera controls in an app shell toolbar. */
   cameraTargetId?: string;
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
@@ -233,6 +246,12 @@ export function SceneWrapper({
   portals,
   enableSceneEditor = true,
   accountTargetId,
+  accountLabel,
+  accountAuthenticated,
+  accountBusy,
+  accountMusicControl,
+  onAccountSignIn,
+  onAccountSignOut,
   cameraTargetId,
   roomDesignerTargetId,
   sceneEditorTargetId,
@@ -601,6 +620,12 @@ export function SceneWrapper({
         sceneEditorEnabled={canUseSceneEditor ? sceneEditorEnabled : undefined}
         onSceneEditorChange={canUseSceneEditor ? applySceneEditorChange : undefined}
         accountTargetId={accountTargetId}
+        accountLabel={accountLabel}
+        accountAuthenticated={accountAuthenticated}
+        accountBusy={accountBusy}
+        accountMusicControl={accountMusicControl}
+        onAccountSignIn={onAccountSignIn}
+        onAccountSignOut={onAccountSignOut}
         cameraTargetId={cameraTargetId}
         roomDesignerTargetId={roomDesignerTargetId}
         sceneEditorTargetId={sceneEditorTargetId}

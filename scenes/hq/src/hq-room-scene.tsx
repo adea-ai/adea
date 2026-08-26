@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 import {
   characterIds,
@@ -829,6 +829,12 @@ export function HqRoomScene({
   cameraViewMode = "orthographic",
   onCameraViewModeChange,
   accountTargetId,
+  accountLabel,
+  accountAuthenticated,
+  accountBusy,
+  accountMusicControl,
+  onAccountSignIn,
+  onAccountSignOut,
   cameraTargetId,
   roomDesignerTargetId,
   sceneEditorTargetId,
@@ -839,6 +845,12 @@ export function HqRoomScene({
   cameraViewMode?: "perspective" | "orthographic";
   onCameraViewModeChange?: (viewMode: "perspective" | "orthographic") => void;
   accountTargetId?: string;
+  accountLabel?: string;
+  accountAuthenticated?: boolean;
+  accountBusy?: boolean;
+  accountMusicControl?: ReactNode;
+  onAccountSignIn?: () => void;
+  onAccountSignOut?: () => void;
   cameraTargetId?: string;
   roomDesignerTargetId?: string;
   sceneEditorTargetId?: string;
@@ -1019,6 +1031,12 @@ export function HqRoomScene({
       onCharacterChange={handleCharacterChange}
       characterOptions={characterOptions}
       accountTargetId={accountTargetId}
+      accountLabel={accountLabel}
+      accountAuthenticated={accountAuthenticated}
+      accountBusy={accountBusy}
+      accountMusicControl={accountMusicControl}
+      onAccountSignIn={onAccountSignIn}
+      onAccountSignOut={onAccountSignOut}
       cameraTargetId={cameraTargetId}
       roomDesignerTargetId={roomDesignerTargetId}
       sceneEditorTargetId={sceneEditorTargetId}

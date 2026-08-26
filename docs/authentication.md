@@ -55,13 +55,16 @@ handlers under `/api/auth/desktop`. An unauthenticated authorization request is 
 `/auth/sign-in` with an exact same-origin return target. Email registration creates the Neon
 account, and the first authenticated authorization provisions one stable Agent HQ user and identity
 mapping before issuing the one-time desktop code. Exchange and lifecycle requests accept only exact
-packaged Tauri origins (plus the explicit local Vite origin in development), use no-store responses,
-and carry opaque user credentials in request headers or bodies rather than URLs. PostgreSQL stores only
-SHA-256 digests for authorization codes and desktop credentials. Code consumption and credential
-rotation are atomic.
+packaged Tauri origins plus the fixed `http://127.0.0.1:1420` local Vite origin, use no-store
+responses, and carry opaque user credentials in request headers or bodies rather than URLs. Keeping
+that one loopback origin allowlisted lets a local Tauri build exercise the production cloud flow;
+arbitrary loopback ports and wildcard origins remain rejected. PostgreSQL stores only SHA-256
+digests for authorization codes and desktop credentials. Code consumption and credential rotation
+are atomic.
 
-Desktop releases package local Vite/React assets. Tauri capabilities omit `remote`, so remote web
-content receives no updater, deep-link, filesystem, process, or other native command permission.
+Desktop releases package the spatial workspace and its Vite/React assets locally. Tauri capabilities
+omit `remote`, so remote web content receives no updater, deep-link, filesystem, process, or other
+native command permission.
 Server modules and Neon Auth SDK code are excluded from the client dependency graph.
 
 ## Session security
