@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.8.1...v0.8.2) (2026-08-26)
+
+
+### Bug Fixes
+
+* **release:** reconfigure stale macos runner ([#173](https://github.com/0xPlayerOne/agent-hq/issues/173)) ([42184cc](https://github.com/0xPlayerOne/agent-hq/commit/42184ccd14b508c6347cb5fb6ecdf45f098f9019))
+* **release:** redact command errors ([#174](https://github.com/0xPlayerOne/agent-hq/issues/174)) ([69955cd](https://github.com/0xPlayerOne/agent-hq/commit/69955cdc189677e789b70e9bf63ce3f1274a81f2))
+
 ## [0.8.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.8.0...v0.8.1) (2026-08-26)
 
 
