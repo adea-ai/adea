@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.7.2...v0.8.0) (2026-08-26)
+
+
+### Features
+
+* **desktop:** finalize workspace shell and persistent auth ([#169](https://github.com/0xPlayerOne/agent-hq/issues/169)) ([ae16a8a](https://github.com/0xPlayerOne/agent-hq/commit/ae16a8a15baf942727b3520b662f62397867bc47))
+
+
+### Bug Fixes
+
+* **release:** clean disposable local build state ([7dbfaf0](https://github.com/0xPlayerOne/agent-hq/commit/7dbfaf04d84598a7fe730a396f66cce55fb89958))
+* **release:** remove mac runner registration ([906d318](https://github.com/0xPlayerOne/agent-hq/commit/906d318e196db2fab9ba37a9d87d503f6b651e4d))
+
 ## [0.7.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.7.1...v0.7.2) (2026-08-25)
 
 
