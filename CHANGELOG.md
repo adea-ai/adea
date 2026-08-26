@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/0xPlayerOne/agent-hq/compare/v0.8.0...v0.8.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* **release:** build desktop dependency graph ([#171](https://github.com/0xPlayerOne/agent-hq/issues/171)) ([e824391](https://github.com/0xPlayerOne/agent-hq/commit/e82439174729622089041b2f159fa598c29314ed))
+
 ## [0.8.0](https://github.com/0xPlayerOne/agent-hq/compare/v0.7.2...v0.8.0) (2026-08-26)
 
 
