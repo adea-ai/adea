@@ -9,6 +9,7 @@ import {
   resolveDesktopSessionRecord,
   rotateDesktopSessionRecord,
   saveDesktopAuthorizationCode,
+  setUserDisplayNameIfMissing,
 } from "@agent-hq/db";
 import {
   createDesktopAuthorizationCodeBroker,
@@ -65,6 +66,8 @@ export function desktopPrincipalMapping() {
       findUserPrincipalsByAuthIdentity(applicationDatabase(), identity),
     provision: (input: Parameters<typeof createUserWithAuthIdentity>[1]) =>
       createUserWithAuthIdentity(applicationDatabase(), input),
+    setDisplayNameIfMissing: (input: Readonly<{ displayName: string; userId: string }>) =>
+      setUserDisplayNameIfMissing(applicationDatabase(), input),
   };
 }
 

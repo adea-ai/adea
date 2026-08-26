@@ -1,4 +1,5 @@
 import { createApiClient } from "@agent-hq/api-client";
+import { SoundProvider } from "@agent-hq/audio";
 import {
   createDesktopAuthorizationManager,
   createDesktopAuthorizationUrl,
@@ -10,10 +11,17 @@ import {
 } from "@agent-hq/auth/desktop";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { StrictMode, useCallback, useEffect, useState } from "react";
+import { StrictMode, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { ThemeProvider } from "@agent-hq/ui/components/theme-provider";
 
-import { bootstrapDesktopWorkspace, type DesktopWorkspaceBootstrap } from "./workspace-session";
+import { DesktopWorkspace } from "./desktop-workspace";
+import {
+  bootstrapDesktopWorkspace,
+  createWorkspaceRequestGuard,
+  loadTemporaryWorkspaceCredential,
+  type DesktopWorkspaceBootstrap,
+} from "./workspace-session";
 import "./styles.css";
 
 const cloudOrigin =
@@ -61,30 +69,45 @@ function DesktopApp() {
   const [message, setMessage] = useState("Opening your workspace…");
   const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null);
   const [session, setSession] = useState<DesktopSession | undefined>();
+  const temporaryCredentialRef = useRef<string | null>(null);
+  const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard());
+  const authCallbackObservedRef = useRef(false);
 
   const openWorkspace = useCallback(async (activeSession?: DesktopSession) => {
+    const requestIsCurrent = workspaceRequestGuardRef.current.begin();
+    setSession(activeSession);
     setStatus("loading");
     setMessage(
       activeSession ? "Opening your saved workspace…" : "Opening a private guest workspace…",
     );
     try {
-      const storedTemporaryCredential = await temporaryVault.load();
+      let storedTemporaryCredential = temporaryCredentialRef.current;
+      if (!storedTemporaryCredential) {
+        storedTemporaryCredential = await loadTemporaryWorkspaceCredential(temporaryVault.load);
+      }
       const nextWorkspace = await bootstrapDesktopWorkspace({
         createClient: ({ session: clientSession, temporaryCredential }) =>
           workspaceClient(clientSession, temporaryCredential),
         session: activeSession,
         storedTemporaryCredential,
+        onTemporaryCredentialClaimed: () => {
+          temporaryCredentialRef.current = null;
+        },
         temporaryVault,
       });
-      setSession(activeSession);
+      if (!requestIsCurrent()) return;
+      temporaryCredentialRef.current = nextWorkspace.temporaryCredential;
       setWorkspaceState(nextWorkspace);
       setStatus(activeSession ? "authenticated" : "guest");
       setMessage(
         activeSession
           ? "Your workspace is saved to your Agent HQ account."
-          : "You can use this workspace now. Sign in whenever you want to save it to an account.",
+          : nextWorkspace.temporaryCredentialPersisted
+            ? "You can use this workspace now. Sign in whenever you want to save it to an account."
+            : "You can use this workspace now. Sign in before closing the app to save it to an account.",
       );
     } catch {
+      if (!requestIsCurrent()) return;
       setStatus("offline");
       setMessage(
         "Agent HQ could not reach the workspace service. Your local credentials are safe.",
@@ -97,7 +120,7 @@ function DesktopApp() {
     let unlisten: (() => void) | undefined;
 
     void sessionManager.restore().then((sessionState) => {
-      if (disposed) return;
+      if (disposed || authCallbackObservedRef.current) return;
       void openWorkspace(
         sessionState.status === "authenticated" ? sessionState.session : undefined,
       );
@@ -111,6 +134,8 @@ function DesktopApp() {
         return;
       }
       if (!callbackUrl || disposed) return;
+      authCallbackObservedRef.current = true;
+      workspaceRequestGuardRef.current.invalidate();
       try {
         const exchange = await authorizationManager.consume(callbackUrl);
         const sessionState = await sessionManager.completeSignIn(exchange);
@@ -163,6 +188,21 @@ function DesktopApp() {
 
   const busy = status === "loading" || status === "opening" || status === "waiting";
 
+  if (workspaceState) {
+    return (
+      <DesktopWorkspace
+        authenticated={Boolean(session)}
+        busy={busy}
+        message={message}
+        onRetry={() => void openWorkspace(session)}
+        onSignIn={() => void beginSignIn()}
+        onSignOut={() => void signOut()}
+        status={status}
+        workspaceState={workspaceState}
+      />
+    );
+  }
+
   return (
     <main className="auth-shell">
       <section className="auth-panel desktop-panel" aria-labelledby="desktop-title">
@@ -170,31 +210,13 @@ function DesktopApp() {
           <div>
             <p className="auth-eyebrow">Agent HQ desktop</p>
             <h1 className="auth-title" id="desktop-title">
-              {workspaceState?.workspace.name ?? "Your workspace, ready when you are."}
+              Your workspace, ready when you are.
             </h1>
           </div>
-          {workspaceState ? (
-            <span
-              className={`workspace-badge workspace-badge--${workspaceState.temporary ? "guest" : "saved"}`}
-            >
-              {workspaceState.temporary ? "Guest workspace" : "Saved workspace"}
-            </span>
-          ) : null}
         </div>
         <p className="auth-introduction">
           Start immediately without an account. Sign in later to keep this workspace across devices.
         </p>
-
-        {workspaceState ? (
-          <div className="workspace-card">
-            <span className="workspace-card__label">Current scene</span>
-            <strong>{workspaceState.workspace.scene === "work" ? "Work" : "Home"}</strong>
-            <span>
-              {workspaceState.workspaces.length} workspace
-              {workspaceState.workspaces.length === 1 ? "" : "s"}
-            </span>
-          </div>
-        ) : null}
 
         <div className="status" role="status" aria-live="polite">
           <span className={`status-mark status-mark--${status}`} aria-hidden="true" />
@@ -202,15 +224,6 @@ function DesktopApp() {
         </div>
 
         <div className="workspace-actions">
-          {session ? (
-            <button type="button" className="button-secondary" onClick={signOut} disabled={busy}>
-              Sign out
-            </button>
-          ) : (
-            <button type="button" onClick={beginSignIn} disabled={busy || !workspaceState}>
-              {status === "waiting" ? "Waiting for browser" : "Save this workspace"}
-            </button>
-          )}
           {(status === "offline" || status === "failed") && (
             <button
               type="button"
@@ -233,8 +246,13 @@ function DesktopApp() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Desktop application root is unavailable");
+document.documentElement.classList.add("dark");
 createRoot(root).render(
   <StrictMode>
-    <DesktopApp />
+    <ThemeProvider>
+      <SoundProvider>
+        <DesktopApp />
+      </SoundProvider>
+    </ThemeProvider>
   </StrictMode>,
 );

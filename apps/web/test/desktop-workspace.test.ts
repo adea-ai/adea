@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   applyDesktopWorkspaceCors,
+  desktopTrustedOrigins,
   desktopWorkspacePreflight,
   rejectUntrustedDesktopWorkspaceRequest,
   trustedDesktopWorkspaceRequest,
@@ -17,6 +18,16 @@ function request(origin: string, client = "desktop") {
 }
 
 describe("desktop workspace HTTP boundary", () => {
+  test("allows the fixed local Tauri development origin against the production cloud", () => {
+    expect(desktopTrustedOrigins({ NODE_ENV: "production" })).toContain("http://127.0.0.1:1420");
+    expect(
+      desktopTrustedOrigins({
+        DESKTOP_AUTH_TRUSTED_ORIGINS: "tauri://localhost",
+        NODE_ENV: "production",
+      }),
+    ).toContain("http://127.0.0.1:1420");
+  });
+
   test("recognizes only an explicitly marked request from a trusted packaged origin", () => {
     expect(trustedDesktopWorkspaceRequest(request("tauri://localhost"), trustedOrigins)).toBe(true);
     expect(
