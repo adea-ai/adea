@@ -163,8 +163,8 @@ export function createDesktopAuthorizationCodeBroker({
   };
 }
 
-const DEFAULT_SESSION_TTL_MS = 15 * 60 * 1_000;
-const MAX_SESSION_TTL_MS = 60 * 60 * 1_000;
+const DEFAULT_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1_000;
+const MAX_SESSION_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 
 function toDesktopSession(record: DesktopSessionRecord, credential: string): DesktopSession {
   return Object.freeze({
@@ -207,7 +207,7 @@ export function createDesktopSessionService({
       const credential = randomBytes(32).toString("base64url");
       const record: DesktopSessionRecord = Object.freeze({
         credentialDigest: digest(credential),
-        expiresAt: Math.min(issuedAt + ttlMs, principal.providerExpiresAt),
+        expiresAt: issuedAt + ttlMs,
         providerExpiresAt: principal.providerExpiresAt,
         providerSessionId: principal.providerSessionId,
         revokedAt: null,

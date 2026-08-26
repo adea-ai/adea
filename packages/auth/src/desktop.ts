@@ -276,11 +276,35 @@ function isNetworkUnavailable(error: unknown) {
 export function createDesktopSessionManager({
   broker,
   vault,
+  vaultLoadTimeoutMs = 1_500,
 }: {
   broker: DesktopSessionBroker;
   vault: DesktopSessionVault;
+  vaultLoadTimeoutMs?: number;
 }) {
+  if (!Number.isFinite(vaultLoadTimeoutMs) || vaultLoadTimeoutMs <= 0) {
+    throw new Error("Desktop session vault timeout is invalid");
+  }
   let pending: Promise<void> = Promise.resolve();
+  const vaultLoadTimedOut = Symbol("vault-load-timed-out");
+
+  async function loadVaultForStartup() {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        vault.load(),
+        new Promise<typeof vaultLoadTimedOut>((resolve) => {
+          timeout = setTimeout(() => resolve(vaultLoadTimedOut), vaultLoadTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
+  async function persistSession(session: DesktopSession) {
+    await vault.save(session).catch(() => undefined);
+  }
 
   function serialize<T>(operation: () => Promise<T>) {
     const result = pending.then(operation, operation);
@@ -295,7 +319,7 @@ export function createDesktopSessionManager({
     completeSignIn(input: DesktopSessionExchangeInput): Promise<DesktopSessionState> {
       return serialize(async () => {
         const session = await broker.exchange(input);
-        await vault.save(session);
+        await persistSession(session);
         return { session, status: "authenticated" as const };
       });
     },
@@ -303,7 +327,8 @@ export function createDesktopSessionManager({
       return serialize(async () => {
         let stored: DesktopSession | null;
         try {
-          const value = await vault.load();
+          const value = await loadVaultForStartup();
+          if (value === vaultLoadTimedOut) return { status: "unauthenticated" as const };
           stored = value ? parseDesktopSession(value) : null;
           if (stored && Date.parse(stored.expiresAt) <= Date.now()) {
             throw new Error("Desktop session expired");
@@ -315,7 +340,7 @@ export function createDesktopSessionManager({
         if (!stored) return { status: "unauthenticated" as const };
         try {
           const session = await broker.refresh(stored);
-          await vault.save(session);
+          await persistSession(session);
           return { session, status: "authenticated" as const };
         } catch (error) {
           if (isNetworkUnavailable(error)) {
@@ -338,8 +363,8 @@ export function createDesktopSessionManager({
     },
     signOut(): Promise<void> {
       return serialize(async () => {
-        const stored = await vault.load();
         try {
+          const stored = await vault.load();
           if (stored) await broker.logout(stored);
         } finally {
           await vault.clear();

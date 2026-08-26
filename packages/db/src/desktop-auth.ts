@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 
 import type { AgentHqDatabase } from "./connection";
 import { desktopAuthorizationCodes, desktopSessions, users } from "./schema";
@@ -106,7 +106,7 @@ export async function rotateDesktopSessionRecord(
     .update(desktopSessions)
     .set({
       credentialDigest: input.nextCredentialDigest,
-      expiresAt: sql`least(${new Date(input.expiresAt).toISOString()}::timestamptz, ${desktopSessions.providerExpiresAt})`,
+      expiresAt: new Date(input.expiresAt),
       updatedAt: now,
     })
     .where(
@@ -115,7 +115,6 @@ export async function rotateDesktopSessionRecord(
         eq(desktopSessions.credentialDigest, input.credentialDigest),
         isNull(desktopSessions.revokedAt),
         gt(desktopSessions.expiresAt, now),
-        gt(desktopSessions.providerExpiresAt, now),
       ),
     )
     .returning();
@@ -137,7 +136,6 @@ export async function resolveDesktopSessionRecord(
         eq(desktopSessions.credentialDigest, input.credentialDigest),
         isNull(desktopSessions.revokedAt),
         gt(desktopSessions.expiresAt, now),
-        gt(desktopSessions.providerExpiresAt, now),
         eq(users.isTemporary, false),
         isNull(users.disabledAt),
       ),

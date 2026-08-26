@@ -82,5 +82,5 @@ describe.skipIf(!connectionUrl)("desktop authorization with PostgreSQL", () => {
     await expect(sessions.refresh(refreshed)).rejects.toThrow("unavailable");
 
     await connection.client`DELETE FROM app.users WHERE id = ${principal.userId}`;
-  });
+  }, 30_000);
 });

@@ -117,6 +117,37 @@ describe("desktop authorization boundary", () => {
 });
 
 describe("desktop session lifecycle", () => {
+  test("keeps a newly authenticated session usable when local session persistence fails", async () => {
+    const session: DesktopSession = {
+      credential: "opaque-user-session-credential-0000001",
+      expiresAt: "2030-01-01T00:00:00.000Z",
+      sessionId,
+    };
+    const vault: DesktopSessionVault = {
+      clear: async () => {},
+      load: async () => null,
+      save: async () => {
+        throw new Error("device credential vault unavailable");
+      },
+    };
+    const broker: DesktopSessionBroker = {
+      exchange: async () => session,
+      logout: async () => {},
+      refresh: async () => session,
+      revoke: async () => {},
+    };
+
+    const manager = createDesktopSessionManager({ broker, vault });
+    await expect(
+      manager.completeSignIn({
+        code: "one-time-code",
+        codeVerifier: "v".repeat(43),
+        nonce: "n".repeat(16),
+        redirectUri: "agent-hq://auth/callback",
+      }),
+    ).resolves.toEqual({ session, status: "authenticated" });
+  });
+
   test("exchanges and refreshes credentials only in request headers or bodies", async () => {
     const requests: Array<{ input?: RequestInit; url: string }> = [];
     const fetch: typeof globalThis.fetch = async (input, init) => {
@@ -218,6 +249,29 @@ describe("desktop session lifecycle", () => {
     const manager = createDesktopSessionManager({ broker, vault });
     await expect(manager.restore()).resolves.toEqual({ status: "unauthenticated" });
     expect(cleared).toBe(true);
+  });
+
+  test("falls through to guest startup when the protected session vault does not answer", async () => {
+    let cleared = false;
+    const vault: DesktopSessionVault = {
+      clear: async () => {
+        cleared = true;
+      },
+      load: () => new Promise<null>(() => undefined),
+      save: async () => {},
+    };
+    const broker: DesktopSessionBroker = {
+      exchange: async () => {
+        throw new Error("not used");
+      },
+      logout: async () => {},
+      refresh: async (session) => session,
+      revoke: async () => {},
+    };
+
+    const manager = createDesktopSessionManager({ broker, vault, vaultLoadTimeoutMs: 5 });
+    await expect(manager.restore()).resolves.toEqual({ status: "unauthenticated" });
+    expect(cleared).toBe(false);
   });
 
   test("does not preserve malformed vault data as an offline session", async () => {
@@ -371,5 +425,35 @@ describe("desktop session lifecycle", () => {
     const manager = createDesktopSessionManager({ broker, vault });
     await expect(manager.signOut()).rejects.toThrow("network unavailable");
     expect(stored).toBeNull();
+  });
+
+  test("attempts to clear the local user session when vault loading fails", async () => {
+    let cleared = false;
+    const manager = createDesktopSessionManager({
+      broker: {
+        exchange: async () => {
+          throw new Error("not used");
+        },
+        logout: async () => {
+          throw new Error("not used");
+        },
+        refresh: async (session) => session,
+        revoke: async () => {
+          throw new Error("not used");
+        },
+      },
+      vault: {
+        clear: async () => {
+          cleared = true;
+        },
+        load: async () => {
+          throw new Error("vault unavailable");
+        },
+        save: async () => {},
+      },
+    });
+
+    await expect(manager.signOut()).rejects.toThrow("vault unavailable");
+    expect(cleared).toBe(true);
   });
 });

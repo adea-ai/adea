@@ -8,7 +8,7 @@ export type ApiWorkspaceResponse = {
 
 export type ApiWorkspaceBootstrapResponse = {
   activeWorkspace: WorkspaceSummary;
-  principal: Readonly<{ temporary: boolean }>;
+  principal: Readonly<{ displayName?: string; temporary: boolean }>;
   temporaryCredential?: string;
   workspaces: readonly WorkspaceSummary[];
 };
