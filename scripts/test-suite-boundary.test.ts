@@ -54,6 +54,8 @@ describe("test suite boundaries", () => {
     expect(manualRelease).toContain('runReleasePlease("github-release"');
     expect(manualRelease).toContain("GITHUB_REPOSITORY: repository");
     expect(manualRelease).toContain('"workflow", "run", "release-assets.yml"');
+    expect(manualRelease).toContain("`${command} ${displayArgs.join");
+    expect(manualRelease).not.toContain("`${command} ${args.join");
   });
 
   test("routes paused desktop releases to this machine's self-hosted runners", () => {
