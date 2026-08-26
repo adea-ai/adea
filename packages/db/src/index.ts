@@ -15,6 +15,8 @@ export {
   revokeAuthIdentity,
   type AuthIdentityKey,
   createTemporaryUserSession,
+  getUserDisplayName,
+  setUserDisplayNameIfMissing,
   type NewUserIdentity,
   resolveTemporaryUserSession,
   type TemporaryUserSessionInput,

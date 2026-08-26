@@ -19,6 +19,12 @@ export type SceneSettingsProps = {
   onRoomDesignerChange?: (value: boolean) => void;
   /** DOM target for the account drawer trigger in an app shell toolbar. */
   accountTargetId?: string;
+  accountLabel?: string;
+  accountAuthenticated?: boolean;
+  accountBusy?: boolean;
+  accountMusicControl?: ReactNode;
+  onAccountSignIn?: () => void;
+  onAccountSignOut?: () => void;
   /** DOM target for the compact camera controls in an app shell toolbar. */
   cameraTargetId?: string;
   /** DOM target for the room designer control in an app shell toolbar. */
@@ -55,6 +61,12 @@ export function SceneSettings({
   roomDesignerEnabled,
   onRoomDesignerChange,
   accountTargetId,
+  accountLabel,
+  accountAuthenticated,
+  accountBusy,
+  accountMusicControl,
+  onAccountSignIn,
+  onAccountSignOut,
   cameraTargetId,
   roomDesignerTargetId,
   sceneEditorTargetId,
@@ -131,10 +143,16 @@ export function SceneSettings({
   return (
     <>
       <AccountDrawer
+        accountLabel={accountLabel}
+        authenticated={accountAuthenticated}
+        busy={accountBusy}
+        musicControl={accountMusicControl}
         characterOptions={characterOptions}
         character={character}
         onCharacterChange={onCharacterChange}
         triggerTargetId={accountTargetId}
+        onSignIn={onAccountSignIn}
+        onSignOut={onAccountSignOut}
       />
       {allowCameraViewModeChange ? renderInTarget(cameraControl, cameraTarget) : null}
       {roomDesignerEnabled != null &&

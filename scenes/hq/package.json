@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     }
   },
   "scripts": {
@@ -18,6 +22,17 @@
   },
   "dependencies": {
     "@agent-hq/asset-manifests": "workspace:*",
-    "@agent-hq/interior": "workspace:*"
+    "@agent-hq/audio": "workspace:*",
+    "@agent-hq/characters": "workspace:*",
+    "@agent-hq/interior": "workspace:*",
+    "@agent-hq/pets": "workspace:*",
+    "@agent-hq/scene-runtime": "workspace:*",
+    "@agent-hq/scene-shell": "workspace:*",
+    "react": "19.2.8",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/three": "^0.185.0"
   }
 }

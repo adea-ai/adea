@@ -20,6 +20,28 @@ export type NewUserIdentity = Readonly<{
   profile?: Readonly<{ displayName?: string }>;
 }>;
 
+export async function getUserDisplayName(
+  database: AgentHqDatabase,
+  principal: UserPrincipalRef,
+): Promise<string | null> {
+  const [user] = await database
+    .select({ displayName: users.displayName })
+    .from(users)
+    .where(and(eq(users.id, principal.userId), isNull(users.disabledAt)))
+    .limit(1);
+  return user?.displayName ?? null;
+}
+
+export async function setUserDisplayNameIfMissing(
+  database: AgentHqDatabase,
+  input: Readonly<{ displayName: string; userId: string }>,
+): Promise<void> {
+  await database
+    .update(users)
+    .set({ displayName: input.displayName })
+    .where(and(eq(users.id, input.userId), isNull(users.displayName), isNull(users.disabledAt)));
+}
+
 export async function createUserWithAuthIdentity(
   database: AgentHqDatabase,
   input: NewUserIdentity,

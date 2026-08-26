@@ -20,7 +20,8 @@
     },
     "./globals.css": "./src/styles/globals.css",
     "./auth-shell.css": "./src/styles/auth-shell.css",
-    "./theme.css": "./src/styles/theme.css"
+    "./theme.css": "./src/styles/theme.css",
+    "./workspace-shell.css": "./src/styles/workspace-shell.css"
   },
   "imports": {
     "#components/*": "./src/components/*.tsx",

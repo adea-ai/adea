@@ -7,7 +7,7 @@
     "build": "bun run client:build",
     "client:build": "vite build",
     "client:dev": "vite --host 127.0.0.1 --port 1420",
-    "client:prepare": "bun run --cwd ../../packages/api-client build && bun run --cwd ../../packages/auth build",
+    "client:prepare": "bun ../../scripts/sync-assets.mjs && bun run --cwd ../../packages/api-client build && bun run --cwd ../../packages/auth build && bun run --cwd ../../scenes/hq build",
     "shell:client:build": "bun run client:prepare && bun run client:build",
     "shell:client:dev": "bun run client:prepare && bun run client:dev",
     "shell:dev": "bun scripts/tauri.mjs dev",
@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@tauri-apps/cli": "^2.5.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -24,10 +25,14 @@
   },
   "dependencies": {
     "@agent-hq/api-client": "workspace:*",
+    "@agent-hq/audio": "workspace:*",
     "@agent-hq/auth": "workspace:*",
+    "@agent-hq/hq-scenes": "workspace:*",
+    "@agent-hq/scene-shell": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
+    "lucide-react": "^1.33.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   }

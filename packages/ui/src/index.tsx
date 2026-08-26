@@ -22,8 +22,14 @@ export {
   type CharacterSelectorProps,
 } from "./components/character-selector";
 export { AccountDrawer, type AccountDrawerProps } from "./components/account-drawer";
+export { WorkspaceBrand, type WorkspaceBrandProps } from "./components/workspace-brand";
 export { OnScreenControls } from "./components/on-screen-controls";
 export { SceneSettings, type SceneSettingsProps } from "./components/scene-settings";
+export {
+  VersionDialog,
+  type SharedDesktopUpdate,
+  type VersionDialogAdapter,
+} from "./components/version-dialog";
 export { Card, CardContent } from "./components/ui/card";
 export { Spinner } from "./components/ui/spinner";
 export {

@@ -11,13 +11,14 @@ import { BriefcaseBusiness, Home } from "lucide-react";
 import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
 import type { SceneStartPosition } from "@agent-hq/asset-manifests";
 import { Button } from "@agent-hq/ui/components/ui/button";
-import { ThemeToggle } from "@agent-hq/ui/components/theme-toggle";
+import { WorkspaceBrand } from "@agent-hq/ui/components/workspace-brand";
 import { isDesktopRuntime } from "../lib/desktop-update";
 import { VersionDialog } from "./version-dialog";
 
-const HqRoomScene = dynamic(() => import("./hq-room-scene").then((module) => module.HqRoomScene), {
-  ssr: false,
-});
+const HqRoomScene = dynamic(
+  () => import("@agent-hq/hq-scenes/runtime").then((module) => module.HqRoomScene),
+  { ssr: false },
+);
 
 const sceneOptions = [
   {
@@ -91,11 +92,15 @@ export function WorkspaceShell({
   const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode);
   const [storeReady, setStoreReady] = useState(false);
   const [desktopRuntime, setDesktopRuntime] = useState(false);
+  const [accountBusy, setAccountBusy] = useState(false);
   const [apiClient] = useState(() => createApiClient());
   const workspaceQuery = useWorkspaceBootstrapQuery(apiClient);
   const sceneId = storeReady ? selectedScene : initialScene;
   const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode;
   const scene = sceneById[sceneId];
+  const principal = workspaceQuery.data?.principal;
+  const accountAuthenticated = Boolean(principal && !principal.temporary);
+  const accountLabel = accountAuthenticated ? (principal?.displayName ?? "Account") : "Sign in";
   const workspaceStatus = workspaceQuery.isPending
     ? "Workspace syncing"
     : workspaceQuery.isError
@@ -124,6 +129,18 @@ export function WorkspaceShell({
     window.history.replaceState(null, "", nextUrl);
   };
 
+  const signIn = () => window.location.assign("/auth/sign-in?returnTo=%2F");
+  const signOut = async () => {
+    setAccountBusy(true);
+    try {
+      const { createNeonClientAdapter } = await import("@agent-hq/auth/client");
+      await createNeonClientAdapter().signOut();
+      window.location.assign("/");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
   return (
     <main className={`workspace-shell${desktopRuntime ? " workspace-shell--desktop" : ""}`}>
       <div className="workspace-scene-viewport">
@@ -136,6 +153,12 @@ export function WorkspaceShell({
             cameraViewMode={activeCameraViewMode}
             onCameraViewModeChange={setCameraViewMode}
             accountTargetId="workspace-account-slot"
+            accountLabel={accountLabel}
+            accountAuthenticated={accountAuthenticated}
+            accountBusy={accountBusy}
+            accountMusicControl={<MusicToggle />}
+            onAccountSignIn={signIn}
+            onAccountSignOut={() => void signOut()}
             cameraTargetId="workspace-camera-slot"
             roomDesignerTargetId="workspace-scene-tools-slot"
             sceneEditorTargetId="workspace-scene-tools-slot"
@@ -144,53 +167,29 @@ export function WorkspaceShell({
 
         <div className="workspace-ui" aria-label="Agent HQ workspace controls">
           <header className="workspace-topbar">
-            <div className="workspace-topbar__main">
-              <div className="workspace-brand">
-                <div className="workspace-brand__mark" aria-hidden="true">
-                  <span>HQ</span>
-                </div>
-                <div>
-                  <p className="workspace-eyebrow">AGENT OPERATIONS</p>
-                  <h1>Agent HQ</h1>
-                </div>
-              </div>
-
-              <div className="workspace-topbar__actions">
-                <ThemeToggle className="workspace-theme-toggle" />
-                <div className="workspace-music-toggle" aria-label="Music controls">
-                  <MusicToggle />
-                </div>
-                <div id="workspace-account-slot" className="workspace-account-slot" />
-                {workspaceQuery.data?.principal.temporary ? (
-                  <a className="workspace-save-account" href="/auth/sign-in?returnTo=%2F">
-                    Save workspace
-                  </a>
-                ) : workspaceQuery.data ? (
-                  <span className="workspace-saved-account">Workspace saved</span>
-                ) : null}
-              </div>
-            </div>
-            <div className="workspace-topbar__secondary">
-              <nav className="workspace-scene-nav" aria-label="HQ spaces">
-                {sceneOptions.map((option) => {
-                  const Icon = option.icon;
-                  const isSelected = option.id === sceneId;
-                  return (
-                    <Button
-                      key={option.id}
-                      type="button"
-                      className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
-                      aria-pressed={isSelected}
-                      variant={isSelected ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={() => selectScene(option.id)}
-                    >
-                      <Icon size={14} aria-hidden="true" />
-                      {option.label}
-                    </Button>
-                  );
-                })}
-              </nav>
+            <WorkspaceBrand title="Agent HQ" />
+            <nav className="workspace-scene-nav" aria-label="HQ spaces">
+              {sceneOptions.map((option) => {
+                const Icon = option.icon;
+                const isSelected = option.id === sceneId;
+                return (
+                  <Button
+                    key={option.id}
+                    type="button"
+                    className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
+                    aria-pressed={isSelected}
+                    variant={isSelected ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => selectScene(option.id)}
+                  >
+                    <Icon size={14} aria-hidden="true" />
+                    {option.label}
+                  </Button>
+                );
+              })}
+            </nav>
+            <div className="workspace-topbar__actions">
+              <div id="workspace-account-slot" className="workspace-account-slot" />
             </div>
           </header>
 
@@ -210,17 +209,17 @@ export function WorkspaceShell({
             {scene.label} scene · Drag to orbit · Zoom controls
           </p>
         </div>
-      </div>
 
-      {desktopRuntime ? (
-        <footer className="workspace-statusbar" aria-label="Agent HQ status bar">
-          <div className="workspace-statusbar__meta" role="status" aria-live="polite">
-            <span className="workspace-status__dot" aria-hidden="true" />
-            <span>{workspaceStatus}</span>
-          </div>
-          <VersionDialog />
-        </footer>
-      ) : null}
+        {desktopRuntime ? (
+          <footer className="workspace-statusbar" aria-label="Agent HQ status bar">
+            <div className="workspace-statusbar__meta" role="status" aria-live="polite">
+              <span className="workspace-status__dot" aria-hidden="true" />
+              <span>{workspaceStatus}</span>
+            </div>
+            <VersionDialog />
+          </footer>
+        ) : null}
+      </div>
     </main>
   );
 }

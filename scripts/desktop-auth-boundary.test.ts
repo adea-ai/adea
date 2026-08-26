@@ -27,6 +27,121 @@ describe("desktop packaging and privilege boundary", () => {
     expect(main).not.toContain("AGENT_HQ_WEB_URL");
   });
 
+  test("enters the bundled spatial workspace after guest bootstrap", async () => {
+    const manifest = JSON.parse(await readFile(join(root, "apps/desktop/package.json"), "utf8"));
+    const client = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
+    const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
+
+    expect(manifest.dependencies["@agent-hq/hq-scenes"]).toBe("workspace:*");
+    expect(client).toContain("<DesktopWorkspace");
+    expect(client).toContain("if (workspaceState)");
+    expect(client).toContain("setSession(activeSession)");
+    expect(client).toContain("onRetry=");
+    expect(workspace).toContain("<HqRoomScene");
+    expect(workspace).toContain('aria-label="Agent HQ workspace controls"');
+    expect(workspace).toContain("Try again");
+  });
+
+  test("keeps desktop scene controls inside the canvas group and restores the workspace chrome", async () => {
+    const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
+    const styles = await readFile(join(root, "apps/desktop/src/styles.css"), "utf8");
+
+    expect(workspace).toContain('className="workspace-view-switcher"');
+    expect(workspace).toContain("<VersionDialog");
+    expect(workspace.indexOf("<footer")).toBeLessThan(workspace.indexOf("</div>\n    </main>"));
+    expect(styles).toContain(".workspace-scene-viewport [data-agent-hq-on-screen-controls]");
+    expect(styles).toContain("left: 50%");
+    expect(styles).toContain("transform: translateX(-50%)");
+    expect(styles).toContain("--workspace-statusbar-height");
+    expect(styles).toContain(".workspace-scene-tools button");
+    expect(styles).toContain(".workspace-status__dot");
+  });
+
+  test("puts optional authentication and the visible identity inside the user menu", async () => {
+    const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
+    const accountDrawer = await readFile(
+      join(root, "packages/ui/src/components/account-drawer.tsx"),
+      "utf8",
+    );
+    const bootstrapRoute = await readFile(
+      join(root, "apps/web/src/app/api/workspaces/bootstrap/route.ts"),
+      "utf8",
+    );
+
+    expect(workspace).toContain("accountLabel=");
+    expect(workspace).not.toContain(">Save workspace<");
+    expect(workspace).not.toContain(">Sign out<");
+    expect(accountDrawer).toContain("accountLabel");
+    expect(accountDrawer).toContain("onSignIn");
+    expect(accountDrawer).toContain("onSignOut");
+    expect(accountDrawer).toContain('authenticated ? "Sign out" : "Sign in"');
+    expect(bootstrapRoute).toContain("getUserDisplayName");
+  });
+
+  test("shares the complete version and changelog dialog across web and desktop", async () => {
+    const desktopVersion = await readFile(
+      join(root, "apps/desktop/src/version-dialog.tsx"),
+      "utf8",
+    );
+    const webVersion = await readFile(
+      join(root, "apps/web/src/components/version-dialog.tsx"),
+      "utf8",
+    );
+    const sharedVersion = await readFile(
+      join(root, "packages/ui/src/components/version-dialog.tsx"),
+      "utf8",
+    );
+
+    expect(desktopVersion).toContain("@agent-hq/ui/components/version-dialog");
+    expect(webVersion).toContain("@agent-hq/ui/components/version-dialog");
+    expect(sharedVersion).toContain("What changed in this release");
+    expect(sharedVersion).toContain("Installed changelog");
+    expect(sharedVersion).toContain("View releases");
+  });
+
+  test("shares compact workspace chrome and keeps theme and music inside the user drawer", async () => {
+    const desktopMain = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
+    const desktopStyles = await readFile(join(root, "apps/desktop/src/styles.css"), "utf8");
+    const webWorkspace = await readFile(
+      join(root, "apps/web/src/components/workspace-shell.tsx"),
+      "utf8",
+    );
+    const webLayout = await readFile(join(root, "apps/web/src/app/layout.tsx"), "utf8");
+    const webStyles = await readFile(join(root, "apps/web/src/app/globals.css"), "utf8");
+    const accountDrawer = await readFile(
+      join(root, "packages/ui/src/components/account-drawer.tsx"),
+      "utf8",
+    );
+    const sharedBrand = await readFile(
+      join(root, "packages/ui/src/components/workspace-brand.tsx"),
+      "utf8",
+    );
+    const sharedShellStyles = await readFile(
+      join(root, "packages/ui/src/styles/workspace-shell.css"),
+      "utf8",
+    );
+
+    expect(accountDrawer).toContain("<ThemeToggle");
+    expect(accountDrawer).toContain("musicControl");
+    expect(accountDrawer).toContain("grid-cols-[minmax(0,1fr)_auto]");
+    expect(desktopMain).toContain("<SoundProvider>");
+    expect(desktopMain).toContain("<ThemeProvider>");
+    expect(webWorkspace).toContain("accountMusicControl={<MusicToggle />}");
+    expect(webWorkspace).toContain("accountLabel=");
+    expect(webWorkspace).not.toContain('className="workspace-theme-toggle"');
+    expect(webWorkspace).not.toContain('className="workspace-music-toggle"');
+    expect(webWorkspace).not.toContain("workspace-topbar__secondary");
+    expect(desktopStyles).toContain("- 0.45rem");
+    expect(desktopStyles).toContain("env(safe-area-inset-top)");
+    expect(webStyles).toContain("env(safe-area-inset-top)");
+    expect(webLayout).toContain("themeColor:");
+    expect(sharedBrand).toContain('className="workspace-brand__mark"');
+    expect(sharedShellStyles).toContain("background: var(--hq-shell-accent)");
+    expect(sharedShellStyles).toContain("color: var(--hq-shell-accent-foreground)");
+    expect(desktopStyles).not.toContain(".workspace-brand__mark {");
+    expect(webWorkspace).toContain('<WorkspaceBrand title="Agent HQ" />');
+  });
+
   test("grants privileged commands only to bundled application code", async () => {
     const capability = JSON.parse(
       await readFile(join(root, "apps/desktop/src-tauri/capabilities/default.json"), "utf8"),
@@ -40,13 +155,31 @@ describe("desktop packaging and privilege boundary", () => {
     const configured = "https://staging.agent-hq.example";
     const csp = createTauriCloudConfig(configured).app.security.csp;
 
-    expect(csp).toContain(`connect-src 'self' ipc: http://ipc.localhost ${configured} `);
+    expect(csp).toContain(`connect-src 'self' blob: ipc: http://ipc.localhost ${configured} `);
     expect(csp).not.toContain("connect-src 'self' https:");
     expect(csp).not.toContain("https://agent-hq-site.vercel.app");
     expect(normalizeDesktopCloudOrigin("http://127.0.0.1:4305")).toBe("http://127.0.0.1:4305");
     expect(() => normalizeDesktopCloudOrigin("https://evil.example/path")).toThrow(
       "Desktop cloud origin",
     );
+  });
+
+  test("permits the bundled 3D runtime to compile trusted WebAssembly", async () => {
+    const config = JSON.parse(
+      await readFile(join(root, "apps/desktop/src-tauri/tauri.conf.json"), "utf8"),
+    );
+    const csp = config.app.security.csp as string;
+
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(csp).not.toContain("script-src 'self' 'unsafe-eval'");
+    expect(csp).toContain("connect-src 'self' blob:");
+    expect(csp).toContain("img-src 'self' asset: data: blob:");
+  });
+
+  test("deduplicates React across the packaged spatial runtime", async () => {
+    const viteConfig = await readFile(join(root, "apps/desktop/vite.config.ts"), "utf8");
+
+    expect(viteConfig).toContain('dedupe: ["react", "react-dom"]');
   });
 
   test("registers the exact desktop callback scheme and keeps server modules out of the client", async () => {
@@ -90,6 +223,10 @@ describe("desktop packaging and privilege boundary", () => {
     expect(web).toContain('className="auth-shell"');
     expect(sharedStyles).toContain(".auth-panel");
     expect(sharedStyles).toContain(".auth-title");
+    expect(sharedStyles).toContain("--auth-accent: var(--hq-shell-accent)");
+    expect(sharedStyles).toContain("--auth-background: var(--hq-shell-background)");
+    expect(desktopStyles).toContain("color: var(--hq-shell-foreground)");
+    expect(desktopStyles).toContain("background: var(--hq-shell-background)");
   });
 
   test("provides cloud authorization, exchange, refresh, logout, and revocation handlers", async () => {
@@ -118,14 +255,27 @@ describe("desktop packaging and privilege boundary", () => {
       join(root, "apps/web/src/app/auth/sign-in/sign-in-form.tsx"),
       "utf8",
     );
+    const completionPage = await readFile(
+      join(root, "apps/web/src/app/auth/desktop/complete/page.tsx"),
+      "utf8",
+    );
+    const completionClient = await readFile(
+      join(root, "apps/web/src/app/auth/desktop/complete/desktop-auth-complete.tsx"),
+      "utf8",
+    );
 
     expect(authorize).toContain("createDesktopSignInUrl");
+    expect(authorize).toContain("createDesktopCompletionUrl");
     expect(authorize).not.toContain("Authentication required");
     expect(page).toContain("normalizeDesktopAuthorizationReturnTo");
     expect(form).toContain('htmlFor="email"');
     expect(form).toContain('htmlFor="password"');
     expect(form).toContain('aria-live="polite"');
     expect(form).toContain("createNeonClientAdapter");
+    expect(completionPage).toContain('className="auth-shell"');
+    expect(completionClient).toContain("You can close this tab");
+    expect(completionClient).toContain("parseDesktopCallbackFragment");
+    expect(completionClient).toContain("window.history.replaceState");
   });
 
   test("keeps provider and server-only modules out of the packaged JavaScript", async () => {

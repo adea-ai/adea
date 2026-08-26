@@ -4,7 +4,10 @@ import {
   desktopAuthorizationBroker,
   desktopPrincipalMapping,
 } from "../../../../../server/desktop-auth";
-import { createDesktopSignInUrl } from "../../../../../lib/desktop-auth-navigation";
+import {
+  createDesktopCompletionUrl,
+  createDesktopSignInUrl,
+} from "../../../../../lib/desktop-auth-navigation";
 import { resolveOrProvisionDesktopPrincipal } from "../../../../../server/desktop-principal";
 
 export const dynamic = "force-dynamic";
@@ -36,11 +39,12 @@ export async function GET(request: Request) {
       providerSessionId: authentication.session.id,
       userId: principal.userId,
     });
+    const completion = createDesktopCompletionUrl(new URL(request.url), callback);
     return new Response(null, {
       status: 303,
       headers: {
         "cache-control": "no-store",
-        location: callback,
+        location: `${completion.pathname}${completion.hash}`,
         "referrer-policy": "no-referrer",
       },
     });
