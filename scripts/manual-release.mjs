@@ -37,7 +37,7 @@ function run(command, args, { capture = false, displayArgs = args, env = process
   if (result.status !== 0) {
     const detail = capture ? (result.stderr || result.stdout).trim() : "";
     throw new Error(
-      `${command} ${args.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`,
+      `${command} ${displayArgs.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`,
     );
   }
   return capture ? result.stdout.trim() : "";
