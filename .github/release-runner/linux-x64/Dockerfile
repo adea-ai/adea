@@ -7,6 +7,7 @@ ARG LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256=a45d3e227bc7f397e9cf6bfa4c9507494efa22933
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     build-essential ca-certificates curl file git jq libayatana-appindicator3-dev \
     librsvg2-dev libssl-dev libwebkit2gtk-4.1-dev patchelf pkg-config squashfs-tools sudo unzip xdg-utils xz-utils \
+    rpm \
   && useradd --create-home --shell /bin/bash runner \
   && mkdir -p /home/runner/cache/cargo-target \
   && chown -R runner:runner /home/runner/cache \
