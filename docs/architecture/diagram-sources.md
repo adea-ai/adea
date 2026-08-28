@@ -2,96 +2,117 @@
 
 Status: Canonical repository source
 Owner: Agent HQ architecture
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-28
 
-These Mermaid definitions are the version-controlled source for the rendered diagrams in the canonical Google Docs.
+These Mermaid definitions are the version-controlled Agent HQ source for the rendered diagrams cataloged in the canonical Google Docs. Cross-repository Control Plane and Cortana diagrams remain in their owning repositories.
 
 ## Editing and rendering rules
 
-1. Edit the Mermaid definition here first.
-2. Render and inspect the diagram before replacing the image in its owning document.
-3. Keep the heading aligned with the owning Google Doc and figure purpose.
+1. Edit the owning Mermaid definition first.
+2. Render and inspect the diagram before replacing the image in its owning Google Doc.
+3. Keep headings aligned with the owning document and figure purpose.
 4. Do not hand-edit rendered diagram images.
-5. Cross-repository definitions owned by the Control Plane remain in that repository's companion diagram-source file.
+5. Physical provider resource names such as R2 bucket names, Wrangler bindings, Neon project IDs, and Railway project IDs are deployment configuration, not domain identifiers.
+6. Agent HQ and Control Plane may share a Cloudflare account/provider, but they use separate bucket/credential authority. The Control Plane `ctrl-plane` bucket is not Agent HQ Artifact storage.
 
 ## Agent HQ PRD: Product Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
     U([User]) --> HQ[Agent HQ Workspace]
     HQ --> CP[Control Plane]
-    CP --> EP[Immutable ExecutionPlan]
-    EP --> TW[Temporal]
+    CP --> CPO{Optional ContextProvider?}
+    CPO -->|No / disabled| EP[Immutable ExecutionPlan]
+    CPO -->|Yes| CXT[Validated ContextContribution]
+    CXT --> EP
+    EP --> TW[Restate]
     TW --> D{Graph semantics required?}
     D -->|No| RA[Runtime Adapter]
     D -->|Yes| LG[LangGraph.js]
     LG --> RA
-    RA --> RG[Runtime Gateway when local]
-    RG --> RD[RuntimeDriver]
-    RD --> MP[Managed Pi]
-    RD --> ACP[ACP External Harness]
-    MP --> MT[Models / Tools / Sandbox]
-    ACP --> MT
-    MT --> EV[Normalized Control Plane Events]
-    EV --> EI[Agent HQ EventInbox]
-    EI --> WE[WorkspaceEvent]
-    WE --> EG[Event Gateway / SSE]
-    EG --> HQ
+    RA --> PI[Managed Pi]
+    RA --> ACP[ACP Adapter]
+    ACP --> EXT[External Harnesses]
+    PI --> MT[Models & Tools]
+    EXT --> MT
 ```
 
 ## System Architecture Overview
 
 ```mermaid
 flowchart TB
-    subgraph Product["Agent HQ Product"]
-        C[Next.js / React Client]
-        A[Application Services]
-        AD[(Agent HQ PostgreSQL / Drizzle)]
-        AUTH[Neon Auth via @agent-hq/auth]
-        EG[Event Gateway / Durable SSE]
-        AB[Agent HQ Artifacts / Vercel Private Blob]
+    subgraph HQ["Agent HQ — Private First-Party Product"]
+        C[Desktop / Web / Mobile UI]
+        API[Application Services]
+        HQDB[(Agent HQ Neon / Cloud-Safe Metadata)]
+        RELAY[Agent HQ Remote Relay / HPKE Ciphertext]
+        EVT[Railway Event Gateway / Neon WorkspaceEvents]
     end
-    subgraph Control["Control Plane"]
-        CP[Profiles / Context / Routing / Policy]
-        EP[Immutable ExecutionPlan]
-        PS[(ProjectState)]
-        CD[(Control Plane PostgreSQL / Drizzle)]
-        TW[Temporal Durable Lifecycle]
+    subgraph CP["Control Plane — Open Source / Apache-2.0"]
+        CPAPI[Control API / Public SDK]
+        POL[Profiles / Skills / ProjectState / Context Policy]
+        CPO{Optional ContextProvider?}
+        PLAN[Immutable ExecutionPlan]
+        TW[Restate Durable Lifecycle]
         LG[LangGraph.js Bounded Graph Segments]
         RA[Runtime Adapters]
-        TG[Tool Gateway / MCP]
+        TG[Tool Gateway / Shared Integrations / MCP]
         MG[Model Gateway]
         SB[SandboxProvider]
+        CPDB[(PersistenceProvider: SQLite Local/Simple / PostgreSQL Server/Cloud)]
     end
-    subgraph Runtime["Runtime Infrastructure & Local Runtimes"]
-        RG[Runtime Gateway]
-        DR[Desktop RuntimeDrivers]
-        PI[Managed Local Pi]
-        ACP[External Harnesses via ACP]
+    subgraph CT["Optional Context / Memory Providers"]
+        CTAPI[Cortana — Preferred / Desktop / MCP / HTTP / CLI]
+        CB[Bounded ContextBundle]
+        CTDB[(Cortana Local SQLite Brain)]
+        ALT[Other Compatible Provider]
+        ALTDB[(Alternate Provider-Owned Store)]
     end
-    C --> AUTH --> A
-    C --> A
-    A --> AD
-    A --> EG --> C
-    A --> AB
-    A --> CP
-    CP --> EP
-    CP <--> PS
-    CP --> CD
-    EP --> TW
+    subgraph RuntimeInfra["Runtime Infrastructure and Concrete Runtimes"]
+        RG[Runtime Gateway - non-co-located RuntimeNode only]
+        DR[RuntimeDrivers]
+        PI[Managed Pi]
+        EXT[ACP External Harnesses]
+    end
+    C --> API
+    API <--> HQDB
+    API --> EVT
+    EVT --> C
+    API -->|Local/direct or ordinary service API| CPAPI
+    API -->|Remote web/mobile command| RELAY
+    RELAY -->|Metadata + HPKE ciphertext| CPAPI
+    API -->|Optional first-party configuration and browsing| CTAPI
+    CPAPI --> POL
+    POL --> CPO
+    POL <--> CPDB
+    PLAN <--> CPDB
+    CPO -->|None / disabled| PLAN
+    CPO -->|Cortana| CTAPI
+    CPO -->|Alternate| ALT
+    PLAN --> TW
+    TW --> RA
     TW --> LG
     LG --> RA
     RA --> TG
     RA --> MG
     RA --> SB
-    RA --> RG
+    RA --> DR
+    RA -->|Remote RuntimeNode only| RG
+    CTAPI <--> CTDB
+    CTAPI --> CB
+    ALT <--> ALTDB
+    ALT --> ACB[Bounded Alternate Provider Response]
+    CB -. Validated ContextContribution .-> PLAN
+    ACB -. Validated ContextContribution .-> PLAN
     RG --> DR
     DR --> PI
-    DR --> ACP
-    PI --> RA
-    ACP --> RA
-    RA --> CP
-    CP --> A
+    DR --> EXT
+    NOTE[No direct cross-database reads, shared credentials, or private-code dependency]
+    HQDB -. isolated .-> NOTE
+    CPDB -. isolated .-> NOTE
+    CTDB -. isolated .-> NOTE
+    ALTDB -. isolated .-> NOTE
+    NONE[No provider is a supported baseline] -. no dependency .-> PLAN
 ```
 
 ## Agent HQ TDD: Application Architecture
@@ -100,48 +121,52 @@ flowchart TB
 flowchart TB
     U([User]) --> CL[Agent HQ Desktop Client]
     subgraph Client["Client Layer"]
-        CL --> UI[React / shadcn UI]
-        CL --> SR[Vanilla Three.js Scene Runtime]
-        CL --> Q[TanStack Query]
-        CL --> Z[Zustand Transient State]
+        CL --> S[Vanilla Three.js Scene Runtime]
+        CL --> L[Channel / List View]
+        CL --> UI[Task, Chat, Kanban, Settings]
+        CL --> EC[Event Client]
     end
-    subgraph AgentHQ["Agent HQ Cloud Application"]
-        API[Application Services / API]
-        DB[(Agent HQ PostgreSQL / Drizzle)]
-        EVT[WorkspaceEvent Log]
-        EG[Event Gateway / SSE]
-        ART[Artifact Metadata / @agent-hq/artifacts]
+    subgraph App["Agent HQ Application Services"]
+        AUTH["Neon Auth<br/>via @agent-hq/auth"]
+        API[API]
+        WS[Workspace / Agent / Task / Conversation Metadata Services]
+        RELAY[Remote Control Relay / HPKE]
+        EV[Railway Event Gateway]
+        DB[(Neon / Drizzle Cloud Metadata)]
     end
-    subgraph Control["Control Plane"]
-        CP[Control Plane SDK / Service Boundary]
-    end
-    UI --> Q
-    SR --> Q
-    Q <--> API
-    API <--> DB
-    API --> EVT
-    EVT --> EG --> Q
-    API --> ART
-    API <--> CP
+    CL --> AUTH
+    CL <--> LC[(Encrypted Local Content / rusqlite)]
+    AUTH --> API
+    API --> WS
+    WS --> DB
+    CL -->|Local direct| CP[Local Control Plane]
+    API --> RELAY
+    RELAY -->|Remote metadata + HPKE ciphertext| CP
+    CP --> API
+    WS --> EV
+    EV --> EC
 ```
 
-## Agent HQ TDD: Real-Time Event Flow
+## Agent HQ TDD: Remote-Origin Product Event Flow
 
 ```mermaid
 sequenceDiagram
     actor U as User
     participant C as Agent HQ Client Surface
     participant A as Agent HQ API
-    participant P as Control Plane
-    participant T as Temporal
+    participant X as Agent HQ Remote Relay
+    participant P as Selected Control Plane Host
+    participant T as Restate
     participant RA as Runtime Adapter
-    participant G as Runtime Gateway / Runtime Path
+    participant G as DirectLocalRuntimeTransport or Runtime Gateway
     participant R as Runtime
-    participant E as Event Service
+    participant E as Railway Event Gateway
     participant D as Event Store
     U->>C: User action
-    C->>A: Semantic command
-    A->>P: Execution request
+    C->>A: Remote semantic command / encrypted content
+    A->>X: Route metadata + HPKE envelope
+    X->>P: Deliver without plaintext access
+    P->>P: Decrypt/validate content at selected host
     P->>T: Start durable workflow
     T->>RA: Invoke approved runtime activity
     RA->>G: Dispatch normalized runtime command
@@ -165,27 +190,32 @@ flowchart LR
     subgraph AppCloud["Agent HQ Application Trust Zone"]
         AUTH["Neon Auth<br/>via @agent-hq/auth"]
         API[Agent HQ API]
-        DB[(Agent HQ PostgreSQL / Drizzle)]
-        EG[Event Gateway]
+        DB[(Agent HQ Neon / Cloud-Safe Metadata)]
+        RELAY[Remote Relay / HPKE Ciphertext]
+        EG[Railway Event Gateway]
         ART[@agent-hq/artifacts]
-        BLOB[(Vercel Private Blob)]
+        BLOB[(Agent HQ Cloudflare R2 - separate product bucket)]
     end
-    subgraph ControlCloud["Control Plane Trust Zone"]
+    subgraph Control["Selected Control Plane Trust Zone - local, self-hosted, or managed cloud"]
         CP[Control Plane]
-        CDB[(Control Plane PostgreSQL / Drizzle)]
-        SEC[(KMS / Secrets / Credential Leases)]
-        RG[Runtime Gateway]
+        CDB[(Control Plane SQLite local / PostgreSQL server)]
+        SEC[(OS Secure Storage / Managed Secrets / Credential Leases)]
+        RG[Runtime Gateway - non-co-located RuntimeNode only]
         TG[Tool Gateway / PolicyDecisionPoint]
+        CG[ContextProvider Registry / Policy / Adapters]
         MG[Model Gateway]
         SB[SandboxProvider]
     end
     subgraph Local["User Device Trust Zone"]
+        LC[(Encrypted Agent HQ Local Content)]
         RH[Desktop Local Runtime Host]
         MP[Managed Local Pi]
         EH[External Harnesses]
+        CT[Cortana / Local Context Provider]
     end
     subgraph External["External Provider / Connector Trust Zone"]
         PR[Models / Tools / Connectors / Sandbox Provider]
+        XP[Remote Context / Memory Provider]
     end
     B --> AUTH
     AUTH --> API
@@ -194,21 +224,27 @@ flowchart LR
     EG --> B
     API --> ART
     ART --> BLOB
-    API --> CP
+    API -->|Cloud-safe service calls| CP
+    API --> RELAY
+    RELAY -->|Remote product command / HPKE| CP
     CP --> CDB
     CP --> SEC
-    CP --> RG
+    CP -->|Non-co-located RuntimeNode only| RG
     CP --> TG
+    CP --> CG
     CP --> MG
     CP --> SB
     RG <-->|Outbound authenticated runtime channel| RH
     RH --> MP
     RH --> EH
+    RH --> CT
     MP --> PR
     EH --> PR
     TG --> PR
     MG --> PR
     SB --> PR
+    CG -->|Non-co-located provider request| XP
+    CG -->|Co-located provider request| RH
 ```
 
 ## Data Model & API: Domain Relationships
@@ -220,14 +256,19 @@ erDiagram
     WORKSPACE ||--o{ ROOM : contains
     WORKSPACE ||--o{ AGENT : contains
     WORKSPACE ||--o{ TASK : contains
+    WORKSPACE ||--o{ CONTENT_REF : owns
     WORKSPACE ||--o{ CHANNEL : contains
     CHANNEL ||--o{ MESSAGE : contains
+    TASK ||--o| CONTENT_REF : private_content
+    MESSAGE ||--o| CONTENT_REF : private_body
     AGENT ||--o{ TASK : assigned
     TASK ||--o{ EXECUTION_REF : references
     AGENT }o--|| AGENT_PROFILE_REF : uses
     WORKSPACE ||--o{ WORKSPACE_EVENT : emits
     WORKSPACE ||--o{ RUNTIME_CONNECTION_VIEW : surfaces
     RUNTIME_CONNECTION_VIEW ||--o{ EXTERNAL_SESSION_VIEW : exposes
+    WORKSPACE ||--o{ CONTEXT_PROVIDER_VIEW : configures
+    CONTEXT_PROVIDER_VIEW ||--o{ MEMORY_WRITE_PROPOSAL_VIEW : surfaces
 ```
 
 ## Data Model & API: Task and Execution State Machines
@@ -296,7 +337,7 @@ sequenceDiagram
     Note over H,N: Productivity context, conversations, tasks, and credentials are not transferred
 ```
 
-## Desktop-First Runtime Topology
+## MVP Local-First and Self-Hosted Runtime Topology
 
 ```mermaid
 flowchart TB
@@ -305,34 +346,54 @@ flowchart TB
         W[Web Remote Control]
         M[Mobile Remote Control]
     end
-    subgraph Cloud["Cloud Coordination Services"]
+    subgraph Cloud["Agent HQ Cloud Coordination"]
         APP[Application Services]
-        DB[(PostgreSQL / Drizzle)]
-        CP[Control Plane]
-        PS[(ProjectState)]
-        TW[Temporal]
-        LG[LangGraph.js]
+        DB[(Neon / Drizzle Cloud Metadata)]
+        RELAY[Durable Remote Relay / Metadata + HPKE Ciphertext]
+        META[(Workspace / Device / Task Status Metadata)]
         EVT[Sync / Events]
-        RG[Runtime Gateway]
+    end
+    subgraph RuntimeTransportInfra["Control Plane Runtime Transport"]
+        RG[Runtime Gateway - non-co-located RuntimeNode only]
     end
     subgraph Local["Paired Developer Device"]
+        LC[(Encrypted Agent HQ Local Content / rusqlite)]
+        LCP[Local All-in-One Control Plane / Restate / node:sqlite]
+        LG[Bounded LangGraph.js]
         RH[Local Runtime Host]
         MPI[Managed Local Pi]
         MPD[ManagedPiDriver]
         ACPD[ACPDriver]
+        CPD[ContextProviderDriver]
         EXT[Claude Code / Codex / OpenCode / User Pi]
         ENV[Local Projects / Tools / Shell]
+        CT[Optional Cortana / Local Context Provider]
+    end
+    subgraph Hosted["User-Controlled Self-Hosted / VPS"]
+        HCP[Self-Hosted Control Plane simple/server / Restate / SQLite or PostgreSQL]
+        HRT[Remote Runtime Host]
+        HPI[Managed Pi / ACP Harnesses]
+        HCT[Optional Co-located Cortana / Context Provider]
     end
     D <--> APP
     W <--> APP
     M <--> APP
     APP <--> DB
-    APP --> CP
-    CP <--> PS
-    CP --> TW
-    TW --> LG
-    CP <--> RG
+    APP --> RELAY
+    APP <--> META
+    APP --> EVT
+    LCP --> LG
+    RELAY <--> LCP
+    RELAY <--> HCP
+    LCP -. non-co-located runtime only .-> RG
+    HCP -. non-co-located runtime only .-> RG
     RG <--> RH
+    HCP --> HRT
+    HCP --> HCT
+    HRT --> HPI
+    LC <--> D
+    D -->|Local direct| LCP
+    LCP -->|DirectLocalRuntimeTransport| RH
     EVT --> D
     EVT --> W
     EVT --> M
@@ -340,23 +401,36 @@ flowchart TB
     MPD --> MPI
     RH --> ACPD
     ACPD --> EXT
+    RH --> CPD
+    CPD --> CT
     MPI --> ENV
     EXT --> ENV
 ```
 
-## Later Cloud Workforce Topology
+## Consumer Managed-Cloud Execution Topology
 
 ```mermaid
 flowchart LR
     C[Desktop / Web / Mobile] --> APP[Agent HQ Cloud Application Services]
-    APP --> CP[Control Plane]
-    CP --> L[Local RuntimeNode]
-    CP --> CC[Future Agent HQ Cloud RuntimeNode]
+    APP --> RELAY[Durable Remote Relay / HPKE]
+    APP --> X{Execution Location}
+    X -->|Local| RELAY
+    RELAY --> LCP[Local Control Plane]
+    X -->|Self-hosted| RELAY
+    RELAY --> HCP[Self-Hosted Control Plane]
+    X -->|Agent HQ Cloud| CCP[Agent HQ Cloud Control Plane]
+    LCP --> L[Local RuntimeNode]
+    HCP --> H[Self-Hosted RuntimeNode]
+    CCP --> CC[Agent HQ Cloud RuntimeNode]
     L --> LH[Local Harnesses / Pi]
+    H --> HH[Self-Hosted Harnesses / Pi]
     CC --> S[Isolated Managed Sandbox]
     S --> PI[Managed Pi]
-    P[(Persistent Workspace / Runtime State)] <--> APP
-    CPS[(ProjectState / Execution State)] <--> CP
+    P[(Cloud-Safe Workspace / Product Metadata)] <--> APP
+    LC[(Encrypted Local Private Content)] <--> C
+    LPS[(Local ProjectState / Execution State)] <--> LCP
+    HPS[(Self-Hosted ProjectState / Execution State)] <--> HCP
+    CPS[(Managed-Cloud ProjectState / Execution State)] <--> CCP
     CC -. runtime state / artifacts as authorized .-> CPS
 ```
 
@@ -396,7 +470,7 @@ sequenceDiagram
     B->>D: Deep link or secure loopback callback
     D->>A: Exchange code plus PKCE verifier
     A-->>D: Desktop application session
-    Note over D,A: Browser cookies and RuntimeNode device credentials are never reused
+    Note over D,A: Browser cookies, RuntimeNode signing keys, and RuntimeNode E2E encryption keys are distinct credentials
 ```
 
 ## RuntimeNode Ownership and Command Channel
@@ -410,9 +484,11 @@ flowchart LR
     subgraph Control["Control Plane"]
         RC[(RuntimeConnection)]
         RA[RuntimeAdapter]
+        PC[(ContextProviderConnection)]
+        CA[ContextProviderAdapter]
     end
     subgraph Gateway["Runtime Infrastructure"]
-        RG[Runtime Gateway]
+        RG[Runtime Gateway - non-co-located RuntimeNode only]
     end
     subgraph Device["Paired Desktop RuntimeNode"]
         HOST[Local Runtime Host]
@@ -421,37 +497,48 @@ flowchart LR
         AD[ACPDriver]
         PI[Managed Local Pi]
         EXT[External Harness]
+        CT[Optional Local Context Provider]
     end
     PAIR --> RN
     RC -->|attached to| RN
     RA --> RC
-    RA --> RG
+    RA --> DR
+    RA -->|Remote RuntimeNode only| RG
+    CA --> PC
+    CA -->|Co-located provider| CT
+    CA -->|Non-co-located provider| RP[Provider-Neutral Remote Transport]
+    RP --> CT
     HOST <-->|Outbound authenticated WebSocket| RG
     HOST --> DR
     DR --> MP --> PI
     DR --> AD --> EXT
-    RN -. device identity and authorization .-> RG
+    PC -->|available through| RN
+    RN -. Ed25519 auth identity / authorization .-> RG
+    RN -. separate X25519 E2E content key registered with Agent HQ .-> PAIR
 ```
 
-## Cross-Service Command and Event Consistency
+## Remote-Origin Cross-Service Command and Event Consistency
 
 ```mermaid
 sequenceDiagram
     actor U as User
     participant A as Agent HQ API
+    participant X as Agent HQ Remote Relay
     participant AD as Agent HQ Database
-    participant P as Control Plane
+    participant P as Selected Control Plane Host
     participant CD as Control Plane Database
-    participant G as Runtime Gateway
+    participant G as DirectLocalRuntimeTransport or Runtime Gateway
     participant N as RuntimeNode
-    participant E as Event Gateway
+    participant E as Railway Event Gateway
     participant C as Client
     U->>A: Submit Task
-    A->>AD: Transaction: Task intent plus CommandOutbox
-    A->>P: Deliver request_id, idempotency_key, payload_hash
+    A->>AD: Transaction: cloud-safe Task metadata + CommandOutbox/ciphertext ref
+    A->>X: Route request metadata + HPKE envelope
+    X->>P: Deliver request_id/idempotency/payload_hash + ciphertext
+    P->>P: Endpoint decrypt + scope/schema validation
     P->>CD: CommandInbox dedupe plus logical Execution and ExecutionPlan
-    P->>CD: Temporal workflow reference
-    P->>G: Expiring command_id
+    P->>CD: Restate workflow / invocation reference
+    P->>G: Expiring command_id over selected local/remote transport
     G->>N: At-least-once RuntimeCommand
     N-->>G: Ack, progress, result, or reconciliation_required
     G-->>P: Correlated runtime messages
@@ -459,7 +546,7 @@ sequenceDiagram
     A->>AD: EventInbox plus product state plus WorkspaceEvent
     AD-->>E: Advisory wake-up identifier
     E-->>C: SSE replay and live WorkspaceEvents
-    Note over P,N: Ambiguous non-idempotent external effects are not retried automatically
+    Note over P,N: Remote-origin example; local desktop may submit the same versioned/idempotent contract directly to local Control Plane. Ambiguous non-idempotent external effects are not retried automatically
 ```
 
 ## LocalProjectGrant and Context Promotion
@@ -478,7 +565,7 @@ flowchart LR
     D -->|ProjectState| P[StatePromotionProposal]
     D -->|Cloud Artifact| A[Artifact Upload Intent]
     D -->|No| L[Remain Local]
-    A --> V[Vercel Private Blob via @agent-hq/artifacts]
+    A --> V[Agent HQ Cloudflare R2 via @agent-hq/artifacts]
     Note[Absolute paths never enter cloud product state]
     NM -. enforces .-> Note
 ```
@@ -492,11 +579,11 @@ flowchart LR
     X[External System] --> ER[External Reference]
     P --> D{Byte Location}
     D --> L[Local RuntimeNode]
-    D --> C[Vercel Private Blob]
+    D --> C[Agent HQ Cloudflare R2 - explicit cloud promotion]
     D --> ER
     L -->|Explicit authorized promotion| C
     C --> V[Verify Ownership / Size / Digest / Media Type]
-    V --> S{Required Scan and Policy Check}
+    V --> S{MalwareScanner / ClamAV + File-Class Policy}
     S -->|Pass| A[Available]
     S -->|Block| Q[Quarantined]
     S -->|Failure| F[Failed]
@@ -512,10 +599,10 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    DB[(PostgreSQL WorkspaceEvent Log)]
-    W[LISTEN/NOTIFY or Advisory Wake-Up Bus]
-    G1[Event Gateway A]
-    G2[Event Gateway B]
+    DB[(Agent HQ Neon WorkspaceEvent Log - >=30d online replay)]
+    W[LISTEN/NOTIFY IDs + 2s Neon Poll Fallback]
+    G1[Railway Event Gateway A]
+    G2[Railway Event Gateway B]
     C1[Desktop or Web Client]
     C2[Another Client]
     DB --> G1
@@ -523,8 +610,8 @@ flowchart TB
     DB -. event identifiers only .-> W
     W -. wake .-> G1
     W -. wake .-> G2
-    C1 -->|Opaque workspace cursor| G1
-    C2 -->|Opaque workspace cursor| G2
+    C1 -->|HMAC-authenticated opaque cursor| G1
+    C2 -->|HMAC-authenticated opaque cursor| G2
     G1 -->|Replay then live SSE| C1
     G2 -->|Replay then live SSE| C2
     G1 -. any instance can recover .-> DB
