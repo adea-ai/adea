@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.3](https://github.com/0xPlayerOne/agent-hq/compare/v0.8.2...v0.8.3) (2026-08-28)
+
+
+### Bug Fixes
+
+* **hq:** support bundler scene exports ([#177](https://github.com/0xPlayerOne/agent-hq/issues/177)) ([c122e2b](https://github.com/0xPlayerOne/agent-hq/commit/c122e2ba3bae3f64bdb29f068855d8fdc295c0e7))
+* **release:** run release-please with bun ([#179](https://github.com/0xPlayerOne/agent-hq/issues/179)) ([9b30ef4](https://github.com/0xPlayerOne/agent-hq/commit/9b30ef42e1ac74958eceaff4955dba4dbc7fff65))
+* **ui:** normalize next-themes provider props ([#176](https://github.com/0xPlayerOne/agent-hq/issues/176)) ([ef1715a](https://github.com/0xPlayerOne/agent-hq/commit/ef1715a250854bdc08b6b6ab518b399052df7c07))
+
+
+### Maintenance
+
+* ignore local bun cache ([#178](https://github.com/0xPlayerOne/agent-hq/issues/178)) ([49c1425](https://github.com/0xPlayerOne/agent-hq/commit/49c14252326cc4fec40897d31c0587e3e4eeb684))
+
 ## [0.8.2](https://github.com/0xPlayerOne/agent-hq/compare/v0.8.1...v0.8.2) (2026-08-26)
 
 
