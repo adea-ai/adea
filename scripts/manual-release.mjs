@@ -95,6 +95,7 @@ function latestReleaseTag() {
 
 function runReleasePlease(subcommand, token) {
   const args = [
+    "--bun",
     "release-please",
     subcommand,
     `--token=${token}`,
