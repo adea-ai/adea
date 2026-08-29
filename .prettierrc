@@ -1,14 +1,6 @@
 {
-  "semi": true,
-  "singleQuote": false,
-  "trailingComma": "all",
-  "printWidth": 100,
-  "overrides": [
-    {
-      "files": "apps/desktop/src-tauri/tauri.conf.json",
-      "options": {
-        "printWidth": 80
-      }
-    }
-  ]
+  "semi": false,
+  "singleQuote": true,
+  "trailingComma": "es5",
+  "printWidth": 100
 }

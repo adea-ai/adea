@@ -14,8 +14,6 @@ Thumbs.db
 node_modules/
 .pnp/
 .pnp.js
-apps/web/AGENTS.md
-apps/web/CLAUDE.md
 .turbo/
 *.tsbuildinfo
 next-env.d.ts
@@ -41,8 +39,6 @@ htmlcov/
 .coverage*
 .next/
 artifacts/
-.artifacts/
-test-results/
 cache/
 !.github/actions/cache/
 !.github/actions/cache/action.yml
@@ -74,16 +70,8 @@ pnpm-debug.log*
 .direnv/
 .envrc
 .vercel/
-.devin/
-.hermes/
-.pi/
-# .agents/ is committed for team sharing — do NOT ignore it
 mise.local.toml
 .mise.local.toml
 mise.local.lock
 .mise.local.lock
 *.code-workspace
-
-# Generated HQ asset mirror
-apps/web/public/assets
-apps/desktop/src-tauri/gen
