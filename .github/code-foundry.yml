@@ -11,7 +11,7 @@ codeql_rust_shards: '["all"]'
 codeql_rust_threads: 1
 codeql_rust_max_parallel: 1
 runtime_repository: 0xPlayerOne/code-foundry
-runtime_ref: v0.38.0
+runtime_ref: v0.39.0
 runner: ubuntu-latest
 ci_runner: ubuntu-latest
 test_runner: ubuntu-latest
@@ -31,10 +31,11 @@ npm_publish: false
 post_release: false
 post_release_workflow:
 post_release_mode: auto
-opencode_security: false
+opencode_security: true
 sync_mode: overlay
 custom_workflows: preserve
 license: apache-2.0
 git_workflow: direct
 merge_strategy: squash
 release_merge_strategy: rebase
+opencode_security_model:
