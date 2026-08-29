@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { readdir, stat } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 export const DEFAULT_PERFORMANCE_BUDGETS = {
@@ -9,6 +10,15 @@ export const DEFAULT_PERFORMANCE_BUDGETS = {
   sceneTransferBytes: 35_000_000,
   runtimeP95FrameMs: 30,
 };
+
+export function routeBundleStatsFromNextReport(report) {
+  return {
+    routes: (report.routes ?? []).map((route) => ({
+      route: route.route,
+      firstLoadUncompressedJsBytes: route.clientJs?.bytes ?? 0,
+    })),
+  };
+}
 
 export function checkStaticBudgets(measurements, budgets = DEFAULT_PERFORMANCE_BUDGETS) {
   const failures = [];
@@ -105,14 +115,34 @@ function parseArgs(args) {
   return options;
 }
 
+async function readRouteMeasurements() {
+  const legacyStatsPath = resolve("apps/web/.next/diagnostics/route-bundle-stats.json");
+  try {
+    return JSON.parse(await readFile(legacyStatsPath, "utf8"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+
+  const result = spawnSync(
+    "bun",
+    ["run", "--cwd", "apps/web", "next", "internal", "static-routes-info", "--json"],
+    { cwd: resolve("."), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  );
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `Unable to collect Next.js route bundle measurements (exit code ${result.status})`,
+    );
+  }
+  return routeBundleStatsFromNextReport(JSON.parse(result.stdout));
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const failures = [];
   if (options.build || options.assets) {
     const measurements = {
-      routes: options.build
-        ? JSON.parse(await readFile("apps/web/.next/diagnostics/route-bundle-stats.json", "utf8"))
-        : [],
+      routes: options.build ? (await readRouteMeasurements()).routes : [],
       publicAssetBytes: options.assets ? await directoryBytes("apps/web/public/assets") : 0,
     };
     failures.push(...checkStaticBudgets(measurements));

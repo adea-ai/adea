@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { checkRuntimeReports, checkStaticBudgets } from "./performance-budgets.mjs";
+import {
+  checkRuntimeReports,
+  checkStaticBudgets,
+  routeBundleStatsFromNextReport,
+} from "./performance-budgets.mjs";
 
 const budgets = {
   routeFirstLoadJsBytes: { "/": 700_000 },
@@ -10,6 +14,22 @@ const budgets = {
 };
 
 describe("performance budgets", () => {
+  test("normalizes Next.js route reports for the static budget gate", () => {
+    expect(
+      routeBundleStatsFromNextReport({
+        routes: [
+          { route: "/", clientJs: { bytes: 634_334 } },
+          { route: "/auth/sign-in", clientJs: { bytes: 12_345 } },
+        ],
+      }),
+    ).toEqual({
+      routes: [
+        { route: "/", firstLoadUncompressedJsBytes: 634_334 },
+        { route: "/auth/sign-in", firstLoadUncompressedJsBytes: 12_345 },
+      ],
+    });
+  });
+
   test("accepts the current static build measurements", () => {
     expect(
       checkStaticBudgets(

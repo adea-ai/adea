@@ -1,6 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PERF_BASE_URL ?? "http://localhost:3000";
+const headless = process.env.PLAYWRIGHT_HEADLESS
+  ? process.env.PLAYWRIGHT_HEADLESS === "1"
+  : process.platform !== "darwin";
 
 export default defineConfig({
   testDir: "apps/web/e2e",
@@ -17,12 +20,14 @@ export default defineConfig({
   use: {
     ...devices["Desktop Chrome"],
     baseURL,
-    headless: process.platform !== "darwin",
+    headless,
+    navigationTimeout: 120_000,
     ignoreHTTPSErrors: true,
     // Headless Chromium selects SwiftShader on macOS, and forcing Metal in
     // headless mode can stall shader compilation. A visible, hardware-backed
     // browser keeps the 3D gate representative and deterministic on Mac.
-    launchOptions: process.platform === "darwin" ? { args: ["--use-angle=metal"] } : undefined,
+    launchOptions:
+      process.platform === "darwin" && !headless ? { args: ["--use-angle=metal"] } : undefined,
     trace: "retain-on-failure",
   },
   webServer: process.env.PERF_BASE_URL
