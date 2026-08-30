@@ -14,7 +14,11 @@ import {
   useCreateRoomMutation,
   useCreateTaskMutation,
   useMoveTaskRoomMutation,
+  useMarkAllReadMutation,
+  useMarkChannelReadMutation,
+  useMarkThreadReadMutation,
   useQueueTaskMutation,
+  useReadStateQuery,
   useRoomListQuery,
   useSetTaskConversationMutation,
   useSetTaskDependenciesMutation,
@@ -54,6 +58,7 @@ export function useWorkspaceController() {
   const agents = useAgentListQuery(client, workspaceId)
   const tasks = useTaskListQuery(client, workspaceId)
   const artifacts = useArtifactListQuery(client, workspaceId)
+  const readState = useReadStateQuery(client, workspaceId)
   const navigation = useMemo(
     () => projectWorkspaceNavigation(rooms.data ?? [], channels.data ?? []),
     [channels.data, rooms.data]
@@ -70,6 +75,9 @@ export function useWorkspaceController() {
   const cancelTask = useCancelTaskMutation(client, workspaceId ?? '')
   const archiveTask = useArchiveTaskMutation(client, workspaceId ?? '')
   const taskConversation = useSetTaskConversationMutation(client, workspaceId ?? '')
+  const markAllRead = useMarkAllReadMutation(client, workspaceId ?? '')
+  const markChannelRead = useMarkChannelReadMutation(client, workspaceId ?? '')
+  const markThreadRead = useMarkThreadReadMutation(client, workspaceId ?? '')
 
   useEffect(() => {
     if (!persistenceReady || !bootstrap.data || activeWorkspace) return
@@ -124,6 +132,14 @@ export function useWorkspaceController() {
     },
     createRoomBusy: createRoom.isPending,
     navigation,
+    readState: readState.data?.readState ?? [],
+    readStateActions: {
+      markAllRead: () => markAllRead.mutateAsync().then(() => undefined),
+      markChannel: (input: Parameters<typeof markChannelRead.mutateAsync>[0]) =>
+        markChannelRead.mutateAsync(input).then(() => undefined),
+      markThread: (input: Parameters<typeof markThreadRead.mutateAsync>[0]) =>
+        markThreadRead.mutateAsync(input).then(() => undefined),
+    },
     openAgentConversation: async (agentId: string) => {
       const result = await createDirect.mutateAsync(agentId)
       selectChannel(result.channel.id)
@@ -181,6 +197,6 @@ export function useWorkspaceController() {
     ].some(({ isPending }) => isPending),
     tasks: tasks.data ?? [],
     workspaceId,
-    workspaceQueries: [rooms, channels, agents, tasks, artifacts],
+    workspaceQueries: [rooms, channels, agents, tasks, artifacts, readState],
   }
 }

@@ -67,6 +67,7 @@ function ArtifactCard({
 export function MessageRow({
   agents,
   artifacts,
+  highlighted = false,
   message,
   onDelete,
   onEdit,
@@ -78,6 +79,7 @@ export function MessageRow({
 }: Readonly<{
   agents: readonly AgentSummary[]
   artifacts: ReadonlyMap<string, ArtifactSummary>
+  highlighted?: boolean
   message: MessageSummary
   onDelete?: () => void
   onEdit?: () => void
@@ -91,8 +93,9 @@ export function MessageRow({
   const isAgent = message.sender.kind === 'agent'
   return (
     <article
-      className={`conventional-message conventional-message--${message.sender.kind}`}
+      className={`conventional-message conventional-message--${message.sender.kind}${highlighted ? ' conventional-message--highlighted' : ''}`}
       data-message-id={message.id}
+      tabIndex={highlighted ? -1 : undefined}
       aria-busy={pending || undefined}
     >
       <div className="conventional-message__avatar" aria-hidden="true">

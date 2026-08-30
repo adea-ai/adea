@@ -15,13 +15,20 @@ export function ModalDialog({
   title: string
 }>) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
   const titleId = useId()
   const descriptionId = useId()
   useEffect(() => {
     const dialog = dialogRef.current
     if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
-    if (!open && dialog.open) dialog.close()
+    if (open && !dialog.open) {
+      returnFocusRef.current = document.activeElement as HTMLElement | null
+      dialog.showModal()
+    }
+    if (!open && dialog.open) {
+      dialog.close()
+      returnFocusRef.current?.focus()
+    }
   }, [open])
   return (
     <dialog
@@ -33,7 +40,6 @@ export function ModalDialog({
         event.preventDefault()
         onClose()
       }}
-      onClose={onClose}
     >
       <header>
         <div>

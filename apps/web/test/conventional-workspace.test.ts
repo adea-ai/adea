@@ -4,8 +4,10 @@ import type { AgentSummary, ChannelSummary, RoomSummary } from '@agent-hq/types'
 
 import {
   composerKeyboardAction,
+  fuzzySearchMatch,
   parseAgentMentions,
   projectWorkspaceNavigation,
+  searchKeyboardSelection,
 } from '../src/components/conventional-workspace/workspace-model'
 
 const room = (id: string, sortOrder: number): RoomSummary => ({
@@ -78,6 +80,20 @@ describe('conventional workspace projection', () => {
     expect(composerKeyboardAction({ isComposing: true, key: 'Enter', shiftKey: false })).toBe(
       'none'
     )
+  })
+
+  test('moves command-palette selection within bounds and opens with Enter', () => {
+    expect(searchKeyboardSelection('ArrowDown', 0, 3)).toEqual({ action: 'move', index: 1 })
+    expect(searchKeyboardSelection('ArrowDown', 2, 3)).toEqual({ action: 'move', index: 2 })
+    expect(searchKeyboardSelection('ArrowUp', 0, 3)).toEqual({ action: 'move', index: 0 })
+    expect(searchKeyboardSelection('Enter', 1, 3)).toEqual({ action: 'open', index: 1 })
+    expect(searchKeyboardSelection('Enter', 0, 0)).toEqual({ action: 'none', index: 0 })
+  })
+
+  test('fuzzy-matches command palette destinations without changing navigation ownership', () => {
+    expect(fuzzySearchMatch('Mark all conversations read', 'macr')).toBe(true)
+    expect(fuzzySearchMatch('Workspace settings', 'wset')).toBe(true)
+    expect(fuzzySearchMatch('Engineering', 'zz')).toBe(false)
   })
 
   test('maps typed Agent mentions onto canonical Agent principals', () => {

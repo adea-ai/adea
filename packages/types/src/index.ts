@@ -195,6 +195,50 @@ export type MessageSummary = Readonly<{
   workspaceId: string
 }>
 
+export type ThreadReadStateSummary = Readonly<{
+  lastReadSequence: number
+  latestSequence: number
+  manuallyUnread: boolean
+  readAt?: string
+  threadRootMessageId: string
+  unreadCount: number
+  updatedAt?: string
+}>
+
+export type ChannelReadStateSummary = Readonly<{
+  channelId: string
+  lastReadSequence: number
+  latestTopLevelSequence: number
+  manuallyUnread: boolean
+  readAt?: string
+  threadUnreadCount: number
+  threads: readonly ThreadReadStateSummary[]
+  topLevelUnreadCount: number
+  unread: boolean
+  updatedAt?: string
+  workspaceId: string
+}>
+
+export type WorkspaceSearchResult = Readonly<{
+  channelId?: string
+  id: string
+  kind: 'action' | 'agent' | 'artifact' | 'channel' | 'message' | 'room' | 'settings' | 'task'
+  label: string
+  messageId?: string
+  roomId?: string
+  secondary: string
+  taskId?: string
+  threadRootMessageId?: string
+  unavailablePrivateContent?: boolean
+  workspaceId: string
+}>
+
+export type WorkspaceSearchPage = Readonly<{
+  nextOffset?: number
+  privateResultsUnavailable: boolean
+  results: readonly WorkspaceSearchResult[]
+}>
+
 export type ArtifactLocation = Readonly<{
   externalHarnessId?: string
   reference?: string

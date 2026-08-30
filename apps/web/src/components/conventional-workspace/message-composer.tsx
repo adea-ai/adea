@@ -168,7 +168,9 @@ export function MessageComposer({
             </div>
           ) : null}
         </div>
-        <p id={`composer-help-${channelId}`}>Enter to send · Shift+Enter for newline</p>
+        <p id={`composer-help-${channelId}`}>
+          Enter to send · Shift+Enter newline · Mod+Shift+M focus
+        </p>
         <button
           type="button"
           className="conventional-send-button"
