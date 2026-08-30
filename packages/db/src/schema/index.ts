@@ -13,6 +13,15 @@ export { roomLifecycleState, rooms } from './rooms'
 export { agentLifecycleState, agentProfileState, agents } from './agents'
 export { taskDependencies, taskLifecycleState, taskMutations, taskPriority, tasks } from './tasks'
 export {
+  artifactAvailability,
+  artifactDeletionState,
+  artifactLocationType,
+  artifactPrincipalKind,
+  artifactRetentionPolicy,
+  artifactSensitivity,
+  artifacts,
+} from './artifacts'
+export {
   channelKind,
   channelLifecycleState,
   channelParticipants,

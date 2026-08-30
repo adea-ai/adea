@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 
 import { createAgent } from '../../src/agents'
+import { createArtifact } from '../../src/artifacts'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   archiveChannel,
@@ -20,6 +21,7 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { archiveRoom, createRoom } from '../../src/rooms'
 import {
   agents,
+  artifacts,
   channelParticipants,
   channels,
   messageArtifactReferences,
@@ -61,6 +63,7 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
     await connection.db
       .delete(messageArtifactReferences)
       .where(eq(messageArtifactReferences.workspaceId, workspaceId))
+    await connection.db.delete(artifacts).where(eq(artifacts.workspaceId, workspaceId))
     await connection.db.delete(messages).where(eq(messages.workspaceId, workspaceId))
     await connection.db
       .delete(channelParticipants)
@@ -191,8 +194,18 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       { objective: 'Discuss', title: 'Discussion' },
       { idempotencyKey: 'message-task', requestId: crypto.randomUUID() }
     )
+    const artifact = await createArtifact(connection.db, workspace.id, owner.principal, {
+      checksumSha256: 'd'.repeat(64),
+      filename: 'message.txt',
+      location: { reference: 'messages/message-1', type: 'object_store' },
+      mediaType: 'text/plain',
+      sizeBytes: 12,
+      sourceArtifactRef: 'message-artifact:1',
+      sourcePrincipal: owner.principal,
+      taskId: task.id,
+    })
     const root = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
-      artifactIds: [crypto.randomUUID()],
+      artifactIds: [artifact.id],
       bodyText: 'Canonical history',
       idempotencyKey: 'root-message',
       mentions: [{ kind: 'user', userId: owner.principal.userId }],

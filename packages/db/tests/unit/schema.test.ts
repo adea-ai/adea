@@ -3,6 +3,7 @@ import { getTableConfig } from 'drizzle-orm/pg-core'
 
 import {
   agents,
+  artifacts,
   authorizationAuditRecords,
   commandOutbox,
   channelParticipants,
@@ -27,6 +28,7 @@ describe('persistence schema', () => {
   test('keeps foundational tables in the app schema', () => {
     for (const table of [
       agents,
+      artifacts,
       users,
       temporaryUserSessions,
       workspaces,
@@ -47,6 +49,15 @@ describe('persistence schema', () => {
     ]) {
       expect(getTableConfig(table).schema).toBe('app')
     }
+  })
+
+  test('keeps Artifact identity, location, and lifecycle workspace scoped', () => {
+    const config = getTableConfig(artifacts)
+    expect(config.foreignKeys).toHaveLength(3)
+    expect(config.uniqueConstraints).toHaveLength(1)
+    expect(config.checks.some(({ name }) => name === 'artifacts_location_consistent')).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'artifacts_deletion_consistent')).toBe(true)
+    expect(config.indexes.length).toBeGreaterThanOrEqual(4)
   })
 
   test('keeps product Task state separate from execution and conversation ownership', () => {

@@ -174,3 +174,35 @@ export type MessageSummary = Readonly<{
   version: number
   workspaceId: string
 }>
+
+export type ArtifactLocation = Readonly<{
+  externalHarnessId?: string
+  reference?: string
+  runtimeNodeId?: string
+  type: 'object_store' | 'runtime_node' | 'external_harness'
+}>
+
+export type ArtifactSummary = Readonly<{
+  agentId?: string
+  availability: 'pending' | 'available' | 'unavailable' | 'quarantined' | 'failed'
+  checksumSha256: string
+  createdAt: string
+  deletedAt?: string
+  deletionState: 'active' | 'deleted'
+  executionRef?: string
+  filename: string
+  id: string
+  location: ArtifactLocation
+  mediaType: string
+  owner: PrincipalRef
+  provenance: Readonly<Record<string, unknown>>
+  retentionPolicy: 'ephemeral' | 'standard' | 'retain'
+  sensitivity: 'workspace' | 'sensitive' | 'restricted'
+  sizeBytes: number
+  sourceArtifactRef: string
+  sourcePrincipal: PrincipalRef
+  taskId?: string
+  updatedAt: string
+  version: number
+  workspaceId: string
+}>
