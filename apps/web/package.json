@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "lint": "eslint .",
-    "dev": "bun ../../scripts/sync-assets.mjs && sh -c 'next dev -H 0.0.0.0 -p \"${PORT:-3000}\"'",
-    "build": "bun ../../scripts/sync-assets.mjs && next build",
+    "dev": "bun ../../scripts/sync-assets.mjs && sh -c 'next dev --webpack -H 0.0.0.0 -p \"${PORT:-3000}\"'",
+    "build": "bun ../../scripts/sync-assets.mjs && next build --webpack",
     "start": "next start -H 0.0.0.0 -p ${PORT:-3004}",
     "test": "bun test test/*.test.ts",
     "typecheck": "tsc --noEmit"
