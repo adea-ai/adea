@@ -132,6 +132,14 @@ pub struct DeleteContentInput {
     pub expected_revision: u64,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchContentInput {
+    pub workspace_id: String,
+    pub query: String,
+    pub limit: Option<usize>,
+}
+
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ContentRef {
@@ -158,6 +166,16 @@ pub struct ContentRef {
 pub struct ResolvedContent {
     pub content_ref: ContentRef,
     pub plaintext: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalSearchResult {
+    pub content_id: String,
+    pub content_type: ContentType,
+    pub message_id: Option<String>,
+    pub task_id: Option<String>,
+    pub snippet: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -393,6 +411,52 @@ impl Repository {
             content_ref: row.content_ref,
             plaintext,
         })
+    }
+
+    fn search(
+        &self,
+        input: SearchContentInput,
+    ) -> Result<Vec<LocalSearchResult>, LocalContentError> {
+        validated_uuid(&input.workspace_id)?;
+        let query = input.query.trim();
+        if !(2..=120).contains(&query.chars().count()) {
+            return Err(LocalContentError::Invalid);
+        }
+        let limit = input.limit.unwrap_or(30);
+        if !(1..=50).contains(&limit) {
+            return Err(LocalContentError::Invalid);
+        }
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT content_id FROM local_content_records WHERE workspace_id = ?1 AND deleted_at IS NULL AND availability = 'available' ORDER BY updated_at DESC")
+            .map_err(|_| LocalContentError::Storage)?;
+        let ids = statement
+            .query_map(params![input.workspace_id], |row| row.get::<_, String>(0))
+            .map_err(|_| LocalContentError::Storage)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| LocalContentError::Storage)?;
+        drop(statement);
+        drop(connection);
+
+        let normalized = query.to_lowercase();
+        let mut results = Vec::new();
+        for content_id in ids {
+            let resolved = self.read(&input.workspace_id, &content_id)?;
+            if !resolved.plaintext.to_lowercase().contains(&normalized) {
+                continue;
+            }
+            results.push(LocalSearchResult {
+                content_id,
+                content_type: resolved.content_ref.content_type,
+                message_id: resolved.content_ref.message_id,
+                task_id: resolved.content_ref.task_id,
+                snippet: bounded_snippet(&resolved.plaintext, query),
+            });
+            if results.len() == limit {
+                break;
+            }
+        }
+        Ok(results)
     }
 
     fn update(&self, input: UpdateContentInput) -> Result<ContentRef, LocalContentError> {
@@ -684,6 +748,28 @@ pub async fn local_content_read<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn local_content_search<R: Runtime>(
+    window: WebviewWindow<R>,
+    state: State<'_, LocalContentState>,
+    input: SearchContentInput,
+) -> Result<Vec<LocalSearchResult>, String> {
+    trusted_window(&window)
+        .and_then(|_| state.require_workspace(&input.workspace_id))
+        .map_err(|error| error.public_message())?;
+    let repository = state.repository.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let repository = repository.lock().map_err(|_| LocalContentError::Storage)?;
+        repository
+            .as_ref()
+            .ok_or(LocalContentError::KeyUnavailable)?
+            .search(input)
+    })
+    .await
+    .map_err(|_| LocalContentError::Storage.public_message())?
+    .map_err(|error| error.public_message())
+}
+
+#[tauri::command]
 pub async fn local_content_update<R: Runtime>(
     window: WebviewWindow<R>,
     state: State<'_, LocalContentState>,
@@ -804,6 +890,25 @@ fn validate_create(input: &CreateContentInput) -> Result<(), LocalContentError> 
         return Err(LocalContentError::Invalid);
     }
     validate_plaintext(&input.plaintext)
+}
+
+fn bounded_snippet(plaintext: &str, query: &str) -> String {
+    const MAX_CHARS: usize = 200;
+    let normalized = plaintext.to_lowercase();
+    let match_byte = normalized.find(&query.to_lowercase()).unwrap_or(0);
+    let match_char = normalized[..match_byte].chars().count();
+    let start = match_char.saturating_sub(60);
+    let snippet: String = plaintext.chars().skip(start).take(MAX_CHARS).collect();
+    format!(
+        "{}{}{}",
+        if start > 0 { "…" } else { "" },
+        snippet,
+        if plaintext.chars().count() > start + MAX_CHARS {
+            "…"
+        } else {
+            ""
+        }
+    )
 }
 
 fn validate_plaintext(plaintext: &str) -> Result<(), LocalContentError> {
@@ -1381,6 +1486,78 @@ mod tests {
             assert!(!bytes
                 .windows(canary.len())
                 .any(|window| window == canary.as_bytes()));
+        }
+    }
+
+    #[test]
+    fn search_is_workspace_scoped_bounded_and_leaves_no_plaintext_index() {
+        let (directory, _keys, repository, workspace, other_workspace, message) = fixture();
+        let canary = "LOCAL-PRIVATE-SEARCH-CANARY-91827";
+        let reference = repository
+            .create(input(
+                &workspace,
+                &message,
+                None,
+                &format!("A private planning note with {canary} inside."),
+            ))
+            .unwrap();
+        let task_id = Uuid::new_v4().to_string();
+        let task_reference = repository
+            .create(task_input(
+                &workspace,
+                Some(task_id.clone()),
+                None,
+                &format!("Private task input also includes {canary}."),
+            ))
+            .unwrap();
+        let results = repository
+            .search(SearchContentInput {
+                workspace_id: workspace.clone(),
+                query: "search-canary".to_string(),
+                limit: Some(10),
+            })
+            .unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results
+            .iter()
+            .any(|result| result.content_id == reference.id));
+        assert!(results
+            .iter()
+            .any(|result| result.content_id == task_reference.id
+                && result.task_id.as_deref() == Some(task_id.as_str())));
+        assert!(results.iter().all(|result| result.snippet.contains(canary)));
+        assert!(repository
+            .search(SearchContentInput {
+                workspace_id: other_workspace,
+                query: "search-canary".to_string(),
+                limit: Some(10),
+            })
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            repository.search(SearchContentInput {
+                workspace_id: workspace,
+                query: "x".to_string(),
+                limit: Some(10),
+            }),
+            Err(LocalContentError::Invalid)
+        );
+
+        for entry in fs::read_dir(directory.path()).unwrap() {
+            let bytes = fs::read(entry.unwrap().path()).unwrap();
+            assert!(!bytes
+                .windows(canary.len())
+                .any(|window| window == canary.as_bytes()));
+            assert!(!bytes
+                .windows("search-canary".len())
+                .any(|window| window == b"search-canary"));
+        }
+        for payload in [
+            serde_json::json!({ "operation": "local_content_search", "ok": true }).to_string(),
+            LocalContentError::Storage.public_message(),
+            serde_json::json!({ "contentRef": reference }).to_string(),
+        ] {
+            assert!(!payload.contains(canary));
         }
     }
 

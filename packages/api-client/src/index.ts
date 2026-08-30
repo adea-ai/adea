@@ -2,6 +2,7 @@ import type {
   AgentSummary,
   ArtifactLocation,
   ArtifactSummary,
+  ChannelReadStateSummary,
   ChannelSummary,
   ConversationParticipantRef,
   ContentRefSummary,
@@ -10,6 +11,7 @@ import type {
   RoomSummary,
   TaskSummary,
   WorkspaceSummary,
+  WorkspaceSearchPage,
 } from '@agent-hq/types'
 
 export type ApiAgentCreateInput = Readonly<{
@@ -108,6 +110,7 @@ export type ApiContentRefUpdateInput = Readonly<{
   revision: number
 }>
 export type ApiContentRefResponse = Readonly<{ contentRef: ContentRefSummary }>
+export type ApiReadStateResponse = Readonly<{ readState: readonly ChannelReadStateSummary[] }>
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type ApiMessageResponse = Readonly<{ message: MessageSummary }>
@@ -426,6 +429,69 @@ export class AgentHqApiClient {
         headers: { 'Content-Type': 'application/json' },
         method: 'PATCH',
       }
+    )
+  }
+
+  async getReadState(workspaceId: string): Promise<ApiReadStateResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/read-state`)
+  }
+
+  async markAllRead(workspaceId: string): Promise<ApiReadStateResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/read-state`, {
+      body: JSON.stringify({ action: 'read_all' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async setChannelReadState(
+    workspaceId: string,
+    channelId: string,
+    input: Readonly<{ action: 'read' | 'unread'; lastReadSequence?: number }>
+  ): Promise<ApiReadStateResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/read-state/channels/${encodeURIComponent(channelId)}`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    )
+  }
+
+  async setThreadReadState(
+    workspaceId: string,
+    channelId: string,
+    threadRootMessageId: string,
+    input: Readonly<{ action: 'read' | 'unread'; lastReadSequence?: number }>
+  ): Promise<ApiReadStateResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/read-state/threads/${encodeURIComponent(threadRootMessageId)}`,
+      {
+        body: JSON.stringify({ ...input, channelId }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    )
+  }
+
+  async searchWorkspace(
+    workspaceId: string,
+    query: string,
+    options: Readonly<{
+      channelId?: string
+      limit?: number
+      offset?: number
+      signal?: AbortSignal
+    }> = {}
+  ): Promise<WorkspaceSearchPage> {
+    const parameters = new URLSearchParams({ q: query })
+    if (options.channelId) parameters.set('channelId', options.channelId)
+    if (options.limit !== undefined) parameters.set('limit', String(options.limit))
+    if (options.offset !== undefined) parameters.set('offset', String(options.offset))
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/search?${parameters.toString()}`,
+      { ...(options.signal ? { signal: options.signal } : {}) }
     )
   }
 

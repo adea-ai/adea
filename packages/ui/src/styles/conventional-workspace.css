@@ -266,6 +266,18 @@
   gap: 0.5rem;
   border-radius: 0.35rem;
 }
+.conventional-unread-badge {
+  min-width: 1.35rem;
+  margin-left: auto;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: var(--cw-accent);
+  color: var(--cw-accent-contrast, #fff) !important;
+  font-size: 0.68rem !important;
+  font-weight: 800;
+  line-height: 1.1;
+  text-align: center;
+}
 .conventional-room-select {
   flex: 1;
   justify-content: space-between;
@@ -360,6 +372,11 @@
   min-width: 0;
   flex: 1;
 }
+.conventional-conversation__header > .conventional-conversation__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.2rem;
+}
 .conventional-conversation__header span,
 .conventional-surface-header span {
   color: var(--cw-muted);
@@ -411,6 +428,10 @@
 }
 .conventional-message:hover {
   background: var(--cw-surface-muted);
+}
+.conventional-message--highlighted {
+  background: var(--cw-accent-soft);
+  box-shadow: inset 3px 0 var(--cw-accent-strong);
 }
 .conventional-message__avatar {
   display: grid;
@@ -720,6 +741,10 @@
   border: 0;
   border-radius: 0.4rem;
   background: transparent;
+}
+.conventional-thread__header > div:last-child {
+  display: flex;
+  gap: 0.15rem;
 }
 .conventional-thread__transcript {
   min-height: 0;
@@ -1056,8 +1081,11 @@
   text-align: left;
 }
 .conventional-template-options button:hover,
-.conventional-search-results button:hover {
+.conventional-search-results button:hover,
+.conventional-search-results button[aria-selected='true'] {
   background: var(--cw-surface-muted);
+  outline: 2px solid var(--cw-focus);
+  outline-offset: -2px;
 }
 .conventional-template-options span,
 .conventional-search-results span,
@@ -1069,6 +1097,33 @@
   padding: 1rem;
   color: var(--cw-muted);
   text-align: center;
+}
+.conventional-artifact-detail {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+.conventional-artifact-detail__body {
+  display: grid;
+  width: min(38rem, calc(100% - 2rem));
+  align-content: start;
+  gap: 0.8rem;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  border: 1px solid var(--cw-border);
+  border-radius: 0.6rem;
+  background: var(--cw-surface);
+}
+.conventional-artifact-detail__body > svg {
+  width: 2rem;
+  height: 2rem;
+  color: var(--cw-accent-strong);
+}
+.conventional-search-hint {
+  padding: 0.35rem 1rem 0.9rem;
+  color: var(--cw-muted);
+  font-size: 0.75rem;
+  text-align: right;
 }
 .conventional-conversation-details,
 .conventional-settings-list {

@@ -230,6 +230,27 @@ const reply = {
   version: 1,
   workspaceId: workspace.id,
 }
+const readState = [
+  {
+    channelId: 'channel-product',
+    lastReadSequence: 0,
+    latestTopLevelSequence: 3,
+    manuallyUnread: false,
+    threadUnreadCount: 1,
+    threads: [
+      {
+        lastReadSequence: 0,
+        latestSequence: 4,
+        manuallyUnread: false,
+        threadRootMessageId: 'message-root',
+        unreadCount: 1,
+      },
+    ],
+    topLevelUnreadCount: 3,
+    unread: true,
+    workspaceId: workspace.id,
+  },
+]
 
 async function mockWorkspace(page: Page, empty = false) {
   await page.addInitScript(() => {
@@ -247,8 +268,42 @@ async function mockWorkspace(page: Page, empty = false) {
   )
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const url = new URL(route.request().url())
+    if (url.pathname.includes('/read-state'))
+      return route.fulfill({ contentType: 'application/json', json: { readState } })
     if (route.request().method() !== 'GET')
       return route.fulfill({ contentType: 'application/json', json: {} })
+    if (url.pathname.endsWith('/search')) {
+      const query = url.searchParams.get('q')?.toLocaleLowerCase() ?? ''
+      const results = query.includes('brief')
+        ? [
+            {
+              id: 'artifact-brief',
+              kind: 'artifact',
+              label: 'launch-brief.md',
+              secondary: 'text/markdown',
+              taskId: 'task-launch',
+              workspaceId: workspace.id,
+            },
+          ]
+        : query.includes('durable')
+          ? [
+              {
+                channelId: 'channel-product',
+                id: 'message-root',
+                kind: 'message',
+                label: 'This is durable workspace history.',
+                messageId: 'message-root',
+                roomId: 'room-product',
+                secondary: 'Product · Message',
+                workspaceId: workspace.id,
+              },
+            ]
+          : []
+      return route.fulfill({
+        contentType: 'application/json',
+        json: { privateResultsUnavailable: true, results },
+      })
+    }
     if (url.pathname.endsWith('/rooms'))
       return route.fulfill({ contentType: 'application/json', json: empty ? [] : rooms })
     if (url.pathname.endsWith('/agents'))
@@ -298,7 +353,7 @@ test('renders empty and populated Room-first workspace states', async ({ page })
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Product' })).toBeVisible()
   await expect(page.getByText('Private content unavailable')).toBeVisible()
-  await expect(page.getByText('launch-brief.md')).toBeVisible()
+  await expect(page.getByLabel('Attachment launch-brief.md')).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-room-populated-light.png', {
     animations: 'disabled',
   })
@@ -317,7 +372,7 @@ test('navigates direct, group, thread, and Task detail surfaces', async ({ page 
   ).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-group.png', { animations: 'disabled' })
 
-  await page.getByRole('button', { name: 'Product Room', exact: true }).click()
+  await page.getByRole('button', { name: /^Product Room/ }).click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
   await expect(page.getByText('I will add competitor evidence here.')).toBeVisible()
@@ -350,9 +405,9 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await navigation.getByRole('button', { name: 'Close workspace navigation' }).click()
 
   await page.keyboard.press('Control+k')
-  await expect(page.getByRole('dialog', { name: 'Search loaded workspace' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Search workspace' })).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: 'Search loaded workspace' })).not.toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Search workspace' })).not.toBeVisible()
 
   await page.evaluate(() => {
     localStorage.setItem('theme', 'dark')
@@ -362,13 +417,45 @@ test('supports narrow navigation, keyboard search, and dark mode', async ({ page
   await expect(page).toHaveScreenshot('workspace-narrow-dark.png', { animations: 'disabled' })
 })
 
+test('operates unread actions and deep-linked search entirely by keyboard', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/')
+  await expect(page.getByLabel(/unread in Product/)).toBeVisible()
+
+  await page.keyboard.press('Control+k')
+  const globalSearch = page.getByRole('dialog', { name: 'Search workspace' })
+  await globalSearch.getByRole('textbox').fill('launch brief')
+  await expect(globalSearch.getByRole('option', { name: /launch-brief\.md/ })).toBeVisible()
+  await expect(globalSearch.getByRole('textbox')).toBeFocused()
+  await expect(globalSearch.getByRole('option', { name: /launch-brief\.md/ })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('heading', { name: 'launch-brief.md' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await page.keyboard.press('Control+f')
+  const conversationSearch = page.getByRole('dialog', { name: 'Search this conversation' })
+  await conversationSearch.getByRole('textbox').fill('durable')
+  await expect(conversationSearch.getByRole('option', { name: /durable workspace/ })).toBeVisible()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-message-id="message-root"]')).toHaveClass(/highlighted/)
+
+  const unreadRequest = page.waitForRequest((request) =>
+    request.url().includes('/read-state/channels/channel-product')
+  )
+  await page.keyboard.press('Control+Shift+u')
+  expect((await unreadRequest).postDataJSON()).toEqual({ action: 'unread' })
+})
+
 test('retains drafts across navigation and reloads at supported breakpoints', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
   const draft = 'Evidence to preserve while I check another conversation.'
   await page.getByRole('textbox', { name: 'Message' }).fill(draft)
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
-  await page.getByRole('button', { name: 'Product Room', exact: true }).click()
+  await page.getByRole('button', { name: /^Product Room/ }).click()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)

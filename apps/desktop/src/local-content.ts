@@ -33,6 +33,14 @@ export type LocalContentCreateInput = Readonly<{
   synchronizationPolicy: LocalContentRef['synchronizationPolicy']
 }>
 
+export type LocalContentSearchResult = Readonly<{
+  contentId: string
+  contentType: LocalContentType
+  messageId?: string
+  taskId?: string
+  snippet: string
+}>
+
 export const localContentAuthority = Object.freeze({
   authorizeWorkspace(workspaceId: string) {
     return invoke<void>('local_content_authorize_workspace', { workspaceId })
@@ -45,6 +53,9 @@ export const localContentAuthority = Object.freeze({
       'local_content_read',
       { input }
     )
+  },
+  search(input: Readonly<{ limit?: number; query: string; workspaceId: string }>) {
+    return invoke<readonly LocalContentSearchResult[]>('local_content_search', { input })
   },
   update(
     input: Readonly<{

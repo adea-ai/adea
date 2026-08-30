@@ -50,6 +50,13 @@ export {
 export * from './schema'
 export { appendWorkspaceEvent, inTransaction } from './transactions'
 export {
+  listReadStateForUser,
+  markAllChannelsRead,
+  markChannelReadState,
+  markThreadReadState,
+} from './read-state'
+export { searchWorkspaceForUser } from './search'
+export {
   addWorkspaceMembership,
   archiveWorkspace,
   createWorkspaceWithOwner,

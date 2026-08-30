@@ -38,6 +38,78 @@ export const artifactQueryKeys = {
   list: (workspaceId: string) => ['workspaces', workspaceId, 'artifacts', 'list'] as const,
 }
 
+export const readStateQueryKeys = {
+  detail: (workspaceId: string) => ['workspaces', workspaceId, 'read-state'] as const,
+}
+
+export const workspaceSearchQueryKeys = {
+  search: (workspaceId: string, query: string, channelId?: string) =>
+    ['workspaces', workspaceId, 'search', { channelId, query }] as const,
+}
+
+export const readStateQueryOptions = {
+  detail: (client: AgentHqApiClient, workspaceId?: string) => ({
+    queryKey: readStateQueryKeys.detail(workspaceId ?? ''),
+    queryFn: () => client.getReadState(workspaceId!),
+    enabled: Boolean(workspaceId),
+  }),
+}
+
+export const workspaceSearchQueryOptions = {
+  search: (client: AgentHqApiClient, workspaceId?: string, query = '', channelId?: string) => ({
+    queryKey: workspaceSearchQueryKeys.search(workspaceId ?? '', query, channelId),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      client.searchWorkspace(workspaceId!, query, { channelId, limit: 30, signal }),
+    enabled: Boolean(workspaceId && query.trim().length >= 2),
+  }),
+}
+
+function readStateMutationSuccess(queryClient: QueryClient, workspaceId: string) {
+  return (result: Awaited<ReturnType<AgentHqApiClient['getReadState']>>) => {
+    queryClient.setQueryData(readStateQueryKeys.detail(workspaceId), result)
+  }
+}
+
+export const readStateMutationOptions = {
+  all: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: () => client.markAllRead(workspaceId),
+    onSuccess: readStateMutationSuccess(queryClient, workspaceId),
+  }),
+  channel: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        action: 'read' | 'unread'
+        channelId: string
+        lastReadSequence?: number
+      }>
+    ) =>
+      client.setChannelReadState(workspaceId, input.channelId, {
+        action: input.action,
+        ...(input.lastReadSequence === undefined
+          ? {}
+          : { lastReadSequence: input.lastReadSequence }),
+      }),
+    onSuccess: readStateMutationSuccess(queryClient, workspaceId),
+  }),
+  thread: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        action: 'read' | 'unread'
+        channelId: string
+        lastReadSequence?: number
+        threadRootMessageId: string
+      }>
+    ) =>
+      client.setThreadReadState(workspaceId, input.channelId, input.threadRootMessageId, {
+        action: input.action,
+        ...(input.lastReadSequence === undefined
+          ? {}
+          : { lastReadSequence: input.lastReadSequence }),
+      }),
+    onSuccess: readStateMutationSuccess(queryClient, workspaceId),
+  }),
+}
+
 export const artifactQueryOptions = {
   detail: (client: AgentHqApiClient, workspaceId?: string, artifactId?: string) => ({
     queryKey: artifactQueryKeys.detail(workspaceId ?? '', artifactId ?? ''),
@@ -697,4 +769,29 @@ export function useEditMessageMutation(client: AgentHqApiClient, workspaceId: st
 }
 export function useDeleteMessageMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(messageMutationOptions.delete(client, useQueryClient(), workspaceId))
+}
+
+export function useReadStateQuery(client: AgentHqApiClient, workspaceId?: string) {
+  return useQuery(readStateQueryOptions.detail(client, workspaceId))
+}
+
+export function useMarkAllReadMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(readStateMutationOptions.all(client, useQueryClient(), workspaceId))
+}
+
+export function useMarkChannelReadMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(readStateMutationOptions.channel(client, useQueryClient(), workspaceId))
+}
+
+export function useMarkThreadReadMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(readStateMutationOptions.thread(client, useQueryClient(), workspaceId))
+}
+
+export function useWorkspaceSearchQuery(
+  client: AgentHqApiClient,
+  workspaceId?: string,
+  query = '',
+  channelId?: string
+) {
+  return useQuery(workspaceSearchQueryOptions.search(client, workspaceId, query, channelId))
 }
