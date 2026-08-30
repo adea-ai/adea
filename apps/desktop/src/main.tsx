@@ -15,7 +15,7 @@ import { listen } from '@tauri-apps/api/event'
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
-import { ConventionalWorkspaceShell } from '@agent-hq/workspace-ui'
+import { ConventionalWorkspaceShell, type WorkspaceView } from '@agent-hq/workspace-ui'
 
 import { localContentAuthority } from './local-content'
 import { desktopSettingsProvider } from './preferences'
@@ -76,6 +76,9 @@ function DesktopApp() {
   const [message, setMessage] = useState('Opening your workspace…')
   const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
   const [session, setSession] = useState<DesktopSession | undefined>()
+  const [view, setView] = useState<WorkspaceView>(() =>
+    new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
+  )
   const temporaryCredentialRef = useRef<string | null>(null)
   const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
   const authCallbackObservedRef = useRef(false)
@@ -192,11 +195,20 @@ function DesktopApp() {
   }
 
   const busy = status === 'loading' || status === 'opening' || status === 'waiting'
+  const changeView = (nextView: WorkspaceView) => {
+    setView(nextView)
+    const nextUrl = new URL(window.location.href)
+    nextUrl.searchParams.set('view', nextView === 'virtual' ? 'spatial' : 'chat')
+    window.history.replaceState(null, '', nextUrl)
+  }
 
   if (workspaceState) {
-    if (new URLSearchParams(window.location.search).get('view') !== 'spatial') {
+    const client = workspaceClient(session, workspaceState.temporaryCredential ?? undefined)
+    if (view === 'chat') {
       return (
         <ConventionalWorkspaceShell
+          onViewChange={changeView}
+          view={view}
           services={{
             account: {
               authenticated: Boolean(session),
@@ -206,7 +218,7 @@ function DesktopApp() {
               onSignOut: () => signOut(),
             },
             app: { name: 'Agent HQ Desktop', platform: 'desktop' },
-            client: workspaceClient(session, workspaceState.temporaryCredential ?? undefined),
+            client,
             privateContent: localContentAuthority,
             settings: desktopSettingsProvider,
             transcription: systemTranscriptionProvider,
@@ -230,6 +242,9 @@ function DesktopApp() {
           onSignIn={() => void beginSignIn()}
           onSignOut={() => void signOut()}
           status={status}
+          client={client}
+          onWorkspaceViewChange={changeView}
+          workspaceView={view}
           workspaceState={workspaceState}
         />
       </Suspense>
@@ -279,7 +294,6 @@ function DesktopApp() {
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Desktop application root is unavailable')
-document.documentElement.classList.add('dark')
 createRoot(root).render(
   <StrictMode>
     <ThemeProvider>

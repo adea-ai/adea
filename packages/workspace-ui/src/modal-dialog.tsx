@@ -1,5 +1,12 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
-import { X } from 'lucide-react'
+import type { ReactNode } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@agent-hq/ui/components/ui/dialog'
+import { cn } from '@agent-hq/ui/lib/utils'
 
 export function ModalDialog({
   children,
@@ -16,43 +23,15 @@ export function ModalDialog({
   open: boolean
   title: string
 }>) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-  const returnFocusRef = useRef<HTMLElement | null>(null)
-  const titleId = useId()
-  const descriptionId = useId()
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    if (open && !dialog.open) {
-      returnFocusRef.current = document.activeElement as HTMLElement | null
-      dialog.showModal()
-    }
-    if (!open && dialog.open) {
-      dialog.close()
-      returnFocusRef.current?.focus()
-    }
-  }, [open])
   return (
-    <dialog
-      ref={dialogRef}
-      className={`conventional-dialog${className ? ` ${className}` : ''}`}
-      aria-labelledby={titleId}
-      aria-describedby={description ? descriptionId : undefined}
-      onCancel={(event) => {
-        event.preventDefault()
-        onClose()
-      }}
-    >
-      <header>
-        <div>
-          <h2 id={titleId}>{title}</h2>
-          {description ? <p id={descriptionId}>{description}</p> : null}
-        </div>
-        <button type="button" aria-label={`Close ${title}`} onClick={onClose}>
-          <X aria-hidden="true" />
-        </button>
-      </header>
-      {children}
-    </dialog>
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent className={cn('conventional-dialog', className)}>
+        <DialogHeader className="conventional-dialog__header">
+          <DialogTitle>{title}</DialogTitle>
+          {description ? <DialogDescription>{description}</DialogDescription> : null}
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
   )
 }
