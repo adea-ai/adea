@@ -129,7 +129,12 @@ export function TaskBoard(props: Props) {
                         {task.priority}
                       </span>
                       <strong>{task.title}</strong>
-                      <p>{task.objective}</p>
+                      <p>
+                        {task.objective ??
+                          (task.objectiveContentRefId
+                            ? 'Private objective unavailable on this device'
+                            : 'Objective unavailable')}
+                      </p>
                       <footer>
                         <span>
                           {task.agentId

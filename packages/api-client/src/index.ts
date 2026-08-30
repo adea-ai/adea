@@ -4,6 +4,7 @@ import type {
   ArtifactSummary,
   ChannelSummary,
   ConversationParticipantRef,
+  ContentRefSummary,
   MessageSummary,
   PrincipalRef,
   RoomSummary,
@@ -70,7 +71,8 @@ export type ApiTaskCreateInput = Readonly<{
     threadRootMessageId?: string
   }>
   dependencyIds?: readonly string[]
-  objective: string
+  objective?: string
+  objectiveContentRefId?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   roomId?: string
   title: string
@@ -79,10 +81,33 @@ export type ApiTaskUpdateInput = Readonly<{
   controlPlaneExecutionRef?: string | null
   controlPlaneWorkflowRef?: string | null
   objective?: string
+  objectiveContentRefId?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   title?: string
 }>
 export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
+
+export type ApiContentRefCreateInput = Readonly<{
+  availability: Exclude<ContentRefSummary['availability'], 'deleted'>
+  contentType: ContentRefSummary['contentType']
+  digestSha256: string
+  id: string
+  keyVersion: number
+  messageId?: string
+  schemaVersion: number
+  sensitivity: ContentRefSummary['sensitivity']
+  storagePolicy: ContentRefSummary['storagePolicy']
+  synchronizationPolicy: ContentRefSummary['synchronizationPolicy']
+  taskId?: string
+}>
+export type ApiContentRefUpdateInput = Readonly<{
+  availability: ContentRefSummary['availability']
+  digestSha256: string
+  expectedRevision: number
+  keyVersion: number
+  revision: number
+}>
+export type ApiContentRefResponse = Readonly<{ contentRef: ContentRefSummary }>
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
 export type ApiMessageResponse = Readonly<{ message: MessageSummary }>
@@ -370,6 +395,38 @@ export class AgentHqApiClient {
 
   async listTasks(workspaceId: string): Promise<readonly TaskSummary[]> {
     return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/tasks`)
+  }
+
+  async createContentRef(
+    workspaceId: string,
+    input: ApiContentRefCreateInput
+  ): Promise<ApiContentRefResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/content-refs`, {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async getContentRef(workspaceId: string, contentId: string): Promise<ApiContentRefResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/content-refs/${encodeURIComponent(contentId)}`
+    )
+  }
+
+  async updateContentRef(
+    workspaceId: string,
+    contentId: string,
+    input: ApiContentRefUpdateInput
+  ): Promise<ApiContentRefResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/content-refs/${encodeURIComponent(contentId)}`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+      }
+    )
   }
 
   async getTask(workspaceId: string, taskId: string): Promise<ApiTaskResponse> {

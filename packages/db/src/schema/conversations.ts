@@ -15,6 +15,7 @@ import {
 
 import { agents } from './agents'
 import { artifacts } from './artifacts'
+import { contentRefs } from './content-refs'
 import { entityId, timestampColumns } from './conventions'
 import { users } from './identity'
 import { rooms } from './rooms'
@@ -132,7 +133,9 @@ export const messages = appSchema.table(
     senderAgentId: uuid('sender_agent_id').references(() => agents.id, { onDelete: 'restrict' }),
     senderSystemId: text('sender_system_id'),
     bodyText: text('body_text'),
-    bodyContentRefId: uuid('body_content_ref_id'),
+    bodyContentRefId: uuid('body_content_ref_id').references(() => contentRefs.id, {
+      onDelete: 'restrict',
+    }),
     threadRootMessageId: uuid('thread_root_message_id').references((): AnyPgColumn => messages.id, {
       onDelete: 'restrict',
     }),

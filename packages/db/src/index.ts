@@ -16,6 +16,13 @@ export {
 } from './connection'
 export { readDatabaseUrl, type DatabaseEnvironment } from './config'
 export {
+  createContentRef,
+  getContentRefForUser,
+  updateContentRef,
+  type ContentRefCreateInput,
+  type ContentRefUpdateInput,
+} from './content-refs'
+export {
   claimTemporaryUserSession,
   claimTemporaryUserSessionForUser,
   createUserWithAuthIdentity,

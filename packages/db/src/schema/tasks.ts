@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import { check, index, integer, jsonb, text, unique, uuid } from 'drizzle-orm/pg-core'
 
 import { agents } from './agents'
+import { contentRefs } from './content-refs'
 import { entityId, timestampColumns } from './conventions'
 import { users } from './identity'
 import { rooms } from './rooms'
@@ -30,7 +31,10 @@ export const tasks = appSchema.table(
     agentId: uuid('agent_id').references(() => agents.id, { onDelete: 'set null' }),
     roomId: uuid('room_id').references(() => rooms.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
-    objective: text('objective').notNull(),
+    objective: text('objective'),
+    objectiveContentRefId: uuid('objective_content_ref_id').references(() => contentRefs.id, {
+      onDelete: 'restrict',
+    }),
     lifecycleState: taskLifecycleState('lifecycle_state').default('created').notNull(),
     priority: taskPriority('priority').default('normal').notNull(),
     version: integer('version').default(1).notNull(),
@@ -47,7 +51,10 @@ export const tasks = appSchema.table(
   },
   (table) => [
     check('tasks_title_nonempty', sql`length(btrim(${table.title})) > 0`),
-    check('tasks_objective_nonempty', sql`length(btrim(${table.objective})) > 0`),
+    check(
+      'tasks_objective_available',
+      sql`(${table.objective} is not null and length(btrim(${table.objective})) > 0 and ${table.objectiveContentRefId} is null) or (${table.objective} is null and ${table.objectiveContentRefId} is not null)`
+    ),
     check('tasks_version_positive', sql`${table.version} > 0`),
     index('tasks_workspace_lifecycle_idx').on(
       table.workspaceId,

@@ -11,6 +11,14 @@ export { authIdentities, temporaryUserSessions, users } from './identity'
 export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
 export { roomLifecycleState, rooms } from './rooms'
 export { agentLifecycleState, agentProfileState, agents } from './agents'
+export {
+  contentAvailability,
+  contentRefs,
+  contentSensitivity,
+  contentStoragePolicy,
+  contentSynchronizationPolicy,
+  contentType,
+} from './content-refs'
 export { taskDependencies, taskLifecycleState, taskMutations, taskPriority, tasks } from './tasks'
 export {
   artifactAvailability,
