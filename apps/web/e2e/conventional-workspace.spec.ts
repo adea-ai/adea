@@ -536,6 +536,21 @@ test('uses the neutral shadcn semantic theme by default', async ({ page }) => {
   expect(tokens).toEqual({ background: 'oklch(1 0 0)', primary: 'oklch(0.205 0 0)' })
 })
 
+test('loads chat before secure-context-only authentication APIs are requested', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window.crypto, 'randomUUID', {
+      configurable: true,
+      value: undefined,
+    })
+  })
+  await mockConnectedWorkspace(page)
+  await page.goto('/')
+
+  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
+})
+
 test('connects newly created Rooms and group conversations to their canonical views', async ({
   page,
 }) => {
