@@ -158,8 +158,15 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     createGroupBusy: createGroup.isPending,
     createRoom: async (input: Readonly<{ functionKey: string; name: string }>) => {
       const result = await createRoom.mutateAsync(input)
-      await channels.refetch()
-      setSelectedRoomId(result.room.id)
+      const refreshedChannels = await channels.refetch()
+      const primaryChannel = refreshedChannels.data?.find(
+        (channel) =>
+          channel.kind === 'room' &&
+          channel.roomId === result.room.id &&
+          channel.isPrimaryRoomChannel
+      )
+      if (primaryChannel) selectChannel(primaryChannel.id, result.room.id)
+      else setSelectedRoomId(result.room.id)
     },
     createRoomBusy: createRoom.isPending,
     navigation,

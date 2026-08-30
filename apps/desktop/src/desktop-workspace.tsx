@@ -1,8 +1,14 @@
 import { hqHomeManifest, hqWorkManifest } from '@agent-hq/hq-scenes'
 import { HqRoomScene } from '@agent-hq/hq-scenes/runtime'
 import { MusicToggle } from '@agent-hq/audio'
+import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { Button } from '@agent-hq/ui/components/ui/button'
 import { WorkspaceBrand } from '@agent-hq/ui/components/workspace-brand'
+import {
+  VirtualRoomControls,
+  WorkspaceViewToggle,
+  type WorkspaceView,
+} from '@agent-hq/workspace-ui'
 import { BriefcaseBusiness, Home } from 'lucide-react'
 import { useState } from 'react'
 
@@ -12,22 +18,28 @@ import { VersionDialog } from './version-dialog'
 type DesktopWorkspaceProps = Readonly<{
   authenticated: boolean
   busy: boolean
+  client: AgentHqApiClient
   message: string
   onRetry(): void
   onSignIn(): void
   onSignOut(): void
+  onWorkspaceViewChange(view: WorkspaceView): void
   status: string
+  workspaceView: WorkspaceView
   workspaceState: DesktopWorkspaceBootstrap
 }>
 
 export function DesktopWorkspace({
   authenticated,
   busy,
+  client,
   message,
   onRetry,
   onSignIn,
   onSignOut,
+  onWorkspaceViewChange,
   status,
+  workspaceView,
   workspaceState,
 }: DesktopWorkspaceProps) {
   const [scene, setScene] = useState<'home' | 'work'>(workspaceState.workspace.scene)
@@ -73,9 +85,6 @@ export function DesktopWorkspace({
             <WorkspaceBrand title={workspaceState.workspace.name} />
 
             <nav className="workspace-scene-nav" aria-label="HQ spaces">
-              <a className="workspace-scene-tab" href="/?view=conventional">
-                Workspace
-              </a>
               {(['home', 'work'] as const).map((option) => (
                 <Button
                   key={option}
@@ -97,6 +106,7 @@ export function DesktopWorkspace({
             </nav>
 
             <div className="workspace-topbar__actions">
+              <WorkspaceViewToggle onChange={onWorkspaceViewChange} value={workspaceView} />
               <div id="workspace-account-slot" className="workspace-account-slot" />
               {(status === 'offline' || status === 'failed') && (
                 <button type="button" onClick={onRetry} disabled={busy}>
@@ -105,6 +115,8 @@ export function DesktopWorkspace({
               )}
             </div>
           </header>
+
+          <VirtualRoomControls client={client} openChat={() => onWorkspaceViewChange('chat')} />
 
           <div
             id="workspace-scene-tools-slot"
