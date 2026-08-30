@@ -23,7 +23,7 @@
     "test": "bun run test:unit",
     "test:unit": "turbo run test && bun run test:coverage",
     "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit scripts/*.test.ts --coverage",
-    "test:integration": "bun test packages/*/tests/integration",
+    "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
     "perf:check": "bun scripts/performance-budgets.mjs --build --assets && bun run assets:check",
