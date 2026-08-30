@@ -1,5 +1,29 @@
 import type { AgentSummary, RoomSummary, TaskSummary, WorkspaceSummary } from '@agent-hq/types'
 
+export type ApiAgentCreateInput = Readonly<{
+  avatarRef?: string
+  characterRef?: string
+  name: string
+  presentationMetadata?: Readonly<Record<string, string>>
+  profileId: string
+  profileVersion: string
+  roleSummary?: string
+  roomId?: string
+}>
+export type ApiAgentPresentationInput = Readonly<{
+  avatarRef?: string | null
+  characterRef?: string | null
+  name?: string
+  presentationMetadata?: Readonly<Record<string, string>>
+  roleSummary?: string | null
+}>
+export type ApiAgentProfileInput = Readonly<{
+  profileId: string
+  profileState?: 'available' | 'deprecated' | 'missing'
+  profileVersion: string
+}>
+export type ApiAgentResponse = Readonly<{ agent: AgentSummary }>
+
 export type ApiRoomCreateInput = Readonly<{
   functionKey: string
   layoutRef?: string
@@ -180,6 +204,76 @@ export class AgentHqApiClient {
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       }
+    )
+  }
+
+  async listAgents(workspaceId: string): Promise<readonly AgentSummary[]> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents`)
+  }
+
+  async getAgent(workspaceId: string, agentId: string): Promise<ApiAgentResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}`
+    )
+  }
+
+  async createAgent(workspaceId: string, input: ApiAgentCreateInput): Promise<ApiAgentResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/agents`, {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async assignAgentToRoom(
+    workspaceId: string,
+    agentId: string,
+    roomId: string | null
+  ): Promise<ApiAgentResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}/room`,
+      {
+        body: JSON.stringify({ roomId }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    )
+  }
+
+  async updateAgentPresentation(
+    workspaceId: string,
+    agentId: string,
+    input: ApiAgentPresentationInput
+  ): Promise<ApiAgentResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}/presentation`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+      }
+    )
+  }
+
+  async changeAgentProfile(
+    workspaceId: string,
+    agentId: string,
+    input: ApiAgentProfileInput
+  ): Promise<ApiAgentResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}/profile`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+      }
+    )
+  }
+
+  async archiveAgent(workspaceId: string, agentId: string): Promise<Readonly<{ archived: true }>> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}`,
+      { method: 'DELETE' }
     )
   }
 
