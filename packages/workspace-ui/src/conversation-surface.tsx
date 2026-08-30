@@ -14,6 +14,8 @@ import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
+import type { PrivateContentResolver, TranscriptionProvider } from './platform'
+import { AgentStatus } from './agent-status'
 
 const scrollPositions = new Map<string, number>()
 
@@ -33,10 +35,12 @@ export function ConversationSurface({
   onMarkUnread,
   onThreadDraftChange,
   onThreadChange,
+  privateContent,
   searchTargetMessageId,
   tasks,
   threadDraft,
   threadRootMessageId,
+  transcription,
   workspaceId,
 }: Readonly<{
   agents: readonly AgentSummary[]
@@ -54,10 +58,12 @@ export function ConversationSurface({
   onMarkUnread: () => Promise<void>
   onThreadDraftChange: (value: string) => void
   onThreadChange: (messageId: string | null) => void
+  privateContent?: PrivateContentResolver
   searchTargetMessageId: string | null
   tasks: readonly TaskSummary[]
   threadDraft: string
   threadRootMessageId: string | null
+  transcription?: TranscriptionProvider
   workspaceId: string
 }>) {
   const [cursor, setCursor] = useState<number | undefined>()
@@ -133,6 +139,7 @@ export function ConversationSurface({
     : undefined
   const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]))
   const taskById = new Map(tasks.map((task) => [task.id, task]))
+  const directAgent = channel?.agentId ? agents.find(({ id }) => id === channel.agentId) : undefined
 
   const submit = async (submission: ComposerSubmission) => {
     setOptimisticBody(submission.bodyText)
@@ -165,6 +172,7 @@ export function ConversationSurface({
                 : 'Group conversation'}
           </span>
           <h1>{channel.title}</h1>
+          {directAgent ? <AgentStatus agent={directAgent} compact /> : null}
         </div>
         <div className="conventional-conversation__actions">
           <button
@@ -215,6 +223,7 @@ export function ConversationSurface({
             highlighted={message.id === searchTargetMessageId}
             onOpenTask={onOpenTask}
             onOpenThread={onThreadChange}
+            privateContent={privateContent}
             task={message.taskId ? taskById.get(message.taskId) : undefined}
           />
         ))}
@@ -243,6 +252,7 @@ export function ConversationSurface({
         draft={draft}
         onDraftChange={onDraftChange}
         onSubmit={submit}
+        transcription={transcription}
       />
       {root ? (
         <ThreadPanel
@@ -256,9 +266,11 @@ export function ConversationSurface({
           onOpenTask={onOpenTask}
           onMarkRead={(sequence) => onMarkThreadRead(root.id, sequence)}
           onMarkUnread={() => onMarkThreadUnread(root.id)}
+          privateContent={privateContent}
           root={root}
           searchTargetMessageId={searchTargetMessageId}
           tasks={tasks}
+          transcription={transcription}
           workspaceId={workspaceId}
         />
       ) : threadRootMessageId ? (

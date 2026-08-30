@@ -3,6 +3,8 @@ import type { AgentSummary, RoomSummary, TaskSummary } from '@agent-hq/types'
 import { Plus, X } from 'lucide-react'
 
 import { TaskDetail } from './task-detail'
+import type { PrivateContentResolver } from './platform'
+import { TaskObjective } from './private-task-objective'
 import { WorkspaceEmpty } from './workspace-states'
 
 type Props = Readonly<{
@@ -19,6 +21,7 @@ type Props = Readonly<{
   onOpenConversation: (task: TaskSummary) => void
   onQueue: (task: TaskSummary) => Promise<void>
   onSelect: (taskId: string | null) => void
+  privateContent?: PrivateContentResolver
   rooms: readonly RoomSummary[]
   selectedTaskId: string | null
   tasks: readonly TaskSummary[]
@@ -130,10 +133,7 @@ export function TaskBoard(props: Props) {
                       </span>
                       <strong>{task.title}</strong>
                       <p>
-                        {task.objective ??
-                          (task.objectiveContentRefId
-                            ? 'Private objective unavailable on this device'
-                            : 'Objective unavailable')}
+                        <TaskObjective privateContent={props.privateContent} task={task} />
                       </p>
                       <footer>
                         <span>

@@ -9,8 +9,6 @@ import type {
   TaskSummary,
   WorkspaceSearchResult,
 } from '@agent-hq/types'
-import { MusicToggle } from '@agent-hq/audio'
-import { ThemeToggle } from '@agent-hq/ui/components/theme-toggle'
 import {
   Bot,
   CheckCheck,
@@ -25,6 +23,7 @@ import {
 
 import { ModalDialog } from './modal-dialog'
 import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
+import type { PrivateContentResolver } from './platform'
 
 type SearchResult = WorkspaceSearchResult
 
@@ -37,6 +36,7 @@ export function WorkspaceSearchDialog({
   online,
   onSelect,
   open,
+  privateContent,
   rooms,
   scopeChannelId,
   tasks,
@@ -50,6 +50,7 @@ export function WorkspaceSearchDialog({
   online: boolean
   onSelect: (result: SearchResult) => void
   open: boolean
+  privateContent?: PrivateContentResolver
   rooms: readonly RoomSummary[]
   scopeChannelId?: string
   tasks: readonly TaskSummary[]
@@ -58,12 +59,75 @@ export function WorkspaceSearchDialog({
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [localResults, setLocalResults] = useState<readonly SearchResult[]>([])
+  const [localSearching, setLocalSearching] = useState(false)
   const selectedRef = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 180)
     return () => window.clearTimeout(timeout)
   }, [query])
   const remote = useWorkspaceSearchQuery(client, workspaceId, debouncedQuery, scopeChannelId)
+  useEffect(() => {
+    let active = true
+    if (!privateContent?.search || debouncedQuery.length < 2) {
+      setLocalResults([])
+      setLocalSearching(false)
+      return () => {
+        active = false
+      }
+    }
+    setLocalSearching(true)
+    void privateContent
+      .search({ limit: 20, query: debouncedQuery, workspaceId })
+      .then(async (matches) => {
+        const resolved = await Promise.all(
+          matches.map(async (match): Promise<SearchResult | null> => {
+            if (match.messageId) {
+              try {
+                const { message } = await client.getMessage(workspaceId, match.messageId)
+                if (scopeChannelId && message.channelId !== scopeChannelId) return null
+                return {
+                  channelId: message.channelId,
+                  id: match.contentId,
+                  kind: 'message',
+                  label: match.snippet,
+                  messageId: message.id,
+                  secondary: 'Private message · this device only',
+                  ...(message.taskId ? { taskId: message.taskId } : {}),
+                  ...(message.threadRootMessageId
+                    ? { threadRootMessageId: message.threadRootMessageId }
+                    : {}),
+                  workspaceId,
+                }
+              } catch {
+                return null
+              }
+            }
+            if (match.taskId) {
+              const task = tasks.find(({ id }) => id === match.taskId)
+              return task
+                ? {
+                    id: task.id,
+                    kind: 'task',
+                    label: task.title,
+                    secondary: `${match.snippet} · private task content on this device`,
+                    taskId: task.id,
+                    workspaceId,
+                  }
+                : null
+            }
+            return null
+          })
+        )
+        if (active)
+          setLocalResults(resolved.filter((result): result is SearchResult => Boolean(result)))
+      })
+      .catch(() => active && setLocalResults([]))
+      .finally(() => active && setLocalSearching(false))
+    return () => {
+      active = false
+    }
+  }, [client, debouncedQuery, privateContent, scopeChannelId, tasks, workspaceId])
   const quickResults = useMemo(() => {
     const all: SearchResult[] = [
       ...rooms.map((room) => ({
@@ -122,7 +186,7 @@ export function WorkspaceSearchDialog({
         id: 'workspace-settings',
         kind: 'settings' as const,
         label: 'Workspace settings',
-        secondary: 'Appearance, sound, and account',
+        secondary: 'Account, appearance, input, privacy, and capabilities',
         workspaceId,
       },
     ]
@@ -136,7 +200,7 @@ export function WorkspaceSearchDialog({
   )
   const results =
     debouncedQuery.length >= 2
-      ? [...paletteMatches, ...(remote.data?.results ?? [])]
+      ? [...paletteMatches, ...localResults, ...(remote.data?.results ?? [])]
       : scopeChannelId
         ? []
         : debouncedQuery
@@ -230,14 +294,16 @@ export function WorkspaceSearchDialog({
           </li>
         ))}
       </ul>
-      {remote.isFetching && debouncedQuery.length >= 2 ? (
+      {(remote.isFetching || localSearching) && debouncedQuery.length >= 2 ? (
         <p className="conventional-dialog-empty" role="status">
           Searching…
         </p>
       ) : null}
       {remote.data?.privateResultsUnavailable ? (
         <p className="conventional-dialog-empty" role="status">
-          Private local content can only be searched on its trusted desktop device.
+          {privateContent?.search
+            ? 'Cloud results exclude private bodies; this authorized device was searched separately.'
+            : 'Private local content can only be searched on its trusted desktop device.'}
         </p>
       ) : null}
       {!online && debouncedQuery.length >= 2 ? (
@@ -249,80 +315,10 @@ export function WorkspaceSearchDialog({
           Search is temporarily unavailable. Your query was not lost.
         </p>
       ) : null}
-      {!remote.isFetching && !results.length ? (
+      {!remote.isFetching && !localSearching && !results.length ? (
         <p className="conventional-dialog-empty">No workspace item matches “{query}”.</p>
       ) : null}
       <p className="conventional-search-hint">↑↓ move · Enter open · Esc close</p>
-    </ModalDialog>
-  )
-}
-
-export function WorkspaceSettingsDialog({
-  accountAuthenticated,
-  accountLabel,
-  busy,
-  onClose,
-  onSignIn,
-  onSignOut,
-  open,
-}: Readonly<{
-  accountAuthenticated: boolean
-  accountLabel: string
-  busy: boolean
-  onClose: () => void
-  onSignIn: () => void
-  onSignOut: () => void
-  open: boolean
-}>) {
-  return (
-    <ModalDialog
-      open={open}
-      onClose={onClose}
-      title="Workspace settings"
-      description="Appearance, sound, account, and the retained spatial preview."
-    >
-      <div className="conventional-settings-list">
-        <section>
-          <div>
-            <h3>Appearance</h3>
-            <p>Use the system theme or choose light/dark mode.</p>
-          </div>
-          <ThemeToggle />
-        </section>
-        <section>
-          <div>
-            <h3>Sound</h3>
-            <p>Control the optional workspace soundtrack.</p>
-          </div>
-          <MusicToggle />
-        </section>
-        <section>
-          <div>
-            <h3>Account</h3>
-            <p>
-              {accountAuthenticated
-                ? `${accountLabel} · workspace saved`
-                : 'Guest workspace · sign in anytime'}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={accountAuthenticated ? onSignOut : onSignIn}
-          >
-            {accountAuthenticated ? 'Sign out' : 'Sign in'}
-          </button>
-        </section>
-        <section>
-          <div>
-            <h3>Spatial preview</h3>
-            <p>
-              The existing Three.js workspace remains available without defining M2 product state.
-            </p>
-          </div>
-          <a href="/?view=spatial">Open preview</a>
-        </section>
-      </div>
     </ModalDialog>
   )
 }
