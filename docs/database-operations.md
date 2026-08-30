@@ -36,6 +36,13 @@ node scripts/database-health.mjs
 
 The service binds only to `127.0.0.1:55432`. Override the host port with `AGENT_HQ_POSTGRES_PORT`. The credentials in `.env.example` are intentionally local-only defaults, not hosted secrets.
 
+`bun run test:integration` uses this local service automatically when no
+`DATABASE_URL` is exported. It starts PostgreSQL when necessary, verifies the
+runtime and migration role boundary, applies the migration history twice, and
+runs every integration case. To run against Neon instead, export the three
+canonical URLs for an isolated development/preview branch; never point the
+write-heavy suite at a production or owner connection.
+
 ## Health and configuration validation
 
 Run the health probe from an environment that has `psql` and the three canonical variables:
