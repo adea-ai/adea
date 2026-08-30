@@ -64,3 +64,20 @@ export {
   listAgentsForUser,
   updateAgentPresentation,
 } from './agents'
+export {
+  archiveTask,
+  assignTask,
+  cancelTask,
+  createTask,
+  getTaskForUser,
+  listTasksForUser,
+  moveTaskToRoom,
+  queueTask,
+  setTaskArtifactReferences,
+  setTaskConversationReferences,
+  setTaskDependencies,
+  updateTask,
+  type TaskCommand,
+  type TaskCreateInput,
+  type TaskUpdateInput,
+} from './tasks'
