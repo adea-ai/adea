@@ -1,6 +1,5 @@
 'use client'
 
-import { createNeonClientAdapter } from '@agent-hq/auth/client'
 import {
   ConventionalWorkspaceShell,
   createBrowserSettingsProvider,
@@ -20,6 +19,7 @@ export function ConventionalWorkspaceEntry({
         account: {
           onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
           onSignOut: async () => {
+            const { createNeonClientAdapter } = await import('@agent-hq/auth/client')
             await createNeonClientAdapter().signOut()
             window.location.assign('/')
           },
