@@ -100,6 +100,11 @@ export const messageQueryKeys = {
     ['workspaces', workspaceId, 'messages', 'detail', messageId] as const,
   list: (workspaceId: string, channelId: string) =>
     ['workspaces', workspaceId, 'channels', channelId, 'messages', 'list'] as const,
+  page: (
+    workspaceId: string,
+    channelId: string,
+    options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }>
+  ) => ['workspaces', workspaceId, 'channels', channelId, 'messages', 'list', options] as const,
 }
 export const channelQueryOptions = {
   detail: (client: AgentHqApiClient, workspaceId?: string, channelId?: string) => ({
@@ -119,9 +124,17 @@ export const messageQueryOptions = {
     queryFn: () => client.getMessage(workspaceId!, messageId!),
     enabled: Boolean(workspaceId && messageId),
   }),
-  list: (client: AgentHqApiClient, workspaceId?: string, channelId?: string) => ({
-    queryKey: messageQueryKeys.list(workspaceId ?? '', channelId ?? ''),
-    queryFn: () => client.listMessages(workspaceId!, channelId!),
+  list: (
+    client: AgentHqApiClient,
+    workspaceId?: string,
+    channelId?: string,
+    options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {}
+  ) => ({
+    queryKey:
+      Object.keys(options).length === 0
+        ? messageQueryKeys.list(workspaceId ?? '', channelId ?? '')
+        : messageQueryKeys.page(workspaceId ?? '', channelId ?? '', options),
+    queryFn: () => client.listMessages(workspaceId!, channelId!, options),
     enabled: Boolean(workspaceId && channelId),
   }),
 }
@@ -620,10 +633,7 @@ export function useArtifactQuery(
 export function useCreateArtifactMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(artifactMutationOptions.create(client, useQueryClient(), workspaceId))
 }
-export function useSetArtifactAvailabilityMutation(
-  client: AgentHqApiClient,
-  workspaceId: string
-) {
+export function useSetArtifactAvailabilityMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(artifactMutationOptions.availability(client, useQueryClient(), workspaceId))
 }
 export function useDeleteArtifactMutation(client: AgentHqApiClient, workspaceId: string) {
@@ -661,9 +671,10 @@ export function useSetChannelParticipantsMutation(client: AgentHqApiClient, work
 export function useMessageListQuery(
   client: AgentHqApiClient,
   workspaceId?: string,
-  channelId?: string
+  channelId?: string,
+  options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {}
 ) {
-  return useQuery(messageQueryOptions.list(client, workspaceId, channelId))
+  return useQuery(messageQueryOptions.list(client, workspaceId, channelId, options))
 }
 export function useMessageQuery(
   client: AgentHqApiClient,

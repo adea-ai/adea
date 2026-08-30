@@ -73,7 +73,7 @@ const recordReactCommit: ProfilerOnRenderCallback = (
   target.__AGENT_HQ_REACT_PROFILE__ = entries;
 };
 
-type WorkspaceShellProps = {
+export type WorkspaceShellProps = {
   initialScene: HqSceneId;
   initialCharacter: string;
   startPosition?: SceneStartPosition;
