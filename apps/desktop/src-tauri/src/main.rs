@@ -2,6 +2,7 @@
 
 mod auth;
 mod bridge;
+mod local_content;
 mod updater;
 
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
@@ -54,11 +55,22 @@ fn main() {
             auth::desktop_temporary_workspace_load,
             auth::desktop_temporary_workspace_save,
             bridge::native_capabilities,
+            local_content::local_content_authorize_workspace,
+            local_content::local_content_create,
+            local_content::local_content_delete,
+            local_content::local_content_health,
+            local_content::local_content_read,
+            local_content::local_content_rotate_key,
+            local_content::local_content_update,
             updater::desktop_update_status,
             updater::desktop_update_check,
             updater::desktop_update_install
         ])
         .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            let local_content = local_content::LocalContentState::initialize(&app_data_dir);
+            app.manage(local_content);
+
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;

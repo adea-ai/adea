@@ -60,7 +60,11 @@ export function WorkspaceSearchDialog({
         id: task.id,
         kind: 'task' as const,
         label: task.title,
-        secondary: task.objective,
+        secondary:
+          task.objective ??
+          (task.objectiveContentRefId
+            ? 'Private objective unavailable on this device'
+            : 'Objective unavailable'),
       })),
     ]
     const normalized = query.trim().toLocaleLowerCase()

@@ -16,6 +16,7 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "@agent-hq/ui/components/theme-provider";
 
 import { DesktopWorkspace } from "./desktop-workspace";
+import { localContentAuthority } from "./local-content";
 import {
   bootstrapDesktopWorkspace,
   createWorkspaceRequestGuard,
@@ -95,6 +96,8 @@ function DesktopApp() {
         },
         temporaryVault,
       });
+      if (!requestIsCurrent()) return;
+      await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id);
       if (!requestIsCurrent()) return;
       temporaryCredentialRef.current = nextWorkspace.temporaryCredential;
       setWorkspaceState(nextWorkspace);

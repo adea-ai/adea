@@ -8,6 +8,7 @@ import {
   commandOutbox,
   channelParticipants,
   channels,
+  contentRefs,
   desktopAuthorizationCodes,
   eventInbox,
   messageArtifactReferences,
@@ -39,6 +40,7 @@ describe('persistence schema', () => {
       eventInbox,
       rooms,
       channels,
+      contentRefs,
       channelParticipants,
       messages,
       messageMentions,
@@ -69,6 +71,20 @@ describe('persistence schema', () => {
     expect(config.columns.some((column) => column.name === 'channel_id')).toBe(true)
     expect(config.foreignKeys.map((key) => key.reference().foreignTable)).not.toContain(undefined)
     expect(getTableConfig(taskMutations).uniqueConstraints).toHaveLength(1)
+  })
+
+  test('stores only opaque private-content metadata with explicit lifecycle constraints', () => {
+    const config = getTableConfig(contentRefs)
+    const columns = config.columns.map(({ name }) => name)
+
+    expect(columns).toContain('digest_sha256')
+    expect(columns).toContain('synchronization_policy')
+    expect(columns).not.toContain('plaintext')
+    expect(columns).not.toContain('ciphertext')
+    expect(columns).not.toContain('nonce')
+    expect(config.checks.some(({ name }) => name === 'content_refs_digest_sha256')).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'content_refs_deletion_consistent')).toBe(true)
+    expect(config.indexes).toHaveLength(3)
   })
 
   test('represents constraints and indexes in schema metadata', () => {
