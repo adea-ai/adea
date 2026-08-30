@@ -27,6 +27,7 @@ export type RuntimeNodePrincipalRef = Readonly<{
 }>
 export type AgentPrincipalRef = Readonly<{ agentId: string; kind: 'agent' }>
 export type WorkerPrincipalRef = Readonly<{ kind: 'worker'; workerId: string }>
+export type SystemPrincipalRef = Readonly<{ kind: 'system'; systemId: string }>
 
 export type PrincipalRef =
   | UserPrincipalRef
@@ -34,6 +35,7 @@ export type PrincipalRef =
   | RuntimeNodePrincipalRef
   | AgentPrincipalRef
   | WorkerPrincipalRef
+  | SystemPrincipalRef
 
 export function isPrincipalRef(value: unknown): value is PrincipalRef {
   if (!value || typeof value !== 'object' || !('kind' in value)) return false
@@ -53,6 +55,8 @@ export function isPrincipalRef(value: unknown): value is PrincipalRef {
       return hasId('agentId')
     case 'worker':
       return hasId('workerId')
+    case 'system':
+      return hasId('systemId')
     default:
       return false
   }
@@ -127,10 +131,46 @@ export type TaskSummary = Readonly<{
   workspaceId: string
 }>
 
-export type MessageSummary = {
-  id: string
-  workspaceId: string
-  authorId: string
-  body: string
+export type ConversationParticipantRef = UserPrincipalRef | AgentPrincipalRef
+export type MessageSenderRef = ConversationParticipantRef | SystemPrincipalRef
+
+export type ChannelSummary = Readonly<{
+  agentId?: string
   createdAt: string
-}
+  id: string
+  isPrimaryRoomChannel: boolean
+  kind: 'room' | 'direct_agent' | 'group'
+  lifecycleState: 'active' | 'archived'
+  participants: readonly ConversationParticipantRef[]
+  roomId?: string
+  sortOrder: number
+  taskId?: string
+  title: string
+  updatedAt: string
+  version: number
+  visibility: 'workspace' | 'participants'
+  workspaceId: string
+}>
+
+export type MessageSummary = Readonly<{
+  artifactIds: readonly string[]
+  bodyContentRefId?: string
+  bodyText?: string
+  channelId: string
+  createdAt: string
+  deleted: boolean
+  deletedAt?: string
+  editedAt?: string
+  executionRef?: string
+  externalSessionRef?: string
+  id: string
+  mentions: readonly ConversationParticipantRef[]
+  replyToMessageId?: string
+  sender: MessageSenderRef
+  sequence: number
+  taskId?: string
+  threadRootMessageId?: string
+  updatedAt: string
+  version: number
+  workspaceId: string
+}>

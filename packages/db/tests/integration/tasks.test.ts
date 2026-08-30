@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createAgent } from '../../src/agents'
 import { createRoom } from '../../src/rooms'
@@ -21,6 +22,8 @@ import {
 } from '../../src/tasks'
 import {
   agents,
+  channels,
+  messages,
   rooms,
   taskDependencies,
   taskMutations,
@@ -131,6 +134,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       .where(eq(taskDependencies.workspaceId, workspace.id))
     await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
     await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)
@@ -328,30 +332,44 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       ['artifact:spec'],
       command('artifacts', task.version)
     )
-    const channelId = crypto.randomUUID()
-    const messageId = crypto.randomUUID()
+    const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+      idempotencyKey: 'task-conversation-channel',
+      title: 'Task conversation',
+    })
+    const message = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+      bodyText: 'Task context',
+      idempotencyKey: 'task-conversation-message',
+      sender: owner.principal,
+      taskId: task.id,
+    })
     task = await setTaskConversationReferences(
       connection.db,
       workspace.id,
       task.id,
       owner.principal,
-      { channelId, messageId, threadRootMessageId: messageId },
+      { channelId: channel.id, messageId: message.id, threadRootMessageId: message.id },
       command('conversation', task.version)
     )
     expect(task).toMatchObject({
       agentId: agent.id,
       artifactRefs: ['artifact:spec'],
-      conversation: { channelId, messageId, threadRootMessageId: messageId },
+      conversation: {
+        channelId: channel.id,
+        messageId: message.id,
+        threadRootMessageId: message.id,
+      },
       dependencyIds: [dependency.id],
       roomId: room.id,
     })
 
+    await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
     await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
     await connection.db
       .delete(taskDependencies)
       .where(eq(taskDependencies.workspaceId, workspace.id))
     await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
     await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)

@@ -15,6 +15,7 @@ import {
 import { createRoom } from '../../src/rooms'
 import {
   agents,
+  channels,
   rooms,
   temporaryUserSessions,
   users,
@@ -113,6 +114,7 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     expect(await listAgentsForUser(connection.db, workspace.id, owner.principal)).toEqual([])
 
     await connection.db.delete(agents).where(eq(agents.workspaceId, workspace.id))
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
     await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)
@@ -156,6 +158,8 @@ describe.skipIf(!connectionUrl)('persistent Agent identity', () => {
     ).rejects.toThrow('Room unavailable')
 
     await connection.db.delete(agents).where(eq(agents.workspaceId, a.workspace.id))
+    for (const workspaceId of [a.workspace.id, b.workspace.id])
+      await connection.db.delete(channels).where(eq(channels.workspaceId, workspaceId))
     await connection.db.delete(rooms).where(eq(rooms.workspaceId, b.workspace.id))
     for (const workspaceId of [a.workspace.id, b.workspace.id]) {
       await connection.db

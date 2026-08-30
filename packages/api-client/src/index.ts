@@ -1,4 +1,12 @@
-import type { AgentSummary, RoomSummary, TaskSummary, WorkspaceSummary } from '@agent-hq/types'
+import type {
+  AgentSummary,
+  ChannelSummary,
+  ConversationParticipantRef,
+  MessageSummary,
+  RoomSummary,
+  TaskSummary,
+  WorkspaceSummary,
+} from '@agent-hq/types'
 
 export type ApiAgentCreateInput = Readonly<{
   avatarRef?: string
@@ -54,6 +62,25 @@ export type ApiTaskUpdateInput = Readonly<{
   title?: string
 }>
 export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
+
+export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
+export type ApiMessageResponse = Readonly<{ message: MessageSummary }>
+export type ApiMessagePage = Readonly<{
+  messages: readonly MessageSummary[]
+  nextAfterSequence?: number
+}>
+export type ApiMessageCreateInput = Readonly<{
+  artifactIds?: readonly string[]
+  bodyContentRefId?: string
+  bodyText?: string
+  executionRef?: string
+  externalSessionRef?: string
+  idempotencyKey: string
+  mentions?: readonly ConversationParticipantRef[]
+  replyToMessageId?: string
+  taskId?: string
+  threadRootMessageId?: string
+}>
 
 function taskCommandHeaders(command: ApiTaskCommand): Record<string, string> {
   return {
@@ -375,6 +402,177 @@ export class AgentHqApiClient {
 
   async archiveTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
     return this.taskCommand(workspaceId, taskId, 'archive', {}, command)
+  }
+
+  async listChannels(workspaceId: string): Promise<readonly ChannelSummary[]> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/channels`)
+  }
+
+  async getChannel(workspaceId: string, channelId: string): Promise<ApiChannelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}`
+    )
+  }
+
+  async createRoomChannel(
+    workspaceId: string,
+    input: Readonly<{ idempotencyKey: string; roomId: string; taskId?: string; title: string }>
+  ): Promise<ApiChannelResponse> {
+    return this.createChannel(workspaceId, { ...input, kind: 'room' })
+  }
+
+  async createDirectAgentChannel(
+    workspaceId: string,
+    agentId: string
+  ): Promise<ApiChannelResponse> {
+    return this.createChannel(workspaceId, {
+      agentId,
+      idempotencyKey: `direct-agent:${agentId}`,
+      kind: 'direct_agent',
+      title: 'Direct conversation',
+    })
+  }
+
+  async createGroupChannel(
+    workspaceId: string,
+    input: Readonly<{ idempotencyKey: string; taskId?: string; title: string }>
+  ): Promise<ApiChannelResponse> {
+    return this.createChannel(workspaceId, { ...input, kind: 'group' })
+  }
+
+  async updateChannel(
+    workspaceId: string,
+    channelId: string,
+    input: Readonly<{
+      taskId?: string | null
+      title?: string
+      visibility?: 'workspace' | 'participants'
+    }>,
+    expectedVersion: number
+  ): Promise<ApiChannelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
+        method: 'PATCH',
+      }
+    )
+  }
+
+  async setChannelParticipants(
+    workspaceId: string,
+    channelId: string,
+    participants: readonly ConversationParticipantRef[],
+    expectedVersion: number
+  ): Promise<ApiChannelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/participants`,
+      {
+        body: JSON.stringify({ participants }),
+        headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
+        method: 'POST',
+      }
+    )
+  }
+
+  async archiveChannel(
+    workspaceId: string,
+    channelId: string,
+    expectedVersion: number
+  ): Promise<ApiChannelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}`,
+      { headers: { 'If-Match': String(expectedVersion) }, method: 'DELETE' }
+    )
+  }
+
+  async listMessages(
+    workspaceId: string,
+    channelId: string,
+    options: Readonly<{
+      afterSequence?: number
+      limit?: number
+      threadRootMessageId?: string
+    }> = {}
+  ): Promise<ApiMessagePage> {
+    const query = new URLSearchParams()
+    if (options.afterSequence !== undefined)
+      query.set('afterSequence', String(options.afterSequence))
+    if (options.limit !== undefined) query.set('limit', String(options.limit))
+    if (options.threadRootMessageId) query.set('threadRootMessageId', options.threadRootMessageId)
+    const suffix = query.size ? `?${query}` : ''
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/messages${suffix}`
+    )
+  }
+
+  async createMessage(
+    workspaceId: string,
+    channelId: string,
+    input: ApiMessageCreateInput
+  ): Promise<ApiMessageResponse> {
+    const { idempotencyKey, ...body } = input
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/messages`,
+      {
+        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+        method: 'POST',
+      }
+    )
+  }
+
+  async getMessage(workspaceId: string, messageId: string): Promise<ApiMessageResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/messages/${encodeURIComponent(messageId)}`
+    )
+  }
+
+  async editMessage(
+    workspaceId: string,
+    messageId: string,
+    input: Readonly<{ bodyContentRefId?: string | null; bodyText?: string | null }>,
+    expectedVersion: number
+  ): Promise<ApiMessageResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/messages/${encodeURIComponent(messageId)}`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
+        method: 'PATCH',
+      }
+    )
+  }
+
+  async deleteMessage(
+    workspaceId: string,
+    messageId: string,
+    expectedVersion: number
+  ): Promise<ApiMessageResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/messages/${encodeURIComponent(messageId)}`,
+      { headers: { 'If-Match': String(expectedVersion) }, method: 'DELETE' }
+    )
+  }
+
+  private async createChannel(
+    workspaceId: string,
+    input: Readonly<{
+      agentId?: string
+      idempotencyKey: string
+      kind: 'room' | 'direct_agent' | 'group'
+      roomId?: string
+      taskId?: string
+      title: string
+    }>
+  ): Promise<ApiChannelResponse> {
+    const { idempotencyKey, ...body } = input
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/channels`, {
+      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      method: 'POST',
+    })
   }
 
   async setTaskDependencies(
