@@ -1,12 +1,12 @@
-import "server-only";
+import 'server-only'
 
 export {
   createDatabase,
   type AgentHqDatabase,
   type AgentHqTransaction,
   type DatabaseConnection,
-} from "./connection";
-export { readDatabaseUrl, type DatabaseEnvironment } from "./config";
+} from './connection'
+export { readDatabaseUrl, type DatabaseEnvironment } from './config'
 export {
   claimTemporaryUserSession,
   claimTemporaryUserSessionForUser,
@@ -21,7 +21,7 @@ export {
   resolveTemporaryUserSession,
   type TemporaryUserSessionInput,
   type TemporaryUserSessionRecord,
-} from "./identity";
+} from './identity'
 export {
   consumeDesktopAuthorizationCode,
   createDesktopSessionRecord,
@@ -31,9 +31,9 @@ export {
   saveDesktopAuthorizationCode,
   type StoredDesktopAuthorizationCode,
   type StoredDesktopSession,
-} from "./desktop-auth";
-export * from "./schema";
-export { appendWorkspaceEvent, inTransaction } from "./transactions";
+} from './desktop-auth'
+export * from './schema'
+export { appendWorkspaceEvent, inTransaction } from './transactions'
 export {
   addWorkspaceMembership,
   archiveWorkspace,
@@ -46,4 +46,12 @@ export {
   reopenWorkspace,
   type WorkspaceMembershipRecord,
   type WorkspaceRole,
-} from "./workspaces";
+} from './workspaces'
+export {
+  archiveRoom,
+  createRoom,
+  getRoomForUser,
+  listRoomsForUser,
+  reorderRooms,
+  updateRoom,
+} from './rooms'
