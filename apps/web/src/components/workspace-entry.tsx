@@ -1,6 +1,8 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import { useState } from 'react'
+import type { WorkspaceView } from '@agent-hq/workspace-ui'
 import type { WorkspaceShellProps } from './workspace-shell'
 
 const ConventionalWorkspace = dynamic(
@@ -28,5 +30,16 @@ export function WorkspaceEntry({
   spatial,
   spatialProps,
 }: Readonly<{ spatial: boolean; spatialProps: WorkspaceShellProps }>) {
-  return spatial ? <SpatialWorkspace {...spatialProps} /> : <ConventionalWorkspace />
+  const [view, setView] = useState<WorkspaceView>(spatial ? 'virtual' : 'chat')
+  const changeView = (nextView: WorkspaceView) => {
+    setView(nextView)
+    const nextUrl = new URL(window.location.href)
+    nextUrl.searchParams.set('view', nextView === 'virtual' ? 'spatial' : 'chat')
+    window.history.replaceState(null, '', nextUrl)
+  }
+  return view === 'virtual' ? (
+    <SpatialWorkspace {...spatialProps} onWorkspaceViewChange={changeView} workspaceView={view} />
+  ) : (
+    <ConventionalWorkspace onViewChange={changeView} />
+  )
 }

@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import type { WorkspaceSceneId } from '@agent-hq/types'
+import { Button } from '@agent-hq/ui/components/ui/button'
+import { Field, FieldError, FieldGroup, FieldLabel } from '@agent-hq/ui/components/ui/field'
+import { Input } from '@agent-hq/ui/components/ui/input'
 
 import { ModalDialog } from './modal-dialog'
 
@@ -42,9 +45,10 @@ export function CreateRoomDialog({
     >
       <div className="conventional-template-options" aria-label={`${template} Room suggestions`}>
         {roomTemplates[template].map((room) => (
-          <button
+          <Button
             key={room.functionKey}
             type="button"
+            variant="outline"
             disabled={busy}
             onClick={() =>
               void onCreate(room)
@@ -54,7 +58,7 @@ export function CreateRoomDialog({
           >
             <strong>{room.name}</strong>
             <span>{template === 'work' ? 'Work template' : 'Home template'}</span>
-          </button>
+          </Button>
         ))}
       </div>
       <form
@@ -70,18 +74,26 @@ export function CreateRoomDialog({
             .catch(() => setError('Room could not be created. Check the fields and retry.'))
         }}
       >
-        <label>
-          Room name
-          <input name="name" required maxLength={120} />
-        </label>
-        <label>
-          Function key
-          <input name="functionKey" required pattern="[a-z0-9-]+" maxLength={80} />
-        </label>
-        {error ? <p role="alert">{error}</p> : null}
-        <button type="submit" className="conventional-primary-button" disabled={busy}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="room-name">Room name</FieldLabel>
+            <Input id="room-name" name="name" required maxLength={120} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="room-function-key">Function key</FieldLabel>
+            <Input
+              id="room-function-key"
+              name="functionKey"
+              required
+              pattern={'[a-z0-9\\-]+'}
+              maxLength={80}
+            />
+          </Field>
+        </FieldGroup>
+        {error ? <FieldError>{error}</FieldError> : null}
+        <Button type="submit" disabled={busy}>
           {busy ? 'Creating…' : 'Create Room'}
-        </button>
+        </Button>
       </form>
     </ModalDialog>
   )
@@ -116,14 +128,14 @@ export function CreateGroupDialog({
             .catch(() => setError('Group conversation could not be created.'))
         }}
       >
-        <label>
-          Conversation name
-          <input name="title" required maxLength={120} autoFocus />
-        </label>
-        {error ? <p role="alert">{error}</p> : null}
-        <button type="submit" className="conventional-primary-button" disabled={busy}>
+        <Field>
+          <FieldLabel htmlFor="conversation-name">Conversation name</FieldLabel>
+          <Input id="conversation-name" name="title" required maxLength={120} autoFocus />
+        </Field>
+        {error ? <FieldError>{error}</FieldError> : null}
+        <Button type="submit" disabled={busy}>
           {busy ? 'Creating…' : 'Create conversation'}
-        </button>
+        </Button>
       </form>
     </ModalDialog>
   )

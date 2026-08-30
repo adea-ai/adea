@@ -1,13 +1,21 @@
 'use client'
 
 import { createNeonClientAdapter } from '@agent-hq/auth/client'
-import { ConventionalWorkspaceShell, createBrowserSettingsProvider } from '@agent-hq/workspace-ui'
+import {
+  ConventionalWorkspaceShell,
+  createBrowserSettingsProvider,
+  type WorkspaceView,
+} from '@agent-hq/workspace-ui'
 import { useState } from 'react'
 
-export function ConventionalWorkspaceEntry() {
+export function ConventionalWorkspaceEntry({
+  onViewChange,
+}: Readonly<{ onViewChange: (view: WorkspaceView) => void }>) {
   const [settings] = useState(() => createBrowserSettingsProvider())
   return (
     <ConventionalWorkspaceShell
+      onViewChange={onViewChange}
+      view="chat"
       services={{
         account: {
           onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),

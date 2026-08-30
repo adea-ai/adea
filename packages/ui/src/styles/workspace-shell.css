@@ -1,33 +1,33 @@
 :root {
-  --hq-shell-background: #f3f7f4;
+  --hq-shell-background: #fafafa;
   --hq-shell-surface: #ffffff;
-  --hq-shell-surface-strong: #e7efe9;
-  --hq-shell-surface-stronger: #dce8df;
-  --hq-shell-border: #c9d8cd;
-  --hq-shell-border-subtle: #dce7df;
-  --hq-shell-foreground: #17231b;
-  --hq-shell-muted: #5b6c61;
-  --hq-shell-accent: #4d7c0f;
-  --hq-shell-accent-strong: #3f6212;
-  --hq-shell-accent-foreground: #f7fee7;
-  --hq-shell-focus: #2563eb;
-  --hq-shell-active: #15803d;
+  --hq-shell-surface-strong: #f5f5f5;
+  --hq-shell-surface-stronger: #e5e5e5;
+  --hq-shell-border: #e5e5e5;
+  --hq-shell-border-subtle: #f5f5f5;
+  --hq-shell-foreground: #171717;
+  --hq-shell-muted: #737373;
+  --hq-shell-accent: #171717;
+  --hq-shell-accent-strong: #262626;
+  --hq-shell-accent-foreground: #fafafa;
+  --hq-shell-focus: #a3a3a3;
+  --hq-shell-active: #525252;
 }
 
 .dark {
-  --hq-shell-background: #0a0d11;
-  --hq-shell-surface: #11161d;
-  --hq-shell-surface-strong: #18202a;
-  --hq-shell-surface-stronger: #202a36;
-  --hq-shell-border: #27313d;
-  --hq-shell-border-subtle: #1b242f;
-  --hq-shell-foreground: #f0f4f8;
-  --hq-shell-muted: #8d9aa8;
-  --hq-shell-accent: #c9f27a;
-  --hq-shell-accent-strong: #dbff95;
-  --hq-shell-accent-foreground: #17200e;
-  --hq-shell-focus: #a8d6ff;
-  --hq-shell-active: #86efac;
+  --hq-shell-background: #0a0a0a;
+  --hq-shell-surface: #171717;
+  --hq-shell-surface-strong: #262626;
+  --hq-shell-surface-stronger: #404040;
+  --hq-shell-border: #404040;
+  --hq-shell-border-subtle: #262626;
+  --hq-shell-foreground: #fafafa;
+  --hq-shell-muted: #a3a3a3;
+  --hq-shell-accent: #e5e5e5;
+  --hq-shell-accent-strong: #f5f5f5;
+  --hq-shell-accent-foreground: #171717;
+  --hq-shell-focus: #737373;
+  --hq-shell-active: #d4d4d4;
 }
 
 .workspace-shell {
@@ -58,8 +58,74 @@
   border-radius: 0.55rem;
   color: var(--hq-shell-accent-foreground);
   background: var(--hq-shell-accent);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: -0.08em;
+}
+
+.virtual-room-panel {
+  position: absolute;
+  top: calc(var(--workspace-topbar-offset) + 1rem);
+  left: 1rem;
+  z-index: 10;
+  width: min(20rem, calc(100vw - 2rem));
+  max-height: min(26rem, calc(100svh - var(--workspace-topbar-offset) - 6rem));
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  color: var(--card-foreground);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.2);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.virtual-room-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.65rem;
+}
+
+.virtual-room-panel h2,
+.virtual-room-panel p {
+  margin: 0;
+}
+
+.virtual-room-panel header p {
+  margin-bottom: 0.15rem;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.virtual-room-panel h2 {
+  font-size: 0.95rem;
+}
+
+.virtual-room-panel__rooms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.virtual-room-panel__rooms > p {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+  .virtual-room-panel {
+    top: auto;
+    bottom: calc(var(--workspace-bottom-controls) + 4rem);
+    left: 0.75rem;
+    width: calc(100vw - 1.5rem);
+    max-height: 11rem;
+  }
 }
