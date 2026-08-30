@@ -43,7 +43,12 @@ export function TaskDetail(props: Props) {
           <X aria-hidden="true" />
         </button>
       </header>
-      <p>{props.task.objective}</p>
+      <p>
+        {props.task.objective ??
+          (props.task.objectiveContentRefId
+            ? 'Private objective unavailable on this device'
+            : 'Objective unavailable')}
+      </p>
       <label>
         Agent
         <select

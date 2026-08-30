@@ -6,7 +6,11 @@ import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
 } from '../../../../../../../server/desktop-workspace'
-import { readTaskCommand, taskErrorResponse } from '../../../../../../../server/task-request'
+import {
+  isUuid,
+  readTaskCommand,
+  taskErrorResponse,
+} from '../../../../../../../server/task-request'
 import { authorizeWorkspace } from '../../../../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../../../../server/workspace-principal'
 import {
@@ -66,6 +70,8 @@ export async function PATCH(request: Request, { params }: Context) {
       (typeof input.objective !== 'string' ||
         !input.objective.trim() ||
         input.objective.length > 20_000)) ||
+    (input.objectiveContentRefId !== undefined && !isUuid(input.objectiveContentRefId)) ||
+    (input.objective !== undefined && input.objectiveContentRefId !== undefined) ||
     (input.priority !== undefined && !priorities.includes(input.priority)) ||
     (input.controlPlaneExecutionRef !== undefined &&
       input.controlPlaneExecutionRef !== null &&

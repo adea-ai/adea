@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { createAgent } from '../../src/agents'
 import { createArtifact } from '../../src/artifacts'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createContentRef } from '../../src/content-refs'
 import {
   archiveChannel,
   createDirectAgentChannel,
@@ -24,6 +25,7 @@ import {
   artifacts,
   channelParticipants,
   channels,
+  contentRefs,
   messageArtifactReferences,
   messageMentions,
   messages,
@@ -65,6 +67,7 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       .where(eq(messageArtifactReferences.workspaceId, workspaceId))
     await connection.db.delete(artifacts).where(eq(artifacts.workspaceId, workspaceId))
     await connection.db.delete(messages).where(eq(messages.workspaceId, workspaceId))
+    await connection.db.delete(contentRefs).where(eq(contentRefs.workspaceId, workspaceId))
     await connection.db
       .delete(channelParticipants)
       .where(eq(channelParticipants.workspaceId, workspaceId))
@@ -221,8 +224,20 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       taskId: task.id,
     })
     expect(retried.id).toBe(root.id)
+    const bodyContentRefId = crypto.randomUUID()
+    await createContentRef(connection.db, workspace.id, owner.principal, {
+      availability: 'available',
+      contentType: 'message_body',
+      digestSha256: 'e'.repeat(64),
+      id: bodyContentRefId,
+      keyVersion: 1,
+      schemaVersion: 1,
+      sensitivity: 'restricted',
+      storagePolicy: 'local_authority',
+      synchronizationPolicy: 'local_only',
+    })
     const reply = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
-      bodyContentRefId: crypto.randomUUID(),
+      bodyContentRefId,
       idempotencyKey: 'reply-message',
       replyToMessageId: root.id,
       sender: { kind: 'system', systemId: 'agent-hq' },

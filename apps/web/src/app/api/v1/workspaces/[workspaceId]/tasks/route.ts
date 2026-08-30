@@ -58,9 +58,13 @@ export async function POST(request: Request, { params }: Context) {
     typeof candidate.title !== 'string' ||
     !candidate.title.trim() ||
     candidate.title.length > 200 ||
-    typeof candidate.objective !== 'string' ||
-    !candidate.objective.trim() ||
-    candidate.objective.length > 20_000 ||
+    Boolean(typeof candidate.objective === 'string' && candidate.objective.trim()) ===
+      Boolean(isUuid(candidate.objectiveContentRefId)) ||
+    (candidate.objective !== undefined &&
+      (typeof candidate.objective !== 'string' ||
+        !candidate.objective.trim() ||
+        candidate.objective.length > 20_000)) ||
+    (candidate.objectiveContentRefId !== undefined && !isUuid(candidate.objectiveContentRefId)) ||
     (candidate.priority !== undefined && !priorities.includes(candidate.priority as never)) ||
     (candidate.agentId !== undefined && !isUuid(candidate.agentId)) ||
     (candidate.roomId !== undefined && !isUuid(candidate.roomId)) ||
