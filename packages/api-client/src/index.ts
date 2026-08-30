@@ -24,6 +24,49 @@ export type ApiAgentProfileInput = Readonly<{
 }>
 export type ApiAgentResponse = Readonly<{ agent: AgentSummary }>
 
+export type ApiTaskCommand = Readonly<{
+  correlationId?: string
+  expectedVersion?: number
+  idempotencyKey: string
+  requestId: string
+}>
+export type ApiTaskCreateInput = Readonly<{
+  agentId?: string
+  artifactRefs?: readonly string[]
+  controlPlaneExecutionRef?: string
+  controlPlaneWorkflowRef?: string
+  conversation?: Readonly<{
+    channelId?: string
+    messageId?: string
+    threadRootMessageId?: string
+  }>
+  dependencyIds?: readonly string[]
+  objective: string
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  roomId?: string
+  title: string
+}>
+export type ApiTaskUpdateInput = Readonly<{
+  controlPlaneExecutionRef?: string | null
+  controlPlaneWorkflowRef?: string | null
+  objective?: string
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  title?: string
+}>
+export type ApiTaskResponse = Readonly<{ task: TaskSummary }>
+
+function taskCommandHeaders(command: ApiTaskCommand): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'Idempotency-Key': command.idempotencyKey,
+    'X-Request-ID': command.requestId,
+    ...(command.correlationId ? { 'X-Correlation-ID': command.correlationId } : {}),
+    ...(command.expectedVersion !== undefined
+      ? { 'If-Match': String(command.expectedVersion) }
+      : {}),
+  }
+}
+
 export type ApiRoomCreateInput = Readonly<{
   functionKey: string
   layoutRef?: string
@@ -275,6 +318,116 @@ export class AgentHqApiClient {
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/agents/${encodeURIComponent(agentId)}`,
       { method: 'DELETE' }
     )
+  }
+
+  async listTasks(workspaceId: string): Promise<readonly TaskSummary[]> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/tasks`)
+  }
+
+  async getTask(workspaceId: string, taskId: string): Promise<ApiTaskResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}`
+    )
+  }
+
+  async createTask(
+    workspaceId: string,
+    input: ApiTaskCreateInput,
+    command: ApiTaskCommand
+  ): Promise<ApiTaskResponse> {
+    return this.taskCommand(workspaceId, undefined, undefined, input, command)
+  }
+
+  async updateTask(
+    workspaceId: string,
+    taskId: string,
+    input: ApiTaskUpdateInput,
+    command: ApiTaskCommand
+  ): Promise<ApiTaskResponse> {
+    return this.taskCommand(workspaceId, taskId, undefined, input, command, 'PATCH')
+  }
+
+  async assignTask(
+    workspaceId: string,
+    taskId: string,
+    agentId: string | null,
+    command: ApiTaskCommand
+  ): Promise<ApiTaskResponse> {
+    return this.taskCommand(workspaceId, taskId, 'assign', { agentId }, command)
+  }
+
+  async moveTaskToRoom(
+    workspaceId: string,
+    taskId: string,
+    roomId: string | null,
+    command: ApiTaskCommand
+  ): Promise<ApiTaskResponse> {
+    return this.taskCommand(workspaceId, taskId, 'room', { roomId }, command)
+  }
+
+  async queueTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
+    return this.taskCommand(workspaceId, taskId, 'queue', {}, command)
+  }
+
+  async cancelTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
+    return this.taskCommand(workspaceId, taskId, 'cancel', {}, command)
+  }
+
+  async archiveTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
+    return this.taskCommand(workspaceId, taskId, 'archive', {}, command)
+  }
+
+  async setTaskDependencies(
+    workspaceId: string,
+    taskId: string,
+    dependencyIds: readonly string[],
+    command: ApiTaskCommand
+  ) {
+    return this.taskCommand(workspaceId, taskId, 'dependencies', { dependencyIds }, command)
+  }
+
+  async setTaskArtifactReferences(
+    workspaceId: string,
+    taskId: string,
+    artifactRefs: readonly string[],
+    command: ApiTaskCommand
+  ) {
+    return this.taskCommand(workspaceId, taskId, 'artifacts', { artifactRefs }, command)
+  }
+
+  async setTaskConversationReferences(
+    workspaceId: string,
+    taskId: string,
+    conversation: Readonly<{
+      channelId?: string | null
+      messageId?: string | null
+      threadRootMessageId?: string | null
+    }>,
+    command: ApiTaskCommand
+  ) {
+    return this.taskCommand(workspaceId, taskId, 'conversation', conversation, command)
+  }
+
+  private async taskCommand(
+    workspaceId: string,
+    taskId: string | undefined,
+    action: string | undefined,
+    payload: unknown,
+    command: ApiTaskCommand,
+    method = 'POST'
+  ): Promise<ApiTaskResponse> {
+    const path = [
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/tasks`,
+      taskId ? encodeURIComponent(taskId) : undefined,
+      action,
+    ]
+      .filter(Boolean)
+      .join('/')
+    return this.request(path, {
+      body: JSON.stringify(payload),
+      headers: taskCommandHeaders(command),
+      method,
+    })
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
