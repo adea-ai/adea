@@ -1,5 +1,8 @@
+import { useEffect, useState } from 'react'
 import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@agent-hq/types'
 import { Bot, File, LockKeyhole, MessageSquareReply, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+
+import type { PrivateContentResolver } from './platform'
 
 function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
   if (message.sender.kind === 'user') return 'You'
@@ -8,19 +11,62 @@ function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
   return agents.find(({ id }) => id === agentId)?.name ?? 'Agent'
 }
 
-function MessageBody({ message }: { message: MessageSummary }) {
+function MessageBody({
+  message,
+  privateContent,
+}: {
+  message: MessageSummary
+  privateContent?: PrivateContentResolver
+}) {
+  const [resolvedBody, setResolvedBody] = useState<string | null>(null)
+  const [resolutionState, setResolutionState] = useState<'idle' | 'loading' | 'unavailable'>('idle')
+  useEffect(() => {
+    let active = true
+    setResolvedBody(null)
+    if (!message.bodyContentRefId || message.bodyText || !privateContent) {
+      setResolutionState('idle')
+      return () => {
+        active = false
+      }
+    }
+    setResolutionState('loading')
+    void privateContent
+      .read({ contentId: message.bodyContentRefId, workspaceId: message.workspaceId })
+      .then(({ plaintext }) => {
+        if (!active) return
+        setResolvedBody(plaintext)
+        setResolutionState('idle')
+      })
+      .catch(() => {
+        if (active) setResolutionState('unavailable')
+      })
+    return () => {
+      active = false
+    }
+  }, [message.bodyContentRefId, message.bodyText, message.workspaceId, privateContent])
   if (message.deleted) return <p className="conventional-message__deleted">Message deleted</p>
-  if (message.bodyContentRefId && !message.bodyText)
+  if (message.bodyContentRefId && !message.bodyText && !resolvedBody)
     return (
-      <div className="conventional-private-content" role="status">
+      <div
+        className="conventional-private-content"
+        role={resolutionState === 'unavailable' ? 'alert' : 'status'}
+      >
         <LockKeyhole aria-hidden="true" />
         <div>
-          <strong>Private content unavailable</strong>
-          <span>Open this conversation on its authorized desktop device.</span>
+          <strong>
+            {resolutionState === 'loading'
+              ? 'Opening private content…'
+              : 'Private content unavailable'}
+          </strong>
+          <span>
+            {privateContent
+              ? 'This device is not currently authorized for this content.'
+              : 'Open this conversation on its authorized desktop device.'}
+          </span>
         </div>
       </div>
     )
-  const blocks = (message.bodyText ?? '').split(/(```[\s\S]*?```)/g).filter(Boolean)
+  const blocks = (message.bodyText ?? resolvedBody ?? '').split(/(```[\s\S]*?```)/g).filter(Boolean)
   return (
     <div className="conventional-message__body">
       {blocks.map((block, index) =>
@@ -73,6 +119,7 @@ export function MessageRow({
   onEdit,
   onOpenTask,
   onOpenThread,
+  privateContent,
   pending = false,
   retry,
   task,
@@ -85,6 +132,7 @@ export function MessageRow({
   onEdit?: () => void
   onOpenTask?: (taskId: string) => void
   onOpenThread?: (messageId: string) => void
+  privateContent?: PrivateContentResolver
   pending?: boolean
   retry?: () => void
   task?: TaskSummary
@@ -116,7 +164,7 @@ export function MessageRow({
           {message.editedAt ? <span>edited</span> : null}
           {pending ? <span role="status">sending…</span> : null}
         </header>
-        <MessageBody message={message} />
+        <MessageBody message={message} privateContent={privateContent} />
         {message.artifactIds.length ? (
           <div className="conventional-message__artifacts">
             {message.artifactIds.map((artifactId) => (

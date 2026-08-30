@@ -6,6 +6,7 @@ import { MailOpen, X } from 'lucide-react'
 
 import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
+import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 
 export function ThreadPanel({
@@ -19,9 +20,11 @@ export function ThreadPanel({
   onOpenTask,
   onMarkRead,
   onMarkUnread,
+  privateContent,
   root,
   searchTargetMessageId,
   tasks,
+  transcription,
   workspaceId,
 }: Readonly<{
   agents: readonly AgentSummary[]
@@ -34,9 +37,11 @@ export function ThreadPanel({
   onOpenTask: (taskId: string) => void
   onMarkRead: (lastReadSequence: number) => Promise<void>
   onMarkUnread: () => Promise<void>
+  privateContent?: PrivateContentResolver
   root: MessageSummary
   searchTargetMessageId: string | null
   tasks: readonly TaskSummary[]
+  transcription?: TranscriptionProvider
   workspaceId: string
 }>) {
   const replies = useMessageListQuery(client, workspaceId, channelId, {
@@ -114,6 +119,7 @@ export function ThreadPanel({
           message={root}
           highlighted={root.id === searchTargetMessageId}
           onOpenTask={onOpenTask}
+          privateContent={privateContent}
           task={root.taskId ? taskById.get(root.taskId) : undefined}
         />
         <div className="conventional-thread__divider" role="separator">
@@ -131,6 +137,7 @@ export function ThreadPanel({
             message={message}
             highlighted={message.id === searchTargetMessageId}
             onOpenTask={onOpenTask}
+            privateContent={privateContent}
             task={message.taskId ? taskById.get(message.taskId) : undefined}
           />
         ))}
@@ -143,6 +150,7 @@ export function ThreadPanel({
         onDraftChange={onDraftChange}
         onSubmit={submit}
         replyLabel={root.bodyText?.slice(0, 56) || 'private message'}
+        transcription={transcription}
       />
     </aside>
   )
