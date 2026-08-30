@@ -1,8 +1,11 @@
 import type {
   AgentSummary,
+  ArtifactLocation,
+  ArtifactSummary,
   ChannelSummary,
   ConversationParticipantRef,
   MessageSummary,
+  PrincipalRef,
   RoomSummary,
   TaskSummary,
   WorkspaceSummary,
@@ -31,6 +34,24 @@ export type ApiAgentProfileInput = Readonly<{
   profileVersion: string
 }>
 export type ApiAgentResponse = Readonly<{ agent: AgentSummary }>
+
+export type ApiArtifactCreateInput = Readonly<{
+  agentId?: string
+  availability?: ArtifactSummary['availability']
+  checksumSha256: string
+  executionRef?: string
+  filename: string
+  location: ArtifactLocation
+  mediaType: string
+  provenance?: Readonly<Record<string, unknown>>
+  retentionPolicy?: ArtifactSummary['retentionPolicy']
+  sensitivity?: ArtifactSummary['sensitivity']
+  sizeBytes: number
+  sourceArtifactRef: string
+  sourcePrincipal: PrincipalRef
+  taskId?: string
+}>
+export type ApiArtifactResponse = Readonly<{ artifact: ArtifactSummary }>
 
 export type ApiTaskCommand = Readonly<{
   correlationId?: string
@@ -402,6 +423,54 @@ export class AgentHqApiClient {
 
   async archiveTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
     return this.taskCommand(workspaceId, taskId, 'archive', {}, command)
+  }
+
+  async listArtifacts(workspaceId: string): Promise<readonly ArtifactSummary[]> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts`)
+  }
+
+  async getArtifact(workspaceId: string, artifactId: string): Promise<ApiArtifactResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}`
+    )
+  }
+
+  async createArtifact(
+    workspaceId: string,
+    input: ApiArtifactCreateInput
+  ): Promise<ApiArtifactResponse> {
+    return this.request(`/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts`, {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async setArtifactAvailability(
+    workspaceId: string,
+    artifactId: string,
+    availability: ArtifactSummary['availability'],
+    expectedVersion: number
+  ): Promise<ApiArtifactResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}`,
+      {
+        body: JSON.stringify({ availability }),
+        headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
+        method: 'PATCH',
+      }
+    )
+  }
+
+  async deleteArtifact(
+    workspaceId: string,
+    artifactId: string,
+    expectedVersion: number
+  ): Promise<ApiArtifactResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/artifacts/${encodeURIComponent(artifactId)}`,
+      { headers: { 'If-Match': String(expectedVersion) }, method: 'DELETE' }
+    )
   }
 
   async listChannels(workspaceId: string): Promise<readonly ChannelSummary[]> {

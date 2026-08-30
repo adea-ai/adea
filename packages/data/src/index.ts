@@ -31,6 +31,62 @@ export const taskQueryKeys = {
   list: (workspaceId: string) => ['workspaces', workspaceId, 'tasks', 'list'] as const,
 }
 
+export const artifactQueryKeys = {
+  all: (workspaceId: string) => ['workspaces', workspaceId, 'artifacts'] as const,
+  detail: (workspaceId: string, artifactId: string) =>
+    ['workspaces', workspaceId, 'artifacts', 'detail', artifactId] as const,
+  list: (workspaceId: string) => ['workspaces', workspaceId, 'artifacts', 'list'] as const,
+}
+
+export const artifactQueryOptions = {
+  detail: (client: AgentHqApiClient, workspaceId?: string, artifactId?: string) => ({
+    queryKey: artifactQueryKeys.detail(workspaceId ?? '', artifactId ?? ''),
+    queryFn: () => client.getArtifact(workspaceId!, artifactId!),
+    enabled: Boolean(workspaceId && artifactId),
+  }),
+  list: (client: AgentHqApiClient, workspaceId?: string) => ({
+    queryKey: artifactQueryKeys.list(workspaceId ?? ''),
+    queryFn: () => client.listArtifacts(workspaceId!),
+    enabled: Boolean(workspaceId),
+  }),
+}
+
+function artifactMutationSuccess(queryClient: QueryClient, workspaceId: string) {
+  return async (result: Awaited<ReturnType<AgentHqApiClient['getArtifact']>>) => {
+    queryClient.setQueryData(artifactQueryKeys.detail(workspaceId, result.artifact.id), result)
+    await queryClient.invalidateQueries({ queryKey: artifactQueryKeys.list(workspaceId) })
+  }
+}
+
+export const artifactMutationOptions = {
+  availability: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        artifactId: string
+        availability: Parameters<AgentHqApiClient['setArtifactAvailability']>[2]
+        expectedVersion: number
+      }>
+    ) =>
+      client.setArtifactAvailability(
+        workspaceId,
+        input.artifactId,
+        input.availability,
+        input.expectedVersion
+      ),
+    onSuccess: artifactMutationSuccess(queryClient, workspaceId),
+  }),
+  create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Parameters<AgentHqApiClient['createArtifact']>[1]) =>
+      client.createArtifact(workspaceId, input),
+    onSuccess: artifactMutationSuccess(queryClient, workspaceId),
+  }),
+  delete: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Readonly<{ artifactId: string; expectedVersion: number }>) =>
+      client.deleteArtifact(workspaceId, input.artifactId, input.expectedVersion),
+    onSuccess: artifactMutationSuccess(queryClient, workspaceId),
+  }),
+}
+
 export const channelQueryKeys = {
   all: (workspaceId: string) => ['workspaces', workspaceId, 'channels'] as const,
   detail: (workspaceId: string, channelId: string) =>
@@ -549,6 +605,29 @@ export function useSetTaskArtifactsMutation(client: AgentHqApiClient, workspaceI
 }
 export function useSetTaskConversationMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(taskMutationOptions.conversation(client, useQueryClient(), workspaceId))
+}
+
+export function useArtifactListQuery(client: AgentHqApiClient, workspaceId?: string) {
+  return useQuery(artifactQueryOptions.list(client, workspaceId))
+}
+export function useArtifactQuery(
+  client: AgentHqApiClient,
+  workspaceId?: string,
+  artifactId?: string
+) {
+  return useQuery(artifactQueryOptions.detail(client, workspaceId, artifactId))
+}
+export function useCreateArtifactMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(artifactMutationOptions.create(client, useQueryClient(), workspaceId))
+}
+export function useSetArtifactAvailabilityMutation(
+  client: AgentHqApiClient,
+  workspaceId: string
+) {
+  return useMutation(artifactMutationOptions.availability(client, useQueryClient(), workspaceId))
+}
+export function useDeleteArtifactMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(artifactMutationOptions.delete(client, useQueryClient(), workspaceId))
 }
 
 export function useChannelListQuery(client: AgentHqApiClient, workspaceId?: string) {

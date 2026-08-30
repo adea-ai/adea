@@ -7,11 +7,12 @@ import type {
   MessageSummary,
   UserPrincipalRef,
 } from '@agent-hq/types'
-import { and, asc, eq, gt, isNull, max } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   agents,
+  artifacts,
   channelParticipants,
   channels,
   messageArtifactReferences,
@@ -674,6 +675,20 @@ export async function createMessage(
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
     const artifactIds = [...new Set(input.artifactIds ?? [])].sort()
+    if (artifactIds.length) {
+      const availableArtifacts = await transaction
+        .select({ id: artifacts.id })
+        .from(artifacts)
+        .where(
+          and(
+            eq(artifacts.workspaceId, workspaceId),
+            eq(artifacts.deletionState, 'active'),
+            inArray(artifacts.id, artifactIds)
+          )
+        )
+      if (availableArtifacts.length !== artifactIds.length)
+        throw new Error('Artifact unavailable')
+    }
     const mentions = [
       ...new Map((input.mentions ?? []).map((entry) => [JSON.stringify(entry), entry])).values(),
     ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
