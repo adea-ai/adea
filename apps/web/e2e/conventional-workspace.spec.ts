@@ -270,6 +270,29 @@ async function mockWorkspace(page: Page, empty = false) {
     const url = new URL(route.request().url())
     if (url.pathname.includes('/read-state'))
       return route.fulfill({ contentType: 'application/json', json: { readState } })
+    if (
+      url.pathname.includes('/agents/agent-research/') &&
+      ['PATCH', 'POST'].includes(route.request().method())
+    ) {
+      const body = route.request().postDataJSON() as Record<string, unknown>
+      const updated = {
+        ...agents[0],
+        ...(url.pathname.endsWith('/presentation') ? body : {}),
+        ...(url.pathname.endsWith('/room') ? { roomId: body.roomId } : {}),
+        ...(url.pathname.endsWith('/profile')
+          ? {
+              profile: {
+                id: body.profileId,
+                state: body.profileState ?? 'available',
+                version: body.profileVersion,
+              },
+            }
+          : {}),
+      }
+      return route.fulfill({ contentType: 'application/json', json: { agent: updated } })
+    }
+    if (url.pathname.endsWith('/agents/agent-research') && route.request().method() === 'DELETE')
+      return route.fulfill({ contentType: 'application/json', json: { archived: true } })
     if (route.request().method() !== 'GET')
       return route.fulfill({ contentType: 'application/json', json: {} })
     if (url.pathname.endsWith('/search')) {
@@ -469,4 +492,78 @@ test('retains drafts across navigation and reloads at supported breakpoints', as
     }))
     expect(viewport.documentWidth).toBe(viewport.viewportWidth)
   }
+})
+
+test('deep-links settings and customizes an Agent without fabricating runtime status', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  await page.goto('/#settings/privacy-data')
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  await expect(settings.getByRole('heading', { name: 'Privacy & data' })).toBeVisible()
+  await expect(settings.getByText('Unavailable in this app or on this device.')).toBeVisible()
+
+  await settings.getByRole('tab', { name: 'Input & notifications' }).click()
+  await expect(settings.getByRole('button', { name: 'Check microphone' })).toBeDisabled()
+  await settings.getByRole('checkbox', { name: 'Mention notifications' }).uncheck()
+  await expect(page).toHaveScreenshot('workspace-settings-light.png', { animations: 'disabled' })
+  await page.evaluate(() => {
+    localStorage.setItem('theme', 'dark')
+    document.documentElement.classList.remove('light')
+    document.documentElement.classList.add('dark')
+  })
+  await expect(page).toHaveScreenshot('workspace-settings-dark.png', { animations: 'disabled' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(page).toHaveScreenshot('workspace-settings-narrow.png', { animations: 'disabled' })
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)
+  ).toBe(true)
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.evaluate(() => {
+    localStorage.setItem('theme', 'light')
+    document.documentElement.classList.remove('dark')
+    document.documentElement.classList.add('light')
+  })
+
+  await settings.getByRole('tab', { name: 'Agents' }).focus()
+  await page.keyboard.press('End')
+  await expect(settings.getByRole('tab', { name: 'Integrations & capabilities' })).toBeFocused()
+  await page.keyboard.press('Home')
+  await expect(settings.getByRole('tab', { name: 'Account & app' })).toBeFocused()
+  await settings.getByRole('tab', { name: 'Agents' }).click()
+  await settings.getByRole('button', { name: 'Customize Agents' }).click()
+
+  const configured = page.getByText('Configured', { exact: true }).first()
+  await expect(configured).toBeVisible()
+  await expect(page.getByText('Runtime unknown', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Activity unknown', { exact: true }).first()).toBeVisible()
+  expect((await page.locator('.conventional-agent-card').allTextContents()).join(' ')).not.toMatch(
+    /online|working/i
+  )
+
+  await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
+  const form = page.locator('form.conventional-agent-customization')
+  await form.getByLabel('Name').fill('Research Lead')
+  await form.getByLabel('Role or persona').fill('Market evidence and customer research')
+  await form.getByLabel('Room').selectOption('room-support')
+  await form.getByLabel('AgentProfile version').fill('2')
+  const presentation = page.waitForRequest((request) => request.url().endsWith('/presentation'))
+  const room = page.waitForRequest((request) => request.url().endsWith('/room'))
+  const profile = page.waitForRequest((request) => request.url().endsWith('/profile'))
+  await form.getByRole('button', { name: 'Save changes' }).click()
+  expect((await presentation).postDataJSON()).toMatchObject({ name: 'Research Lead' })
+  expect((await room).postDataJSON()).toEqual({ roomId: 'room-support' })
+  expect((await profile).postDataJSON()).toMatchObject({
+    profileId: 'profile-research',
+    profileVersion: '2',
+  })
+
+  await page.getByRole('button', { name: 'Customize', exact: true }).first().click()
+  await expect(page.getByText('Permanent deletion is unavailable')).toBeVisible()
+  await page.getByRole('button', { name: 'Archive Agent' }).click()
+  await expect(page.getByRole('alertdialog', { name: 'Archive Research Agent' })).toBeVisible()
+  await expect(page).toHaveScreenshot('workspace-agent-customization.png', {
+    animations: 'disabled',
+  })
 })

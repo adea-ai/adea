@@ -1,24 +1,24 @@
-import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
-import { HqRoomScene } from "@agent-hq/hq-scenes/runtime";
-import { MusicToggle } from "@agent-hq/audio";
-import { Button } from "@agent-hq/ui/components/ui/button";
-import { WorkspaceBrand } from "@agent-hq/ui/components/workspace-brand";
-import { BriefcaseBusiness, Home } from "lucide-react";
-import { useState } from "react";
+import { hqHomeManifest, hqWorkManifest } from '@agent-hq/hq-scenes'
+import { HqRoomScene } from '@agent-hq/hq-scenes/runtime'
+import { MusicToggle } from '@agent-hq/audio'
+import { Button } from '@agent-hq/ui/components/ui/button'
+import { WorkspaceBrand } from '@agent-hq/ui/components/workspace-brand'
+import { BriefcaseBusiness, Home } from 'lucide-react'
+import { useState } from 'react'
 
-import type { DesktopWorkspaceBootstrap } from "./workspace-session";
-import { VersionDialog } from "./version-dialog";
+import type { DesktopWorkspaceBootstrap } from './workspace-session'
+import { VersionDialog } from './version-dialog'
 
 type DesktopWorkspaceProps = Readonly<{
-  authenticated: boolean;
-  busy: boolean;
-  message: string;
-  onRetry(): void;
-  onSignIn(): void;
-  onSignOut(): void;
-  status: string;
-  workspaceState: DesktopWorkspaceBootstrap;
-}>;
+  authenticated: boolean
+  busy: boolean
+  message: string
+  onRetry(): void
+  onSignIn(): void
+  onSignOut(): void
+  status: string
+  workspaceState: DesktopWorkspaceBootstrap
+}>
 
 export function DesktopWorkspace({
   authenticated,
@@ -30,23 +30,23 @@ export function DesktopWorkspace({
   status,
   workspaceState,
 }: DesktopWorkspaceProps) {
-  const [scene, setScene] = useState<"home" | "work">(workspaceState.workspace.scene);
-  const manifest = scene === "work" ? hqWorkManifest : hqHomeManifest;
+  const [scene, setScene] = useState<'home' | 'work'>(workspaceState.workspace.scene)
+  const manifest = scene === 'work' ? hqWorkManifest : hqHomeManifest
   const accountLabel = authenticated
-    ? (workspaceState.accountLabel ?? "Account")
-    : status === "waiting"
-      ? "Signing in…"
-      : "Sign in";
+    ? (workspaceState.accountLabel ?? 'Account')
+    : status === 'waiting'
+      ? 'Signing in…'
+      : 'Sign in'
   const statusLabel =
-    status === "authenticated"
-      ? "Saved"
-      : status === "offline"
-        ? "Offline"
-        : status === "failed"
-          ? "Sign-in issue"
-          : status === "opening" || status === "waiting"
-            ? "Signing in"
-            : "Online";
+    status === 'authenticated'
+      ? 'Saved'
+      : status === 'offline'
+        ? 'Offline'
+        : status === 'failed'
+          ? 'Sign-in issue'
+          : status === 'opening' || status === 'waiting'
+            ? 'Signing in'
+            : 'Online'
 
   return (
     <main className="workspace-shell workspace-shell--desktop">
@@ -73,29 +73,32 @@ export function DesktopWorkspace({
             <WorkspaceBrand title={workspaceState.workspace.name} />
 
             <nav className="workspace-scene-nav" aria-label="HQ spaces">
-              {(["home", "work"] as const).map((option) => (
+              <a className="workspace-scene-tab" href="/?view=conventional">
+                Workspace
+              </a>
+              {(['home', 'work'] as const).map((option) => (
                 <Button
                   key={option}
                   type="button"
-                  className={`workspace-scene-tab${scene === option ? " workspace-scene-tab--selected" : ""}`}
+                  className={`workspace-scene-tab${scene === option ? ' workspace-scene-tab--selected' : ''}`}
                   aria-pressed={scene === option}
-                  variant={scene === option ? "secondary" : "ghost"}
+                  variant={scene === option ? 'secondary' : 'ghost'}
                   size="sm"
                   onClick={() => setScene(option)}
                 >
-                  {option === "home" ? (
+                  {option === 'home' ? (
                     <Home size={14} aria-hidden="true" />
                   ) : (
                     <BriefcaseBusiness size={14} aria-hidden="true" />
                   )}
-                  {option === "home" ? "Home" : "Work"}
+                  {option === 'home' ? 'Home' : 'Work'}
                 </Button>
               ))}
             </nav>
 
             <div className="workspace-topbar__actions">
               <div id="workspace-account-slot" className="workspace-account-slot" />
-              {(status === "offline" || status === "failed") && (
+              {(status === 'offline' || status === 'failed') && (
                 <button type="button" onClick={onRetry} disabled={busy}>
                   Try again
                 </button>
@@ -132,5 +135,5 @@ export function DesktopWorkspace({
         </footer>
       </div>
     </main>
-  );
+  )
 }
