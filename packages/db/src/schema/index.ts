@@ -10,3 +10,4 @@ export { commandOutbox, eventInbox, outboxStatus, workspaceEvents } from './even
 export { authIdentities, temporaryUserSessions, users } from './identity'
 export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
 export { roomLifecycleState, rooms } from './rooms'
+export { agentLifecycleState, agentProfileState, agents } from './agents'

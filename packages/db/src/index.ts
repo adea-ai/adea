@@ -55,3 +55,12 @@ export {
   reorderRooms,
   updateRoom,
 } from './rooms'
+export {
+  archiveAgent,
+  assignAgentToRoom,
+  changeAgentProfile,
+  createAgent,
+  getAgentForUser,
+  listAgentsForUser,
+  updateAgentPresentation,
+} from './agents'

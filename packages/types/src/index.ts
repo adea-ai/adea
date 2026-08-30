@@ -16,7 +16,8 @@ export const workspacePermissions = [
 
 export type WorkspacePermission = (typeof workspacePermissions)[number]
 
-export type AgentStatus = 'idle' | 'working' | 'blocked' | 'offline'
+export type AgentLifecycleState = 'active' | 'archived' | 'configuration_error'
+export type AgentProfileState = 'available' | 'deprecated' | 'missing'
 
 export type UserPrincipalRef = Readonly<{ kind: 'user'; userId: string }>
 export type ServicePrincipalRef = Readonly<{ kind: 'service'; serviceId: string }>
@@ -62,10 +63,18 @@ export function isUserPrincipalRef(principal: PrincipalRef): principal is UserPr
 }
 
 export type AgentSummary = {
+  avatarRef?: string
+  characterRef?: string
+  createdAt: string
   id: string
+  lifecycleState: AgentLifecycleState
   name: string
-  status: AgentStatus
-  avatarUrl?: string
+  presentationMetadata: Readonly<Record<string, string>>
+  profile: Readonly<{ id: string; state: AgentProfileState; version: string }>
+  roleSummary?: string
+  roomId?: string
+  updatedAt: string
+  workspaceId: string
 }
 
 export type WorkspaceSummary = {
