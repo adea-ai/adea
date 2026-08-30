@@ -23,6 +23,134 @@ export const agentQueryKeys = {
     ['workspaces', workspaceId, 'agents', 'detail', agentId] as const,
   list: (workspaceId: string) => ['workspaces', workspaceId, 'agents', 'list'] as const,
 }
+
+export const taskQueryKeys = {
+  all: (workspaceId: string) => ['workspaces', workspaceId, 'tasks'] as const,
+  detail: (workspaceId: string, taskId: string) =>
+    ['workspaces', workspaceId, 'tasks', 'detail', taskId] as const,
+  list: (workspaceId: string) => ['workspaces', workspaceId, 'tasks', 'list'] as const,
+}
+export const taskQueryOptions = {
+  detail: (client: AgentHqApiClient, workspaceId?: string, taskId?: string) => ({
+    queryKey: taskQueryKeys.detail(workspaceId ?? '', taskId ?? ''),
+    queryFn: () => client.getTask(workspaceId!, taskId!),
+    enabled: Boolean(workspaceId && taskId),
+  }),
+  list: (client: AgentHqApiClient, workspaceId?: string) => ({
+    queryKey: taskQueryKeys.list(workspaceId ?? ''),
+    queryFn: () => client.listTasks(workspaceId!),
+    enabled: Boolean(workspaceId),
+  }),
+}
+
+function taskMutationSuccess(queryClient: QueryClient, workspaceId: string) {
+  return async (result: Awaited<ReturnType<AgentHqApiClient['getTask']>>) => {
+    queryClient.setQueryData(taskQueryKeys.detail(workspaceId, result.task.id), result)
+    await queryClient.invalidateQueries({ queryKey: taskQueryKeys.list(workspaceId) })
+  }
+}
+
+export const taskMutationOptions = {
+  archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{ command: Parameters<AgentHqApiClient['archiveTask']>[2]; taskId: string }>
+    ) => client.archiveTask(workspaceId, input.taskId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  artifacts: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        artifactRefs: readonly string[]
+        command: Parameters<AgentHqApiClient['setTaskArtifactReferences']>[3]
+        taskId: string
+      }>
+    ) =>
+      client.setTaskArtifactReferences(
+        workspaceId,
+        input.taskId,
+        input.artifactRefs,
+        input.command
+      ),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  assign: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        agentId: string | null
+        command: Parameters<AgentHqApiClient['assignTask']>[3]
+        taskId: string
+      }>
+    ) => client.assignTask(workspaceId, input.taskId, input.agentId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  cancel: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{ command: Parameters<AgentHqApiClient['cancelTask']>[2]; taskId: string }>
+    ) => client.cancelTask(workspaceId, input.taskId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  conversation: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        command: Parameters<AgentHqApiClient['setTaskConversationReferences']>[3]
+        conversation: Parameters<AgentHqApiClient['setTaskConversationReferences']>[2]
+        taskId: string
+      }>
+    ) =>
+      client.setTaskConversationReferences(
+        workspaceId,
+        input.taskId,
+        input.conversation,
+        input.command
+      ),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        command: Parameters<AgentHqApiClient['createTask']>[2]
+        task: Parameters<AgentHqApiClient['createTask']>[1]
+      }>
+    ) => client.createTask(workspaceId, input.task, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  dependencies: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        command: Parameters<AgentHqApiClient['setTaskDependencies']>[3]
+        dependencyIds: readonly string[]
+        taskId: string
+      }>
+    ) => client.setTaskDependencies(workspaceId, input.taskId, input.dependencyIds, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  moveRoom: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        command: Parameters<AgentHqApiClient['moveTaskToRoom']>[3]
+        roomId: string | null
+        taskId: string
+      }>
+    ) => client.moveTaskToRoom(workspaceId, input.taskId, input.roomId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  queue: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{ command: Parameters<AgentHqApiClient['queueTask']>[2]; taskId: string }>
+    ) => client.queueTask(workspaceId, input.taskId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  update: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        command: Parameters<AgentHqApiClient['updateTask']>[3]
+        taskId: string
+        update: Parameters<AgentHqApiClient['updateTask']>[2]
+      }>
+    ) => client.updateTask(workspaceId, input.taskId, input.update, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+}
 export const agentQueryOptions = {
   detail: (client: AgentHqApiClient, workspaceId?: string, agentId?: string) => ({
     queryKey: agentQueryKeys.detail(workspaceId ?? '', agentId ?? ''),
@@ -254,4 +382,41 @@ export function useUpdateAgentPresentationMutation(client: AgentHqApiClient, wor
 }
 export function useChangeAgentProfileMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(agentMutationOptions.profile(client, useQueryClient(), workspaceId))
+}
+
+export function useTaskListQuery(client: AgentHqApiClient, workspaceId?: string) {
+  return useQuery(taskQueryOptions.list(client, workspaceId))
+}
+export function useTaskQuery(client: AgentHqApiClient, workspaceId?: string, taskId?: string) {
+  return useQuery(taskQueryOptions.detail(client, workspaceId, taskId))
+}
+export function useCreateTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.create(client, useQueryClient(), workspaceId))
+}
+export function useUpdateTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.update(client, useQueryClient(), workspaceId))
+}
+export function useAssignTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.assign(client, useQueryClient(), workspaceId))
+}
+export function useMoveTaskRoomMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.moveRoom(client, useQueryClient(), workspaceId))
+}
+export function useQueueTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.queue(client, useQueryClient(), workspaceId))
+}
+export function useCancelTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.cancel(client, useQueryClient(), workspaceId))
+}
+export function useArchiveTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.archive(client, useQueryClient(), workspaceId))
+}
+export function useSetTaskDependenciesMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.dependencies(client, useQueryClient(), workspaceId))
+}
+export function useSetTaskArtifactsMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.artifacts(client, useQueryClient(), workspaceId))
+}
+export function useSetTaskConversationMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.conversation(client, useQueryClient(), workspaceId))
 }

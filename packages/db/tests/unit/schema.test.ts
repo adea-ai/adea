@@ -8,6 +8,9 @@ import {
   desktopAuthorizationCodes,
   eventInbox,
   rooms,
+  taskDependencies,
+  taskMutations,
+  tasks,
   temporaryUserSessions,
   users,
   workspaceMemberships,
@@ -28,9 +31,23 @@ describe('persistence schema', () => {
       commandOutbox,
       eventInbox,
       rooms,
+      tasks,
+      taskDependencies,
+      taskMutations,
     ]) {
       expect(getTableConfig(table).schema).toBe('app')
     }
+  })
+
+  test('keeps product Task state separate from execution and conversation ownership', () => {
+    const config = getTableConfig(tasks)
+    expect(config.columns.some((column) => column.name === 'version')).toBe(true)
+    expect(config.columns.some((column) => column.name === 'control_plane_execution_ref')).toBe(
+      true
+    )
+    expect(config.columns.some((column) => column.name === 'channel_id')).toBe(true)
+    expect(config.foreignKeys.map((key) => key.reference().foreignTable)).not.toContain(undefined)
+    expect(getTableConfig(taskMutations).uniqueConstraints).toHaveLength(1)
   })
 
   test('represents constraints and indexes in schema metadata', () => {
