@@ -8,7 +8,7 @@ import type {
 } from '@agent-hq/types'
 import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { useCreateMessageMutation, useMessageListQuery } from '@agent-hq/data'
-import { Info, MessagesSquare } from 'lucide-react'
+import { Info, MailOpen, MessagesSquare, Search } from 'lucide-react'
 
 import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
@@ -25,9 +25,15 @@ export function ConversationSurface({
   draft,
   onDraftChange,
   onOpenDetails,
+  onOpenSearch,
   onOpenTask,
+  onMarkRead,
+  onMarkThreadRead,
+  onMarkThreadUnread,
+  onMarkUnread,
   onThreadDraftChange,
   onThreadChange,
+  searchTargetMessageId,
   tasks,
   threadDraft,
   threadRootMessageId,
@@ -40,9 +46,15 @@ export function ConversationSurface({
   draft: string
   onDraftChange: (value: string) => void
   onOpenDetails: () => void
+  onOpenSearch: () => void
   onOpenTask: (taskId: string) => void
+  onMarkRead: (lastReadSequence: number) => Promise<void>
+  onMarkThreadRead: (rootId: string, lastReadSequence: number) => Promise<void>
+  onMarkThreadUnread: (rootId: string) => Promise<void>
+  onMarkUnread: () => Promise<void>
   onThreadDraftChange: (value: string) => void
   onThreadChange: (messageId: string | null) => void
+  searchTargetMessageId: string | null
   tasks: readonly TaskSummary[]
   threadDraft: string
   threadRootMessageId: string | null
@@ -52,6 +64,7 @@ export function ConversationSurface({
   const [messages, setMessages] = useState<readonly MessageSummary[]>([])
   const [optimisticBody, setOptimisticBody] = useState<string | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
+  const lastMarkedReadRef = useRef('')
   const messageQuery = useMessageListQuery(client, workspaceId, channel?.id, {
     ...(cursor !== undefined ? { afterSequence: cursor } : {}),
     limit: 100,
@@ -78,10 +91,43 @@ export function ConversationSurface({
     })
   }, [channel, messageQuery.data])
 
+  useEffect(() => {
+    if (!searchTargetMessageId) return
+    requestAnimationFrame(() =>
+      transcriptRef.current
+        ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(searchTargetMessageId)}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    )
+  }, [messages, searchTargetMessageId, threadRootMessageId])
+
   const rootMessages = useMemo(
     () => messages.filter(({ threadRootMessageId }) => !threadRootMessageId),
     [messages]
   )
+  useEffect(() => {
+    if (!channel || messageQuery.isPending || !rootMessages.length) return
+    const lastReadSequence = Math.max(...rootMessages.map(({ sequence }) => sequence))
+    const markVisible = () => {
+      const key = `${channel.id}:${lastReadSequence}`
+      if (
+        document.visibilityState !== 'visible' ||
+        !document.hasFocus() ||
+        lastMarkedReadRef.current === key
+      )
+        return
+      lastMarkedReadRef.current = key
+      void onMarkRead(lastReadSequence).catch(() => {
+        if (lastMarkedReadRef.current === key) lastMarkedReadRef.current = ''
+      })
+    }
+    markVisible()
+    window.addEventListener('focus', markVisible)
+    document.addEventListener('visibilitychange', markVisible)
+    return () => {
+      window.removeEventListener('focus', markVisible)
+      document.removeEventListener('visibilitychange', markVisible)
+    }
+  }, [channel, messageQuery.isPending, onMarkRead, rootMessages])
   const root = threadRootMessageId
     ? rootMessages.find(({ id }) => id === threadRootMessageId)
     : undefined
@@ -120,9 +166,27 @@ export function ConversationSurface({
           </span>
           <h1>{channel.title}</h1>
         </div>
-        <button type="button" aria-label="Open conversation details" onClick={onOpenDetails}>
-          <Info aria-hidden="true" />
-        </button>
+        <div className="conventional-conversation__actions">
+          <button
+            type="button"
+            aria-label="Search this conversation"
+            title="Search this conversation (Mod+F)"
+            onClick={onOpenSearch}
+          >
+            <Search aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            aria-label="Mark conversation unread"
+            title="Mark conversation unread (Mod+Shift+U)"
+            onClick={() => void onMarkUnread()}
+          >
+            <MailOpen aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="Open conversation details" onClick={onOpenDetails}>
+            <Info aria-hidden="true" />
+          </button>
+        </div>
       </header>
       <div
         ref={transcriptRef}
@@ -148,6 +212,7 @@ export function ConversationSurface({
             agents={agents}
             artifacts={artifactById}
             message={message}
+            highlighted={message.id === searchTargetMessageId}
             onOpenTask={onOpenTask}
             onOpenThread={onThreadChange}
             task={message.taskId ? taskById.get(message.taskId) : undefined}
@@ -189,7 +254,10 @@ export function ConversationSurface({
           onClose={() => onThreadChange(null)}
           onDraftChange={onThreadDraftChange}
           onOpenTask={onOpenTask}
+          onMarkRead={(sequence) => onMarkThreadRead(root.id, sequence)}
+          onMarkUnread={() => onMarkThreadUnread(root.id)}
           root={root}
+          searchTargetMessageId={searchTargetMessageId}
           tasks={tasks}
           workspaceId={workspaceId}
         />

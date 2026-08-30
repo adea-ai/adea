@@ -8,6 +8,7 @@ describe('desktop local content boundary', () => {
     const source = await readFile(new URL('../../src/local-content.ts', import.meta.url), 'utf8')
     expect(source).toContain("invoke<LocalContentRef>('local_content_create'")
     expect(source).toContain("'local_content_read'")
+    expect(source).toContain("'local_content_search'")
     expect(source).toContain("'local_content_rotate_key'")
     expect(source).not.toMatch(/sqlite|databasePath|masterKey|ciphertext|nonce/i)
   })
@@ -24,6 +25,7 @@ describe('desktop local content boundary', () => {
     expect(capability.permissions).toContain('allow-local-content')
     expect(permission).toContain('local_content_authorize_workspace')
     expect(permission).toContain('local_content_read')
+    expect(permission).toContain('local_content_search')
     expect(permission).not.toContain('filesystem')
   })
 

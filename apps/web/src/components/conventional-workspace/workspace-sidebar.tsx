@@ -1,4 +1,4 @@
-import type { AgentSummary, WorkspaceSummary } from '@agent-hq/types'
+import type { AgentSummary, ChannelReadStateSummary, WorkspaceSummary } from '@agent-hq/types'
 import {
   Bot,
   ChevronDown,
@@ -28,16 +28,28 @@ type Props = Readonly<{
   onOpenSearch: () => void
   onOpenSettings: () => void
   onOpenTasks: () => void
+  onMarkAllRead: () => void
   onSelectChannel: (channelId: string, roomId?: string) => void
   onToggleMobile: (open: boolean) => void
   onToggleRoom: (roomId: string) => void
   onWorkspaceChange: (workspaceId: string) => void
   selectedChannelId: string | null
+  readState: readonly ChannelReadStateSummary[]
   workspaces: readonly WorkspaceSummary[]
 }>
 
 export function WorkspaceSidebar(props: Props) {
   const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
+  const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]))
+  const unreadBadge = (channelId: string) => {
+    const state = readStateByChannel.get(channelId)
+    const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
+    return count || state?.manuallyUnread ? (
+      <span className="conventional-unread-badge" aria-label={`${count || 1} unread`}>
+        {count > 99 ? '99+' : count || '•'}
+      </span>
+    ) : null
+  }
   return (
     <>
       <button
@@ -100,6 +112,11 @@ export function WorkspaceSidebar(props: Props) {
             <Bot aria-hidden="true" />
             Agents
           </button>
+          <button type="button" onClick={props.onMarkAllRead} title="Mark all read (Mod+Shift+A)">
+            <MessageCircle aria-hidden="true" />
+            Mark all read
+            <kbd>⇧⌘A</kbd>
+          </button>
         </div>
 
         <div className="conventional-sidebar__scroll">
@@ -118,6 +135,16 @@ export function WorkspaceSidebar(props: Props) {
                     Boolean(item.selectionChannelId) &&
                     (props.selectedChannelId === item.selectionChannelId ||
                       item.visibleChannels.some(({ id }) => id === props.selectedChannelId))
+                  const roomChannels = [
+                    ...(item.primaryChannel ? [item.primaryChannel] : []),
+                    ...item.visibleChannels.filter(({ id }) => id !== item.primaryChannel?.id),
+                  ]
+                  const roomUnread = roomChannels.reduce((total, channel) => {
+                    const state = readStateByChannel.get(channel.id)
+                    return (
+                      total + (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
+                    )
+                  }, 0)
                   return (
                     <li key={item.room.id}>
                       <div className="conventional-room-row">
@@ -149,6 +176,14 @@ export function WorkspaceSidebar(props: Props) {
                         >
                           <span>{item.room.name}</span>
                           {!item.visibleChannels.length ? <span>Room</span> : null}
+                          {roomUnread ? (
+                            <span
+                              className="conventional-unread-badge"
+                              aria-label={`${roomUnread} unread in ${item.room.name}`}
+                            >
+                              {roomUnread > 99 ? '99+' : roomUnread}
+                            </span>
+                          ) : null}
                         </button>
                       </div>
                       {item.visibleChannels.length && !collapsed ? (
@@ -164,6 +199,7 @@ export function WorkspaceSidebar(props: Props) {
                               >
                                 <Hash aria-hidden="true" />
                                 <span>{channel.title}</span>
+                                {unreadBadge(channel.id)}
                               </button>
                             </li>
                           ))}
@@ -203,6 +239,7 @@ export function WorkspaceSidebar(props: Props) {
                         ? (agentById.get(channel.agentId)?.name ?? 'Agent')
                         : 'Agent'}
                     </span>
+                    {unreadBadge(channel.id)}
                   </button>
                 </li>
               ))}
@@ -215,6 +252,7 @@ export function WorkspaceSidebar(props: Props) {
                   >
                     <Users aria-hidden="true" />
                     <span>{channel.title}</span>
+                    {unreadBadge(channel.id)}
                   </button>
                 </li>
               ))}

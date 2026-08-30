@@ -41,3 +41,4 @@ export {
   messages,
   messageSenderKind,
 } from './conversations'
+export { channelReadStates, threadReadStates } from './read-state'

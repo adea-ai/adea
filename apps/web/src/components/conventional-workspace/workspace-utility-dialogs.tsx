@@ -1,43 +1,77 @@
-import { useMemo, useState } from 'react'
-import type { AgentSummary, ChannelSummary, RoomSummary, TaskSummary } from '@agent-hq/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { AgentHqApiClient } from '@agent-hq/api-client'
+import { useWorkspaceSearchQuery } from '@agent-hq/data'
+import type {
+  AgentSummary,
+  ArtifactSummary,
+  ChannelSummary,
+  RoomSummary,
+  TaskSummary,
+  WorkspaceSearchResult,
+} from '@agent-hq/types'
 import { MusicToggle } from '@agent-hq/audio'
 import { ThemeToggle } from '@agent-hq/ui/components/theme-toggle'
-import { Bot, DoorOpen, Hash, ListTodo, Search } from 'lucide-react'
+import {
+  Bot,
+  CheckCheck,
+  DoorOpen,
+  FileText,
+  Hash,
+  ListTodo,
+  MessageSquare,
+  Search,
+  Settings,
+} from 'lucide-react'
 
 import { ModalDialog } from './modal-dialog'
+import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
 
-type SearchResult = Readonly<{
-  id: string
-  kind: 'agent' | 'channel' | 'room' | 'task'
-  label: string
-  secondary: string
-}>
+type SearchResult = WorkspaceSearchResult
 
 export function WorkspaceSearchDialog({
   agents,
+  artifacts,
   channels,
+  client,
   onClose,
+  online,
   onSelect,
   open,
   rooms,
+  scopeChannelId,
   tasks,
+  workspaceId,
 }: Readonly<{
   agents: readonly AgentSummary[]
+  artifacts: readonly ArtifactSummary[]
   channels: readonly ChannelSummary[]
+  client: AgentHqApiClient
   onClose: () => void
+  online: boolean
   onSelect: (result: SearchResult) => void
   open: boolean
   rooms: readonly RoomSummary[]
+  scopeChannelId?: string
   tasks: readonly TaskSummary[]
+  workspaceId: string
 }>) {
   const [query, setQuery] = useState('')
-  const results = useMemo(() => {
+  const [debouncedQuery, setDebouncedQuery] = useState('')
+  const [selectedIndex, setSelectedIndex] = useState(0)
+  const selectedRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 180)
+    return () => window.clearTimeout(timeout)
+  }, [query])
+  const remote = useWorkspaceSearchQuery(client, workspaceId, debouncedQuery, scopeChannelId)
+  const quickResults = useMemo(() => {
     const all: SearchResult[] = [
       ...rooms.map((room) => ({
         id: room.id,
         kind: 'room' as const,
         label: room.name,
         secondary: 'Room',
+        workspaceId,
       })),
       ...channels.map((channel) => ({
         id: channel.id,
@@ -49,12 +83,14 @@ export function WorkspaceSearchDialog({
             : channel.kind === 'direct_agent'
               ? 'Direct Agent conversation'
               : 'Group conversation',
+        workspaceId,
       })),
       ...agents.map((agent) => ({
         id: agent.id,
         kind: 'agent' as const,
         label: agent.name,
         secondary: agent.roleSummary ?? 'Agent',
+        workspaceId,
       })),
       ...tasks.map((task) => ({
         id: task.id,
@@ -65,17 +101,59 @@ export function WorkspaceSearchDialog({
           (task.objectiveContentRefId
             ? 'Private objective unavailable on this device'
             : 'Objective unavailable'),
+        workspaceId,
       })),
+      ...artifacts.map((artifact) => ({
+        id: artifact.id,
+        kind: 'artifact' as const,
+        label: artifact.filename,
+        secondary: artifact.mediaType,
+        taskId: artifact.taskId,
+        workspaceId,
+      })),
+      {
+        id: 'mark-all-read',
+        kind: 'action' as const,
+        label: 'Mark all conversations read',
+        secondary: 'Read-state action · Mod+Shift+A',
+        workspaceId,
+      },
+      {
+        id: 'workspace-settings',
+        kind: 'settings' as const,
+        label: 'Workspace settings',
+        secondary: 'Appearance, sound, and account',
+        workspaceId,
+      },
     ]
-    const normalized = query.trim().toLocaleLowerCase()
-    return (
-      normalized
-        ? all.filter((result) =>
-            `${result.label} ${result.secondary}`.toLocaleLowerCase().includes(normalized)
-          )
-        : all
-    ).slice(0, 30)
-  }, [agents, channels, query, rooms, tasks])
+    return all.slice(0, 30)
+  }, [agents, artifacts, channels, rooms, tasks, workspaceId])
+  const paletteMatches = quickResults.filter(
+    (result) =>
+      !scopeChannelId &&
+      ['action', 'settings'].includes(result.kind) &&
+      fuzzySearchMatch(`${result.label} ${result.secondary}`, debouncedQuery)
+  )
+  const results =
+    debouncedQuery.length >= 2
+      ? [...paletteMatches, ...(remote.data?.results ?? [])]
+      : scopeChannelId
+        ? []
+        : debouncedQuery
+          ? quickResults.filter((result) =>
+              fuzzySearchMatch(`${result.label} ${result.secondary}`, debouncedQuery)
+            )
+          : quickResults
+  useEffect(() => {
+    setSelectedIndex(0)
+  }, [debouncedQuery, scopeChannelId])
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selectedIndex])
+  const select = (result: SearchResult) => {
+    onSelect(result)
+    onClose()
+  }
   const icon = (kind: SearchResult['kind']) =>
     kind === 'agent' ? (
       <Bot aria-hidden="true" />
@@ -83,6 +161,14 @@ export function WorkspaceSearchDialog({
       <DoorOpen aria-hidden="true" />
     ) : kind === 'task' ? (
       <ListTodo aria-hidden="true" />
+    ) : kind === 'artifact' ? (
+      <FileText aria-hidden="true" />
+    ) : kind === 'message' ? (
+      <MessageSquare aria-hidden="true" />
+    ) : kind === 'action' ? (
+      <CheckCheck aria-hidden="true" />
+    ) : kind === 'settings' ? (
+      <Settings aria-hidden="true" />
     ) : (
       <Hash aria-hidden="true" />
     )
@@ -90,8 +176,8 @@ export function WorkspaceSearchDialog({
     <ModalDialog
       open={open}
       onClose={onClose}
-      title="Search loaded workspace"
-      description="M2.8 adds durable workspace-wide search. This finds currently loaded Rooms, conversations, Agents, and Tasks."
+      title={scopeChannelId ? 'Search this conversation' : 'Search workspace'}
+      description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
     >
       <label className="conventional-search-field">
         <Search aria-hidden="true" />
@@ -101,17 +187,39 @@ export function WorkspaceSearchDialog({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Find a Room, conversation, Agent, or Task"
           autoFocus
+          aria-controls="workspace-search-results"
+          aria-activedescendant={
+            results[selectedIndex] ? `search-result-${selectedIndex}` : undefined
+          }
+          onKeyDown={(event) => {
+            const keyboard = searchKeyboardSelection(event.key, selectedIndex, results.length)
+            if (keyboard.action === 'move') {
+              event.preventDefault()
+              setSelectedIndex(keyboard.index)
+            } else if (keyboard.action === 'open' && results[keyboard.index]) {
+              event.preventDefault()
+              select(results[keyboard.index])
+            }
+          }}
         />
       </label>
-      <ul className="conventional-search-results" aria-live="polite">
-        {results.map((result) => (
-          <li key={`${result.kind}:${result.id}`}>
+      <ul
+        id="workspace-search-results"
+        className="conventional-search-results"
+        role="listbox"
+        aria-label="Search results"
+        aria-live="polite"
+      >
+        {results.map((result, index) => (
+          <li key={`${result.kind}:${result.id}`} role="presentation">
             <button
+              id={`search-result-${index}`}
+              ref={index === selectedIndex ? selectedRef : undefined}
               type="button"
-              onClick={() => {
-                onSelect(result)
-                onClose()
-              }}
+              role="option"
+              aria-selected={index === selectedIndex}
+              onMouseEnter={() => setSelectedIndex(index)}
+              onClick={() => select(result)}
             >
               {icon(result.kind)}
               <span>
@@ -122,9 +230,29 @@ export function WorkspaceSearchDialog({
           </li>
         ))}
       </ul>
-      {!results.length ? (
-        <p className="conventional-dialog-empty">No loaded workspace item matches “{query}”.</p>
+      {remote.isFetching && debouncedQuery.length >= 2 ? (
+        <p className="conventional-dialog-empty" role="status">
+          Searching…
+        </p>
       ) : null}
+      {remote.data?.privateResultsUnavailable ? (
+        <p className="conventional-dialog-empty" role="status">
+          Private local content can only be searched on its trusted desktop device.
+        </p>
+      ) : null}
+      {!online && debouncedQuery.length >= 2 ? (
+        <p className="conventional-dialog-empty" role="status">
+          Offline. Quick navigation remains available; search will retry after reconnecting.
+        </p>
+      ) : remote.isError ? (
+        <p className="conventional-dialog-empty" role="alert">
+          Search is temporarily unavailable. Your query was not lost.
+        </p>
+      ) : null}
+      {!remote.isFetching && !results.length ? (
+        <p className="conventional-dialog-empty">No workspace item matches “{query}”.</p>
+      ) : null}
+      <p className="conventional-search-hint">↑↓ move · Enter open · Esc close</p>
     </ModalDialog>
   )
 }
