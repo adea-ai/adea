@@ -2,7 +2,8 @@ import type { RoomSummary, UserPrincipalRef } from '@agent-hq/types'
 import { and, asc, eq, inArray, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { rooms, workspaceEvents, workspaceMemberships } from './schema'
+import { provisionPrimaryRoomChannelInTransaction } from './conversations'
+import { channels, rooms, workspaceEvents, workspaceMemberships } from './schema'
 
 type RoomCreateInput = Readonly<{
   functionKey: string
@@ -79,6 +80,12 @@ export async function createRoom(
       })
       .returning()
     if (!created) throw new Error('Room creation failed')
+    await provisionPrimaryRoomChannelInTransaction(
+      transaction,
+      workspaceId,
+      created.id,
+      created.name
+    )
     await transaction.insert(workspaceEvents).values({
       eventType: 'room.created',
       payload: { actorUserId: principal.userId, roomId: created.id },
@@ -183,6 +190,27 @@ export async function archiveRoom(
 ): Promise<void> {
   await database.transaction(async (transaction) => {
     await requireMembership(transaction, workspaceId, principal)
+    const roomChannels = await transaction
+      .select({ id: channels.id, version: channels.version })
+      .from(channels)
+      .where(
+        and(
+          eq(channels.workspaceId, workspaceId),
+          eq(channels.roomId, roomId),
+          eq(channels.lifecycleState, 'active')
+        )
+      )
+    for (const channel of roomChannels) {
+      await transaction
+        .update(channels)
+        .set({ lifecycleState: 'archived', updatedAt: new Date(), version: channel.version + 1 })
+        .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)))
+      await transaction.insert(workspaceEvents).values({
+        eventType: 'channel.archived',
+        payload: { actorUserId: principal.userId, channelId: channel.id, roomId },
+        workspaceId,
+      })
+    }
     const [archived] = await transaction
       .update(rooms)
       .set({ lifecycleState: 'archived', updatedAt: new Date() })

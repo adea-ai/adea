@@ -11,6 +11,8 @@ import { and, asc, eq, inArray, not } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   agents,
+  channels,
+  messages,
   rooms,
   taskDependencies,
   taskMutations,
@@ -701,10 +703,36 @@ export async function setTaskConversationReferences(
     { ...conversation },
     command,
     async (transaction, row) => {
+      let channelId = conversation.channelId ?? null
+      if (channelId) {
+        const [channel] = await transaction
+          .select({ id: channels.id })
+          .from(channels)
+          .where(
+            and(
+              eq(channels.id, channelId),
+              eq(channels.workspaceId, workspaceId),
+              eq(channels.lifecycleState, 'active')
+            )
+          )
+          .limit(1)
+        if (!channel) throw new Error('Channel unavailable')
+      }
+      for (const messageId of [conversation.messageId, conversation.threadRootMessageId]) {
+        if (!messageId) continue
+        const [message] = await transaction
+          .select({ channelId: messages.channelId })
+          .from(messages)
+          .where(and(eq(messages.id, messageId), eq(messages.workspaceId, workspaceId)))
+          .limit(1)
+        if (!message || (channelId && message.channelId !== channelId))
+          throw new Error('Message unavailable')
+        channelId ??= message.channelId
+      }
       const [updated] = await transaction
         .update(tasks)
         .set({
-          channelId: conversation.channelId ?? null,
+          channelId,
           messageId: conversation.messageId ?? null,
           threadRootMessageId: conversation.threadRootMessageId ?? null,
           updatedAt: new Date(),
