@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { getTableConfig } from 'drizzle-orm/pg-core'
 
 import {
+  agents,
   authorizationAuditRecords,
   commandOutbox,
   desktopAuthorizationCodes,
@@ -17,6 +18,7 @@ import {
 describe('persistence schema', () => {
   test('keeps foundational tables in the app schema', () => {
     for (const table of [
+      agents,
       users,
       temporaryUserSessions,
       workspaces,
