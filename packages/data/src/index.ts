@@ -30,6 +30,136 @@ export const taskQueryKeys = {
     ['workspaces', workspaceId, 'tasks', 'detail', taskId] as const,
   list: (workspaceId: string) => ['workspaces', workspaceId, 'tasks', 'list'] as const,
 }
+
+export const channelQueryKeys = {
+  all: (workspaceId: string) => ['workspaces', workspaceId, 'channels'] as const,
+  detail: (workspaceId: string, channelId: string) =>
+    ['workspaces', workspaceId, 'channels', 'detail', channelId] as const,
+  list: (workspaceId: string) => ['workspaces', workspaceId, 'channels', 'list'] as const,
+}
+export const messageQueryKeys = {
+  all: (workspaceId: string, channelId: string) =>
+    ['workspaces', workspaceId, 'channels', channelId, 'messages'] as const,
+  detail: (workspaceId: string, messageId: string) =>
+    ['workspaces', workspaceId, 'messages', 'detail', messageId] as const,
+  list: (workspaceId: string, channelId: string) =>
+    ['workspaces', workspaceId, 'channels', channelId, 'messages', 'list'] as const,
+}
+export const channelQueryOptions = {
+  detail: (client: AgentHqApiClient, workspaceId?: string, channelId?: string) => ({
+    queryKey: channelQueryKeys.detail(workspaceId ?? '', channelId ?? ''),
+    queryFn: () => client.getChannel(workspaceId!, channelId!),
+    enabled: Boolean(workspaceId && channelId),
+  }),
+  list: (client: AgentHqApiClient, workspaceId?: string) => ({
+    queryKey: channelQueryKeys.list(workspaceId ?? ''),
+    queryFn: () => client.listChannels(workspaceId!),
+    enabled: Boolean(workspaceId),
+  }),
+}
+export const messageQueryOptions = {
+  detail: (client: AgentHqApiClient, workspaceId?: string, messageId?: string) => ({
+    queryKey: messageQueryKeys.detail(workspaceId ?? '', messageId ?? ''),
+    queryFn: () => client.getMessage(workspaceId!, messageId!),
+    enabled: Boolean(workspaceId && messageId),
+  }),
+  list: (client: AgentHqApiClient, workspaceId?: string, channelId?: string) => ({
+    queryKey: messageQueryKeys.list(workspaceId ?? '', channelId ?? ''),
+    queryFn: () => client.listMessages(workspaceId!, channelId!),
+    enabled: Boolean(workspaceId && channelId),
+  }),
+}
+
+function channelMutationSuccess(queryClient: QueryClient, workspaceId: string) {
+  return async (result: Awaited<ReturnType<AgentHqApiClient['getChannel']>>) => {
+    queryClient.setQueryData(channelQueryKeys.detail(workspaceId, result.channel.id), result)
+    await queryClient.invalidateQueries({ queryKey: channelQueryKeys.list(workspaceId) })
+  }
+}
+export const channelMutationOptions = {
+  archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Readonly<{ channelId: string; expectedVersion: number }>) =>
+      client.archiveChannel(workspaceId, input.channelId, input.expectedVersion),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+  direct: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (agentId: string) => client.createDirectAgentChannel(workspaceId, agentId),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+  group: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Parameters<AgentHqApiClient['createGroupChannel']>[1]) =>
+      client.createGroupChannel(workspaceId, input),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+  participants: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        channelId: string
+        expectedVersion: number
+        participants: Parameters<AgentHqApiClient['setChannelParticipants']>[2]
+      }>
+    ) =>
+      client.setChannelParticipants(
+        workspaceId,
+        input.channelId,
+        input.participants,
+        input.expectedVersion
+      ),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+  room: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Parameters<AgentHqApiClient['createRoomChannel']>[1]) =>
+      client.createRoomChannel(workspaceId, input),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+  update: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        channelId: string
+        expectedVersion: number
+        update: Parameters<AgentHqApiClient['updateChannel']>[2]
+      }>
+    ) => client.updateChannel(workspaceId, input.channelId, input.update, input.expectedVersion),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
+}
+
+function messageMutationSuccess(queryClient: QueryClient, workspaceId: string, channelId?: string) {
+  return async (result: Awaited<ReturnType<AgentHqApiClient['getMessage']>>) => {
+    queryClient.setQueryData(messageQueryKeys.detail(workspaceId, result.message.id), result)
+    const targetChannelId = channelId ?? result.message.channelId
+    await queryClient.invalidateQueries({
+      queryKey: messageQueryKeys.all(workspaceId, targetChannelId),
+    })
+  }
+}
+export const messageMutationOptions = {
+  create: (
+    client: AgentHqApiClient,
+    queryClient: QueryClient,
+    workspaceId: string,
+    channelId: string
+  ) => ({
+    mutationFn: (input: Parameters<AgentHqApiClient['createMessage']>[2]) =>
+      client.createMessage(workspaceId, channelId, input),
+    onSuccess: messageMutationSuccess(queryClient, workspaceId, channelId),
+  }),
+  delete: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Readonly<{ expectedVersion: number; messageId: string }>) =>
+      client.deleteMessage(workspaceId, input.messageId, input.expectedVersion),
+    onSuccess: messageMutationSuccess(queryClient, workspaceId),
+  }),
+  edit: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        edit: Parameters<AgentHqApiClient['editMessage']>[2]
+        expectedVersion: number
+        messageId: string
+      }>
+    ) => client.editMessage(workspaceId, input.messageId, input.edit, input.expectedVersion),
+    onSuccess: messageMutationSuccess(queryClient, workspaceId),
+  }),
+}
 export const taskQueryOptions = {
   detail: (client: AgentHqApiClient, workspaceId?: string, taskId?: string) => ({
     queryKey: taskQueryKeys.detail(workspaceId ?? '', taskId ?? ''),
@@ -419,4 +549,62 @@ export function useSetTaskArtifactsMutation(client: AgentHqApiClient, workspaceI
 }
 export function useSetTaskConversationMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(taskMutationOptions.conversation(client, useQueryClient(), workspaceId))
+}
+
+export function useChannelListQuery(client: AgentHqApiClient, workspaceId?: string) {
+  return useQuery(channelQueryOptions.list(client, workspaceId))
+}
+export function useChannelQuery(
+  client: AgentHqApiClient,
+  workspaceId?: string,
+  channelId?: string
+) {
+  return useQuery(channelQueryOptions.detail(client, workspaceId, channelId))
+}
+export function useCreateRoomChannelMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(channelMutationOptions.room(client, useQueryClient(), workspaceId))
+}
+export function useCreateDirectChannelMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(channelMutationOptions.direct(client, useQueryClient(), workspaceId))
+}
+export function useCreateGroupChannelMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(channelMutationOptions.group(client, useQueryClient(), workspaceId))
+}
+export function useUpdateChannelMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(channelMutationOptions.update(client, useQueryClient(), workspaceId))
+}
+export function useArchiveChannelMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(channelMutationOptions.archive(client, useQueryClient(), workspaceId))
+}
+export function useSetChannelParticipantsMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(channelMutationOptions.participants(client, useQueryClient(), workspaceId))
+}
+export function useMessageListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: string,
+  channelId?: string
+) {
+  return useQuery(messageQueryOptions.list(client, workspaceId, channelId))
+}
+export function useMessageQuery(
+  client: AgentHqApiClient,
+  workspaceId?: string,
+  messageId?: string
+) {
+  return useQuery(messageQueryOptions.detail(client, workspaceId, messageId))
+}
+export function useCreateMessageMutation(
+  client: AgentHqApiClient,
+  workspaceId: string,
+  channelId: string
+) {
+  return useMutation(
+    messageMutationOptions.create(client, useQueryClient(), workspaceId, channelId)
+  )
+}
+export function useEditMessageMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(messageMutationOptions.edit(client, useQueryClient(), workspaceId))
+}
+export function useDeleteMessageMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(messageMutationOptions.delete(client, useQueryClient(), workspaceId))
 }

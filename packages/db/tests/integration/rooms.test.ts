@@ -13,6 +13,7 @@ import {
   updateRoom,
 } from '../../src/rooms'
 import {
+  channels,
   rooms,
   temporaryUserSessions,
   users,
@@ -95,6 +96,7 @@ describe.skipIf(!connectionUrl)('room persistence and isolation', () => {
       expect.objectContaining({ id: engineering.id, lifecycleState: 'active' }),
     ])
 
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
     await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspace.id))
     await connection.db
       .delete(workspaceMemberships)
@@ -153,6 +155,7 @@ describe.skipIf(!connectionUrl)('room persistence and isolation', () => {
     ).rejects.toThrow('Room order conflict')
 
     for (const workspaceId of [firstWorkspace.workspace.id, secondWorkspace.workspace.id]) {
+      await connection.db.delete(channels).where(eq(channels.workspaceId, workspaceId))
       await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspaceId))
       await connection.db
         .delete(workspaceMemberships)
