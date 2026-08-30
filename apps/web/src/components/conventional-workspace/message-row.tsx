@@ -1,0 +1,166 @@
+import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@agent-hq/types'
+import { Bot, File, LockKeyhole, MessageSquareReply, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+
+function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
+  if (message.sender.kind === 'user') return 'You'
+  if (message.sender.kind === 'system') return 'Agent HQ'
+  const agentId = message.sender.agentId
+  return agents.find(({ id }) => id === agentId)?.name ?? 'Agent'
+}
+
+function MessageBody({ message }: { message: MessageSummary }) {
+  if (message.deleted) return <p className="conventional-message__deleted">Message deleted</p>
+  if (message.bodyContentRefId && !message.bodyText)
+    return (
+      <div className="conventional-private-content" role="status">
+        <LockKeyhole aria-hidden="true" />
+        <div>
+          <strong>Private content unavailable</strong>
+          <span>Open this conversation on its authorized desktop device.</span>
+        </div>
+      </div>
+    )
+  const blocks = (message.bodyText ?? '').split(/(```[\s\S]*?```)/g).filter(Boolean)
+  return (
+    <div className="conventional-message__body">
+      {blocks.map((block, index) =>
+        block.startsWith('```') && block.endsWith('```') ? (
+          <pre key={index} tabIndex={0} aria-label="Code block">
+            <code>{block.slice(3, -3).replace(/^\w+\n/, '')}</code>
+          </pre>
+        ) : (
+          <p key={index}>{block}</p>
+        )
+      )}
+    </div>
+  )
+}
+
+function ArtifactCard({
+  artifactId,
+  artifact,
+}: {
+  artifact?: ArtifactSummary
+  artifactId: string
+}) {
+  const unavailable = !artifact || artifact.availability !== 'available'
+  return (
+    <article
+      className="conventional-artifact-card"
+      aria-label={`Attachment ${artifact?.filename ?? artifactId}`}
+    >
+      <File aria-hidden="true" />
+      <div>
+        <strong>{artifact?.filename ?? 'Unavailable Artifact'}</strong>
+        <span>
+          {artifact?.deletionState === 'deleted'
+            ? 'Deleted'
+            : unavailable
+              ? 'Unavailable'
+              : `${artifact.mediaType} · ${artifact.sizeBytes.toLocaleString()} bytes`}
+        </span>
+      </div>
+    </article>
+  )
+}
+
+export function MessageRow({
+  agents,
+  artifacts,
+  message,
+  onDelete,
+  onEdit,
+  onOpenTask,
+  onOpenThread,
+  pending = false,
+  retry,
+  task,
+}: Readonly<{
+  agents: readonly AgentSummary[]
+  artifacts: ReadonlyMap<string, ArtifactSummary>
+  message: MessageSummary
+  onDelete?: () => void
+  onEdit?: () => void
+  onOpenTask?: (taskId: string) => void
+  onOpenThread?: (messageId: string) => void
+  pending?: boolean
+  retry?: () => void
+  task?: TaskSummary
+}>) {
+  const label = senderLabel(message, agents)
+  const isAgent = message.sender.kind === 'agent'
+  return (
+    <article
+      className={`conventional-message conventional-message--${message.sender.kind}`}
+      data-message-id={message.id}
+      aria-busy={pending || undefined}
+    >
+      <div className="conventional-message__avatar" aria-hidden="true">
+        {isAgent ? <Bot /> : label.slice(0, 2).toUpperCase()}
+      </div>
+      <div className="conventional-message__content">
+        <header>
+          <strong>{label}</strong>
+          {isAgent ? <span className="conventional-principal-badge">Agent</span> : null}
+          {message.sender.kind === 'system' ? (
+            <span className="conventional-principal-badge">System</span>
+          ) : null}
+          <time dateTime={message.createdAt}>
+            {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
+              new Date(message.createdAt)
+            )}
+          </time>
+          {message.editedAt ? <span>edited</span> : null}
+          {pending ? <span role="status">sending…</span> : null}
+        </header>
+        <MessageBody message={message} />
+        {message.artifactIds.length ? (
+          <div className="conventional-message__artifacts">
+            {message.artifactIds.map((artifactId) => (
+              <ArtifactCard
+                key={artifactId}
+                artifactId={artifactId}
+                artifact={artifacts.get(artifactId)}
+              />
+            ))}
+          </div>
+        ) : null}
+        {task ? (
+          <button
+            type="button"
+            className="conventional-task-link"
+            onClick={() => onOpenTask?.(task.id)}
+          >
+            Task · {task.title}
+          </button>
+        ) : null}
+        <footer className="conventional-message__actions">
+          {!message.threadRootMessageId && !message.deleted ? (
+            <button type="button" onClick={() => onOpenThread?.(message.id)}>
+              <MessageSquareReply aria-hidden="true" />
+              Thread
+            </button>
+          ) : null}
+          {onEdit && !message.deleted ? (
+            <button type="button" onClick={onEdit}>
+              <Pencil aria-hidden="true" />
+              Edit
+            </button>
+          ) : null}
+          {onDelete && !message.deleted ? (
+            <button type="button" onClick={onDelete}>
+              <Trash2 aria-hidden="true" />
+              Delete
+            </button>
+          ) : null}
+          {retry ? (
+            <button type="button" onClick={retry}>
+              <RotateCcw aria-hidden="true" />
+              Retry
+            </button>
+          ) : null}
+        </footer>
+      </div>
+    </article>
+  )
+}
