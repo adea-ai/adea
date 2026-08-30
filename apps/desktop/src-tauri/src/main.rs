@@ -61,6 +61,7 @@ fn main() {
             local_content::local_content_health,
             local_content::local_content_read,
             local_content::local_content_rotate_key,
+            local_content::local_content_search,
             local_content::local_content_update,
             updater::desktop_update_status,
             updater::desktop_update_check,

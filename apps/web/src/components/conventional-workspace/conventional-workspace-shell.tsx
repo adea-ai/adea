@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '@agent-hq/state'
 import { Boxes, UserRound } from 'lucide-react'
 
 import { AgentRoster } from './agent-roster'
+import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
 import { CreateGroupDialog, CreateRoomDialog } from './create-workspace-dialogs'
 import { ModalDialog } from './modal-dialog'
@@ -18,13 +19,16 @@ import {
   type SearchResult,
 } from './workspace-utility-dialogs'
 
-type DialogId = 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
+type DialogId =
+  'conversation-search' | 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
 
 export function ConventionalWorkspaceShell() {
   const controller = useWorkspaceController()
   const [dialog, setDialog] = useState<DialogId>(null)
   const [accountBusy, setAccountBusy] = useState(false)
   const [online, setOnline] = useState(true)
+  const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null)
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
   const activeSurface = useWorkspaceStore((state) => state.activeSurface)
   const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds)
   const drafts = useWorkspaceStore((state) => state.drafts)
@@ -43,6 +47,13 @@ export function ConventionalWorkspaceShell() {
   const principal = controller.bootstrap.data?.principal
   const accountAuthenticated = Boolean(principal && !principal.temporary)
   const accountLabel = accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in'
+  const selectChannel = (channelId: string, roomId?: string) => {
+    setSelectedArtifactId(null)
+    setSearchTargetMessageId(null)
+    controller.selectChannel(channelId, roomId)
+    setActiveSurface('conversation')
+    setMobileSidebarOpen(false)
+  }
 
   useEffect(() => {
     const updateOnlineStatus = () => setOnline(navigator.onLine)
@@ -57,15 +68,75 @@ export function ConventionalWorkspaceShell() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const editable =
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        (event.target instanceof HTMLElement && event.target.isContentEditable)
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setDialog('search')
       }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'f' &&
+        activeSurface === 'conversation' &&
+        !editable
+      ) {
+        event.preventDefault()
+        setDialog('conversation-search')
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault()
+        void controller.readStateActions.markAllRead()
+      }
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.key.toLowerCase() === 'u' &&
+        controller.selectedChannel
+      ) {
+        event.preventDefault()
+        void controller.readStateActions.markChannel({
+          action: 'unread',
+          channelId: controller.selectedChannel.id,
+        })
+      }
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'm') {
+        event.preventDefault()
+        document.querySelector<HTMLTextAreaElement>('[id^="composer-"]')?.focus()
+      }
+      if (event.altKey && !editable && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+        const destinations = controller.channels.filter(
+          ({ lifecycleState }) => lifecycleState === 'active'
+        )
+        if (destinations.length) {
+          event.preventDefault()
+          const current = Math.max(
+            destinations.findIndex(({ id }) => id === selectedChannelId),
+            0
+          )
+          const direction = event.key === 'ArrowDown' ? 1 : -1
+          const next = (current + direction + destinations.length) % destinations.length
+          selectChannel(destinations[next]!.id, destinations[next]!.roomId)
+        }
+      }
       if (event.key === 'Escape' && threadRootMessageId) setThreadRootMessageId(null)
+      if (event.key === 'Escape' && selectedArtifactId) setSelectedArtifactId(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [setThreadRootMessageId, threadRootMessageId])
+  }, [
+    activeSurface,
+    controller.channels,
+    controller.readStateActions,
+    controller.selectedChannel,
+    selectedChannelId,
+    selectedArtifactId,
+    selectChannel,
+    setThreadRootMessageId,
+    threadRootMessageId,
+  ])
 
   useEffect(() => {
     document.title = controller.activeWorkspace
@@ -90,12 +161,16 @@ export function ConventionalWorkspaceShell() {
     )
   if (!controller.activeWorkspace || !controller.workspaceId) return null
   const queryError = controller.workspaceQueries.find(({ isError }) => isError)
-  const selectChannel = (channelId: string, roomId?: string) => {
-    controller.selectChannel(channelId, roomId)
-    setActiveSurface('conversation')
-    setMobileSidebarOpen(false)
-  }
+  const selectedArtifact = controller.artifacts.find(({ id }) => id === selectedArtifactId)
   const selectSearchResult = (result: SearchResult) => {
+    if (result.kind === 'settings') {
+      setDialog('settings')
+      return
+    }
+    if (result.kind === 'action' && result.id === 'mark-all-read') {
+      void controller.readStateActions.markAllRead()
+      return
+    }
     if (result.kind === 'channel') return selectChannel(result.id)
     if (result.kind === 'room') {
       const item = controller.navigation.rooms.find(({ room }) => room.id === result.id)
@@ -103,11 +178,23 @@ export function ConventionalWorkspaceShell() {
       return
     }
     if (result.kind === 'agent') {
+      setSelectedArtifactId(null)
       setSelectedAgentId(result.id)
       setActiveSurface('agents')
       return
     }
+    if (result.kind === 'message' && result.channelId) {
+      selectChannel(result.channelId, result.roomId)
+      setThreadRootMessageId(result.threadRootMessageId ?? null)
+      setSearchTargetMessageId(result.messageId ?? result.id)
+      return
+    }
+    if (result.kind === 'artifact') {
+      setSelectedArtifactId(result.id)
+      return
+    }
     setSelectedTaskId(result.id)
+    setSelectedArtifactId(null)
     setActiveSurface('tasks')
   }
   const signOut = async () => {
@@ -153,20 +240,38 @@ export function ConventionalWorkspaceShell() {
         navigation={controller.navigation}
         onCreateGroup={() => setDialog('create-group')}
         onCreateRoom={() => setDialog('create-room')}
-        onOpenAgents={() => setActiveSurface('agents')}
+        onOpenAgents={() => {
+          setSelectedArtifactId(null)
+          setActiveSurface('agents')
+        }}
         onOpenSearch={() => setDialog('search')}
         onOpenSettings={() => setDialog('settings')}
-        onOpenTasks={() => setActiveSurface('tasks')}
+        onOpenTasks={() => {
+          setSelectedArtifactId(null)
+          setActiveSurface('tasks')
+        }}
+        onMarkAllRead={() => void controller.readStateActions.markAllRead()}
         onSelectChannel={selectChannel}
         onToggleMobile={setMobileSidebarOpen}
         onToggleRoom={toggleRoomCollapsed}
         onWorkspaceChange={controller.selectWorkspace}
         selectedChannelId={selectedChannelId}
+        readState={controller.readState}
         workspaces={controller.bootstrap.data?.workspaces ?? []}
       />
       <section id="workspace-main" className="conventional-main" tabIndex={-1}>
         {queryError ? (
           <WorkspaceError error={queryError.error} retry={() => void queryError.refetch()} />
+        ) : selectedArtifact ? (
+          <ArtifactDetail
+            artifact={selectedArtifact}
+            dismiss={() => setSelectedArtifactId(null)}
+            openTask={(taskId) => {
+              setSelectedTaskId(taskId)
+              setActiveSurface('tasks')
+              setSelectedArtifactId(null)
+            }}
+          />
         ) : activeSurface === 'conversation' ? (
           <ConversationSurface
             agents={controller.agents}
@@ -176,6 +281,35 @@ export function ConventionalWorkspaceShell() {
             draft={selectedChannelId ? (drafts[selectedChannelId] ?? '') : ''}
             onDraftChange={(value) => selectedChannelId && setDraft(selectedChannelId, value)}
             onOpenDetails={() => setDialog('details')}
+            onOpenSearch={() => setDialog('conversation-search')}
+            onMarkRead={(lastReadSequence) =>
+              controller.readStateActions.markChannel({
+                action: 'read',
+                channelId: controller.selectedChannel!.id,
+                lastReadSequence,
+              })
+            }
+            onMarkThreadRead={(rootId, lastReadSequence) =>
+              controller.readStateActions.markThread({
+                action: 'read',
+                channelId: controller.selectedChannel!.id,
+                lastReadSequence,
+                threadRootMessageId: rootId,
+              })
+            }
+            onMarkThreadUnread={(rootId) =>
+              controller.readStateActions.markThread({
+                action: 'unread',
+                channelId: controller.selectedChannel!.id,
+                threadRootMessageId: rootId,
+              })
+            }
+            onMarkUnread={() =>
+              controller.readStateActions.markChannel({
+                action: 'unread',
+                channelId: controller.selectedChannel!.id,
+              })
+            }
             onOpenTask={(taskId) => {
               setSelectedTaskId(taskId)
               setActiveSurface('tasks')
@@ -185,6 +319,7 @@ export function ConventionalWorkspaceShell() {
               threadRootMessageId && setDraft(`thread:${threadRootMessageId}`, value)
             }
             tasks={controller.tasks}
+            searchTargetMessageId={searchTargetMessageId}
             threadDraft={threadRootMessageId ? (drafts[`thread:${threadRootMessageId}`] ?? '') : ''}
             threadRootMessageId={threadRootMessageId}
             workspaceId={controller.workspaceId}
@@ -238,12 +373,19 @@ export function ConventionalWorkspaceShell() {
       />
       <WorkspaceSearchDialog
         agents={controller.agents}
+        artifacts={controller.artifacts}
         channels={controller.channels}
+        client={controller.client}
         onClose={() => setDialog(null)}
+        online={online}
         onSelect={selectSearchResult}
-        open={dialog === 'search'}
+        open={dialog === 'search' || dialog === 'conversation-search'}
         rooms={controller.rooms}
+        scopeChannelId={
+          dialog === 'conversation-search' ? controller.selectedChannel?.id : undefined
+        }
         tasks={controller.tasks}
+        workspaceId={controller.workspaceId}
       />
       <WorkspaceSettingsDialog
         accountAuthenticated={accountAuthenticated}
