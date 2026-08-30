@@ -16,13 +16,20 @@ import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import { WorkspaceSearchDialog, type SearchResult } from './workspace-utility-dialogs'
 import { WorkspaceSettingsDialog } from './workspace-settings'
 import type { WorkspacePlatformServices } from './platform'
+import { WorkspaceViewToggle, type WorkspaceView } from './workspace-view-toggle'
 
 type DialogId =
   'conversation-search' | 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
 
 export function ConventionalWorkspaceShell({
+  onViewChange,
   services,
-}: Readonly<{ services?: WorkspacePlatformServices }> = {}) {
+  view = 'chat',
+}: Readonly<{
+  onViewChange?: (view: WorkspaceView) => void
+  services?: WorkspacePlatformServices
+  view?: WorkspaceView
+}> = {}) {
   const controller = useWorkspaceController(services?.client)
   const [dialog, setDialog] = useState<DialogId>(null)
   const [accountBusy, setAccountBusy] = useState(false)
@@ -83,10 +90,15 @@ export function ConventionalWorkspaceShell({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const editable =
+      const editableTarget =
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
         (event.target instanceof HTMLElement && event.target.isContentEditable)
+      const targetInClosingDialog =
+        dialog === null &&
+        event.target instanceof HTMLElement &&
+        Boolean(event.target.closest('[role="dialog"]'))
+      const editable = editableTarget && !targetInClosingDialog
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         setDialog('search')
@@ -95,7 +107,7 @@ export function ConventionalWorkspaceShell({
         (event.metaKey || event.ctrlKey) &&
         !event.shiftKey &&
         event.key.toLowerCase() === 'f' &&
-        activeSurface === 'conversation' &&
+        controller.selectedChannel &&
         !editable
       ) {
         event.preventDefault()
@@ -139,13 +151,16 @@ export function ConventionalWorkspaceShell({
       if (event.key === 'Escape' && threadRootMessageId) setThreadRootMessageId(null)
       if (event.key === 'Escape' && selectedArtifactId) setSelectedArtifactId(null)
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    // Capture workspace shortcuts before a portalled dialog's focus trap can
+    // stop propagation while it restores focus after closing.
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
   }, [
     activeSurface,
     controller.channels,
     controller.readStateActions,
     controller.selectedChannel,
+    dialog,
     selectedChannelId,
     selectedArtifactId,
     selectChannel,
@@ -261,6 +276,11 @@ export function ConventionalWorkspaceShell({
           <Boxes aria-hidden="true" />
           <span>{controller.activeWorkspace.name}</span>
         </div>
+        {onViewChange ? (
+          <div className="conventional-topbar__view">
+            <WorkspaceViewToggle onChange={onViewChange} value={view} />
+          </div>
+        ) : null}
         <button
           type="button"
           className="conventional-account-button"

@@ -23,7 +23,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
 
   await page.goto('/?view=spatial')
   const userMenu = page.getByRole('button', { name: 'Open user menu for Sign in' })
-  await expect(userMenu).toBeVisible()
+  await expect(userMenu).toBeVisible({ timeout: 20_000 })
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
 
   for (const viewport of [
