@@ -50,6 +50,13 @@
       "when": 1787686268334,
       "tag": "0006_bizarre_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788065311946,
+      "tag": "0007_rooms",
+      "breakpoints": true
     }
   ]
 }
