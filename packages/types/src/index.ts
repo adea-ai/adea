@@ -107,6 +107,25 @@ export type RoomSummary = Readonly<{
 export type TaskLifecycleState = 'created' | 'queued' | 'cancelled' | 'archived'
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
 
+export type ContentRefSummary = Readonly<{
+  availability: 'available' | 'offline' | 'missing' | 'deleted'
+  contentType: 'message_body' | 'task_objective' | 'task_input' | 'private_field'
+  createdAt: string
+  deletedAt?: string
+  digestSha256: string
+  id: string
+  keyVersion: number
+  messageId?: string
+  revision: number
+  schemaVersion: number
+  sensitivity: 'sensitive' | 'restricted'
+  storagePolicy: 'local_authority'
+  synchronizationPolicy: 'local_only' | 'e2e_optional'
+  taskId?: string
+  updatedAt: string
+  workspaceId: string
+}>
+
 export type TaskSummary = Readonly<{
   agentId?: string
   artifactRefs: readonly string[]
@@ -122,7 +141,8 @@ export type TaskSummary = Readonly<{
   dependencyIds: readonly string[]
   id: string
   lifecycleState: TaskLifecycleState
-  objective: string
+  objective?: string
+  objectiveContentRefId?: string
   priority: TaskPriority
   roomId?: string
   title: string

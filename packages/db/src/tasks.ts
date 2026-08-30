@@ -9,6 +9,7 @@ import type {
 import { and, asc, eq, inArray, not } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { attachTaskContentRef } from './content-refs'
 import {
   agents,
   artifacts,
@@ -40,7 +41,8 @@ export type TaskCreateInput = Readonly<{
     threadRootMessageId?: string
   }>
   dependencyIds?: readonly string[]
-  objective: string
+  objective?: string
+  objectiveContentRefId?: string
   priority?: TaskPriority
   roomId?: string
   title: string
@@ -50,6 +52,7 @@ export type TaskUpdateInput = Readonly<{
   controlPlaneExecutionRef?: string | null
   controlPlaneWorkflowRef?: string | null
   objective?: string
+  objectiveContentRefId?: string
   priority?: TaskPriority
   title?: string
 }>
@@ -150,7 +153,8 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
     dependencyIds: Object.freeze(dependencies.map(({ id }) => id)),
     id: row.id,
     lifecycleState: row.lifecycleState,
-    objective: row.objective,
+    ...(row.objective ? { objective: row.objective } : {}),
+    ...(row.objectiveContentRefId ? { objectiveContentRefId: row.objectiveContentRefId } : {}),
     priority: row.priority,
     ...(row.roomId ? { roomId: row.roomId } : {}),
     title: row.title,
@@ -303,6 +307,8 @@ export async function createTask(
       input,
       command,
       async () => {
+        if (Boolean(input.objective?.trim()) === Boolean(input.objectiveContentRefId))
+          throw new Error('Task objective invalid')
         if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
         if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId)
         const artifactRefs = [...new Set(input.artifactRefs?.map((value) => value.trim()) ?? [])]
@@ -317,7 +323,8 @@ export async function createTask(
             controlPlaneWorkflowRef: input.controlPlaneWorkflowRef?.trim() || null,
             creatorUserId: principal.userId,
             messageId: input.conversation?.messageId ?? null,
-            objective: input.objective.trim(),
+            objective: input.objective?.trim() || null,
+            objectiveContentRefId: input.objectiveContentRefId ?? null,
             priority: input.priority ?? 'normal',
             roomId: input.roomId ?? null,
             threadRootMessageId: input.conversation?.threadRootMessageId ?? null,
@@ -326,6 +333,14 @@ export async function createTask(
           })
           .returning()
         if (!created) throw new Error('Task creation failed')
+        if (input.objectiveContentRefId)
+          await attachTaskContentRef(
+            transaction,
+            workspaceId,
+            input.objectiveContentRefId,
+            created.id,
+            'task_objective'
+          )
         await validateDependencies(transaction, workspaceId, created.id, input.dependencyIds ?? [])
         if (input.dependencyIds?.length)
           await transaction.insert(taskDependencies).values(
@@ -428,6 +443,10 @@ export async function updateTask(
   input: TaskUpdateInput,
   command: TaskCommand
 ) {
+  if (input.objective !== undefined && input.objectiveContentRefId !== undefined)
+    throw new Error('Task objective invalid')
+  if (input.objective !== undefined && !input.objective.trim())
+    throw new Error('Task objective invalid')
   return mutateExisting(
     database,
     workspaceId,
@@ -448,6 +467,10 @@ export async function updateTask(
             ? { controlPlaneWorkflowRef: input.controlPlaneWorkflowRef?.trim() || null }
             : {}),
           ...(input.objective !== undefined ? { objective: input.objective.trim() } : {}),
+          ...(input.objective !== undefined ? { objectiveContentRefId: null } : {}),
+          ...(input.objectiveContentRefId !== undefined
+            ? { objective: null, objectiveContentRefId: input.objectiveContentRefId }
+            : {}),
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(input.title !== undefined ? { title: input.title.trim() } : {}),
           updatedAt: new Date(),
@@ -461,7 +484,16 @@ export async function updateTask(
           )
         )
         .returning()
-      return requireUpdated(updated)
+      const required = requireUpdated(updated)
+      if (input.objectiveContentRefId)
+        await attachTaskContentRef(
+          transaction,
+          workspaceId,
+          input.objectiveContentRefId,
+          taskId,
+          'task_objective'
+        )
+      return required
     }
   )
 }

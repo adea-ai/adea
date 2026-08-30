@@ -10,6 +10,7 @@ import type {
 import { and, asc, eq, gt, inArray, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { attachMessageContentRef } from './content-refs'
 import {
   agents,
   artifacts,
@@ -686,8 +687,7 @@ export async function createMessage(
             inArray(artifacts.id, artifactIds)
           )
         )
-      if (availableArtifacts.length !== artifactIds.length)
-        throw new Error('Artifact unavailable')
+      if (availableArtifacts.length !== artifactIds.length) throw new Error('Artifact unavailable')
     }
     const mentions = [
       ...new Map((input.mentions ?? []).map((entry) => [JSON.stringify(entry), entry])).values(),
@@ -757,6 +757,8 @@ export async function createMessage(
         throw new Error('Message idempotency conflict')
       return messageSummary(transaction, existing)
     }
+    if (input.bodyContentRefId)
+      await attachMessageContentRef(transaction, workspaceId, input.bodyContentRefId, created.id)
     if (mentions.length)
       await transaction.insert(messageMentions).values(
         mentions.map((mention) => ({
@@ -870,6 +872,8 @@ export async function editMessage(
       )
       .returning()
     if (!updated) throw new Error('Message version conflict')
+    if (input.bodyContentRefId)
+      await attachMessageContentRef(transaction, workspaceId, input.bodyContentRefId, messageId)
     await transaction.insert(workspaceEvents).values({
       eventType: 'message.updated',
       payload: { actorUserId: principal.userId, messageId, version: updated.version },
