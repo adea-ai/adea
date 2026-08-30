@@ -100,12 +100,32 @@ export type RoomSummary = Readonly<{
   workspaceId: string
 }>
 
-export type TaskSummary = {
+export type TaskLifecycleState = 'created' | 'queued' | 'cancelled' | 'archived'
+export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+export type TaskSummary = Readonly<{
+  agentId?: string
+  artifactRefs: readonly string[]
+  controlPlaneExecutionRef?: string
+  controlPlaneWorkflowRef?: string
+  conversation: Readonly<{
+    channelId?: string
+    messageId?: string
+    threadRootMessageId?: string
+  }>
+  createdAt: string
+  creator: UserPrincipalRef
+  dependencyIds: readonly string[]
   id: string
+  lifecycleState: TaskLifecycleState
+  objective: string
+  priority: TaskPriority
+  roomId?: string
   title: string
-  status: 'backlog' | 'todo' | 'in_progress' | 'done'
-  assigneeId?: string
-}
+  updatedAt: string
+  version: number
+  workspaceId: string
+}>
 
 export type MessageSummary = {
   id: string

@@ -1,5 +1,5 @@
 import type { ApiWorkspaceResponse } from '@agent-hq/api-client'
-import { getWorkspaceForUser, listAgentsForUser } from '@agent-hq/db'
+import { getWorkspaceForUser, listAgentsForUser, listTasksForUser } from '@agent-hq/db'
 
 import { applicationDatabase } from '../../../../server/database'
 import {
@@ -42,10 +42,14 @@ export async function GET(
   )
   if (!workspace) return workspaceUnavailableResponse(request)
 
+  const [agents, tasks] = await Promise.all([
+    listAgentsForUser(applicationDatabase(), workspaceId, resolution.principal),
+    listTasksForUser(applicationDatabase(), workspaceId, resolution.principal),
+  ])
   const response: ApiWorkspaceResponse = {
     workspace,
-    agents: await listAgentsForUser(applicationDatabase(), workspaceId, resolution.principal),
-    tasks: [],
+    agents,
+    tasks,
   }
 
   return workspaceJsonResponse(response, resolution, request, {
