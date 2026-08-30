@@ -17,6 +17,74 @@ export const roomQueryKeys = {
   list: (workspaceId: string) => ['workspaces', workspaceId, 'rooms', 'list'] as const,
 }
 
+export const agentQueryKeys = {
+  all: (workspaceId: string) => ['workspaces', workspaceId, 'agents'] as const,
+  detail: (workspaceId: string, agentId: string) =>
+    ['workspaces', workspaceId, 'agents', 'detail', agentId] as const,
+  list: (workspaceId: string) => ['workspaces', workspaceId, 'agents', 'list'] as const,
+}
+export const agentQueryOptions = {
+  detail: (client: AgentHqApiClient, workspaceId?: string, agentId?: string) => ({
+    queryKey: agentQueryKeys.detail(workspaceId ?? '', agentId ?? ''),
+    queryFn: () => client.getAgent(workspaceId!, agentId!),
+    enabled: Boolean(workspaceId && agentId),
+  }),
+  list: (client: AgentHqApiClient, workspaceId?: string) => ({
+    queryKey: agentQueryKeys.list(workspaceId ?? ''),
+    queryFn: () => client.listAgents(workspaceId!),
+    enabled: Boolean(workspaceId),
+  }),
+}
+export const agentMutationOptions = {
+  assignRoom: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Readonly<{ agentId: string; roomId: string | null }>) =>
+      client.assignAgentToRoom(workspaceId, input.agentId, input.roomId),
+    onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['assignAgentToRoom']>>) => {
+      queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
+      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+    },
+  }),
+  create: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (input: Parameters<AgentHqApiClient['createAgent']>[1]) =>
+      client.createAgent(workspaceId, input),
+    onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['createAgent']>>) => {
+      queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
+      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+    },
+  }),
+  archive: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (agentId: string) => client.archiveAgent(workspaceId, agentId),
+    onSuccess: async (_result: unknown, agentId: string) => {
+      queryClient.removeQueries({ queryKey: agentQueryKeys.detail(workspaceId, agentId) })
+      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.all(workspaceId) })
+    },
+  }),
+  profile: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        agentId: string
+        profile: Parameters<AgentHqApiClient['changeAgentProfile']>[2]
+      }>
+    ) => client.changeAgentProfile(workspaceId, input.agentId, input.profile),
+    onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['changeAgentProfile']>>) => {
+      queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
+      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+    },
+  }),
+  presentation: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        agentId: string
+        presentation: Parameters<AgentHqApiClient['updateAgentPresentation']>[2]
+      }>
+    ) => client.updateAgentPresentation(workspaceId, input.agentId, input.presentation),
+    onSuccess: async (result: Awaited<ReturnType<AgentHqApiClient['updateAgentPresentation']>>) => {
+      queryClient.setQueryData(agentQueryKeys.detail(workspaceId, result.agent.id), result)
+      await queryClient.invalidateQueries({ queryKey: agentQueryKeys.list(workspaceId) })
+    },
+  }),
+}
+
 export const roomQueryOptions = {
   detail: (client: AgentHqApiClient, workspaceId?: string, roomId?: string) => ({
     queryKey: roomQueryKeys.detail(workspaceId ?? '', roomId ?? ''),
@@ -164,4 +232,26 @@ export function useArchiveRoomMutation(client: AgentHqApiClient, workspaceId: st
 export function useReorderRoomsMutation(client: AgentHqApiClient, workspaceId: string) {
   const queryClient = useQueryClient()
   return useMutation(roomMutationOptions.reorder(client, queryClient, workspaceId))
+}
+
+export function useAgentListQuery(client: AgentHqApiClient, workspaceId?: string) {
+  return useQuery(agentQueryOptions.list(client, workspaceId))
+}
+export function useAgentQuery(client: AgentHqApiClient, workspaceId?: string, agentId?: string) {
+  return useQuery(agentQueryOptions.detail(client, workspaceId, agentId))
+}
+export function useCreateAgentMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(agentMutationOptions.create(client, useQueryClient(), workspaceId))
+}
+export function useArchiveAgentMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(agentMutationOptions.archive(client, useQueryClient(), workspaceId))
+}
+export function useAssignAgentRoomMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(agentMutationOptions.assignRoom(client, useQueryClient(), workspaceId))
+}
+export function useUpdateAgentPresentationMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(agentMutationOptions.presentation(client, useQueryClient(), workspaceId))
+}
+export function useChangeAgentProfileMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(agentMutationOptions.profile(client, useQueryClient(), workspaceId))
 }
