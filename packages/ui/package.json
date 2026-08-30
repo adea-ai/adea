@@ -20,6 +20,7 @@
     },
     "./globals.css": "./src/styles/globals.css",
     "./auth-shell.css": "./src/styles/auth-shell.css",
+    "./conventional-workspace.css": "./src/styles/conventional-workspace.css",
     "./theme.css": "./src/styles/theme.css",
     "./workspace-shell.css": "./src/styles/workspace-shell.css"
   },
