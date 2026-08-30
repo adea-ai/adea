@@ -1,6 +1,14 @@
 import 'server-only'
 
 export {
+  createArtifact,
+  deleteArtifact,
+  getArtifactForUser,
+  listArtifactsForUser,
+  setArtifactAvailability,
+  type ArtifactCreateInput,
+} from './artifacts'
+export {
   createDatabase,
   type AgentHqDatabase,
   type AgentHqTransaction,

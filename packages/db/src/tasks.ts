@@ -11,6 +11,7 @@ import { and, asc, eq, inArray, not } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   agents,
+  artifacts,
   channels,
   messages,
   rooms,
@@ -665,6 +666,20 @@ export async function setTaskArtifactReferences(
     { artifactRefs: normalized },
     command,
     async (transaction, row) => {
+      if (normalized.length) {
+        const availableArtifacts = await transaction
+          .select({ id: artifacts.id })
+          .from(artifacts)
+          .where(
+            and(
+              eq(artifacts.workspaceId, workspaceId),
+              eq(artifacts.deletionState, 'active'),
+              inArray(artifacts.id, normalized)
+            )
+          )
+        if (availableArtifacts.length !== normalized.length)
+          throw new Error('Task Artifact unavailable')
+      }
       const [updated] = await transaction
         .update(tasks)
         .set({ artifactRefs: normalized, updatedAt: new Date(), version: row.version + 1 })

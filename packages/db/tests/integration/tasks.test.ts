@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createArtifact } from '../../src/artifacts'
 import { createGroupChannel, createMessage } from '../../src/conversations'
 import { createTemporaryUserSession } from '../../src/identity'
 import { createAgent } from '../../src/agents'
@@ -22,6 +23,7 @@ import {
 } from '../../src/tasks'
 import {
   agents,
+  artifacts,
   channels,
   messages,
   rooms,
@@ -324,12 +326,22 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
         command('dependency-cycle', dependency.version)
       )
     ).rejects.toThrow('Task dependency cycle')
+    const artifact = await createArtifact(connection.db, workspace.id, owner.principal, {
+      checksumSha256: 'e'.repeat(64),
+      filename: 'spec.md',
+      location: { reference: 'task/spec', type: 'object_store' },
+      mediaType: 'text/markdown',
+      sizeBytes: 100,
+      sourceArtifactRef: 'task-artifact:spec',
+      sourcePrincipal: owner.principal,
+      taskId: task.id,
+    })
     task = await setTaskArtifactReferences(
       connection.db,
       workspace.id,
       task.id,
       owner.principal,
-      ['artifact:spec'],
+      [artifact.id],
       command('artifacts', task.version)
     )
     const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
@@ -352,7 +364,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     )
     expect(task).toMatchObject({
       agentId: agent.id,
-      artifactRefs: ['artifact:spec'],
+      artifactRefs: [artifact.id],
       conversation: {
         channelId: channel.id,
         messageId: message.id,
@@ -363,6 +375,7 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     })
 
     await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
+    await connection.db.delete(artifacts).where(eq(artifacts.workspaceId, workspace.id))
     await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
     await connection.db
       .delete(taskDependencies)

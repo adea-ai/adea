@@ -14,6 +14,7 @@ import {
 } from 'drizzle-orm/pg-core'
 
 import { agents } from './agents'
+import { artifacts } from './artifacts'
 import { entityId, timestampColumns } from './conventions'
 import { users } from './identity'
 import { rooms } from './rooms'
@@ -212,7 +213,9 @@ export const messageArtifactReferences = appSchema.table(
     messageId: uuid('message_id')
       .notNull()
       .references(() => messages.id, { onDelete: 'cascade' }),
-    artifactId: uuid('artifact_id').notNull(),
+    artifactId: uuid('artifact_id')
+      .notNull()
+      .references(() => artifacts.id, { onDelete: 'restrict' }),
     ...timestampColumns(),
   },
   (table) => [
