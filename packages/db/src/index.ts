@@ -81,3 +81,19 @@ export {
   type TaskCreateInput,
   type TaskUpdateInput,
 } from './tasks'
+export {
+  archiveChannel,
+  createDirectAgentChannel,
+  createGroupChannel,
+  createMessage,
+  createRoomChannel,
+  deleteMessage,
+  editMessage,
+  getChannelForUser,
+  getMessageForUser,
+  listChannelsForUser,
+  listMessagesForUser,
+  provisionPrimaryRoomChannel,
+  setChannelParticipants,
+  updateChannel,
+} from './conversations'

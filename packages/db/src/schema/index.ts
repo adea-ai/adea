@@ -12,3 +12,15 @@ export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
 export { roomLifecycleState, rooms } from './rooms'
 export { agentLifecycleState, agentProfileState, agents } from './agents'
 export { taskDependencies, taskLifecycleState, taskMutations, taskPriority, tasks } from './tasks'
+export {
+  channelKind,
+  channelLifecycleState,
+  channelParticipants,
+  channels,
+  channelVisibility,
+  conversationPrincipalKind,
+  messageArtifactReferences,
+  messageMentions,
+  messages,
+  messageSenderKind,
+} from './conversations'

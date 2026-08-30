@@ -274,6 +274,8 @@ function principalIdentifier(principal: PrincipalRef): string {
       return principal.agentId;
     case "worker":
       return principal.workerId;
+    case "system":
+      return principal.systemId;
   }
 }
 

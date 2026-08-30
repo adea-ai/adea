@@ -71,6 +71,13 @@
       "when": 1788066653087,
       "tag": "0009_shallow_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788068411280,
+      "tag": "0010_new_xorn",
+      "breakpoints": true
     }
   ]
 }
