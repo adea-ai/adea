@@ -1,7 +1,9 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from '@agent-hq/types'
-import { AtSign, Paperclip, Send, X } from 'lucide-react'
+import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from 'lucide-react'
 
+import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
+import { mergeTranscription } from './transcription'
 import { composerKeyboardAction, parseAgentMentions } from './workspace-model'
 
 export type ComposerSubmission = Readonly<{
@@ -20,6 +22,7 @@ export function MessageComposer({
   onDraftChange,
   onSubmit,
   replyLabel,
+  transcription,
 }: Readonly<{
   agents: readonly AgentSummary[]
   artifacts: readonly ArtifactSummary[]
@@ -29,12 +32,24 @@ export function MessageComposer({
   onDraftChange: (value: string) => void
   onSubmit: (submission: ComposerSubmission) => Promise<void>
   replyLabel?: string
+  transcription?: TranscriptionProvider
 }>) {
   const [attachmentIds, setAttachmentIds] = useState<readonly string[]>([])
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null)
+  const [transcriptionState, setTranscriptionState] = useState<TranscriptionState>(
+    transcription ? 'idle' : 'unavailable'
+  )
+  const transcriptionSessionRef = useRef<TranscriptionSession | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(
+    () => () => {
+      transcriptionSessionRef.current?.cancel()
+    },
+    []
+  )
   const mentionSuggestions = useMemo(() => {
     const match = draft.match(/(?:^|\s)@([^\n]*)$/)
     if (!match) return []
@@ -66,6 +81,51 @@ export function MessageComposer({
   const insertMention = (agent: AgentSummary) => {
     onDraftChange(draft.replace(/@[^\n]*$/, `@${agent.name} `))
     requestAnimationFrame(() => textareaRef.current?.focus())
+  }
+
+  const dictate = async () => {
+    if (!transcription) return
+    if (transcriptionState === 'listening' || transcriptionState === 'processing') {
+      transcriptionSessionRef.current?.cancel()
+      transcriptionSessionRef.current = null
+      setTranscriptionState('cancelled')
+      requestAnimationFrame(() => textareaRef.current?.focus())
+      return
+    }
+    setTranscriptionError(null)
+    let activeSession: TranscriptionSession | null = null
+    try {
+      const permission = await transcription.requestPermission()
+      if (permission !== 'granted') {
+        setTranscriptionState(permission === 'unavailable' ? 'unavailable' : 'error')
+        setTranscriptionError(
+          permission === 'denied'
+            ? 'Microphone access is off. Enable it in system privacy settings, then retry.'
+            : 'Dictation is unavailable on this device.'
+        )
+        return
+      }
+      const session = await transcription.start()
+      activeSession = session
+      transcriptionSessionRef.current = session
+      setTranscriptionState('listening')
+      const result = await session.completion
+      if (transcriptionSessionRef.current !== session) return
+      setTranscriptionState('processing')
+      onDraftChange(mergeTranscription(draft, result.text))
+      transcriptionSessionRef.current = null
+      setTranscriptionState('idle')
+      requestAnimationFrame(() => textareaRef.current?.focus())
+    } catch (error) {
+      if (activeSession && transcriptionSessionRef.current !== activeSession) return
+      transcriptionSessionRef.current = null
+      setTranscriptionState('error')
+      setTranscriptionError(
+        error instanceof DOMException && error.name === 'NotAllowedError'
+          ? 'Microphone access is off. Enable it in system privacy settings, then retry.'
+          : 'Dictation stopped unexpectedly. Your existing draft is unchanged.'
+      )
+    }
   }
 
   return (
@@ -144,6 +204,30 @@ export function MessageComposer({
           >
             <Paperclip aria-hidden="true" />
           </button>
+          <button
+            type="button"
+            aria-label={
+              transcriptionState === 'listening' || transcriptionState === 'processing'
+                ? 'Cancel dictation'
+                : 'Start dictation'
+            }
+            aria-pressed={transcriptionState === 'listening' || undefined}
+            disabled={disabled || sending || transcriptionState === 'unavailable'}
+            title={
+              transcription
+                ? `Dictate with ${transcription.label}`
+                : 'Dictation is available in Agent HQ Desktop'
+            }
+            onClick={() => void dictate()}
+          >
+            {transcriptionState === 'processing' ? (
+              <LoaderCircle aria-hidden="true" className="conventional-spin" />
+            ) : transcriptionState === 'listening' ? (
+              <MicOff aria-hidden="true" />
+            ) : (
+              <Mic aria-hidden="true" />
+            )}
+          </button>
           {attachmentsOpen ? (
             <div className="conventional-attachment-menu">
               <strong>Attach Artifact</strong>
@@ -182,7 +266,19 @@ export function MessageComposer({
         </button>
       </div>
       <div className="conventional-composer__status" aria-live="polite">
-        {error ? <p role="alert">{error}</p> : sending ? <p>Sending message…</p> : null}
+        {error ? (
+          <p role="alert">{error}</p>
+        ) : transcriptionError ? (
+          <p role="alert">{transcriptionError}</p>
+        ) : sending ? (
+          <p>Sending message…</p>
+        ) : transcriptionState === 'listening' ? (
+          <p>Listening… Select the microphone again to cancel.</p>
+        ) : transcriptionState === 'processing' ? (
+          <p>Preparing editable transcript…</p>
+        ) : transcriptionState === 'cancelled' ? (
+          <p>Dictation cancelled. Your draft was preserved.</p>
+        ) : null}
       </div>
     </section>
   )

@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import { createApiClient } from '@agent-hq/api-client'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createApiClient, type AgentHqApiClient } from '@agent-hq/api-client'
 import type { TaskSummary } from '@agent-hq/types'
 import {
   useAgentListQuery,
+  useArchiveAgentMutation,
   useArchiveTaskMutation,
   useArtifactListQuery,
+  useAssignAgentRoomMutation,
   useAssignTaskMutation,
   useCancelTaskMutation,
+  useChangeAgentProfileMutation,
   useChannelListQuery,
   useCreateAgentMutation,
   useCreateDirectChannelMutation,
@@ -23,6 +26,7 @@ import {
   useSetTaskConversationMutation,
   useSetTaskDependenciesMutation,
   useTaskListQuery,
+  useUpdateAgentPresentationMutation,
   useWorkspaceBootstrapQuery,
 } from '@agent-hq/data'
 import { useWorkspaceStore } from '@agent-hq/state'
@@ -40,8 +44,9 @@ function command(prefix: string, expectedVersion?: number) {
   }
 }
 
-export function useWorkspaceController() {
-  const [client] = useState(() => createApiClient())
+export function useWorkspaceController(providedClient?: AgentHqApiClient) {
+  const [defaultClient] = useState(() => createApiClient())
+  const client = providedClient ?? defaultClient
   const persistenceReady = useWorkspacePersistence()
   const bootstrap = useWorkspaceBootstrapQuery(client)
   const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
@@ -67,6 +72,10 @@ export function useWorkspaceController() {
   const createGroup = useCreateGroupChannelMutation(client, workspaceId ?? '')
   const createDirect = useCreateDirectChannelMutation(client, workspaceId ?? '')
   const createAgent = useCreateAgentMutation(client, workspaceId ?? '')
+  const archiveAgent = useArchiveAgentMutation(client, workspaceId ?? '')
+  const assignAgentRoom = useAssignAgentRoomMutation(client, workspaceId ?? '')
+  const changeAgentProfile = useChangeAgentProfileMutation(client, workspaceId ?? '')
+  const updateAgentPresentation = useUpdateAgentPresentationMutation(client, workspaceId ?? '')
   const createTask = useCreateTaskMutation(client, workspaceId ?? '')
   const assignTask = useAssignTaskMutation(client, workspaceId ?? '')
   const moveTask = useMoveTaskRoomMutation(client, workspaceId ?? '')
@@ -97,15 +106,21 @@ export function useWorkspaceController() {
     }
   }, [channels.data, navigation, selectedChannelId, setSelectedChannelId, setSelectedRoomId])
 
-  const selectWorkspace = (nextWorkspaceId: string) => {
-    setSelectedWorkspaceId(nextWorkspaceId)
-    setSelectedRoomId(null)
-    setSelectedChannelId(null)
-  }
-  const selectChannel = (channelId: string, roomId?: string) => {
-    setSelectedRoomId(roomId ?? null)
-    setSelectedChannelId(channelId)
-  }
+  const selectWorkspace = useCallback(
+    (nextWorkspaceId: string) => {
+      setSelectedWorkspaceId(nextWorkspaceId)
+      setSelectedRoomId(null)
+      setSelectedChannelId(null)
+    },
+    [setSelectedChannelId, setSelectedRoomId, setSelectedWorkspaceId]
+  )
+  const selectChannel = useCallback(
+    (channelId: string, roomId?: string) => {
+      setSelectedRoomId(roomId ?? null)
+      setSelectedChannelId(channelId)
+    },
+    [setSelectedChannelId, setSelectedRoomId]
+  )
   const taskMutation = <T>(mutation: { mutateAsync: (input: T) => Promise<unknown> }, input: T) =>
     mutation.mutateAsync(input).then(() => undefined)
   const taskInput = (task: TaskSummary, prefix: string) => command(prefix, task.version)
@@ -114,6 +129,22 @@ export function useWorkspaceController() {
     activeWorkspace,
     agents: agents.data ?? [],
     artifacts: artifacts.data ?? [],
+    agentActions: {
+      archive: (agentId: string) => archiveAgent.mutateAsync(agentId).then(() => undefined),
+      assignRoom: (agentId: string, roomId: string | null) =>
+        assignAgentRoom.mutateAsync({ agentId, roomId }).then(() => undefined),
+      profile: (
+        agentId: string,
+        profile: Parameters<typeof changeAgentProfile.mutateAsync>[0]['profile']
+      ) => changeAgentProfile.mutateAsync({ agentId, profile }).then(() => undefined),
+      presentation: (
+        agentId: string,
+        presentation: Parameters<typeof updateAgentPresentation.mutateAsync>[0]['presentation']
+      ) => updateAgentPresentation.mutateAsync({ agentId, presentation }).then(() => undefined),
+    },
+    agentBusy: [archiveAgent, assignAgentRoom, changeAgentProfile, updateAgentPresentation].some(
+      ({ isPending }) => isPending
+    ),
     bootstrap,
     channels: channels.data ?? [],
     client,

@@ -3,12 +3,14 @@ import { X } from 'lucide-react'
 
 export function ModalDialog({
   children,
+  className,
   description,
   onClose,
   open,
   title,
 }: Readonly<{
   children: ReactNode
+  className?: string
   description?: string
   onClose: () => void
   open: boolean
@@ -33,7 +35,7 @@ export function ModalDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="conventional-dialog"
+      className={`conventional-dialog${className ? ` ${className}` : ''}`}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {

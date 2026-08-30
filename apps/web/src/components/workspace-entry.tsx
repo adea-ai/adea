@@ -5,8 +5,8 @@ import type { WorkspaceShellProps } from './workspace-shell'
 
 const ConventionalWorkspace = dynamic(
   () =>
-    import('./conventional-workspace/conventional-workspace-shell').then(
-      ({ ConventionalWorkspaceShell }) => ConventionalWorkspaceShell
+    import('./conventional-workspace-entry').then(
+      ({ ConventionalWorkspaceEntry }) => ConventionalWorkspaceEntry
     ),
   { loading: () => <WorkspaceEntryLoading /> }
 )

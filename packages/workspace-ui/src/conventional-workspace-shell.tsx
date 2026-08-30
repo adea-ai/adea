@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useWorkspaceStore } from '@agent-hq/state'
 import { Boxes, UserRound } from 'lucide-react'
 
@@ -13,17 +13,17 @@ import { TaskBoard } from './task-board'
 import { useWorkspaceController } from './use-workspace-controller'
 import { WorkspaceSidebar } from './workspace-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
-import {
-  WorkspaceSearchDialog,
-  WorkspaceSettingsDialog,
-  type SearchResult,
-} from './workspace-utility-dialogs'
+import { WorkspaceSearchDialog, type SearchResult } from './workspace-utility-dialogs'
+import { WorkspaceSettingsDialog } from './workspace-settings'
+import type { WorkspacePlatformServices } from './platform'
 
 type DialogId =
   'conversation-search' | 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
 
-export function ConventionalWorkspaceShell() {
-  const controller = useWorkspaceController()
+export function ConventionalWorkspaceShell({
+  services,
+}: Readonly<{ services?: WorkspacePlatformServices }> = {}) {
+  const controller = useWorkspaceController(services?.client)
   const [dialog, setDialog] = useState<DialogId>(null)
   const [accountBusy, setAccountBusy] = useState(false)
   const [online, setOnline] = useState(true)
@@ -45,15 +45,30 @@ export function ConventionalWorkspaceShell() {
   const setThreadRootMessageId = useWorkspaceStore((state) => state.setThreadRootMessageId)
   const toggleRoomCollapsed = useWorkspaceStore((state) => state.toggleRoomCollapsed)
   const principal = controller.bootstrap.data?.principal
-  const accountAuthenticated = Boolean(principal && !principal.temporary)
-  const accountLabel = accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in'
-  const selectChannel = (channelId: string, roomId?: string) => {
-    setSelectedArtifactId(null)
-    setSearchTargetMessageId(null)
-    controller.selectChannel(channelId, roomId)
-    setActiveSurface('conversation')
-    setMobileSidebarOpen(false)
-  }
+  const accountAuthenticated =
+    services?.account?.authenticated ?? Boolean(principal && !principal.temporary)
+  const accountLabel =
+    services?.account?.label ??
+    (accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in')
+  const selectChannel = useCallback(
+    (channelId: string, roomId?: string) => {
+      setSelectedArtifactId(null)
+      setSearchTargetMessageId(null)
+      controller.selectChannel(channelId, roomId)
+      setActiveSurface('conversation')
+      setMobileSidebarOpen(false)
+    },
+    [controller.selectChannel, setActiveSurface, setMobileSidebarOpen]
+  )
+
+  useEffect(() => {
+    const openDeepLinkedSettings = () => {
+      if (window.location.hash.startsWith('#settings')) setDialog('settings')
+    }
+    openDeepLinkedSettings()
+    window.addEventListener('hashchange', openDeepLinkedSettings)
+    return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
+  }, [])
 
   useEffect(() => {
     const updateOnlineStatus = () => setOnline(navigator.onLine)
@@ -144,6 +159,32 @@ export function ConventionalWorkspaceShell() {
       : 'Agent HQ'
   }, [controller.activeWorkspace])
 
+  useEffect(() => {
+    if (!controller.workspaceId || !controller.channels.length) return
+    const query = new URLSearchParams(window.location.search)
+    const requestedWorkspace = query.get('workspace')
+    if (requestedWorkspace && requestedWorkspace !== controller.workspaceId) return
+    const channelId = query.get('channel')
+    const taskId = query.get('task')
+    if (channelId && controller.channels.some(({ id }) => id === channelId)) {
+      const channel = controller.channels.find(({ id }) => id === channelId)!
+      selectChannel(channel.id, channel.roomId)
+      setThreadRootMessageId(query.get('thread'))
+      setSearchTargetMessageId(query.get('message'))
+    } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
+      setSelectedTaskId(taskId)
+      setActiveSurface('tasks')
+    }
+  }, [
+    controller.channels,
+    controller.tasks,
+    controller.workspaceId,
+    selectChannel,
+    setActiveSurface,
+    setSelectedTaskId,
+    setThreadRootMessageId,
+  ])
+
   if (controller.bootstrap.isPending || !controller.persistenceReady)
     return (
       <main className="conventional-workspace conventional-workspace--loading">
@@ -200,9 +241,7 @@ export function ConventionalWorkspaceShell() {
   const signOut = async () => {
     setAccountBusy(true)
     try {
-      const { createNeonClientAdapter } = await import('@agent-hq/auth/client')
-      await createNeonClientAdapter().signOut()
-      window.location.assign('/')
+      await services?.account?.onSignOut()
     } finally {
       setAccountBusy(false)
     }
@@ -314,6 +353,7 @@ export function ConventionalWorkspaceShell() {
               setSelectedTaskId(taskId)
               setActiveSurface('tasks')
             }}
+            privateContent={services?.privateContent}
             onThreadChange={setThreadRootMessageId}
             onThreadDraftChange={(value) =>
               threadRootMessageId && setDraft(`thread:${threadRootMessageId}`, value)
@@ -322,16 +362,42 @@ export function ConventionalWorkspaceShell() {
             searchTargetMessageId={searchTargetMessageId}
             threadDraft={threadRootMessageId ? (drafts[`thread:${threadRootMessageId}`] ?? '') : ''}
             threadRootMessageId={threadRootMessageId}
+            transcription={services?.transcription}
             workspaceId={controller.workspaceId}
           />
         ) : activeSurface === 'agents' ? (
           <AgentRoster
             agents={controller.agents}
-            busy={controller.createAgentBusy}
+            busy={controller.createAgentBusy || controller.agentBusy}
+            onArchive={controller.agentActions.archive}
             onCreate={controller.createAgent}
             onMessage={async (agentId) => {
               await controller.openAgentConversation(agentId)
               setActiveSurface('conversation')
+            }}
+            onUpdate={async (agent, input) => {
+              if (
+                input.name.trim() !== agent.name ||
+                input.roleSummary !== (agent.roleSummary ?? null) ||
+                input.avatarRef !== (agent.avatarRef ?? null) ||
+                input.characterRef !== (agent.characterRef ?? null)
+              )
+                await controller.agentActions.presentation(agent.id, {
+                  avatarRef: input.avatarRef,
+                  characterRef: input.characterRef,
+                  name: input.name,
+                  roleSummary: input.roleSummary,
+                })
+              if (input.roomId !== (agent.roomId ?? null))
+                await controller.agentActions.assignRoom(agent.id, input.roomId)
+              if (
+                input.profileId.trim() !== agent.profile.id ||
+                input.profileVersion.trim() !== agent.profile.version
+              )
+                await controller.agentActions.profile(agent.id, {
+                  profileId: input.profileId,
+                  profileVersion: input.profileVersion,
+                })
             }}
             rooms={controller.rooms}
           />
@@ -352,6 +418,7 @@ export function ConventionalWorkspaceShell() {
             }
             onQueue={controller.taskActions.queue}
             onSelect={setSelectedTaskId}
+            privateContent={services?.privateContent}
             rooms={controller.rooms}
             selectedTaskId={selectedTaskId}
             tasks={controller.tasks}
@@ -380,6 +447,7 @@ export function ConventionalWorkspaceShell() {
         online={online}
         onSelect={selectSearchResult}
         open={dialog === 'search' || dialog === 'conversation-search'}
+        privateContent={services?.privateContent}
         rooms={controller.rooms}
         scopeChannelId={
           dialog === 'conversation-search' ? controller.selectedChannel?.id : undefined
@@ -390,11 +458,18 @@ export function ConventionalWorkspaceShell() {
       <WorkspaceSettingsDialog
         accountAuthenticated={accountAuthenticated}
         accountLabel={accountLabel}
-        busy={accountBusy}
+        agents={controller.agents}
+        busy={services?.account?.busy ?? accountBusy}
         onClose={() => setDialog(null)}
-        onSignIn={() => window.location.assign('/auth/sign-in?returnTo=%2F')}
+        onOpenAgents={() => {
+          setSelectedArtifactId(null)
+          setActiveSurface('agents')
+        }}
+        onSignIn={() => services?.account?.onSignIn()}
         onSignOut={() => void signOut()}
         open={dialog === 'settings'}
+        services={services}
+        workspace={controller.activeWorkspace}
       />
       <ModalDialog
         open={dialog === 'details'}
