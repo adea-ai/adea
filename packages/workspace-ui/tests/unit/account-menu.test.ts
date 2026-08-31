@@ -3,13 +3,13 @@ import { describe, expect, test } from 'bun:test'
 import { accountMenuItems, accountSessionItem } from '../../src/account-menu-model'
 
 describe('account menu contract', () => {
-  test('keeps the Open Grok menu order and disables unavailable destinations', () => {
+  test('keeps the account menu order and disables unavailable destinations', () => {
     expect(accountMenuItems.map(({ id }) => id)).toEqual([
       'mobile',
-      'settings',
       'about',
       'help',
       'feedback',
+      'settings',
     ])
     expect(accountMenuItems.filter(({ disabled }) => disabled).map(({ id }) => id)).toEqual([
       'mobile',
@@ -17,8 +17,8 @@ describe('account menu contract', () => {
       'feedback',
     ])
     expect(accountMenuItems.filter(({ disabled }) => !disabled).map(({ id }) => id)).toEqual([
-      'settings',
       'about',
+      'settings',
     ])
   })
 

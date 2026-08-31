@@ -11,6 +11,7 @@ import {
   type DesktopSessionVault,
 } from '@agent-hq/auth/desktop'
 import { invoke } from '@tauri-apps/api/core'
+import { getVersion } from '@tauri-apps/api/app'
 import { listen } from '@tauri-apps/api/event'
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -26,6 +27,7 @@ import {
 } from '@agent-hq/workspace-ui'
 
 import { localContentAuthority } from './local-content'
+import packageJson from '../package.json'
 import { desktopSettingsProvider } from './preferences'
 import { systemTranscriptionProvider } from './transcription'
 import {
@@ -35,6 +37,8 @@ import {
   type DesktopWorkspaceBootstrap,
 } from './workspace-session'
 import './styles.css'
+
+const packageVersion = packageJson.version
 
 const cloudOrigin = import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || 'https://agent-hq-site.vercel.app'
 
@@ -85,6 +89,7 @@ function DesktopApp() {
   const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
   const [session, setSession] = useState<DesktopSession | undefined>()
   const [plugins] = useState(() => createBrowserPluginsProvider())
+  const [appVersion, setAppVersion] = useState<string>(packageVersion)
   const [view, setView] = useState<WorkspaceView>(() =>
     new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
   )
@@ -98,6 +103,12 @@ function DesktopApp() {
   const temporaryCredentialRef = useRef<string | null>(null)
   const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
   const authCallbackObservedRef = useRef(false)
+
+  useEffect(() => {
+    void getVersion()
+      .then(setAppVersion)
+      .catch(() => undefined)
+  }, [])
 
   const openWorkspace = useCallback(async (activeSession?: DesktopSession) => {
     const requestIsCurrent = workspaceRequestGuardRef.current.begin()
@@ -232,7 +243,7 @@ function DesktopApp() {
         onSignIn: () => void beginSignIn(),
         onSignOut: () => signOut(),
       },
-      app: { name: 'Agent HQ', platform: 'desktop' as const },
+      app: { name: 'Agent HQ', platform: 'desktop' as const, version: appVersion },
       client,
       privateContent: localContentAuthority,
       plugins,
@@ -305,6 +316,7 @@ function DesktopApp() {
           open={globalPanel === 'about'}
           onClose={() => setGlobalPanel(null)}
           platform="desktop"
+          version={appVersion}
         />
       </div>
     )
