@@ -54,7 +54,7 @@ export function WorkspaceEntry({
         window.location.assign('/')
       },
     },
-    app: { name: 'Agent HQ Web', platform: 'web' },
+    app: { name: 'Agent HQ', platform: 'web' },
     plugins: createBrowserPluginsProvider(),
     settings: createBrowserSettingsProvider(),
   }))
