@@ -21,6 +21,7 @@ import {
   createBrowserPluginsProvider,
   GlobalWorkspaceRail,
   PluginsDialog,
+  WorkspaceAboutDialog,
   type WorkspaceView,
 } from '@agent-hq/workspace-ui'
 
@@ -250,8 +251,16 @@ function DesktopApp() {
     return (
       <div className={`workspace-frame workspace-frame--${view}`}>
         <GlobalWorkspaceRail
+          account={{
+            authenticated: Boolean(session),
+            busy,
+            label: session ? (workspaceState.accountLabel ?? 'Account') : 'Not signed in',
+            onSignIn: () => void beginSignIn(),
+            onSignOut: () => void signOut(),
+          }}
           activeWorkspace={workspaceState.workspace}
           onOpenNotifications={() => openSettings('input-notifications')}
+          onOpenAbout={() => setGlobalPanel('about')}
           onOpenPlugins={() => setGlobalPanel('plugins')}
           onOpenSearch={openSearch}
           onOpenSettings={() => openSettings('account')}
@@ -290,6 +299,12 @@ function DesktopApp() {
           open={globalPanel === 'plugins'}
           onClose={() => setGlobalPanel(null)}
           provider={plugins}
+        />
+        <WorkspaceAboutDialog
+          appName="Agent HQ Desktop"
+          open={globalPanel === 'about'}
+          onClose={() => setGlobalPanel(null)}
+          platform="desktop"
         />
       </div>
     )

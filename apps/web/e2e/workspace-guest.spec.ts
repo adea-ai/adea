@@ -57,6 +57,16 @@ test('a guest can use a workspace before opening the optional persistence flow',
   }
 
   await userMenu.click()
+  const accountMenu = page.getByRole('menu')
+  await expect(accountMenu.getByRole('menuitem', { name: 'Get Grok Bot for iOS' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()
+  await accountMenu.getByRole('menuitem', { name: 'About' }).click()
+  await expect(page.getByRole('dialog', { name: 'About Agent HQ' })).toBeVisible()
+  await page.getByRole('button', { name: 'Close dialog' }).click()
+
+  await userMenu.click()
+  await accountMenu.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })

@@ -3,28 +3,27 @@
 import type { WorkspaceSummary } from '@agent-hq/types'
 import { Button } from '@agent-hq/ui/components/ui/button'
 import { Separator } from '@agent-hq/ui/components/ui/separator'
-import {
-  Bell,
-  BriefcaseBusiness,
-  Home,
-  Map,
-  MessageSquareText,
-  Plug,
-  Search,
-  UserRound,
-} from 'lucide-react'
+import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 
+import { AccountMenu } from './account-menu'
 import type { WorkspaceView } from './workspace-view-toggle'
 
 type RailActionProps = Readonly<{
   active?: boolean
+  disabled?: boolean
   icon: typeof Home
   label: string
-  onClick: () => void
+  onClick?: () => void
 }>
 
-function RailAction({ active = false, icon: Icon, label, onClick }: RailActionProps) {
+function RailAction({
+  active = false,
+  disabled = false,
+  icon: Icon,
+  label,
+  onClick,
+}: RailActionProps) {
   return (
     <Button
       type="button"
@@ -34,6 +33,7 @@ function RailAction({ active = false, icon: Icon, label, onClick }: RailActionPr
       aria-label={label}
       aria-pressed={active || undefined}
       title={label}
+      disabled={disabled}
       onClick={onClick}
     >
       <Icon aria-hidden="true" />
@@ -47,7 +47,9 @@ function WorkspaceMark({ workspace }: Readonly<{ workspace?: WorkspaceSummary }>
 }
 
 export function GlobalWorkspaceRail({
+  account,
   onOpenNotifications,
+  onOpenAbout,
   onOpenPlugins,
   onOpenSearch,
   onOpenSettings,
@@ -57,8 +59,16 @@ export function GlobalWorkspaceRail({
   view,
   workspaces,
 }: Readonly<{
+  account: Readonly<{
+    authenticated: boolean
+    busy?: boolean
+    label: string
+    onSignIn: () => void
+    onSignOut: () => void
+  }>
   activeWorkspace?: WorkspaceSummary
   onOpenNotifications: () => void
+  onOpenAbout: () => void
   onOpenPlugins: () => void
   onOpenSearch: () => void
   onOpenSettings: () => void
@@ -130,7 +140,7 @@ export function GlobalWorkspaceRail({
 
       <div className="global-rail__search">
         <RailAction icon={Search} label="Search workspace" onClick={onOpenSearch} />
-        <kbd aria-hidden="true">⌘K</kbd>
+        <kbd aria-hidden="true">⌘ K</kbd>
       </div>
 
       <Separator className="global-rail__separator" />
@@ -148,12 +158,25 @@ export function GlobalWorkspaceRail({
           label="Chat view"
           onClick={() => onViewChange('chat')}
         />
-        <RailAction icon={Bell} label="Notifications" onClick={onOpenNotifications} />
+        <RailAction
+          disabled
+          icon={Bell}
+          label="Notifications (coming soon)"
+          onClick={onOpenNotifications}
+        />
       </div>
 
       <div className="global-rail__footer">
         <RailAction icon={Plug} label="Plugins" onClick={onOpenPlugins} />
-        <RailAction icon={UserRound} label="User settings" onClick={onOpenSettings} />
+        <AccountMenu
+          authenticated={account.authenticated}
+          busy={account.busy}
+          label={account.label}
+          onOpenAbout={onOpenAbout}
+          onOpenSettings={onOpenSettings}
+          onSignIn={account.onSignIn}
+          onSignOut={account.onSignOut}
+        />
       </div>
     </nav>
   )

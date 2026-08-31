@@ -14,7 +14,7 @@ export type WorkspaceState = {
   collapsedRoomIds: readonly string[]
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
-  globalPanel: 'plugins' | 'search' | 'settings' | null
+  globalPanel: 'about' | 'plugins' | 'search' | 'settings' | null
   setSelectedScene: (scene: WorkspaceSceneId) => void
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
