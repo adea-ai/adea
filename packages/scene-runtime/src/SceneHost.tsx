@@ -146,6 +146,8 @@ export type SceneEnvironmentConfig = {
   backgroundTextureRepeat?: readonly [number, number];
   backgroundTextureOffset?: readonly [number, number];
   backgroundTextureRotation?: number;
+  /** Show the image behind perspective views while retaining the solid color in top-down mode. */
+  backgroundTexturePerspectiveOnly?: boolean;
   fog?: {
     color: THREE.ColorRepresentation;
     mode?: "linear" | "exp2";
@@ -1189,7 +1191,7 @@ export function SceneHost({
   coplanarMaterialMeshNames = EMPTY_ASSET_URLS,
   materialOverrides = EMPTY_MATERIAL_OVERRIDES,
   playerVisibilityGroups = EMPTY_VISIBILITY_GROUPS,
-  characterId = "security",
+  characterId = "cartoon-standard",
   characterScale = DEFAULT_characterModelScale,
   sceneScale = 1,
   movementSpeedFactor = 1,
@@ -1376,7 +1378,8 @@ export function SceneHost({
     };
     canvas.addEventListener("webglcontextlost", onWebglContextLost, false);
 
-    scene.background = new THREE.Color(environment?.background ?? 0x9fd9f7);
+    const fallbackBackground = new THREE.Color(environment?.background ?? 0x9fd9f7);
+    scene.background = fallbackBackground;
     if (environment?.fog) {
       scene.fog =
         environment.fog.mode === "linear"
@@ -2276,7 +2279,10 @@ export function SceneHost({
           loadedBackground.center.set(0.5, 0.5);
           loadedBackground.rotation = environment?.backgroundTextureRotation ?? 0;
           loadedBackground.needsUpdate = true;
-          scene.background = loadedBackground;
+          scene.background =
+            environment?.backgroundTexturePerspectiveOnly && !cameraController.isPerspective
+              ? fallbackBackground
+              : loadedBackground;
         }
         prepareSceneLayer(visual.scene);
         visual.scene.scale.multiplyScalar(sceneScale);
@@ -3515,6 +3521,12 @@ export function SceneHost({
               navigationIndicator.visible = false;
               activeRenderer.domElement.style.cursor = "";
             }
+          }
+          if (backgroundTexture && environment?.backgroundTexturePerspectiveOnly) {
+            const nextBackground = cameraController.isPerspective
+              ? backgroundTexture
+              : fallbackBackground;
+            if (scene.background !== nextBackground) scene.background = nextBackground;
           }
           cameraController.setCameraRelativeBasis(forward, right);
           visualUpdate?.(scene, delta, timer.getElapsed());

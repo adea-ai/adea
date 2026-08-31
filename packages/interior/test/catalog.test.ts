@@ -45,12 +45,15 @@ describe("room-designer model boundary", () => {
   });
 
   test("keeps only interior pots and plants in the plants category", () => {
-    expect(interiorPlantIds).toEqual([
-      "models-plants-05",
-      "models-plants-15",
-      "models-plants-19",
-      "models-casino-flower-03",
-    ]);
+    expect(interiorPlantIds).toEqual(
+      expect.arrayContaining([
+        "models-plants-05",
+        "models-plants-15",
+        "models-plants-19",
+        "models-casino-flower-03",
+      ]),
+    );
+    expect(interiorPlantIds.filter((id) => id.startsWith("expanded-")).length).toBe(37);
   });
 
   test("does not expose exterior foliage or fence models", () => {

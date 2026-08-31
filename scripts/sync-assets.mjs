@@ -63,6 +63,10 @@ await copyAsset(
   resolve(publicAssets, "models/fences"),
 );
 await copyAsset(
+  resolve(repoRoot, "packages/landscape/assets/backgrounds"),
+  resolve(publicAssets, "models/backgrounds"),
+);
+await copyAsset(
   resolve(repoRoot, "packages/pets/assets/animals"),
   resolve(publicAssets, "models/animals"),
 );
@@ -73,6 +77,10 @@ await copyAsset(
 await copyAsset(
   resolve(repoRoot, "packages/characters/assets/character-parts"),
   resolve(publicAssets, "models/character-parts"),
+);
+await copyAsset(
+  resolve(repoRoot, "packages/rooms/assets/rooms"),
+  resolve(publicAssets, "models/rooms"),
 );
 
 console.log(`Synced HQ assets to ${publicAssets}`);

@@ -5,6 +5,12 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 // this package so outdoor assets stay separate from room-designer props.
 const assetRoot = "/assets/models/foliage";
 const fenceRoot = "/assets/models/fences";
+const backgroundRoot = "/assets/models/backgrounds";
+
+export const landscapeHorizonBackgrounds = {
+  home: `${backgroundRoot}/background_seasons_3.jpg`,
+  work: `${backgroundRoot}/background_urban_4.jpg`,
+} as const;
 
 export const foliageAssets = [
   {
@@ -74,10 +80,55 @@ export const fenceAssets = [
 
 export const landscapeAssets = [...foliageAssets, ...fenceAssets] as const;
 
+export const backgroundAssets = [
+  {
+    id: "seasons-1",
+    label: "Seasons 1",
+    assetUrl: `${backgroundRoot}/background_seasons_1.jpg`,
+  },
+  {
+    id: "seasons-2",
+    label: "Seasons 2",
+    assetUrl: `${backgroundRoot}/background_seasons_2.jpg`,
+  },
+  {
+    id: "seasons-3",
+    label: "Seasons 3",
+    assetUrl: `${backgroundRoot}/background_seasons_3.jpg`,
+  },
+  {
+    id: "seasons-4",
+    label: "Seasons 4",
+    assetUrl: `${backgroundRoot}/background_seasons_4.jpg`,
+  },
+  {
+    id: "urban-1",
+    label: "Urban 1",
+    assetUrl: `${backgroundRoot}/background_urban_1.jpg`,
+  },
+  {
+    id: "urban-2",
+    label: "Urban 2",
+    assetUrl: `${backgroundRoot}/background_urban_2.jpg`,
+  },
+  {
+    id: "urban-3",
+    label: "Urban 3",
+    assetUrl: `${backgroundRoot}/background_urban_3.jpg`,
+  },
+  {
+    id: "urban-4",
+    label: "Urban 4",
+    assetUrl: `${backgroundRoot}/background_urban_4.jpg`,
+  },
+] as const;
+
 export type FoliageId = (typeof foliageAssets)[number]["id"];
 export type FenceId = (typeof fenceAssets)[number]["id"];
 export type LandscapeId = (typeof landscapeAssets)[number]["id"];
 export type LandscapeManifest = (typeof landscapeAssets)[number];
+export type BackgroundId = (typeof backgroundAssets)[number]["id"];
+export type BackgroundManifest = (typeof backgroundAssets)[number];
 
 export type LoadedLandscape = {
   id: LandscapeId;
