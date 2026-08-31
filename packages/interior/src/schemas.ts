@@ -7,7 +7,6 @@ export const interiorPropAssetSchema = z.object({
   category: z.enum([
     "food-and-drinks",
     "bathroom",
-    "architecture",
     "kitchen",
     "plants",
     "wall-decor",
@@ -21,7 +20,6 @@ export const interiorPropAssetSchema = z.object({
     "recreation",
     "rugs",
     "retail",
-    "curtains",
     "fitness",
     "kids",
     "wall-art",

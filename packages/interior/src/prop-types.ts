@@ -7,7 +7,6 @@ export type PropId = string;
 export type InteriorPropCategory =
   | "food-and-drinks"
   | "bathroom"
-  | "architecture"
   | "kitchen"
   | "plants"
   | "wall-decor"
@@ -21,7 +20,6 @@ export type InteriorPropCategory =
   | "recreation"
   | "rugs"
   | "retail"
-  | "curtains"
   | "fitness"
   | "kids"
   | "wall-art"

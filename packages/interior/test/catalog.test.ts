@@ -59,13 +59,11 @@ describe("room-designer model boundary", () => {
   test("separates functional interior families into designer categories", () => {
     for (const category of [
       "bathroom",
-      "architecture",
       "kitchen",
       "entertainment",
       "recreation",
       "rugs",
       "retail",
-      "curtains",
       "fitness",
       "kids",
       "wall-art",
@@ -89,9 +87,6 @@ describe("room-designer model boundary", () => {
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-shop-001")?.category).toBe(
       "retail",
     );
-    expect(interiorPropAssets.find((asset) => asset.id === "expanded-curtains-001")?.category).toBe(
-      "curtains",
-    );
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-picture-001")?.category).toBe(
       "wall-art",
     );
@@ -107,7 +102,6 @@ describe("room-designer model boundary", () => {
     const migratedFamilies = {
       carpet: "rugs",
       shop: "retail",
-      curtains: "curtains",
       picture: "wall-art",
       training_item: "fitness",
       for_kids: "kids",
@@ -123,6 +117,12 @@ describe("room-designer model boundary", () => {
         true,
       );
     }
+  });
+
+  test("does not expose architecture or curtain assets to the room designer", () => {
+    expect(interiorPropAssets.some((asset) => asset.category === "architecture")).toBe(false);
+    expect(interiorPropAssets.some((asset) => asset.assetUrl.includes("/architecture/"))).toBe(false);
+    expect(interiorPropAssets.some((asset) => asset.assetUrl.includes("/curtains/"))).toBe(false);
   });
 
   test("does not expose exterior foliage or fence models", () => {

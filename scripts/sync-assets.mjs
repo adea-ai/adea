@@ -79,8 +79,8 @@ await copyAsset(
   resolve(publicAssets, "models/character-parts"),
 );
 await copyAsset(
-  resolve(repoRoot, "packages/rooms/assets/rooms"),
-  resolve(publicAssets, "models/rooms"),
+  resolve(repoRoot, "packages/rooms/assets"),
+  resolve(publicAssets, "models"),
 );
 
 console.log(`Synced HQ assets to ${publicAssets}`);
