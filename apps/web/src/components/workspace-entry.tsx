@@ -9,6 +9,7 @@ import { GlobalWorkspaceRail } from '@agent-hq/workspace-ui/global-workspace-rai
 import type { WorkspacePlatformServices } from '@agent-hq/workspace-ui/platform'
 import { createBrowserPluginsProvider } from '@agent-hq/workspace-ui/plugins'
 import { createBrowserSettingsProvider } from '@agent-hq/workspace-ui/preferences'
+import { WorkspaceAboutDialog } from '@agent-hq/workspace-ui/workspace-about-dialog'
 import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
 import { parseAsStringLiteral, useQueryState } from 'nuqs'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -81,6 +82,11 @@ export function WorkspaceEntry({
   const activeWorkspace =
     bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
     bootstrap.data?.activeWorkspace
+  const principal = bootstrap.data?.principal
+  const accountAuthenticated = Boolean(principal && !principal.temporary)
+  const accountLabel = accountAuthenticated
+    ? (principal?.displayName ?? 'Account')
+    : 'Not signed in'
 
   useEffect(() => setSelectedScene(scene), [scene, setSelectedScene])
 
@@ -99,7 +105,14 @@ export function WorkspaceEntry({
   return (
     <div className={`workspace-frame workspace-frame--${view}`}>
       <GlobalWorkspaceRail
+        account={{
+          authenticated: accountAuthenticated,
+          label: accountLabel,
+          onSignIn: () => services.account?.onSignIn(),
+          onSignOut: () => void services.account?.onSignOut(),
+        }}
         onOpenNotifications={() => openSettings('input-notifications')}
+        onOpenAbout={() => setGlobalPanel('about')}
         onOpenPlugins={() => setGlobalPanel('plugins')}
         onOpenSearch={openSearch}
         onOpenSettings={() => openSettings('account')}
@@ -133,6 +146,13 @@ export function WorkspaceEntry({
         open={globalPanel === 'plugins'}
         onClose={() => setGlobalPanel(null)}
         provider={services.plugins}
+      />
+      <WorkspaceAboutDialog
+        appName={services.app?.name}
+        open={globalPanel === 'about'}
+        onClose={() => setGlobalPanel(null)}
+        platform={services.app?.platform}
+        version={services.app?.version}
       />
     </div>
   )

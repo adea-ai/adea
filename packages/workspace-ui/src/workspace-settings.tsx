@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentSummary, WorkspaceSummary } from '@agent-hq/types'
 import { MusicToggle } from '@agent-hq/audio'
 import { ThemeToggle } from '@agent-hq/ui/components/theme-toggle'
+import { Switch } from '@agent-hq/ui/components/ui/switch'
 import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-react'
 
 import { ModalDialog } from './modal-dialog'
@@ -13,19 +14,20 @@ import {
 import {
   nextSettingsSection,
   settingsSectionFromHash,
-  settingsSections,
+  settingsSectionGroups,
+  settingsSectionLabels,
   type SettingsSection,
 } from './settings-section'
 
-const labels: Record<SettingsSection, string> = {
-  account: 'Account & app',
-  agents: 'Agents',
-  appearance: 'Appearance',
-  'input-notifications': 'Input & notifications',
-  integrations: 'Integrations & capabilities',
-  'privacy-data': 'Privacy & data',
-  workspace: 'Workspace',
-}
+const sectionIcons = {
+  account: UserRound,
+  appearance: MonitorCog,
+  workspace: MonitorCog,
+  agents: Bot,
+  'input-notifications': Mic,
+  'privacy-data': EyeOff,
+  integrations: Link2,
+} satisfies Record<SettingsSection, typeof UserRound>
 
 function SettingsRow({
   children,
@@ -145,44 +147,56 @@ export function WorkspaceSettingsDialog({
     >
       <div className="conventional-settings-shell">
         <nav aria-label="Settings sections" className="conventional-settings-nav">
-          {settingsSections.map((item) => (
-            <button
-              key={item}
-              ref={(element) => {
-                if (element) navigationRefs.current.set(item, element)
-                else navigationRefs.current.delete(item)
-              }}
-              type="button"
-              role="tab"
-              aria-selected={section === item}
-              aria-controls={`settings-panel-${item}`}
-              tabIndex={section === item ? 0 : -1}
-              onClick={() => selectSection(item)}
-              onKeyDown={(event) => {
-                if (!['ArrowDown', 'ArrowUp', 'End', 'Home'].includes(event.key)) return
-                event.preventDefault()
-                selectSection(
-                  nextSettingsSection(item, event.key as 'ArrowDown' | 'ArrowUp' | 'End' | 'Home'),
-                  true
+          {settingsSectionGroups.map((group) => (
+            <div className="conventional-settings-nav__group" key={group.label}>
+              <p className="conventional-settings-nav__label">{group.label}</p>
+              {group.items.map((item) => {
+                const Icon = sectionIcons[item]
+                return (
+                  <button
+                    key={item}
+                    ref={(element) => {
+                      if (element) navigationRefs.current.set(item, element)
+                      else navigationRefs.current.delete(item)
+                    }}
+                    type="button"
+                    role="tab"
+                    aria-selected={section === item}
+                    aria-controls={`settings-panel-${item}`}
+                    tabIndex={section === item ? 0 : -1}
+                    onClick={() => selectSection(item)}
+                    onKeyDown={(event) => {
+                      if (!['ArrowDown', 'ArrowUp', 'End', 'Home'].includes(event.key)) return
+                      event.preventDefault()
+                      selectSection(
+                        nextSettingsSection(
+                          item,
+                          event.key as 'ArrowDown' | 'ArrowUp' | 'End' | 'Home'
+                        ),
+                        true
+                      )
+                    }}
+                  >
+                    <Icon aria-hidden="true" />
+                    <span>{settingsSectionLabels[item]}</span>
+                  </button>
                 )
-              }}
-            >
-              {labels[item]}
-            </button>
+              })}
+            </div>
           ))}
         </nav>
         <section
           id={`settings-panel-${section}`}
           className="conventional-settings-panel"
           role="tabpanel"
-          aria-label={labels[section]}
+          aria-label={settingsSectionLabels[section]}
         >
           {section === 'account' ? (
             <>
               <header>
                 <UserRound aria-hidden="true" />
                 <div>
-                  <h3>Account & app</h3>
+                  <h3>{settingsSectionLabels.account}</h3>
                   <p>Session and installed product information.</p>
                 </div>
               </header>
@@ -218,7 +232,7 @@ export function WorkspaceSettingsDialog({
               <header>
                 <MonitorCog aria-hidden="true" />
                 <div>
-                  <h3>Appearance</h3>
+                  <h3>{settingsSectionLabels.appearance}</h3>
                   <p>Shared presentation preferences.</p>
                 </div>
               </header>
@@ -240,7 +254,7 @@ export function WorkspaceSettingsDialog({
               <header>
                 <MonitorCog aria-hidden="true" />
                 <div>
-                  <h3>Workspace</h3>
+                  <h3>{settingsSectionLabels.workspace}</h3>
                   <p>Opinionated Room defaults for the active workspace.</p>
                 </div>
               </header>
@@ -258,7 +272,7 @@ export function WorkspaceSettingsDialog({
               <header>
                 <Bot aria-hidden="true" />
                 <div>
-                  <h3>Agents</h3>
+                  <h3>{settingsSectionLabels.agents}</h3>
                   <p>Durable identity and explicit profile references.</p>
                 </div>
               </header>
@@ -285,7 +299,7 @@ export function WorkspaceSettingsDialog({
               <header>
                 <Mic aria-hidden="true" />
                 <div>
-                  <h3>Input & notifications</h3>
+                  <h3>{settingsSectionLabels['input-notifications']}</h3>
                   <p>Desktop dictation and bounded notification preferences.</p>
                 </div>
               </header>
@@ -326,10 +340,9 @@ export function WorkspaceSettingsDialog({
                 title="Mention notifications"
                 detail="Save the preference now; live event delivery arrives with M3."
               >
-                <input
-                  type="checkbox"
+                <Switch
                   checked={preferences.notifyMentions}
-                  onChange={() => toggle('notifyMentions')}
+                  onCheckedChange={() => toggle('notifyMentions')}
                   aria-label="Mention notifications"
                 />
               </SettingsRow>
@@ -337,10 +350,9 @@ export function WorkspaceSettingsDialog({
                 title="Task notifications"
                 detail="Save the preference now; live event delivery arrives with M3."
               >
-                <input
-                  type="checkbox"
+                <Switch
                   checked={preferences.notifyTasks}
-                  onChange={() => toggle('notifyTasks')}
+                  onCheckedChange={() => toggle('notifyTasks')}
                   aria-label="Task notifications"
                 />
               </SettingsRow>
@@ -354,7 +366,7 @@ export function WorkspaceSettingsDialog({
               <header>
                 <Database aria-hidden="true" />
                 <div>
-                  <h3>Privacy & data</h3>
+                  <h3>{settingsSectionLabels['privacy-data']}</h3>
                   <p>
                     Understand what this device can access without exposing cryptographic internals.
                   </p>
@@ -374,10 +386,9 @@ export function WorkspaceSettingsDialog({
                 title="Private notification previews"
                 detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
               >
-                <input
-                  type="checkbox"
+                <Switch
                   checked={preferences.privateNotificationPreviews}
-                  onChange={() => toggle('privateNotificationPreviews')}
+                  onCheckedChange={() => toggle('privateNotificationPreviews')}
                   aria-label="Private notification previews"
                 />
               </SettingsRow>
@@ -391,7 +402,7 @@ export function WorkspaceSettingsDialog({
               <header>
                 <Link2 aria-hidden="true" />
                 <div>
-                  <h3>Integrations & capabilities</h3>
+                  <h3>{settingsSectionLabels.integrations}</h3>
                   <p>Control Plane-owned descriptors, not a second plugin system.</p>
                 </div>
               </header>
