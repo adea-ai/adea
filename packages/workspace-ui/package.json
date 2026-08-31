@@ -8,11 +8,42 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./platform": {
       "types": "./dist/platform.d.ts",
       "import": "./dist/platform.js"
+    },
+    "./plugins-dialog": {
+      "types": "./dist/plugins-dialog.d.ts",
+      "import": "./dist/plugins-dialog.js",
+      "default": "./dist/plugins-dialog.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins.d.ts",
+      "import": "./dist/plugins.js",
+      "default": "./dist/plugins.js"
+    },
+    "./preferences": {
+      "types": "./dist/preferences.d.ts",
+      "import": "./dist/preferences.js",
+      "default": "./dist/preferences.js"
+    },
+    "./global-workspace-rail": {
+      "types": "./dist/global-workspace-rail.d.ts",
+      "import": "./dist/global-workspace-rail.js",
+      "default": "./dist/global-workspace-rail.js"
+    },
+    "./conventional-workspace-shell": {
+      "types": "./dist/conventional-workspace-shell.d.ts",
+      "import": "./dist/conventional-workspace-shell.js",
+      "default": "./dist/conventional-workspace-shell.js"
+    },
+    "./workspace-view-toggle": {
+      "types": "./dist/workspace-view-toggle.d.ts",
+      "import": "./dist/workspace-view-toggle.js",
+      "default": "./dist/workspace-view-toggle.js"
     }
   },
   "scripts": {

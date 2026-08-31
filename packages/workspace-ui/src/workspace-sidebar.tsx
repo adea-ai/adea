@@ -1,4 +1,4 @@
-import type { AgentSummary, ChannelReadStateSummary, WorkspaceSummary } from '@agent-hq/types'
+import type { AgentSummary, ChannelReadStateSummary } from '@agent-hq/types'
 import {
   Bot,
   ChevronDown,
@@ -8,8 +8,6 @@ import {
   Menu,
   MessageCircle,
   Plus,
-  Search,
-  Settings,
   Users,
   X,
 } from 'lucide-react'
@@ -17,7 +15,6 @@ import {
 import type { WorkspaceNavigation } from './workspace-model'
 
 type Props = Readonly<{
-  activeWorkspace: WorkspaceSummary
   agents: readonly AgentSummary[]
   collapsedRoomIds: readonly string[]
   mobileOpen: boolean
@@ -25,17 +22,13 @@ type Props = Readonly<{
   onCreateGroup: () => void
   onCreateRoom: () => void
   onOpenAgents: () => void
-  onOpenSearch: () => void
-  onOpenSettings: () => void
   onOpenTasks: () => void
   onMarkAllRead: () => void
   onSelectChannel: (channelId: string, roomId?: string) => void
   onToggleMobile: (open: boolean) => void
   onToggleRoom: (roomId: string) => void
-  onWorkspaceChange: (workspaceId: string) => void
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
-  workspaces: readonly WorkspaceSummary[]
 }>
 
 export function WorkspaceSidebar(props: Props) {
@@ -73,37 +66,16 @@ export function WorkspaceSidebar(props: Props) {
         className={`conventional-sidebar${props.mobileOpen ? ' conventional-sidebar--open' : ''}`}
         aria-label="Workspace navigation"
       >
-        <div className="conventional-sidebar__workspace">
-          <label htmlFor="workspace-switcher">Workspace</label>
-          <div>
-            <select
-              id="workspace-switcher"
-              value={props.activeWorkspace.id}
-              onChange={(event) => props.onWorkspaceChange(event.target.value)}
-            >
-              {props.workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>
-                  {workspace.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              aria-label="Close workspace navigation"
-              className="conventional-sidebar__close"
-              onClick={() => props.onToggleMobile(false)}
-            >
-              <X aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          aria-label="Close workspace navigation"
+          className="conventional-sidebar__close"
+          onClick={() => props.onToggleMobile(false)}
+        >
+          <X aria-hidden="true" />
+        </button>
 
         <div className="conventional-sidebar__quick-actions">
-          <button type="button" onClick={props.onOpenSearch}>
-            <Search aria-hidden="true" />
-            Search
-            <kbd>⌘K</kbd>
-          </button>
           <button type="button" onClick={props.onOpenTasks}>
             <ListTodo aria-hidden="true" />
             Tasks
@@ -270,15 +242,6 @@ export function WorkspaceSidebar(props: Props) {
             ) : null}
           </section>
         </div>
-
-        <button
-          type="button"
-          className="conventional-sidebar__settings"
-          onClick={props.onOpenSettings}
-        >
-          <Settings aria-hidden="true" />
-          Settings
-        </button>
       </aside>
     </>
   )

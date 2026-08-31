@@ -30,6 +30,7 @@
     "@agent-hq/data": "workspace:*",
     "@agent-hq/hq-scenes": "workspace:*",
     "@agent-hq/scene-shell": "workspace:*",
+    "@agent-hq/state": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@agent-hq/workspace-ui": "workspace:*",
     "@tauri-apps/api": "^2.11.1",

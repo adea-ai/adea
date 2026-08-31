@@ -58,6 +58,20 @@ export type WorkspaceSettingsProvider = Readonly<{
   save(preferences: WorkspacePreferences): Promise<WorkspacePreferences>
 }>
 
+export type WorkspacePlugin = Readonly<{
+  description: string
+  id: string
+  installed: boolean
+  kind: 'connector' | 'skill'
+  name: string
+  publisher: string
+}>
+
+export type WorkspacePluginsProvider = Readonly<{
+  list(): Promise<readonly WorkspacePlugin[]>
+  setInstalled(pluginId: string, installed: boolean): Promise<readonly WorkspacePlugin[]>
+}>
+
 export type WorkspacePlatformServices = Readonly<{
   account?: Readonly<{
     authenticated?: boolean
@@ -73,6 +87,7 @@ export type WorkspacePlatformServices = Readonly<{
   }>
   client?: AgentHqApiClient
   privateContent?: PrivateContentResolver
+  plugins?: WorkspacePluginsProvider
   settings?: WorkspaceSettingsProvider
   transcription?: TranscriptionProvider
 }>

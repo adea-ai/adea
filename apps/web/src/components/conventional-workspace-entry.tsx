@@ -1,32 +1,24 @@
 'use client'
 
-import {
-  ConventionalWorkspaceShell,
-  createBrowserSettingsProvider,
-  type WorkspaceView,
-} from '@agent-hq/workspace-ui'
-import { useState } from 'react'
+import { ConventionalWorkspaceShell } from '@agent-hq/workspace-ui/conventional-workspace-shell'
+import type { WorkspacePlatformServices } from '@agent-hq/workspace-ui/platform'
+import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
+import type { AgentHqApiClient } from '@agent-hq/api-client'
 
 export function ConventionalWorkspaceEntry({
+  client,
   onViewChange,
-}: Readonly<{ onViewChange: (view: WorkspaceView) => void }>) {
-  const [settings] = useState(() => createBrowserSettingsProvider())
+  services,
+}: Readonly<{
+  client: AgentHqApiClient
+  onViewChange: (view: WorkspaceView) => void
+  services: WorkspacePlatformServices
+}>) {
   return (
     <ConventionalWorkspaceShell
       onViewChange={onViewChange}
       view="chat"
-      services={{
-        account: {
-          onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
-          onSignOut: async () => {
-            const { createNeonClientAdapter } = await import('@agent-hq/auth/client')
-            await createNeonClientAdapter().signOut()
-            window.location.assign('/')
-          },
-        },
-        app: { name: 'Agent HQ Web', platform: 'web' },
-        settings,
-      }}
+      services={{ ...services, client }}
     />
   )
 }
