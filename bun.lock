@@ -114,6 +114,10 @@
         "@agent-hq/types": "workspace:*",
       },
     },
+    "packages/architecture": {
+      "name": "@agent-hq/architecture",
+      "version": "0.8.3",
+    },
     "packages/asset-manifests": {
       "name": "@agent-hq/asset-manifests",
       "version": "0.8.3",
@@ -219,7 +223,7 @@
     },
     "packages/rooms": {
       "name": "@agent-hq/rooms",
-      "version": "0.7.2",
+      "version": "0.8.3",
     },
     "packages/scene-fields": {
       "name": "@agent-hq/scene-fields",
@@ -355,6 +359,8 @@
     "@agent-hq/api-client": ["@agent-hq/api-client@workspace:packages/api-client"],
 
     "@agent-hq/app-core": ["@agent-hq/app-core@workspace:packages/app-core"],
+
+    "@agent-hq/architecture": ["@agent-hq/architecture@workspace:packages/architecture"],
 
     "@agent-hq/asset-manifests": ["@agent-hq/asset-manifests@workspace:packages/asset-manifests"],
 
