@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentSummary, WorkspaceSummary } from '@agent-hq/types'
 import { MusicToggle } from '@agent-hq/audio'
+import { WorkspaceLogo } from '@agent-hq/ui/components/workspace-logo'
 import { ThemeToggle } from '@agent-hq/ui/components/theme-toggle'
 import { Switch } from '@agent-hq/ui/components/ui/switch'
 import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-react'
@@ -142,6 +143,13 @@ export function WorkspaceSettingsDialog({
       className="conventional-settings-dialog"
       open={open}
       onClose={close}
+      headerLeading={
+        <WorkspaceLogo
+          aria-hidden="true"
+          className="conventional-settings-logo"
+          role="presentation"
+        />
+      }
       title="Settings"
       description="Product preferences and boundaries for this Agent HQ workspace."
     >

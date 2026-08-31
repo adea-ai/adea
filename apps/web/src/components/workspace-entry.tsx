@@ -168,6 +168,7 @@ export function WorkspaceEntry({
           label: accountLabel,
           onSignIn: () => services.account?.onSignIn(),
           onSignOut: () => void services.account?.onSignOut(),
+          platform: 'web',
         }}
         onOpenNotifications={() => openSettings('input-notifications')}
         onOpenAbout={() => setGlobalPanel('about')}
