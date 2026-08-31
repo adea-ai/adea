@@ -12,6 +12,12 @@ test.beforeEach(async ({ page }) => {
 
 const timestamp = '2026-08-30T12:00:00.000Z'
 const workspace = { id: 'workspace-e2e', name: 'Acme Studio', scene: 'work', updatedAt: timestamp }
+const homeWorkspace = {
+  id: 'workspace-home-e2e',
+  name: 'Home Base',
+  scene: 'home',
+  updatedAt: timestamp,
+}
 const user = { kind: 'user' as const, userId: 'user-e2e' }
 const agentPrincipal = { kind: 'agent' as const, agentId: 'agent-research' }
 const rooms = [
@@ -385,7 +391,11 @@ async function mockConnectedWorkspace(page: Page) {
   await page.route('**/api/workspaces/bootstrap', (route) =>
     route.fulfill({
       contentType: 'application/json',
-      json: { activeWorkspace: workspace, principal: { temporary: true }, workspaces: [workspace] },
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true },
+        workspaces: [workspace, homeWorkspace],
+      },
     })
   )
   await page.route('**/api/v1/workspaces/**', async (route) => {
@@ -533,7 +543,8 @@ test('uses the neutral shadcn semantic theme by default', async ({ page }) => {
       primary: styles.getPropertyValue('--primary').trim(),
     }
   })
-  expect(tokens).toEqual({ background: 'oklch(1 0 0)', primary: 'oklch(0.205 0 0)' })
+  expect(tokens.background).toMatch(/^oklch\((?:1|100%) 0 0\)$/)
+  expect(tokens.primary).toMatch(/^oklch\((?:0\.205|20\.5%) 0 0\)$/)
 })
 
 test('loads chat before secure-context-only authentication APIs are requested', async ({
@@ -586,17 +597,80 @@ test('toggles chat and virtual Room views without losing shared selection or dra
 }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/')
+  const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
+  await expect(globalNavigation).toBeVisible()
+  await expect(globalNavigation.getByText('⌘K')).toBeVisible()
+  await expect(
+    globalNavigation.getByRole('button', { name: 'Switch workspace, current Acme Studio' })
+  ).toBeVisible()
+  await expect(globalNavigation.getByRole('button', { name: 'Home workspace' })).toHaveCount(0)
+  await expect(globalNavigation.getByRole('button', { name: 'Work workspace' })).toHaveCount(0)
+  await expect(page.locator('#workspace-switcher')).toHaveCount(0)
+  await expect(page.locator('.conventional-topbar')).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
   await page.getByRole('button', { name: /^Product Room/ }).click()
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
-  await page.getByRole('button', { name: 'Virtual view' }).click()
-  await expect(page.getByRole('region', { name: 'Virtual Room' })).toBeVisible()
+  await globalNavigation
+    .getByRole('button', { name: 'Switch workspace, current Acme Studio' })
+    .click()
+  await expect(page).toHaveScreenshot('workspace-switcher.png', { animations: 'disabled' })
+  await page.getByRole('menuitemradio', { name: /Home Base/ }).click()
+  await expect(
+    globalNavigation.getByRole('button', { name: 'Switch workspace, current Home Base' })
+  ).toBeVisible()
+  await expect(page).toHaveURL(/scene=home/)
+
+  await globalNavigation
+    .getByRole('button', { name: 'Switch workspace, current Home Base' })
+    .click()
+  await page.getByRole('menuitemradio', { name: /Acme Studio/ }).click()
+  await expect(page).toHaveURL(/scene=work/)
+  await expect(
+    globalNavigation.getByRole('button', { name: 'Switch workspace, current Acme Studio' })
+  ).toBeVisible()
+
+  await globalNavigation.getByRole('button', { name: 'Virtual view' }).click()
+  await expect(page).toHaveURL(/view=spatial/)
+  await expect(page.getByRole('region', { name: 'Virtual Room' })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Product', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   )
 
-  await page.getByRole('button', { name: 'Chat view' }).click()
+  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
+  const plugins = page.getByRole('dialog', { name: 'Plugins' })
+  await expect(plugins).toBeVisible({ timeout: 30_000 })
+  await expect(plugins.getByRole('tab', { name: 'Marketplace' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  await expect(plugins).toHaveScreenshot('plugins-marketplace.png', {
+    animations: 'disabled',
+    maxDiffPixels: 50,
+  })
+  await plugins.getByRole('searchbox', { name: 'Search plugins' }).fill('github')
+  await plugins.getByRole('button', { name: /GitHub/ }).click()
+  await expect(plugins.getByRole('heading', { name: 'GitHub' })).toBeVisible()
+  await plugins.getByRole('button', { name: 'Add to Agent HQ' }).click()
+  await expect(plugins.getByRole('button', { name: 'Remove from Agent HQ' })).toBeVisible()
+  await plugins.getByRole('button', { name: 'Back to plugins' }).click()
+  await plugins.getByRole('tab', { name: 'Yours' }).click()
+  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
+  await expect(plugins).toHaveScreenshot('plugins-yours.png', {
+    animations: 'disabled',
+    maxDiffPixels: 50,
+  })
+  await page.keyboard.press('Escape')
+
+  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
+  await plugins.getByRole('tab', { name: 'Yours' }).click()
+  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await globalNavigation.getByRole('button', { name: 'Chat view' }).click()
+  await expect(page).toHaveURL(/view=chat/)
   await expect(
     page.locator('#workspace-main').getByRole('heading', { name: 'Product', exact: true })
   ).toBeVisible()

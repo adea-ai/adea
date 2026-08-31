@@ -1,7 +1,7 @@
-@import "@agent-hq/scene-shell/globals.css";
-@import "@agent-hq/ui/auth-shell.css";
-@import "@agent-hq/ui/workspace-shell.css";
-@import "@agent-hq/ui/conventional-workspace.css";
+@import '@agent-hq/scene-shell/globals.css';
+@import '@agent-hq/ui/auth-shell.css';
+@import '@agent-hq/ui/workspace-shell.css';
+@import '@agent-hq/ui/conventional-workspace.css';
 
 .browser-auth-mode {
   display: grid;
@@ -135,8 +135,8 @@
   color: var(--hq-shell-foreground);
   --workspace-bottom-controls: 1rem;
   --workspace-statusbar-height: 2.55rem;
-  --workspace-topbar-height: 4.75rem;
-  --workspace-topbar-offset: calc(var(--workspace-topbar-height) + env(safe-area-inset-top));
+  --workspace-topbar-height: 0rem;
+  --workspace-topbar-offset: env(safe-area-inset-top);
 
   /* Keep the shadcn primitives on the shell's dark glass surface. */
   --background: var(--hq-shell-background);

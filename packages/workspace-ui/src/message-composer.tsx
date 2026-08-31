@@ -4,6 +4,7 @@ import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from 'lucide-re
 
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
 import { mergeTranscription } from './transcription'
+import { createClientRequestId } from './request-id'
 import { composerKeyboardAction, parseAgentMentions } from './workspace-model'
 
 export type ComposerSubmission = Readonly<{
@@ -66,7 +67,7 @@ export function MessageComposer({
       await onSubmit({
         artifactIds: attachmentIds,
         bodyText,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: createClientRequestId(),
         mentions: parseAgentMentions(bodyText, agents),
       })
       onDraftChange('')

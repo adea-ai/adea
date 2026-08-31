@@ -14,6 +14,7 @@ export type WorkspaceState = {
   collapsedRoomIds: readonly string[]
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
+  globalPanel: 'plugins' | 'search' | 'settings' | null
   setSelectedScene: (scene: WorkspaceSceneId) => void
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
@@ -25,6 +26,7 @@ export type WorkspaceState = {
   setActiveSurface: (surface: WorkspaceState['activeSurface']) => void
   setDraft: (channelId: string, value: string) => void
   setMobileSidebarOpen: (open: boolean) => void
+  setGlobalPanel: (panel: WorkspaceState['globalPanel']) => void
   toggleRoomCollapsed: (roomId: string) => void
   restoreConventionalState: (
     state: Partial<
@@ -57,6 +59,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   collapsedRoomIds: [],
   drafts: {},
   mobileSidebarOpen: false,
+  globalPanel: null,
   setSelectedScene: (selectedScene) => set({ selectedScene }),
   setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),
   setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
@@ -70,6 +73,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   setDraft: (channelId, value) =>
     set((state) => ({ drafts: { ...state.drafts, [channelId]: value } })),
   setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
+  setGlobalPanel: (globalPanel) => set({ globalPanel }),
   toggleRoomCollapsed: (roomId) =>
     set((state) => ({
       collapsedRoomIds: state.collapsedRoomIds.includes(roomId)
