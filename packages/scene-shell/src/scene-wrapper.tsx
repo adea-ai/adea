@@ -549,8 +549,8 @@ export function SceneWrapper({
           role="status"
           aria-live="polite"
         >
-          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#121820]/85 px-3 py-2 text-xs text-white shadow-lg backdrop-blur-sm">
-            <Spinner className="size-4 text-[#c9f27a]" aria-hidden="true" />
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-background/90 px-3 py-2 text-xs text-foreground shadow-lg backdrop-blur-sm">
+            <Spinner className="size-4 text-primary" aria-hidden="true" />
             <span>Loading {manifest.label}</span>
           </div>
         </div>

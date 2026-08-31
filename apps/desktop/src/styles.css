@@ -193,12 +193,12 @@ body {
 
 .workspace-shell {
   position: relative;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   color: var(--hq-shell-foreground);
   background: var(--hq-shell-background);
-  --workspace-statusbar-height: 2.55rem;
+  --workspace-bottom-controls: 1rem;
   --workspace-topbar-height: 0rem;
   --workspace-topbar-offset: env(safe-area-inset-top);
 }
@@ -217,7 +217,7 @@ body {
 }
 
 .workspace-scene-viewport [data-agent-hq-on-screen-controls] {
-  bottom: calc(var(--workspace-statusbar-height) + 1rem - 0.45rem);
+  bottom: calc(1rem - 0.45rem);
 }
 
 .workspace-ui {
@@ -245,7 +245,6 @@ body {
 .workspace-brand,
 .workspace-topbar__actions,
 .workspace-scene-nav,
-.workspace-statusbar__meta,
 .workspace-view-switcher,
 .workspace-tool-slot {
   display: flex;
@@ -340,10 +339,16 @@ body {
 
 .workspace-scene-tools {
   position: absolute;
-  top: 5.5rem;
-  right: 1rem;
+  top: calc(var(--workspace-topbar-offset) + 0.5rem);
+  right: 1.25rem;
   display: flex;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  max-width: calc(100% - 2.5rem);
+  min-width: 0;
+  margin-top: 0.25rem;
   pointer-events: auto;
 }
 
@@ -367,13 +372,13 @@ body {
 
 .workspace-view-switcher {
   position: absolute;
-  bottom: calc(var(--workspace-statusbar-height) + 1rem);
+  bottom: var(--workspace-bottom-controls);
   left: 50%;
   gap: 0.15rem;
   padding: 0.2rem;
   border: 1px solid var(--hq-shell-border);
   border-radius: 0.55rem;
-  background: color-mix(in srgb, var(--hq-shell-surface) 88%, transparent);
+  background: color-mix(in srgb, var(--hq-shell-surface) 86%, transparent);
   transform: translateX(-50%);
   backdrop-filter: blur(14px);
   pointer-events: auto;
@@ -387,59 +392,6 @@ body {
 
 .workspace-camera-button {
   min-width: 0;
-}
-
-.workspace-statusbar {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 100;
-  display: flex;
-  min-height: 2.55rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.4rem 1rem;
-  border-top: 1px solid var(--hq-shell-border);
-  color: var(--hq-shell-muted);
-  background: color-mix(in srgb, var(--hq-shell-surface) 94%, transparent);
-  backdrop-filter: blur(18px);
-  font-family: 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.7rem;
-}
-
-.workspace-statusbar__meta {
-  gap: 0.5rem;
-  min-width: 0;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.workspace-status__dot {
-  display: inline-block;
-  flex: 0 0 auto;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 999px;
-  background: var(--hq-shell-active);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--hq-shell-active) 12%, transparent);
-}
-
-.workspace-status__dot--offline,
-.workspace-status__dot--failed {
-  background: #e7c77d;
-}
-
-.workspace-statusbar__version {
-  margin-left: auto;
-  color: var(--hq-shell-muted);
-  font-family: 'SFMono-Regular', Consolas, monospace;
-  font-size: 0.68rem;
-}
-
-.workspace-statusbar__version:hover {
-  color: var(--hq-shell-foreground);
 }
 
 @media (prefers-reduced-motion: no-preference) {

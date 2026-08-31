@@ -12,6 +12,7 @@ export function ModalDialog({
   children,
   className,
   description,
+  headerLeading,
   onClose,
   open,
   title,
@@ -19,6 +20,7 @@ export function ModalDialog({
   children: ReactNode
   className?: string
   description?: string
+  headerLeading?: ReactNode
   onClose: () => void
   open: boolean
   title: string
@@ -27,8 +29,20 @@ export function ModalDialog({
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
       <DialogContent className={cn('conventional-dialog', className)}>
         <DialogHeader className="conventional-dialog__header">
-          <DialogTitle>{title}</DialogTitle>
-          {description ? <DialogDescription>{description}</DialogDescription> : null}
+          {headerLeading ? (
+            <div className="conventional-dialog__heading">
+              {headerLeading}
+              <div>
+                <DialogTitle>{title}</DialogTitle>
+                {description ? <DialogDescription>{description}</DialogDescription> : null}
+              </div>
+            </div>
+          ) : (
+            <>
+              <DialogTitle>{title}</DialogTitle>
+              {description ? <DialogDescription>{description}</DialogDescription> : null}
+            </>
+          )}
         </DialogHeader>
         {children}
       </DialogContent>

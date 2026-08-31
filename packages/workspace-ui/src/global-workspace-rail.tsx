@@ -63,8 +63,10 @@ export function GlobalWorkspaceRail({
     authenticated: boolean
     busy?: boolean
     label: string
+    onOpenUpdates?: () => void
     onSignIn: () => void
     onSignOut: () => void
+    platform: 'desktop' | 'web'
   }>
   activeWorkspace?: WorkspaceSummary
   onOpenNotifications: () => void
@@ -196,10 +198,12 @@ export function GlobalWorkspaceRail({
           authenticated={account.authenticated}
           busy={account.busy}
           label={account.label}
+          onOpenUpdates={account.onOpenUpdates}
           onOpenAbout={onOpenAbout}
           onOpenSettings={onOpenSettings}
           onSignIn={account.onSignIn}
           onSignOut={account.onSignOut}
+          platform={account.platform}
         />
       </div>
     </nav>

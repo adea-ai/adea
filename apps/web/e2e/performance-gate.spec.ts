@@ -262,7 +262,7 @@ test("web layout does not reserve space for the desktop status bar", async ({ pa
   expect(bottomOffsets.verticalCenterDelta).toBeLessThanOrEqual(2);
 });
 
-test("desktop status bar and overlays stay inside the scene viewport", async ({ page }) => {
+test("desktop runtime keeps the shared scene layout without a status bar", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
   });
@@ -270,18 +270,16 @@ test("desktop status bar and overlays stay inside the scene viewport", async ({ 
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
-  await expect(page.locator(".workspace-statusbar")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(".workspace-statusbar")).toHaveCount(0);
   await expect(page.locator("canvas")).toBeVisible({ timeout: sceneCanvasTimeout });
 
   const layout = await page.evaluate(() => {
     const viewport = document.querySelector<HTMLElement>(".workspace-scene-viewport")!;
-    const statusBar = document.querySelector<HTMLElement>(".workspace-statusbar")!;
     const canvas = document.querySelector<HTMLCanvasElement>("canvas")!;
     const controls = document.querySelector<HTMLElement>(
       '[data-agent-hq-on-screen-controls="true"]',
     )!;
     const viewportRect = viewport.getBoundingClientRect();
-    const statusBarRect = statusBar.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
     const camera = document
       .querySelector<HTMLElement>(".workspace-view-switcher")!
@@ -289,22 +287,26 @@ test("desktop status bar and overlays stay inside the scene viewport", async ({ 
     const zoom = document
       .querySelector<HTMLElement>('[aria-label="Camera zoom"]')!
       .getBoundingClientRect();
+    const sceneTools = document.querySelector<HTMLElement>('.workspace-scene-tools')!
+    const loading = document.querySelector<HTMLElement>('[data-scene-loading]')
     return {
       canvasBottom: canvasRect.bottom,
       canvasHeight: canvas.height,
       controlsPosition: getComputedStyle(controls).position,
-      statusInsideViewport: statusBar.parentElement === viewport,
-      statusBarTop: statusBarRect.top,
       viewportBottom: viewportRect.bottom,
       viewportHeight: viewportRect.height,
       controlsBottom: controls.getBoundingClientRect().bottom,
+      controlsRight: controls.getBoundingClientRect().right,
+      viewportRight: viewportRect.right,
+      sceneToolsRight: sceneTools.getBoundingClientRect().right,
+      loadingBackground: loading ? getComputedStyle(loading).backgroundColor : '',
       verticalCenterDelta: Math.abs(camera.top + camera.height / 2 - (zoom.top + zoom.height / 2)),
     };
   });
 
-  expect(layout.statusInsideViewport).toBe(true);
-  expect(layout.statusBarTop).toBeLessThan(layout.viewportBottom);
-  expect(layout.controlsBottom).toBeLessThan(layout.statusBarTop);
+  expect(layout.controlsBottom).toBeLessThanOrEqual(layout.viewportBottom);
+  expect(layout.controlsRight).toBeLessThanOrEqual(layout.viewportRight + 1);
+  expect(layout.sceneToolsRight).toBeLessThanOrEqual(layout.viewportRight + 1);
   expect(layout.canvasBottom).toBeLessThanOrEqual(layout.viewportBottom + 1);
   expect(Math.abs(layout.canvasHeight - layout.viewportHeight)).toBeLessThanOrEqual(2);
   expect(layout.controlsPosition).toBe("absolute");
