@@ -35,6 +35,11 @@
       "import": "./dist/global-workspace-rail.js",
       "default": "./dist/global-workspace-rail.js"
     },
+    "./workspace-about-dialog": {
+      "types": "./dist/workspace-about-dialog.d.ts",
+      "import": "./dist/workspace-about-dialog.js",
+      "default": "./dist/workspace-about-dialog.js"
+    },
     "./conventional-workspace-shell": {
       "types": "./dist/conventional-workspace-shell.d.ts",
       "import": "./dist/conventional-workspace-shell.js",
