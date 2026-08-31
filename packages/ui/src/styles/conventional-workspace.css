@@ -1280,31 +1280,54 @@
 }
 
 .conventional-about-dialog {
-  width: min(27rem, calc(100% - 2rem));
+  width: min(22.5rem, calc(100% - 2rem));
+}
+.conventional-about-dialog > .conventional-dialog__header {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .conventional-about-dialog__body {
   display: grid;
-  gap: 1rem;
-  padding: 1.35rem !important;
+  gap: 0;
+  padding: 0 !important;
 }
-.conventional-about-dialog__body h3 {
+.conventional-about-dialog__identity {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  padding: 2.6rem 1.5rem 1.7rem;
+  text-align: center;
+}
+.conventional-about-dialog__identity h3 {
   margin: 0 0 0.25rem;
   font-size: 1.05rem;
 }
-.conventional-about-dialog__body p {
+.conventional-about-dialog__identity p {
   margin: 0;
   color: var(--cw-muted);
   font-size: 0.82rem;
 }
+.conventional-about-dialog__identity small {
+  margin-top: 0.75rem;
+  color: var(--cw-muted);
+  font-size: 0.72rem;
+}
 .conventional-about-dialog__brand {
   display: grid;
-  width: 3.25rem;
-  height: 3.25rem;
+  width: 4rem;
+  height: 4rem;
   place-items: center;
   border: 1px solid var(--cw-border);
-  border-radius: 0.8rem;
+  border-radius: 1rem;
   background: var(--cw-surface-muted);
-  font-size: 1.15rem;
+  font-size: 1.3rem;
   font-weight: 800;
   letter-spacing: -0.06em;
 }
@@ -1312,7 +1335,8 @@
   display: flex;
   align-items: flex-start;
   gap: 0.55rem;
-  padding: 0.75rem;
+  margin: 0 1.5rem 1.15rem;
+  padding: 0.7rem 0.75rem;
   border: 1px solid var(--cw-border);
   border-radius: 0.55rem;
   color: var(--cw-muted);
@@ -1325,9 +1349,16 @@
   flex: none;
   color: var(--cw-accent-strong);
 }
-.conventional-about-dialog__body > a {
+.conventional-about-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--cw-border);
+}
+.conventional-about-dialog__footer a {
   display: inline-flex;
-  width: fit-content;
   align-items: center;
   gap: 0.45rem;
   color: var(--cw-text);
@@ -1335,10 +1366,10 @@
   font-weight: 600;
   text-decoration: none;
 }
-.conventional-about-dialog__body > a:hover {
+.conventional-about-dialog__footer a:hover {
   text-decoration: underline;
 }
-.conventional-about-dialog__body > a svg {
+.conventional-about-dialog__footer a svg {
   width: 0.95rem;
   height: 0.95rem;
 }
