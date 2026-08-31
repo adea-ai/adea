@@ -1,30 +1,42 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useWorkspaceStore } from '@agent-hq/state'
-import { Boxes, UserRound } from 'lucide-react'
 
 import { AgentRoster } from './agent-roster'
 import { ArtifactDetail } from './artifact-detail'
 import { ConversationSurface } from './conversation-surface'
-import { CreateGroupDialog, CreateRoomDialog } from './create-workspace-dialogs'
-import { ModalDialog } from './modal-dialog'
 import { TaskBoard } from './task-board'
 import { useWorkspaceController } from './use-workspace-controller'
 import { WorkspaceSidebar } from './workspace-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
-import { WorkspaceSearchDialog, type SearchResult } from './workspace-utility-dialogs'
-import { WorkspaceSettingsDialog } from './workspace-settings'
+import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
-import { WorkspaceViewToggle, type WorkspaceView } from './workspace-view-toggle'
+import type { WorkspaceView } from './workspace-view-toggle'
+
+const CreateGroupDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
+)
+const CreateRoomDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateRoomDialog }))
+)
+const ModalDialog = lazy(() =>
+  import('./modal-dialog').then((module) => ({ default: module.ModalDialog }))
+)
+const WorkspaceSearchDialog = lazy(() =>
+  import('./workspace-utility-dialogs').then((module) => ({
+    default: module.WorkspaceSearchDialog,
+  }))
+)
+const WorkspaceSettingsDialog = lazy(() =>
+  import('./workspace-settings').then((module) => ({ default: module.WorkspaceSettingsDialog }))
+)
 
 type DialogId =
   'conversation-search' | 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
 
 export function ConventionalWorkspaceShell({
-  onViewChange,
   services,
-  view = 'chat',
 }: Readonly<{
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
@@ -37,6 +49,7 @@ export function ConventionalWorkspaceShell({
   const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
   const activeSurface = useWorkspaceStore((state) => state.activeSurface)
+  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
   const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds)
   const drafts = useWorkspaceStore((state) => state.drafts)
   const mobileSidebarOpen = useWorkspaceStore((state) => state.mobileSidebarOpen)
@@ -45,6 +58,7 @@ export function ConventionalWorkspaceShell({
   const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
   const threadRootMessageId = useWorkspaceStore((state) => state.threadRootMessageId)
   const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface)
+  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
   const setDraft = useWorkspaceStore((state) => state.setDraft)
   const setMobileSidebarOpen = useWorkspaceStore((state) => state.setMobileSidebarOpen)
   const setSelectedAgentId = useWorkspaceStore((state) => state.setSelectedAgentId)
@@ -67,6 +81,12 @@ export function ConventionalWorkspaceShell({
     },
     [controller.selectChannel, setActiveSurface, setMobileSidebarOpen]
   )
+
+  useEffect(() => {
+    if (globalPanel !== 'search' && globalPanel !== 'settings') return
+    setDialog(globalPanel)
+    setGlobalPanel(null)
+  }, [globalPanel, setGlobalPanel])
 
   useEffect(() => {
     const openDeepLinkedSettings = () => {
@@ -267,32 +287,7 @@ export function ConventionalWorkspaceShell({
       <a className="conventional-skip-link" href="#workspace-main">
         Skip to workspace content
       </a>
-      <div className="conventional-topbar">
-        <a href="/" className="conventional-brand" aria-label="Agent HQ home">
-          <span>AH</span>
-          <strong>Agent HQ</strong>
-        </a>
-        <div className="conventional-topbar__context">
-          <Boxes aria-hidden="true" />
-          <span>{controller.activeWorkspace.name}</span>
-        </div>
-        {onViewChange ? (
-          <div className="conventional-topbar__view">
-            <WorkspaceViewToggle onChange={onViewChange} value={view} />
-          </div>
-        ) : null}
-        <button
-          type="button"
-          className="conventional-account-button"
-          onClick={() => setDialog('settings')}
-          aria-label={`Open user settings for ${accountLabel}`}
-        >
-          <UserRound aria-hidden="true" />
-          <span>{accountLabel}</span>
-        </button>
-      </div>
       <WorkspaceSidebar
-        activeWorkspace={controller.activeWorkspace}
         agents={controller.agents}
         collapsedRoomIds={collapsedRoomIds}
         mobileOpen={mobileSidebarOpen}
@@ -303,8 +298,6 @@ export function ConventionalWorkspaceShell({
           setSelectedArtifactId(null)
           setActiveSurface('agents')
         }}
-        onOpenSearch={() => setDialog('search')}
-        onOpenSettings={() => setDialog('settings')}
         onOpenTasks={() => {
           setSelectedArtifactId(null)
           setActiveSurface('tasks')
@@ -313,10 +306,8 @@ export function ConventionalWorkspaceShell({
         onSelectChannel={selectChannel}
         onToggleMobile={setMobileSidebarOpen}
         onToggleRoom={toggleRoomCollapsed}
-        onWorkspaceChange={controller.selectWorkspace}
         selectedChannelId={selectedChannelId}
         readState={controller.readState}
-        workspaces={controller.bootstrap.data?.workspaces ?? []}
       />
       <section id="workspace-main" className="conventional-main" tabIndex={-1}>
         {queryError ? (
@@ -445,77 +436,79 @@ export function ConventionalWorkspaceShell({
           />
         )}
       </section>
-      <CreateRoomDialog
-        busy={controller.createRoomBusy}
-        onClose={() => setDialog(null)}
-        onCreate={controller.createRoom}
-        open={dialog === 'create-room'}
-        template={controller.activeWorkspace.scene}
-      />
-      <CreateGroupDialog
-        busy={controller.createGroupBusy}
-        onClose={() => setDialog(null)}
-        onCreate={controller.createGroup}
-        open={dialog === 'create-group'}
-      />
-      <WorkspaceSearchDialog
-        agents={controller.agents}
-        artifacts={controller.artifacts}
-        channels={controller.channels}
-        client={controller.client}
-        onClose={() => setDialog(null)}
-        online={online}
-        onSelect={selectSearchResult}
-        open={dialog === 'search' || dialog === 'conversation-search'}
-        privateContent={services?.privateContent}
-        rooms={controller.rooms}
-        scopeChannelId={
-          dialog === 'conversation-search' ? controller.selectedChannel?.id : undefined
-        }
-        tasks={controller.tasks}
-        workspaceId={controller.workspaceId}
-      />
-      <WorkspaceSettingsDialog
-        accountAuthenticated={accountAuthenticated}
-        accountLabel={accountLabel}
-        agents={controller.agents}
-        busy={services?.account?.busy ?? accountBusy}
-        onClose={() => setDialog(null)}
-        onOpenAgents={() => {
-          setSelectedArtifactId(null)
-          setActiveSurface('agents')
-        }}
-        onSignIn={() => services?.account?.onSignIn()}
-        onSignOut={() => void signOut()}
-        open={dialog === 'settings'}
-        services={services}
-        workspace={controller.activeWorkspace}
-      />
-      <ModalDialog
-        open={dialog === 'details'}
-        onClose={() => setDialog(null)}
-        title="Conversation details"
-        description="Canonical Agent HQ identity and scope."
-      >
-        <div className="conventional-conversation-details">
-          <p>
-            <span>Kind</span>
-            <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
-          </p>
-          <p>
-            <span>Visibility</span>
-            <strong>{controller.selectedChannel?.visibility}</strong>
-          </p>
-          <p>
-            <span>Participants</span>
-            <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
-          </p>
-          <p>
-            <span>Task link</span>
-            <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
-          </p>
-        </div>
-      </ModalDialog>
+      <Suspense fallback={null}>
+        <CreateRoomDialog
+          busy={controller.createRoomBusy}
+          onClose={() => setDialog(null)}
+          onCreate={controller.createRoom}
+          open={dialog === 'create-room'}
+          template={controller.activeWorkspace.scene}
+        />
+        <CreateGroupDialog
+          busy={controller.createGroupBusy}
+          onClose={() => setDialog(null)}
+          onCreate={controller.createGroup}
+          open={dialog === 'create-group'}
+        />
+        <WorkspaceSearchDialog
+          agents={controller.agents}
+          artifacts={controller.artifacts}
+          channels={controller.channels}
+          client={controller.client}
+          onClose={() => setDialog(null)}
+          online={online}
+          onSelect={selectSearchResult}
+          open={dialog === 'search' || dialog === 'conversation-search'}
+          privateContent={services?.privateContent}
+          rooms={controller.rooms}
+          scopeChannelId={
+            dialog === 'conversation-search' ? controller.selectedChannel?.id : undefined
+          }
+          tasks={controller.tasks}
+          workspaceId={controller.workspaceId}
+        />
+        <WorkspaceSettingsDialog
+          accountAuthenticated={accountAuthenticated}
+          accountLabel={accountLabel}
+          agents={controller.agents}
+          busy={services?.account?.busy ?? accountBusy}
+          onClose={() => setDialog(null)}
+          onOpenAgents={() => {
+            setSelectedArtifactId(null)
+            setActiveSurface('agents')
+          }}
+          onSignIn={() => services?.account?.onSignIn()}
+          onSignOut={() => void signOut()}
+          open={dialog === 'settings'}
+          services={services}
+          workspace={controller.activeWorkspace}
+        />
+        <ModalDialog
+          open={dialog === 'details'}
+          onClose={() => setDialog(null)}
+          title="Conversation details"
+          description="Canonical Agent HQ identity and scope."
+        >
+          <div className="conventional-conversation-details">
+            <p>
+              <span>Kind</span>
+              <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
+            </p>
+            <p>
+              <span>Visibility</span>
+              <strong>{controller.selectedChannel?.visibility}</strong>
+            </p>
+            <p>
+              <span>Participants</span>
+              <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
+            </p>
+            <p>
+              <span>Task link</span>
+              <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
+            </p>
+          </div>
+        </ModalDialog>
+      </Suspense>
       <div className="visually-hidden" aria-live="polite">
         {online ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}
       </div>
