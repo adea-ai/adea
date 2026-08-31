@@ -2,6 +2,7 @@ export { ConventionalWorkspaceShell } from './conventional-workspace-shell'
 export { WorkspaceViewToggle, type WorkspaceView } from './workspace-view-toggle'
 export { VirtualRoomControls } from './virtual-room-controls'
 export { GlobalWorkspaceRail } from './global-workspace-rail'
+export { WorkspaceAboutDialog } from './workspace-about-dialog'
 export { PluginsDialog } from './plugins-dialog'
 export {
   createBrowserPluginsProvider,

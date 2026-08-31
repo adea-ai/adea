@@ -73,7 +73,8 @@ describe('desktop packaging and privilege boundary', () => {
     expect(desktop).toContain('onSignIn:')
     expect(desktop).toContain('onSignOut:')
     expect(desktop).toContain("openSettings('account')")
-    expect(rail).toContain('label="User settings"')
+    expect(rail).toContain('<AccountMenu')
+    expect(rail).toContain('label="Notifications (coming soon)"')
     expect(bootstrapRoute).toContain('getUserDisplayName')
   })
 
@@ -108,6 +109,10 @@ describe('desktop packaging and privilege boundary', () => {
       join(root, 'packages/workspace-ui/src/global-workspace-rail.tsx'),
       'utf8'
     )
+    const accountMenu = await readFile(
+      join(root, 'packages/workspace-ui/src/account-menu.tsx'),
+      'utf8'
+    )
 
     expect(desktopMain).toContain('<SoundProvider>')
     expect(desktopMain).toContain('<ThemeProvider>')
@@ -116,7 +121,7 @@ describe('desktop packaging and privilege boundary', () => {
     expect(globalRail).toContain('label="Virtual view"')
     expect(globalRail).toContain('label="Chat view"')
     expect(globalRail).toContain('label="Plugins"')
-    expect(globalRail).toContain('label="User settings"')
+    expect(accountMenu).toContain('aria-label="User settings"')
     expect(desktopStyles).toContain('- 0.45rem')
     expect(desktopStyles).toContain('env(safe-area-inset-top)')
     expect(webStyles).toContain('env(safe-area-inset-top)')

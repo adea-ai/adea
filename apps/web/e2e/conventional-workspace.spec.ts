@@ -600,7 +600,10 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await page.goto('/')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
   await expect(globalNavigation).toBeVisible()
-  await expect(globalNavigation.getByText('⌘K')).toBeVisible()
+  await expect(globalNavigation.getByText('⌘ K')).toBeVisible()
+  await expect(
+    globalNavigation.getByRole('button', { name: 'Notifications (coming soon)' })
+  ).toBeDisabled()
   await expect(
     globalNavigation.getByRole('button', { name: 'Switch workspace, current Acme Studio' })
   ).toBeVisible()
@@ -826,7 +829,7 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await settings.getByRole('tab', { name: 'Input & notifications' }).click()
   await expect(settings.getByRole('button', { name: 'Check microphone' })).toBeDisabled()
-  await settings.getByRole('checkbox', { name: 'Mention notifications' }).uncheck()
+  await settings.getByRole('switch', { name: 'Mention notifications' }).uncheck()
   await expect(page).toHaveScreenshot('workspace-settings-light.png', { animations: 'disabled' })
   await page.evaluate(() => {
     localStorage.setItem('theme', 'dark')
