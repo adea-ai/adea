@@ -98,6 +98,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(accountMenu.getByRole('menuitem', { name: 'Get Agent HQ mobile' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Help Center' })).toBeDisabled()
   await expect(accountMenu.getByRole('menuitem', { name: 'Send Feedback' })).toBeDisabled()
+  await expect(accountMenu.getByRole('menuitem', { name: 'Updates' })).toHaveCount(0)
   await expect(accountMenu.getByRole('menuitem', { name: 'Settings' })).toContainText('⌘,')
   await accountMenu.getByRole('menuitem', { name: 'About' }).click()
   const about = page.getByRole('dialog', { name: 'About Agent HQ' })
@@ -106,6 +107,8 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(about.getByText('Version 0.8.3')).toBeVisible()
   await expect(about.getByRole('button', { name: 'Copy version info' })).toBeVisible()
   await expect(about.getByRole('button', { name: 'Close dialog' })).toBeVisible()
+  await expect(about.locator('.conventional-about-dialog__brand svg')).toBeVisible()
+  await expect(about.locator('.conventional-about-dialog__brand span')).toHaveCount(0)
   await page.getByRole('button', { name: 'Close dialog' }).click()
 
   await page.evaluate(() => {
@@ -119,6 +122,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await accountMenu.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
+  await expect(settings.locator('.conventional-dialog__heading .conventional-settings-logo')).toBeVisible()
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()
 

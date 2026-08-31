@@ -30,6 +30,7 @@ import { localContentAuthority } from './local-content'
 import packageJson from '../package.json'
 import { desktopSettingsProvider } from './preferences'
 import { systemTranscriptionProvider } from './transcription'
+import { VersionDialog } from './version-dialog'
 import {
   bootstrapDesktopWorkspace,
   createWorkspaceRequestGuard,
@@ -89,6 +90,7 @@ function DesktopApp() {
   const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
   const [session, setSession] = useState<DesktopSession | undefined>()
   const [appVersion, setAppVersion] = useState<string>(packageVersion)
+  const [updatesOpen, setUpdatesOpen] = useState(false)
   const [view, setView] = useState<WorkspaceView>(() =>
     new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
   )
@@ -233,6 +235,7 @@ function DesktopApp() {
   }
 
   async function signOut() {
+    setUpdatesOpen(false)
     await sessionManager.signOut().catch(() => undefined)
     setSession(undefined)
     setWorkspaceState(null)
@@ -282,6 +285,8 @@ function DesktopApp() {
             label: session ? (workspaceState.accountLabel ?? 'Account') : 'Not signed in',
             onSignIn: () => void beginSignIn(),
             onSignOut: () => void signOut(),
+            onOpenUpdates: () => setUpdatesOpen(true),
+            platform: 'desktop',
           }}
           activeWorkspace={workspaceState.workspace}
           onOpenNotifications={() => openSettings('input-notifications')}
@@ -311,8 +316,6 @@ function DesktopApp() {
               }
             >
               <SpatialDesktopWorkspace
-                message={message}
-                status={status}
                 client={client}
                 onWorkspaceViewChange={changeView}
                 scene={selectedScene}
@@ -332,6 +335,7 @@ function DesktopApp() {
           platform="desktop"
           version={appVersion}
         />
+        <VersionDialog open={updatesOpen} onOpenChange={setUpdatesOpen} />
       </div>
     )
   }

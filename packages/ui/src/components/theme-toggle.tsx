@@ -26,7 +26,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-0.5 rounded-full border border-input bg-background p-0.5',
+        'inline-flex items-center gap-1 rounded-full border border-input bg-background p-1',
         className
       )}
       role="radiogroup"

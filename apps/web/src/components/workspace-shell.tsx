@@ -14,8 +14,6 @@ import {
   type WorkspacePlatformServices,
   type WorkspaceView,
 } from '@agent-hq/workspace-ui'
-import { isDesktopRuntime } from '../lib/desktop-update'
-import { VersionDialog } from './version-dialog'
 
 const HqRoomScene = dynamic(
   () => import('@agent-hq/hq-scenes/runtime').then((module) => module.HqRoomScene),
@@ -100,7 +98,6 @@ export function WorkspaceShell({
   const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface)
   const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
   const [storeReady, setStoreReady] = useState(false)
-  const [desktopRuntime, setDesktopRuntime] = useState(false)
   const [accountBusy, setAccountBusy] = useState(false)
   const [fallbackApiClient] = useState(() => createApiClient())
   const apiClient = providedApiClient ?? fallbackApiClient
@@ -115,21 +112,11 @@ export function WorkspaceShell({
   const principal = workspaceQuery.data?.principal
   const accountAuthenticated = Boolean(principal && !principal.temporary)
   const accountLabel = accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in'
-  const workspaceStatus = workspaceQuery.isPending
-    ? 'Workspace syncing'
-    : workspaceQuery.isError
-      ? 'Workspace offline'
-      : 'Workspace online'
-
   useEffect(() => {
     setSelectedScene(initialScene)
     setCameraViewMode(initialCameraViewMode)
     setStoreReady(true)
   }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene])
-
-  useEffect(() => {
-    setDesktopRuntime(isDesktopRuntime())
-  }, [])
 
   useEffect(() => {
     document.title = `Agent HQ | ${scene.label}`
@@ -146,7 +133,7 @@ export function WorkspaceShell({
   }
 
   return (
-    <main className={`workspace-shell${desktopRuntime ? ' workspace-shell--desktop' : ''}`}>
+    <main className="workspace-shell">
       <div className="workspace-scene-viewport">
         <Profiler id="hq-room-scene" onRender={recordReactCommit}>
           <HqRoomScene
@@ -185,16 +172,6 @@ export function WorkspaceShell({
             {scene.label} scene · Drag to orbit · Zoom controls
           </p>
         </div>
-
-        {desktopRuntime ? (
-          <footer className="workspace-statusbar" aria-label="Agent HQ status bar">
-            <div className="workspace-statusbar__meta" role="status" aria-live="polite">
-              <span className="workspace-status__dot" aria-hidden="true" />
-              <span>{workspaceStatus}</span>
-            </div>
-            <VersionDialog />
-          </footer>
-        ) : null}
       </div>
       {activeWorkspace ? (
         <WorkspaceSettingsDialog
