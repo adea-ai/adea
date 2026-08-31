@@ -13,6 +13,7 @@ import {
 } from "@agent-hq/characters";
 import type { AmbientAnimals } from "@agent-hq/pets";
 import { interiorPropAssets } from "@agent-hq/interior";
+import { landscapeHorizonBackgrounds } from "@agent-hq/landscape";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 
@@ -57,12 +58,25 @@ const characterOptions = [
   })),
 ];
 
-const galleryEnvironment = {
-  background: 0x131923,
-  hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
-  directionalLights: [
-    { color: 0xfff0d5, intensity: 2.2, position: [18, 24, -22], target: [0, 0, 0] },
-  ],
+const galleryEnvironments = {
+  home: {
+    background: 0x131923,
+    backgroundTextureUrl: landscapeHorizonBackgrounds.home,
+    backgroundTexturePerspectiveOnly: true,
+    hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
+    directionalLights: [
+      { color: 0xfff0d5, intensity: 2.2, position: [18, 24, -22], target: [0, 0, 0] },
+    ],
+  },
+  work: {
+    background: 0x131923,
+    backgroundTextureUrl: landscapeHorizonBackgrounds.work,
+    backgroundTexturePerspectiveOnly: true,
+    hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
+    directionalLights: [
+      { color: 0xfff0d5, intensity: 2.2, position: [18, 24, -22], target: [0, 0, 0] },
+    ],
+  },
 } as const;
 
 // Use the real-world HQ scale for every environment visual, collider,
@@ -1060,7 +1074,7 @@ export function HqRoomScene({
       orthographicPan={{ x: 0, z: 0 }}
       waterVolumes={waterVolumes}
       deferCharacterDetails={false}
-      environment={galleryEnvironment}
+      environment={galleryEnvironments[visualTheme]}
       enableSceneEditor
       sceneEditorAvailable
       sceneEditorLockedObjectPrefixes={hqSceneEditorLockedObjectPrefixes}

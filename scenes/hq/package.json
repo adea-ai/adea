@@ -27,6 +27,7 @@
     "@agent-hq/audio": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/interior": "workspace:*",
+    "@agent-hq/landscape": "workspace:*",
     "@agent-hq/pets": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
     "@agent-hq/scene-shell": "workspace:*",

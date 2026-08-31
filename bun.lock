@@ -217,6 +217,10 @@
         "@types/three": "^0.185.0",
       },
     },
+    "packages/rooms": {
+      "name": "@agent-hq/rooms",
+      "version": "0.7.2",
+    },
     "packages/scene-fields": {
       "name": "@agent-hq/scene-fields",
       "version": "0.8.3",
@@ -331,6 +335,7 @@
         "@agent-hq/audio": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/interior": "workspace:*",
+        "@agent-hq/landscape": "workspace:*",
         "@agent-hq/pets": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/scene-shell": "workspace:*",
@@ -376,6 +381,8 @@
     "@agent-hq/mobile": ["@agent-hq/mobile@workspace:apps/mobile"],
 
     "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
+
+    "@agent-hq/rooms": ["@agent-hq/rooms@workspace:packages/rooms"],
 
     "@agent-hq/scene-fields": ["@agent-hq/scene-fields@workspace:packages/scene-fields"],
 
