@@ -1,36 +1,65 @@
-import type { WorkspacePlugin, WorkspacePluginsProvider } from './platform'
+import { codexPluginCatalog } from './codex-plugin-marketplace.generated'
+import type {
+  WorkspacePlugin,
+  WorkspacePluginCategory,
+  WorkspacePluginDefinition,
+  WorkspacePluginsProvider,
+} from './platform'
 
-const defaultPluginCatalog = Object.freeze([
+export const workspacePluginCategoryOrder = Object.freeze([
+  'Productivity',
+  'Communication',
+  'Developer Tools',
+  'Data & Analytics',
+  'Business & Operations',
+  'Finance',
+  'Creativity',
+  'Education & Research',
+  'Scientific Research',
+  'Security',
+] satisfies readonly WorkspacePluginCategory[])
+
+// Codex's remote discovery catalog currently leads with these providers. Keep the
+// list explicit so a catalog refresh cannot silently reshuffle Agent HQ's UI.
+export const popularWorkspacePluginIds = Object.freeze([
+  'gmail',
+  'github',
+  'google-drive',
+  'google-calendar',
+  'notion',
+  'slack',
+] as const)
+
+export type WorkspacePluginFilter = Readonly<{
+  ownership: 'all' | WorkspacePlugin['ownership']
+  type: 'all' | 'connectors' | 'skills'
+}>
+
+export const defaultPluginFilter: WorkspacePluginFilter = Object.freeze({
+  ownership: 'all',
+  type: 'all',
+})
+
+const agentHqPluginCatalog = Object.freeze([
   {
-    description: 'Bring repository context, pull requests, and issues into Agent workflows.',
-    id: 'github',
-    kind: 'connector',
-    name: 'GitHub',
-    publisher: 'Agent HQ',
-  },
-  {
-    description: 'Connect project issues and planning context to Rooms and Tasks.',
-    id: 'linear',
-    kind: 'connector',
-    name: 'Linear',
-    publisher: 'Agent HQ',
-  },
-  {
-    description: 'Let Agents read schedules and coordinate workspace events.',
-    id: 'google-calendar',
-    kind: 'connector',
-    name: 'Google Calendar',
-    publisher: 'Agent HQ',
-  },
-  {
+    auth: 'workspace',
+    authenticationPolicy: 'on-use',
+    capabilities: ['Summarize Rooms', 'Capture decisions', 'List follow-ups'],
+    category: 'Productivity',
     description: 'Create concise Room summaries from durable conversation history.',
+    iconKey: 'room-summaries',
     id: 'room-summaries',
+    installationPolicy: 'available',
     kind: 'skill',
     name: 'Room Summaries',
+    ownership: 'public',
     publisher: 'Agent HQ',
+    source: 'agent-hq',
+    surfaces: ['skill'],
   },
-] satisfies readonly Omit<WorkspacePlugin, 'installed'>[])
+] satisfies readonly WorkspacePluginDefinition[])
 
+const defaultPluginCatalog = Object.freeze([...codexPluginCatalog, ...agentHqPluginCatalog])
 const STORAGE_KEY = 'agent-hq:workspace-plugins:v1'
 
 function installedIds(storage: Pick<Storage, 'getItem'>): Set<string> {
@@ -72,15 +101,35 @@ export function createBrowserPluginsProvider(
 export function filterWorkspacePlugins(
   plugins: readonly WorkspacePlugin[],
   tab: 'marketplace' | 'yours',
-  query: string
+  query: string,
+  filter: WorkspacePluginFilter = defaultPluginFilter
 ): WorkspacePlugin[] {
   const needle = query.trim().toLocaleLowerCase()
   return plugins.filter(
     (plugin) =>
       (tab === 'marketplace' || plugin.installed) &&
+      (filter.type === 'all' ||
+        (filter.type === 'connectors' && plugin.kind === 'connector') ||
+        (filter.type === 'skills' && plugin.kind === 'skill')) &&
+      (filter.ownership === 'all' || plugin.ownership === filter.ownership) &&
       (needle.length === 0 ||
-        `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.kind}`
+        `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.kind} ${plugin.category} ${plugin.capabilities.join(' ')} ${plugin.surfaces.join(' ')}`
           .toLocaleLowerCase()
           .includes(needle))
   )
+}
+
+export function groupWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
+  return workspacePluginCategoryOrder.flatMap((category) => {
+    const items = plugins.filter((plugin) => plugin.category === category)
+    return items.length > 0 ? [{ category, plugins: items }] : []
+  })
+}
+
+export function getPopularWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
+  const byId = new Map(plugins.map((plugin) => [plugin.id, plugin]))
+  return popularWorkspacePluginIds.flatMap((id) => {
+    const plugin = byId.get(id)
+    return plugin ? [plugin] : []
+  })
 }
