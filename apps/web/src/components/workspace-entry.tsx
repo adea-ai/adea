@@ -13,6 +13,9 @@ import { WorkspaceAboutDialog } from '@agent-hq/workspace-ui/workspace-about-dia
 import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
 import { parseAsStringLiteral, useQueryState } from 'nuqs'
 import type { WorkspaceShellProps } from './workspace-shell'
+import packageJson from '../../package.json'
+
+const appVersion = packageJson.version
 
 const ConventionalWorkspace = dynamic(
   () =>
@@ -54,7 +57,7 @@ export function WorkspaceEntry({
         window.location.assign('/')
       },
     },
-    app: { name: 'Agent HQ', platform: 'web' },
+    app: { name: 'Agent HQ', platform: 'web', version: appVersion },
     plugins: createBrowserPluginsProvider(),
     settings: createBrowserSettingsProvider(),
   }))
@@ -96,6 +99,7 @@ export function WorkspaceEntry({
   const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
     window.history.replaceState(null, '', `#settings/${section}`)
     setGlobalPanel('settings')
+    if (view !== 'chat') changeView('chat')
   }
   const openSearch = () => {
     setGlobalPanel('search')

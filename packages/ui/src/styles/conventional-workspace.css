@@ -48,8 +48,8 @@
 
 .global-rail__workspace-menu {
   position: absolute;
-  top: 0;
-  left: calc(100% + 0.75rem);
+  top: 100%;
+  left: 0;
   z-index: 130;
   display: grid;
   gap: 0.2rem;

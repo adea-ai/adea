@@ -98,6 +98,30 @@ export function GlobalWorkspaceRail({
     }
   }, [workspaceMenuOpen])
 
+  useEffect(() => {
+    const openSettingsWithShortcut = (event: KeyboardEvent) => {
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.shiftKey ||
+        event.altKey ||
+        event.key !== ','
+      ) {
+        return
+      }
+      const target = event.target
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      if (isEditable) return
+      event.preventDefault()
+      onOpenSettings()
+    }
+
+    window.addEventListener('keydown', openSettingsWithShortcut, { capture: true })
+    return () => window.removeEventListener('keydown', openSettingsWithShortcut, { capture: true })
+  }, [onOpenSettings])
+
   return (
     <nav className="global-rail" aria-label="Global navigation">
       <div className="global-rail__workspace" ref={workspaceMenuRef}>
