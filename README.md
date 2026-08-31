@@ -34,8 +34,8 @@ Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 Portless name.
 
 The asset sync step copies the HQ scene foundations and the domain asset
-packages—interior, landscape, pets, and characters—into the ignored Next
-public-assets directory.
+packages—interior, landscape, pets, characters, and reserved room scenes—into
+the ignored Next public-assets directory.
 
 ## Plugin marketplace
 
@@ -78,17 +78,17 @@ decoding through Three.js. The checked-in interior optimization command is
 `bun run assets:optimize:interior` and `bun run assets:optimize:runtime`; they
 preserve authored transforms/material boundaries while applying Meshopt geometry
 compression and WebP base-color textures. Runtime asset validation is included
-in `bun run perf:check` and currently covers all character, pet, and landscape
-GLBs. The packaged `75.glb` normal map is now UASTC/Basis-compressed, while the
-optimizer leaves any future normal-map candidates lossless when the KTX
-encoder is unavailable. The runtime loader and transcoder assets are already
-wired for `KHR_texture_basisu` without changing scene code.
+in `bun run perf:check` and covers the loaded cartoon runtime representatives,
+pets, and landscape GLBs. The complete character and interior libraries remain
+available at their source quality; the optimizer leaves future normal-map
+candidates lossless when the KTX encoder is unavailable. The runtime loader and
+transcoder assets are already wired for `KHR_texture_basisu` without changing
+scene code.
 
-Meshopt remains the geometry default after a representative comparison: Draco
-reduced `Fence_07.glb` from 17.6 KB to 14.6 KB and `Computer_01.glb` from 26.9
-KB to 20.7 KB, but increased the animated Security character from 1.09 MB to
-1.22 MB and would require a separate Draco decoder path. Meshopt therefore
-keeps one decoder path across characters, pets, landscape, and interior assets.
+Meshopt remains the geometry default for the loaded runtime models. The source
+character and interior libraries are intentionally not rewritten by the
+runtime optimizer so the downloaded models remain available without quality
+or resolution reduction.
 
 ## Verification
 
