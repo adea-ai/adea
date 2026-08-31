@@ -66,7 +66,7 @@ const characterOptions = [
 
 const galleryEnvironments = {
   home: {
-    background: 0x131923,
+    background: 0x0a0a0a,
     backgroundTextureUrl: landscapeHorizonBackgrounds.home,
     // Render the horizon in clip space so it never pans or rotates with the
     // perspective follow camera.
@@ -79,7 +79,7 @@ const galleryEnvironments = {
     ],
   },
   work: {
-    background: 0x131923,
+    background: 0x0a0a0a,
     backgroundTextureUrl: landscapeHorizonBackgrounds.work,
     // Render the horizon in clip space so it never pans or rotates with the
     // perspective follow camera.
@@ -1133,7 +1133,7 @@ export function HqRoomScene({
       // Design mode gives the catalog panel enough map clearance to place
       // props in the rightmost rooms while placement remains room-only.
       roomDesignerDesignOrthographicHalfHeight={1320}
-      roomDesignerBackdropColor={visualTheme === "home" ? 0x668b59 : 0x778086}
+      roomDesignerBackdropColor={0x171717}
       // Design-only ground extension; gameplay navigation and collision remain
       // locked to the actual property envelope.
       roomDesignerBackdropPadding={hqRoomDesignerBackdropPadding}
