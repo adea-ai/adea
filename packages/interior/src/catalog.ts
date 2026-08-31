@@ -7,6 +7,7 @@ import type {
   InteriorPropConfig,
   PropManifest,
 } from "./prop-types";
+import { additionalInteriorProps } from "./generated-assets";
 
 function categoryAssetUrl(assetFolder: string, fileName: string): string {
   return `/assets/models/${assetFolder}/${fileName}`;
@@ -639,6 +640,7 @@ export const interiorPropAssets: readonly InteriorPropAsset[] = [
   ...furnitureProps,
   ...foodProps,
   ...casinoProps,
+  ...additionalInteriorProps,
 ];
 
 // Also export as PropManifest[] for the runtime field loader.

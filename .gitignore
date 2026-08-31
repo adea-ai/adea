@@ -39,6 +39,7 @@ htmlcov/
 .coverage*
 .next/
 /artifacts/
+apps/*/public/assets/
 cache/
 !.github/actions/cache/
 !.github/actions/cache/action.yml
