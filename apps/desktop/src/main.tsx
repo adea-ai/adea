@@ -14,8 +14,15 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { useWorkspaceStore } from '@agent-hq/state'
 import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
-import { ConventionalWorkspaceShell, type WorkspaceView } from '@agent-hq/workspace-ui'
+import {
+  ConventionalWorkspaceShell,
+  createBrowserPluginsProvider,
+  GlobalWorkspaceRail,
+  PluginsDialog,
+  type WorkspaceView,
+} from '@agent-hq/workspace-ui'
 
 import { localContentAuthority } from './local-content'
 import { desktopSettingsProvider } from './preferences'
@@ -76,9 +83,17 @@ function DesktopApp() {
   const [message, setMessage] = useState('Opening your workspace…')
   const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
   const [session, setSession] = useState<DesktopSession | undefined>()
+  const [plugins] = useState(() => createBrowserPluginsProvider())
   const [view, setView] = useState<WorkspaceView>(() =>
     new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
   )
+  const selectedScene = useWorkspaceStore((state) => state.selectedScene)
+  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
+  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
+  const setSelectedChannelId = useWorkspaceStore((state) => state.setSelectedChannelId)
+  const setSelectedRoomId = useWorkspaceStore((state) => state.setSelectedRoomId)
+  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
+  const setSelectedWorkspaceId = useWorkspaceStore((state) => state.setSelectedWorkspaceId)
   const temporaryCredentialRef = useRef<string | null>(null)
   const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
   const authCallbackObservedRef = useRef(false)
@@ -168,6 +183,10 @@ function DesktopApp() {
     }
   }, [openWorkspace])
 
+  useEffect(() => {
+    if (workspaceState) setSelectedScene(workspaceState.workspace.scene)
+  }, [setSelectedScene, workspaceState])
+
   async function beginSignIn() {
     setStatus('opening')
     setMessage('Opening your system browser…')
@@ -204,50 +223,75 @@ function DesktopApp() {
 
   if (workspaceState) {
     const client = workspaceClient(session, workspaceState.temporaryCredential ?? undefined)
-    if (view === 'chat') {
-      return (
-        <ConventionalWorkspaceShell
-          onViewChange={changeView}
-          view={view}
-          services={{
-            account: {
-              authenticated: Boolean(session),
-              busy,
-              label: session ? (workspaceState.accountLabel ?? 'Account') : 'Sign in',
-              onSignIn: () => void beginSignIn(),
-              onSignOut: () => signOut(),
-            },
-            app: { name: 'Agent HQ Desktop', platform: 'desktop' },
-            client,
-            privateContent: localContentAuthority,
-            settings: desktopSettingsProvider,
-            transcription: systemTranscriptionProvider,
-          }}
-        />
-      )
+    const services = {
+      account: {
+        authenticated: Boolean(session),
+        busy,
+        label: session ? (workspaceState.accountLabel ?? 'Account') : 'Sign in',
+        onSignIn: () => void beginSignIn(),
+        onSignOut: () => signOut(),
+      },
+      app: { name: 'Agent HQ Desktop', platform: 'desktop' as const },
+      client,
+      privateContent: localContentAuthority,
+      plugins,
+      settings: desktopSettingsProvider,
+      transcription: systemTranscriptionProvider,
+    }
+    const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
+      window.history.replaceState(null, '', `#settings/${section}`)
+      setGlobalPanel('settings')
+      if (view !== 'chat') changeView('chat')
+    }
+    const openSearch = () => {
+      setGlobalPanel('search')
+      if (view !== 'chat') changeView('chat')
     }
     return (
-      <Suspense
-        fallback={
-          <main className="auth-shell" aria-busy="true">
-            <p>Opening spatial preview…</p>
-          </main>
-        }
-      >
-        <SpatialDesktopWorkspace
-          authenticated={Boolean(session)}
-          busy={busy}
-          message={message}
-          onRetry={() => void openWorkspace(session)}
-          onSignIn={() => void beginSignIn()}
-          onSignOut={() => void signOut()}
-          status={status}
-          client={client}
-          onWorkspaceViewChange={changeView}
-          workspaceView={view}
-          workspaceState={workspaceState}
+      <div className={`workspace-frame workspace-frame--${view}`}>
+        <GlobalWorkspaceRail
+          activeWorkspace={workspaceState.workspace}
+          onOpenNotifications={() => openSettings('input-notifications')}
+          onOpenPlugins={() => setGlobalPanel('plugins')}
+          onOpenSearch={openSearch}
+          onOpenSettings={() => openSettings('account')}
+          onWorkspaceChange={(workspace) => {
+            setSelectedWorkspaceId(workspace.id)
+            setSelectedRoomId(null)
+            setSelectedChannelId(null)
+            setSelectedScene(workspace.scene)
+          }}
+          onViewChange={changeView}
+          view={view}
+          workspaces={[workspaceState.workspace]}
         />
-      </Suspense>
+        <div className="workspace-frame__surface">
+          {view === 'chat' ? (
+            <ConventionalWorkspaceShell onViewChange={changeView} view={view} services={services} />
+          ) : (
+            <Suspense
+              fallback={
+                <main className="auth-shell" aria-busy="true">
+                  <p>Opening spatial preview…</p>
+                </main>
+              }
+            >
+              <SpatialDesktopWorkspace
+                message={message}
+                status={status}
+                client={client}
+                onWorkspaceViewChange={changeView}
+                scene={selectedScene}
+              />
+            </Suspense>
+          )}
+        </div>
+        <PluginsDialog
+          open={globalPanel === 'plugins'}
+          onClose={() => setGlobalPanel(null)}
+          provider={plugins}
+        />
+      </div>
     )
   }
 

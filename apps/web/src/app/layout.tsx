@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { SoundProvider } from '@agent-hq/audio'
 import { AgentHqQueryProvider } from '@agent-hq/data/provider'
 import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
+import { NuqsAdapter } from 'nuqs/adapters/next/app'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -25,9 +26,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <ThemeProvider>
-          <AgentHqQueryProvider>
-            <SoundProvider>{children}</SoundProvider>
-          </AgentHqQueryProvider>
+          <NuqsAdapter>
+            <AgentHqQueryProvider>
+              <SoundProvider>{children}</SoundProvider>
+            </AgentHqQueryProvider>
+          </NuqsAdapter>
         </ThemeProvider>
       </body>
     </html>

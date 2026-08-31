@@ -412,8 +412,8 @@ export function WorkspaceSettingsDialog({
                 />
               )}
               <SettingsRow
-                title="Skill, Tool, MCP, and integration catalog"
-                detail="Unavailable until an authoritative Control Plane catalog provider is connected. No runtime credentials are stored here."
+                title="Plugin runtime connections"
+                detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
               />
             </>
           )}

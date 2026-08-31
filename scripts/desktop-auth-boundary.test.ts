@@ -36,10 +36,11 @@ describe("desktop packaging and privilege boundary", () => {
     expect(client).toContain("<DesktopWorkspace");
     expect(client).toContain("if (workspaceState)");
     expect(client).toContain("setSession(activeSession)");
-    expect(client).toContain("onRetry=");
+    expect(client).toContain("<GlobalWorkspaceRail");
     expect(workspace).toContain("<HqRoomScene");
     expect(workspace).toContain('aria-label="Agent HQ workspace controls"');
-    expect(workspace).toContain("Try again");
+    expect(workspace).toContain("showAccountDrawer={false}");
+    expect(client).toContain("Try again");
   });
 
   test("keeps desktop scene controls inside the canvas group and restores the workspace chrome", async () => {
@@ -57,10 +58,10 @@ describe("desktop packaging and privilege boundary", () => {
     expect(styles).toContain(".workspace-status__dot");
   });
 
-  test("puts optional authentication and the visible identity inside the user menu", async () => {
-    const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
-    const accountDrawer = await readFile(
-      join(root, "packages/ui/src/components/account-drawer.tsx"),
+  test("puts optional authentication and identity settings behind the global rail", async () => {
+    const desktop = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
+    const rail = await readFile(
+      join(root, "packages/workspace-ui/src/global-workspace-rail.tsx"),
       "utf8",
     );
     const bootstrapRoute = await readFile(
@@ -68,13 +69,11 @@ describe("desktop packaging and privilege boundary", () => {
       "utf8",
     );
 
-    expect(workspace).toContain("accountLabel=");
-    expect(workspace).not.toContain(">Save workspace<");
-    expect(workspace).not.toContain(">Sign out<");
-    expect(accountDrawer).toContain("accountLabel");
-    expect(accountDrawer).toContain("onSignIn");
-    expect(accountDrawer).toContain("onSignOut");
-    expect(accountDrawer).toContain('authenticated ? "Sign out" : "Sign in"');
+    expect(desktop).toContain("account: {");
+    expect(desktop).toContain("onSignIn:");
+    expect(desktop).toContain("onSignOut:");
+    expect(desktop).toContain("openSettings('account')");
+    expect(rail).toContain('label="User settings"');
     expect(bootstrapRoute).toContain("getUserDisplayName");
   });
 
@@ -99,7 +98,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(sharedVersion).toContain("View releases");
   });
 
-  test("shares compact workspace chrome and keeps theme and music inside the user drawer", async () => {
+  test("shares the global workspace rail and keeps account controls in settings", async () => {
     const desktopMain = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
     const desktopStyles = await readFile(join(root, "apps/desktop/src/styles.css"), "utf8");
     const webWorkspace = await readFile(
@@ -108,38 +107,24 @@ describe("desktop packaging and privilege boundary", () => {
     );
     const webLayout = await readFile(join(root, "apps/web/src/app/layout.tsx"), "utf8");
     const webStyles = await readFile(join(root, "apps/web/src/app/globals.css"), "utf8");
-    const accountDrawer = await readFile(
-      join(root, "packages/ui/src/components/account-drawer.tsx"),
-      "utf8",
-    );
-    const sharedBrand = await readFile(
-      join(root, "packages/ui/src/components/workspace-brand.tsx"),
-      "utf8",
-    );
-    const sharedShellStyles = await readFile(
-      join(root, "packages/ui/src/styles/workspace-shell.css"),
+    const globalRail = await readFile(
+      join(root, "packages/workspace-ui/src/global-workspace-rail.tsx"),
       "utf8",
     );
 
-    expect(accountDrawer).toContain("<ThemeToggle");
-    expect(accountDrawer).toContain("musicControl");
-    expect(accountDrawer).toContain("grid-cols-[minmax(0,1fr)_auto]");
     expect(desktopMain).toContain("<SoundProvider>");
     expect(desktopMain).toContain("<ThemeProvider>");
-    expect(webWorkspace).toContain("accountMusicControl={<MusicToggle />}");
     expect(webWorkspace).toContain("accountLabel=");
-    expect(webWorkspace).not.toContain('className="workspace-theme-toggle"');
-    expect(webWorkspace).not.toContain('className="workspace-music-toggle"');
-    expect(webWorkspace).not.toContain("workspace-topbar__secondary");
+    expect(globalRail).toContain('aria-label="Global navigation"');
+    expect(globalRail).toContain('label="Virtual view"');
+    expect(globalRail).toContain('label="Chat view"');
+    expect(globalRail).toContain('label="Plugins"');
+    expect(globalRail).toContain('label="User settings"');
     expect(desktopStyles).toContain("- 0.45rem");
     expect(desktopStyles).toContain("env(safe-area-inset-top)");
     expect(webStyles).toContain("env(safe-area-inset-top)");
     expect(webLayout).toContain("themeColor:");
-    expect(sharedBrand).toContain('className="workspace-brand__mark"');
-    expect(sharedShellStyles).toContain("background: var(--hq-shell-accent)");
-    expect(sharedShellStyles).toContain("color: var(--hq-shell-accent-foreground)");
-    expect(desktopStyles).not.toContain(".workspace-brand__mark {");
-    expect(webWorkspace).toContain('<WorkspaceBrand title="Agent HQ" />');
+    expect(webWorkspace).toContain("showAccountDrawer={false}");
   });
 
   test("grants privileged commands only to bundled application code", async () => {
@@ -217,8 +202,8 @@ describe("desktop packaging and privilege boundary", () => {
       "utf8",
     );
 
-    expect(desktopStyles).toContain('@import "@agent-hq/ui/auth-shell.css"');
-    expect(webStyles).toContain('@import "@agent-hq/ui/auth-shell.css"');
+    expect(desktopStyles).toContain("@import '@agent-hq/ui/auth-shell.css'");
+    expect(webStyles).toContain("@import '@agent-hq/ui/auth-shell.css'");
     expect(desktop).toContain('className="auth-shell"');
     expect(web).toContain('className="auth-shell"');
     expect(sharedStyles).toContain(".auth-panel");

@@ -24,9 +24,12 @@ async function runScenePerformanceGate(page: Page, scene: 'home' | 'work') {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
 
-  const response = await page.goto(`/?scene=${scene}&roomDesigner=0&camera=orthographic`, {
-    waitUntil: 'domcontentloaded',
-  })
+  const response = await page.goto(
+    `/?view=spatial&scene=${scene}&roomDesigner=0&camera=orthographic`,
+    {
+      waitUntil: 'domcontentloaded',
+    }
+  )
   expect(response?.ok()).toBe(true)
   await expect(page.locator('canvas')).toBeVisible({ timeout: sceneCanvasTimeout })
 
@@ -101,7 +104,7 @@ test('room designer loads compressed interior props', async ({ page }) => {
     }
   })
 
-  const response = await page.goto('/?scene=home&roomDesigner=1&camera=orthographic', {
+  const response = await page.goto('/?view=spatial&scene=home&roomDesigner=1&camera=orthographic', {
     waitUntil: 'domcontentloaded',
   })
   expect(response?.ok()).toBe(true)
@@ -114,7 +117,7 @@ test('room designer loads compressed interior props', async ({ page }) => {
 })
 
 test('web layout does not reserve space for the desktop status bar', async ({ page }) => {
-  const response = await page.goto('/?scene=home&roomDesigner=0&camera=orthographic', {
+  const response = await page.goto('/?view=spatial&scene=home&roomDesigner=0&camera=orthographic', {
     waitUntil: 'domcontentloaded',
   })
   expect(response?.ok()).toBe(true)
@@ -157,7 +160,7 @@ test('desktop status bar and overlays stay inside the scene viewport', async ({ 
   await page.addInitScript(() => {
     Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {} })
   })
-  const response = await page.goto('/?scene=home&roomDesigner=0&camera=orthographic', {
+  const response = await page.goto('/?view=spatial&scene=home&roomDesigner=0&camera=orthographic', {
     waitUntil: 'domcontentloaded',
   })
   expect(response?.ok()).toBe(true)

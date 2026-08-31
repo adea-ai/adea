@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test'
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.addEventListener('DOMContentLoaded', () => {
+      const style = document.createElement('style')
+      style.textContent = 'nextjs-portal { display: none !important; }'
+      document.head.append(style)
+    })
+  })
+})
+
 const workspace = {
   id: 'workspace-guest-e2e',
   name: 'My Agent HQ',
@@ -22,9 +32,11 @@ test('a guest can use a workspace before opening the optional persistence flow',
   })
 
   await page.goto('/?view=spatial')
-  const userMenu = page.getByRole('button', { name: 'Open user menu for Sign in' })
+  const userMenu = page.getByRole('button', { name: 'User settings' })
   await expect(userMenu).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Open user menu for Sign in' })).toHaveCount(0)
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
+  await expect(page.locator('.workspace-topbar')).toHaveCount(0)
 
   for (const viewport of [
     { width: 1280, height: 800 },
@@ -32,49 +44,29 @@ test('a guest can use a workspace before opening the optional persistence flow',
   ]) {
     await page.setViewportSize(viewport)
     const layout = await page.evaluate(() => {
-      const topbar = document.querySelector<HTMLElement>('.workspace-topbar')!
-      const switcher = document.querySelector<HTMLElement>('.workspace-scene-nav')!
-      const bar = topbar.getBoundingClientRect()
-      const control = switcher.getBoundingClientRect()
+      const rail = document.querySelector<HTMLElement>('.global-rail')!
+      const surface = document.querySelector<HTMLElement>('.workspace-frame__surface')!
+      const railBox = rail.getBoundingClientRect()
+      const surfaceBox = surface.getBoundingClientRect()
       return {
-        barHeight: bar.height,
-        centerDelta: Math.abs(control.left + control.width / 2 - window.innerWidth / 2),
+        railWidth: railBox.width,
+        surfaceOffset: surfaceBox.left,
       }
     })
-    expect(layout.barHeight).toBeLessThanOrEqual(80)
-    expect(layout.centerDelta).toBeLessThanOrEqual(2)
+    expect(layout).toEqual({ railWidth: 64, surfaceOffset: 64 })
   }
 
   await userMenu.click()
-  await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeVisible()
-  const musicSection = page.getByRole('region', { name: 'Music' })
-  const accountSection = page.getByRole('region', { name: 'Account' })
-  const musicHeading = musicSection.getByRole('heading', { name: 'Music' })
-  const musicButton = musicSection.getByRole('button', { name: /music/i })
-  const accountHeading = accountSection.getByRole('heading', { name: 'Account' })
-  const signInButton = accountSection.getByRole('button', { name: 'Sign in', exact: true })
-  await expect(musicHeading).toBeVisible()
-  await expect(musicButton).toBeVisible()
-  await expect(accountHeading).toBeVisible()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()
 
-  const drawerAlignment = await page.evaluate(() => {
-    function isRightAligned(headingId: string) {
-      const heading = document.getElementById(headingId)
-      const section = heading?.closest('section')
-      const button = section?.querySelector<HTMLElement>('button')
-      if (!heading || !button) return false
-      const headingBox = heading.getBoundingClientRect()
-      const buttonBox = button.getBoundingClientRect()
-      return buttonBox.left > headingBox.right
-    }
-
-    return {
-      account: isRightAligned('account-session-title'),
-      music: isRightAligned('account-music-title'),
-    }
-  })
-  expect(drawerAlignment).toEqual({ account: true, music: true })
+  await settings.getByRole('tab', { name: 'Appearance' }).click()
+  await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeVisible()
+  const musicButton = settings.getByRole('button', { name: /music/i })
+  await expect(musicButton).toBeVisible()
+  await settings.getByRole('tab', { name: 'Account & app' }).click()
   await signInButton.click()
   await expect(page).toHaveURL(/\/auth\/sign-in\?returnTo=%2F$/)
   await expect(page.getByRole('heading', { name: 'Save your workspace' })).toBeVisible()

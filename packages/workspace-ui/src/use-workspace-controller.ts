@@ -33,9 +33,10 @@ import { useWorkspaceStore } from '@agent-hq/state'
 
 import { projectWorkspaceNavigation } from './workspace-model'
 import { useWorkspacePersistence } from './use-workspace-persistence'
+import { createClientRequestId } from './request-id'
 
 function command(prefix: string, expectedVersion?: number) {
-  const id = crypto.randomUUID()
+  const id = createClientRequestId()
   return {
     correlationId: `ui:${prefix}:${id}`,
     expectedVersion,
@@ -152,7 +153,10 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       createAgent.mutateAsync(input).then(() => undefined),
     createAgentBusy: createAgent.isPending,
     createGroup: async (title: string) => {
-      const result = await createGroup.mutateAsync({ idempotencyKey: crypto.randomUUID(), title })
+      const result = await createGroup.mutateAsync({
+        idempotencyKey: createClientRequestId(),
+        title,
+      })
       selectChannel(result.channel.id)
     },
     createGroupBusy: createGroup.isPending,
