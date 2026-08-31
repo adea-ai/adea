@@ -19,6 +19,12 @@ export type InteriorPropCategory =
   | "electronics"
   | "entertainment"
   | "recreation"
+  | "rugs"
+  | "retail"
+  | "curtains"
+  | "fitness"
+  | "kids"
+  | "wall-art"
   | "other";
 
 export type InteriorPropConfig = {
