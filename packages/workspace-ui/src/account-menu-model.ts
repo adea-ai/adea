@@ -1,5 +1,5 @@
 export const accountMenuItems = [
-  { id: 'mobile', label: 'Get Grok Bot for iOS', disabled: true },
+  { id: 'mobile', label: 'Get Agent HQ mobile', disabled: true },
   { id: 'settings', label: 'Settings', disabled: false },
   { id: 'about', label: 'About', disabled: false },
   { id: 'help', label: 'Help Center', disabled: true },

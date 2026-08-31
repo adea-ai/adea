@@ -232,7 +232,7 @@ function DesktopApp() {
         onSignIn: () => void beginSignIn(),
         onSignOut: () => signOut(),
       },
-      app: { name: 'Agent HQ Desktop', platform: 'desktop' as const },
+      app: { name: 'Agent HQ', platform: 'desktop' as const },
       client,
       privateContent: localContentAuthority,
       plugins,
@@ -301,7 +301,7 @@ function DesktopApp() {
           provider={plugins}
         />
         <WorkspaceAboutDialog
-          appName="Agent HQ Desktop"
+          appName="Agent HQ"
           open={globalPanel === 'about'}
           onClose={() => setGlobalPanel(null)}
           platform="desktop"
