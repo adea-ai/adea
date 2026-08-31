@@ -15,6 +15,16 @@ const desktopUpdateAdapter: VersionDialogAdapter = {
   isDesktopRuntime: () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
 }
 
-export function VersionDialog() {
-  return <SharedVersionDialog adapter={desktopUpdateAdapter} fallbackVersion={packageVersion} />
+export function VersionDialog({
+  onOpenChange,
+  open,
+}: Readonly<{ onOpenChange?: (open: boolean) => void; open?: boolean }> = {}) {
+  return (
+    <SharedVersionDialog
+      adapter={desktopUpdateAdapter}
+      fallbackVersion={packageVersion}
+      onOpenChange={onOpenChange}
+      open={open}
+    />
+  )
 }
