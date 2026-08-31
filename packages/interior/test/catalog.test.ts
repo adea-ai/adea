@@ -57,7 +57,19 @@ describe("room-designer model boundary", () => {
   });
 
   test("separates functional interior families into designer categories", () => {
-    for (const category of ["bathroom", "architecture", "kitchen", "entertainment", "recreation"]) {
+    for (const category of [
+      "bathroom",
+      "architecture",
+      "kitchen",
+      "entertainment",
+      "recreation",
+      "rugs",
+      "retail",
+      "curtains",
+      "fitness",
+      "kids",
+      "wall-art",
+    ]) {
       expect(interiorPropAssets.some((asset) => asset.category === category)).toBe(true);
     }
 
@@ -70,6 +82,47 @@ describe("room-designer model boundary", () => {
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-tv-wall-001")?.category).toBe(
       "electronics",
     );
+
+    expect(interiorPropAssets.find((asset) => asset.id === "expanded-carpet-001")?.category).toBe(
+      "rugs",
+    );
+    expect(interiorPropAssets.find((asset) => asset.id === "expanded-shop-001")?.category).toBe(
+      "retail",
+    );
+    expect(interiorPropAssets.find((asset) => asset.id === "expanded-curtains-001")?.category).toBe(
+      "curtains",
+    );
+    expect(interiorPropAssets.find((asset) => asset.id === "expanded-picture-001")?.category).toBe(
+      "wall-art",
+    );
+    expect(
+      interiorPropAssets.find((asset) => asset.id === "expanded-training-item-001")?.category,
+    ).toBe("fitness");
+    expect(interiorPropAssets.find((asset) => asset.id === "expanded-for-kids-001")?.category).toBe(
+      "kids",
+    );
+  });
+
+  test("keeps migrated source families in their dedicated categories", () => {
+    const migratedFamilies = {
+      carpet: "rugs",
+      shop: "retail",
+      curtains: "curtains",
+      picture: "wall-art",
+      training_item: "fitness",
+      for_kids: "kids",
+    } as const;
+
+    for (const [family, category] of Object.entries(migratedFamilies)) {
+      const familyAssets = interiorPropAssets.filter((asset) =>
+        asset.id.startsWith(`expanded-${family.replaceAll("_", "-")}-`),
+      );
+      expect(familyAssets.length).toBeGreaterThan(0);
+      expect(familyAssets.every((asset) => asset.category === category)).toBe(true);
+      expect(familyAssets.every((asset) => asset.assetUrl.includes(`/models/${category}/`))).toBe(
+        true,
+      );
+    }
   });
 
   test("does not expose exterior foliage or fence models", () => {
