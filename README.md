@@ -37,6 +37,23 @@ The asset sync step copies the HQ scene foundations and the domain asset
 packages—interior, landscape, pets, and characters—into the ignored Next
 public-assets directory.
 
+## Plugin marketplace
+
+Agent HQ derives its public plugin catalog from the latest `main` revision of
+[`openai/plugins`](https://github.com/openai/plugins). Web development and
+production builds run `bun run plugins:sync` automatically. The synchronizer
+tries a shallow Git clone first, then GitHub's revision-pinned archive API, and
+regenerates the typed catalog and pinned logo URLs from the upstream manifests.
+If both network paths are unavailable, the build uses the last generated
+catalog as an offline cache instead of requiring a hand-maintained provider
+list.
+
+This public repository is the production marketplace source Agent HQ can
+consume directly; Codex's larger authenticated remote directory and
+ChatGPT-hosted bootstrap export are separate services. Enabling a catalog item
+in the current UI persists workspace intent. Bundle installation, OAuth, MCP
+process lifecycle, and secret handling remain Control Plane responsibilities.
+
 ## Architecture references
 
 - [`docs/architecture/diagram-sources.md`](docs/architecture/diagram-sources.md) contains the version-controlled Mermaid definitions for Agent HQ-owned product, architecture, data, trust, runtime, Artifact, and event diagrams.
