@@ -56,6 +56,22 @@ describe("room-designer model boundary", () => {
     expect(interiorPlantIds.filter((id) => id.startsWith("expanded-")).length).toBe(37);
   });
 
+  test("separates functional interior families into designer categories", () => {
+    for (const category of ["bathroom", "architecture", "kitchen", "entertainment", "recreation"]) {
+      expect(interiorPropAssets.some((asset) => asset.category === category)).toBe(true);
+    }
+
+    expect(
+      interiorPropAssets.find((asset) => asset.id === "expanded-electronics-001")?.category,
+    ).toBe("electronics");
+    expect(
+      interiorPropAssets.find((asset) => asset.id === "expanded-entertainment-001")?.category,
+    ).toBe("entertainment");
+    expect(interiorPropAssets.find((asset) => asset.id === "expanded-tv-wall-001")?.category).toBe(
+      "electronics",
+    );
+  });
+
   test("does not expose exterior foliage or fence models", () => {
     const exteriorIds = new Set([
       "models-bush-06",

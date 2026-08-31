@@ -100,7 +100,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "models-kitchen-table-09",
     "Kitchen Table",
     "Kitchen_Table_09.glb",
-    "tables",
+    "kitchen",
     1.25,
     [210, 105],
     0,
@@ -113,7 +113,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "models-kitchen-d-01",
     "Kitchen Counter",
     "Kitchen_D_01.glb",
-    "tables",
+    "kitchen",
     1.25,
     [120, 90],
     FACING_YAW,
@@ -123,7 +123,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "models-kitchen-d-06",
     "Kitchen Counter (Corner)",
     "Kitchen_D_06.glb",
-    "tables",
+    "kitchen",
     1.25,
     [120, 120],
     FACING_YAW,
@@ -133,7 +133,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "models-kitchen-d-08",
     "Kitchen Cabinet",
     "Kitchen_D_08.glb",
-    "storage",
+    "kitchen",
     1.25,
     [90, 45],
     FACING_YAW,
@@ -143,7 +143,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "models-kitchen-d-09",
     "Kitchen Cabinet (Narrow)",
     "Kitchen_D_09.glb",
-    "storage",
+    "kitchen",
     1.25,
     [120, 45],
     FACING_YAW,
@@ -153,7 +153,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "models-kitchen-d-10",
     "Kitchen Cabinet (Wide)",
     "Kitchen_D_10.glb",
-    "storage",
+    "kitchen",
     1.25,
     [120, 45],
     FACING_YAW,
@@ -251,29 +251,31 @@ const furnitureProps: InteriorPropAsset[] = [
     placeableOnTop: true,
   }),
 
-  // Other
-  prop("models-bath-03", "Bathtub", "Bath_03.glb", "other", 1.25, [225, 105], 0),
-  prop("models-toilet-03", "Toilet", "Toilet_03.glb", "other", 1.25, [60, 90], 0),
-  prop("models-wash-basin-07", "Wash Basin", "Wash_Basin_07.glb", "other", 1.25, [90, 60], 0),
-  prop("models-toothbrush-01", "Toothbrush", "Toothbrush_01.glb", "other", 1.25, [15, 30], 0, {
+  // Bathroom
+  prop("models-bath-03", "Bathtub", "Bath_03.glb", "bathroom", 1.25, [225, 105], 0),
+  prop("models-toilet-03", "Toilet", "Toilet_03.glb", "bathroom", 1.25, [60, 90], 0),
+  prop("models-wash-basin-07", "Wash Basin", "Wash_Basin_07.glb", "bathroom", 1.25, [90, 60], 0),
+  prop("models-toothbrush-01", "Toothbrush", "Toothbrush_01.glb", "bathroom", 1.25, [15, 30], 0, {
     placeableOnTop: true,
   }),
-  prop("models-toothpaste-01", "Toothpaste", "Toothpaste_01.glb", "other", 1.25, [45, 15], 0, {
+  prop("models-toothpaste-01", "Toothpaste", "Toothpaste_01.glb", "bathroom", 1.25, [45, 15], 0, {
     placeableOnTop: true,
   }),
-  prop("models-utensils-01", "Utensils", "Utensils_01.glb", "other", 1.25, [60, 15], 0, {
+  // Kitchen
+  prop("models-utensils-01", "Utensils", "Utensils_01.glb", "kitchen", 1.25, [60, 15], 0, {
     placeableOnTop: true,
   }),
   prop(
     "models-cutting-board-02",
     "Cutting Board",
     "Cutting_board_02.glb",
-    "other",
+    "kitchen",
     1.25,
     [45, 60],
     0,
     { placeableOnTop: true },
   ),
+  // Other
   prop("models-book-03", "Book", "Book_03.glb", "other", 1.25, [90, 30], 0, {
     placeableOnTop: true,
   }),
@@ -289,20 +291,23 @@ const furnitureProps: InteriorPropAsset[] = [
   prop("models-clock-03", "Clock", "Clock_03.glb", "other", 1.25, [90, 60], 0, {
     placeableOnTop: true,
   }),
-  prop("models-toy-02", "Toy (Robot)", "Toy_02.glb", "other", 1.25, [30, 30], 0, {
+  // Recreation
+  prop("models-toy-02", "Toy (Robot)", "Toy_02.glb", "recreation", 1.25, [30, 30], 0, {
     placeableOnTop: true,
   }),
-  prop("models-toy-03", "Toy (Block)", "Toy_03.glb", "other", 1.25, [45, 45], 0, {
+  prop("models-toy-03", "Toy (Block)", "Toy_03.glb", "recreation", 1.25, [45, 45], 0, {
     placeableOnTop: true,
   }),
-  prop("models-guitar-01", "Guitar", "Guitar_01.glb", "other", 1.25, [60, 120], 0, {
+  // Entertainment
+  prop("models-guitar-01", "Guitar", "Guitar_01.glb", "entertainment", 1.25, [60, 120], 0, {
     placeableOnTop: true,
   }),
+  // Recreation
   prop(
     "models-exercise-bike-01",
     "Exercise Bike",
     "ExerciseBike_01.glb",
-    "other",
+    "recreation",
     1.25,
     [120, 75],
     FACING_YAW,
@@ -581,13 +586,22 @@ const casinoProps: InteriorPropAsset[] = [
   }),
 
   // Decorative
-  prop("models-casino-column-17", "Column", "Column_17.glb", "other", 1.0, [252, 252], 0),
-  prop("models-casino-floor-01", "Casino Floor", "Floor_01.glb", "other", 1.0, [600, 600], 0, {
-    floorLift: 3,
-    allowItemsOnTop: true,
-    canOverlapFurniture: true,
-    blocksRugOverlap: true,
-  }),
+  prop("models-casino-column-17", "Column", "Column_17.glb", "architecture", 1.0, [252, 252], 0),
+  prop(
+    "models-casino-floor-01",
+    "Casino Floor",
+    "Floor_01.glb",
+    "architecture",
+    1.0,
+    [600, 600],
+    0,
+    {
+      floorLift: 3,
+      allowItemsOnTop: true,
+      canOverlapFurniture: true,
+      blocksRugOverlap: true,
+    },
+  ),
   prop("models-casino-flower-03", "Casino Flower", "Flower_03.glb", "plants", 1.0, [180, 180], 0, {
     blocksRugOverlap: true,
   }),
