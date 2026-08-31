@@ -586,22 +586,6 @@ const casinoProps: InteriorPropAsset[] = [
   }),
 
   // Decorative
-  prop("models-casino-column-17", "Column", "Column_17.glb", "architecture", 1.0, [252, 252], 0),
-  prop(
-    "models-casino-floor-01",
-    "Casino Floor",
-    "Floor_01.glb",
-    "architecture",
-    1.0,
-    [600, 600],
-    0,
-    {
-      floorLift: 3,
-      allowItemsOnTop: true,
-      canOverlapFurniture: true,
-      blocksRugOverlap: true,
-    },
-  ),
   prop("models-casino-flower-03", "Casino Flower", "Flower_03.glb", "plants", 1.0, [180, 180], 0, {
     blocksRugOverlap: true,
   }),
