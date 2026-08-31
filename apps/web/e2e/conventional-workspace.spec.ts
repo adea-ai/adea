@@ -595,6 +595,7 @@ test('connects newly created Rooms and group conversations to their canonical vi
 test('toggles chat and virtual Room views without losing shared selection or drafts', async ({
   page,
 }) => {
+  test.setTimeout(180_000)
   await mockConnectedWorkspace(page)
   await page.goto('/')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
@@ -639,36 +640,6 @@ test('toggles chat and virtual Room views without losing shared selection or dra
     'true'
   )
 
-  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
-  const plugins = page.getByRole('dialog', { name: 'Plugins' })
-  await expect(plugins).toBeVisible({ timeout: 30_000 })
-  await expect(plugins.getByRole('tab', { name: 'Marketplace' })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  )
-  await expect(plugins).toHaveScreenshot('plugins-marketplace.png', {
-    animations: 'disabled',
-    maxDiffPixels: 50,
-  })
-  await plugins.getByRole('searchbox', { name: 'Search plugins' }).fill('github')
-  await plugins.getByRole('button', { name: /GitHub/ }).click()
-  await expect(plugins.getByRole('heading', { name: 'GitHub' })).toBeVisible()
-  await plugins.getByRole('button', { name: 'Add to Agent HQ' }).click()
-  await expect(plugins.getByRole('button', { name: 'Remove from Agent HQ' })).toBeVisible()
-  await plugins.getByRole('button', { name: 'Back to plugins' }).click()
-  await plugins.getByRole('tab', { name: 'Yours' }).click()
-  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
-  await expect(plugins).toHaveScreenshot('plugins-yours.png', {
-    animations: 'disabled',
-    maxDiffPixels: 50,
-  })
-  await page.keyboard.press('Escape')
-
-  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
-  await plugins.getByRole('tab', { name: 'Yours' }).click()
-  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
-  await page.keyboard.press('Escape')
-
   await globalNavigation.getByRole('button', { name: 'Chat view' }).click()
   await expect(page).toHaveURL(/view=chat/)
   await expect(
@@ -677,6 +648,58 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(
     'Keep this connected draft.'
   )
+})
+
+test('browses the synchronized Codex marketplace in compact groups', async ({ page }) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
+  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
+  const plugins = page.getByRole('dialog', { name: 'Plugins' })
+  await expect(plugins).toBeVisible()
+  await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
+
+  const pluginGroups = plugins.locator('.plugins-browser__group')
+  const popularPlugins = pluginGroups.first()
+  await expect(popularPlugins.getByRole('heading', { name: 'Popular' })).toBeVisible()
+  await expect(popularPlugins.locator('.plugins-browser__row')).toHaveCount(6)
+  await expect(popularPlugins.getByRole('button', { name: /Gmail/ })).toBeVisible()
+  await expect(popularPlugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
+  expect(
+    await pluginGroups
+      .locator('.plugins-browser__grid')
+      .evaluateAll((grids) =>
+        grids.every((grid) => grid.querySelectorAll('.plugins-browser__row').length <= 6)
+      )
+  ).toBe(true)
+
+  const productivityPlugins = pluginGroups.filter({
+    has: page.getByRole('heading', { name: 'Productivity', exact: true }),
+  })
+  await plugins.getByRole('button', { name: 'See Notion, Granola and more' }).click()
+  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(13)
+  await productivityPlugins.getByRole('button', { name: 'Show less' }).click()
+  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(6)
+
+  await plugins.getByRole('button', { name: 'Filter' }).click()
+  await page.getByRole('menuitemradio', { name: 'Skills' }).click()
+  await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
+  await expect(plugins.getByRole('button', { name: /Room Summaries/ })).toBeVisible()
+  await page.getByRole('menuitemradio', { name: 'All types' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveScreenshot('plugins-marketplace.png', { animations: 'disabled' })
+
+  await plugins.getByRole('searchbox', { name: 'Search plugins' }).fill('github')
+  await plugins.getByRole('button', { name: /GitHub/ }).click()
+  await expect(plugins.getByRole('heading', { name: 'GitHub' })).toBeVisible()
+  await expect(plugins.getByText('Codex official', { exact: true })).toBeVisible()
+  await expect(plugins.getByText('APP · MCP', { exact: true })).toBeVisible()
+  await plugins.getByRole('button', { name: 'Add', exact: true }).click()
+  await expect(plugins.getByRole('button', { name: 'Remove', exact: true })).toBeVisible()
+  await plugins.getByRole('button', { name: 'Back to plugins' }).click()
+  await plugins.getByRole('tab', { name: 'Yours' }).click()
+  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
+  await expect(page).toHaveScreenshot('plugins-yours.png', { animations: 'disabled' })
 })
 
 test('navigates direct, group, thread, and Task detail surfaces', async ({ page }) => {

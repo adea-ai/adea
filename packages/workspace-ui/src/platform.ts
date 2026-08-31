@@ -58,14 +58,41 @@ export type WorkspaceSettingsProvider = Readonly<{
   save(preferences: WorkspacePreferences): Promise<WorkspacePreferences>
 }>
 
-export type WorkspacePlugin = Readonly<{
+export type WorkspacePluginCategory =
+  | 'Business & Operations'
+  | 'Communication'
+  | 'Creativity'
+  | 'Data & Analytics'
+  | 'Developer Tools'
+  | 'Education & Research'
+  | 'Finance'
+  | 'Productivity'
+  | 'Scientific Research'
+  | 'Security'
+
+export type WorkspacePluginSurface = 'agent' | 'app' | 'command' | 'hook' | 'mcp' | 'skill'
+
+export type WorkspacePluginDefinition = Readonly<{
+  auth: 'api-key' | 'oauth' | 'workspace'
+  authenticationPolicy?: 'on-install' | 'on-use'
+  category: WorkspacePluginCategory
+  capabilities: readonly string[]
   description: string
+  iconKey: string
   id: string
-  installed: boolean
+  installationPolicy?: 'available' | 'installed-by-default' | 'not-available'
   kind: 'connector' | 'skill'
+  license?: string
   name: string
+  ownership: 'public' | 'team'
   publisher: string
+  source: 'agent-hq' | 'codex-official' | 'open-grok'
+  sourceRevision?: string
+  sourceUrl?: string
+  surfaces: readonly WorkspacePluginSurface[]
 }>
+
+export type WorkspacePlugin = WorkspacePluginDefinition & Readonly<{ installed: boolean }>
 
 export type WorkspacePluginsProvider = Readonly<{
   list(): Promise<readonly WorkspacePlugin[]>
