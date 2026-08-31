@@ -18,6 +18,7 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@agent-hq/ui/components/ui/dropdown-menu'
 
@@ -68,7 +69,7 @@ export function AccountMenu({
       >
         <UserRound aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="global-account-menu" side="right" align="end" sideOffset={8}>
+      <DropdownMenuContent className="global-account-menu" side="top" align="start" sideOffset={0}>
         <DropdownMenuGroup>
           {accountMenuItems.map((item) => {
             const Icon = icons[item.id]
@@ -82,6 +83,9 @@ export function AccountMenu({
               <DropdownMenuItem key={item.id} disabled={item.disabled} onClick={onSelect}>
                 <Icon aria-hidden="true" />
                 <span>{item.label}</span>
+                {item.id === 'settings' ? (
+                  <DropdownMenuShortcut aria-hidden="true">⌘,</DropdownMenuShortcut>
+                ) : null}
               </DropdownMenuItem>
             )
           })}
