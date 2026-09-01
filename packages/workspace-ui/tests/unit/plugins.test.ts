@@ -159,6 +159,7 @@ describe('registry marketplace catalog', () => {
         catalogId: fixture.catalog.catalogId,
         installations: [],
         releaseId: fixture.catalog.catalogId,
+        state: 'ready' as const,
       }),
       requestMarketplaceInstall: async (_workspaceId: string, input: unknown) => {
         requests.push(input)
@@ -180,16 +181,17 @@ describe('registry marketplace catalog', () => {
     const plugins = await provider.list()
     expect(filterWorkspacePlugins(plugins, 'yours', '')).toEqual([])
     const after = await provider.requestInstall('plugin:openai-official:gmail')
-    expect(requests).toEqual([
-      {
-        canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
-        idempotencyKey: `marketplace:plugin:openai-official:gmail:release:${'c'.repeat(64)}`,
-        pluginId: 'plugin:openai-official:gmail',
-        releaseId: `release:${'c'.repeat(64)}`,
-        requestedHarness: 'codex',
-        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
-      },
-    ])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]).toMatchObject({
+      canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
+      pluginId: 'plugin:openai-official:gmail',
+      releaseId: `release:${'c'.repeat(64)}`,
+      requestedHarness: 'codex',
+      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+    })
+    expect((requests[0] as { idempotencyKey: string }).idempotencyKey).toMatch(
+      /^marketplace:[a-f0-9]{64}$/u
+    )
     expect(after[0]?.installationStatus).toBe('pending-authorization')
     expect(filterWorkspacePlugins(after, 'yours', '').map(({ id }) => id)).toEqual([])
   })

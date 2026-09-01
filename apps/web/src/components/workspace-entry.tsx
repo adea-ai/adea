@@ -5,11 +5,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createApiClient } from '@agent-hq/api-client'
 import { useWorkspaceBootstrapQuery } from '@agent-hq/data'
 import { useWorkspaceStore } from '@agent-hq/state'
-import { GlobalWorkspaceRail } from '@agent-hq/workspace-ui/global-workspace-rail'
-import type { WorkspacePlatformServices } from '@agent-hq/workspace-ui/platform'
-import { createRegistryPluginsProvider } from '@agent-hq/workspace-ui/plugins'
+import type {
+  WorkspacePlatformServices,
+  WorkspacePluginsProvider,
+} from '@agent-hq/workspace-ui/platform'
+import type { RegistryPluginsProviderOptions } from '@agent-hq/workspace-ui/plugins'
 import { createBrowserSettingsProvider } from '@agent-hq/workspace-ui/preferences'
-import { WorkspaceAboutDialog } from '@agent-hq/workspace-ui/workspace-about-dialog'
 import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
 import { parseAsStringLiteral, useQueryState } from 'nuqs'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -30,6 +31,22 @@ const SpatialWorkspace = dynamic(
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
+const GlobalWorkspaceRail = dynamic(
+  () =>
+    import('@agent-hq/workspace-ui/global-workspace-rail').then(
+      ({ GlobalWorkspaceRail: Rail }) => Rail
+    ),
+  { loading: () => <WorkspaceRailLoading />, ssr: false }
+)
+
+const WorkspaceAboutDialog = dynamic(
+  () =>
+    import('@agent-hq/workspace-ui/workspace-about-dialog').then(
+      ({ WorkspaceAboutDialog: AboutDialog }) => AboutDialog
+    ),
+  { ssr: false }
+)
+
 const PluginsDialog = dynamic(
   () => import('@agent-hq/workspace-ui/plugins-dialog').then((module) => module.PluginsDialog),
   { ssr: false }
@@ -41,6 +58,31 @@ function WorkspaceEntryLoading() {
       <p>Opening workspace…</p>
     </main>
   )
+}
+
+function WorkspaceRailLoading() {
+  return <nav className="global-rail global-rail--loading" aria-hidden="true" />
+}
+
+function createDeferredPluginsProvider(
+  options: RegistryPluginsProviderOptions
+): WorkspacePluginsProvider {
+  let provider: Promise<WorkspacePluginsProvider> | undefined
+  let loaded: WorkspacePluginsProvider | undefined
+  const load = () => {
+    provider ??= import('@agent-hq/workspace-ui/plugins')
+      .then(({ createRegistryPluginsProvider }) => createRegistryPluginsProvider(options))
+      .then((value) => {
+        loaded = value
+        return value
+      })
+    return provider
+  }
+  return {
+    getState: () => loaded?.getState?.() ?? 'idle',
+    list: () => load().then((value) => value.list()),
+    requestInstall: (pluginId) => load().then((value) => value.requestInstall(pluginId)),
+  }
 }
 
 export function WorkspaceEntry({
@@ -60,7 +102,7 @@ export function WorkspaceEntry({
       },
     },
     app: { name: 'Agent HQ', platform: 'web', version: appVersion },
-    plugins: createRegistryPluginsProvider({
+    plugins: createDeferredPluginsProvider({
       client,
       getWorkspaceId: () => workspaceIdRef.current,
       getUserId: () => userIdRef.current,
