@@ -3,5 +3,13 @@
   "identifier": "default",
   "description": "Minimal default permissions for the Agent HQ desktop shell",
   "windows": ["main"],
-  "permissions": ["core:default", "updater:default", "allow-desktop-auth", "allow-desktop-updater"]
+  "permissions": [
+    "core:default",
+    "updater:default",
+    "allow-desktop-auth",
+    "allow-desktop-preferences",
+    "allow-desktop-transcription",
+    "allow-desktop-updater",
+    "allow-local-content"
+  ]
 }
