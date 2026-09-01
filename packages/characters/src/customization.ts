@@ -17,7 +17,7 @@ export interface CharacterPartOption {
   id: string;
   label: string;
   slot: CharacterPartSlot;
-  /** Path relative to /assets/models/character-parts. */
+  /** Path relative to /assets/models. */
   file: string;
 }
 
@@ -48,5 +48,5 @@ export type CharacterPartId = string;
 export const characterPartAssets = characterPartCatalog.map((part) => ({
   id: part.id,
   label: part.label,
-  assetUrl: `/assets/models/character-parts/${part.file}`,
+  assetUrl: `/assets/models/${part.file}`,
 }));
