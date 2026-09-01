@@ -1,9 +1,19 @@
-import { codexPluginCatalog } from './codex-plugin-marketplace.generated'
+import type { AgentHqApiClient } from '@agent-hq/api-client'
+
+import {
+  categoryLabel,
+  installationResponseState,
+  loadRegistryArtifacts,
+  mapRegistryCatalog,
+  MarketplaceCatalogError,
+  type VerifiedRegistryCatalog,
+} from './marketplace-catalog'
 import type {
   WorkspacePlugin,
   WorkspacePluginCategory,
   WorkspacePluginDefinition,
   WorkspacePluginsProvider,
+  WorkspacePluginsProviderState,
 } from './platform'
 
 export const workspacePluginCategoryOrder = Object.freeze([
@@ -19,16 +29,17 @@ export const workspacePluginCategoryOrder = Object.freeze([
   'Security',
 ] satisfies readonly WorkspacePluginCategory[])
 
-// Codex's remote discovery catalog currently leads with these providers. Keep the
-// list explicit so a catalog refresh cannot silently reshuffle Agent HQ's UI.
-export const popularWorkspacePluginIds = Object.freeze([
+const popularNames = [
   'gmail',
   'github',
   'google-drive',
   'google-calendar',
   'notion',
   'slack',
-] as const)
+] as const
+export const popularWorkspacePluginIds = Object.freeze(
+  popularNames.map((name) => `plugin:openai-official:${name}`)
+)
 
 export type WorkspacePluginFilter = Readonly<{
   ownership: 'all' | WorkspacePlugin['ownership']
@@ -40,61 +51,103 @@ export const defaultPluginFilter: WorkspacePluginFilter = Object.freeze({
   type: 'all',
 })
 
-const agentHqPluginCatalog = Object.freeze([
-  {
-    auth: 'workspace',
-    authenticationPolicy: 'on-use',
-    capabilities: ['Summarize Rooms', 'Capture decisions', 'List follow-ups'],
-    category: 'Productivity',
-    description: 'Create concise Room summaries from durable conversation history.',
-    iconKey: 'room-summaries',
-    id: 'room-summaries',
-    installationPolicy: 'available',
-    kind: 'skill',
-    name: 'Room Summaries',
-    ownership: 'public',
-    publisher: 'Agent HQ',
-    source: 'agent-hq',
-    surfaces: ['skill'],
-  },
-] satisfies readonly WorkspacePluginDefinition[])
+export type RegistryPluginsProviderOptions = Readonly<{
+  client: AgentHqApiClient | (() => AgentHqApiClient)
+  getWorkspaceId: () => string | undefined
+  getUserId: () => string | undefined
+  requestedHarness?: string
+}>
 
-const defaultPluginCatalog = Object.freeze([...codexPluginCatalog, ...agentHqPluginCatalog])
-const STORAGE_KEY = 'agent-hq:workspace-plugins:v1'
-
-function installedIds(storage: Pick<Storage, 'getItem'>): Set<string> {
-  try {
-    const value = JSON.parse(storage.getItem(STORAGE_KEY) ?? '[]')
-    return new Set(
-      Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
-    )
-  } catch {
-    return new Set()
-  }
-}
-
-export function createBrowserPluginsProvider(
-  storage?: Pick<Storage, 'getItem' | 'setItem'>
+export function createRegistryPluginsProvider(
+  options: RegistryPluginsProviderOptions
 ): WorkspacePluginsProvider {
-  const resolveStorage = () => storage ?? window.localStorage
-  const list = () => {
-    const installed = installedIds(resolveStorage())
-    return defaultPluginCatalog.map((plugin) => ({
-      ...plugin,
-      installed: installed.has(plugin.id),
-    }))
+  let cache: VerifiedRegistryCatalog | undefined
+  let state: WorkspacePluginsProviderState = 'idle'
+  const apiClient = () => (typeof options.client === 'function' ? options.client() : options.client)
+
+  const list = async (): Promise<readonly WorkspacePlugin[]> => {
+    const workspaceId = options.getWorkspaceId()
+    if (!workspaceId) {
+      state = 'unavailable'
+      throw new MarketplaceCatalogError('unavailable', 'A workspace is required to load plugins')
+    }
+    state = 'loading'
+    try {
+      cache = await loadRegistryArtifacts(apiClient(), workspaceId)
+      state = 'ready'
+      return mapRegistryCatalog(cache.catalog, cache.installations)
+    } catch (error) {
+      if (error instanceof MarketplaceCatalogError && error.state === 'verification-failure') {
+        state = 'verification-failure'
+        throw error
+      }
+      if (cache) {
+        state = 'stale'
+        return mapRegistryCatalog(cache.catalog, cache.installations)
+      }
+      state = error instanceof MarketplaceCatalogError ? error.state : 'unavailable'
+      throw error
+    }
+  }
+
+  const requestInstall = async (pluginId: string): Promise<readonly WorkspacePlugin[]> => {
+    const workspaceId = options.getWorkspaceId()
+    const userId = options.getUserId()
+    if (!workspaceId || !userId) {
+      state = 'unavailable'
+      throw new MarketplaceCatalogError(
+        'unavailable',
+        'A workspace and user identity are required to enable a plugin'
+      )
+    }
+    if (!cache) await list()
+    if (!cache)
+      throw new MarketplaceCatalogError('unavailable', 'The plugin catalog is unavailable')
+    const plugin = cache.catalog.plugins.find((candidate) => candidate.pluginId === pluginId)
+    if (!plugin) throw new Error(`Unknown plugin: ${pluginId}`)
+    const release = plugin.availableReleases.find(
+      (candidate) => candidate.releaseId === plugin.currentReleaseId
+    )
+    if (!release)
+      throw new MarketplaceCatalogError(
+        'verification-failure',
+        `Current release is missing: ${pluginId}`
+      )
+    if (release.contentResolution === 'metadata-only') {
+      state = 'unavailable'
+      throw new MarketplaceCatalogError(
+        'unavailable',
+        'This plugin is source metadata only and cannot be enabled'
+      )
+    }
+    const response = await apiClient().requestMarketplaceInstall(workspaceId, {
+      pluginId,
+      releaseId: release.releaseId,
+      canonicalContentDigest: release.canonicalContentDigest,
+      requestedHarness: options.requestedHarness ?? 'codex',
+      workspaceIdentity: { userId, workspaceId },
+      idempotencyKey: `marketplace:${pluginId}:${release.releaseId}`,
+    })
+    const installations = cache.installations.filter((candidate) => candidate.pluginId !== pluginId)
+    cache = {
+      ...cache,
+      installations: [
+        ...installations,
+        {
+          pluginId,
+          releaseId: response.releaseId,
+          canonicalContentDigest: response.canonicalContentDigest,
+          state: installationResponseState(response),
+        },
+      ],
+    }
+    return mapRegistryCatalog(cache.catalog, cache.installations)
   }
 
   return {
-    list: async () => list(),
-    setInstalled: async (pluginId, nextInstalled) => {
-      if (!defaultPluginCatalog.some(({ id }) => id === pluginId)) throw new Error('Unknown plugin')
-      const installed = installedIds(resolveStorage())
-      if (nextInstalled) installed.add(pluginId)
-      else installed.delete(pluginId)
-      resolveStorage().setItem(STORAGE_KEY, JSON.stringify([...installed].sort()))
-      return list()
-    },
+    getState: () => state,
+    list,
+    requestInstall,
   }
 }
 
@@ -113,14 +166,24 @@ export function filterWorkspacePlugins(
         (filter.type === 'skills' && plugin.kind === 'skill')) &&
       (filter.ownership === 'all' || plugin.ownership === filter.ownership) &&
       (needle.length === 0 ||
-        `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.kind} ${plugin.category} ${plugin.capabilities.join(' ')} ${plugin.surfaces.join(' ')}`
+        `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.kind} ${plugin.category} ${plugin.capabilities.join(
+          ' '
+        )} ${plugin.surfaces.join(' ')} ${plugin.keywords?.join(' ') ?? ''}`
           .toLocaleLowerCase()
           .includes(needle))
   )
 }
 
 export function groupWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
-  return workspacePluginCategoryOrder.flatMap((category) => {
+  const preferred = new Map<string, number>(
+    workspacePluginCategoryOrder.map((category, index) => [category, index])
+  )
+  const names = [...new Set(plugins.map((plugin) => plugin.category))].sort(
+    (left, right) =>
+      (preferred.get(left) ?? Number.MAX_SAFE_INTEGER) -
+        (preferred.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
+  )
+  return names.flatMap((category) => {
     const items = plugins.filter((plugin) => plugin.category === category)
     return items.length > 0 ? [{ category, plugins: items }] : []
   })
@@ -133,3 +196,6 @@ export function getPopularWorkspacePlugins(plugins: readonly WorkspacePlugin[]) 
     return plugin ? [plugin] : []
   })
 }
+
+export { categoryLabel }
+export type { WorkspacePluginDefinition }

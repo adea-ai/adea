@@ -39,20 +39,30 @@ public-assets directory.
 
 ## Plugin marketplace
 
-Agent HQ derives its public plugin catalog from the latest `main` revision of
-[`openai/plugins`](https://github.com/openai/plugins). Web development and
-production builds run `bun run plugins:sync` automatically. The synchronizer
-tries a shallow Git clone first, then GitHub's revision-pinned archive API, and
-regenerates the typed catalog and pinned logo URLs from the upstream manifests.
-If both network paths are unavailable, the build uses the last generated
-catalog as an offline cache instead of requiring a hand-maintained provider
-list.
+Agent HQ consumes the authoritative registry through the same-origin server
+proxy. The proxy calls Control Plane; browser and desktop clients never fetch
+GitHub release assets or upstream plugin content directly. The registry's stable
+latest artifact is
+[`catalog-latest.v1.json`](https://github.com/0xPlayerOne/plugins/releases/latest/download/catalog-latest.v1.json),
+and each verified catalog is pinned by its `catalogId` and immutable release
+tag.
 
-This public repository is the production marketplace source Agent HQ can
-consume directly; Codex's larger authenticated remote directory and
-ChatGPT-hosted bootstrap export are separate services. Enabling a catalog item
-in the current UI persists workspace intent. Bundle installation, OAuth, MCP
-process lifecycle, and secret handling remain Control Plane responsibilities.
+The shared marketplace provider verifies the catalog schema, canonical catalog
+digest, `integrity.json`, and byte-identical latest pointer before mapping the
+entries into the workspace UI. It preserves each source-qualified `pluginId`,
+exact `releaseId`, `canonicalContentDigest`, provenance,
+`harnessCompatibility`, `securityClassification`, and connector/credential
+requirements. `metadata-only` entries are visible as unavailable metadata and
+cannot be enabled. A stale last-known-good catalog is labeled stale; a failed
+verification is fail-closed.
+
+Agent HQ is a read-only catalog consumer. Add/Enable submits the exact plugin
+and release pins, requested harness, and workspace/user identity to Control
+Plane. It does not claim local installation state, download upstream content,
+or execute plugin content. Control Plane owns authorization, connector and
+credential resolution, server-side release verification, installation state,
+and execution records. See [`docs/marketplace-consumer.md`](docs/marketplace-consumer.md)
+for the integration contract and required environment variables.
 
 ## Architecture references
 

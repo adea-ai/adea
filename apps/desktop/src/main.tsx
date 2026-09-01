@@ -19,7 +19,7 @@ import { useWorkspaceStore } from '@agent-hq/state'
 import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
 import {
   ConventionalWorkspaceShell,
-  createBrowserPluginsProvider,
+  createRegistryPluginsProvider,
   GlobalWorkspaceRail,
   PluginsDialog,
   WorkspaceAboutDialog,
@@ -88,7 +88,6 @@ function DesktopApp() {
   const [message, setMessage] = useState('Opening your workspace…')
   const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
   const [session, setSession] = useState<DesktopSession | undefined>()
-  const [plugins] = useState(() => createBrowserPluginsProvider())
   const [appVersion, setAppVersion] = useState<string>(packageVersion)
   const [view, setView] = useState<WorkspaceView>(() =>
     new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
@@ -101,6 +100,18 @@ function DesktopApp() {
   const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
   const setSelectedWorkspaceId = useWorkspaceStore((state) => state.setSelectedWorkspaceId)
   const temporaryCredentialRef = useRef<string | null>(null)
+  const sessionRef = useRef<DesktopSession | undefined>(undefined)
+  const workspaceIdRef = useRef<string | undefined>(undefined)
+  const userIdRef = useRef<string | undefined>(undefined)
+  const [plugins] = useState(() =>
+    createRegistryPluginsProvider({
+      client: () =>
+        workspaceClient(sessionRef.current, temporaryCredentialRef.current ?? undefined),
+      getWorkspaceId: () => workspaceIdRef.current,
+      getUserId: () => userIdRef.current,
+      requestedHarness: 'codex',
+    })
+  )
   const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
   const authCallbackObservedRef = useRef(false)
 
@@ -113,6 +124,7 @@ function DesktopApp() {
   const openWorkspace = useCallback(async (activeSession?: DesktopSession) => {
     const requestIsCurrent = workspaceRequestGuardRef.current.begin()
     setSession(activeSession)
+    sessionRef.current = activeSession
     setStatus('loading')
     setMessage(
       activeSession ? 'Opening your saved workspace…' : 'Opening a private guest workspace…'
@@ -136,6 +148,8 @@ function DesktopApp() {
       await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
       if (!requestIsCurrent()) return
       temporaryCredentialRef.current = nextWorkspace.temporaryCredential
+      workspaceIdRef.current = nextWorkspace.workspace.id
+      userIdRef.current = nextWorkspace.userId
       setWorkspaceState(nextWorkspace)
       setStatus(activeSession ? 'authenticated' : 'guest')
       setMessage(
