@@ -792,6 +792,7 @@ test('browses the verified registry marketplace and submits an exact install req
         catalogId: fixture.catalogId,
         installations: [],
         releaseId: fixture.catalogId,
+        state: 'ready',
       },
     })
   )
