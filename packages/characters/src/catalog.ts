@@ -11,40 +11,66 @@ import {
 } from "./provider";
 import { characterPartAssets, characterPartIds } from "./customization";
 
-const assetRoot = "/assets/models/characters";
+const assetRoot = "/assets/models";
 
-export const characterIds = ["cartoon-standard", "cartoon-humanoid"] as const;
+export const characterIds = ["cartoon-humanoid"] as const;
 export type CharacterId = (typeof characterIds)[number];
 
 export const characterLabels: Record<CharacterId, string> = {
-  "cartoon-standard": "Cartoon",
-  "cartoon-humanoid": "Cartoon Humanoid",
+  "cartoon-humanoid": "Cartoon",
 };
 
 export const characterIconUrls: Partial<Record<CharacterId, string>> = {};
 
-/** Complete source-library exports kept for future character customization work. */
+/** Complete Cute source-library export kept for future character customization work. */
 export const characterLibraryAssets = [
   {
     id: "cute-characters-library",
     label: "Cute Characters Library",
     assetUrl: `${assetRoot}/Cute_Characters.glb`,
   },
-  {
-    id: "cartoon-standard-library",
-    label: "Cartoon Standard Library",
-    assetUrl: `${assetRoot}/cartoon-3-standard-all.glb`,
-  },
-  {
-    id: "cartoon-humanoid-library",
-    label: "Cartoon Humanoid Library",
-    assetUrl: `${assetRoot}/cartoon-3-humanoid-all.glb`,
-  },
 ] as const;
 
+export const cartoonCharacterNames = [
+  "f_1",
+  "f_10",
+  "f_11",
+  "f_12",
+  "f_2",
+  "f_3",
+  "f_4",
+  "f_5",
+  "f_6",
+  "f_7",
+  "f_8",
+  "f_9",
+  "m_10",
+  "m_1",
+  "m_11",
+  "m_12",
+  "m_13",
+  "m_2",
+  "m_3",
+  "m_4",
+  "m_5",
+  "m_6",
+  "m_7",
+  "m_8",
+  "m_9",
+] as const;
+
+export const cartoonCharacterAssets = (["humanoid"] as const).flatMap((variant) =>
+  cartoonCharacterNames.map((name) => ({
+    id: `cartoon-${variant}-${name}`,
+    label: `Cartoon ${variant} ${name}`,
+    variant,
+    name,
+    assetUrl: `${assetRoot}/_complete/${name}.glb`,
+  }))
+);
+
 const characterFiles: Record<CharacterId, string> = {
-  "cartoon-standard": "cartoon-3-standard-runtime.glb",
-  "cartoon-humanoid": "cartoon-3-humanoid-runtime.glb",
+  "cartoon-humanoid": "runtime.glb",
 };
 
 const animationMap: Record<string, string> = {
