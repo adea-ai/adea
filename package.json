@@ -33,7 +33,6 @@
     "test:smoke": "bun run native:smoke",
     "perf:gate": "bun run build && bun run perf:browser && bun run perf:check:runtime",
     "native:smoke": "bun scripts/native-smoke.mjs",
-    "plugins:sync": "bun scripts/sync-codex-plugin-marketplace.mjs",
     "release": "bun scripts/manual-release.mjs",
     "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs",
     "assets:optimize:runtime": "bun scripts/optimize-runtime-assets.mjs",

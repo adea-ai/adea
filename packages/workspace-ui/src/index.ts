@@ -5,13 +5,21 @@ export { GlobalWorkspaceRail } from './global-workspace-rail'
 export { WorkspaceAboutDialog } from './workspace-about-dialog'
 export { PluginsDialog } from './plugins-dialog'
 export {
-  createBrowserPluginsProvider,
+  createRegistryPluginsProvider,
   filterWorkspacePlugins,
   getPopularWorkspacePlugins,
   groupWorkspacePlugins,
   popularWorkspacePluginIds,
   workspacePluginCategoryOrder,
 } from './plugins'
+export {
+  canonicalDigest,
+  canonicalJson,
+  mapRegistryCatalog,
+  MarketplaceCatalogError,
+  parseCatalog,
+  verifyRegistryArtifacts,
+} from './marketplace-catalog'
 export { WorkspaceSettingsDialog } from './workspace-settings'
 export { mergeTranscription } from './transcription'
 export { canonicalNotificationHref, notificationPreview } from './notifications'
@@ -29,5 +37,7 @@ export type {
   WorkspacePluginsProvider,
   WorkspacePluginSurface,
   WorkspaceSettingsProvider,
+  WorkspacePluginInstallationStatus,
+  WorkspacePluginsProviderState,
 } from './platform'
 export { defaultWorkspacePreferences } from './platform'

@@ -69,6 +69,7 @@ export type WorkspacePluginCategory =
   | 'Productivity'
   | 'Scientific Research'
   | 'Security'
+  | (string & {})
 
 export type WorkspacePluginSurface = 'agent' | 'app' | 'command' | 'hook' | 'mcp' | 'skill'
 
@@ -76,28 +77,63 @@ export type WorkspacePluginDefinition = Readonly<{
   auth: 'api-key' | 'oauth' | 'workspace'
   authenticationPolicy?: 'on-install' | 'on-use'
   category: WorkspacePluginCategory
+  categories?: readonly string[]
   capabilities: readonly string[]
   description: string
   iconKey: string
+  iconUrl?: string
   id: string
   installationPolicy?: 'available' | 'installed-by-default' | 'not-available'
   kind: 'connector' | 'skill'
   license?: string
+  licenseMetadata?: Readonly<Record<string, unknown>>
   name: string
   ownership: 'public' | 'team'
   publisher: string
-  source: 'agent-hq' | 'codex-official' | 'open-grok'
+  source: string
+  sourceId?: string
   sourceRevision?: string
   sourceUrl?: string
   surfaces: readonly WorkspacePluginSurface[]
+  pluginId?: string
+  releaseId?: string
+  canonicalContentDigest?: string
+  productGroupingKey?: string
+  authors?: readonly string[]
+  homepage?: string
+  icons?: readonly string[]
+  keywords?: readonly string[]
+  harnessCompatibility?: Readonly<Record<string, unknown>>
+  securityClassification?: Readonly<Record<string, unknown>>
+  requiredConnectors?: readonly string[]
+  requiredCredentials?: readonly string[]
+  provenance?: Readonly<Record<string, unknown>>
+  updateMetadata?: Readonly<Record<string, unknown>>
+  contentResolution?: 'complete' | 'metadata-only'
 }>
 
-export type WorkspacePlugin = WorkspacePluginDefinition & Readonly<{ installed: boolean }>
+export type WorkspacePluginInstallationStatus =
+  | 'available'
+  | 'pending-authorization'
+  | 'unavailable'
+  | 'rejected-by-policy'
+  | 'installed'
+  | 'superseded'
+
+export type WorkspacePlugin = WorkspacePluginDefinition &
+  Readonly<{
+    installed: boolean
+    installationStatus: WorkspacePluginInstallationStatus
+  }>
 
 export type WorkspacePluginsProvider = Readonly<{
   list(): Promise<readonly WorkspacePlugin[]>
-  setInstalled(pluginId: string, installed: boolean): Promise<readonly WorkspacePlugin[]>
+  requestInstall(pluginId: string): Promise<readonly WorkspacePlugin[]>
+  getState?(): WorkspacePluginsProviderState
 }>
+
+export type WorkspacePluginsProviderState =
+  'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
 
 export type WorkspacePlatformServices = Readonly<{
   account?: Readonly<{
