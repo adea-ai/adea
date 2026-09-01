@@ -2,6 +2,7 @@ import type { AgentHqApiClient } from '@agent-hq/api-client'
 
 import {
   categoryLabel,
+  canonicalDigest,
   installationResponseState,
   loadRegistryArtifacts,
   mapRegistryCatalog,
@@ -62,6 +63,7 @@ export function createRegistryPluginsProvider(
   options: RegistryPluginsProviderOptions
 ): WorkspacePluginsProvider {
   let cache: VerifiedRegistryCatalog | undefined
+  let cacheWorkspaceId: string | undefined
   let state: WorkspacePluginsProviderState = 'idle'
   const apiClient = () => (typeof options.client === 'function' ? options.client() : options.client)
 
@@ -71,10 +73,14 @@ export function createRegistryPluginsProvider(
       state = 'unavailable'
       throw new MarketplaceCatalogError('unavailable', 'A workspace is required to load plugins')
     }
+    if (cacheWorkspaceId !== workspaceId) {
+      cache = undefined
+      cacheWorkspaceId = workspaceId
+    }
     state = 'loading'
     try {
       cache = await loadRegistryArtifacts(apiClient(), workspaceId)
-      state = 'ready'
+      state = cache.state === 'stale' ? 'stale' : 'ready'
       return mapRegistryCatalog(cache.catalog, cache.installations)
     } catch (error) {
       if (error instanceof MarketplaceCatalogError && error.state === 'verification-failure') {
@@ -103,6 +109,13 @@ export function createRegistryPluginsProvider(
     if (!cache) await list()
     if (!cache)
       throw new MarketplaceCatalogError('unavailable', 'The plugin catalog is unavailable')
+    if (cache.state !== 'ready') {
+      state = 'stale'
+      throw new MarketplaceCatalogError(
+        'stale',
+        'The marketplace snapshot is stale; refresh before enabling a plugin'
+      )
+    }
     const plugin = cache.catalog.plugins.find((candidate) => candidate.pluginId === pluginId)
     if (!plugin) throw new Error(`Unknown plugin: ${pluginId}`)
     const release = plugin.availableReleases.find(
@@ -120,13 +133,19 @@ export function createRegistryPluginsProvider(
         'This plugin is source metadata only and cannot be enabled'
       )
     }
+    const idempotencyDigest = await canonicalDigest({
+      pluginId,
+      releaseId: release.releaseId,
+      userId,
+      workspaceId,
+    })
     const response = await apiClient().requestMarketplaceInstall(workspaceId, {
       pluginId,
       releaseId: release.releaseId,
       canonicalContentDigest: release.canonicalContentDigest,
       requestedHarness: options.requestedHarness ?? 'codex',
       workspaceIdentity: { userId, workspaceId },
-      idempotencyKey: `marketplace:${pluginId}:${release.releaseId}`,
+      idempotencyKey: `marketplace:${idempotencyDigest.slice('sha256:'.length)}`,
     })
     const installations = cache.installations.filter((candidate) => candidate.pluginId !== pluginId)
     cache = {

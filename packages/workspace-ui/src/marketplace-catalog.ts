@@ -14,7 +14,7 @@ type JsonObject = Record<string, unknown>
 
 export type RegistryArtifactBundle = Readonly<{
   'catalog.v1.json': string
-  'catalog-latest.v1.json'?: string
+  'catalog-latest.v1.json': string
   'catalog-summary.v1.json': string
   'categories.v1.json': string
   'compatibility.v1.json': string
@@ -72,6 +72,7 @@ export type VerifiedRegistryCatalog = Readonly<{
   catalog: RegistryCatalog
   artifacts: RegistryArtifactBundle
   releaseId: string
+  state: 'ready' | 'stale'
   installations: readonly {
     pluginId: string
     releaseId: string
@@ -188,10 +189,7 @@ export async function verifyRegistryArtifacts(
       )
     }
   }
-  if (
-    artifacts['catalog-latest.v1.json'] !== undefined &&
-    artifacts['catalog-latest.v1.json'] !== artifacts['catalog.v1.json']
-  ) {
+  if (artifacts['catalog-latest.v1.json'] !== artifacts['catalog.v1.json']) {
     throw new MarketplaceCatalogError(
       'verification-failure',
       'Marketplace latest pointer is not byte-identical'
@@ -207,7 +205,7 @@ export async function verifyRegistryArtifacts(
   }
   // The registry does not add a second mutable release identifier to the catalog
   // body. The catalogId is the immutable release identity for this artifact set.
-  return { catalog, artifacts, releaseId: catalog.catalogId, installations: [] }
+  return { catalog, artifacts, releaseId: catalog.catalogId, state: 'ready', installations: [] }
 }
 
 export function parseCatalog(value: unknown): RegistryCatalog {
@@ -345,9 +343,18 @@ export async function loadRegistryArtifacts(
   const response = await client.getMarketplaceCatalog(workspaceId)
   const artifacts = response.artifacts
   const verified = await verifyRegistryArtifacts(artifacts)
+  if (
+    response.catalogId !== verified.catalog.catalogId ||
+    response.releaseId !== verified.releaseId
+  ) {
+    throw new MarketplaceCatalogError(
+      'verification-failure',
+      'Control Plane returned an inconsistent marketplace snapshot identity'
+    )
+  }
   return {
     ...verified,
-    releaseId: response.releaseId,
+    state: response.state,
     installations: response.installations ?? [],
   }
 }
@@ -402,6 +409,19 @@ function parsePlugin(value: unknown, index: number): RegistryPlugin {
       `Marketplace plugin schema is invalid: ${plugin.pluginId || index}`
     )
   }
+  if (
+    !plugin.categories.every(isString) ||
+    !plugin.icons.every(isString) ||
+    (plugin.authors !== undefined &&
+      (!Array.isArray(plugin.authors) || !plugin.authors.every(isString))) ||
+    (plugin.keywords !== undefined &&
+      (!Array.isArray(plugin.keywords) || !plugin.keywords.every(isString)))
+  ) {
+    throw new MarketplaceCatalogError(
+      'verification-failure',
+      `Marketplace plugin metadata is malformed: ${plugin.pluginId || index}`
+    )
+  }
   const releases = plugin.availableReleases.map((release, releaseIndex) =>
     parseRelease(release, `${index}.${releaseIndex}`)
   )
@@ -417,9 +437,9 @@ function parsePlugin(value: unknown, index: number): RegistryPlugin {
     displayName: plugin.displayName,
     description: stringValue(plugin.description),
     productGroupingKey: stringValue(plugin.productGroupingKey),
-    categories: plugin.categories.filter(isString),
-    keywords: Array.isArray(plugin.keywords) ? plugin.keywords.filter(isString) : [],
-    authors: Array.isArray(plugin.authors) ? plugin.authors.filter(isString) : [],
+    categories: plugin.categories,
+    keywords: Array.isArray(plugin.keywords) ? plugin.keywords : [],
+    authors: Array.isArray(plugin.authors) ? plugin.authors : [],
     homepage: stringValue(plugin.homepage) || undefined,
     icons: plugin.icons.filter(isString),
     sourceId: plugin.sourceId,
@@ -456,13 +476,22 @@ function parseRelease(value: unknown, index: string): RegistryRelease {
       'verification-failure',
       `Marketplace release schema is invalid: ${index}`
     )
+  if (
+    !release.requiredConnectors.every(isString) ||
+    !release.requiredCredentials.every(isString) ||
+    !release.capabilities.every(isObject)
+  )
+    throw new MarketplaceCatalogError(
+      'verification-failure',
+      `Marketplace release metadata is malformed: ${index}`
+    )
   return {
     ...release,
     releaseId: release.releaseId,
     canonicalContentDigest: release.canonicalContentDigest,
     contentResolution: release.contentResolution as RegistryRelease['contentResolution'],
-    requiredConnectors: release.requiredConnectors.filter(isString),
-    requiredCredentials: release.requiredCredentials.filter(isString),
+    requiredConnectors: release.requiredConnectors,
+    requiredCredentials: release.requiredCredentials,
     capabilities: release.capabilities.map(
       (capability) =>
         requireObject(capability, 'capability') as RegistryRelease['capabilities'][number]

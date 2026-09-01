@@ -187,9 +187,10 @@ export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary 
 export type ApiMarketplaceCatalogResponse = Readonly<{
   catalogId: string
   releaseId: string
+  state: 'ready' | 'stale'
   artifacts: Readonly<{
     'catalog.v1.json': string
-    'catalog-latest.v1.json'?: string
+    'catalog-latest.v1.json': string
     'catalog-summary.v1.json': string
     'categories.v1.json': string
     'compatibility.v1.json': string
