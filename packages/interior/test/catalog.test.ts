@@ -8,6 +8,55 @@ const interiorPlantIds = interiorPropAssets
   .map((asset) => asset.id);
 
 describe("room-designer model boundary", () => {
+  test("normalizes legacy asset names and merges wall decor into wall art", () => {
+    const expectedAssetUrls = {
+      "models-casino-keyboard": "/assets/models/electronics/keyboard_01.glb",
+      "models-casino-neon-sign": "/assets/models/wall-art/neon_sign_01.glb",
+      "models-exercise-bike-01": "/assets/models/fitness/exercise_bike_01.glb",
+      "models-fridge-01": "/assets/models/kitchen/fridge_01.glb",
+      "models-microwave-01": "/assets/models/kitchen/microwave_01.glb",
+      "models-mixer-08": "/assets/models/kitchen/mixer_08.glb",
+      "models-picture-08": "/assets/models/wall-art/picture_067.glb",
+      "models-picture-17": "/assets/models/wall-art/picture_068.glb",
+      "models-picture-21": "/assets/models/wall-art/picture_069.glb",
+    } as const;
+
+    for (const [id, assetUrl] of Object.entries(expectedAssetUrls)) {
+      expect(interiorPropAssets.find((asset) => asset.id === id)?.assetUrl).toBe(assetUrl);
+    }
+
+    expect(interiorPropAssets.find((asset) => asset.id === "models-exercise-bike-01")?.category).toBe(
+      "fitness",
+    );
+    expect(interiorPropAssets.find((asset) => asset.id === "models-fridge-01")?.category).toBe(
+      "kitchen",
+    );
+    expect(interiorPropAssets.find((asset) => asset.id === "models-microwave-01")?.category).toBe(
+      "kitchen",
+    );
+    expect(interiorPropAssets.find((asset) => asset.id === "models-mixer-08")?.category).toBe(
+      "kitchen",
+    );
+
+    expect(interiorPropAssets.some((asset) => asset.category === "wall-decor")).toBe(false);
+    expect(interiorPropAssets.every((asset) => asset.assetUrl === asset.assetUrl.toLowerCase())).toBe(
+      true,
+    );
+  });
+
+  test("keeps every packaged interior asset filename lowercase", () => {
+    const assetsRoot = join(import.meta.dir, "../assets");
+    const visit = (directory: string) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) visit(path);
+        else expect(entry.name).toBe(entry.name.toLowerCase());
+      }
+    };
+
+    visit(assetsRoot);
+  });
+
   test("stores every catalog asset in its configured room-designer folder", () => {
     const assetsRoot = join(import.meta.dir, "../assets");
     const files: string[] = [];

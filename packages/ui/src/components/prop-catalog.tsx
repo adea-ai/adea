@@ -87,7 +87,6 @@ export const defaultPropCatalogCategories: readonly PropCatalogCategory[] = [
   { id: "kids", label: "Kids", icon: Baby },
   { id: "wall-art", label: "Wall Art", icon: Image },
   { id: "plants", label: "Plants", icon: Sprout },
-  { id: "wall-decor", label: "Wall decor", icon: Image },
   { id: "food-and-drinks", label: "Food & Drinks", icon: Utensils },
   { id: "other", label: "Other", icon: PackageOpen },
 ];

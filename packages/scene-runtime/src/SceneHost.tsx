@@ -140,7 +140,7 @@ export type PlayerVisibilityGroup = {
 export type SceneEnvironmentConfig = {
   /** Solid fallback used while an optional background texture is loading. */
   background?: THREE.ColorRepresentation;
-  /** Optional world-space backdrop texture, independent of the scene GLB. */
+  /** Optional backdrop texture; 2D textures are rendered screen-fixed. */
   backgroundTextureUrl?: string;
   backgroundTextureMapping?: "2d" | "equirectangular";
   backgroundTextureRepeat?: readonly [number, number];
@@ -1352,6 +1352,7 @@ export function SceneHost({
         const { height, width } = viewportSize();
         candidate.setSize(width, height, false);
         candidate.outputColorSpace = THREE.SRGBColorSpace;
+        candidate.autoClear = false;
         candidate.shadowMap.enabled = true;
         candidate.shadowMap.type = THREE.PCFShadowMap;
         return candidate;
@@ -1379,7 +1380,29 @@ export function SceneHost({
     canvas.addEventListener("webglcontextlost", onWebglContextLost, false);
 
     const fallbackBackground = new THREE.Color(environment?.background ?? 0x9fd9f7);
+    activeRenderer.setClearColor(fallbackBackground, 1);
     scene.background = fallbackBackground;
+
+    // Keep flat background textures in their own clip-space scene. Rendering
+    // them separately prevents camera orbit and follow movement from changing
+    // their framing or depth relationship with the world scene.
+    const screenBackgroundScene = new THREE.Scene();
+    const screenBackgroundCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 2);
+    screenBackgroundCamera.position.z = 1;
+    const screenBackgroundMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const screenBackgroundMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      screenBackgroundMaterial,
+    );
+    screenBackgroundMesh.frustumCulled = false;
+    screenBackgroundMesh.visible = false;
+    screenBackgroundScene.add(screenBackgroundMesh);
+    let screenBackgroundActive = false;
     if (environment?.fog) {
       scene.fog =
         environment.fog.mode === "linear"
@@ -1497,6 +1520,9 @@ export function SceneHost({
       textureTranscoder = null;
       backgroundTexture?.dispose();
       backgroundTexture = null;
+      screenBackgroundScene.clear();
+      screenBackgroundMesh.geometry.dispose();
+      screenBackgroundMaterial.dispose();
       scene.background = null;
       detachedCollisionRoots.forEach(recordDisposedObjectTree);
       detachedCollisionRoots.clear();
@@ -2279,10 +2305,19 @@ export function SceneHost({
           loadedBackground.center.set(0.5, 0.5);
           loadedBackground.rotation = environment?.backgroundTextureRotation ?? 0;
           loadedBackground.needsUpdate = true;
-          scene.background =
-            environment?.backgroundTexturePerspectiveOnly && !cameraController.isPerspective
-              ? fallbackBackground
-              : loadedBackground;
+          if (mapping === "2d") {
+            screenBackgroundActive = true;
+            screenBackgroundMaterial.map = loadedBackground;
+            screenBackgroundMesh.visible =
+              !environment?.backgroundTexturePerspectiveOnly || cameraController.isPerspective;
+            screenBackgroundMaterial.needsUpdate = true;
+            scene.background = null;
+          } else {
+            scene.background =
+              environment?.backgroundTexturePerspectiveOnly && !cameraController.isPerspective
+                ? fallbackBackground
+                : loadedBackground;
+          }
         }
         prepareSceneLayer(visual.scene);
         visual.scene.scale.multiplyScalar(sceneScale);
@@ -3522,7 +3557,10 @@ export function SceneHost({
               activeRenderer.domElement.style.cursor = "";
             }
           }
-          if (backgroundTexture && environment?.backgroundTexturePerspectiveOnly) {
+          if (screenBackgroundActive) {
+            screenBackgroundMesh.visible =
+              !environment?.backgroundTexturePerspectiveOnly || cameraController.isPerspective;
+          } else if (backgroundTexture && environment?.backgroundTexturePerspectiveOnly) {
             const nextBackground = cameraController.isPerspective
               ? backgroundTexture
               : fallbackBackground;
@@ -4021,6 +4059,11 @@ export function SceneHost({
               qualityFrames = 0;
               qualityFrameMs = 0;
             }
+          }
+          activeRenderer.clear();
+          if (screenBackgroundMesh.visible) {
+            activeRenderer.render(screenBackgroundScene, screenBackgroundCamera);
+            activeRenderer.clearDepth();
           }
           activeRenderer.render(scene, camera);
           telemetry.recordFrame(

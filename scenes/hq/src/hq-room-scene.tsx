@@ -62,6 +62,7 @@ const galleryEnvironments = {
   home: {
     background: 0x131923,
     backgroundTextureUrl: landscapeHorizonBackgrounds.home,
+    backgroundTextureOffset: [0, -0.04],
     backgroundTexturePerspectiveOnly: true,
     hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
     directionalLights: [
@@ -71,6 +72,7 @@ const galleryEnvironments = {
   work: {
     background: 0x131923,
     backgroundTextureUrl: landscapeHorizonBackgrounds.work,
+    backgroundTextureOffset: [0, -0.04],
     backgroundTexturePerspectiveOnly: true,
     hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
     directionalLights: [
@@ -84,10 +86,10 @@ const galleryEnvironments = {
 // centimetres (1 authored unit = 1 cm) and rendered at 1:1 scale, so
 // 600 authored units = 6 m — a real room size that matches the models
 // furniture models which are also authored in metres.
-// The character scale uses the actual models model height (~1.75 m)
+// The character scale uses the actual model height (~1.35 m)
 // with modelScale 1.0 — no multipliers or compensations needed.
 const hqRuntimeScale = ROOM_GALLERY_RUNTIME_SCALE;
-const hqCharacterScale = { height: 1.75, radius: 0.24, modelScale: 1.0 } as const;
+export const hqCharacterScale = { height: 1.35, radius: 0.24, modelScale: 1.0 } as const;
 const hqTopDownMovementSpeedFactor = 300 * hqRuntimeScale;
 const hqFenceVisualHeight = 96;
 const hqFenceColliderHeight = 240;
