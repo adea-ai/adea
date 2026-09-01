@@ -1,4 +1,4 @@
-export { HqRoomScene, hqBoundaryColliders } from "./hq-room-scene";
+export { HqRoomScene, hqBoundaryColliders, hqCharacterScale } from "./hq-room-scene";
 export {
   HQ_HOME_GATE_SPAWN,
   HQ_OFFICE_GATE_SPAWN,

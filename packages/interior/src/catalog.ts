@@ -42,14 +42,14 @@ const FACING_YAW = Math.PI;
 // --- Furniture (Cute Furniture pack) ----------------------------------------
 const furnitureProps: InteriorPropAsset[] = [
   // Bedroom
-  prop("models-bed-02", "Bed", "Bed_02.glb", "bedroom", 1.25, [255, 270], 0),
-  prop("models-bed-07", "Bed (Platform)", "Bed_07.glb", "bedroom", 1.25, [180, 285], 0),
+  prop("models-bed-02", "Bed", "bed_02.glb", "bedroom", 1.25, [255, 270], 0),
+  prop("models-bed-07", "Bed (Platform)", "bed_07.glb", "bedroom", 1.25, [180, 285], 0),
 
   // Seating
   prop(
     "models-armchair-02",
     "Armchair",
-    "Armchair_02.glb",
+    "armchair_02.glb",
     "seating",
     1.25,
     [135, 105],
@@ -58,27 +58,27 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-armchair-18",
     "Armchair (Lounge)",
-    "Armchair_18.glb",
+    "armchair_18.glb",
     "seating",
     1.25,
     [135, 120],
     FACING_YAW,
   ),
-  prop("models-chair-17", "Chair", "Chair_17.glb", "seating", 1.25, [60, 60], FACING_YAW),
+  prop("models-chair-17", "Chair", "chair_17.glb", "seating", 1.25, [60, 60], FACING_YAW),
   prop(
     "models-chair-pc-04",
     "PC Chair",
-    "Chair_PC_04.glb",
+    "chair_pc_04.glb",
     "seating",
     1.25,
     [105, 105],
     FACING_YAW,
   ),
-  prop("models-couch-08", "Couch", "Couch_08.glb", "seating", 1.25, [285, 105], FACING_YAW),
+  prop("models-couch-08", "Couch", "couch_08.glb", "seating", 1.25, [285, 105], FACING_YAW),
   prop(
     "models-couch-11",
     "Couch (Sectional)",
-    "Couch_11.glb",
+    "couch_11.glb",
     "seating",
     1.25,
     [210, 105],
@@ -89,7 +89,7 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-coffee-table-03",
     "Coffee Table",
-    "Coffee_Table_03.glb",
+    "coffee_table_03.glb",
     "tables",
     1.25,
     [105, 105],
@@ -99,20 +99,20 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-kitchen-table-09",
     "Kitchen Table",
-    "Kitchen_Table_09.glb",
+    "kitchen_table_09.glb",
     "kitchen",
     1.25,
     [210, 105],
     0,
     { surfaceHeight: 94 },
   ),
-  prop("models-work-table-06", "Work Table", "Work_Table_06.glb", "tables", 1.25, [165, 105], 0, {
+  prop("models-work-table-06", "Work Table", "work_table_06.glb", "tables", 1.25, [165, 105], 0, {
     surfaceHeight: 95,
   }),
   prop(
     "models-kitchen-d-01",
     "Kitchen Counter",
-    "Kitchen_D_01.glb",
+    "kitchen_d_01.glb",
     "kitchen",
     1.25,
     [120, 90],
@@ -122,7 +122,7 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-kitchen-d-06",
     "Kitchen Counter (Corner)",
-    "Kitchen_D_06.glb",
+    "kitchen_d_06.glb",
     "kitchen",
     1.25,
     [120, 120],
@@ -132,7 +132,7 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-kitchen-d-08",
     "Kitchen Cabinet",
-    "Kitchen_D_08.glb",
+    "kitchen_d_08.glb",
     "kitchen",
     1.25,
     [90, 45],
@@ -142,7 +142,7 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-kitchen-d-09",
     "Kitchen Cabinet (Narrow)",
-    "Kitchen_D_09.glb",
+    "kitchen_d_09.glb",
     "kitchen",
     1.25,
     [120, 45],
@@ -152,7 +152,7 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-kitchen-d-10",
     "Kitchen Cabinet (Wide)",
-    "Kitchen_D_10.glb",
+    "kitchen_d_10.glb",
     "kitchen",
     1.25,
     [120, 45],
@@ -161,45 +161,44 @@ const furnitureProps: InteriorPropAsset[] = [
   ),
 
   // Storage
-  prop("models-closet-01", "Closet", "Closet_01.glb", "storage", 1.25, [120, 75], FACING_YAW),
+  prop("models-closet-01", "Closet", "closet_01.glb", "storage", 1.25, [120, 75], FACING_YAW),
   prop(
     "models-closet-02",
     "Closet (Sliding)",
-    "Closet_02.glb",
+    "closet_02.glb",
     "storage",
     1.25,
     [105, 60],
     FACING_YAW,
   ),
-  prop("models-nightstand-02", "Nightstand", "Nightstand_02.glb", "storage", 1.25, [75, 90], 0, {
+  prop("models-nightstand-02", "Nightstand", "nightstand_02.glb", "storage", 1.25, [75, 90], 0, {
     surfaceHeight: 72,
   }),
-  prop("models-fridge-01", "Fridge", "Fridge_01.glb", "storage", 1.25, [135, 75], 0),
 
   // Lighting
-  prop("models-light-05", "Floor Lamp", "Light_05.glb", "lighting", 1.25, [60, 60], 0),
+  prop("models-light-05", "Floor Lamp", "light_05.glb", "lighting", 1.25, [60, 60], 0),
 
   // Plants
-  prop("models-plants-05", "Plant (Tall)", "Plants_05.glb", "plants", 1.25, [30, 30], 0, {
+  prop("models-plants-05", "Plant (Tall)", "plants_05.glb", "plants", 1.25, [30, 30], 0, {
     blocksRugOverlap: true,
   }),
-  prop("models-plants-15", "Plant (Bushy)", "Plants_15.glb", "plants", 1.25, [75, 45], 0, {
+  prop("models-plants-15", "Plant (Bushy)", "plants_15.glb", "plants", 1.25, [75, 45], 0, {
     blocksRugOverlap: true,
   }),
-  prop("models-plants-19", "Plant (Small)", "Plants_19.glb", "plants", 1.25, [165, 135], 0, {
+  prop("models-plants-19", "Plant (Small)", "plants_19.glb", "plants", 1.25, [165, 135], 0, {
     blocksRugOverlap: true,
   }),
 
-  // Wall decor
-  prop("models-picture-08", "Picture", "Picture_08.glb", "wall-decor", 1.25, [90, 15], FACING_YAW, {
+  // Wall art
+  prop("models-picture-08", "Picture", "picture_067.glb", "wall-art", 1.25, [90, 15], FACING_YAW, {
     placementSurface: "wall",
     wallMountHeight: 120,
   }),
   prop(
     "models-picture-17",
     "Picture (Landscape)",
-    "Picture_17.glb",
-    "wall-decor",
+    "picture_068.glb",
+    "wall-art",
     1.25,
     [90, 15],
     FACING_YAW,
@@ -208,8 +207,8 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-picture-21",
     "Picture (Abstract)",
-    "Picture_21.glb",
-    "wall-decor",
+    "picture_069.glb",
+    "wall-art",
     1.25,
     [90, 15],
     FACING_YAW,
@@ -220,7 +219,7 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-computer-01",
     "Computer",
-    "Computer_01.glb",
+    "computer_01.glb",
     "electronics",
     1.25,
     [90, 30],
@@ -230,45 +229,47 @@ const furnitureProps: InteriorPropAsset[] = [
   prop(
     "models-game-console-01",
     "Game Console",
-    "GameConsole_01.glb",
+    "game_console_01.glb",
     "electronics",
     1.25,
     [30, 30],
     FACING_YAW,
     { placeableOnTop: true },
   ),
+  // Kitchen appliances
   prop(
     "models-microwave-01",
     "Microwave",
-    "Microwave_01.glb",
-    "electronics",
+    "microwave_01.glb",
+    "kitchen",
     1.25,
     [75, 45],
     FACING_YAW,
     { placeableOnTop: true },
   ),
-  prop("models-mixer-08", "Mixer", "Mixer_08.glb", "electronics", 1.25, [30, 45], FACING_YAW, {
+  prop("models-mixer-08", "Mixer", "mixer_08.glb", "kitchen", 1.25, [30, 45], FACING_YAW, {
     placeableOnTop: true,
   }),
+  prop("models-fridge-01", "Fridge", "fridge_01.glb", "kitchen", 1.25, [135, 75], 0),
 
   // Bathroom
-  prop("models-bath-03", "Bathtub", "Bath_03.glb", "bathroom", 1.25, [225, 105], 0),
-  prop("models-toilet-03", "Toilet", "Toilet_03.glb", "bathroom", 1.25, [60, 90], 0),
-  prop("models-wash-basin-07", "Wash Basin", "Wash_Basin_07.glb", "bathroom", 1.25, [90, 60], 0),
-  prop("models-toothbrush-01", "Toothbrush", "Toothbrush_01.glb", "bathroom", 1.25, [15, 30], 0, {
+  prop("models-bath-03", "Bathtub", "bath_03.glb", "bathroom", 1.25, [225, 105], 0),
+  prop("models-toilet-03", "Toilet", "toilet_03.glb", "bathroom", 1.25, [60, 90], 0),
+  prop("models-wash-basin-07", "Wash Basin", "wash_basin_07.glb", "bathroom", 1.25, [90, 60], 0),
+  prop("models-toothbrush-01", "Toothbrush", "toothbrush_01.glb", "bathroom", 1.25, [15, 30], 0, {
     placeableOnTop: true,
   }),
-  prop("models-toothpaste-01", "Toothpaste", "Toothpaste_01.glb", "bathroom", 1.25, [45, 15], 0, {
+  prop("models-toothpaste-01", "Toothpaste", "toothpaste_01.glb", "bathroom", 1.25, [45, 15], 0, {
     placeableOnTop: true,
   }),
   // Kitchen
-  prop("models-utensils-01", "Utensils", "Utensils_01.glb", "kitchen", 1.25, [60, 15], 0, {
+  prop("models-utensils-01", "Utensils", "utensils_01.glb", "kitchen", 1.25, [60, 15], 0, {
     placeableOnTop: true,
   }),
   prop(
     "models-cutting-board-02",
     "Cutting Board",
-    "Cutting_board_02.glb",
+    "cutting_board_02.glb",
     "kitchen",
     1.25,
     [45, 60],
@@ -276,38 +277,38 @@ const furnitureProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
   ),
   // Other
-  prop("models-book-03", "Book", "Book_03.glb", "other", 1.25, [90, 30], 0, {
+  prop("models-book-03", "Book", "book_03.glb", "other", 1.25, [90, 30], 0, {
     placeableOnTop: true,
   }),
-  prop("models-book-08", "Book (Stack)", "Book_08.glb", "other", 1.25, [45, 45], 0, {
+  prop("models-book-08", "Book (Stack)", "book_08.glb", "other", 1.25, [45, 45], 0, {
     placeableOnTop: true,
   }),
-  prop("models-paper-01", "Paper", "Paper_01.glb", "other", 1.25, [45, 45], 0, {
+  prop("models-paper-01", "Paper", "paper_01.glb", "other", 1.25, [45, 45], 0, {
     placeableOnTop: true,
   }),
-  prop("models-paper-02", "Paper (Stack)", "Paper_02.glb", "other", 1.25, [30, 45], 0, {
+  prop("models-paper-02", "Paper (Stack)", "paper_02.glb", "other", 1.25, [30, 45], 0, {
     placeableOnTop: true,
   }),
-  prop("models-clock-03", "Clock", "Clock_03.glb", "other", 1.25, [90, 60], 0, {
+  prop("models-clock-03", "Clock", "clock_03.glb", "other", 1.25, [90, 60], 0, {
     placeableOnTop: true,
   }),
   // Recreation
-  prop("models-toy-02", "Toy (Robot)", "Toy_02.glb", "recreation", 1.25, [30, 30], 0, {
+  prop("models-toy-02", "Toy (Robot)", "toy_02.glb", "recreation", 1.25, [30, 30], 0, {
     placeableOnTop: true,
   }),
-  prop("models-toy-03", "Toy (Block)", "Toy_03.glb", "recreation", 1.25, [45, 45], 0, {
+  prop("models-toy-03", "Toy (Block)", "toy_03.glb", "recreation", 1.25, [45, 45], 0, {
     placeableOnTop: true,
   }),
   // Entertainment
-  prop("models-guitar-01", "Guitar", "Guitar_01.glb", "entertainment", 1.25, [60, 120], 0, {
+  prop("models-guitar-01", "Guitar", "guitar_01.glb", "entertainment", 1.25, [60, 120], 0, {
     placeableOnTop: true,
   }),
-  // Recreation
+  // Fitness
   prop(
     "models-exercise-bike-01",
     "Exercise Bike",
-    "ExerciseBike_01.glb",
-    "recreation",
+    "exercise_bike_01.glb",
+    "fitness",
     1.25,
     [120, 75],
     FACING_YAW,
@@ -416,13 +417,13 @@ const foodProps: InteriorPropAsset[] = [
 // --- Casino assets (Casino pack) --------------------------------------------
 const casinoProps: InteriorPropAsset[] = [
   // Gaming tables
-  prop("models-casino-table-01", "Casino Table", "Table_01.glb", "tables", 1.0, [108, 108], 0, {
+  prop("models-casino-table-01", "Casino Table", "table_01.glb", "tables", 1.0, [108, 108], 0, {
     surfaceHeight: 85,
   }),
   prop(
     "models-casino-table-06",
     "Casino Table (Large)",
-    "Table_06.glb",
+    "table_06.glb",
     "tables",
     1.0,
     [276, 156],
@@ -432,7 +433,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-tablecloth-01",
     "Tablecloth",
-    "Tablecloth_01.glb",
+    "tablecloth_01.glb",
     "tables",
     1.0,
     [108, 108],
@@ -443,7 +444,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-slot-machine-01",
     "Slot Machine",
-    "Slot_Machine_01.glb",
+    "slot_machine_01.glb",
     "electronics",
     1.0,
     [96, 96],
@@ -452,7 +453,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-slot-machine-02",
     "Slot Machine (Alt)",
-    "Slot_Machine_02.glb",
+    "slot_machine_02.glb",
     "electronics",
     1.0,
     [96, 96],
@@ -461,7 +462,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-slot-machine-aquarium",
     "Slot Machine Aquarium",
-    "Slot_Machine_Aquarium_01.glb",
+    "slot_machine_aquarium_01.glb",
     "electronics",
     1.0,
     [96, 96],
@@ -472,7 +473,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-armchair-02",
     "Casino Armchair",
-    "casino-Armchair_02.glb",
+    "casino_armchair_02.glb",
     "seating",
     1.0,
     [108, 96],
@@ -481,7 +482,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-chair-06",
     "Casino Chair",
-    "Chair_06.glb",
+    "chair_06.glb",
     "seating",
     1.0,
     [72, 84],
@@ -490,7 +491,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-chair-office",
     "Office Chair",
-    "Chair_Office_01.glb",
+    "chair_office_01.glb",
     "seating",
     1.0,
     [72, 72],
@@ -499,7 +500,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-couch-05",
     "Casino Couch",
-    "Couch_05.glb",
+    "couch_05.glb",
     "seating",
     1.0,
     [180, 96],
@@ -507,46 +508,46 @@ const casinoProps: InteriorPropAsset[] = [
   ),
 
   // ATMs & cash machines
-  prop("models-casino-atm-01", "ATM", "ATM_01.glb", "storage", 1.0, [84, 108], FACING_YAW),
-  prop("models-casino-atm-03", "ATM (Wall)", "ATM_03.glb", "storage", 1.0, [72, 72], FACING_YAW),
+  prop("models-casino-atm-01", "ATM", "atm_01.glb", "storage", 1.0, [84, 108], FACING_YAW),
+  prop("models-casino-atm-03", "ATM (Wall)", "atm_03.glb", "storage", 1.0, [72, 72], FACING_YAW),
   prop(
     "models-casino-cash-machine",
     "Cash Machine",
-    "Cash_Machine_01.glb",
+    "cash_machine_01.glb",
     "storage",
     1.0,
     [48, 48],
     0,
   ),
-  prop("models-casino-safebox", "Safe Box", "SafeBox_01.glb", "storage", 1.0, [96, 96], FACING_YAW),
+  prop("models-casino-safebox", "Safe Box", "safe_box_01.glb", "storage", 1.0, [96, 96], FACING_YAW),
 
   // Money & valuables
-  prop("models-casino-cash-01", "Cash Stack", "Cash_01.glb", "other", 1.0, [12, 36], 0, {
+  prop("models-casino-cash-01", "Cash Stack", "cash_01.glb", "other", 1.0, [12, 36], 0, {
     placeableOnTop: true,
   }),
-  prop("models-casino-cash-02", "Cash Stack (Banded)", "Cash_02.glb", "other", 1.0, [12, 24], 0, {
+  prop("models-casino-cash-02", "Cash Stack (Banded)", "cash_02.glb", "other", 1.0, [12, 24], 0, {
     placeableOnTop: true,
   }),
-  prop("models-casino-cash-07", "Cash Stack (Fan)", "Cash_07.glb", "other", 1.0, [24, 36], 0, {
+  prop("models-casino-cash-07", "Cash Stack (Fan)", "cash_07.glb", "other", 1.0, [24, 36], 0, {
     placeableOnTop: true,
   }),
   prop(
     "models-casino-cash-10",
     "Cash Stack (Scattered)",
-    "Cash_10.glb",
+    "cash_10.glb",
     "other",
     1.0,
     [24, 36],
     0,
     { placeableOnTop: true },
   ),
-  prop("models-casino-cash-11", "Cash Stack (Thick)", "Cash_11.glb", "other", 1.0, [12, 12], 0, {
+  prop("models-casino-cash-11", "Cash Stack (Thick)", "cash_11.glb", "other", 1.0, [12, 12], 0, {
     placeableOnTop: true,
   }),
   prop(
     "models-casino-gold-ingot-01",
     "Gold Ingot",
-    "Gold_Ingot_01.glb",
+    "gold_ingot_01.glb",
     "other",
     1.0,
     [24, 48],
@@ -556,7 +557,7 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-gold-ingot-02",
     "Gold Ingot (Stack)",
-    "Gold_Ingot_02.glb",
+    "gold_ingot_02.glb",
     "other",
     1.0,
     [12, 24],
@@ -565,34 +566,34 @@ const casinoProps: InteriorPropAsset[] = [
   ),
 
   // Playing cards
-  prop("models-casino-card-39", "Playing Card", "Card_39.glb", "other", 1.0, [12, 24], 0, {
+  prop("models-casino-card-39", "Playing Card", "card_39.glb", "other", 1.0, [12, 24], 0, {
     placeableOnTop: true,
   }),
-  prop("models-casino-card-44", "Playing Card (Heart)", "Card_44.glb", "other", 1.0, [12, 24], 0, {
+  prop("models-casino-card-44", "Playing Card (Heart)", "card_44.glb", "other", 1.0, [12, 24], 0, {
     placeableOnTop: true,
   }),
   prop(
     "models-casino-card-48",
     "Playing Card (Diamond)",
-    "Card_48.glb",
+    "card_48.glb",
     "other",
     1.0,
     [12, 24],
     0,
     { placeableOnTop: true },
   ),
-  prop("models-casino-card-53", "Playing Card (Spade)", "Card_53.glb", "other", 1.0, [12, 24], 0, {
+  prop("models-casino-card-53", "Playing Card (Spade)", "card_53.glb", "other", 1.0, [12, 24], 0, {
     placeableOnTop: true,
   }),
 
   // Decorative
-  prop("models-casino-flower-03", "Casino Flower", "Flower_03.glb", "plants", 1.0, [180, 180], 0, {
+  prop("models-casino-flower-03", "Casino Flower", "flower_03.glb", "plants", 1.0, [180, 180], 0, {
     blocksRugOverlap: true,
   }),
   prop(
     "models-casino-fruits-01",
     "Fruits Bowl",
-    "Fruits_01.glb",
+    "fruits_01.glb",
     "food-and-drinks",
     1.0,
     [48, 48],
@@ -600,12 +601,12 @@ const casinoProps: InteriorPropAsset[] = [
     { placeableOnTop: true },
     "food",
   ),
-  prop("models-casino-lamp-05", "Casino Floor Lamp", "Lamp_05.glb", "lighting", 1.0, [84, 84], 0),
+  prop("models-casino-lamp-05", "Casino Floor Lamp", "lamp_05.glb", "lighting", 1.0, [84, 84], 0),
   prop(
     "models-casino-neon-sign",
     "Neon Sign",
-    "Neon_Sign_01.glb",
-    "wall-decor",
+    "neon_sign_01.glb",
+    "wall-art",
     1.0,
     [96, 12],
     FACING_YAW,
@@ -614,22 +615,22 @@ const casinoProps: InteriorPropAsset[] = [
   prop(
     "models-casino-screens",
     "Casino Screens",
-    "Screens_01.glb",
+    "screens_01.glb",
     "electronics",
     1.0,
     [408, 408],
     FACING_YAW,
   ),
-  prop("models-casino-book-01", "Casino Book", "Book_01.glb", "other", 1.0, [36, 48], 0, {
+  prop("models-casino-book-01", "Casino Book", "book_01.glb", "other", 1.0, [36, 48], 0, {
     placeableOnTop: true,
   }),
-  prop("models-casino-keyboard", "Keyboard", "Keyboard_01.glb", "electronics", 1.0, [60, 24], 0, {
+  prop("models-casino-keyboard", "Keyboard", "keyboard_01.glb", "electronics", 1.0, [60, 24], 0, {
     placeableOnTop: true,
   }),
-  prop("models-casino-monitor", "Monitor", "Monitor_02.glb", "electronics", 1.0, [72, 24], 0, {
+  prop("models-casino-monitor", "Monitor", "monitor_02.glb", "electronics", 1.0, [72, 24], 0, {
     placeableOnTop: true,
   }),
-  prop("models-casino-mouse", "Mouse", "Mouse_01.glb", "electronics", 1.0, [12, 24], 0, {
+  prop("models-casino-mouse", "Mouse", "mouse_01.glb", "electronics", 1.0, [12, 24], 0, {
     placeableOnTop: true,
   }),
 ];
