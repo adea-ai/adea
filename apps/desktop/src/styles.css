@@ -1,6 +1,7 @@
-@import "@agent-hq/scene-shell/globals.css";
-@import "@agent-hq/ui/auth-shell.css";
-@import "@agent-hq/ui/workspace-shell.css";
+@import '@agent-hq/scene-shell/globals.css';
+@import '@agent-hq/ui/auth-shell.css';
+@import '@agent-hq/ui/workspace-shell.css';
+@import '@agent-hq/ui/conventional-workspace.css';
 
 :root {
   color: var(--hq-shell-foreground);
@@ -11,7 +12,7 @@
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
-    "Segoe UI",
+    'Segoe UI',
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -198,8 +199,8 @@ body {
   color: var(--hq-shell-foreground);
   background: var(--hq-shell-background);
   --workspace-statusbar-height: 2.55rem;
-  --workspace-topbar-height: 4.75rem;
-  --workspace-topbar-offset: calc(var(--workspace-topbar-height) + env(safe-area-inset-top));
+  --workspace-topbar-height: 0rem;
+  --workspace-topbar-offset: env(safe-area-inset-top);
 }
 
 .workspace-scene-viewport {
@@ -271,7 +272,7 @@ body {
 .workspace-eyebrow {
   margin-bottom: 0.2rem;
   color: var(--hq-shell-muted);
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 0.625rem;
   letter-spacing: 0.1em;
 }
@@ -358,7 +359,7 @@ body {
   background: var(--hq-shell-surface-strong);
 }
 
-.workspace-scene-tools button[aria-pressed="true"] {
+.workspace-scene-tools button[aria-pressed='true'] {
   border-color: var(--hq-shell-accent);
   color: var(--hq-shell-accent-foreground);
   background: var(--hq-shell-accent);
@@ -404,7 +405,7 @@ body {
   color: var(--hq-shell-muted);
   background: color-mix(in srgb, var(--hq-shell-surface) 94%, transparent);
   backdrop-filter: blur(18px);
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 0.7rem;
 }
 
@@ -433,7 +434,7 @@ body {
 .workspace-statusbar__version {
   margin-left: auto;
   color: var(--hq-shell-muted);
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 0.68rem;
 }
 

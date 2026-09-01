@@ -1,37 +1,38 @@
-import type { Metadata, Viewport } from "next";
-import type { ReactNode } from "react";
-import { SoundProvider } from "@agent-hq/audio";
-import { AgentHqQueryProvider } from "@agent-hq/data/provider";
-import { ThemeProvider } from "@agent-hq/ui/components/theme-provider";
-import "./globals.css";
+import type { Metadata, Viewport } from 'next'
+import type { ReactNode } from 'react'
+import { SoundProvider } from '@agent-hq/audio'
+import { AgentHqQueryProvider } from '@agent-hq/data/provider'
+import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
+import { NuqsAdapter } from 'nuqs/adapters/next/app'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "Agent HQ",
-  description: "Agent HQ room headquarters",
-};
+  title: 'Agent HQ',
+  description: 'Agent HQ room headquarters',
+}
 
 export const viewport: Viewport = {
-  width: "device-width",
+  width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  viewportFit: "cover",
+  viewportFit: 'cover',
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#11161d" },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#11161d' },
   ],
-};
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body suppressHydrationWarning>
         <ThemeProvider>
-          <AgentHqQueryProvider>
-            <SoundProvider>{children}</SoundProvider>
-          </AgentHqQueryProvider>
+          <NuqsAdapter>
+            <AgentHqQueryProvider>
+              <SoundProvider>{children}</SoundProvider>
+            </AgentHqQueryProvider>
+          </NuqsAdapter>
         </ThemeProvider>
       </body>
     </html>
-  );
+  )
 }

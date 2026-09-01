@@ -1,0 +1,15 @@
+"$schema" = "../gen/schemas/schema.json"
+
+[[permission]]
+identifier = "allow-local-content"
+description = "Allows only the bundled main window to use the encrypted local content authority."
+commands.allow = [
+  "local_content_authorize_workspace",
+  "local_content_create",
+  "local_content_delete",
+  "local_content_health",
+  "local_content_read",
+  "local_content_rotate_key",
+  "local_content_search",
+  "local_content_update",
+]

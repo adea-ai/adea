@@ -1,46 +1,44 @@
-"use client";
+'use client'
 
-import dynamic from "next/dynamic";
-import { Profiler, type ProfilerOnRenderCallback, useEffect, useState } from "react";
-import { createApiClient } from "@agent-hq/api-client";
-import type { HqSceneId } from "@agent-hq/app-core";
-import { MusicToggle } from "@agent-hq/audio";
-import { useWorkspaceBootstrapQuery } from "@agent-hq/data";
-import { useWorkspaceStore } from "@agent-hq/state";
-import { BriefcaseBusiness, Home } from "lucide-react";
-import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
-import type { SceneStartPosition } from "@agent-hq/asset-manifests";
-import { Button } from "@agent-hq/ui/components/ui/button";
-import { WorkspaceBrand } from "@agent-hq/ui/components/workspace-brand";
-import { isDesktopRuntime } from "../lib/desktop-update";
-import { VersionDialog } from "./version-dialog";
+import dynamic from 'next/dynamic'
+import { Profiler, type ProfilerOnRenderCallback, useEffect, useState } from 'react'
+import { createApiClient, type AgentHqApiClient } from '@agent-hq/api-client'
+import type { HqSceneId } from '@agent-hq/app-core'
+import { useAgentListQuery, useWorkspaceBootstrapQuery } from '@agent-hq/data'
+import { useWorkspaceStore } from '@agent-hq/state'
+import { hqHomeManifest, hqWorkManifest } from '@agent-hq/hq-scenes'
+import type { SceneStartPosition } from '@agent-hq/asset-manifests'
+import {
+  VirtualRoomControls,
+  WorkspaceSettingsDialog,
+  type WorkspacePlatformServices,
+  type WorkspaceView,
+} from '@agent-hq/workspace-ui'
+import { isDesktopRuntime } from '../lib/desktop-update'
+import { VersionDialog } from './version-dialog'
 
 const HqRoomScene = dynamic(
-  () => import("@agent-hq/hq-scenes/runtime").then((module) => module.HqRoomScene),
-  { ssr: false },
-);
+  () => import('@agent-hq/hq-scenes/runtime').then((module) => module.HqRoomScene),
+  { ssr: false }
+)
 
 const sceneOptions = [
   {
-    id: "home" as const,
-    label: "Home",
-    eyebrow: "ROOM 01",
-    icon: Home,
+    id: 'home' as const,
+    label: 'Home',
     manifest: hqHomeManifest,
   },
   {
-    id: "work" as const,
-    label: "Work",
-    eyebrow: "ROOM 02",
-    icon: BriefcaseBusiness,
+    id: 'work' as const,
+    label: 'Work',
     manifest: hqWorkManifest,
   },
-] as const;
+] as const
 
 const sceneById = Object.fromEntries(sceneOptions.map((option) => [option.id, option])) as Record<
   HqSceneId,
   (typeof sceneOptions)[number]
->;
+>
 
 const recordReactCommit: ProfilerOnRenderCallback = (
   id,
@@ -48,101 +46,107 @@ const recordReactCommit: ProfilerOnRenderCallback = (
   actualDuration,
   baseDuration,
   startTime,
-  commitTime,
+  commitTime
 ) => {
   const target = window as Window & {
     __AGENT_HQ_REACT_PROFILE__?: Array<{
-      id: string;
-      phase: "mount" | "update";
-      actualDurationMs: number;
-      baseDurationMs: number;
-      startTime: number;
-      commitTime: number;
-    }>;
-  };
-  const entries = target.__AGENT_HQ_REACT_PROFILE__ ?? [];
+      id: string
+      phase: 'mount' | 'update'
+      actualDurationMs: number
+      baseDurationMs: number
+      startTime: number
+      commitTime: number
+    }>
+  }
+  const entries = target.__AGENT_HQ_REACT_PROFILE__ ?? []
   entries.push({
     id,
-    phase: phase === "mount" ? "mount" : "update",
+    phase: phase === 'mount' ? 'mount' : 'update',
     actualDurationMs: actualDuration,
     baseDurationMs: baseDuration,
     startTime,
     commitTime,
-  });
-  if (entries.length > 100) entries.splice(0, entries.length - 100);
-  target.__AGENT_HQ_REACT_PROFILE__ = entries;
-};
+  })
+  if (entries.length > 100) entries.splice(0, entries.length - 100)
+  target.__AGENT_HQ_REACT_PROFILE__ = entries
+}
 
-type WorkspaceShellProps = {
-  initialScene: HqSceneId;
-  initialCharacter: string;
-  startPosition?: SceneStartPosition;
-  cameraViewMode?: "perspective" | "orthographic";
-};
+export type WorkspaceShellProps = {
+  apiClient?: AgentHqApiClient
+  initialScene: HqSceneId
+  initialCharacter: string
+  startPosition?: SceneStartPosition
+  cameraViewMode?: 'perspective' | 'orthographic'
+  onWorkspaceViewChange?: (view: WorkspaceView) => void
+  workspaceView?: WorkspaceView
+  services?: WorkspacePlatformServices
+}
 
 export function WorkspaceShell({
+  apiClient: providedApiClient,
   initialScene,
   initialCharacter,
   startPosition,
-  cameraViewMode: initialCameraViewMode = "orthographic",
+  cameraViewMode: initialCameraViewMode = 'orthographic',
+  onWorkspaceViewChange,
+  services,
 }: WorkspaceShellProps) {
-  const selectedScene = useWorkspaceStore((state) => state.selectedScene);
-  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene);
-  const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode);
-  const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode);
-  const [storeReady, setStoreReady] = useState(false);
-  const [desktopRuntime, setDesktopRuntime] = useState(false);
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [apiClient] = useState(() => createApiClient());
-  const workspaceQuery = useWorkspaceBootstrapQuery(apiClient);
-  const sceneId = storeReady ? selectedScene : initialScene;
-  const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode;
-  const scene = sceneById[sceneId];
-  const principal = workspaceQuery.data?.principal;
-  const accountAuthenticated = Boolean(principal && !principal.temporary);
-  const accountLabel = accountAuthenticated ? (principal?.displayName ?? "Account") : "Sign in";
+  const selectedScene = useWorkspaceStore((state) => state.selectedScene)
+  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
+  const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode)
+  const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode)
+  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
+  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
+  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface)
+  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
+  const [storeReady, setStoreReady] = useState(false)
+  const [desktopRuntime, setDesktopRuntime] = useState(false)
+  const [accountBusy, setAccountBusy] = useState(false)
+  const [fallbackApiClient] = useState(() => createApiClient())
+  const apiClient = providedApiClient ?? fallbackApiClient
+  const workspaceQuery = useWorkspaceBootstrapQuery(apiClient)
+  const activeWorkspace =
+    workspaceQuery.data?.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
+    workspaceQuery.data?.activeWorkspace
+  const agentsQuery = useAgentListQuery(apiClient, activeWorkspace?.id)
+  const sceneId = storeReady ? selectedScene : initialScene
+  const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode
+  const scene = sceneById[sceneId]
+  const principal = workspaceQuery.data?.principal
+  const accountAuthenticated = Boolean(principal && !principal.temporary)
+  const accountLabel = accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in'
   const workspaceStatus = workspaceQuery.isPending
-    ? "Workspace syncing"
+    ? 'Workspace syncing'
     : workspaceQuery.isError
-      ? "Workspace offline"
-      : "Workspace online";
+      ? 'Workspace offline'
+      : 'Workspace online'
 
   useEffect(() => {
-    setSelectedScene(initialScene);
-    setCameraViewMode(initialCameraViewMode);
-    setStoreReady(true);
-  }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene]);
+    setSelectedScene(initialScene)
+    setCameraViewMode(initialCameraViewMode)
+    setStoreReady(true)
+  }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene])
 
   useEffect(() => {
-    setDesktopRuntime(isDesktopRuntime());
-  }, []);
+    setDesktopRuntime(isDesktopRuntime())
+  }, [])
 
   useEffect(() => {
-    document.title = `Agent HQ | ${scene.label}`;
-  }, [scene.label]);
+    document.title = `Agent HQ | ${scene.label}`
+  }, [scene.label])
 
-  const selectScene = (nextScene: HqSceneId) => {
-    setSelectedScene(nextScene);
-    const nextUrl = new URL(window.location.href);
-    nextUrl.pathname = "/";
-    nextUrl.searchParams.set("scene", nextScene);
-    window.history.replaceState(null, "", nextUrl);
-  };
-
-  const signIn = () => window.location.assign("/auth/sign-in?returnTo=%2F");
+  const signIn = () => services?.account?.onSignIn()
   const signOut = async () => {
-    setAccountBusy(true);
+    setAccountBusy(true)
     try {
-      const { createNeonClientAdapter } = await import("@agent-hq/auth/client");
-      await createNeonClientAdapter().signOut();
-      window.location.assign("/");
+      await services?.account?.onSignOut()
     } finally {
-      setAccountBusy(false);
+      setAccountBusy(false)
     }
-  };
+  }
 
   return (
-    <main className={`workspace-shell${desktopRuntime ? " workspace-shell--desktop" : ""}`}>
+    <main className={`workspace-shell${desktopRuntime ? ' workspace-shell--desktop' : ''}`}>
       <div className="workspace-scene-viewport">
         <Profiler id="hq-room-scene" onRender={recordReactCommit}>
           <HqRoomScene
@@ -152,13 +156,7 @@ export function WorkspaceShell({
             startPosition={startPosition}
             cameraViewMode={activeCameraViewMode}
             onCameraViewModeChange={setCameraViewMode}
-            accountTargetId="workspace-account-slot"
-            accountLabel={accountLabel}
-            accountAuthenticated={accountAuthenticated}
-            accountBusy={accountBusy}
-            accountMusicControl={<MusicToggle />}
-            onAccountSignIn={signIn}
-            onAccountSignOut={() => void signOut()}
+            showAccountDrawer={false}
             cameraTargetId="workspace-camera-slot"
             roomDesignerTargetId="workspace-scene-tools-slot"
             sceneEditorTargetId="workspace-scene-tools-slot"
@@ -166,32 +164,10 @@ export function WorkspaceShell({
         </Profiler>
 
         <div className="workspace-ui" aria-label="Agent HQ workspace controls">
-          <header className="workspace-topbar">
-            <WorkspaceBrand title="Agent HQ" />
-            <nav className="workspace-scene-nav" aria-label="HQ spaces">
-              {sceneOptions.map((option) => {
-                const Icon = option.icon;
-                const isSelected = option.id === sceneId;
-                return (
-                  <Button
-                    key={option.id}
-                    type="button"
-                    className={`workspace-scene-tab${isSelected ? " workspace-scene-tab--selected" : ""}`}
-                    aria-pressed={isSelected}
-                    variant={isSelected ? "secondary" : "ghost"}
-                    size="sm"
-                    onClick={() => selectScene(option.id)}
-                  >
-                    <Icon size={14} aria-hidden="true" />
-                    {option.label}
-                  </Button>
-                );
-              })}
-            </nav>
-            <div className="workspace-topbar__actions">
-              <div id="workspace-account-slot" className="workspace-account-slot" />
-            </div>
-          </header>
+          <VirtualRoomControls
+            client={apiClient}
+            openChat={() => onWorkspaceViewChange?.('chat')}
+          />
 
           <div
             id="workspace-scene-tools-slot"
@@ -220,6 +196,25 @@ export function WorkspaceShell({
           </footer>
         ) : null}
       </div>
+      {activeWorkspace ? (
+        <WorkspaceSettingsDialog
+          accountAuthenticated={accountAuthenticated}
+          accountLabel={accountLabel}
+          agents={agentsQuery.data ?? []}
+          busy={services?.account?.busy ?? accountBusy}
+          onClose={() => setGlobalPanel(null)}
+          onOpenAgents={() => {
+            setActiveSurface('agents')
+            setGlobalPanel(null)
+            onWorkspaceViewChange?.('chat')
+          }}
+          onSignIn={signIn}
+          onSignOut={() => void signOut()}
+          open={globalPanel === 'settings'}
+          services={services}
+          workspace={activeWorkspace}
+        />
+      ) : null}
     </main>
-  );
+  )
 }

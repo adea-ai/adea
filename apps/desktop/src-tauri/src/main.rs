@@ -2,6 +2,9 @@
 
 mod auth;
 mod bridge;
+mod local_content;
+mod preferences;
+mod transcription;
 mod updater;
 
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
@@ -40,6 +43,7 @@ fn main() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .manage(auth::DesktopAuthState::default())
+        .manage(transcription::DesktopTranscriptionState::default())
         .manage(updater::UpdaterState::default())
         .invoke_handler(tauri::generate_handler![
             auth::desktop_auth_start,
@@ -54,11 +58,28 @@ fn main() {
             auth::desktop_temporary_workspace_load,
             auth::desktop_temporary_workspace_save,
             bridge::native_capabilities,
+            local_content::local_content_authorize_workspace,
+            local_content::local_content_create,
+            local_content::local_content_delete,
+            local_content::local_content_health,
+            local_content::local_content_read,
+            local_content::local_content_rotate_key,
+            local_content::local_content_search,
+            local_content::local_content_update,
+            preferences::desktop_preferences_load,
+            preferences::desktop_preferences_save,
+            transcription::desktop_transcription_cancel,
+            transcription::desktop_transcription_permission,
+            transcription::desktop_transcription_start,
             updater::desktop_update_status,
             updater::desktop_update_check,
             updater::desktop_update_install
         ])
         .setup(|app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            let local_content = local_content::LocalContentState::initialize(&app_data_dir);
+            app.manage(local_content);
+
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
