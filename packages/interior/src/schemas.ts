@@ -9,7 +9,6 @@ export const interiorPropAssetSchema = z.object({
     "bathroom",
     "kitchen",
     "plants",
-    "wall-decor",
     "tables",
     "seating",
     "bedroom",

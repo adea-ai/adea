@@ -9,7 +9,6 @@ export type InteriorPropCategory =
   | "bathroom"
   | "kitchen"
   | "plants"
-  | "wall-decor"
   | "tables"
   | "seating"
   | "bedroom"

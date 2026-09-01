@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ROOM_GALLERY_BOUNDS } from "@agent-hq/interior";
-import { hqBoundaryColliders } from "@agent-hq/hq-scenes/runtime";
+import { hqBoundaryColliders, hqCharacterScale } from "@agent-hq/hq-scenes/runtime";
 
 describe("HQ perimeter collision", () => {
   test("blocks the full front fence, including the gate opening", () => {
@@ -16,5 +16,12 @@ describe("HQ perimeter collision", () => {
     }
 
     expect(coveredThrough).toBeGreaterThanOrEqual(ROOM_GALLERY_BOUNDS.xMax);
+  });
+});
+
+describe("HQ perspective framing", () => {
+  test("uses the shorter runtime character height", () => {
+    expect(hqCharacterScale.height).toBe(1.35);
+    expect(hqCharacterScale.modelScale).toBe(1);
   });
 });
