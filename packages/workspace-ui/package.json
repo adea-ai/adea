@@ -1,0 +1,80 @@
+{
+  "name": "@agent-hq/workspace-ui",
+  "version": "0.8.3",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./platform": {
+      "types": "./dist/platform.d.ts",
+      "import": "./dist/platform.js"
+    },
+    "./plugins-dialog": {
+      "types": "./dist/plugins-dialog.d.ts",
+      "import": "./dist/plugins-dialog.js",
+      "default": "./dist/plugins-dialog.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins.d.ts",
+      "import": "./dist/plugins.js",
+      "default": "./dist/plugins.js"
+    },
+    "./marketplace-catalog": {
+      "types": "./dist/marketplace-catalog.d.ts",
+      "import": "./dist/marketplace-catalog.js",
+      "default": "./dist/marketplace-catalog.js"
+    },
+    "./preferences": {
+      "types": "./dist/preferences.d.ts",
+      "import": "./dist/preferences.js",
+      "default": "./dist/preferences.js"
+    },
+    "./global-workspace-rail": {
+      "types": "./dist/global-workspace-rail.d.ts",
+      "import": "./dist/global-workspace-rail.js",
+      "default": "./dist/global-workspace-rail.js"
+    },
+    "./workspace-about-dialog": {
+      "types": "./dist/workspace-about-dialog.d.ts",
+      "import": "./dist/workspace-about-dialog.js",
+      "default": "./dist/workspace-about-dialog.js"
+    },
+    "./conventional-workspace-shell": {
+      "types": "./dist/conventional-workspace-shell.d.ts",
+      "import": "./dist/conventional-workspace-shell.js",
+      "default": "./dist/conventional-workspace-shell.js"
+    },
+    "./workspace-view-toggle": {
+      "types": "./dist/workspace-view-toggle.d.ts",
+      "import": "./dist/workspace-view-toggle.js",
+      "default": "./dist/workspace-view-toggle.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "bun test tests/unit",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@agent-hq/api-client": "workspace:*",
+    "@agent-hq/audio": "workspace:*",
+    "@agent-hq/data": "workspace:*",
+    "@agent-hq/state": "workspace:*",
+    "@agent-hq/types": "workspace:*",
+    "@agent-hq/ui": "workspace:*",
+    "lucide-react": "^1.33.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4"
+  }
+}

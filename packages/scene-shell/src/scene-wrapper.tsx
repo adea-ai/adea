@@ -152,6 +152,7 @@ export type SceneWrapperProps = {
   accountMusicControl?: ReactNode;
   onAccountSignIn?: () => void;
   onAccountSignOut?: () => void;
+  showAccountDrawer?: boolean;
   /** DOM target for the compact camera controls in an app shell toolbar. */
   cameraTargetId?: string;
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
@@ -252,6 +253,7 @@ export function SceneWrapper({
   accountMusicControl,
   onAccountSignIn,
   onAccountSignOut,
+  showAccountDrawer,
   cameraTargetId,
   roomDesignerTargetId,
   sceneEditorTargetId,
@@ -626,6 +628,7 @@ export function SceneWrapper({
         accountMusicControl={accountMusicControl}
         onAccountSignIn={onAccountSignIn}
         onAccountSignOut={onAccountSignOut}
+        showAccountDrawer={showAccountDrawer}
         cameraTargetId={cameraTargetId}
         roomDesignerTargetId={roomDesignerTargetId}
         sceneEditorTargetId={sceneEditorTargetId}

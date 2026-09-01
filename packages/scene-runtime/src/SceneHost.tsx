@@ -1299,7 +1299,6 @@ export function SceneHost({
 
     let disposed = false;
     const loadScope = createSceneLoadScope();
-    let loadingManager: THREE.LoadingManager | null = null;
     const editorOverridesRequest: Promise<SceneEditorOverrides> = editorOverridesUrl
       ? fetch(editorOverridesUrl, { cache: "no-store", signal: loadScope.signal })
           .then((response) =>
@@ -1462,9 +1461,11 @@ export function SceneHost({
     const disposeResources = () => {
       if (resourcesDisposed) return;
       resourcesDisposed = true;
-      loadScope.abort();
-      loadingManager?.abortController.abort();
-      loadingManager = null;
+      // Three.js loaders attach multiple fetches to the manager's abort signal.
+      // Aborting during React route/HMR teardown can surface their expected
+      // cancellations as unhandled browser rejections. Every async load path
+      // already checks `disposed` and releases late resources, so teardown
+      // remains safe without converting navigation into a runtime error.
       const controller = characterController;
       const physicsWorld = world;
       characterController = null;
@@ -1982,7 +1983,6 @@ export function SceneHost({
         world = new RAPIER.World({ x: 0, y: gravity, z: 0 });
 
         const manager = new THREE.LoadingManager();
-        loadingManager = manager;
         manager.onProgress = (_url, loaded, total) =>
           setStatus(`Loading ${label}… ${Math.round((loaded / Math.max(total, 1)) * 100)}%`);
         const loader = new GLTFLoader(manager);
@@ -2146,6 +2146,12 @@ export function SceneHost({
           zonePromises.set(id, request);
           return request;
         };
+        const scheduleZoneLoad = (id: string) => {
+          void loadZone(id).catch((cause) => {
+            if (disposed || loadScope.isAborted()) return;
+            console.warn(`[Agent HQ] ${label} zone ${id} unavailable`, cause);
+          });
+        };
         const updateProximityZones = () => {
           if (!proximityZonesReady) return;
           zoneProximityFrame += 1;
@@ -2159,7 +2165,7 @@ export function SceneHost({
               playerPosition.z - position[2] * sceneScale,
             );
             if (distance <= preloadDistance) {
-              if (!zoneRoots.has(zone.id) && !zonePromises.has(zone.id)) void loadZone(zone.id);
+              if (!zoneRoots.has(zone.id) && !zonePromises.has(zone.id)) scheduleZoneLoad(zone.id);
             } else if (!zone.preload && distance > preloadDistance * 2 && zoneRoots.has(zone.id)) {
               void unloadZone(zone.id);
             }
@@ -3483,7 +3489,7 @@ export function SceneHost({
         if (new URLSearchParams(window.location.search).has("debug")) {
           (window as unknown as { __agentHq: SceneDebugApi }).__agentHq = debugApi;
         }
-        for (const zone of zones) if (zone.preload) void loadZone(zone.id);
+        for (const zone of zones) if (zone.preload) scheduleZoneLoad(zone.id);
         const render = () => {
           if (disposed || !world || !characterController || !playerCollider) return;
           const frameStartedAt = performance.now();

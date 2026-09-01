@@ -163,6 +163,11 @@
     },
     {
       "type": "json",
+      "path": "packages/workspace-ui/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "scenes/hq/package.json",
       "jsonpath": "$.version"
     },

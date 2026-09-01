@@ -835,6 +835,7 @@ export function HqRoomScene({
   accountMusicControl,
   onAccountSignIn,
   onAccountSignOut,
+  showAccountDrawer,
   cameraTargetId,
   roomDesignerTargetId,
   sceneEditorTargetId,
@@ -851,6 +852,7 @@ export function HqRoomScene({
   accountMusicControl?: ReactNode;
   onAccountSignIn?: () => void;
   onAccountSignOut?: () => void;
+  showAccountDrawer?: boolean;
   cameraTargetId?: string;
   roomDesignerTargetId?: string;
   sceneEditorTargetId?: string;
@@ -1037,6 +1039,7 @@ export function HqRoomScene({
       accountMusicControl={accountMusicControl}
       onAccountSignIn={onAccountSignIn}
       onAccountSignOut={onAccountSignOut}
+      showAccountDrawer={showAccountDrawer}
       cameraTargetId={cameraTargetId}
       roomDesignerTargetId={roomDesignerTargetId}
       sceneEditorTargetId={sceneEditorTargetId}
