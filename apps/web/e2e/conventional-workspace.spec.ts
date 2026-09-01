@@ -855,13 +855,20 @@ test('browses the verified registry marketplace and submits an exact install req
   await expect(
     plugins.getByRole('button', { name: 'Authorization pending', exact: true })
   ).toBeVisible()
+  const expectedIdempotencyKey = `marketplace:${marketplaceDigest({
+    pluginId: 'plugin:openai-official:github',
+    releaseId: `release:${'02'.repeat(32)}`,
+    userId: 'user-e2e',
+    workspaceId: 'workspace-e2e',
+  }).slice('sha256:'.length)}`
   expect(installRequests).toEqual([
     {
       canonicalContentDigest: `sha256:${'02'.repeat(32)}`,
-      idempotencyKey: `marketplace:plugin:openai-official:github:release:${'02'.repeat(32)}`,
+      idempotencyKey: expectedIdempotencyKey,
       pluginId: 'plugin:openai-official:github',
       releaseId: `release:${'02'.repeat(32)}`,
       requestedHarness: 'codex',
+      workspaceIdentity: { userId: 'user-e2e', workspaceId: 'workspace-e2e' },
     },
   ])
   expect(
