@@ -1191,7 +1191,7 @@ export function SceneHost({
   coplanarMaterialMeshNames = EMPTY_ASSET_URLS,
   materialOverrides = EMPTY_MATERIAL_OVERRIDES,
   playerVisibilityGroups = EMPTY_VISIBILITY_GROUPS,
-  characterId = "cartoon-standard",
+  characterId = "cartoon-humanoid",
   characterScale = DEFAULT_characterModelScale,
   sceneScale = 1,
   movementSpeedFactor = 1,

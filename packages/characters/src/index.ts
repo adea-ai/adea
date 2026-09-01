@@ -5,6 +5,8 @@ export {
   characterLabels,
   characterIconUrls,
   characterLibraryAssets,
+  cartoonCharacterNames,
+  cartoonCharacterAssets,
   isCharacterId,
   type CharacterId,
   customCharacterIds,
