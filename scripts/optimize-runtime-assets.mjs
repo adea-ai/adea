@@ -1,9 +1,11 @@
+/* global Bun */
+
 import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const runtimeAssetSources = [
-  [resolve(repoRoot, "packages/characters/assets/characters"), "*-runtime.glb"],
+  [resolve(repoRoot, "packages/characters/assets"), "runtime.glb"],
   [resolve(repoRoot, "packages/pets/assets"), "**/*.glb"],
   [resolve(repoRoot, "packages/landscape/assets"), "**/*.glb"],
 ];

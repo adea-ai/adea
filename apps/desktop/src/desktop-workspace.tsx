@@ -37,7 +37,7 @@ export function DesktopWorkspace({
       <div className="workspace-scene-viewport">
         <HqRoomScene
           key={scene}
-          initialCharacter="cartoon-standard"
+          initialCharacter="cartoon-humanoid"
           manifest={manifest}
           cameraViewMode="orthographic"
           showAccountDrawer={false}
