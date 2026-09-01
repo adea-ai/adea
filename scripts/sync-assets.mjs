@@ -70,14 +70,7 @@ await copyAsset(
   resolve(repoRoot, "packages/pets/assets/animals"),
   resolve(publicAssets, "models/animals"),
 );
-await copyAsset(
-  resolve(repoRoot, "packages/characters/assets/characters"),
-  resolve(publicAssets, "models/characters"),
-);
-await copyAsset(
-  resolve(repoRoot, "packages/characters/assets/character-parts"),
-  resolve(publicAssets, "models/character-parts"),
-);
+await copyAsset(resolve(repoRoot, "packages/characters/assets"), resolve(publicAssets, "models"));
 await copyAsset(
   resolve(repoRoot, "packages/rooms/assets"),
   resolve(publicAssets, "models"),

@@ -3,9 +3,10 @@
 Usage:
   blender -b --python scripts/convert-cartoon-characters.py -- SOURCE OUTPUT_DIR
 
-  The complete pack export is retained alongside one playable export from the
-  female character mesh. Blender's GLB exporter embeds the source textures;
-no geometry simplification, texture resizing, or animation sampling is used.
+  The Humanoid pack is exported as individual assembled characters alongside
+  one playable runtime export from the female character mesh.
+  Blender's GLB exporter embeds the source textures; no geometry simplification,
+  texture resizing, or animation sampling is used for source exports.
 """
 
 from pathlib import Path
@@ -75,14 +76,20 @@ def main() -> None:
         if obj in view_layer_objects
         and obj.type == "MESH"
         and not obj.name.startswith(("WGT-", "WGTS"))
+        and (obj.name.startswith(("f_", "m_")) and obj.name[2:].isdigit())
     ]
     variant = source.stem.removeprefix("Cartoon_Characters_3").strip("_").lower() or "standard"
+    if variant != "humanoid":
+        raise SystemExit(f"Only the Cartoon Humanoid pack is supported, got {variant}")
     prefix = f"cartoon-3-{variant}"
-    # Keep every visible mesh in the complete library export. Animation baking
-    # is intentionally limited to the runtime representative below: the
-    # full pack contains dozens of characters sharing one armature and baking
-    # every action for that scene is needlessly expensive.
-    export_selected(output_dir / f"{prefix}-all.glb", meshes, armature, False)
+
+    # Keep only named character meshes; the source file also contains two stray
+    # Cube meshes. Animation baking is intentionally limited to the runtime
+    # representative below because the pack shares one armature.
+    character_dir = output_dir / "_complete"
+    character_dir.mkdir(parents=True, exist_ok=True)
+    for obj in meshes:
+        export_selected(character_dir / f"{obj.name}.glb", [obj], armature, False)
 
     # The complete pack contains many control-bone actions that do not belong
     # to a playable mesh and make Blender's animation baking extremely slow.
@@ -94,7 +101,7 @@ def main() -> None:
     obj = next((candidate for candidate in meshes if candidate.name == "f_1"), None)
     if obj is None:
         raise SystemExit(f"Could not find f_1 runtime representative in {source}")
-    export_selected(output_dir / f"{prefix}-runtime.glb", [obj], armature, True)
+    export_selected(output_dir / "runtime.glb", [obj], armature, True)
 
 
 if __name__ == "__main__":
