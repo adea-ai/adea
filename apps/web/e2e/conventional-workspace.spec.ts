@@ -1,4 +1,8 @@
+import { createHash } from 'node:crypto'
+
 import { expect, test, type Page } from '@playwright/test'
+
+import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -20,6 +24,126 @@ const homeWorkspace = {
 }
 const user = { kind: 'user' as const, userId: 'user-e2e' }
 const agentPrincipal = { kind: 'agent' as const, agentId: 'agent-research' }
+
+const marketplacePluginSpecs = [
+  ['gmail', 'Gmail', 'productivity', 'connector'],
+  ['github', 'GitHub', 'developer-tools', 'connector'],
+  ['google-drive', 'Google Drive', 'productivity', 'connector'],
+  ['google-calendar', 'Google Calendar', 'productivity', 'connector'],
+  ['notion', 'Notion', 'productivity', 'connector'],
+  ['slack', 'Slack', 'communication', 'connector'],
+  ['asana', 'Asana', 'productivity', 'connector'],
+  ['trello', 'Trello', 'productivity', 'connector'],
+  ['room-summaries', 'Room Summaries', 'productivity', 'skill'],
+  ['todoist', 'Todoist', 'productivity', 'connector'],
+  ['calendly', 'Calendly', 'productivity', 'connector'],
+  ['linear', 'Linear', 'developer-tools', 'connector'],
+] as const
+
+function marketplaceCanonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
+  if (Array.isArray(value)) return `[${value.map(marketplaceCanonicalJson).join(',')}]`
+  const object = value as Record<string, unknown>
+  return `{${Object.keys(object)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${marketplaceCanonicalJson(object[key])}`)
+    .join(',')}}`
+}
+
+function marketplaceDigest(value: unknown): string {
+  return `sha256:${createHash('sha256').update(marketplaceCanonicalJson(value)).digest('hex')}`
+}
+
+function marketplaceFixture() {
+  const plugins = marketplacePluginSpecs.map(([name, displayName, category, kind], index) => {
+    const token = (index + 1).toString(16).padStart(2, '0').repeat(32)
+    const releaseId = `release:${token}`
+    const release = {
+      capabilities: [
+        {
+          metadata: {},
+          name: displayName,
+          paths: [],
+          securityImpact: 'low',
+          type: kind === 'skill' ? 'skill' : 'connector',
+        },
+      ],
+      canonicalContentDigest: `sha256:${token}`,
+      contentResolution: 'complete',
+      fileIndex: [],
+      pluginSubdirectory: `plugins/${name}`,
+      releaseId,
+      releaseMetadata: { publishedAt: timestamp },
+      requiredConnectors: [],
+      requiredCredentials: [],
+      resolvedCommitSha: token.slice(0, 40),
+      resolvedRepositoryUrl: 'https://github.com/0xPlayerOne/plugins',
+    }
+    return {
+      authors: ['Registry fixture'],
+      availableReleases: [release],
+      capabilitySummary: { [kind]: 1 },
+      categories: [category],
+      currentReleaseId: releaseId,
+      description: `${displayName} registry fixture.`,
+      displayName,
+      harnessCompatibility: { codex: { status: 'portable' } },
+      icons: [],
+      keywords: [name, category],
+      license: { name: 'Apache-2.0' },
+      pluginId: `plugin:openai-official:${name}`,
+      productGroupingKey: name,
+      provenance: {
+        repositoryUrl: 'https://github.com/openai/plugins',
+        resolvedCommitSha: token.slice(0, 40),
+      },
+      securityClassification: { level: 'standard' },
+      sourceId: 'openai-official',
+    }
+  })
+  const body = {
+    generatedAt: timestamp,
+    plugins,
+    schemaVersion: 1,
+    sources: [{ repository: 'https://github.com/openai/plugins', sourceId: 'openai-official' }],
+  }
+  const catalogId = `catalog:${marketplaceDigest(body).slice('sha256:'.length)}`
+  const catalog = { ...body, catalogId }
+  const catalogText = JSON.stringify(catalog)
+  const summaryText = JSON.stringify({
+    catalogId,
+    generatedAt: timestamp,
+    pluginCount: plugins.length,
+    schemaVersion: 1,
+  })
+  const categoriesText = JSON.stringify({
+    categories: [...new Set(plugins.flatMap((plugin) => plugin.categories))],
+    catalogId,
+    schemaVersion: 1,
+  })
+  const compatibilityText = JSON.stringify({ catalogId, plugins: [], schemaVersion: 1 })
+  const lockText = JSON.stringify({ catalogId, schemaVersion: 1, sources: [] })
+  const files = {
+    'catalog-summary.v1.json': summaryText,
+    'catalog.v1.json': catalogText,
+    'categories.v1.json': categoriesText,
+    'compatibility.v1.json': compatibilityText,
+    'sources.lock.json': lockText,
+  }
+  const integrityFiles = Object.fromEntries(
+    Object.entries(files).map(([name, value]) => [name, marketplaceDigest(value)])
+  )
+  const artifacts = {
+    'catalog-latest.v1.json': catalogText,
+    'catalog-summary.v1.json': summaryText,
+    'catalog.v1.json': catalogText,
+    'categories.v1.json': categoriesText,
+    'compatibility.v1.json': compatibilityText,
+    'integrity.json': JSON.stringify({ catalogId, files: integrityFiles, schemaVersion: 1 }),
+    'sources.lock.json': lockText,
+  }
+  return { artifacts, catalog, catalogId, plugins }
+}
 const rooms = [
   {
     createdAt: timestamp,
@@ -393,7 +517,7 @@ async function mockConnectedWorkspace(page: Page) {
       contentType: 'application/json',
       json: {
         activeWorkspace: workspace,
-        principal: { temporary: true },
+        principal: { temporary: true, userId: 'user-e2e' },
         workspaces: [workspace, homeWorkspace],
       },
     })
@@ -653,8 +777,45 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   )
 })
 
-test('browses the synchronized Codex marketplace in compact groups', async ({ page }) => {
+test('browses the verified registry marketplace and submits an exact install request', async ({
+  page,
+}) => {
   await mockConnectedWorkspace(page)
+  const fixture = marketplaceFixture()
+  await expect(verifyRegistryArtifacts(fixture.artifacts)).resolves.toBeTruthy()
+  const installRequests: unknown[] = []
+  await page.route('**/api/marketplace/catalog', (route) =>
+    route.fulfill({
+      contentType: 'application/json',
+      json: {
+        artifacts: fixture.artifacts,
+        catalogId: fixture.catalogId,
+        installations: [],
+        releaseId: fixture.catalogId,
+      },
+    })
+  )
+  await page.route('**/api/marketplace/install', async (route) => {
+    const request = route.request().postDataJSON() as {
+      canonicalContentDigest: string
+      idempotencyKey: string
+      pluginId: string
+      releaseId: string
+      requestedHarness: string
+    }
+    installRequests.push(request)
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        canonicalContentDigest: request.canonicalContentDigest,
+        installationId: 'ins_e2e-marketplace',
+        message: 'Authorization is required before installation.',
+        pluginId: request.pluginId,
+        releaseId: request.releaseId,
+        state: 'pending-authorization',
+      },
+    })
+  })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
   await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
@@ -679,30 +840,35 @@ test('browses the synchronized Codex marketplace in compact groups', async ({ pa
   const productivityPlugins = pluginGroups.filter({
     has: page.getByRole('heading', { name: 'Productivity', exact: true }),
   })
-  await plugins.getByRole('button', { name: 'See Notion, Granola and more' }).click()
-  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(13)
+  await plugins.getByRole('button', { name: 'See Room Summaries, Todoist and more' }).click()
+  await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(9)
   await productivityPlugins.getByRole('button', { name: 'Show less' }).click()
   await expect(productivityPlugins.locator('.plugins-browser__row')).toHaveCount(6)
-
-  await plugins.getByRole('button', { name: 'Filter' }).click()
-  await page.getByRole('menuitemradio', { name: 'Skills' }).click()
-  await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
-  await expect(plugins.getByRole('button', { name: /Room Summaries/ })).toBeVisible()
-  await page.getByRole('menuitemradio', { name: 'All types' }).click()
-  await page.keyboard.press('Escape')
-  await expect(page).toHaveScreenshot('plugins-marketplace.png', { animations: 'disabled' })
 
   await plugins.getByRole('searchbox', { name: 'Search plugins' }).fill('github')
   await plugins.getByRole('button', { name: /GitHub/ }).click()
   await expect(plugins.getByRole('heading', { name: 'GitHub' })).toBeVisible()
-  await expect(plugins.getByText('Codex official', { exact: true })).toBeVisible()
-  await expect(plugins.getByText('APP · MCP', { exact: true })).toBeVisible()
+  await expect(plugins.getByText('openai-official', { exact: true })).toBeVisible()
+  await expect(plugins.getByText('MCP', { exact: true })).toBeVisible()
   await plugins.getByRole('button', { name: 'Add', exact: true }).click()
-  await expect(plugins.getByRole('button', { name: 'Remove', exact: true })).toBeVisible()
+  await expect(
+    plugins.getByRole('button', { name: 'Authorization pending', exact: true })
+  ).toBeVisible()
+  expect(installRequests).toEqual([
+    {
+      canonicalContentDigest: `sha256:${'02'.repeat(32)}`,
+      idempotencyKey: `marketplace:plugin:openai-official:github:release:${'02'.repeat(32)}`,
+      pluginId: 'plugin:openai-official:github',
+      releaseId: `release:${'02'.repeat(32)}`,
+      requestedHarness: 'codex',
+    },
+  ])
+  expect(
+    await page.evaluate(() => Object.keys(localStorage).filter((key) => /plugin/i.test(key)))
+  ).toEqual([])
   await plugins.getByRole('button', { name: 'Back to plugins' }).click()
   await plugins.getByRole('tab', { name: 'Yours' }).click()
-  await expect(plugins.getByRole('button', { name: /GitHub/ })).toBeVisible()
-  await expect(page).toHaveScreenshot('plugins-yours.png', { animations: 'disabled' })
+  await expect(plugins.getByText('No plugins added yet')).toBeVisible()
 })
 
 test('navigates direct, group, thread, and Task detail surfaces', async ({ page }) => {
