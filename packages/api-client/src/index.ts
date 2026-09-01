@@ -170,7 +170,7 @@ export type ApiWorkspaceResponse = {
 
 export type ApiWorkspaceBootstrapResponse = {
   activeWorkspace: WorkspaceSummary
-  principal: Readonly<{ displayName?: string; temporary: boolean }>
+  principal: Readonly<{ displayName?: string; temporary: boolean; userId?: string }>
   temporaryCredential?: string
   workspaces: readonly WorkspaceSummary[]
 }
@@ -183,6 +183,47 @@ export type ApiWorkspaceCreateResponse = {
 export type ApiWorkspaceClaimResponse = Readonly<{ claimed: true }>
 
 export type ApiWorkspaceReopenResponse = Readonly<{ workspace: WorkspaceSummary }>
+
+export type ApiMarketplaceCatalogResponse = Readonly<{
+  catalogId: string
+  releaseId: string
+  artifacts: Readonly<{
+    'catalog.v1.json': string
+    'catalog-latest.v1.json'?: string
+    'catalog-summary.v1.json': string
+    'categories.v1.json': string
+    'compatibility.v1.json': string
+    'integrity.json': string
+    'sources.lock.json': string
+  }>
+  installations?: readonly Readonly<{
+    pluginId: string
+    releaseId: string
+    canonicalContentDigest: string
+    state:
+      'pending-authorization' | 'unavailable' | 'rejected-by-policy' | 'installed' | 'superseded'
+  }>[]
+}>
+
+export type ApiMarketplaceInstallInput = Readonly<{
+  pluginId: string
+  releaseId: string
+  canonicalContentDigest: string
+  requestedHarness: string
+  workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
+  idempotencyKey: string
+}>
+
+export type ApiMarketplaceInstallResponse = Readonly<{
+  installationId: string
+  pluginId: string
+  releaseId: string
+  canonicalContentDigest: string
+  state: 'pending-authorization' | 'unavailable' | 'rejected-by-policy' | 'installed' | 'superseded'
+  requiredConnectors: readonly string[]
+  requiredCredentials: readonly string[]
+  message?: string
+}>
 
 export type ApiDesktopSessionCredential = Readonly<{
   credential: string
@@ -258,6 +299,25 @@ export class AgentHqApiClient {
       `/workspaces/${encodeURIComponent(workspaceId)}/reopen`,
       { method: 'POST' }
     )
+  }
+
+  async getMarketplaceCatalog(workspaceId: string): Promise<ApiMarketplaceCatalogResponse> {
+    return this.request<ApiMarketplaceCatalogResponse>('/marketplace/catalog', {
+      body: JSON.stringify({ workspaceId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async requestMarketplaceInstall(
+    workspaceId: string,
+    input: ApiMarketplaceInstallInput
+  ): Promise<ApiMarketplaceInstallResponse> {
+    return this.request<ApiMarketplaceInstallResponse>('/marketplace/install', {
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
   }
 
   async claimTemporaryWorkspace(temporaryCredential: string): Promise<ApiWorkspaceClaimResponse> {

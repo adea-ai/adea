@@ -1,13 +1,13 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createApiClient } from '@agent-hq/api-client'
 import { useWorkspaceBootstrapQuery } from '@agent-hq/data'
 import { useWorkspaceStore } from '@agent-hq/state'
 import { GlobalWorkspaceRail } from '@agent-hq/workspace-ui/global-workspace-rail'
 import type { WorkspacePlatformServices } from '@agent-hq/workspace-ui/platform'
-import { createBrowserPluginsProvider } from '@agent-hq/workspace-ui/plugins'
+import { createRegistryPluginsProvider } from '@agent-hq/workspace-ui/plugins'
 import { createBrowserSettingsProvider } from '@agent-hq/workspace-ui/preferences'
 import { WorkspaceAboutDialog } from '@agent-hq/workspace-ui/workspace-about-dialog'
 import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
@@ -48,6 +48,8 @@ export function WorkspaceEntry({
   spatialProps,
 }: Readonly<{ spatial: boolean; spatialProps: WorkspaceShellProps }>) {
   const [client] = useState(() => createApiClient())
+  const workspaceIdRef = useRef<string | undefined>(undefined)
+  const userIdRef = useRef<string | undefined>(undefined)
   const [services] = useState<WorkspacePlatformServices>(() => ({
     account: {
       onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
@@ -58,7 +60,12 @@ export function WorkspaceEntry({
       },
     },
     app: { name: 'Agent HQ', platform: 'web', version: appVersion },
-    plugins: createBrowserPluginsProvider(),
+    plugins: createRegistryPluginsProvider({
+      client,
+      getWorkspaceId: () => workspaceIdRef.current,
+      getUserId: () => userIdRef.current,
+      requestedHarness: 'codex',
+    }),
     settings: createBrowserSettingsProvider(),
   }))
   const bootstrap = useWorkspaceBootstrapQuery(client)
@@ -90,6 +97,11 @@ export function WorkspaceEntry({
   const accountLabel = accountAuthenticated
     ? (principal?.displayName ?? 'Account')
     : 'Not signed in'
+
+  useEffect(() => {
+    workspaceIdRef.current = activeWorkspace?.id
+    userIdRef.current = principal?.userId
+  }, [activeWorkspace?.id, principal?.userId])
 
   useEffect(() => setSelectedScene(scene), [scene, setSelectedScene])
 

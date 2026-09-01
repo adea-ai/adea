@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 
+import type { AgentHqApiClient } from '@agent-hq/api-client'
+
 import {
-  createBrowserPluginsProvider,
+  canonicalDigest,
+  canonicalJson,
+  mapRegistryCatalog,
+  verifyRegistryArtifacts,
+} from '../../src/marketplace-catalog'
+import {
+  createRegistryPluginsProvider,
   defaultPluginFilter,
   filterWorkspacePlugins,
   getPopularWorkspacePlugins,
@@ -9,113 +17,196 @@ import {
   popularWorkspacePluginIds,
   workspacePluginCategoryOrder,
 } from '../../src/plugins'
+import type { RegistryArtifactBundle, RegistryCatalog } from '../../src/marketplace-catalog'
 
-function memoryStorage() {
-  const values = new Map<string, string>()
+async function fixtureArtifacts(): Promise<{
+  artifacts: RegistryArtifactBundle
+  catalog: RegistryCatalog
+}> {
+  const release = {
+    capabilities: [
+      {
+        metadata: {},
+        name: 'Read mail',
+        paths: ['gmail.search'],
+        securityImpact: 'low',
+        type: 'connector',
+      },
+    ],
+    canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
+    contentResolution: 'complete' as const,
+    releaseId: `release:${'c'.repeat(64)}`,
+    releaseMetadata: { publishedAt: '2026-08-31T00:00:00.000Z' },
+    requiredConnectors: ['gmail'],
+    requiredCredentials: ['google.oauth'],
+    resolvedCommitSha: 'a'.repeat(40),
+  }
+  const plugin = {
+    authors: ['OpenAI'],
+    availableReleases: [release],
+    capabilitySummary: { connector: 1 },
+    categories: ['productivity'],
+    currentReleaseId: release.releaseId,
+    description: 'Search mail.',
+    displayName: 'Gmail',
+    harnessCompatibility: { codex: 'supported' },
+    homepage: 'https://example.com/gmail',
+    icons: ['https://example.com/gmail.svg'],
+    keywords: ['mail', 'schedule'],
+    license: { name: 'Apache-2.0' },
+    pluginId: 'plugin:openai-official:gmail',
+    productGroupingKey: 'gmail',
+    provenance: {
+      repositoryUrl: 'https://github.com/openai/plugins',
+      resolvedCommitSha: 'a'.repeat(40),
+    },
+    securityClassification: { level: 'standard' },
+    sourceId: 'openai-official',
+  }
+  const body = {
+    generatedAt: '2026-08-31T00:00:00.000Z',
+    plugins: [plugin],
+    schemaVersion: 1 as const,
+    sources: [{ sourceId: 'openai-official' }],
+  }
+  const catalogId = `catalog:${(await canonicalDigest(body)).slice('sha256:'.length)}`
+  const catalog = { ...body, catalogId }
+  const catalogText = JSON.stringify(catalog)
+  const summaryText = JSON.stringify({
+    catalogId,
+    generatedAt: body.generatedAt,
+    pluginCount: 1,
+    schemaVersion: 1,
+  })
+  const categoriesText = JSON.stringify({
+    categories: ['productivity'],
+    catalogId,
+    schemaVersion: 1,
+  })
+  const compatibilityText = JSON.stringify({ catalogId, plugins: [], schemaVersion: 1 })
+  const lockText = JSON.stringify({ catalogId, schemaVersion: 1, sources: [] })
+  const files = {
+    'catalog-summary.v1.json': summaryText,
+    'catalog.v1.json': catalogText,
+    'categories.v1.json': categoriesText,
+    'compatibility.v1.json': compatibilityText,
+    'sources.lock.json': lockText,
+  }
+  const integrityFiles: Record<string, string> = {}
+  for (const [name, text] of Object.entries(files))
+    integrityFiles[name] = await canonicalDigest(text)
+  const integrityText = JSON.stringify({ catalogId, files: integrityFiles, schemaVersion: 1 })
   return {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
+    artifacts: {
+      'catalog-latest.v1.json': catalogText,
+      'catalog-summary.v1.json': summaryText,
+      'catalog.v1.json': catalogText,
+      'categories.v1.json': categoriesText,
+      'compatibility.v1.json': compatibilityText,
+      'integrity.json': integrityText,
+      'sources.lock.json': lockText,
+    },
+    catalog,
   }
 }
 
-describe('workspace plugin catalog', () => {
-  test('persists added plugins and exposes them through Yours', async () => {
-    const storage = memoryStorage()
-    const provider = createBrowserPluginsProvider(storage)
-    const initial = await provider.list()
-    expect(filterWorkspacePlugins(initial, 'yours', '')).toEqual([])
-
-    const installed = await provider.setInstalled('github', true)
-    expect(filterWorkspacePlugins(installed, 'yours', '').map(({ id }) => id)).toEqual(['github'])
-    expect(
-      (await createBrowserPluginsProvider(storage).list()).find(({ id }) => id === 'github')
-    ).toMatchObject({ installed: true })
-
-    const removed = await provider.setInstalled('github', false)
-    expect(filterWorkspacePlugins(removed, 'yours', '')).toEqual([])
-  })
-
-  test('searches across plugin names, descriptions, publishers, and kinds', async () => {
-    const plugins = await createBrowserPluginsProvider(memoryStorage()).list()
-    expect(filterWorkspacePlugins(plugins, 'marketplace', 'schedule').map(({ id }) => id)).toEqual([
-      'outlook-calendar',
-    ])
-    expect(filterWorkspacePlugins(plugins, 'marketplace', 'skill').map(({ id }) => id)).toContain(
-      'room-summaries'
+describe('registry marketplace catalog', () => {
+  test('replicates canonical JSON and verifies every catalog artifact', async () => {
+    expect(canonicalJson({ z: 1, a: [2, { b: true, a: null }] })).toBe(
+      '{"a":[2,{"a":null,"b":true}],"z":1}'
     )
+    const fixture = await fixtureArtifacts()
+    const verified = await verifyRegistryArtifacts(fixture.artifacts)
+    expect(verified.catalog.catalogId).toBe(fixture.catalog.catalogId)
+    expect(verified.releaseId).toBe(fixture.catalog.catalogId)
   })
 
-  test('imports the pinned Codex official marketplace and keeps Agent HQ first-party plugins', async () => {
-    const plugins = await createBrowserPluginsProvider(memoryStorage()).list()
-    const official = plugins.filter(({ source }) => source === 'codex-official')
-
-    expect(official.length).toBeGreaterThanOrEqual(64)
-    expect(plugins).toHaveLength(official.length + 1)
-    expect(official.map(({ id }) => id)).toEqual(
-      expect.arrayContaining([
-        'codex-security',
-        'data-analytics',
-        'figma',
-        'github',
-        'notion',
-        'slack',
-        'stripe',
-        'vercel',
-        'zoom',
-      ])
-    )
-    expect(official.every(({ sourceRevision }) => sourceRevision?.length === 40)).toBe(true)
-    expect(plugins.find(({ id }) => id === 'room-summaries')).toMatchObject({
-      source: 'agent-hq',
-    })
-  })
-
-  test('supports type and ownership filter axes', async () => {
-    const plugins = await createBrowserPluginsProvider(memoryStorage()).list()
-
-    const skills = filterWorkspacePlugins(plugins, 'marketplace', '', {
-      ...defaultPluginFilter,
-      type: 'skills',
-    })
-    expect(skills.length).toBeGreaterThan(0)
-    expect(skills.every(({ kind }) => kind === 'skill')).toBe(true)
-    expect(skills.map(({ id }) => id)).toContain('room-summaries')
-    expect(
-      filterWorkspacePlugins(plugins, 'marketplace', '', {
-        ...defaultPluginFilter,
-        ownership: 'team',
+  test('rejects a tampered artifact and a non-identical latest pointer', async () => {
+    const fixture = await fixtureArtifacts()
+    await expect(
+      verifyRegistryArtifacts({
+        ...fixture.artifacts,
+        'catalog.v1.json': `${fixture.artifacts['catalog.v1.json']}\n`,
       })
-    ).toEqual([])
+    ).rejects.toThrow('digest mismatch')
+    await expect(
+      verifyRegistryArtifacts({ ...fixture.artifacts, 'catalog-latest.v1.json': '{}' })
+    ).rejects.toThrow('byte-identical')
   })
 
-  test('groups the catalog in Codex marketplace category order and omits empty groups', async () => {
-    const plugins = await createBrowserPluginsProvider(memoryStorage()).list()
-    const groups = groupWorkspacePlugins(plugins)
-
-    expect(groups.map(({ category }) => category)).toEqual(workspacePluginCategoryOrder)
-    expect(groups.every(({ plugins: items }) => items.length > 0)).toBe(true)
-    expect(groups.flatMap(({ plugins: items }) => items)).toHaveLength(plugins.length)
-    expect(workspacePluginCategoryOrder).toContain('Security')
+  test('maps source-qualified plugin IDs and preserves registry release metadata', async () => {
+    const fixture = await fixtureArtifacts()
+    const [plugin] = mapRegistryCatalog(fixture.catalog, [])
+    expect(plugin).toMatchObject({
+      canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
+      id: 'plugin:openai-official:gmail',
+      pluginId: 'plugin:openai-official:gmail',
+      releaseId: `release:${'c'.repeat(64)}`,
+      sourceId: 'openai-official',
+      sourceRevision: 'a'.repeat(40),
+    })
+    expect(plugin.icons).toEqual(['https://example.com/gmail.svg'])
+    expect(plugin.requiredConnectors).toEqual(['gmail'])
+    expect(plugin.requiredCredentials).toEqual(['google.oauth'])
   })
 
-  test('keeps the Codex popular providers in explicit discovery order', async () => {
-    const plugins = await createBrowserPluginsProvider(memoryStorage()).list()
-
-    expect(getPopularWorkspacePlugins(plugins).map(({ id }) => id)).toEqual(
-      popularWorkspacePluginIds
-    )
-    expect(popularWorkspacePluginIds).toEqual([
-      'gmail',
-      'github',
-      'google-drive',
-      'google-calendar',
-      'notion',
-      'slack',
+  test('loads the registry through the provider and submits the exact release request', async () => {
+    const fixture = await fixtureArtifacts()
+    const requests: unknown[] = []
+    const client = {
+      getMarketplaceCatalog: async () => ({
+        artifacts: fixture.artifacts,
+        catalogId: fixture.catalog.catalogId,
+        installations: [],
+        releaseId: fixture.catalog.catalogId,
+      }),
+      requestMarketplaceInstall: async (_workspaceId: string, input: unknown) => {
+        requests.push(input)
+        return {
+          canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
+          installationId: 'installation-1',
+          message: 'pending authorization',
+          releaseId: `release:${'c'.repeat(64)}`,
+          state: 'pending-authorization' as const,
+        }
+      },
+    } as unknown as AgentHqApiClient
+    const provider = createRegistryPluginsProvider({
+      client,
+      getWorkspaceId: () => 'workspace-1',
+      getUserId: () => 'user-1',
+      requestedHarness: 'codex',
+    })
+    const plugins = await provider.list()
+    expect(filterWorkspacePlugins(plugins, 'yours', '')).toEqual([])
+    const after = await provider.requestInstall('plugin:openai-official:gmail')
+    expect(requests).toEqual([
+      {
+        canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
+        idempotencyKey: `marketplace:plugin:openai-official:gmail:release:${'c'.repeat(64)}`,
+        pluginId: 'plugin:openai-official:gmail',
+        releaseId: `release:${'c'.repeat(64)}`,
+        requestedHarness: 'codex',
+        workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+      },
     ])
+    expect(after[0]?.installationStatus).toBe('pending-authorization')
+    expect(filterWorkspacePlugins(after, 'yours', '').map(({ id }) => id)).toEqual([])
   })
 
-  test('rejects unknown plugin ids instead of persisting arbitrary values', async () => {
-    const provider = createBrowserPluginsProvider(memoryStorage())
-    expect(provider.setInstalled('missing', true)).rejects.toThrow('Unknown plugin')
+  test('keeps Popular first and retains grouped previews for dynamic catalog categories', async () => {
+    const fixture = await fixtureArtifacts()
+    const plugins = mapRegistryCatalog(fixture.catalog, [])
+    expect(getPopularWorkspacePlugins(plugins).map(({ id }) => id)).toEqual([
+      'plugin:openai-official:gmail',
+    ])
+    expect(popularWorkspacePluginIds[0]).toBe('plugin:openai-official:gmail')
+    expect(groupWorkspacePlugins(plugins).map(({ category }) => category)).toEqual(['Productivity'])
+    expect(workspacePluginCategoryOrder).toContain('Productivity')
+    expect(
+      filterWorkspacePlugins(plugins, 'marketplace', 'schedule', {
+        ...defaultPluginFilter,
+      }).map(({ id }) => id)
+    ).toEqual(['plugin:openai-official:gmail'])
   })
 })

@@ -126,11 +126,11 @@ function PluginBrowserRow({
 }: Readonly<{ disabled: boolean; onSelect: () => void; plugin: WorkspacePlugin }>) {
   return (
     <button type="button" className="plugins-browser__row" disabled={disabled} onClick={onSelect}>
-      <PluginLogo iconKey={plugin.iconKey} name={plugin.name} />
+      <PluginLogo iconUrl={plugin.iconUrl} name={plugin.name} />
       <span className="plugins-browser__row-copy">
         <span className="plugins-browser__row-title">
           <strong>{plugin.name}</strong>
-          {plugin.installed ? <Badge variant="secondary">Added</Badge> : null}
+          {plugin.installed ? <Badge variant="secondary">Installed</Badge> : null}
         </span>
         <small>{plugin.description}</small>
         <span className="plugins-browser__row-meta">
@@ -203,7 +203,13 @@ function PluginBrowserGroup({
   )
 }
 
-function PluginListState({ status }: Readonly<{ status: 'error' | 'loading' }>) {
+function PluginListState({
+  catalogState,
+  status,
+}: Readonly<{
+  catalogState: 'stale' | 'unavailable' | 'verification-failure'
+  status: 'error' | 'loading'
+}>) {
   if (status === 'error') {
     return (
       <Empty role="alert">
@@ -211,8 +217,16 @@ function PluginListState({ status }: Readonly<{ status: 'error' | 'loading' }>) 
           <EmptyMedia variant="icon">
             <Blocks aria-hidden="true" />
           </EmptyMedia>
-          <EmptyTitle>Plugin catalog unavailable</EmptyTitle>
-          <EmptyDescription>Close Plugins and open it again to retry.</EmptyDescription>
+          <EmptyTitle>
+            {catalogState === 'verification-failure'
+              ? 'Plugin catalog could not be verified'
+              : 'Plugin catalog unavailable'}
+          </EmptyTitle>
+          <EmptyDescription>
+            {catalogState === 'verification-failure'
+              ? 'The catalog was rejected because its signed metadata did not verify.'
+              : 'Close Plugins and open it again to retry.'}
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     )
@@ -259,7 +273,7 @@ function PluginDetail({
   saving,
 }: Readonly<{
   onBack: () => void
-  onUpdate: (installed: boolean) => void
+  onUpdate: () => void
   plugin: WorkspacePlugin
   saving: boolean
 }>) {
@@ -270,17 +284,11 @@ function PluginDetail({
         Back to plugins
       </Button>
       <header className="plugins-detail__hero">
-        <PluginLogo iconKey={plugin.iconKey} name={plugin.name} />
+        <PluginLogo iconUrl={plugin.iconUrl} name={plugin.name} />
         <div>
           <div className="plugins-detail__eyebrow">
             <Badge variant="outline">{plugin.kind === 'connector' ? 'Connector' : 'Skill'}</Badge>
-            <Badge variant="secondary">
-              {plugin.source === 'codex-official'
-                ? 'Codex official'
-                : plugin.source === 'agent-hq'
-                  ? 'Agent HQ'
-                  : 'Community'}
-            </Badge>
+            <Badge variant="secondary">{plugin.sourceId ?? plugin.source}</Badge>
             <span>{plugin.category}</span>
           </div>
           <h3>{plugin.name}</h3>
@@ -292,14 +300,26 @@ function PluginDetail({
         <Button
           type="button"
           variant={plugin.installed ? 'outline' : 'default'}
-          disabled={saving}
-          onClick={() => onUpdate(!plugin.installed)}
+          disabled={saving || plugin.installationStatus !== 'available'}
+          onClick={onUpdate}
         >
-          {saving ? 'Saving…' : plugin.installed ? 'Remove' : 'Add'}
+          {saving
+            ? 'Requesting…'
+            : plugin.installationStatus === 'installed'
+              ? 'Installed'
+              : plugin.installationStatus === 'pending-authorization'
+                ? 'Authorization pending'
+                : plugin.installationStatus === 'rejected-by-policy'
+                  ? 'Rejected by policy'
+                  : plugin.installationStatus === 'superseded'
+                    ? 'Superseded'
+                    : plugin.installationStatus === 'unavailable'
+                      ? 'Unavailable'
+                      : 'Add'}
         </Button>
         {plugin.installed ? (
           <span role="status">
-            <Check aria-hidden="true" /> Added to Agent HQ
+            <Check aria-hidden="true" /> Installed through Control Plane
           </span>
         ) : null}
       </div>
@@ -332,10 +352,12 @@ function PluginDetail({
         <h4 id="plugin-source-heading">Bundle</h4>
         <p>{plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
         <small>
-          {plugin.source === 'codex-official'
-            ? `Pinned from openai/plugins${plugin.sourceRevision ? ` at ${plugin.sourceRevision.slice(0, 12)}` : ''}.`
-            : 'Maintained by Agent HQ.'}
+          {plugin.sourceUrl
+            ? `Source: ${plugin.sourceUrl}.`
+            : `Source: ${plugin.sourceId ?? plugin.source}.`}
+          {plugin.sourceRevision ? ` Commit: ${plugin.sourceRevision}.` : ''}
           {plugin.license ? ` License: ${plugin.license}.` : ''}
+          {plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
         </small>
       </section>
     </article>
@@ -357,6 +379,9 @@ export function PluginsDialog({
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [status, setStatus] = useState<'error' | 'idle' | 'loading' | 'saving'>('idle')
+  const [catalogState, setCatalogState] = useState<
+    'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
+  >('idle')
   const [tab, setTab] = useState<PluginTab>('marketplace')
   const [filters, setFilters] = useState<Record<PluginTab, WorkspacePluginFilter>>({
     marketplace: defaultPluginFilter,
@@ -383,6 +408,7 @@ export function PluginsDialog({
   useEffect(() => {
     if (!open) return
     setStatus('loading')
+    setCatalogState('loading')
     let active = true
     void provider
       ?.list()
@@ -390,9 +416,17 @@ export function PluginsDialog({
         if (!active) return
         setPlugins(items)
         setStatus('idle')
+        setCatalogState(provider?.getState?.() ?? 'ready')
       })
-      .catch(() => active && setStatus('error'))
-    if (!provider) setStatus('error')
+      .catch(() => {
+        if (!active) return
+        setCatalogState(provider?.getState?.() ?? 'unavailable')
+        setStatus('error')
+      })
+    if (!provider) {
+      setCatalogState('unavailable')
+      setStatus('error')
+    }
     return () => {
       active = false
     }
@@ -404,13 +438,15 @@ export function PluginsDialog({
     setSelectedId(null)
     onClose()
   }
-  const update = async (plugin: WorkspacePlugin, installed: boolean) => {
+  const update = async (plugin: WorkspacePlugin) => {
     if (!provider || status === 'saving') return
     setStatus('saving')
     try {
-      setPlugins(await provider.setInstalled(plugin.id, installed))
+      setPlugins(await provider.requestInstall(plugin.id))
       setStatus('idle')
+      setCatalogState(provider.getState?.() ?? 'ready')
     } catch {
+      setCatalogState(provider.getState?.() ?? 'unavailable')
       setStatus('error')
     }
   }
@@ -426,7 +462,7 @@ export function PluginsDialog({
       {selected ? (
         <PluginDetail
           onBack={() => setSelectedId(null)}
-          onUpdate={(installed) => void update(selected, installed)}
+          onUpdate={() => void update(selected)}
           plugin={selected}
           saving={status === 'saving'}
         />
@@ -463,7 +499,16 @@ export function PluginsDialog({
           </div>
           <TabsContent value={tab} className="plugins-browser__list">
             {status === 'loading' || status === 'error' ? (
-              <PluginListState status={status} />
+              <PluginListState
+                catalogState={
+                  catalogState === 'verification-failure'
+                    ? 'verification-failure'
+                    : catalogState === 'stale'
+                      ? 'stale'
+                      : 'unavailable'
+                }
+                status={status}
+              />
             ) : visible.length === 0 ? (
               <PluginsEmpty query={query} tab={tab} />
             ) : (
@@ -487,6 +532,16 @@ export function PluginsDialog({
               ))
             )}
           </TabsContent>
+          {catalogState === 'stale' && status === 'idle' ? (
+            <p className="plugins-browser__notice" role="status">
+              Showing the last-known-good catalog while the registry is unavailable.
+            </p>
+          ) : null}
+          {catalogState === 'verification-failure' && status === 'idle' ? (
+            <p className="plugins-browser__notice" role="alert">
+              The latest catalog failed integrity verification and was not accepted.
+            </p>
+          ) : null}
         </Tabs>
       )}
     </ModalDialog>

@@ -25,6 +25,11 @@
       "import": "./dist/plugins.js",
       "default": "./dist/plugins.js"
     },
+    "./marketplace-catalog": {
+      "types": "./dist/marketplace-catalog.d.ts",
+      "import": "./dist/marketplace-catalog.js",
+      "default": "./dist/marketplace-catalog.js"
+    },
     "./preferences": {
       "types": "./dist/preferences.d.ts",
       "import": "./dist/preferences.js",
