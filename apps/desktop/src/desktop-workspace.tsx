@@ -1,4 +1,5 @@
 import { hqHomeManifest, hqWorkManifest } from '@agent-hq/hq-scenes'
+import { configurableCharacterId } from '@agent-hq/characters'
 import { HqRoomScene } from '@agent-hq/hq-scenes/runtime'
 import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { VirtualRoomControls, type WorkspaceView } from '@agent-hq/workspace-ui'
@@ -37,7 +38,7 @@ export function DesktopWorkspace({
       <div className="workspace-scene-viewport">
         <HqRoomScene
           key={scene}
-          initialCharacter="cartoon-humanoid"
+          initialCharacter={configurableCharacterId}
           manifest={manifest}
           cameraViewMode="orthographic"
           showAccountDrawer={false}

@@ -15,6 +15,8 @@ export type CameraControllerOptions = {
   initialYaw?: number;
   initialPerspectivePitch?: number;
   characterScale?: number;
+  /** Override the perspective follow distance for scene-specific framing. */
+  perspectiveCameraDistance?: number;
   enableInput?: boolean;
   cameraBounds?: CameraBounds;
   /** Scene-specific top-down framing; defaults preserve existing World views. */
@@ -38,8 +40,10 @@ const PERSPECTIVE_FOV = 60;
 const CAMERA_NEAR = 0.05;
 const CAMERA_FAR = 2000;
 const ORTHOGRAPHIC_DISTANCE = 16;
-const CAMERA_OCCLUSION_PADDING = 0.15;
-const CAMERA_MIN_DISTANCE = 0.08;
+// Match Nifty World's follow camera: obstruction checks cap the camera at
+// the hit distance without adding an extra zoom-in padding offset.
+const CAMERA_OCCLUSION_PADDING = 0;
+const CAMERA_MIN_DISTANCE = CAMERA_NEAR * 1.5;
 // Preserve the World orthographic framing default; large HQ maps opt into
 // their own half-height through CameraControllerOptions.
 const DEFAULT_ORTHOGRAPHIC_HALF_HEIGHT = 12;
@@ -105,6 +109,7 @@ export class CameraController {
 
   private readonly canvas: HTMLCanvasElement;
   private readonly characterScale: number;
+  private readonly perspectiveBaseDistance: number;
   private readonly cameraBounds?: CameraBounds;
   private orthographicHalfHeight: number;
   private readonly orthographicPitch: number;
@@ -128,7 +133,7 @@ export class CameraController {
   private readonly orthographicPan = new THREE.Vector2();
   private readonly initialOrthographicPan = new THREE.Vector2();
   private orthographicBoundsPadding = 0;
-  private cameraDistance = CAMERA_DISTANCE;
+  private cameraDistance: number;
 
   constructor({
     canvas,
@@ -136,6 +141,7 @@ export class CameraController {
     initialYaw = 0,
     initialPerspectivePitch = -0.2,
     characterScale = 1,
+    perspectiveCameraDistance,
     enableInput = true,
     cameraBounds,
     orthographicHalfHeight = DEFAULT_ORTHOGRAPHIC_HALF_HEIGHT,
@@ -144,6 +150,11 @@ export class CameraController {
   }: CameraControllerOptions) {
     this.canvas = canvas;
     this.characterScale = characterScale;
+    this.perspectiveBaseDistance = Math.max(
+      perspectiveCameraDistance ?? CAMERA_DISTANCE * characterScale,
+      CAMERA_MIN_DISTANCE,
+    );
+    this.cameraDistance = this.perspectiveBaseDistance;
     this.cameraBounds = cameraBounds;
     this.orthographicHalfHeight = orthographicHalfHeight;
     this.orthographicPitch = orthographicPitch;
@@ -184,7 +195,7 @@ export class CameraController {
   }
 
   get baseDistance(): number {
-    return CAMERA_DISTANCE * this.characterScale;
+    return this.perspectiveBaseDistance;
   }
 
   get perspectiveDistance(): number {
@@ -347,7 +358,7 @@ export class CameraController {
     this.orthographicCamera.updateProjectionMatrix();
   }
 
-  update(target: THREE.Vector3, delta: number, obstructionDistance = this.baseDistance): void {
+  update(target: THREE.Vector3, delta: number, obstructionDistance = Infinity): void {
     this.updateInput(delta);
     const view = this.views[this.activeViewMode];
     this.viewDirection.set(

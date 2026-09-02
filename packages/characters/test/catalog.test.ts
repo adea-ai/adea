@@ -1,93 +1,159 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { describe, expect, test } from 'bun:test'
+import * as THREE from 'three'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   characterIds,
   characterLibraryAssets,
-  cartoonCharacterAssets,
+  referenceCharacterAssets,
+  referenceCharacterIds,
   characterPartAssets,
+  characterPartsBySlot,
+  configurableCharacterId,
   getCharacterManifest,
   isCharacterId,
   isCustomCharacterId,
-} from "../src";
+  normalizeInPlaceLocomotionClip,
+} from '../src'
+import { characterPartOffsets } from '../src/generated-part-offsets'
 
-const characterAssets = resolve(import.meta.dir, "../assets");
-const characterPartAssetsDirectory = characterAssets;
+const characterAssets = resolve(import.meta.dir, '../assets')
 
 interface GlbDocument {
-  meshes: readonly unknown[];
-  nodes: readonly { mesh?: number; name?: string }[];
-  skins: readonly unknown[];
+  meshes: readonly {
+    primitives?: readonly {
+      attributes?: Record<string, number>
+    }[]
+  }[]
+  materials?: readonly unknown[]
+  nodes: readonly {
+    mesh?: number
+    name?: string
+    skin?: number
+    children?: readonly number[]
+    translation?: readonly number[]
+  }[]
+  skins?: readonly { joints?: readonly number[] }[]
+  scenes?: readonly { nodes?: readonly number[] }[]
+  animations?: readonly { name?: string }[]
 }
 
 function readGlbJson(path: string): GlbDocument {
-  const bytes = readFileSync(path);
-  expect(bytes.toString("ascii", 0, 4)).toBe("glTF");
-  const jsonLength = bytes.readUInt32LE(12);
-  return JSON.parse(bytes.toString("utf8", 20, 20 + jsonLength).trim()) as GlbDocument;
+  const bytes = readFileSync(path)
+  expect(bytes.toString('ascii', 0, 4)).toBe('glTF')
+  const jsonLength = bytes.readUInt32LE(12)
+  return JSON.parse(bytes.toString('utf8', 20, 20 + jsonLength).trim()) as GlbDocument
 }
 
-describe("character package catalog", () => {
-  test("registers every built-in character with a packaged model", () => {
-    expect(characterIds).toHaveLength(1);
+describe('character package catalog', () => {
+  test('registers the configurable character with a packaged model', () => {
+    expect(characterIds[0]).toBe(configurableCharacterId)
+    expect(referenceCharacterIds).toHaveLength(25)
+    expect(characterIds).toHaveLength(26)
+    const manifest = getCharacterManifest(configurableCharacterId)
+    const referenceManifest = getCharacterManifest('f_1')
 
-    for (const id of characterIds) {
-      const manifest = getCharacterManifest(id);
-      expect(isCharacterId(id)).toBe(true);
-      expect(manifest?.assetUrl).toBeTruthy();
-      expect(existsSync(resolve(characterAssets, manifest!.assetUrl.split("/").pop()!))).toBe(true);
-    }
-  });
+    expect(isCharacterId(configurableCharacterId)).toBe(true)
+    expect(isCharacterId('f_1')).toBe(true)
+    expect(manifest?.assetUrl).toBe('/assets/models/characters.glb')
+    expect(referenceManifest?.assetUrl).toBe('/assets/models/_complete/f_1.glb')
+    expect(existsSync(resolve(characterAssets, 'characters.glb'))).toBe(true)
+    expect(referenceCharacterAssets).toHaveLength(referenceCharacterIds.length)
+  })
 
-  test("catalogues every wearable and character part from the package", () => {
-    expect(characterPartAssets).toHaveLength(381);
+  test('catalogues every wearable and character part', () => {
+    expect(characterPartAssets).toHaveLength(378)
+    expect(new Set(characterPartAssets.map((asset) => asset.id)).size).toBe(378)
+    expect(Object.keys(characterPartOffsets)).toHaveLength(characterPartAssets.length)
+    expect(characterPartAssets.every((asset) => characterPartOffsets[asset.id])).toBe(true)
+    expect(characterPartsBySlot('ears')).toHaveLength(16)
+    expect(characterPartsBySlot('ears').every((part) => part.file.startsWith('ears/'))).toBe(true)
+    expect(characterPartsBySlot('costume')).toHaveLength(51)
+    expect(characterPartsBySlot('costume').every((part) => part.file.startsWith('costume/'))).toBe(true)
+    expect(characterPartsBySlot('accessory').every((part) => !part.file.includes('/Ears_'))).toBe(true)
 
     for (const asset of characterPartAssets) {
-      expect(
-        existsSync(
-          resolve(characterPartAssetsDirectory, asset.assetUrl.split("/models/")[1]),
-        ),
-      ).toBe(true);
+      expect(existsSync(resolve(characterAssets, asset.assetUrl.split('/models/')[1]))).toBe(true)
     }
-  });
+  })
 
-  test("does not expose the removed legacy character set", () => {
-    expect(isCustomCharacterId("custom-casual")).toBe(false);
-    expect(getCharacterManifest("cashier")).toBeUndefined();
-    expect(existsSync(resolve(characterAssets, "1_Cashier.glb"))).toBe(false);
-  });
+  test('exposes presets while keeping reference characters out of the runtime catalog', () => {
+    expect(isCustomCharacterId('default')).toBe(true)
+    expect(getCharacterManifest('default')?.assetUrl).toBe('/assets/models/characters.glb')
+    expect(isCustomCharacterId('custom-casual')).toBe(false)
+    expect(getCharacterManifest('cashier')).toBeUndefined()
+    expect(referenceCharacterAssets.every((asset) => existsSync(resolve(characterAssets, asset.assetUrl.split('/models/')[1])))).toBe(true)
 
-  test("retains the complete Cute source-library export", () => {
-    expect(characterLibraryAssets).toHaveLength(1);
-    for (const asset of characterLibraryAssets) {
-      expect(existsSync(resolve(characterAssets, asset.assetUrl.split("/").pop()!))).toBe(true);
+    const referenceDirectory = resolve(characterAssets, '_complete')
+    expect(existsSync(resolve(referenceDirectory, 'f_1.glb'))).toBe(true)
+    expect(existsSync(resolve(referenceDirectory, 'm_13.glb'))).toBe(true)
+  })
+
+  test('retains the character and animation libraries', () => {
+    expect(characterLibraryAssets).toEqual([
+      {
+        id: 'characters-library',
+        label: 'Characters Library',
+        assetUrl: '/assets/models/characters.glb',
+      },
+    ])
+
+    const animationDocument = readGlbJson(resolve(characterAssets, 'runtime.glb'))
+    expect(animationDocument.animations).toHaveLength(29)
+    const animationNames = new Set(animationDocument.animations?.map((animation) => animation.name))
+    expect(
+      ['Idle_Relaxed', 'Walk_Forward', 'Run_Forward', 'Jump_Start', 'Jump_Loop', 'Jump_End'].every(
+        (name) => animationNames.has(name)
+      )
+    ).toBe(true)
+    expect(animationDocument.meshes?.length ?? 0).toBeGreaterThan(0)
+    expect(animationDocument.skins?.length ?? 0).toBeGreaterThan(0)
+    expect(animationDocument.skins?.every((skin) => skin.joints?.length === 44)).toBe(true)
+  })
+
+  test('removes horizontal root motion from locomotion clips', () => {
+    const clip = new THREE.AnimationClip('Run_Forward', 1, [
+      new THREE.VectorKeyframeTrack(
+        'Hips.position',
+        [0, 0.5, 1],
+        [0, 0.3, 0, 0, 0.4, 0.6, 0, 0.3, 1.2]
+      ),
+      new THREE.VectorKeyframeTrack('Spine.position', [0, 1], [0, 0, 0, 0, 0.1, 0]),
+    ])
+
+    const normalized = normalizeInPlaceLocomotionClip(clip)
+    const hipsTrack = normalized.tracks.find((track) => track.name === 'Hips.position')
+    const spineTrack = normalized.tracks.find((track) => track.name === 'Spine.position')
+
+    expect(Array.from(hipsTrack!.values)).toEqual(
+      Array.from(new Float32Array([0, 0.3, 0, 0, 0.4, 0, 0, 0.3, 0]))
+    )
+    expect(Array.from(spineTrack!.values)).toEqual(
+      Array.from(new Float32Array([0, 0, 0, 0, 0.1, 0]))
+    )
+    expect(Array.from(clip.tracks[0]!.values)).toEqual(
+      Array.from(new Float32Array([0, 0.3, 0, 0, 0.4, 0.6, 0, 0.3, 1.2]))
+    )
+  })
+
+  test('keeps the runtime library skinned to the shared 44-bone rig', () => {
+    const library = readGlbJson(resolve(characterAssets, 'characters.glb'))
+    expect(library.scenes?.[0]?.nodes?.map((nodeId) => library.nodes[nodeId]?.name)).toEqual([
+      'Skeleton_01',
+    ])
+    const skeletonNodeId = library.nodes.findIndex((node) => node.name === 'Skeleton_01')
+    expect(
+      library.nodes[skeletonNodeId]?.children?.map((nodeId) => library.nodes[nodeId]?.name)
+    ).toContain('Root')
+    expect(library.skins?.length ?? 0).toBeGreaterThan(0)
+    expect(library.skins?.every((skin) => skin.joints?.length === 44)).toBe(true)
+    const visibleNodeIds = new Set<number>()
+    const visit = (nodeId: number) => {
+      if (visibleNodeIds.has(nodeId)) return
+      visibleNodeIds.add(nodeId)
+      library.nodes[nodeId]?.children?.forEach(visit)
     }
-  });
-
-  test("catalogues every split Cartoon assembled character", () => {
-    expect(cartoonCharacterAssets).toHaveLength(25);
-    expect(new Set(cartoonCharacterAssets.map((asset) => asset.name)).size).toBe(25);
-    expect(new Set(cartoonCharacterAssets.map((asset) => asset.variant))).toEqual(
-      new Set(["humanoid"]),
-    );
-
-    for (const asset of cartoonCharacterAssets) {
-      const path = resolve(characterAssets, asset.assetUrl.split("/models/")[1]);
-      expect(existsSync(path)).toBe(
-        true,
-      );
-      const document = readGlbJson(path);
-      expect(document.meshes).toHaveLength(1);
-      expect(document.skins).toHaveLength(1);
-      expect(
-        document.nodes.filter((node) => Number.isInteger(node.mesh)).map((node) => node.name),
-      ).toEqual([asset.name]);
-    }
-  });
-
-  test("does not ship the removed Cartoon Standard or all-library assets", () => {
-    expect(existsSync(resolve(characterAssets, "cartoon-3-standard-runtime.glb"))).toBe(false);
-    expect(existsSync(resolve(characterAssets, "cartoon-3-standard-all.glb"))).toBe(false);
-    expect(existsSync(resolve(characterAssets, "cartoon-3-humanoid-all.glb"))).toBe(false);
-  });
-});
+    library.scenes?.[0]?.nodes?.forEach(visit)
+    expect([...visibleNodeIds].filter((nodeId) => library.nodes[nodeId]?.skin != null)).toHaveLength(378)
+  })
+})

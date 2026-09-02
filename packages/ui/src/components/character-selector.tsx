@@ -4,6 +4,27 @@ import { useState } from "react";
 import { Check, ChevronDown, ChevronUp, UserRound } from "lucide-react";
 import { cn } from "#lib/utils";
 import { Button } from "#components/ui/button";
+import type {
+  CharacterConfiguration,
+  CharacterConfigurationSlot,
+  CharacterPartOption,
+} from "@agent-hq/characters";
+
+const configurableSlots: readonly CharacterConfigurationSlot[] = [
+  "body",
+  "ears",
+  "face",
+  "hair",
+  "hat",
+  "top",
+  "bottom",
+  "shoes",
+  "socks",
+  "glasses",
+  "gloves",
+  "accessory",
+  "costume",
+];
 
 export type CharacterOption = {
   id: string;
@@ -17,6 +38,28 @@ export type CharacterSelectorProps = {
   onValueChange: (value: string) => void;
   /** Number of characters shown before the "show more" toggle. */
   maxVisible?: number;
+};
+
+export type CharacterCustomizerProps = {
+  value: CharacterConfiguration;
+  options: readonly CharacterPartOption[];
+  onValueChange: (value: CharacterConfiguration) => void;
+};
+
+const slotLabels: Record<CharacterConfigurationSlot, string> = {
+  body: "Body",
+  ears: "Ears",
+  face: "Face",
+  hair: "Hair",
+  hat: "Hat",
+  top: "Top",
+  bottom: "Bottom",
+  shoes: "Shoes",
+  socks: "Socks",
+  glasses: "Glasses",
+  gloves: "Gloves",
+  accessory: "Accessory",
+  costume: "Costume",
 };
 
 export function CharacterSelector({
@@ -104,5 +147,43 @@ export function CharacterSelector({
         </Button>
       )}
     </div>
+  );
+}
+
+export function CharacterCustomizer({ value, options, onValueChange }: CharacterCustomizerProps) {
+  return (
+    <details className="rounded-xl border border-border bg-muted/20 px-3 py-2">
+      <summary className="cursor-pointer text-sm font-medium focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+        Customize appearance
+      </summary>
+      <div className="mt-3 grid gap-3">
+        {configurableSlots.map((slot) => {
+          const slotOptions = options.filter((option) => option.slot === slot);
+          const selected = value[slot];
+          return (
+            <label key={slot} className="grid gap-1 text-sm">
+              <span className="font-medium">{slotLabels[slot]}</span>
+              <select
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                value={selected ?? ""}
+                onChange={(event) =>
+                  onValueChange({
+                    ...value,
+                    [slot]: event.currentTarget.value || null,
+                  } as CharacterConfiguration)
+                }
+              >
+                {slot !== "body" ? <option value="">None</option> : null}
+                {slotOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          );
+        })}
+      </div>
+    </details>
   );
 }

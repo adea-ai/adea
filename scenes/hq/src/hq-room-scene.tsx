@@ -10,6 +10,12 @@ import {
   customCharacterIds,
   isCustomCharacterId,
   getCustomCharacterLabel,
+  characterPartCatalog,
+  configurableCharacterId,
+  getCharacterConfiguration,
+  isCharacterConfigurationId,
+  serializeCharacterConfiguration,
+  type CharacterConfiguration,
 } from "@agent-hq/characters";
 import type { AmbientAnimals } from "@agent-hq/pets";
 import { interiorPropAssets } from "@agent-hq/interior";
@@ -62,6 +68,9 @@ const galleryEnvironments = {
   home: {
     background: 0x131923,
     backgroundTextureUrl: landscapeHorizonBackgrounds.home,
+    // Render the horizon in clip space so it never pans or rotates with the
+    // perspective follow camera.
+    backgroundTextureMapping: "2d",
     backgroundTextureOffset: [0, -0.04],
     backgroundTexturePerspectiveOnly: true,
     hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
@@ -72,6 +81,9 @@ const galleryEnvironments = {
   work: {
     background: 0x131923,
     backgroundTextureUrl: landscapeHorizonBackgrounds.work,
+    // Render the horizon in clip space so it never pans or rotates with the
+    // perspective follow camera.
+    backgroundTextureMapping: "2d",
     backgroundTextureOffset: [0, -0.04],
     backgroundTexturePerspectiveOnly: true,
     hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
@@ -873,7 +885,14 @@ export function HqRoomScene({
   roomDesignerTargetId?: string;
   sceneEditorTargetId?: string;
 }) {
-  const [character, setCharacter] = useState(initialCharacter);
+  const initialCharacterConfiguration = getCharacterConfiguration(initialCharacter);
+  const initialCharacterId = isCharacterConfigurationId(initialCharacter)
+    ? configurableCharacterId
+    : initialCharacter;
+  const [character, setCharacter] = useState(initialCharacterId);
+  const [characterConfiguration, setCharacterConfiguration] = useState<
+    CharacterConfiguration | undefined
+  >(initialCharacterConfiguration);
   const visualTheme: HqVisualTheme = manifest.id === "hq-work" ? "work" : "home";
   const setupEnvironment = useCallback(
     (visual: THREE.Group) => setupHqEnvironment(visual, visualTheme),
@@ -1035,8 +1054,17 @@ export function HqRoomScene({
   const handleCharacterChange = (nextCharacter: string) => {
     if (!isCharacterId(nextCharacter) && !isCustomCharacterId(nextCharacter)) return;
     setCharacter(nextCharacter);
+    setCharacterConfiguration(getCharacterConfiguration(nextCharacter));
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("character", nextCharacter);
+    window.history.replaceState(null, "", nextUrl);
+  };
+
+  const handleCharacterConfigurationChange = (nextConfiguration: CharacterConfiguration) => {
+    setCharacter(configurableCharacterId);
+    setCharacterConfiguration(nextConfiguration);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("character", serializeCharacterConfiguration(nextConfiguration));
     window.history.replaceState(null, "", nextUrl);
   };
 
@@ -1048,6 +1076,9 @@ export function HqRoomScene({
       character={character}
       onCharacterChange={handleCharacterChange}
       characterOptions={characterOptions}
+      characterConfiguration={characterConfiguration}
+      onCharacterConfigurationChange={handleCharacterConfigurationChange}
+      characterPartOptions={characterPartCatalog}
       accountTargetId={accountTargetId}
       accountLabel={accountLabel}
       accountAuthenticated={accountAuthenticated}
