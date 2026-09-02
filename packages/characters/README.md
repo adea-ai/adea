@@ -21,8 +21,9 @@ only as menu examples, not as configurable wearable parts.
 ## Asset provenance and regeneration
 
 The checked-in GLBs are browser runtime artifacts. Original BLEND/FBX files are
-external authoring inputs and must not be referenced by runtime code or copied
-into this package.
+external authoring inputs and must not be referenced by runtime code or shipped
+to clients. The optional files under `_complete/original-blend/` are retained
+only as local provenance references and are excluded from the public asset sync.
 
 Export the canonical character runtime from an external source file with:
 
@@ -34,6 +35,11 @@ cp /tmp/runtime.raw.glb packages/characters/assets/runtime.glb
 bun run assets:optimize:runtime
 bun run assets:check
 ```
+
+For the complete imported asset collection, use `bun run assets:optimize:all`.
+It applies high-quality WebP texture conversion and high-precision Meshopt
+compression without mesh simplification; `bun run assets:check` validates the
+full collection.
 
 Prepare the full skinned character library and its placement metadata with:
 
