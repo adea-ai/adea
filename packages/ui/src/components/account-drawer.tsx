@@ -13,12 +13,6 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "#components/ui/drawer";
-import {
-  CharacterCustomizer,
-  CharacterSelector,
-  type CharacterOption,
-} from "./character-selector";
-import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
 import { ThemeToggle } from "./theme-toggle";
 
 export type AccountDrawerProps = {
@@ -26,12 +20,6 @@ export type AccountDrawerProps = {
   authenticated?: boolean;
   busy?: boolean;
   musicControl?: ReactNode;
-  characterOptions: readonly CharacterOption[];
-  character: string;
-  onCharacterChange: (character: string) => void;
-  characterConfiguration?: CharacterConfiguration;
-  onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void;
-  characterPartOptions?: readonly CharacterPartOption[];
   triggerTargetId?: string;
   onSignIn?: () => void;
   onSignOut?: () => void;
@@ -42,12 +30,6 @@ export function AccountDrawer({
   authenticated = false,
   busy = false,
   musicControl,
-  characterOptions,
-  character,
-  onCharacterChange,
-  characterConfiguration,
-  onCharacterConfigurationChange,
-  characterPartOptions = [],
   triggerTargetId,
   onSignIn,
   onSignOut,
@@ -102,26 +84,6 @@ export function AccountDrawer({
           </div>
         </DrawerHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-5">
-          <section className="space-y-3" aria-labelledby="account-character-title">
-            <div>
-              <h2 id="account-character-title" className="text-sm font-semibold">
-                Character
-              </h2>
-              <p className="text-sm text-muted-foreground">Choose the character for this scene.</p>
-            </div>
-            <CharacterSelector
-              options={characterOptions}
-              value={character}
-              onValueChange={onCharacterChange}
-            />
-            {characterConfiguration && onCharacterConfigurationChange ? (
-              <CharacterCustomizer
-                value={characterConfiguration}
-                options={characterPartOptions}
-                onValueChange={onCharacterConfigurationChange}
-              />
-            ) : null}
-          </section>
           {musicControl ? (
             <section
               className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t pt-5"

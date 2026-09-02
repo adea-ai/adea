@@ -866,6 +866,7 @@ export function HqRoomScene({
   showAccountDrawer,
   cameraTargetId,
   roomDesignerTargetId,
+  characterDesignerTargetId,
   sceneEditorTargetId,
 }: {
   initialCharacter: string;
@@ -883,6 +884,7 @@ export function HqRoomScene({
   showAccountDrawer?: boolean;
   cameraTargetId?: string;
   roomDesignerTargetId?: string;
+  characterDesignerTargetId?: string;
   sceneEditorTargetId?: string;
 }) {
   const initialCharacterConfiguration = getCharacterConfiguration(initialCharacter);
@@ -1068,6 +1070,23 @@ export function HqRoomScene({
     window.history.replaceState(null, "", nextUrl);
   };
 
+  const handleCharacterSave = ({
+    character: savedCharacter,
+    configuration,
+  }: {
+    character: string;
+    configuration?: CharacterConfiguration;
+  }) => {
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set(
+      "character",
+      savedCharacter === configurableCharacterId && configuration
+        ? serializeCharacterConfiguration(configuration)
+        : savedCharacter,
+    );
+    window.history.replaceState(null, "", nextUrl);
+  };
+
   return (
     <SceneWrapper
       manifest={manifest}
@@ -1078,6 +1097,7 @@ export function HqRoomScene({
       characterOptions={characterOptions}
       characterConfiguration={characterConfiguration}
       onCharacterConfigurationChange={handleCharacterConfigurationChange}
+      onCharacterConfigurationReset={() => setCharacterConfiguration(undefined)}
       characterPartOptions={characterPartCatalog}
       accountTargetId={accountTargetId}
       accountLabel={accountLabel}
@@ -1089,7 +1109,9 @@ export function HqRoomScene({
       showAccountDrawer={showAccountDrawer}
       cameraTargetId={cameraTargetId}
       roomDesignerTargetId={roomDesignerTargetId}
+      characterDesignerTargetId={characterDesignerTargetId}
       sceneEditorTargetId={sceneEditorTargetId}
+      onCharacterSave={handleCharacterSave}
       cameraViewMode={cameraViewMode}
       onCameraViewModeChange={onCameraViewModeChange}
       characterScale={hqCharacterScale}
@@ -1111,6 +1133,8 @@ export function HqRoomScene({
       enableSceneEditor
       sceneEditorAvailable
       sceneEditorLockedObjectPrefixes={hqSceneEditorLockedObjectPrefixes}
+      characterDesignerAvailable
+      enableCharacterDesigner
       roomDesignerAvailable
       enableRoomDesigner
       roomDesignerSceneScale={hqRuntimeScale}
