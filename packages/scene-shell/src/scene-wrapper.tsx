@@ -29,6 +29,7 @@ import type {
   StaticColliderConfig,
 } from "@agent-hq/scene-runtime";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
+import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
 import { Portals, type PortalLink } from "./portals";
 import { PropColliders } from "./prop-colliders";
 import type { RoomDesignerAsset, RoomDesignerRect } from "./room-designer";
@@ -82,6 +83,9 @@ export type SceneWrapperProps = {
   character: string;
   onCharacterChange: (character: string) => void;
   characterOptions: readonly CharacterOption[];
+  characterConfiguration?: CharacterConfiguration;
+  onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void;
+  characterPartOptions?: readonly CharacterPartOption[];
   characterScale?: CharacterScale;
   /** Uniform authored-world scale applied to visuals, physics, navigation, and camera framing. */
   sceneScale?: number;
@@ -208,6 +212,9 @@ export function SceneWrapper({
   character,
   onCharacterChange,
   characterOptions,
+  characterConfiguration,
+  onCharacterConfigurationChange,
+  characterPartOptions,
   characterScale = DEFAULT_CHARACTER_SCALE,
   sceneScale = 1,
   movementSpeedFactor = 1,
@@ -479,6 +486,7 @@ export function SceneWrapper({
         label={manifest.label}
         viewportMode={viewportMode}
         characterId={character}
+        characterConfiguration={characterConfiguration}
         assetUrl={manifest.entryAssetUrl}
         entryZoneId={manifest.entryZoneId}
         preserveEntryCollision={manifest.preserveEntryCollision}
@@ -605,6 +613,9 @@ export function SceneWrapper({
       <SceneSettings
         characterOptions={characterOptions}
         character={character}
+        characterConfiguration={characterConfiguration}
+        onCharacterConfigurationChange={onCharacterConfigurationChange}
+        characterPartOptions={characterPartOptions}
         onCharacterChange={onCharacterChange}
         cameraViewMode={activeCameraViewMode}
         onCameraViewModeChange={onCameraViewModeChange}

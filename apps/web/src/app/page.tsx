@@ -1,6 +1,10 @@
 import type { Metadata } from 'next'
 import { hqSceneFromSearchParams } from '@agent-hq/app-core'
-import { isCharacterId, isCustomCharacterId } from '@agent-hq/characters'
+import {
+  configurableCharacterId,
+  isCharacterId,
+  isCustomCharacterId,
+} from '@agent-hq/characters'
 import { readSceneStartPosition } from '@agent-hq/scene-shell/scene-spawn'
 import { WorkspaceEntry } from '../components/workspace-entry'
 
@@ -34,7 +38,7 @@ export default async function HomePage({
       spatial={view === 'spatial'}
       spatialProps={{
         initialScene: hqSceneFromSearchParams(params),
-        initialCharacter: isValidCharacter ? requestedCharacter! : 'cashier',
+        initialCharacter: isValidCharacter ? requestedCharacter! : configurableCharacterId,
         startPosition: readSceneStartPosition(params.spawn),
         cameraViewMode:
           cameraParam === 'perspective' || cameraParam === 'orthographic' ? cameraParam : undefined,
