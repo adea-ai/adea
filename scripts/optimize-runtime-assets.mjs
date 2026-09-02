@@ -7,6 +7,9 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const runtimeAssetSources = [
   [resolve(repoRoot, "packages/characters/assets"), "runtime.glb"],
   [resolve(repoRoot, "packages/characters/assets"), "characters.glb"],
+  // Reference characters are selectable at runtime, so keep their transfer
+  // and decode costs in the same compression gate as the shared libraries.
+  [resolve(repoRoot, "packages/characters/assets"), "_complete/**/*.glb"],
   [resolve(repoRoot, "packages/pets/assets"), "**/*.glb"],
   [resolve(repoRoot, "packages/landscape/assets"), "**/*.glb"],
 ];
