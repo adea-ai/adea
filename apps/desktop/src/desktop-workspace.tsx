@@ -24,6 +24,7 @@ export function DesktopWorkspace({ client, onWorkspaceViewChange, scene }: Deskt
           showAccountDrawer={false}
           cameraTargetId="workspace-camera-slot"
           roomDesignerTargetId="workspace-scene-tools-slot"
+          characterDesignerTargetId="workspace-scene-tools-slot"
           sceneEditorTargetId="workspace-scene-tools-slot"
         />
 

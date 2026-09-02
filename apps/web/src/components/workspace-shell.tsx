@@ -146,6 +146,7 @@ export function WorkspaceShell({
             showAccountDrawer={false}
             cameraTargetId="workspace-camera-slot"
             roomDesignerTargetId="workspace-scene-tools-slot"
+            characterDesignerTargetId="workspace-scene-tools-slot"
             sceneEditorTargetId="workspace-scene-tools-slot"
           />
         </Profiler>

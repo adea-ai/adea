@@ -1,4 +1,7 @@
 export { SceneWrapper, type SceneWrapperProps } from "./scene-wrapper";
+// CharacterDesigner is loaded by SceneWrapper only when enabled. Keep its
+// public types available without pulling its implementation into consumers.
+export type { CharacterDesignerProps, CharacterDesignerValue } from "./character-designer";
 // RoomDesigner and SceneEditor are loaded by SceneWrapper only when enabled.
 // Keep their public types available without pulling their implementation into
 // every consumer of the shell entry point.

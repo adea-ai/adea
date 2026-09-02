@@ -46,6 +46,10 @@ const RoomDesigner = dynamic(
   () => import("./room-designer").then((module) => module.RoomDesigner),
   { ssr: false },
 );
+const CharacterDesigner = dynamic(
+  () => import("./character-designer").then((module) => module.CharacterDesigner),
+  { ssr: false },
+);
 const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = [];
 
 function DevelopmentSceneEditor({
@@ -85,6 +89,11 @@ export type SceneWrapperProps = {
   characterOptions: readonly CharacterOption[];
   characterConfiguration?: CharacterConfiguration;
   onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void;
+  onCharacterConfigurationReset?: () => void;
+  onCharacterSave?: (value: {
+    character: string;
+    configuration?: CharacterConfiguration;
+  }) => void | boolean | Promise<void | boolean>;
   characterPartOptions?: readonly CharacterPartOption[];
   characterScale?: CharacterScale;
   /** Uniform authored-world scale applied to visuals, physics, navigation, and camera framing. */
@@ -161,8 +170,13 @@ export type SceneWrapperProps = {
   cameraTargetId?: string;
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
   roomDesignerTargetId?: string;
+  /** DOM target for the standalone character designer trigger. */
+  characterDesignerTargetId?: string;
   /** DOM target for the development scene editor trigger when an app supplies a shell toolbar. */
   sceneEditorTargetId?: string;
+  /** Register the standalone character designer for apps with character parts. */
+  characterDesignerAvailable?: boolean;
+  enableCharacterDesigner?: boolean;
   /** Register the top-down room designer for apps with authored room maps. */
   roomDesignerAvailable?: boolean;
   enableRoomDesigner?: boolean;
@@ -214,6 +228,8 @@ export function SceneWrapper({
   characterOptions,
   characterConfiguration,
   onCharacterConfigurationChange,
+  onCharacterConfigurationReset,
+  onCharacterSave,
   characterPartOptions,
   characterScale = DEFAULT_CHARACTER_SCALE,
   sceneScale = 1,
@@ -263,7 +279,10 @@ export function SceneWrapper({
   showAccountDrawer,
   cameraTargetId,
   roomDesignerTargetId,
+  characterDesignerTargetId,
   sceneEditorTargetId,
+  characterDesignerAvailable = false,
+  enableCharacterDesigner = false,
   roomDesignerAvailable = false,
   enableRoomDesigner = false,
   roomDesignerSceneScale = sceneScale,
@@ -284,6 +303,12 @@ export function SceneWrapper({
   onDebugApiReady,
 }: SceneWrapperProps) {
   const canUseSceneEditor = enableSceneEditor && sceneEditorAvailable;
+  const canUseCharacterDesigner =
+    enableCharacterDesigner &&
+    characterDesignerAvailable &&
+    characterPartOptions !== undefined &&
+    characterPartOptions.length > 0 &&
+    Boolean(onCharacterConfigurationChange);
   const canUseRoomDesigner =
     enableRoomDesigner && roomDesignerAvailable && Boolean(roomDesignerMapBounds);
   const debugApiRef = useRef<SceneDebugApi | null>(null);
@@ -313,6 +338,13 @@ export function SceneWrapper({
   }, [cameraViewMode, queryCameraViewMode]);
 
   const [sceneEditorEnabled, setSceneEditorEnabled] = useState(false);
+  const [characterDesignerEnabled, setCharacterDesignerEnabled] = useState(false);
+  const [characterDesignerHasEdits, setCharacterDesignerHasEdits] = useState(false);
+  const [pendingCharacterDesignerClose, setPendingCharacterDesignerClose] = useState<{
+    href?: string;
+  } | null>(null);
+  const characterDesignerSaveRef = useRef<(() => Promise<boolean>) | null>(null);
+  const characterDesignerNavigationAllowedRef = useRef(false);
   const [roomDesignerEnabled, setRoomDesignerEnabled] = useState(false);
   const [roomDesignerHasEdits, setRoomDesignerHasEdits] = useState(false);
   const [pendingRoomDesignerClose, setPendingRoomDesignerClose] = useState<{
@@ -350,10 +382,24 @@ export function SceneWrapper({
   }, [canUseSceneEditor]);
 
   useEffect(() => {
+    if (!canUseCharacterDesigner) return;
+    const value = new URLSearchParams(window.location.search).get("characterDesigner");
+    setCharacterDesignerEnabled(value !== null && value !== "0");
+  }, [canUseCharacterDesigner]);
+
+  useEffect(() => {
     if (!canUseRoomDesigner) return;
     const value = new URLSearchParams(window.location.search).get("roomDesigner");
     setRoomDesignerEnabled(value !== null && value !== "0");
   }, [canUseRoomDesigner]);
+
+  const applyCharacterDesignerChange = (enabled: boolean) => {
+    setCharacterDesignerEnabled(enabled);
+    const nextUrl = new URL(window.location.href);
+    if (enabled) nextUrl.searchParams.set("characterDesigner", "");
+    else nextUrl.searchParams.set("characterDesigner", "0");
+    window.history.replaceState(null, "", nextUrl);
+  };
 
   const applyRoomDesignerChange = (enabled: boolean) => {
     setRoomDesignerEnabled(enabled);
@@ -391,13 +437,83 @@ export function SceneWrapper({
     }
   };
 
+  const requestCharacterDesignerClose = () => {
+    if (characterDesignerHasEdits) {
+      setPendingCharacterDesignerClose({});
+      return;
+    }
+    applyCharacterDesignerChange(false);
+  };
+
+  const onCharacterDesignerChange = (enabled: boolean) => {
+    if (!enabled) {
+      requestCharacterDesignerClose();
+      return;
+    }
+    if (roomDesignerEnabled) {
+      if (roomDesignerHasEdits) {
+        requestRoomDesignerClose();
+        return;
+      }
+      applyRoomDesignerChange(false);
+    }
+    applyCharacterDesignerChange(true);
+  };
+
   const onRoomDesignerChange = (enabled: boolean) => {
     if (!enabled) {
       requestRoomDesignerClose();
       return;
     }
+    if (characterDesignerEnabled) {
+      if (characterDesignerHasEdits) {
+        requestCharacterDesignerClose();
+        return;
+      }
+      applyCharacterDesignerChange(false);
+    }
     applyRoomDesignerChange(true);
   };
+
+  useEffect(() => {
+    if (!pendingCharacterDesignerClose) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setPendingCharacterDesignerClose(null);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [pendingCharacterDesignerClose]);
+
+  useEffect(() => {
+    if (!characterDesignerEnabled || !characterDesignerHasEdits) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (characterDesignerNavigationAllowedRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const onDocumentClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        !(target instanceof Element) ||
+        target.closest('[data-character-designer-modal], [aria-label="Character designer"]')
+      )
+        return;
+      const link = target.closest("a");
+      if (!link || !link.href || link.target === "_blank" || link.href === window.location.href)
+        return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingCharacterDesignerClose({ href: link.href });
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", onDocumentClick, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onDocumentClick, true);
+    };
+  }, [characterDesignerEnabled, characterDesignerHasEdits]);
 
   useEffect(() => {
     if (!roomDesignerEnabled || !roomDesignerHasEdits) return;
@@ -573,6 +689,22 @@ export function SceneWrapper({
           enabled={sceneEditorEnabled}
         />
       ) : null}
+      {canUseCharacterDesigner ? (
+        <CharacterDesigner
+          enabled={characterDesignerEnabled}
+          character={character}
+          characterOptions={characterOptions}
+          characterConfiguration={characterConfiguration}
+          characterPartOptions={characterPartOptions ?? []}
+          onCharacterChange={onCharacterChange}
+          onCharacterConfigurationChange={onCharacterConfigurationChange!}
+          onCharacterConfigurationReset={onCharacterConfigurationReset}
+          onSave={onCharacterSave}
+          onClose={requestCharacterDesignerClose}
+          saveRef={characterDesignerSaveRef}
+          onDirtyChange={setCharacterDesignerHasEdits}
+        />
+      ) : null}
       {canUseRoomDesigner && roomDesignerMapBounds ? (
         <RoomDesigner
           manifest={manifest}
@@ -611,15 +743,12 @@ export function SceneWrapper({
       ) : null}
       {portals ? <Portals debugApiRef={debugApiRef} links={portals} /> : null}
       <SceneSettings
-        characterOptions={characterOptions}
-        character={character}
-        characterConfiguration={characterConfiguration}
-        onCharacterConfigurationChange={onCharacterConfigurationChange}
-        characterPartOptions={characterPartOptions}
-        onCharacterChange={onCharacterChange}
         cameraViewMode={activeCameraViewMode}
         onCameraViewModeChange={onCameraViewModeChange}
         allowCameraViewModeChange={allowCameraViewModeChange}
+        characterDesignerEnabled={canUseCharacterDesigner ? characterDesignerEnabled : undefined}
+        onCharacterDesignerChange={canUseCharacterDesigner ? onCharacterDesignerChange : undefined}
+        characterDesignerTargetId={characterDesignerTargetId}
         roomDesignerEnabled={
           canUseRoomDesigner && activeCameraViewMode === "orthographic"
             ? roomDesignerEnabled
@@ -644,6 +773,67 @@ export function SceneWrapper({
         roomDesignerTargetId={roomDesignerTargetId}
         sceneEditorTargetId={sceneEditorTargetId}
       />
+      {pendingCharacterDesignerClose ? (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/35 p-4"
+          data-character-designer-modal
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="character-designer-save-dialog-title"
+            className="w-full max-w-sm rounded-xl border border-border bg-background p-5 text-foreground shadow-2xl"
+          >
+            <h2 id="character-designer-save-dialog-title" className="text-base font-semibold">
+              Save character changes?
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              You have unsaved character edits. Save them before closing or leaving?
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPendingCharacterDesignerClose(null)}
+              >
+                Keep editing
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  const request = pendingCharacterDesignerClose;
+                  setPendingCharacterDesignerClose(null);
+                  applyCharacterDesignerChange(false);
+                  if (request?.href) {
+                    characterDesignerNavigationAllowedRef.current = true;
+                    window.location.assign(request.href);
+                  }
+                }}
+              >
+                Discard
+              </Button>
+              <Button
+                type="button"
+                className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+                onClick={async () => {
+                  const saved = await characterDesignerSaveRef.current?.();
+                  if (saved === false) return;
+                  const request = pendingCharacterDesignerClose;
+                  setPendingCharacterDesignerClose(null);
+                  applyCharacterDesignerChange(false);
+                  if (request?.href) {
+                    characterDesignerNavigationAllowedRef.current = true;
+                    window.location.assign(request.href);
+                  }
+                }}
+              >
+                Save &amp; continue
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {pendingRoomDesignerClose ? (
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4"
