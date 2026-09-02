@@ -13,7 +13,12 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "#components/ui/drawer";
-import { CharacterSelector, type CharacterOption } from "./character-selector";
+import {
+  CharacterCustomizer,
+  CharacterSelector,
+  type CharacterOption,
+} from "./character-selector";
+import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
 import { ThemeToggle } from "./theme-toggle";
 
 export type AccountDrawerProps = {
@@ -24,6 +29,9 @@ export type AccountDrawerProps = {
   characterOptions: readonly CharacterOption[];
   character: string;
   onCharacterChange: (character: string) => void;
+  characterConfiguration?: CharacterConfiguration;
+  onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void;
+  characterPartOptions?: readonly CharacterPartOption[];
   triggerTargetId?: string;
   onSignIn?: () => void;
   onSignOut?: () => void;
@@ -37,6 +45,9 @@ export function AccountDrawer({
   characterOptions,
   character,
   onCharacterChange,
+  characterConfiguration,
+  onCharacterConfigurationChange,
+  characterPartOptions = [],
   triggerTargetId,
   onSignIn,
   onSignOut,
@@ -103,6 +114,13 @@ export function AccountDrawer({
               value={character}
               onValueChange={onCharacterChange}
             />
+            {characterConfiguration && onCharacterConfigurationChange ? (
+              <CharacterCustomizer
+                value={characterConfiguration}
+                options={characterPartOptions}
+                onValueChange={onCharacterConfigurationChange}
+              />
+            ) : null}
           </section>
           {musicControl ? (
             <section
