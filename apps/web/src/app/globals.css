@@ -409,7 +409,8 @@
     gap: 0.25rem;
   }
 
-  .workspace-room-designer-label {
+  .workspace-room-designer-label,
+  .workspace-character-designer-label {
     display: none;
   }
 
