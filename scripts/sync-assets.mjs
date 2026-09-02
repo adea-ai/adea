@@ -7,7 +7,10 @@ const publicAssets = resolve(repoRoot, "apps/web/public/assets");
 
 async function copyAsset(source, destination) {
   await mkdir(dirname(destination), { recursive: true });
-  await cp(source, destination, { recursive: true, force: true });
+  await cp(source, destination, {
+    recursive: true,
+    force: true,
+  });
 }
 
 async function resolveAsset(...candidates) {

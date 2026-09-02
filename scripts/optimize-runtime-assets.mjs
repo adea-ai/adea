@@ -6,6 +6,7 @@ import { basename, dirname, join, relative, resolve } from "node:path";
 const repoRoot = resolve(import.meta.dirname, "..");
 const runtimeAssetSources = [
   [resolve(repoRoot, "packages/characters/assets"), "runtime.glb"],
+  [resolve(repoRoot, "packages/characters/assets"), "characters.glb"],
   [resolve(repoRoot, "packages/pets/assets"), "**/*.glb"],
   [resolve(repoRoot, "packages/landscape/assets"), "**/*.glb"],
 ];
