@@ -50,6 +50,7 @@ export {
   DialogTrigger,
 } from './components/ui/dialog'
 export {
+  ModelThumbnail,
   PropCatalog,
   defaultPropCatalogCategories,
   getSharedLoader,

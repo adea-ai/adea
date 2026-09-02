@@ -61,7 +61,7 @@ export function AccountMenu({
   const visibleMenuItems = accountMenuItemsForPlatform(platform)
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger
         render={
           <Button

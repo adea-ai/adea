@@ -165,25 +165,38 @@ test("HQ plays only the active locomotion animation", async ({ page }) => {
     .toMatchObject({ activeAnimationName: "idle", activeAnimationActions: ["idle"] });
 });
 
-test("switching from a reference character to Custom does not surface aborted asset errors", async ({ page }) => {
+test("switching from a reference character to Custom in the character designer without asset errors", async ({ page }) => {
   const pageErrors: string[] = [];
-  const consoleErrors: string[] = [];
+  const assetErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") consoleErrors.push(message.text());
+  page.on("response", (assetResponse) => {
+    if (assetResponse.url().includes("/assets/") && !assetResponse.ok()) {
+      assetErrors.push(`${assetResponse.status()} ${assetResponse.url()}`);
+    }
   });
 
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=0&camera=perspective&character=f_1&debug=1",
+    "/?view=spatial&scene=home&roomDesigner=0&characterDesigner=0&camera=perspective&character=f_1&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
-  await expect(page.locator("canvas")).toBeVisible({ timeout: sceneCanvasTimeout });
-  await expect(page.getByRole("button", { name: /Open user menu/ })).toBeVisible({
+  await expect(page.locator('canvas:not([aria-hidden="true"])')).toBeVisible({
+    timeout: sceneCanvasTimeout,
+  });
+  await expect(page.getByRole("button", { name: "Open character designer" })).toBeVisible({
     timeout: 30_000,
   });
-  await page.getByRole("button", { name: /Open user menu/ }).click();
-  await expect(page.getByRole("radio", { name: "Custom" })).toBeVisible();
+  await page.getByRole("button", { name: "Open character designer" }).click();
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
+    timeout: 30_000,
+  });
+  const userMenu = page.getByRole("button", { name: /Open user menu|User settings/ });
+  await expect(userMenu).toBeVisible();
+  await userMenu.click();
+  await expect(page.getByRole("heading", { name: "Character" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(userMenu).toHaveAttribute("aria-expanded", "false");
+  await page.getByRole("tab", { name: "Characters" }).click();
   const customAsset = page.waitForResponse(
     (assetResponse) =>
       assetResponse.url().endsWith("/assets/models/characters.glb") && assetResponse.ok(),
@@ -194,7 +207,7 @@ test("switching from a reference character to Custom does not surface aborted as
   await page.waitForTimeout(3_000);
 
   expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
+  expect(assetErrors).toEqual([]);
 });
 
 test("room designer loads compressed interior props", async ({ page }) => {

@@ -127,6 +127,8 @@ const DEFAULT_FOOTPRINT: [number, number] = [100, 100];
 const OUTLINE_HEIGHT = 0.035;
 const OUTLINE_THICKNESS = 0.018;
 
+const yieldToBrowser = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
 function clonePlacement(placement: RoomDesignerPlacement): RoomDesignerPlacement {
   return {
     ...placement,
@@ -1149,39 +1151,42 @@ export function RoomDesigner({
     let cancelled = false;
     const rebuild = async () => {
       group.clear();
-      await Promise.all(
-        placements.map(async (placement) => {
-          const asset = catalogById.get(placement.modelId);
-          if (!asset) return;
-          try {
-            const source = await modelFor(asset);
-            if (cancelled) return;
-            const object = source.clone(true);
-            object.name = `room-prop:${placement.id}`;
-            const floorY = placement.p[1] * sceneScale;
-            object.position.set(placement.p[0] * sceneScale, floorY, placement.p[2] * sceneScale);
-            object.quaternion.set(...placement.q);
-            object.scale.set(...placement.s);
-            object.updateMatrixWorld(true);
-            // Use precise=true so Box3 traverses every vertex instead of
-            // trusting cached geometry.boundingBox, which can miss vertices
-            if (asset.placementSurface !== "wall") {
-              const bounds = new THREE.Box3().setFromObject(object);
-              // Floor items (including placeableOnTop): lift so the model's
-              // bottom sits at floorY + floorLift. For placeableOnTop items,
-              // floorY is already at groundY + surfaceHeight.
-              const floorLift = (asset.floorLift ?? 0) * sceneScale;
-              object.position.y += floorY + floorLift - (bounds.isEmpty() ? 0 : bounds.min.y);
-            }
-            object.userData.roomDesignerFloorOffset = object.position.y - floorY;
-            object.userData.roomDesignerPlacementId = placement.id;
-            object.userData.roomDesignerModelId = placement.modelId;
-            group.add(object);
-          } catch (error) {
-            console.warn(`[HQ room designer] Could not load ${asset.id}.`, error);
+      // Load one placed prop at a time and yield between models. Loading every
+      // placement with Promise.all can monopolize the main thread and make
+      // unrelated scene controls unresponsive while the designer is closed.
+      for (const placement of placements) {
+        if (cancelled) return;
+        await yieldToBrowser();
+        const asset = catalogById.get(placement.modelId);
+        if (!asset) continue;
+        try {
+          const source = await modelFor(asset);
+          if (cancelled) return;
+          const object = source.clone(true);
+          object.name = `room-prop:${placement.id}`;
+          const floorY = placement.p[1] * sceneScale;
+          object.position.set(placement.p[0] * sceneScale, floorY, placement.p[2] * sceneScale);
+          object.quaternion.set(...placement.q);
+          object.scale.set(...placement.s);
+          object.updateMatrixWorld(true);
+          // Use precise=true so Box3 traverses every vertex instead of
+          // trusting cached geometry.boundingBox, which can miss vertices
+          if (asset.placementSurface !== "wall") {
+            const bounds = new THREE.Box3().setFromObject(object);
+            // Floor items (including placeableOnTop): lift so the model's
+            // bottom sits at floorY + floorLift. For placeableOnTop items,
+            // floorY is already at groundY + surfaceHeight.
+            const floorLift = (asset.floorLift ?? 0) * sceneScale;
+            object.position.y += floorY + floorLift - (bounds.isEmpty() ? 0 : bounds.min.y);
           }
-        }),
-      );
+          object.userData.roomDesignerFloorOffset = object.position.y - floorY;
+          object.userData.roomDesignerPlacementId = placement.id;
+          object.userData.roomDesignerModelId = placement.modelId;
+          group.add(object);
+        } catch (error) {
+          console.warn(`[HQ room designer] Could not load ${asset.id}.`, error);
+        }
+      }
     };
     let cancelScheduledRebuild: (() => void) | undefined;
     if (enabled) {
