@@ -1,12 +1,13 @@
 export * from "./provider";
+export * from "./configuration";
 
 export {
   characterIds,
   characterLabels,
   characterIconUrls,
   characterLibraryAssets,
-  cartoonCharacterNames,
-  cartoonCharacterAssets,
+  referenceCharacterIds,
+  referenceCharacterAssets,
   isCharacterId,
   type CharacterId,
   customCharacterIds,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { characterIds, isCharacterId, isCustomCharacterId } from "./catalog";
+export { characterConfigurationSchema, type CharacterConfiguration } from "./configuration";
 
 export const characterIdSchema = z.enum(characterIds);
 

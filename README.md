@@ -23,6 +23,22 @@ Portless runs the web app at [https://agent-hq.localhost](https://agent-hq.local
 with a stable named route instead of a fixed development port. Portless requires
 Node.js 24 or newer; Bun remains the repository's package manager and test runner.
 
+Workspace bootstrap and temporary guest sessions are persistence-backed. Start the
+local PostgreSQL service and load the example server environment before launching
+the app:
+
+```sh
+cp apps/web/.env.example apps/web/.env.local
+docker compose up -d --wait postgres
+set -a
+. apps/web/.env.local
+set +a
+bun run --cwd packages/db db:migrate
+```
+
+`apps/web/.env.local` is ignored and must never be committed. The `DATABASE_URL`
+value is server-only; do not rename it to a `NEXT_PUBLIC_` or `VITE_` variable.
+
 For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
 - Home: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
@@ -78,17 +94,17 @@ decoding through Three.js. The checked-in interior optimization command is
 `bun run assets:optimize:interior` and `bun run assets:optimize:runtime`; they
 preserve authored transforms/material boundaries while applying Meshopt geometry
 compression and WebP base-color textures. Runtime asset validation is included
-in `bun run perf:check` and covers the loaded cartoon runtime representatives,
-pets, and landscape GLBs. The complete character and interior libraries remain
-available at their source quality; the optimizer leaves future normal-map
-candidates lossless when the KTX encoder is unavailable. The runtime loader and
+in `bun run perf:check` and covers the loaded character runtime, pets, and
+landscape GLBs. Complete character exports under `packages/characters/assets/_complete`
+are available as menu examples but remain outside the configurable wearable
+catalog. The optimizer leaves future normal-map candidates
+lossless when the KTX encoder is unavailable. The runtime loader and
 transcoder assets are already wired for `KHR_texture_basisu` without changing
 scene code.
 
-Meshopt remains the geometry default for the loaded runtime models. The source
-character and interior libraries are intentionally not rewritten by the
-runtime optimizer so the downloaded models remain available without quality
-or resolution reduction.
+Meshopt remains the geometry default for loaded runtime models. Authoring
+inputs remain external; checked-in runtime GLBs are the optimized delivery
+artifacts.
 
 ## Verification
 

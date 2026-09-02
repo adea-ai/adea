@@ -2,6 +2,7 @@ import { generatedCharacterParts } from "./generated-parts";
 
 export type CharacterPartSlot =
   | "body"
+  | "ears"
   | "face"
   | "hair"
   | "hat"
@@ -11,7 +12,8 @@ export type CharacterPartSlot =
   | "socks"
   | "glasses"
   | "gloves"
-  | "accessory";
+  | "accessory"
+  | "costume";
 
 export interface CharacterPartOption {
   id: string;
@@ -21,11 +23,12 @@ export interface CharacterPartOption {
   file: string;
 }
 
-/** Every body, face, clothing, and accessory asset from the Cute pack. */
+/** Every body, ears, face, clothing, and accessory asset in the character pack. */
 export const characterPartCatalog: readonly CharacterPartOption[] = generatedCharacterParts;
 
 export const characterPartSlots: readonly CharacterPartSlot[] = [
   "body",
+  "ears",
   "face",
   "hair",
   "hat",
@@ -36,6 +39,7 @@ export const characterPartSlots: readonly CharacterPartSlot[] = [
   "glasses",
   "gloves",
   "accessory",
+  "costume",
 ];
 
 export function characterPartsBySlot(slot: CharacterPartSlot): readonly CharacterPartOption[] {

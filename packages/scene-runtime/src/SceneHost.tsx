@@ -8,10 +8,12 @@ import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { disposeObjectResources, type DisposedObjectResources } from "./resources";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {
+  configurableCharacterId,
   createCharacterAnimationController,
   loadCharacter,
   loadCharacterAnimations,
   type CharacterAnimationController,
+  type CharacterConfiguration,
 } from "@agent-hq/characters";
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
 import { loadPropsField } from "@agent-hq/interior/runtime";
@@ -210,6 +212,8 @@ export type SceneHostProps = {
   /** Visual-only groups that are shown only while the player is in an area. */
   playerVisibilityGroups?: readonly PlayerVisibilityGroup[];
   characterId?: string;
+  /** Optional modular Cute character configuration for the selected id. */
+  characterConfiguration?: CharacterConfiguration;
   /** Defer optional animation assets until after the scene is playable. */
   deferCharacterDetails?: boolean;
   /** Whether deferred character details should be fetched automatically. */
@@ -257,8 +261,8 @@ export type SceneHostProps = {
   orthographicPitch?: number;
   /** Initial authored-world pan applied only to the orthographic camera target. */
   orthographicPan?: { x: number; z: number };
-  /** Override the perspective camera follow distance for scenes with a
-   *  miniature environment scale so the character and room are both visible. */
+  /** Override the perspective camera follow distance for scene-specific
+   *  framing so the character and surrounding environment remain visible. */
   perspectiveCameraDistance?: number;
   /** Explicit water volumes for authored pools whose meshes are not flat sheets. */
   waterVolumes?: readonly SceneWaterVolume[];
@@ -1191,7 +1195,8 @@ export function SceneHost({
   coplanarMaterialMeshNames = EMPTY_ASSET_URLS,
   materialOverrides = EMPTY_MATERIAL_OVERRIDES,
   playerVisibilityGroups = EMPTY_VISIBILITY_GROUPS,
-  characterId = "cartoon-humanoid",
+  characterId = configurableCharacterId,
+  characterConfiguration,
   characterScale = DEFAULT_characterModelScale,
   sceneScale = 1,
   movementSpeedFactor = 1,
@@ -1205,7 +1210,7 @@ export function SceneHost({
   orthographicHalfHeight,
   orthographicPitch,
   orthographicPan,
-  perspectiveCameraDistance: _perspectiveCameraDistance,
+  perspectiveCameraDistance,
   waterVolumes = EMPTY_WATER_VOLUMES,
   initialCameraViewMode = "perspective",
   cameraViewModeRef,
@@ -1317,7 +1322,9 @@ export function SceneHost({
     let animationController: CharacterAnimationController | null = null;
     let locomotionAction: THREE.AnimationAction | undefined;
     let idleAction: THREE.AnimationAction | undefined;
-    let jumpAction: THREE.AnimationAction | undefined;
+    let jumpStartAction: THREE.AnimationAction | undefined;
+    let jumpLoopAction: THREE.AnimationAction | undefined;
+    let jumpEndAction: THREE.AnimationAction | undefined;
     let swimmingAction: THREE.AnimationAction | undefined;
     let backgroundTexture: THREE.Texture | null = null;
     const detachedCollisionRoots = new Set<THREE.Object3D>();
@@ -1431,6 +1438,7 @@ export function SceneHost({
       initialYaw: startPosition.yaw ?? 0,
       initialPerspectivePitch: startPosition.pitch ?? -0.2,
       characterScale: playerHeight / 1.8,
+      perspectiveCameraDistance,
       cameraBounds: runtimeCameraBounds,
       orthographicHalfHeight: runtimeOrthographicHalfHeight,
       orthographicPitch,
@@ -1514,7 +1522,9 @@ export function SceneHost({
       animationController = null;
       locomotionAction = undefined;
       idleAction = undefined;
-      jumpAction = undefined;
+      jumpStartAction = undefined;
+      jumpLoopAction = undefined;
+      jumpEndAction = undefined;
       swimmingAction = undefined;
       textureTranscoder?.dispose();
       textureTranscoder = null;
@@ -2005,6 +2015,15 @@ export function SceneHost({
     canvas.addEventListener("pointerleave", onCanvasPointerLeave);
     canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
 
+    const guardPendingRejection = function <T>(promise: Promise<T>): Promise<T> {
+      // React can tear down this scene while one of its parallel asset loads
+      // is still pending. Keep the original rejection for the loader's normal
+      // error path, but mark it handled immediately so an abort cannot surface
+      // as an unhandled browser error during a character switch.
+      promise.catch(() => undefined);
+      return promise;
+    };
+
     const load = async () => {
       try {
         await telemetry.track("physics.initialize", initializeRapier());
@@ -2232,11 +2251,13 @@ export function SceneHost({
             telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url)),
           ),
         ];
-        const pendingAdditional = additionalAssetUrls.map((url) => loader.loadAsync(url));
-        const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> = loadCharacter(
-          loader,
-          characterId,
+        const pendingAdditional = additionalAssetUrls.map((url) =>
+          guardPendingRejection(loader.loadAsync(url)),
         );
+        const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> =
+          guardPendingRejection(
+            loadCharacter(loader, characterId, characterConfiguration),
+          );
         // Runtime-generated catalog fields are independent of the base scene
         // and of one another. Begin their manifest/model requests during the
         // core GLB transfer instead of serially after it has finished.
@@ -2769,16 +2790,28 @@ export function SceneHost({
           `[Agent HQ] ${label} physics ready colliders=${colliderCount} player=${playerPosition.toArray().join(",")}`,
         );
 
-        // Fire the optional locomotion catalog alongside the character GLB.
-        const coreAnimationKeys = ["idle", "walk", "run", "jump", "doubleJump", "swim"];
-        const pendingCoreAnimations = deferCharacterDetails
-          ? Promise.resolve({ clips: [], names: {} })
-          : loadCharacterAnimations(loader, characterId, coreAnimationKeys);
+        const coreAnimationKeys = [
+          "idle",
+          "walk",
+          "run",
+          "jump",
+          "jumpStart",
+          "jumpLoop",
+          "jumpEnd",
+          "doubleJump",
+          "swim",
+        ];
         const loadedCharacter = await pendingCharacter;
         if (disposed) {
           disposeObjectTree(loadedCharacter.scene);
           return;
         }
+        // Reference characters use their own 352-bone deformation rig. Pass
+        // the loaded target scene so the shared runtime clips can be retargeted
+        // to its compatible deformation bones before the mixer is created.
+        const pendingCoreAnimations = deferCharacterDetails
+          ? Promise.resolve({ clips: [], names: {} })
+          : loadCharacterAnimations(loader, characterId, coreAnimationKeys, loadedCharacter.scene);
         let coreAnimations: Awaited<ReturnType<typeof loadCharacterAnimations>> = {
           clips: [],
           names: {},
@@ -2826,18 +2859,26 @@ export function SceneHost({
         let locomotionName = runName ?? coreAnimations.names.walk;
         let idleName = coreAnimations.names.idle;
         let jumpName = coreAnimations.names.jump;
+        let jumpStartName = coreAnimations.names.jumpStart ?? jumpName;
+        let jumpLoopName = coreAnimations.names.jumpLoop;
+        let jumpEndName = coreAnimations.names.jumpEnd;
         let swimmingName = coreAnimations.names.swim;
         locomotionAction = locomotionName ? controller.actions.get(locomotionName) : undefined;
         idleAction = idleName ? controller.actions.get(idleName) : undefined;
-        jumpAction = jumpName ? controller.actions.get(jumpName) : undefined;
+        jumpStartAction = jumpStartName ? controller.actions.get(jumpStartName) : undefined;
+        jumpLoopAction = jumpLoopName ? controller.actions.get(jumpLoopName) : undefined;
+        jumpEndAction = jumpEndName ? controller.actions.get(jumpEndName) : undefined;
         swimmingAction = swimmingName ? controller.actions.get(swimmingName) : undefined;
-        [locomotionAction, idleAction, swimmingAction].forEach((action) =>
+        [locomotionAction, idleAction, jumpLoopAction, swimmingAction].forEach((action) =>
           action?.setLoop(THREE.LoopRepeat, Infinity),
         );
-        jumpAction?.setLoop(THREE.LoopOnce, 1);
+        [jumpStartAction, jumpEndAction].forEach((action) => action?.setLoop(THREE.LoopOnce, 1));
         if (idleName) controller.play(idleName);
         if (swimmingAction) swimmingAction.setLoop(THREE.LoopRepeat, Infinity);
         let activeAnimationName: string | null = idleName ?? null;
+        let jumpStartPlayed = false;
+        let jumpWasAirborne = false;
+        let jumpEndActive = false;
         let isSwimming = false;
         debugLog(
           `[Agent HQ] ${characterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
@@ -2859,6 +2900,7 @@ export function SceneHost({
               loader,
               characterId,
               coreAnimationKeys,
+              character,
             );
             if (disposed || !animationController) return;
             animationController.addClips(animations.clips);
@@ -2867,19 +2909,30 @@ export function SceneHost({
             locomotionName = runName ?? coreAnimations.names.walk;
             idleName = coreAnimations.names.idle;
             jumpName = coreAnimations.names.jump;
+            jumpStartName = coreAnimations.names.jumpStart ?? jumpName;
+            jumpLoopName = coreAnimations.names.jumpLoop;
+            jumpEndName = coreAnimations.names.jumpEnd;
             swimmingName = coreAnimations.names.swim;
             locomotionAction = locomotionName
               ? animationController.actions.get(locomotionName)
               : undefined;
             idleAction = idleName ? animationController.actions.get(idleName) : undefined;
-            jumpAction = jumpName ? animationController.actions.get(jumpName) : undefined;
+            jumpStartAction = jumpStartName
+              ? animationController.actions.get(jumpStartName)
+              : undefined;
+            jumpLoopAction = jumpLoopName
+              ? animationController.actions.get(jumpLoopName)
+              : undefined;
+            jumpEndAction = jumpEndName ? animationController.actions.get(jumpEndName) : undefined;
             swimmingAction = swimmingName
               ? animationController.actions.get(swimmingName)
               : undefined;
-            [locomotionName, idleName, swimmingName].forEach((name) => {
+            [locomotionName, idleName, jumpLoopName, swimmingName].forEach((name) => {
               if (name) animationController?.actions.get(name)?.setLoop(THREE.LoopRepeat, Infinity);
             });
-            if (jumpName) animationController.actions.get(jumpName)?.setLoop(THREE.LoopOnce, 1);
+            [jumpName, jumpStartName, jumpEndName].forEach((name) => {
+              if (name) animationController?.actions.get(name)?.setLoop(THREE.LoopOnce, 1);
+            });
             if (idleName && activeAnimationName !== idleName) {
               animationController.play(idleName);
               activeAnimationName = idleName;
@@ -3084,6 +3137,19 @@ export function SceneHost({
               min: bounds.min.toArray(),
               max: bounds.max.toArray(),
             })),
+            activeAnimationName,
+            activeAnimationActions: animationController
+              ? [...animationController.actions.entries()]
+                  .filter(([, action]) => action.enabled && action.isRunning())
+                  .map(([name]) => name)
+              : [],
+            background: {
+              mode: screenBackgroundActive ? "screen-space-2d" : "scene",
+              visible: screenBackgroundMesh.visible,
+              cameraType: screenBackgroundCamera.type,
+              cameraPosition: screenBackgroundCamera.position.toArray(),
+              meshWorldMatrix: screenBackgroundMesh.matrixWorld.elements.slice(),
+            },
           }),
           teleportTo: (x, z, y?, yaw?, bodyYaw?, snapToGround = true) => {
             clickNavigationActive = false;
@@ -3881,8 +3947,16 @@ export function SceneHost({
             z: playerPosition.z,
           });
           const groundedAfterMovement = characterController.computedGrounded();
+          const landedFromIntentionalJump =
+            jumpWasAirborne && groundedAfterMovement && !jumpStartedThisFrame && !isSwimming;
+          if (landedFromIntentionalJump) jumpEndActive = Boolean(jumpEndName);
+          if (jumpStartedThisFrame) {
+            jumpEndActive = false;
+            jumpStartPlayed = false;
+          }
           if (groundedAfterMovement && !jumpStartedThisFrame && verticalVelocity <= 0)
             intentionalJumpActive = false;
+          jumpWasAirborne = intentionalJumpActive && !groundedAfterMovement;
           // Click navigation can continue steering while a target is blocked
           // by a collider. Drive locomotion from actual horizontal travel so
           // the character does not stay in the run pose while standing still.
@@ -3964,19 +4038,39 @@ export function SceneHost({
               .multiply(swimTiltQuaternion.setFromEuler(swimTiltEuler.set(swimTilt, 0, 0)));
           }
           const isAirborne = !isSwimming && !groundedAfterMovement;
+          if (
+            jumpEndActive &&
+            jumpEndName &&
+            activeAnimationName === jumpEndName &&
+            jumpEndAction &&
+            !jumpEndAction.isRunning()
+          ) {
+            jumpEndActive = false;
+          }
+          const jumpStartPending =
+            intentionalJumpActive && isAirborne && !jumpStartPlayed && Boolean(jumpStartName);
+          const airborneJumpName =
+            intentionalJumpActive && isAirborne
+              ? jumpStartPending
+                ? jumpStartName
+                : (jumpLoopName ?? jumpName)
+              : null;
+          if (jumpStartPending) jumpStartPlayed = true;
           const targetAnimationName = topDownClickOnlyActive
             ? animationMoving && locomotionName
               ? locomotionName
               : (idleName ?? null)
             : laidDown && swimmingName
               ? swimmingName
-              : intentionalJumpActive && isAirborne && jumpName
-                ? jumpName
-                : worldAnimationMoving && locomotionName
-                  ? locomotionName
-                  : (groundedAfterMovement || isSwimming) && idleName
-                    ? idleName
-                    : (idleName ?? null);
+              : jumpEndActive && jumpEndName
+                ? jumpEndName
+                : airborneJumpName
+                  ? airborneJumpName
+                  : worldAnimationMoving && locomotionName
+                    ? locomotionName
+                    : (groundedAfterMovement || isSwimming) && idleName
+                      ? idleName
+                      : (idleName ?? null);
           if (targetAnimationName && activeAnimationName !== targetAnimationName) {
             // Use the same transition as World in both HQ camera views. The
             // short click-only fade made the run pose visibly snap and jitter.
@@ -4086,7 +4180,7 @@ export function SceneHost({
           playerPosition.y - playerHeight / 2 + cameraTargetOffset,
           playerPosition.z,
         );
-        cameraController.update(characterTarget, 1 / 60, cameraController.baseDistance);
+        cameraController.update(characterTarget, 1 / 60, Infinity);
         camera = cameraController.camera;
         render();
         const remainingLoadingTime =
@@ -4155,6 +4249,7 @@ export function SceneHost({
     additionalCollisionAssetUrls,
     assetUrl,
     cameraBounds,
+    characterConfiguration,
     characterGroundOffset,
     characterId,
     characterScale,
