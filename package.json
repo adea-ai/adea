@@ -36,7 +36,8 @@
     "release": "bun scripts/manual-release.mjs",
     "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs",
     "assets:optimize:runtime": "bun scripts/optimize-runtime-assets.mjs",
-    "assets:check": "bun scripts/optimize-runtime-assets.mjs --check"
+    "assets:optimize:all": "bun scripts/optimize-runtime-assets.mjs --all",
+    "assets:check": "bun scripts/optimize-runtime-assets.mjs --check --all"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
