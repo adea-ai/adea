@@ -3,6 +3,11 @@
 This package owns the Agent HQ character runtime, the canonical configurable
 44-bone character rig, its animation library, and its wearable catalog.
 
+The `./runtime` entrypoint contains only normal-scene metadata, compact preset
+loading, and shared animation plumbing. The full catalog stays behind the
+`./preview` and designer entrypoints; normal HQ scenes should not import the
+package root.
+
 ## Runtime character system
 
 `configurable` is the only customizable runtime character. The 25 complete

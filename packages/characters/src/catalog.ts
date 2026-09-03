@@ -2,9 +2,7 @@
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { retargetClip } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import {
-  normalizeInPlaceLocomotionClip,
   registerCharacterProvider,
   type CharacterManifest,
   type CharacterProvider,
@@ -13,6 +11,7 @@ import {
 } from './provider'
 import { characterPartAssets, characterPartIds, characterPartSlots } from './customization'
 import { characterPartOffsets } from './generated-part-offsets'
+import { loadCharacterAnimations as loadRuntimeCharacterAnimations } from './runtime'
 import {
   characterConfigurationPresets,
   characterPartName,
@@ -28,7 +27,6 @@ import {
 
 const assetRoot = '/assets/models'
 const characterLibraryUrl = `${assetRoot}/characters.glb`
-const characterAnimationUrl = `${assetRoot}/runtime.glb`
 
 /**
  * The authoring library contains every wearable (and hundreds of duplicate
@@ -47,11 +45,10 @@ type CharacterLibraryVariant = keyof typeof characterLibraryVariantUrls
 
 function sameCharacterConfiguration(
   left: CharacterConfiguration,
-  right: CharacterConfiguration,
+  right: CharacterConfiguration
 ): boolean {
   return (
-    left.version === right.version &&
-    characterPartSlots.every((slot) => left[slot] === right[slot])
+    left.version === right.version && characterPartSlots.every((slot) => left[slot] === right[slot])
   )
 }
 
@@ -63,7 +60,7 @@ export function getCharacterLibraryAssetUrl(id: string): string {
     return characterLibraryVariantUrls.default
   }
   const preset = characterConfigurationPresets.find(({ configuration: presetConfiguration }) =>
-    sameCharacterConfiguration(configuration, presetConfiguration),
+    sameCharacterConfiguration(configuration, presetConfiguration)
   )
   if (preset && preset.id in characterLibraryVariantUrls) {
     return characterLibraryVariantUrls[preset.id as CharacterLibraryVariant]
@@ -130,18 +127,6 @@ export const characterLibraryAssets = [
   },
 ] as const
 
-const animationMap: Record<string, string> = {
-  idle: 'Idle_Relaxed',
-  walk: 'Walk_Forward',
-  run: 'Run_Forward',
-  jump: 'Jump_Start',
-  jumpStart: 'Jump_Start',
-  jumpLoop: 'Jump_Loop',
-  jumpEnd: 'Jump_End',
-  doubleJump: 'Jump_Loop',
-  swim: 'Walk_Forward',
-}
-
 export function isCharacterId(value: string | undefined): value is CharacterId {
   return value !== undefined && characterIds.includes(value as CharacterId)
 }
@@ -181,11 +166,6 @@ function getManifest(id: string): CharacterManifest | undefined {
   }
   return undefined
 }
-
-let animationAsset: {
-  scene: THREE.Object3D
-  clips: readonly THREE.AnimationClip[]
-} | undefined
 
 const characterPartIdsByName = new Map(characterPartIds.map((id) => [characterPartName(id), id]))
 
@@ -266,10 +246,7 @@ async function loadConfigurableCharacter(
   return { scene: configureCharacterLibrary(gltf.scene, configuration), clips: [] }
 }
 
-async function loadReferenceCharacter(
-  loader: GLTFLoader,
-  id: string
-): Promise<LoadedCharacter> {
+async function loadReferenceCharacter(loader: GLTFLoader, id: string): Promise<LoadedCharacter> {
   const manifest = getManifest(id)
   if (!manifest || !referenceCharacterIds.includes(id as ReferenceCharacterId))
     throw new Error(`Unknown reference character: ${id}`)
@@ -305,145 +282,13 @@ export async function loadCharacterPreview(
   return { scene: configureCharacterLibrary(gltf.scene, configuration, true), clips: [] }
 }
 
-async function loadCharacterAnimationsFromAsset(
-  loader: GLTFLoader
-): Promise<{ scene: THREE.Object3D; clips: readonly THREE.AnimationClip[] }> {
-  // Do not cache an in-flight request. SceneHost aborts its LoadingManager when
-  // a character is switched, so a promise created by the previous scene can
-  // otherwise reject the next character load with its stale AbortError.
-  if (animationAsset) return animationAsset
-  const gltf = await loader.loadAsync(characterAnimationUrl)
-  animationAsset = { scene: gltf.scene, clips: gltf.animations }
-  return animationAsset
-}
-
-// GLTFLoader sanitizes Cartoon node names, so `DEF-spine.001` becomes
-// `DEF-spine001` and side suffixes such as `.R` become `R`.
-const referenceAnimationBoneMap: Record<string, string> = {
-  'DEF-spine': 'Hips',
-  'DEF-spine001': 'Spine',
-  'DEF-spine003': 'Spine1',
-  'DEF-spine005': 'Neck',
-  'DEF-spine006': 'Head',
-  'DEF-shoulderR': 'RightShoulder',
-  'DEF-upper_armR': 'RightArm',
-  'DEF-forearmR': 'RightForeArm',
-  'DEF-handR': 'RightHand',
-  'DEF-f_index01R': 'RightHandIndex1',
-  'DEF-f_index02R': 'RightHandIndex2',
-  'DEF-f_middle01R': 'RightHandMiddle1',
-  'DEF-f_middle02R': 'RightHandMiddle2',
-  'DEF-f_ring01R': 'RightHandRing1',
-  'DEF-f_ring02R': 'RightHandRing2',
-  'DEF-f_pinky01R': 'RightHandPinky1',
-  'DEF-f_pinky02R': 'RightHandPinky2',
-  'DEF-thumb01R': 'RightHandThumb1',
-  'DEF-thumb02R': 'RightHandThumb2',
-  'DEF-shoulderL': 'LeftShoulder',
-  'DEF-upper_armL': 'LeftArm',
-  'DEF-forearmL': 'LeftForeArm',
-  'DEF-handL': 'LeftHand',
-  'DEF-f_index01L': 'LeftHandIndex1',
-  'DEF-f_index02L': 'LeftHandIndex2',
-  'DEF-f_middle01L': 'LeftHandMiddle1',
-  'DEF-f_middle02L': 'LeftHandMiddle2',
-  'DEF-f_ring01L': 'LeftHandRing1',
-  'DEF-f_ring02L': 'LeftHandRing2',
-  'DEF-f_pinky01L': 'LeftHandPinky1',
-  'DEF-f_pinky02L': 'LeftHandPinky2',
-  'DEF-thumb01L': 'LeftHandThumb1',
-  'DEF-thumb02L': 'LeftHandThumb2',
-  'DEF-thighR': 'RightUpLeg',
-  'DEF-shinR': 'RightLeg',
-  'DEF-footR': 'RightFoot',
-  'DEF-toeR': 'RightToeBase',
-  'DEF-thighL': 'LeftUpLeg',
-  'DEF-shinL': 'LeftLeg',
-  'DEF-footL': 'LeftFoot',
-  'DEF-toeL': 'LeftToeBase',
-}
-
-function findSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh | undefined {
-  let result: THREE.SkinnedMesh | undefined
-  root.traverse((object) => {
-    if (!result && (object as THREE.SkinnedMesh).isSkinnedMesh)
-      result = object as THREE.SkinnedMesh
-  })
-  return result
-}
-
-function cloneAnimationBone(
-  source: THREE.Object3D,
-  bones: THREE.Bone[]
-): THREE.Bone {
-  const bone = new THREE.Bone()
-  bone.name = source.name
-  bone.position.copy(source.position)
-  bone.quaternion.copy(source.quaternion)
-  bone.scale.copy(source.scale)
-  bones.push(bone)
-  source.children.forEach((child) => bone.add(cloneAnimationBone(child, bones)))
-  return bone
-}
-
-function findAnimationSource(root: THREE.Object3D): THREE.Object3D | THREE.Skeleton | undefined {
-  const sourceRoot = root.getObjectByName('Root')
-  if (sourceRoot) {
-    const bones: THREE.Bone[] = []
-    cloneAnimationBone(sourceRoot, bones)
-    return new THREE.Skeleton(bones)
-  }
-  return findSkinnedMesh(root)
-}
-
-function retargetReferenceAnimation(
-  clip: THREE.AnimationClip,
-  sourceRoot: THREE.Object3D,
-  target: THREE.Object3D | undefined
-): THREE.AnimationClip {
-  const source = findAnimationSource(sourceRoot)
-  const targetMesh = target ? findSkinnedMesh(target) : undefined
-  if (!source || !targetMesh) return clip.clone()
-  const retargeted = retargetClip(targetMesh, source, clip, {
-    names: referenceAnimationBoneMap,
-    hip: 'DEF-spine',
-    scale: 1,
-  })
-  // SkeletonUtils emits `.bones[BoneName]` bindings for a SkinnedMesh root,
-  // while SceneHost mixes clips against the loaded GLTF scene root. Rewrite
-  // the paths to the named-bone form used by the shared character clips.
-  for (const track of retargeted.tracks) {
-    const match = /^\.bones\[([^\]]+)\]\.(.+)$/.exec(track.name)
-    if (match) track.name = `${match[1]}.${match[2]}`
-  }
-  return retargeted
-}
-
 async function loadCatalogCharacterAnimations(
   loader: GLTFLoader,
   id: string,
   keys: readonly string[],
   target?: THREE.Object3D
 ): Promise<LoadedCharacterAnimations> {
-  const reference = referenceCharacterIds.includes(id as ReferenceCharacterId)
-  if (!isConfigurableCharacterId(id) && !reference) return { clips: [], names: {} }
-  const animationAsset = await loadCharacterAnimationsFromAsset(loader)
-  const clips: THREE.AnimationClip[] = []
-  const names: Record<string, string> = {}
-  for (const key of keys) {
-    const source = animationAsset.clips.find((clip) => clip.name === animationMap[key])
-    if (!source) continue
-    const normalized = ['walk', 'run', 'swim'].includes(key)
-      ? normalizeInPlaceLocomotionClip(source)
-      : source.clone()
-    const clip = reference
-      ? retargetReferenceAnimation(normalized, animationAsset.scene, target)
-      : normalized
-    clip.name = key
-    clips.push(clip)
-    names[key] = key
-  }
-  return { clips, names }
+  return loadRuntimeCharacterAnimations(loader, id, keys, target)
 }
 
 const characterProvider: CharacterProvider = {

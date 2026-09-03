@@ -165,6 +165,31 @@ test("HQ plays only the active locomotion animation", async ({ page }) => {
     .toMatchObject({ activeAnimationName: "idle", activeAnimationActions: ["idle"] });
 });
 
+test("direct character designer mount skips HQ scene assets", async ({ page }) => {
+  const assetRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/assets/")) assetRequests.push(request.url());
+  });
+
+  const characterAsset = page.waitForResponse(
+    (assetResponse) =>
+      assetResponse.url().endsWith("/assets/models/_complete/f_1.glb") && assetResponse.ok(),
+    { timeout: 60_000 },
+  );
+  const response = await page.goto(
+    "/?view=spatial&scene=home&roomDesigner=0&characterDesigner=1&camera=perspective&character=f_1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("canvas").first()).toBeVisible({ timeout: sceneCanvasTimeout });
+  await characterAsset;
+
+  expect(assetRequests.some((url) => url.includes("/worlds/hq-home/floor.glb"))).toBe(false);
+  expect(assetRequests.some((url) => url.includes("/worlds/hq-home/foliage.json"))).toBe(false);
+  expect(assetRequests.some((url) => url.includes("/worlds/hq-home/props-runtime.json"))).toBe(false);
+});
+
 test("switching from a reference character to Custom in the character designer without asset errors", async ({ page }) => {
   const pageErrors: string[] = [];
   const assetErrors: string[] = [];

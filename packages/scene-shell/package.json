@@ -26,6 +26,7 @@
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/character-designer-scene": "workspace:*",
     "@agent-hq/characters": "workspace:*",
+    "@agent-hq/room-designer-scene": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
     "lucide-react": "^1.33.0",

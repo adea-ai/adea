@@ -12,13 +12,10 @@ import {
   createCharacterAnimationController,
   loadCharacter,
   loadCharacterAnimations,
-  loadCharacterPreview,
-  updateCharacterConfiguration,
   type CharacterAnimationController,
   type CharacterConfiguration,
-} from "@agent-hq/characters";
+} from "@agent-hq/characters/runtime";
 import { loadLandscapeField } from "@agent-hq/landscape/runtime";
-import { loadPropsField } from "@agent-hq/interior/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
 import { createSceneLoadScope } from "./loading";
 import RAPIER, {
@@ -1248,8 +1245,12 @@ export function SceneHost({
   const characterPreviewUpdateRef = useRef<
     ((id: string, configuration?: CharacterConfiguration) => void) | null
   >(null);
+  // Preview configuration updates are applied in place, but switching between
+  // a reference character and the configurable library must recreate only the
+  // character scene. Keeping this key here preserves the designer's dirty UI
+  // state while still loading the correct preview asset.
   const characterLoadKey = characterPreview
-    ? "character-preview"
+    ? characterId
     : `${characterId}:${characterConfiguration ? JSON.stringify(characterConfiguration) : ""}`;
   characterIdRef.current = characterId;
   characterConfigurationRef.current = characterConfiguration;
@@ -2285,15 +2286,20 @@ export function SceneHost({
         );
         const requestedCharacterId = characterIdRef.current;
         const requestedCharacterConfiguration = characterConfigurationRef.current;
+        const pendingPreviewApi = characterPreview
+          ? import("@agent-hq/characters/preview")
+          : undefined;
         const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> =
           telemetry.track(
             "character",
             guardPendingRejection(
               characterPreview
-                ? loadCharacterPreview(
-                    loader,
-                    requestedCharacterId,
-                    requestedCharacterConfiguration,
+                ? pendingPreviewApi!.then(({ loadCharacterPreview }) =>
+                    loadCharacterPreview(
+                      loader,
+                      requestedCharacterId,
+                      requestedCharacterConfiguration,
+                    ),
                   )
                 : loadCharacter(loader, requestedCharacterId, requestedCharacterConfiguration),
             ),
@@ -2315,7 +2321,9 @@ export function SceneHost({
           staticFieldAssetUrls?.props
             ? loader.loadAsync(staticFieldAssetUrls.props).then(({ scene }) => scene)
             : propsManifestUrl
-              ? loadPropsField(loader, propsManifestUrl, loadScope.signal)
+              ? import("@agent-hq/interior/runtime").then(({ loadPropsField }) =>
+                  loadPropsField(loader, propsManifestUrl, loadScope.signal),
+                )
               : null,
         ].map((pending, index) =>
           pending ? telemetry.track(`field.${fieldNames[index]}`, pending) : null,
@@ -2912,7 +2920,8 @@ export function SceneHost({
         const characterClips = [...loadedCharacter.clips, ...coreAnimations.clips];
         const controller = createCharacterAnimationController(character, characterClips);
         animationController = controller;
-        if (characterPreview) {
+        if (characterPreview && pendingPreviewApi) {
+          const { updateCharacterConfiguration } = await pendingPreviewApi;
           characterPreviewUpdateRef.current = (id, configuration) => {
             if (id !== configurableCharacterId || !configuration || characterRoot !== character) return;
             updateCharacterConfiguration(character, configuration);

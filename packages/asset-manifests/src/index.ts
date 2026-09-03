@@ -35,6 +35,32 @@ export type StaticFieldAssetUrls = {
   props?: string;
 };
 
+export type AssignedPropManifestPlacement = {
+  id?: string;
+  p?: readonly [number, number, number];
+  q?: readonly [number, number, number, number];
+  s?: readonly [number, number, number];
+  footprint?: readonly [number, number];
+};
+
+export type AssignedPropManifestAsset = {
+  assetUrl: string;
+  defaultScale: number;
+  footprint?: readonly [number, number];
+  placementSurface?: "floor" | "wall";
+  wallMountHeight?: number;
+  floorLift?: number;
+  placeableOnTop?: boolean;
+};
+
+/** Runtime-only room content for props already assigned to a scene. */
+export type AssignedPropsManifest = {
+  version?: number;
+  scene?: string;
+  assets: Record<string, AssignedPropManifestAsset>;
+  placements: Record<string, AssignedPropManifestPlacement[]>;
+};
+
 export type SceneManifest = {
   id: string;
   label: string;
@@ -58,6 +84,8 @@ export type SceneManifest = {
   foliageManifestUrl?: string;
   /** Optional props placement manifest (instanced from the props catalog at runtime). */
   propsManifestUrl?: string;
+  /** Runtime-only manifest for props explicitly assigned to this workspace. */
+  assignedPropsManifestUrl?: string;
   /** Public URL for persisted authored-object editor overrides. */
   editorOverridesUrl?: string;
   /** Optional repository-relative source path for persisted overrides. */

@@ -1,4 +1,6 @@
 @import '@agent-hq/scene-shell/globals.css';
+@import '@agent-hq/character-designer-scene/globals.css';
+@import '@agent-hq/room-designer-scene/globals.css';
 @import '@agent-hq/ui/auth-shell.css';
 @import '@agent-hq/ui/workspace-shell.css';
 @import '@agent-hq/ui/conventional-workspace.css';

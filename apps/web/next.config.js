@@ -18,6 +18,7 @@ const nextConfig = {
     "@agent-hq/app-core",
     "@agent-hq/asset-manifests",
     "@agent-hq/character-designer-scene",
+    "@agent-hq/room-designer-scene",
     "@agent-hq/audio",
     "@agent-hq/characters",
     "@agent-hq/data",

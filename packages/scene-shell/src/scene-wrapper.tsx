@@ -29,10 +29,13 @@ import type {
   StaticColliderConfig,
 } from "@agent-hq/scene-runtime";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
-import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
+import type { CharacterConfiguration } from "@agent-hq/characters/runtime";
+import type { CharacterPartOption } from "@agent-hq/characters/customization";
+import type { RoomDesignerRect } from "@agent-hq/room-designer-scene";
 import { Portals, type PortalLink } from "./portals";
+import { AssignedPropsRuntime } from "./assigned-props-runtime";
+import { invalidateAssignedPropsManifest } from "./assigned-props-document";
 import { PropColliders } from "./prop-colliders";
-import type { RoomDesignerAsset, RoomDesignerRect } from "./room-designer";
 
 const SceneHost = dynamic(
   () => import("@agent-hq/scene-runtime").then((module) => module.SceneHost),
@@ -43,7 +46,10 @@ const SceneEditor = dynamic(() => import("./scene-editor").then((module) => modu
   ssr: false,
 });
 const RoomDesigner = dynamic(
-  () => import("./room-designer").then((module) => module.RoomDesigner),
+  () =>
+    import("@agent-hq/room-designer-scene").then(
+      (module) => module.RoomDesignerScene,
+    ),
   { ssr: false },
 );
 const CharacterDesignerScene = dynamic(
@@ -190,7 +196,6 @@ export type SceneWrapperProps = {
   roomDesignerRegions?: readonly RoomDesignerRect[];
   roomDesignerBlockedRects?: readonly RoomDesignerRect[];
   roomDesignerDoorwayRects?: readonly RoomDesignerRect[];
-  roomDesignerCatalog?: readonly RoomDesignerAsset[];
   roomDesignerNormalOrthographicHalfHeight?: number;
   roomDesignerDesignOrthographicHalfHeight?: number;
   roomDesignerBackdropColor?: number;
@@ -295,7 +300,6 @@ export function SceneWrapper({
   roomDesignerRegions = [],
   roomDesignerBlockedRects = [],
   roomDesignerDoorwayRects = [],
-  roomDesignerCatalog = [],
   roomDesignerNormalOrthographicHalfHeight = orthographicHalfHeight ?? 720,
   roomDesignerDesignOrthographicHalfHeight = roomDesignerNormalOrthographicHalfHeight * 1.16,
   roomDesignerBackdropColor,
@@ -354,7 +358,11 @@ export function SceneWrapper({
   } | null>(null);
   const characterDesignerSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const characterDesignerNavigationAllowedRef = useRef(false);
-  const [roomDesignerEnabled, setRoomDesignerEnabled] = useState(false);
+  const [roomDesignerEnabled, setRoomDesignerEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const value = new URLSearchParams(window.location.search).get("roomDesigner");
+    return value !== null && value !== "0";
+  });
   const [roomDesignerHasEdits, setRoomDesignerHasEdits] = useState(false);
   const [pendingRoomDesignerClose, setPendingRoomDesignerClose] = useState<{
     href?: string;
@@ -367,19 +375,22 @@ export function SceneWrapper({
   const [internalPropCollidersVersion, setInternalPropCollidersVersion] = useState(0);
   useEffect(() => {
     if (prevHasEditsRef.current && !roomDesignerHasEdits && roomDesignerEnabled) {
+      if (manifest.assignedPropsManifestUrl) {
+        invalidateAssignedPropsManifest(manifest.assignedPropsManifestUrl);
+      }
       setInternalPropCollidersVersion((v) => v + 1);
     }
     prevHasEditsRef.current = roomDesignerHasEdits;
-  }, [roomDesignerHasEdits, roomDesignerEnabled]);
+  }, [manifest.assignedPropsManifestUrl, roomDesignerHasEdits, roomDesignerEnabled]);
   const [sceneVersion, setSceneVersion] = useState(0);
   const handleDebugApiReady = useCallback(
     (api: SceneDebugApi) => {
       onDebugApiReady?.(api);
-      if (enablePropColliders || canUseRoomDesigner) {
+      if (enablePropColliders || canUseRoomDesigner || manifest.assignedPropsManifestUrl) {
         setSceneVersion((version) => version + 1);
       }
     },
-    [canUseRoomDesigner, enablePropColliders, onDebugApiReady],
+    [canUseRoomDesigner, enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady],
   );
 
   useEffect(() => {
@@ -399,7 +410,7 @@ export function SceneWrapper({
   useEffect(() => {
     if (!canUseCharacterDesigner || !characterDesignerEnabled || characterPartOptions) return;
     let cancelled = false;
-    void import("@agent-hq/characters").then(({ characterPartCatalog }) => {
+    void import("@agent-hq/characters/customization").then(({ characterPartCatalog }) => {
       if (!cancelled) setLazyCharacterPartOptions(characterPartCatalog);
     });
     return () => {
@@ -682,7 +693,6 @@ export function SceneWrapper({
       />
       ) : (
         <CharacterDesignerScene
-          key={character}
           character={character}
           characterOptions={characterOptions}
           characterConfiguration={characterConfiguration}
@@ -727,11 +737,11 @@ export function SceneWrapper({
           enabled={sceneEditorEnabled}
         />
       ) : null}
-      {!characterDesignerIsActive && canUseRoomDesigner && roomDesignerMapBounds ? (
+      {!characterDesignerIsActive && canUseRoomDesigner && roomDesignerMapBounds && roomDesignerEnabled && activeCameraViewMode === "orthographic" ? (
         <RoomDesigner
           manifest={manifest}
           debugApiRef={debugApiRef}
-          enabled={roomDesignerEnabled && activeCameraViewMode === "orthographic"}
+          enabled
           sceneScale={roomDesignerSceneScale}
           groundY={roomDesignerGroundY}
           gridSize={roomDesignerGridSize}
@@ -739,7 +749,6 @@ export function SceneWrapper({
           regions={roomDesignerRegions}
           blockedRects={roomDesignerBlockedRects}
           doorwayRects={roomDesignerDoorwayRects}
-          catalog={roomDesignerCatalog}
           normalOrthographicHalfHeight={roomDesignerNormalOrthographicHalfHeight}
           designOrthographicHalfHeight={roomDesignerDesignOrthographicHalfHeight}
           designBackdropColor={roomDesignerBackdropColor}
@@ -751,11 +760,18 @@ export function SceneWrapper({
           onDirtyChange={setRoomDesignerHasEdits}
         />
       ) : null}
-      {!characterDesignerIsActive && enablePropColliders && roomDesignerCatalog.length > 0 ? (
+      {!characterDesignerIsActive && !roomDesignerEnabled ? (
+        <AssignedPropsRuntime
+          debugApiRef={debugApiRef}
+          manifestUrl={manifest.assignedPropsManifestUrl}
+          sceneScale={roomDesignerSceneScale}
+          sceneVersion={sceneVersion}
+        />
+      ) : null}
+      {!characterDesignerIsActive && enablePropColliders && manifest.assignedPropsManifestUrl ? (
         <PropColliders
           debugApiRef={debugApiRef}
-          sceneId={manifest.id}
-          catalog={roomDesignerCatalog}
+          manifestUrl={manifest.assignedPropsManifestUrl}
           sceneScale={roomDesignerSceneScale ?? 1}
           groundY={roomDesignerGroundY ?? 0}
           cameraViewMode={activeCameraViewMode}

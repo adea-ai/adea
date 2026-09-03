@@ -1,5 +1,5 @@
 import { hqHomeManifest, hqWorkManifest } from '@agent-hq/hq-scenes'
-import { configurableCharacterId } from '@agent-hq/characters'
+import { configurableCharacterId } from '@agent-hq/characters/runtime'
 import { HqRoomScene } from '@agent-hq/hq-scenes/runtime'
 import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { VirtualRoomControls, type WorkspaceView } from '@agent-hq/workspace-ui'

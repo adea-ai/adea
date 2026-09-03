@@ -4,7 +4,7 @@ import {
   configurableCharacterId,
   isCharacterId,
   isCustomCharacterId,
-} from '@agent-hq/characters'
+} from '@agent-hq/characters/runtime'
 import { readSceneStartPosition } from '@agent-hq/scene-shell/scene-spawn'
 import { WorkspaceEntry } from '../components/workspace-entry'
 

@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/character-designer-scene",
+  "name": "@agent-hq/room-designer-scene",
   "version": "0.8.3",
   "private": true,
   "type": "module",
@@ -20,7 +20,8 @@
     "test": "bun test test/*.test.ts"
   },
   "dependencies": {
-    "@agent-hq/characters": "workspace:*",
+    "@agent-hq/asset-manifests": "workspace:*",
+    "@agent-hq/interior": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "lucide-react": "^1.33.0",

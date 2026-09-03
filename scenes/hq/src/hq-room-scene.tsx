@@ -15,9 +15,8 @@ import {
   isCharacterConfigurationId,
   serializeCharacterConfiguration,
   type CharacterConfiguration,
-} from "@agent-hq/characters";
+} from "@agent-hq/characters/runtime";
 import type { AmbientAnimals } from "@agent-hq/pets";
-import { interiorPropAssets } from "@agent-hq/interior";
 import { landscapeHorizonBackgrounds } from "@agent-hq/landscape";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
@@ -39,8 +38,8 @@ import {
   ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
   ROOM_GALLERY_RUNTIME_SCALE,
   ROOM_GALLERY_WALL_SEGMENTS,
-} from "@agent-hq/interior";
-import type { RoomGalleryWallSegment } from "@agent-hq/interior";
+} from "@agent-hq/interior/room-config";
+import type { RoomGalleryWallSegment } from "@agent-hq/interior/room-config";
 import type {
   SceneWaterVolume,
   StaticColliderConfig,
@@ -234,7 +233,6 @@ const hqFrontWalkwayBlockedRect = {
   depth: ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
 };
 const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax - 120 } as const;
-const hqRoomDesignerCatalog = interiorPropAssets;
 const hqClickNavigationBounds = {
   xMin: ROOM_GALLERY_BOUNDS.xMin + 30,
   xMax: ROOM_GALLERY_BOUNDS.xMax - 30,
@@ -1148,7 +1146,6 @@ export function HqRoomScene({
       roomDesignerRegions={hqRoomDesignerRegions}
       roomDesignerBlockedRects={[...hqRoomDesignerBlockedRects, hqFrontWalkwayBlockedRect]}
       roomDesignerDoorwayRects={hqRoomDesignerDoorwayRects}
-      roomDesignerCatalog={hqRoomDesignerCatalog}
       roomDesignerPlayerPosition={hqRoomDesignerPlayerPosition}
       enablePropColliders
       roomDesignerNormalOrthographicHalfHeight={hqOrthographicHalfHeight}
