@@ -1,4 +1,5 @@
 .workspace-frame {
+  --workspace-rail-width: 4rem;
   position: fixed;
   inset: 0;
   display: grid;

@@ -10,7 +10,6 @@ import {
   customCharacterIds,
   isCustomCharacterId,
   getCustomCharacterLabel,
-  characterPartCatalog,
   configurableCharacterId,
   getCharacterConfiguration,
   isCharacterConfigurationId,
@@ -1098,7 +1097,6 @@ export function HqRoomScene({
       characterConfiguration={characterConfiguration}
       onCharacterConfigurationChange={handleCharacterConfigurationChange}
       onCharacterConfigurationReset={() => setCharacterConfiguration(undefined)}
-      characterPartOptions={characterPartCatalog}
       accountTargetId={accountTargetId}
       accountLabel={accountLabel}
       accountAuthenticated={accountAuthenticated}

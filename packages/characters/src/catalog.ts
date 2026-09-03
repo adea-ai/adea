@@ -11,13 +11,14 @@ import {
   type LoadedCharacter,
   type LoadedCharacterAnimations,
 } from './provider'
-import { characterPartAssets, characterPartIds } from './customization'
+import { characterPartAssets, characterPartIds, characterPartSlots } from './customization'
 import { characterPartOffsets } from './generated-part-offsets'
 import {
   characterConfigurationPresets,
   characterPartName,
   configurableCharacterId,
   createDefaultCharacterConfiguration,
+  defaultCharacterConfiguration,
   getCharacterConfiguration,
   getCharacterConfigurationLabel,
   isConfigurableCharacterId,
@@ -28,6 +29,47 @@ import {
 const assetRoot = '/assets/models'
 const characterLibraryUrl = `${assetRoot}/characters.glb`
 const characterAnimationUrl = `${assetRoot}/runtime.glb`
+
+/**
+ * The authoring library contains every wearable (and hundreds of duplicate
+ * skins). Keep it available for arbitrary custom combinations, but use the
+ * compact, generated variants for the configurations shipped in the picker.
+ * Loading the full authoring board during the first scene render otherwise
+ * spends tens of seconds constructing unused skeletons.
+ */
+const characterLibraryVariantUrls = {
+  default: `${assetRoot}/characters-default.glb`,
+  researcher: `${assetRoot}/characters-researcher.glb`,
+  builder: `${assetRoot}/characters-builder.glb`,
+} as const
+
+type CharacterLibraryVariant = keyof typeof characterLibraryVariantUrls
+
+function sameCharacterConfiguration(
+  left: CharacterConfiguration,
+  right: CharacterConfiguration,
+): boolean {
+  return (
+    left.version === right.version &&
+    characterPartSlots.every((slot) => left[slot] === right[slot])
+  )
+}
+
+/** Resolve the smallest packaged library for a character configuration. */
+export function getCharacterLibraryAssetUrl(id: string): string {
+  const configuration = getCharacterConfiguration(id)
+  if (!configuration) return characterLibraryUrl
+  if (sameCharacterConfiguration(configuration, defaultCharacterConfiguration)) {
+    return characterLibraryVariantUrls.default
+  }
+  const preset = characterConfigurationPresets.find(({ configuration: presetConfiguration }) =>
+    sameCharacterConfiguration(configuration, presetConfiguration),
+  )
+  if (preset && preset.id in characterLibraryVariantUrls) {
+    return characterLibraryVariantUrls[preset.id as CharacterLibraryVariant]
+  }
+  return characterLibraryUrl
+}
 
 export const referenceCharacterIds = [
   'f_1',
@@ -149,7 +191,8 @@ const characterPartIdsByName = new Map(characterPartIds.map((id) => [characterPa
 
 function configureCharacterLibrary(
   scene: THREE.Object3D,
-  configuration: CharacterConfiguration
+  configuration: CharacterConfiguration,
+  preserveUnselected = false
 ): THREE.Object3D {
   const selectedNames = new Set(
     Object.values(configuration)
@@ -166,9 +209,17 @@ function configureCharacterLibrary(
     const partId = characterPartIdsByName.get(mesh.name)
     const selected = partId !== undefined && selectedNames.has(mesh.name)
     if (!selected) {
-      discardedObjects.push(mesh)
+      if (preserveUnselected && partId !== undefined) {
+        // Designer previews keep every wearable in the one loaded library so
+        // changing a slot only flips visibility instead of rebuilding the
+        // scene or fetching another model.
+        mesh.visible = false
+      } else {
+        discardedObjects.push(mesh)
+      }
       return
     }
+    mesh.visible = true
     if (partId) {
       const [x, y, z] = characterPartOffsets[partId] ?? [0, 0, 0]
       // The checked-in library is an authoring board: its skinned vertices
@@ -177,12 +228,28 @@ function configureCharacterLibrary(
       mesh.position.set(-x, -y, -z)
     }
   })
-  // Do not make SceneHost traverse or upload the unselected wearable
-  // meshes. Detaching them also lets the temporary GLTF object graph reclaim
-  // their geometry while the selected meshes retain shared materials/textures.
-  discardedObjects.forEach((object) => object.removeFromParent())
+  if (!preserveUnselected) {
+    // Do not make SceneHost traverse or upload the unselected wearable
+    // meshes. Detaching them also lets the temporary GLTF object graph reclaim
+    // their geometry while the selected meshes retain shared materials/textures.
+    discardedObjects.forEach((object) => object.removeFromParent())
+  } else {
+    // Unknown helper meshes are never part of a wearable preview or runtime
+    // character and should not add draw calls to the designer.
+    discardedObjects
+      .filter((object) => !(object as THREE.SkinnedMesh).isSkinnedMesh)
+      .forEach((object) => object.removeFromParent())
+  }
   scene.updateMatrixWorld(true)
   return scene
+}
+
+/** Apply a new configuration to a full preview library without reloading it. */
+export function updateCharacterConfiguration(
+  scene: THREE.Object3D,
+  configuration: CharacterConfiguration
+): THREE.Object3D {
+  return configureCharacterLibrary(scene, validateCharacterConfiguration(configuration), true)
 }
 
 async function loadConfigurableCharacter(
@@ -195,7 +262,7 @@ async function loadConfigurableCharacter(
     : (getCharacterConfiguration(id) ?? createDefaultCharacterConfiguration())
   const manifest = getManifest(id)
   if (!manifest) throw new Error(`Unknown character: ${id}`)
-  const gltf = await loader.loadAsync(manifest.assetUrl)
+  const gltf = await loader.loadAsync(getCharacterLibraryAssetUrl(id))
   return { scene: configureCharacterLibrary(gltf.scene, configuration), clips: [] }
 }
 
@@ -218,6 +285,24 @@ async function loadCatalogCharacter(
   return isConfigurableCharacterId(id)
     ? loadConfigurableCharacter(loader, id, configuration)
     : loadReferenceCharacter(loader, id)
+}
+
+/**
+ * Load the full configurable library for the character studio. Unlike the
+ * workspace loader, the preview intentionally retains unselected wearables
+ * so slot changes can be applied in place.
+ */
+export async function loadCharacterPreview(
+  loader: GLTFLoader,
+  id: string,
+  requestedConfiguration?: CharacterConfiguration
+): Promise<LoadedCharacter> {
+  if (!isConfigurableCharacterId(id)) return loadReferenceCharacter(loader, id)
+  const configuration = requestedConfiguration
+    ? validateCharacterConfiguration(requestedConfiguration)
+    : (getCharacterConfiguration(id) ?? createDefaultCharacterConfiguration())
+  const gltf = await loader.loadAsync(characterLibraryUrl)
+  return { scene: configureCharacterLibrary(gltf.scene, configuration, true), clips: [] }
 }
 
 async function loadCharacterAnimationsFromAsset(

@@ -46,8 +46,8 @@ const RoomDesigner = dynamic(
   () => import("./room-designer").then((module) => module.RoomDesigner),
   { ssr: false },
 );
-const CharacterDesigner = dynamic(
-  () => import("./character-designer").then((module) => module.CharacterDesigner),
+const CharacterDesignerScene = dynamic(
+  () => import("./character-designer-scene").then((module) => module.CharacterDesignerScene),
   { ssr: false },
 );
 const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = [];
@@ -303,11 +303,13 @@ export function SceneWrapper({
   onDebugApiReady,
 }: SceneWrapperProps) {
   const canUseSceneEditor = enableSceneEditor && sceneEditorAvailable;
+  const [lazyCharacterPartOptions, setLazyCharacterPartOptions] = useState<
+    readonly CharacterPartOption[]
+  >([]);
+  const effectiveCharacterPartOptions = characterPartOptions ?? lazyCharacterPartOptions;
   const canUseCharacterDesigner =
     enableCharacterDesigner &&
     characterDesignerAvailable &&
-    characterPartOptions !== undefined &&
-    characterPartOptions.length > 0 &&
     Boolean(onCharacterConfigurationChange);
   const canUseRoomDesigner =
     enableRoomDesigner && roomDesignerAvailable && Boolean(roomDesignerMapBounds);
@@ -338,7 +340,11 @@ export function SceneWrapper({
   }, [cameraViewMode, queryCameraViewMode]);
 
   const [sceneEditorEnabled, setSceneEditorEnabled] = useState(false);
-  const [characterDesignerEnabled, setCharacterDesignerEnabled] = useState(false);
+  const [characterDesignerEnabled, setCharacterDesignerEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const value = new URLSearchParams(window.location.search).get("characterDesigner");
+    return value !== null && value !== "0";
+  });
   const [characterDesignerHasEdits, setCharacterDesignerHasEdits] = useState(false);
   const [pendingCharacterDesignerClose, setPendingCharacterDesignerClose] = useState<{
     href?: string;
@@ -386,6 +392,17 @@ export function SceneWrapper({
     const value = new URLSearchParams(window.location.search).get("characterDesigner");
     setCharacterDesignerEnabled(value !== null && value !== "0");
   }, [canUseCharacterDesigner]);
+
+  useEffect(() => {
+    if (!canUseCharacterDesigner || !characterDesignerEnabled || characterPartOptions) return;
+    let cancelled = false;
+    void import("@agent-hq/characters").then(({ characterPartCatalog }) => {
+      if (!cancelled) setLazyCharacterPartOptions(characterPartCatalog);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canUseCharacterDesigner, characterDesignerEnabled, characterPartOptions]);
 
   useEffect(() => {
     if (!canUseRoomDesigner) return;
@@ -437,8 +454,8 @@ export function SceneWrapper({
     }
   };
 
-  const requestCharacterDesignerClose = () => {
-    if (characterDesignerHasEdits) {
+  const requestCharacterDesignerClose = (options: { skipPrompt?: boolean } = {}) => {
+    if (!options.skipPrompt && characterDesignerHasEdits) {
       setPendingCharacterDesignerClose({});
       return;
     }
@@ -592,12 +609,14 @@ export function SceneWrapper({
     }
   }, [activeCameraViewMode, roomDesignerEnabled]);
 
+  const characterDesignerIsActive = canUseCharacterDesigner && characterDesignerEnabled;
   const showNormalZoomControls = !roomDesignerEnabled;
   const showOnScreenControls =
     !orthographicClickOnly || activeCameraViewMode !== "orthographic" || showNormalZoomControls;
 
   return (
     <>
+      {!characterDesignerIsActive ? (
       <SceneHost
         label={manifest.label}
         viewportMode={viewportMode}
@@ -658,7 +677,23 @@ export function SceneWrapper({
         onLoadingStart={handleSceneLoadingStart}
         onReady={handleSceneReady}
       />
-      {!sceneReady ? (
+      ) : (
+        <CharacterDesignerScene
+          key={character}
+          character={character}
+          characterOptions={characterOptions}
+          characterConfiguration={characterConfiguration}
+          characterPartOptions={effectiveCharacterPartOptions}
+          onCharacterChange={onCharacterChange}
+          onCharacterConfigurationChange={onCharacterConfigurationChange!}
+          onCharacterConfigurationReset={onCharacterConfigurationReset}
+          onSave={onCharacterSave}
+          onClose={requestCharacterDesignerClose}
+          saveRef={characterDesignerSaveRef}
+          onDirtyChange={setCharacterDesignerHasEdits}
+        />
+      )}
+      {!characterDesignerIsActive && !sceneReady ? (
         <div
           className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
           data-scene-loading
@@ -671,7 +706,7 @@ export function SceneWrapper({
           </div>
         </div>
       ) : null}
-      {showOnScreenControls ? (
+      {!characterDesignerIsActive && showOnScreenControls ? (
         <OnScreenControls
           onZoomIn={showNormalZoomControls ? zoomIn : undefined}
           onZoomOut={showNormalZoomControls ? zoomOut : undefined}
@@ -679,7 +714,7 @@ export function SceneWrapper({
           showJumpControl={!orthographicClickOnly || activeCameraViewMode !== "orthographic"}
         />
       ) : null}
-      {canUseSceneEditor ? (
+      {!characterDesignerIsActive && canUseSceneEditor ? (
         <DevelopmentSceneEditor
           manifest={manifest}
           debugApiRef={debugApiRef}
@@ -689,23 +724,7 @@ export function SceneWrapper({
           enabled={sceneEditorEnabled}
         />
       ) : null}
-      {canUseCharacterDesigner ? (
-        <CharacterDesigner
-          enabled={characterDesignerEnabled}
-          character={character}
-          characterOptions={characterOptions}
-          characterConfiguration={characterConfiguration}
-          characterPartOptions={characterPartOptions ?? []}
-          onCharacterChange={onCharacterChange}
-          onCharacterConfigurationChange={onCharacterConfigurationChange!}
-          onCharacterConfigurationReset={onCharacterConfigurationReset}
-          onSave={onCharacterSave}
-          onClose={requestCharacterDesignerClose}
-          saveRef={characterDesignerSaveRef}
-          onDirtyChange={setCharacterDesignerHasEdits}
-        />
-      ) : null}
-      {canUseRoomDesigner && roomDesignerMapBounds ? (
+      {!characterDesignerIsActive && canUseRoomDesigner && roomDesignerMapBounds ? (
         <RoomDesigner
           manifest={manifest}
           debugApiRef={debugApiRef}
@@ -729,7 +748,7 @@ export function SceneWrapper({
           onDirtyChange={setRoomDesignerHasEdits}
         />
       ) : null}
-      {enablePropColliders && roomDesignerCatalog.length > 0 ? (
+      {!characterDesignerIsActive && enablePropColliders && roomDesignerCatalog.length > 0 ? (
         <PropColliders
           debugApiRef={debugApiRef}
           sceneId={manifest.id}
@@ -741,26 +760,44 @@ export function SceneWrapper({
           propsVersion={propCollidersVersion + internalPropCollidersVersion}
         />
       ) : null}
-      {portals ? <Portals debugApiRef={debugApiRef} links={portals} /> : null}
+      {!characterDesignerIsActive && portals ? (
+        <Portals debugApiRef={debugApiRef} links={portals} />
+      ) : null}
       <SceneSettings
         cameraViewMode={activeCameraViewMode}
         onCameraViewModeChange={onCameraViewModeChange}
-        allowCameraViewModeChange={allowCameraViewModeChange}
-        characterDesignerEnabled={canUseCharacterDesigner ? characterDesignerEnabled : undefined}
-        onCharacterDesignerChange={canUseCharacterDesigner ? onCharacterDesignerChange : undefined}
+        allowCameraViewModeChange={!characterDesignerIsActive && allowCameraViewModeChange}
+        characterDesignerEnabled={
+          characterDesignerIsActive
+            ? undefined
+            : canUseCharacterDesigner
+              ? characterDesignerEnabled
+              : undefined
+        }
+        onCharacterDesignerChange={
+          characterDesignerIsActive
+            ? undefined
+            : canUseCharacterDesigner
+              ? onCharacterDesignerChange
+              : undefined
+        }
         characterDesignerTargetId={characterDesignerTargetId}
         roomDesignerEnabled={
-          canUseRoomDesigner && activeCameraViewMode === "orthographic"
+          !characterDesignerIsActive && canUseRoomDesigner && activeCameraViewMode === "orthographic"
             ? roomDesignerEnabled
             : undefined
         }
         onRoomDesignerChange={
-          canUseRoomDesigner && activeCameraViewMode === "orthographic"
+          !characterDesignerIsActive && canUseRoomDesigner && activeCameraViewMode === "orthographic"
             ? onRoomDesignerChange
             : undefined
         }
-        sceneEditorEnabled={canUseSceneEditor ? sceneEditorEnabled : undefined}
-        onSceneEditorChange={canUseSceneEditor ? applySceneEditorChange : undefined}
+        sceneEditorEnabled={
+          !characterDesignerIsActive && canUseSceneEditor ? sceneEditorEnabled : undefined
+        }
+        onSceneEditorChange={
+          !characterDesignerIsActive && canUseSceneEditor ? applySceneEditorChange : undefined
+        }
         accountTargetId={accountTargetId}
         accountLabel={accountLabel}
         accountAuthenticated={accountAuthenticated}

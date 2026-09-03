@@ -54,6 +54,23 @@ bun run assets:optimize:runtime
 bun run assets:check
 ```
 
+The checked-in `characters-default.glb`, `characters-researcher.glb`, and
+`characters-builder.glb` files are compact runtime variants used for the three
+shipped presets. Regenerate a variant from the full library after changing a
+preset with:
+
+```sh
+bun scripts/prepare-character-runtime-variants.mjs \
+  --input packages/characters/assets/characters.glb \
+  --output packages/characters/assets/characters-default.glb \
+  --parts Root,<selected-part-names>
+bun run assets:check
+```
+
+Replace the output name and part list for each preset. Keep the generated
+variants in `packages/characters/assets`; `scripts/sync-assets.mjs` copies them
+into the web and desktop runtime bundles.
+
 The preparation step keeps the 378 named wearable meshes, removes source-board
 labels and unused test meshes, moves each board-placed mesh into local part
 space, and stores its node translation. This keeps the source wearables aligned

@@ -1,4 +1,5 @@
 export { SceneWrapper, type SceneWrapperProps } from "./scene-wrapper";
+export type { CharacterDesignerSceneProps } from "./character-designer-scene";
 // CharacterDesigner is loaded by SceneWrapper only when enabled. Keep its
 // public types available without pulling its implementation into consumers.
 export type { CharacterDesignerProps, CharacterDesignerValue } from "./character-designer";

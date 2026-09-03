@@ -12,6 +12,8 @@ import {
   createCharacterAnimationController,
   loadCharacter,
   loadCharacterAnimations,
+  loadCharacterPreview,
+  updateCharacterConfiguration,
   type CharacterAnimationController,
   type CharacterConfiguration,
 } from "@agent-hq/characters";
@@ -177,7 +179,8 @@ export type SceneHostProps = {
   label?: string;
   /** Size the renderer to its containing layout region instead of the browser viewport. */
   viewportMode?: "window" | "container";
-  assetUrl: string;
+  /** Optional authored world asset. Omit it for a procedural preview stage. */
+  assetUrl?: string;
   entryZoneId?: string;
   /** Keep the entry zone collision active while another zone is loaded. */
   preserveEntryCollision?: boolean;
@@ -214,6 +217,10 @@ export type SceneHostProps = {
   characterId?: string;
   /** Optional modular Cute character configuration for the selected id. */
   characterConfiguration?: CharacterConfiguration;
+  /** Keep the full configurable library in memory for in-place slot previews. */
+  characterPreview?: boolean;
+  /** Aim the camera at the character's head (default) or visual center. */
+  cameraTargetMode?: "head" | "center";
   /** Defer optional animation assets until after the scene is playable. */
   deferCharacterDetails?: boolean;
   /** Whether deferred character details should be fetched automatically. */
@@ -1197,6 +1204,8 @@ export function SceneHost({
   playerVisibilityGroups = EMPTY_VISIBILITY_GROUPS,
   characterId = configurableCharacterId,
   characterConfiguration,
+  characterPreview = false,
+  cameraTargetMode = "head",
   characterScale = DEFAULT_characterModelScale,
   sceneScale = 1,
   movementSpeedFactor = 1,
@@ -1234,6 +1243,21 @@ export function SceneHost({
   propsManifestUrl,
 }: SceneHostProps) {
   const playerHeight = characterScale.height;
+  const characterIdRef = useRef(characterId);
+  const characterConfigurationRef = useRef(characterConfiguration);
+  const characterPreviewUpdateRef = useRef<
+    ((id: string, configuration?: CharacterConfiguration) => void) | null
+  >(null);
+  const characterLoadKey = characterPreview
+    ? "character-preview"
+    : `${characterId}:${characterConfiguration ? JSON.stringify(characterConfiguration) : ""}`;
+  characterIdRef.current = characterId;
+  characterConfigurationRef.current = characterConfiguration;
+
+  useEffect(() => {
+    if (!characterPreview) return;
+    characterPreviewUpdateRef.current?.(characterId, characterConfiguration);
+  }, [characterConfiguration, characterId, characterPreview]);
   const playerRadius = characterScale.radius;
   const playerSpeed = PLAYER_SPEED;
   const jumpSpeed = JUMP_SPEED;
@@ -2041,16 +2065,19 @@ export function SceneHost({
           .setTranscoderPath("/assets/basis/")
           .detectSupport(activeRenderer);
         loader.setKTX2Loader(textureTranscoder);
-        const pendingBackground = environment?.backgroundTextureUrl
-          ? new THREE.TextureLoader(manager)
-              .loadAsync(environment.backgroundTextureUrl)
-              .catch((cause) => {
-                const message =
-                  cause instanceof Error ? cause.message : "unknown background texture error";
-                console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
-                return null;
-              })
-          : Promise.resolve<THREE.Texture | null>(null);
+        const pendingBackground = telemetry.track(
+          "background",
+          environment?.backgroundTextureUrl
+            ? new THREE.TextureLoader(manager)
+                .loadAsync(environment.backgroundTextureUrl)
+                .catch((cause) => {
+                  const message =
+                    cause instanceof Error ? cause.message : "unknown background texture error";
+                  console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
+                  return null;
+                })
+            : Promise.resolve<THREE.Texture | null>(null),
+        );
         const prepareSceneLayer = (root: THREE.Object3D) => {
           root.traverse((object) => {
             if (!(object instanceof THREE.Mesh)) return;
@@ -2242,7 +2269,9 @@ export function SceneHost({
         // Kick off only the entry scene, its collision, and the character on the
         // critical path. Optional gallery zones are distance-loaded after the
         // player is ready, so large room meshes never delay the first frame.
-        const pendingVisual = telemetry.track("visual", loader.loadAsync(assetUrl));
+        const pendingVisual = assetUrl
+          ? telemetry.track("visual", loader.loadAsync(assetUrl))
+          : Promise.resolve({ scene: new THREE.Group() });
         const pendingCollision = [
           ...(collisionAssetUrl
             ? [telemetry.track("physics.asset", loader.loadAsync(collisionAssetUrl))]
@@ -2254,9 +2283,20 @@ export function SceneHost({
         const pendingAdditional = additionalAssetUrls.map((url) =>
           guardPendingRejection(loader.loadAsync(url)),
         );
+        const requestedCharacterId = characterIdRef.current;
+        const requestedCharacterConfiguration = characterConfigurationRef.current;
         const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> =
-          guardPendingRejection(
-            loadCharacter(loader, characterId, characterConfiguration),
+          telemetry.track(
+            "character",
+            guardPendingRejection(
+              characterPreview
+                ? loadCharacterPreview(
+                    loader,
+                    requestedCharacterId,
+                    requestedCharacterConfiguration,
+                  )
+                : loadCharacter(loader, requestedCharacterId, requestedCharacterConfiguration),
+            ),
           );
         // Runtime-generated catalog fields are independent of the base scene
         // and of one another. Begin their manifest/model requests during the
@@ -2811,7 +2851,15 @@ export function SceneHost({
         // to its compatible deformation bones before the mixer is created.
         const pendingCoreAnimations = deferCharacterDetails
           ? Promise.resolve({ clips: [], names: {} })
-          : loadCharacterAnimations(loader, characterId, coreAnimationKeys, loadedCharacter.scene);
+          : telemetry.track(
+              "character.animations",
+              loadCharacterAnimations(
+            loader,
+            requestedCharacterId,
+            coreAnimationKeys,
+            loadedCharacter.scene,
+          ),
+            );
         let coreAnimations: Awaited<ReturnType<typeof loadCharacterAnimations>> = {
           clips: [],
           names: {},
@@ -2821,7 +2869,7 @@ export function SceneHost({
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : "unknown core animation error";
           console.warn(
-            `[Agent HQ] ${characterId} core animation catalog partially unavailable: ${message}`,
+            `[Agent HQ] ${requestedCharacterId} core animation catalog partially unavailable: ${message}`,
           );
         }
         const character = loadedCharacter.scene;
@@ -2844,17 +2892,37 @@ export function SceneHost({
         scene.add(character);
         character.updateMatrixWorld(true);
         const characterBounds = new THREE.Box3();
-        character.traverse((object) => {
-          if (object instanceof THREE.Mesh && object.visible)
-            characterBounds.expandByObject(object);
-        });
-        const characterBottom = characterBounds.min.y;
-        // Aim near the upper torso/head of the visual model instead of relying
-        // on the physics capsule height.
-        const cameraTargetOffset = characterGroundOffset + characterBounds.max.y * 0.9;
+        let characterBottom = 0;
+        let cameraTargetOffset = 0;
+        const recalculateCharacterFraming = () => {
+          character.updateMatrixWorld(true);
+          characterBounds.makeEmpty();
+          character.traverse((object) => {
+            if (object instanceof THREE.Mesh && object.visible)
+              characterBounds.expandByObject(object);
+          });
+          characterBottom = characterBounds.min.y;
+          const characterCenter = (characterBounds.min.y + characterBounds.max.y) / 2;
+          cameraTargetOffset =
+            cameraTargetMode === "center"
+              ? characterGroundOffset - characterBottom + characterCenter
+              : characterGroundOffset + characterBounds.max.y * 0.9;
+        };
+        recalculateCharacterFraming();
         const characterClips = [...loadedCharacter.clips, ...coreAnimations.clips];
         const controller = createCharacterAnimationController(character, characterClips);
         animationController = controller;
+        if (characterPreview) {
+          characterPreviewUpdateRef.current = (id, configuration) => {
+            if (id !== configurableCharacterId || !configuration || characterRoot !== character) return;
+            updateCharacterConfiguration(character, configuration);
+            recalculateCharacterFraming();
+          };
+          characterPreviewUpdateRef.current(
+            characterIdRef.current,
+            characterConfigurationRef.current,
+          );
+        }
         let runName = coreAnimations.names.run ?? loadedCharacter.clips[0]?.name;
         let locomotionName = runName ?? coreAnimations.names.walk;
         let idleName = coreAnimations.names.idle;
@@ -2881,7 +2949,7 @@ export function SceneHost({
         let jumpEndActive = false;
         let isSwimming = false;
         debugLog(
-          `[Agent HQ] ${characterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
+          `[Agent HQ] ${requestedCharacterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
         );
 
         characterController = world.createCharacterController(0.05);
@@ -2898,7 +2966,7 @@ export function SceneHost({
           try {
             const animations = await loadCharacterAnimations(
               loader,
-              characterId,
+              requestedCharacterId,
               coreAnimationKeys,
               character,
             );
@@ -2941,13 +3009,13 @@ export function SceneHost({
             const message =
               cause instanceof Error ? cause.message : "unknown deferred character detail error";
             console.warn(
-              `[Agent HQ] ${characterId} deferred character details unavailable: ${message}`,
+              `[Agent HQ] ${requestedCharacterId} deferred character details unavailable: ${message}`,
             );
           }
         };
 
         const colliderLabel = collisionAssetUrl ? "collision mesh" : "colliders";
-        const readyStatus = `${label} ready · ${colliderCount.toLocaleString()} ${colliderLabel} · ${characterId}`;
+        const readyStatus = `${label} ready · ${colliderCount.toLocaleString()} ${colliderLabel} · ${requestedCharacterId}`;
         setStatus(readyStatus);
         telemetry.markPlayable();
         const viewDirection = new THREE.Vector3();
@@ -4236,6 +4304,7 @@ export function SceneHost({
       navigationIndicator.geometry.dispose();
       navigationIndicator.material.dispose();
       cameraController.dispose();
+      characterPreviewUpdateRef.current = null;
       if (debugApiRef) debugApiRef.current = null;
       for (const colliders of zoneCollisionColliders.values()) {
         colliders.forEach((collider) => world?.removeCollider(collider, true));
@@ -4249,9 +4318,10 @@ export function SceneHost({
     additionalCollisionAssetUrls,
     assetUrl,
     cameraBounds,
-    characterConfiguration,
+    cameraTargetMode,
     characterGroundOffset,
-    characterId,
+    characterLoadKey,
+    characterPreview,
     characterScale,
     clickNavigationBounds,
     clickNavigationIndicatorScale,
