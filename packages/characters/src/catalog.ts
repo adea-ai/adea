@@ -215,10 +215,9 @@ function configureCharacterLibrary(
     discardedObjects.forEach((object) => object.removeFromParent())
   } else {
     // Unknown helper meshes are never part of a wearable preview or runtime
-    // character and should not add draw calls to the designer.
-    discardedObjects
-      .filter((object) => !(object as THREE.SkinnedMesh).isSkinnedMesh)
-      .forEach((object) => object.removeFromParent())
+    // character and should not add draw calls to the designer. This includes
+    // skinned helper meshes, so remove every discarded object here.
+    discardedObjects.forEach((object) => object.removeFromParent())
   }
   scene.updateMatrixWorld(true)
   return scene

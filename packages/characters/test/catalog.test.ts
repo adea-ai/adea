@@ -123,12 +123,15 @@ describe('character package catalog', () => {
     const body = previewPart(configuration.body)
     const firstHair = previewPart('hair-hairstyle-female-01')
     const secondHair = previewPart('hair-hairstyle-male-01')
-    root.add(body, firstHair, secondHair)
+    const unknownHelper = previewPart('body-body-01')
+    unknownHelper.name = 'body_1305'
+    root.add(body, firstHair, secondHair, unknownHelper)
 
     updateCharacterConfiguration(root, configuration)
     expect(body.visible).toBe(true)
     expect(firstHair.visible).toBe(true)
     expect(secondHair.visible).toBe(false)
+    expect(unknownHelper.parent).toBeNull()
 
     updateCharacterConfiguration(root, {
       ...configuration,

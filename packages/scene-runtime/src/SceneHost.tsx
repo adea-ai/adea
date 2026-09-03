@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Timer } from "three";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import type { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { disposeObjectResources, type DisposedObjectResources } from "./resources";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {
@@ -15,15 +15,17 @@ import {
   type CharacterAnimationController,
   type CharacterConfiguration,
 } from "@agent-hq/characters/runtime";
-import { loadLandscapeField } from "@agent-hq/landscape/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
 import { createSceneLoadScope } from "./loading";
-import RAPIER, {
-  type Collider,
-  type KinematicCharacterController,
-  type World,
-} from "@dimforge/rapier3d-compat";
 import type { SceneZone, StaticFieldAssetUrls } from "@agent-hq/asset-manifests";
+import type {
+  Collider,
+  KinematicCharacterController,
+  World,
+} from "@dimforge/rapier3d-compat";
+
+type RapierModule = typeof import("@dimforge/rapier3d-compat").default;
+let RAPIER: RapierModule;
 import {
   DEBUG_COMPONENT_PROXY,
   isSceneEditorObject,
@@ -178,6 +180,10 @@ export type SceneHostProps = {
   viewportMode?: "window" | "container";
   /** Optional authored world asset. Omit it for a procedural preview stage. */
   assetUrl?: string;
+  /** Skip the Rapier runtime for visual-only previews such as the character studio. */
+  physicsEnabled?: boolean;
+  /** Skip the KTX2 transcoder for previews whose assets use ordinary textures. */
+  ktx2Enabled?: boolean;
   entryZoneId?: string;
   /** Keep the entry zone collision active while another zone is loaded. */
   preserveEntryCollision?: boolean;
@@ -555,6 +561,10 @@ async function initializeRapier(): Promise<void> {
   // promise so the second mount waits for the first instead of re-initializing.
   if (rapierInitPromise) return rapierInitPromise;
   rapierInitPromise = (async () => {
+    // Keep Rapier out of visual-only scenes until a physics-enabled scene asks
+    // for it. The dynamic import also keeps the multi-megabyte WASM wrapper out
+    // of the character studio's cold bundle.
+    RAPIER = (await import("@dimforge/rapier3d-compat")).default;
     // Rapier 0.19.3's compatibility wrapper emits this warning internally while
     // loading its embedded WASM, even when its public init() API is called correctly.
     const originalWarn = console.warn;
@@ -1185,6 +1195,8 @@ export function SceneHost({
   label = "Scene",
   viewportMode = "window",
   assetUrl,
+  physicsEnabled = true,
+  ktx2Enabled = true,
   entryZoneId,
   preserveEntryCollision = false,
   keepZoneCollisionsActive = false,
@@ -2051,9 +2063,11 @@ export function SceneHost({
 
     const load = async () => {
       try {
-        await telemetry.track("physics.initialize", initializeRapier());
-        if (disposed) return;
-        world = new RAPIER.World({ x: 0, y: gravity, z: 0 });
+        if (physicsEnabled) {
+          await telemetry.track("physics.initialize", initializeRapier());
+          if (disposed) return;
+          world = new RAPIER.World({ x: 0, y: gravity, z: 0 });
+        }
 
         const manager = new THREE.LoadingManager();
         manager.onProgress = (_url, loaded, total) =>
@@ -2062,10 +2076,13 @@ export function SceneHost({
         // meshopt-compressed GLBs (produced by the asset pipeline for large
         // scene geometry) decode in the browser instead of shipping raw floats.
         loader.setMeshoptDecoder(MeshoptDecoder);
-        textureTranscoder = new KTX2Loader(manager)
-          .setTranscoderPath("/assets/basis/")
-          .detectSupport(activeRenderer);
-        loader.setKTX2Loader(textureTranscoder);
+        if (ktx2Enabled) {
+          const { KTX2Loader } = await import("three/examples/jsm/loaders/KTX2Loader.js");
+          textureTranscoder = new KTX2Loader(manager)
+            .setTranscoderPath("/assets/basis/")
+            .detectSupport(activeRenderer);
+          loader.setKTX2Loader(textureTranscoder);
+        }
         const pendingBackground = telemetry.track(
           "background",
           environment?.backgroundTextureUrl
@@ -2273,14 +2290,16 @@ export function SceneHost({
         const pendingVisual = assetUrl
           ? telemetry.track("visual", loader.loadAsync(assetUrl))
           : Promise.resolve({ scene: new THREE.Group() });
-        const pendingCollision = [
-          ...(collisionAssetUrl
-            ? [telemetry.track("physics.asset", loader.loadAsync(collisionAssetUrl))]
-            : []),
-          ...additionalCollisionAssetUrls.map((url, index) =>
-            telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url)),
-          ),
-        ];
+        const pendingCollision = physicsEnabled
+          ? [
+              ...(collisionAssetUrl
+                ? [telemetry.track("physics.asset", loader.loadAsync(collisionAssetUrl))]
+                : []),
+              ...additionalCollisionAssetUrls.map((url, index) =>
+                telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url)),
+              ),
+            ]
+          : [];
         const pendingAdditional = additionalAssetUrls.map((url) =>
           guardPendingRejection(loader.loadAsync(url)),
         );
@@ -2316,7 +2335,9 @@ export function SceneHost({
           staticFieldAssetUrls?.foliage
             ? loader.loadAsync(staticFieldAssetUrls.foliage).then(({ scene }) => scene)
             : foliageManifestUrl
-              ? loadLandscapeField(loader, foliageManifestUrl, loadScope.signal)
+              ? import("@agent-hq/landscape/runtime").then(({ loadLandscapeField }) =>
+                  loadLandscapeField(loader, foliageManifestUrl, loadScope.signal),
+                )
               : null,
           staticFieldAssetUrls?.props
             ? loader.loadAsync(staticFieldAssetUrls.props).then(({ scene }) => scene)
@@ -2332,23 +2353,25 @@ export function SceneHost({
           staticFieldCollisionAssetUrls?.foliage,
           staticFieldCollisionAssetUrls?.props,
         ] as const;
-        const pendingCollisionFields = collisionFieldSources.map((source, index) =>
-          source
-            ? telemetry.track(
-                `physics.field.${fieldNames[index]}`,
-                loader.loadAsync(source).then(({ scene: collisionScene }) => {
-                  // Field downloads can finish after an unmount or an earlier
-                  // layer failure. Dispose at the promise boundary so detached
-                  // exact-collider roots are never orphaned by an early return.
-                  if (disposed) {
-                    disposeObjectTree(collisionScene);
-                    return null;
-                  }
-                  return collisionScene;
-                }),
-              )
-            : null,
-        );
+        const pendingCollisionFields = physicsEnabled
+          ? collisionFieldSources.map((source, index) =>
+              source
+                ? telemetry.track(
+                    `physics.field.${fieldNames[index]}`,
+                    loader.loadAsync(source).then(({ scene: collisionScene }) => {
+                      // Field downloads can finish after an unmount or an earlier
+                      // layer failure. Dispose at the promise boundary so detached
+                      // exact-collider roots are never orphaned by an early return.
+                      if (disposed) {
+                        disposeObjectTree(collisionScene);
+                        return null;
+                      }
+                      return collisionScene;
+                    }),
+                  )
+                : null,
+            )
+          : [];
         const visual = await pendingVisual;
         const loadedBackground = await pendingBackground;
         if (disposed) {
@@ -2655,185 +2678,188 @@ export function SceneHost({
         const colliderBounds = new THREE.Box3();
         if (collisionRoot) colliderBounds.expandByObject(collisionRoot);
         visualCollisionLayers.forEach((root) => colliderBounds.expandByObject(root));
-        const physicsWorld = world;
-        if (!physicsWorld)
-          throw new Error("Rapier world was disposed before scene colliders were created");
-        const initialCollisionColliders: Collider[] = [];
-        let colliderCount = collisionRoot
-          ? addSceneColliders(
-              physicsWorld,
-              collisionRoot,
-              true,
-              runtimeCollisionExclusionAreas,
-              undefined,
-              collisionIncludePatterns,
-              initialCollisionColliders,
-            )
-          : 0;
-        if (separateCollisionRoot) {
-          for (const collisionLayer of separateCollisionRoot.children) {
-            if (collisionLayer === collisionRoot) continue;
-            colliderCount += addSceneColliders(
-              physicsWorld,
-              collisionLayer,
-              true,
-              runtimeCollisionExclusionAreas,
-              undefined,
-              collisionIncludePatterns,
-              initialCollisionColliders,
-            );
-          }
-        }
-        visualCollisionLayers.forEach((root) => {
-          colliderCount += addSceneColliders(
-            physicsWorld,
-            root,
-            false,
-            runtimeCollisionExclusionAreas,
-            undefined,
-            collisionIncludePatterns,
-            initialCollisionColliders,
-          );
-        });
-        for (const field of collisionFields) {
-          if (field) {
-            colliderCount += addSceneColliders(
-              physicsWorld,
-              field,
-              true,
-              runtimeCollisionExclusionAreas,
-              undefined,
-              collisionIncludePatterns,
-              initialCollisionColliders,
-              true,
-            );
-          }
-        }
-        if (staticFieldCollisionPatterns.length > 0) {
-          const fieldMeshFilter = (mesh: THREE.Mesh) => {
-            let current: THREE.Object3D | null = mesh;
-            while (current) {
-              const objectName = current.name;
-              if (staticFieldCollisionPatterns.some((pattern) => pattern.test(objectName)))
-                return true;
-              current = current.parent;
+        let colliderCount = 0;
+        if (physicsEnabled) {
+          const physicsWorld = world;
+          if (!physicsWorld)
+            throw new Error("Rapier world was disposed before scene colliders were created");
+          const initialCollisionColliders: Collider[] = [];
+          colliderCount = collisionRoot
+            ? addSceneColliders(
+                physicsWorld,
+                collisionRoot,
+                true,
+                runtimeCollisionExclusionAreas,
+                undefined,
+                collisionIncludePatterns,
+                initialCollisionColliders,
+              )
+            : 0;
+          if (separateCollisionRoot) {
+            for (const collisionLayer of separateCollisionRoot.children) {
+              if (collisionLayer === collisionRoot) continue;
+              colliderCount += addSceneColliders(
+                physicsWorld,
+                collisionLayer,
+                true,
+                runtimeCollisionExclusionAreas,
+                undefined,
+                collisionIncludePatterns,
+                initialCollisionColliders,
+              );
             }
-            return false;
-          };
-          for (const [field, exactCompanion] of [[props, collisionFields[1]]] as const) {
-            if (field && !exactCompanion) {
-              // This filter is the explicit opt-in for otherwise visual-only
-              // generated fields. Treat the selected meshes as trusted so the
-              // generic props-layer exclusion cannot discard them before the
-              // field filter gets a chance to include them.
+          }
+          visualCollisionLayers.forEach((root) => {
+            colliderCount += addSceneColliders(
+              physicsWorld,
+              root,
+              false,
+              runtimeCollisionExclusionAreas,
+              undefined,
+              collisionIncludePatterns,
+              initialCollisionColliders,
+            );
+          });
+          for (const field of collisionFields) {
+            if (field) {
               colliderCount += addSceneColliders(
                 physicsWorld,
                 field,
-                false,
+                true,
                 runtimeCollisionExclusionAreas,
-                fieldMeshFilter,
+                undefined,
                 collisionIncludePatterns,
                 initialCollisionColliders,
                 true,
               );
             }
           }
-        }
-        for (const collider of staticColliders) {
-          const descriptor = RAPIER.ColliderDesc.cuboid(
-            collider.halfExtents[0] * sceneScale,
-            collider.halfExtents[1] * sceneScale,
-            collider.halfExtents[2] * sceneScale,
-          )
-            .setTranslation(
-              collider.x * sceneScale,
-              collider.y * sceneScale,
-              collider.z * sceneScale,
-            )
-            .setFriction(0.9);
-          if (collider.rotation) {
-            descriptor.setRotation({
-              x: collider.rotation[0],
-              y: collider.rotation[1],
-              z: collider.rotation[2],
-              w: collider.rotation[3],
-            });
-          }
-          try {
-            const created = physicsWorld.createCollider(descriptor);
-            initialCollisionColliders.push(created);
-            colliderCount += 1;
-          } catch (cause) {
-            console.warn(
-              `[Agent HQ] static collider at ${collider.x},${collider.z} unavailable`,
-              cause,
-            );
-          }
-        }
-        if (colliderCount === 0) {
-          colliderCount = createFallbackFloorCollider(
-            physicsWorld,
-            colliderBounds,
-            playerPosition,
-            playerHeight,
-          )
-            ? 1
-            : 0;
-          if (colliderCount > 0) console.info(`[Agent HQ] ${label} using fallback spawn floor`);
-        }
-        if (separateCollisionRoot) {
-          disposeObjectTree(separateCollisionRoot);
-          detachedCollisionRoots.delete(separateCollisionRoot);
-        }
-        for (const field of collisionFields) {
-          if (!field) continue;
-          disposeObjectTree(field);
-          detachedCollisionRoots.delete(field);
-        }
-        if (entryZoneId && initialCollisionColliders.length > 0) {
-          zoneCollisionColliders.set(entryZoneId, initialCollisionColliders);
-          activeZoneCollisionId = entryZoneId;
-        }
-        if (pendingCollision.length > 0 && startPosition.snapToGround !== false) {
-          // A poisoned Rapier world throws here after collider failures. Keep
-          // the scene alive on the authored spawn position instead of failing
-          // the whole load.
-          try {
-            const spawnRay = new RAPIER.Ray(
-              { x: playerPosition.x, y: playerPosition.y + 4, z: playerPosition.z },
-              { x: 0, y: -1, z: 0 },
-            );
-            const surface = world.castRay(spawnRay, 20, true);
-            if (surface) {
-              playerPosition.y = playerPosition.y + 4 - surface.timeOfImpact + playerHeight / 2;
-              console.info(`[Agent HQ] ${label} snapped spawn to y=${playerPosition.y}`);
-            } else {
-              // The physics colliders may not cover the spawn point (e.g. a
-              // plaza gap between road tiles): fall back to the visible ground
-              // so the player does not spawn buried underground.
-              const fallbackRaycaster = new THREE.Raycaster();
-              fallbackRaycaster.set(
-                new THREE.Vector3(playerPosition.x, playerPosition.y + 4, playerPosition.z),
-                new THREE.Vector3(0, -1, 0),
-              );
-              const visualHits = fallbackRaycaster.intersectObjects(scene.children, true);
-              if (visualHits.length > 0) {
-                playerPosition.y = visualHits[0].point.y + playerHeight / 2;
-                console.info(
-                  `[Agent HQ] ${label} snapped spawn to visible ground y=${playerPosition.y}`,
+          if (staticFieldCollisionPatterns.length > 0) {
+            const fieldMeshFilter = (mesh: THREE.Mesh) => {
+              let current: THREE.Object3D | null = mesh;
+              while (current) {
+                const objectName = current.name;
+                if (staticFieldCollisionPatterns.some((pattern) => pattern.test(objectName)))
+                  return true;
+                current = current.parent;
+              }
+              return false;
+            };
+            for (const [field, exactCompanion] of [[props, collisionFields[1]]] as const) {
+              if (field && !exactCompanion) {
+                // This filter is the explicit opt-in for otherwise visual-only
+                // generated fields. Treat the selected meshes as trusted so the
+                // generic props-layer exclusion cannot discard them before the
+                // field filter gets a chance to include them.
+                colliderCount += addSceneColliders(
+                  physicsWorld,
+                  field,
+                  false,
+                  runtimeCollisionExclusionAreas,
+                  fieldMeshFilter,
+                  collisionIncludePatterns,
+                  initialCollisionColliders,
+                  true,
                 );
               }
             }
-          } catch (cause) {
-            const message = cause instanceof Error ? cause.message : "unknown spawn ray error";
-            console.warn(`[Agent HQ] ${label} spawn ray unavailable: ${message}`);
           }
+          for (const collider of staticColliders) {
+            const descriptor = RAPIER.ColliderDesc.cuboid(
+              collider.halfExtents[0] * sceneScale,
+              collider.halfExtents[1] * sceneScale,
+              collider.halfExtents[2] * sceneScale,
+            )
+              .setTranslation(
+                collider.x * sceneScale,
+                collider.y * sceneScale,
+                collider.z * sceneScale,
+              )
+              .setFriction(0.9);
+            if (collider.rotation) {
+              descriptor.setRotation({
+                x: collider.rotation[0],
+                y: collider.rotation[1],
+                z: collider.rotation[2],
+                w: collider.rotation[3],
+              });
+            }
+            try {
+              const created = physicsWorld.createCollider(descriptor);
+              initialCollisionColliders.push(created);
+              colliderCount += 1;
+            } catch (cause) {
+              console.warn(
+                `[Agent HQ] static collider at ${collider.x},${collider.z} unavailable`,
+                cause,
+              );
+            }
+          }
+          if (colliderCount === 0) {
+            colliderCount = createFallbackFloorCollider(
+              physicsWorld,
+              colliderBounds,
+              playerPosition,
+              playerHeight,
+            )
+              ? 1
+              : 0;
+            if (colliderCount > 0) console.info(`[Agent HQ] ${label} using fallback spawn floor`);
+          }
+          if (separateCollisionRoot) {
+            disposeObjectTree(separateCollisionRoot);
+            detachedCollisionRoots.delete(separateCollisionRoot);
+          }
+          for (const field of collisionFields) {
+            if (!field) continue;
+            disposeObjectTree(field);
+            detachedCollisionRoots.delete(field);
+          }
+          if (entryZoneId && initialCollisionColliders.length > 0) {
+            zoneCollisionColliders.set(entryZoneId, initialCollisionColliders);
+            activeZoneCollisionId = entryZoneId;
+          }
+          if (pendingCollision.length > 0 && startPosition.snapToGround !== false) {
+            // A poisoned Rapier world throws here after collider failures. Keep
+            // the scene alive on the authored spawn position instead of failing
+            // the whole load.
+            try {
+              const spawnRay = new RAPIER.Ray(
+                { x: playerPosition.x, y: playerPosition.y + 4, z: playerPosition.z },
+                { x: 0, y: -1, z: 0 },
+              );
+              const surface = physicsWorld.castRay(spawnRay, 20, true);
+              if (surface) {
+                playerPosition.y = playerPosition.y + 4 - surface.timeOfImpact + playerHeight / 2;
+                console.info(`[Agent HQ] ${label} snapped spawn to y=${playerPosition.y}`);
+              } else {
+                // The physics colliders may not cover the spawn point (e.g. a
+                // plaza gap between road tiles): fall back to the visible ground
+                // so the player does not spawn buried underground.
+                const fallbackRaycaster = new THREE.Raycaster();
+                fallbackRaycaster.set(
+                  new THREE.Vector3(playerPosition.x, playerPosition.y + 4, playerPosition.z),
+                  new THREE.Vector3(0, -1, 0),
+                );
+                const visualHits = fallbackRaycaster.intersectObjects(scene.children, true);
+                if (visualHits.length > 0) {
+                  playerPosition.y = visualHits[0].point.y + playerHeight / 2;
+                  console.info(
+                    `[Agent HQ] ${label} snapped spawn to visible ground y=${playerPosition.y}`,
+                  );
+                }
+              }
+            } catch (cause) {
+              const message = cause instanceof Error ? cause.message : "unknown spawn ray error";
+              console.warn(`[Agent HQ] ${label} spawn ray unavailable: ${message}`);
+            }
+          }
+          const playerShape = RAPIER.ColliderDesc.capsule(segmentHalfHeight, playerRadius)
+            .setTranslation(playerPosition.x, playerPosition.y, playerPosition.z)
+            .setFriction(0);
+          playerCollider = physicsWorld.createCollider(playerShape);
+          telemetry.mark("physics.ready");
         }
-        const playerShape = RAPIER.ColliderDesc.capsule(segmentHalfHeight, playerRadius)
-          .setTranslation(playerPosition.x, playerPosition.y, playerPosition.z)
-          .setFriction(0);
-        playerCollider = world.createCollider(playerShape);
-        telemetry.mark("physics.ready");
         debugLog(
           `[Agent HQ] ${label} physics ready colliders=${colliderCount} player=${playerPosition.toArray().join(",")}`,
         );
@@ -2961,15 +2987,17 @@ export function SceneHost({
           `[Agent HQ] ${requestedCharacterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
         );
 
-        characterController = world.createCharacterController(0.05);
-        characterController.setUp({ x: 0, y: 1, z: 0 });
-        characterController.setMaxSlopeClimbAngle(THREE.MathUtils.degToRad(48));
-        // The cafe/beach-house decks sit ~0.6 above the sand. HQ switches to
-        // its larger slab step only while click-only orthographic mode is
-        // active; perspective keeps the shared World value.
-        characterController.enableAutostep(0.6, 0.2, false);
-        characterController.enableSnapToGround(0.3);
         let activeAutostepHeight = 0.6;
+        if (physicsEnabled && world) {
+          characterController = world.createCharacterController(0.05);
+          characterController.setUp({ x: 0, y: 1, z: 0 });
+          characterController.setMaxSlopeClimbAngle(THREE.MathUtils.degToRad(48));
+          // The cafe/beach-house decks sit ~0.6 above the sand. HQ switches to
+          // its larger slab step only while click-only orthographic mode is
+          // active; perspective keeps the shared World value.
+          characterController.enableAutostep(0.6, 0.2, false);
+          characterController.enableSnapToGround(0.3);
+        }
 
         const loadDeferredCharacterDetails = async () => {
           try {
@@ -3028,9 +3056,15 @@ export function SceneHost({
         setStatus(readyStatus);
         telemetry.markPlayable();
         const viewDirection = new THREE.Vector3();
-        const cameraRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
-        const floorRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
-        const climbRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+        const cameraRay = physicsEnabled
+          ? new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })
+          : null;
+        const floorRay = physicsEnabled
+          ? new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })
+          : null;
+        const climbRay = physicsEnabled
+          ? new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })
+          : null;
         const cameraOcclusionRaycaster = new THREE.Raycaster();
         const cameraOcclusionDirection = new THREE.Vector3();
         const forward = new THREE.Vector3();
@@ -3236,7 +3270,7 @@ export function SceneHost({
             if (yaw != null) cameraController.setYaw(yaw);
             if (bodyYaw != null) characterYaw = bodyYaw;
             if (isSwimming) isSwimming = false;
-            if (snapToGround) {
+            if (snapToGround && physicsEnabled && world) {
               try {
                 const seededPlayerY = y != null ? y : null;
                 const seededFloorY =
@@ -3427,8 +3461,9 @@ export function SceneHost({
             return found;
           },
           groundY: (x, z) => {
+            if (!world || !physicsEnabled) return null;
             const ray = new RAPIER.Ray({ x, y: 150, z }, { x: 0, y: -1, z: 0 });
-            const hit = world?.castRay(
+            const hit = world.castRay(
               ray,
               300,
               true,
@@ -3441,9 +3476,10 @@ export function SceneHost({
             return hit ? 150 - hit.timeOfImpact : null;
           },
           groundYAt: (x, z, seedY) => {
+            if (!world || !physicsEnabled) return null;
             const ray = new RAPIER.Ray({ x, y: seedY + 4, z }, { x: 0, y: -1, z: 0 });
             const surfaces: number[] = [];
-            world?.intersectionsWithRay(
+            world.intersectionsWithRay(
               ray,
               20,
               true,
@@ -3675,12 +3711,36 @@ export function SceneHost({
         }
         for (const zone of zones) if (zone.preload) scheduleZoneLoad(zone.id);
         const render = () => {
-          if (disposed || !world || !characterController || !playerCollider) return;
+          if (disposed) return;
           const frameStartedAt = performance.now();
           animationFrame = requestAnimationFrame(render);
           timer.update();
-          updateProximityZones();
           const delta = Math.min(timer.getDelta(), 0.05);
+          if (!physicsEnabled) {
+            cameraController.setCameraRelativeBasis(forward, right);
+            visualUpdate?.(scene, delta, timer.getElapsed());
+            animationController?.update(delta);
+            characterTarget.set(
+              playerPosition.x,
+              playerPosition.y - playerHeight / 2 + cameraTargetOffset,
+              playerPosition.z,
+            );
+            cameraController.update(characterTarget, delta, Infinity);
+            camera = cameraController.camera;
+            activeRenderer.clear();
+            if (screenBackgroundMesh.visible) {
+              activeRenderer.render(screenBackgroundScene, screenBackgroundCamera);
+              activeRenderer.clearDepth();
+            }
+            activeRenderer.render(scene, camera);
+            telemetry.recordFrame(
+              performance.now() - frameStartedAt,
+              activeRenderer.info.render.calls,
+            );
+            return;
+          }
+          if (!world || !characterController || !playerCollider) return;
+          updateProximityZones();
           if (cameraViewModeRef && cameraViewModeRef.current !== cameraController.viewMode) {
             cameraController.setViewMode(cameraViewModeRef.current);
             camera = cameraController.camera;
@@ -3902,14 +3962,14 @@ export function SceneHost({
             const probeWorld = world;
             const probeCollider = playerCollider;
             const probeFloor = (x: number, z: number) => {
-              floorRay.origin.x = x;
-              floorRay.origin.y = referenceWater.surfaceY + SWIM_FLOOR_PROBE_ORIGIN;
-              floorRay.origin.z = z;
-              floorRay.dir.x = 0;
-              floorRay.dir.y = -1;
-              floorRay.dir.z = 0;
+              floorRay!.origin.x = x;
+              floorRay!.origin.y = referenceWater.surfaceY + SWIM_FLOOR_PROBE_ORIGIN;
+              floorRay!.origin.z = z;
+              floorRay!.dir.x = 0;
+              floorRay!.dir.y = -1;
+              floorRay!.dir.z = 0;
               const hit = probeWorld.castRay(
-                floorRay,
+                floorRay!,
                 SWIM_FLOOR_PROBE_ORIGIN + SWIM_FLOOR_PROBE_DISTANCE,
                 true,
                 undefined,
@@ -3954,14 +4014,14 @@ export function SceneHost({
                 // body center runs underneath the sand edge and never finds the
                 // bank. From the capsule top it clears the lip and the downhill
                 // probe can locate the bank top.
-                climbRay.origin.x = playerPosition.x;
-                climbRay.origin.y = playerPosition.y + playerHeight / 2;
-                climbRay.origin.z = playerPosition.z;
-                climbRay.dir.x = climbDir.x;
-                climbRay.dir.y = 0;
-                climbRay.dir.z = climbDir.z;
+                climbRay!.origin.x = playerPosition.x;
+                climbRay!.origin.y = playerPosition.y + playerHeight / 2;
+                climbRay!.origin.z = playerPosition.z;
+                climbRay!.dir.x = climbDir.x;
+                climbRay!.dir.y = 0;
+                climbRay!.dir.z = climbDir.z;
                 const climbHit = world.castRay(
-                  climbRay,
+                  climbRay!,
                   CLIMB_RAY_DISTANCE,
                   true,
                   undefined,
@@ -3971,19 +4031,19 @@ export function SceneHost({
                 if (climbHit) {
                   const bankX = playerPosition.x + climbDir.x * climbHit.timeOfImpact;
                   const bankZ = playerPosition.z + climbDir.z * climbHit.timeOfImpact;
-                  floorRay.origin.x = bankX;
-                  floorRay.origin.y = playerPosition.y + CLIMB_MAX_RISE + 1.5;
-                  floorRay.origin.z = bankZ;
-                  floorRay.dir.y = -1;
+                  floorRay!.origin.x = bankX;
+                  floorRay!.origin.y = playerPosition.y + CLIMB_MAX_RISE + 1.5;
+                  floorRay!.origin.z = bankZ;
+                  floorRay!.dir.y = -1;
                   const bankHit = world.castRay(
-                    floorRay,
+                    floorRay!,
                     CLIMB_MAX_RISE + 4,
                     true,
                     undefined,
                     undefined,
                     playerCollider,
                   );
-                  const bankY = bankHit ? floorRay.origin.y - bankHit.timeOfImpact : -Infinity;
+                  const bankY = bankHit ? floorRay!.origin.y - bankHit.timeOfImpact : -Infinity;
                   if (
                     bankY > referenceWater.surfaceY + 0.15 &&
                     bankY - playerPosition.y <= CLIMB_MAX_RISE
@@ -4174,14 +4234,14 @@ export function SceneHost({
           if (cameraController.isPerspective) {
             cameraController.getTargetViewDirection(viewDirection);
             if (cameraOcclusionFrame++ % 4 === 0) {
-              cameraRay.origin.x = characterTarget.x;
-              cameraRay.origin.y = characterTarget.y;
-              cameraRay.origin.z = characterTarget.z;
-              cameraRay.dir.x = -viewDirection.x;
-              cameraRay.dir.y = -viewDirection.y;
-              cameraRay.dir.z = -viewDirection.z;
+              cameraRay!.origin.x = characterTarget.x;
+              cameraRay!.origin.y = characterTarget.y;
+              cameraRay!.origin.z = characterTarget.z;
+              cameraRay!.dir.x = -viewDirection.x;
+              cameraRay!.dir.y = -viewDirection.y;
+              cameraRay!.dir.z = -viewDirection.z;
               const obstruction = world.castRay(
-                cameraRay,
+                cameraRay!,
                 cameraController.perspectiveDistance,
                 true,
                 undefined,
@@ -4345,6 +4405,8 @@ export function SceneHost({
     entryZoneId,
     environment,
     foliageManifestUrl,
+    physicsEnabled,
+    ktx2Enabled,
     keepZoneCollisionsActive,
     label,
     loadDeferredCharacterDetails,

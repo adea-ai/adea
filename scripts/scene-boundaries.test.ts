@@ -27,6 +27,13 @@ describe('scene package boundaries', () => {
     )
     expect(sceneHost).toContain('import("@agent-hq/characters/preview")')
     expect(sceneHost).toContain('import("@agent-hq/interior/runtime")')
+    expect(sceneHost).not.toContain('from "@agent-hq/landscape/runtime"')
+    expect(sceneHost).toContain('import("@agent-hq/landscape/runtime")')
+
+    const landscapeRuntime = read('packages/landscape/src/runtime.ts')
+    expect(landscapeRuntime).not.toContain('from "./index.js"')
+    const hqRoom = read('scenes/hq/src/hq-room-scene.tsx')
+    expect(hqRoom).toContain('@agent-hq/landscape/backgrounds')
   })
 
   test('keeps editor catalogs behind scene-package boundaries', () => {
@@ -39,9 +46,35 @@ describe('scene package boundaries', () => {
     expect(roomScene).toContain("from '@agent-hq/interior'")
   })
 
+  test('cold-mounts the character designer without the HQ workspace scene', () => {
+    const page = read('apps/web/src/app/page.tsx')
+    const entry = read('apps/web/src/components/workspace-entry.tsx')
+    const desktop = read('apps/desktop/src/desktop-workspace.tsx')
+    expect(page).toContain('characterDesigner=')
+    expect(entry).toContain("import('./character-designer-entry')")
+    expect(entry).toContain("import('./room-designer-entry')")
+    expect(entry).toContain('if (characterDesigner)')
+    expect(entry).toContain('if (roomDesigner)')
+    expect(entry).not.toContain("import('./workspace-shell')")
+    expect(desktop).toContain("import('./desktop-character-designer')")
+    expect(desktop).toContain('if (characterDesigner)')
+    expect(desktop).not.toContain('import { HqRoomScene }')
+  })
+
+  test('skips physics for the visual-only character studio', () => {
+    const sceneHost = read('packages/scene-runtime/src/SceneHost.tsx')
+    const characterScene = read('scenes/character-designer/src/character-designer-scene.tsx')
+    expect(sceneHost).toContain('physicsEnabled?: boolean')
+    expect(sceneHost).toContain('import("@dimforge/rapier3d-compat")')
+    expect(characterScene).toContain('physicsEnabled={false}')
+    expect(characterScene).toContain('ktx2Enabled={false}')
+  })
+
   test('keeps the lean character runtime smaller than the authoring bundle', () => {
     const runtimeSource = 'packages/characters/src/runtime.ts'
     const runtimePath = 'packages/characters/dist/runtime.js'
+    expect(read(runtimeSource)).not.toContain("from 'three/examples/jsm/utils/SkeletonUtils.js'")
+    expect(read(runtimeSource)).toContain("import('three/examples/jsm/utils/SkeletonUtils.js')")
     const authoringSources = [
       'packages/characters/src/catalog.ts',
       'packages/characters/src/configuration.ts',

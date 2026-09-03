@@ -13,6 +13,10 @@
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
+    },
+    "./backgrounds": {
+      "types": "./dist/backgrounds.d.ts",
+      "import": "./dist/backgrounds.js"
     }
   },
   "scripts": {

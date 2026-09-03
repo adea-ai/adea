@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { retargetClip } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import {
   createCharacterAnimationController,
   loadCharacter as loadProviderCharacter,
@@ -377,14 +376,15 @@ function findAnimationSource(root: THREE.Object3D): THREE.Object3D | THREE.Skele
   return findSkinnedMesh(root)
 }
 
-function retargetReferenceAnimation(
+async function retargetReferenceAnimation(
   clip: THREE.AnimationClip,
   sourceRoot: THREE.Object3D,
   target: THREE.Object3D | undefined
-): THREE.AnimationClip {
+): Promise<THREE.AnimationClip> {
   const source = findAnimationSource(sourceRoot)
   const targetMesh = target ? findSkinnedMesh(target) : undefined
   if (!source || !targetMesh) return clip.clone()
+  const { retargetClip } = await import('three/examples/jsm/utils/SkeletonUtils.js')
   const retargeted = retargetClip(targetMesh, source, clip, {
     names: referenceAnimationBoneMap,
     hip: 'DEF-spine',
@@ -419,7 +419,7 @@ export async function loadCharacterAnimations(
       ? normalizeInPlaceLocomotionClip(source)
       : source.clone()
     const clip = reference
-      ? retargetReferenceAnimation(normalized, loaded.scene, target)
+      ? await retargetReferenceAnimation(normalized, loaded.scene, target)
       : normalized
     clip.name = key
     clips.push(clip)

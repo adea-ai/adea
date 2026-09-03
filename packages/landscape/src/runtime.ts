@@ -1,6 +1,6 @@
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { loadSceneFieldFromCatalog } from "@agent-hq/scene-fields";
-import { landscapeAssets } from "./index.js";
+import { landscapeAssets } from "./catalog.js";
 
 /** Build one InstancedMesh per landscape catalog model from a scene-field
  *  manifest.

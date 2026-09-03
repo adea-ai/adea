@@ -190,6 +190,35 @@ test("direct character designer mount skips HQ scene assets", async ({ page }) =
   expect(assetRequests.some((url) => url.includes("/worlds/hq-home/props-runtime.json"))).toBe(false);
 });
 
+test("character designer starts slot thumbnails without a long delay", async ({ page }) => {
+  const startedAt = Date.now();
+  const firstSlotAsset = page.waitForRequest(
+    (request) => /\/assets\/models\/body\/[^/]+\.glb$/.test(request.url()),
+    { timeout: 12_000 },
+  );
+
+  const response = await page.goto(
+    "/?view=spatial&characterDesigner=1&camera=perspective&character=configurable",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await firstSlotAsset;
+  expect(Date.now() - startedAt).toBeLessThan(12_000);
+
+  const characterCategoryStartedAt = Date.now();
+  const firstCharacterAsset = page.waitForRequest(
+    (request) => /\/assets\/models\/_complete\/[fm]_\d+\.glb$/.test(request.url()),
+    { timeout: 12_000 },
+  );
+  await page.getByRole("tab", { name: "Characters", exact: true }).click();
+  await firstCharacterAsset;
+  expect(Date.now() - characterCategoryStartedAt).toBeLessThan(12_000);
+});
+
 test("switching from a reference character to Custom in the character designer without asset errors", async ({ page }) => {
   const pageErrors: string[] = [];
   const assetErrors: string[] = [];
@@ -253,6 +282,8 @@ test("room designer loads compressed interior props", async ({ page }) => {
   });
   expect(response?.ok()).toBe(true);
   await expect(page.locator('[aria-label="Room designer"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.global-rail')).toHaveCount(0);
+  await expect(page.locator('.workspace-ui')).toHaveCount(0);
   await expect(page.locator('[aria-label^="Add "]').first()).toBeVisible({ timeout: 30_000 });
   await page.waitForTimeout(1_500);
 

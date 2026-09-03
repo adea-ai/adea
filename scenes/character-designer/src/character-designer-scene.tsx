@@ -47,31 +47,13 @@ function createStageMaterial(color: number, roughness = 0.9): THREE.MeshStandard
   return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0 })
 }
 
-function createDesignerStage(root: THREE.Group): void {
+export function createDesignerStage(root: THREE.Group): void {
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 7), createStageMaterial(0xf3dce8))
   floor.name = 'character-designer-floor'
   floor.rotation.x = -Math.PI / 2
   floor.position.y = -0.02
   floor.receiveShadow = true
   root.add(floor)
-
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(9, 4.8, 0.18), createStageMaterial(0xfff7fb))
-  wall.name = 'character-designer-backdrop'
-  wall.position.set(0, 2.35, 1.5)
-  wall.receiveShadow = true
-  root.add(wall)
-
-  const sideColors = [0xf2cddd, 0xd9d5f5]
-  for (const [index, x] of [-3.95, 3.95].entries()) {
-    const panel = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 3.9, 0.9),
-      createStageMaterial(sideColors[index] ?? 0xf2cddd)
-    )
-    panel.name = `character-designer-side-panel-${index + 1}`
-    panel.position.set(x, 1.95, 1.2)
-    panel.receiveShadow = true
-    root.add(panel)
-  }
 
   const platform = new THREE.Mesh(
     new THREE.CylinderGeometry(1.35, 1.45, 0.12, 64),
@@ -119,6 +101,8 @@ export function CharacterDesignerScene({
         viewportMode="container"
         characterId={character}
         characterConfiguration={characterConfiguration}
+        physicsEnabled={false}
+        ktx2Enabled={false}
         characterPreview
         characterScale={DESIGNER_CHARACTER_SCALE}
         startPosition={DESIGNER_START_POSITION}

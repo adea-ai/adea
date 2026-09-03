@@ -209,9 +209,10 @@ function scheduleRender(render: () => string | null): Promise<string | null> {
  * GLB loads are concurrency-limited to avoid firing 50+ simultaneous HTTP
  * requests when a category with many items becomes visible. The render
  * queue (scheduleRender) already serializes the sync WebGL renders, but
- * the async GLB fetches were all fired at once.
+ * the async GLB fetches should still be bounded. Four concurrent loads fill
+ * the visible catalog quickly without starting dozens of requests at once.
  */
-const MAX_CONCURRENT_THUMBNAIL_LOADS = 1;
+const MAX_CONCURRENT_THUMBNAIL_LOADS = 4;
 let activeThumbnailLoads = 0;
 const pendingThumbnailLoads: Array<() => void> = [];
 

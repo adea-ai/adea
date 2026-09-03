@@ -17,7 +17,7 @@ import {
   type CharacterConfiguration,
 } from "@agent-hq/characters/runtime";
 import type { AmbientAnimals } from "@agent-hq/pets";
-import { landscapeHorizonBackgrounds } from "@agent-hq/landscape";
+import { landscapeHorizonBackgrounds } from "@agent-hq/landscape/backgrounds";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 

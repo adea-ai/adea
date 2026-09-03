@@ -371,7 +371,7 @@ export function CharacterDesigner({
                     selected={selectedPart === option.id}
                     onClick={() => selectPart(activeSlot.id, option.id)}
                   >
-                    <ModelThumbnail item={thumbnailItems.get(option.id)!} deferMs={15000} />
+                    <ModelThumbnail item={thumbnailItems.get(option.id)!} />
                   </ChoiceCard>
                 ))}
               </div>
@@ -387,10 +387,7 @@ export function CharacterDesigner({
                       onClick={() => selectCharacter(option.id)}
                     >
                       {thumbnail ? (
-                        <ModelThumbnail
-                          item={thumbnail}
-                          deferMs={character === 'configurable' ? 60000 : 15000}
-                        />
+                        <ModelThumbnail item={thumbnail} />
                       ) : option.iconUrl ? (
                         <span className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-muted/60">
                           <img src={option.iconUrl} alt="" className="size-full object-contain" />
