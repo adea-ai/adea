@@ -258,6 +258,7 @@
       "version": "0.8.3",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
+        "@agent-hq/character-designer-scene": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/ui": "workspace:*",
@@ -334,6 +335,22 @@
         "@types/react-dom": "^19.2.4",
       },
     },
+    "scenes/character-designer": {
+      "name": "@agent-hq/character-designer-scene",
+      "version": "0.8.3",
+      "dependencies": {
+        "@agent-hq/characters": "workspace:*",
+        "@agent-hq/scene-runtime": "workspace:*",
+        "@agent-hq/ui": "workspace:*",
+        "lucide-react": "^1.33.0",
+        "react": "19.2.8",
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.18",
+        "@types/three": "^0.185.0",
+      },
+    },
     "scenes/hq": {
       "name": "@agent-hq/hq-scenes",
       "version": "0.8.3",
@@ -370,6 +387,8 @@
     "@agent-hq/audio": ["@agent-hq/audio@workspace:packages/audio"],
 
     "@agent-hq/auth": ["@agent-hq/auth@workspace:packages/auth"],
+
+    "@agent-hq/character-designer-scene": ["@agent-hq/character-designer-scene@workspace:scenes/character-designer"],
 
     "@agent-hq/characters": ["@agent-hq/characters@workspace:packages/characters"],
 

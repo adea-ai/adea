@@ -47,7 +47,10 @@ const RoomDesigner = dynamic(
   { ssr: false },
 );
 const CharacterDesignerScene = dynamic(
-  () => import("./character-designer-scene").then((module) => module.CharacterDesignerScene),
+  () =>
+    import("@agent-hq/character-designer-scene").then(
+      (module) => module.CharacterDesignerScene,
+    ),
   { ssr: false },
 );
 const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = [];
