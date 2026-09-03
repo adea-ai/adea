@@ -287,7 +287,7 @@ export function CharacterDesigner({
         <div>
           <p className="text-sm font-semibold tracking-tight">Character studio</p>
           <p className="mt-0.5 text-xs text-[#765b6a]">
-            Dress up your character. Your preview updates instantly.
+            Drag to spin · right-drag to pan · scroll to zoom.
           </p>
         </div>
         {onClose ? (

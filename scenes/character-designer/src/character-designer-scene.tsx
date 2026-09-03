@@ -19,6 +19,7 @@ const DESIGNER_START_POSITION: SceneHostStart = {
   yaw: 0,
   pitch: 0,
 }
+const DESIGNER_CHARACTER_GROUND_OFFSET = 0.12
 
 const designerEnvironment = {
   background: 0xf7edf3,
@@ -105,9 +106,12 @@ export function CharacterDesignerScene({
         ktx2Enabled={false}
         characterPreview
         characterScale={DESIGNER_CHARACTER_SCALE}
+        characterGroundOffset={DESIGNER_CHARACTER_GROUND_OFFSET}
         startPosition={DESIGNER_START_POSITION}
         initialCameraViewMode="perspective"
         cameraTargetMode="center"
+        cameraMouseControlEnabled={false}
+        cameraDragControlEnabled
         perspectiveCameraDistance={2.35}
         movementSpeedFactor={0}
         cameraWheelZoomEnabled

@@ -18,6 +18,10 @@ export type CameraControllerOptions = {
   /** Override the perspective follow distance for scene-specific framing. */
   perspectiveCameraDistance?: number;
   enableInput?: boolean;
+  /** Allow pointer-lock camera rotation from mouse input. */
+  mouseInputEnabled?: boolean;
+  /** Allow direct mouse dragging to orbit and pan without pointer lock. */
+  dragInputEnabled?: boolean;
   cameraBounds?: CameraBounds;
   /** Scene-specific top-down framing; defaults preserve existing World views. */
   orthographicHalfHeight?: number;
@@ -109,6 +113,8 @@ export class CameraController {
 
   private readonly canvas: HTMLCanvasElement;
   private readonly characterScale: number;
+  private readonly mouseInputEnabled: boolean;
+  private readonly dragInputEnabled: boolean;
   private readonly perspectiveBaseDistance: number;
   private readonly cameraBounds?: CameraBounds;
   private orthographicHalfHeight: number;
@@ -121,6 +127,15 @@ export class CameraController {
   private readonly viewDirection = new THREE.Vector3();
   private readonly cameraTarget = new THREE.Vector3();
   private readonly touchState = { id: null as number | null, x: 0, y: 0 };
+  private readonly dragState = {
+    id: null as number | null,
+    mode: null as "orbit" | "pan" | null,
+    x: 0,
+    y: 0,
+  };
+  private readonly perspectivePan = new THREE.Vector3();
+  private readonly panRight = new THREE.Vector3();
+  private readonly panUp = new THREE.Vector3();
   private activeViewMode: CameraViewMode;
   private inputEnabled = false;
   private transitionActive = false;
@@ -143,6 +158,8 @@ export class CameraController {
     characterScale = 1,
     perspectiveCameraDistance,
     enableInput = true,
+    mouseInputEnabled = true,
+    dragInputEnabled = false,
     cameraBounds,
     orthographicHalfHeight = DEFAULT_ORTHOGRAPHIC_HALF_HEIGHT,
     orthographicPitch = DEFAULT_ORTHOGRAPHIC_PITCH,
@@ -150,6 +167,8 @@ export class CameraController {
   }: CameraControllerOptions) {
     this.canvas = canvas;
     this.characterScale = characterScale;
+    this.mouseInputEnabled = mouseInputEnabled;
+    this.dragInputEnabled = dragInputEnabled;
     this.perspectiveBaseDistance = Math.max(
       perspectiveCameraDistance ?? CAMERA_DISTANCE * characterScale,
       CAMERA_MIN_DISTANCE,
@@ -367,7 +386,9 @@ export class CameraController {
       Math.cos(view.yaw) * Math.cos(view.pitch),
     );
     this.cameraTarget.copy(target);
-    if (this.activeViewMode === "orthographic") {
+    if (this.activeViewMode === "perspective") {
+      this.cameraTarget.add(this.perspectivePan);
+    } else {
       this.cameraTarget.x += this.orthographicPan.x;
       this.cameraTarget.z += this.orthographicPan.y;
     }
@@ -525,10 +546,12 @@ export class CameraController {
   private readonly onBlur = () => {
     this.cameraKeys.clear();
     this.touchState.id = null;
+    this.clearDragState();
   };
 
   private readonly onMouseMove = (event: MouseEvent) => {
-    if (!this.inputEnabled || document.pointerLockElement !== this.canvas) return;
+    if (!this.mouseInputEnabled || !this.inputEnabled || document.pointerLockElement !== this.canvas)
+      return;
     const view = this.views[this.activeViewMode];
     view.yaw -= event.movementX * CAMERA_MOUSE_SENSITIVITY;
     view.pitch = THREE.MathUtils.clamp(
@@ -539,11 +562,88 @@ export class CameraController {
   };
 
   private readonly onPointerDown = (event: PointerEvent) => {
-    if (!this.inputEnabled) return;
-    if (event.pointerType === "mouse" && document.pointerLockElement !== this.canvas) {
+    if (
+      this.mouseInputEnabled &&
+      !this.dragInputEnabled &&
+      this.inputEnabled &&
+      event.pointerType === "mouse" &&
+      document.pointerLockElement !== this.canvas
+    ) {
       void this.canvas.requestPointerLock().catch(() => undefined);
     }
+    if (!this.dragInputEnabled || !this.inputEnabled || event.pointerType === "touch") return;
+
+    const mode =
+      event.button === 0 && !event.shiftKey
+        ? "orbit"
+        : event.button === 1 || event.button === 2 || event.shiftKey
+          ? "pan"
+          : null;
+    if (!mode) return;
+    event.preventDefault();
+    this.dragState.id = event.pointerId;
+    this.dragState.mode = mode;
+    this.dragState.x = event.clientX;
+    this.dragState.y = event.clientY;
+    this.canvas.setPointerCapture?.(event.pointerId);
   };
+
+  private readonly onPointerMove = (event: PointerEvent) => {
+    if (!this.dragInputEnabled || !this.inputEnabled || this.dragState.id !== event.pointerId)
+      return;
+    const deltaX = event.clientX - this.dragState.x;
+    const deltaY = event.clientY - this.dragState.y;
+    if (deltaX === 0 && deltaY === 0) return;
+
+    event.preventDefault();
+    const view = this.views[this.activeViewMode];
+    if (this.dragState.mode === "orbit") {
+      view.yaw -= deltaX * CAMERA_MOUSE_SENSITIVITY;
+      view.pitch = THREE.MathUtils.clamp(
+        view.pitch - deltaY * CAMERA_MOUSE_SENSITIVITY,
+        -Math.PI / 2 + 0.05,
+        Math.PI / 2 - 0.05,
+      );
+    } else if (this.activeViewMode === "perspective") {
+      this.panPerspective(deltaX, deltaY);
+    }
+    this.dragState.x = event.clientX;
+    this.dragState.y = event.clientY;
+  };
+
+  private readonly onPointerUp = (event: PointerEvent) => {
+    if (this.dragState.id !== event.pointerId) return;
+    if (this.canvas.hasPointerCapture?.(event.pointerId))
+      this.canvas.releasePointerCapture?.(event.pointerId);
+    this.clearDragState();
+  };
+
+  private readonly onLostPointerCapture = (event: PointerEvent) => {
+    if (this.dragState.id === event.pointerId) this.clearDragState();
+  };
+
+  private readonly onContextMenu = (event: MouseEvent) => {
+    if (this.dragInputEnabled) event.preventDefault();
+  };
+
+  private panPerspective(deltaX: number, deltaY: number): void {
+    const rect = this.canvas.getBoundingClientRect();
+    const visibleHeight =
+      2 *
+      Math.max(this.cameraDistance, CAMERA_MIN_DISTANCE) *
+      Math.tan(THREE.MathUtils.degToRad(this.perspectiveCamera.fov) / 2);
+    const worldPerPixel = visibleHeight / Math.max(rect.height, 1);
+    this.perspectiveCamera.updateMatrixWorld(true);
+    this.panRight.setFromMatrixColumn(this.perspectiveCamera.matrixWorld, 0).normalize();
+    this.panUp.setFromMatrixColumn(this.perspectiveCamera.matrixWorld, 1).normalize();
+    this.perspectivePan.addScaledVector(this.panRight, -deltaX * worldPerPixel);
+    this.perspectivePan.addScaledVector(this.panUp, deltaY * worldPerPixel);
+  }
+
+  private clearDragState(): void {
+    this.dragState.id = null;
+    this.dragState.mode = null;
+  }
 
   private readonly onTouchStart = (event: TouchEvent) => {
     if (!this.inputEnabled) return;
@@ -582,8 +682,16 @@ export class CameraController {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
-    document.addEventListener("mousemove", this.onMouseMove);
-    this.canvas.addEventListener("pointerdown", this.onPointerDown);
+    if (this.mouseInputEnabled) document.addEventListener("mousemove", this.onMouseMove);
+    if (this.mouseInputEnabled || this.dragInputEnabled)
+      this.canvas.addEventListener("pointerdown", this.onPointerDown);
+    if (this.dragInputEnabled) {
+      this.canvas.addEventListener("pointermove", this.onPointerMove);
+      this.canvas.addEventListener("pointerup", this.onPointerUp);
+      this.canvas.addEventListener("pointercancel", this.onPointerUp);
+      this.canvas.addEventListener("lostpointercapture", this.onLostPointerCapture);
+      this.canvas.addEventListener("contextmenu", this.onContextMenu);
+    }
     this.canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
     this.canvas.addEventListener("touchmove", this.onTouchMove, { passive: true });
     this.canvas.addEventListener("touchend", this.onTouchEnd);
@@ -594,8 +702,16 @@ export class CameraController {
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
-    document.removeEventListener("mousemove", this.onMouseMove);
-    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+    if (this.mouseInputEnabled) document.removeEventListener("mousemove", this.onMouseMove);
+    if (this.mouseInputEnabled || this.dragInputEnabled)
+      this.canvas.removeEventListener("pointerdown", this.onPointerDown);
+    if (this.dragInputEnabled) {
+      this.canvas.removeEventListener("pointermove", this.onPointerMove);
+      this.canvas.removeEventListener("pointerup", this.onPointerUp);
+      this.canvas.removeEventListener("pointercancel", this.onPointerUp);
+      this.canvas.removeEventListener("lostpointercapture", this.onLostPointerCapture);
+      this.canvas.removeEventListener("contextmenu", this.onContextMenu);
+    }
     this.canvas.removeEventListener("touchstart", this.onTouchStart);
     this.canvas.removeEventListener("touchmove", this.onTouchMove);
     this.canvas.removeEventListener("touchend", this.onTouchEnd);
@@ -611,6 +727,7 @@ export class CameraController {
       this.inputEnabled = false;
       this.cameraKeys.clear();
       this.touchState.id = null;
+      this.clearDragState();
       this.detachInput();
     }
   }

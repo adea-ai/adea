@@ -261,6 +261,10 @@ export type SceneHostProps = {
   orthographicClickOnly?: boolean;
   /** Capture canvas wheel/pinch gestures for camera zoom instead of browser zoom. */
   cameraWheelZoomEnabled?: boolean;
+  /** Allow pointer-lock mouse input to rotate the perspective camera. */
+  cameraMouseControlEnabled?: boolean;
+  /** Allow direct mouse dragging to orbit and pan without pointer lock. */
+  cameraDragControlEnabled?: boolean;
   /** Optional movement multiplier used only by orthographic click navigation. */
   orthographicMovementSpeedFactor?: number;
   /** Optional camera envelope. The view is clamped to keep the map edges in frame. */
@@ -1223,6 +1227,8 @@ export function SceneHost({
   clickNavigationIndicatorScale = 1,
   orthographicClickOnly = false,
   cameraWheelZoomEnabled = true,
+  cameraMouseControlEnabled = true,
+  cameraDragControlEnabled = false,
   orthographicMovementSpeedFactor = movementSpeedFactor,
   cameraBounds,
   orthographicHalfHeight,
@@ -1474,6 +1480,8 @@ export function SceneHost({
       initialViewMode: initialCameraViewModeRef.current,
       initialYaw: startPosition.yaw ?? 0,
       initialPerspectivePitch: startPosition.pitch ?? -0.2,
+      mouseInputEnabled: cameraMouseControlEnabled,
+      dragInputEnabled: cameraDragControlEnabled,
       characterScale: playerHeight / 1.8,
       perspectiveCameraDistance,
       cameraBounds: runtimeCameraBounds,
@@ -2926,17 +2934,24 @@ export function SceneHost({
         scene.add(character);
         character.updateMatrixWorld(true);
         const characterBounds = new THREE.Box3();
+        const characterOrigin = new THREE.Vector3();
         let characterBottom = 0;
         let cameraTargetOffset = 0;
         const recalculateCharacterFraming = () => {
           character.updateMatrixWorld(true);
+          character.getWorldPosition(characterOrigin);
           characterBounds.makeEmpty();
           character.traverse((object) => {
             if (object instanceof THREE.Mesh && object.visible)
               characterBounds.expandByObject(object);
           });
-          characterBottom = characterBounds.min.y;
-          const characterCenter = (characterBounds.min.y + characterBounds.max.y) / 2;
+          // Keep framing coordinates relative to the character root. Preview
+          // updates can run while the root already has its ground offset;
+          // storing the world-space minimum here would apply that offset twice
+          // on the next render and bury some body variants' shoes.
+          characterBottom = characterBounds.min.y - characterOrigin.y;
+          const characterCenter =
+            (characterBounds.min.y + characterBounds.max.y) / 2 - characterOrigin.y;
           cameraTargetOffset =
             cameraTargetMode === "center"
               ? characterGroundOffset - characterBottom + characterCenter
@@ -3077,10 +3092,10 @@ export function SceneHost({
         const characterTarget = new THREE.Vector3();
         let cameraOcclusionFrame = 0;
         let cameraDistance = cameraController.perspectiveDistance;
-        // Face the character along the spawn view direction: the camera yaw
-        // already honors startPosition.yaw, so the avatar must start turned
-        // the same way instead of staring at the default +z heading.
-        let characterYaw = startPosition.yaw ?? 0;
+        // Face the character along the spawn view direction. Preview scenes
+        // place the camera in front of the avatar, so they need the opposite
+        // body heading from the third-person gameplay camera.
+        let characterYaw = (startPosition.yaw ?? 0) + (characterPreview ? Math.PI : 0);
         let swimTilt = 0;
         const characterYawEuler = new THREE.Euler();
         const swimTiltEuler = new THREE.Euler();
@@ -3720,6 +3735,14 @@ export function SceneHost({
             cameraController.setCameraRelativeBasis(forward, right);
             visualUpdate?.(scene, delta, timer.getElapsed());
             animationController?.update(delta);
+            if (characterRoot) {
+              characterRoot.position.set(
+                playerPosition.x,
+                playerPosition.y - playerHeight / 2 - characterBottom + characterGroundOffset,
+                playerPosition.z,
+              );
+              characterRoot.rotation.set(0, characterYaw, 0);
+            }
             characterTarget.set(
               playerPosition.x,
               playerPosition.y - playerHeight / 2 + cameraTargetOffset,
@@ -4387,6 +4410,8 @@ export function SceneHost({
     additionalCollisionAssetUrls,
     assetUrl,
     cameraBounds,
+    cameraMouseControlEnabled,
+    cameraDragControlEnabled,
     cameraTargetMode,
     characterGroundOffset,
     characterLoadKey,

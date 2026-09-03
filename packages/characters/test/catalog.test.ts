@@ -19,6 +19,8 @@ import {
   normalizeInPlaceLocomotionClip,
 } from '../src'
 import { characterPartOffsets } from '../src/generated-part-offsets'
+import { createDefaultCharacterConfiguration } from '../src/configuration'
+import { loadCharacter } from '../src/runtime'
 
 const characterAssets = resolve(import.meta.dir, '../assets')
 
@@ -115,6 +117,24 @@ describe('character package catalog', () => {
       expect(variant.skins).toHaveLength(partCount)
       expect(variant.nodes.filter((node) => node.skin != null)).toHaveLength(partCount)
     }
+  })
+
+  test('loads arbitrary saved configurations from the full character library', async () => {
+    const requestedUrls: string[] = []
+    const loader = {
+      loadAsync: async (url: string) => {
+        requestedUrls.push(url)
+        return { scene: new THREE.Group(), animations: [] }
+      },
+    } as unknown as GLTFLoader
+    const configuration = {
+      ...createDefaultCharacterConfiguration(),
+      body: 'body-body-09' as const,
+    }
+
+    await loadCharacter(loader, configurableCharacterId, configuration)
+
+    expect(requestedUrls).toEqual(['/assets/models/characters.glb'])
   })
 
   test('updates a preview in place without removing alternate wearable meshes', () => {

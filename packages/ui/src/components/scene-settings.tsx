@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
-import { Box, Camera, Focus, Grid3X3, UserRound } from "lucide-react";
+import { Box, Camera, Focus, Grid3X3, UserRoundPen } from "lucide-react";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
 
@@ -123,7 +123,7 @@ export function SceneSettings({
       aria-pressed={characterDesignerEnabled}
       onClick={() => onCharacterDesignerChange?.(!characterDesignerEnabled)}
     >
-      <UserRound className="size-4" aria-hidden="true" />
+      <UserRoundPen className="size-4" aria-hidden="true" />
       <span className="workspace-character-designer-label">Character</span>
     </Button>
   );

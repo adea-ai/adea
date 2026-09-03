@@ -21,6 +21,7 @@ import {
   getCharacterConfiguration,
   getCharacterConfigurationLabel,
   isConfigurableCharacterId,
+  serializeCharacterConfiguration,
   validateCharacterConfiguration,
   type CharacterConfiguration,
 } from './configuration'
@@ -241,7 +242,10 @@ async function loadConfigurableCharacter(
     : (getCharacterConfiguration(id) ?? createDefaultCharacterConfiguration())
   const manifest = getManifest(id)
   if (!manifest) throw new Error(`Unknown character: ${id}`)
-  const gltf = await loader.loadAsync(getCharacterLibraryAssetUrl(id))
+  const assetId = requestedConfiguration
+    ? serializeCharacterConfiguration(configuration)
+    : id
+  const gltf = await loader.loadAsync(getCharacterLibraryAssetUrl(assetId))
   return { scene: configureCharacterLibrary(gltf.scene, configuration), clips: [] }
 }
 
