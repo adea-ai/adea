@@ -34,7 +34,7 @@
     "@agent-hq/workspace-ui": "workspace:*",
     "@tauri-apps/api": "^2.11.1",
     "lucide-react": "^1.33.0",
-    "next": "16.3.2",
+    "next": "16.3.4",
     "next-themes": "^0.4.6",
     "nuqs": "^2.10.1",
     "react": "19.2.8",
