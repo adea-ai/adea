@@ -11,8 +11,31 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import type { WorkspaceNavigation } from './workspace-model'
+
+const SIDEBAR_WIDTH_STORAGE_KEY = 'agent-hq:workspace-sidebar-width'
+const SIDEBAR_MIN_WIDTH = 208
+const SIDEBAR_MAX_WIDTH = 448
+const SIDEBAR_DEFAULT_WIDTH = 272
+
+function clampSidebarWidth(width: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
+}
+
+function workspaceRootFor(sidebar: HTMLElement | null): HTMLElement | null {
+  return sidebar?.closest<HTMLElement>('.conventional-workspace') ?? null
+}
+
+function currentSidebarWidth(root: HTMLElement): number {
+  const columns = getComputedStyle(root).gridTemplateColumns.split(' ')
+  return Number.parseFloat(columns[0] ?? '') || SIDEBAR_DEFAULT_WIDTH
+}
+
+function applySidebarWidth(root: HTMLElement, width: number) {
+  root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
+}
 
 type Props = Readonly<{
   agents: readonly AgentSummary[]
@@ -32,6 +55,7 @@ type Props = Readonly<{
 }>
 
 export function WorkspaceSidebar(props: Props) {
+  const sidebarRef = useRef<HTMLElement>(null)
   const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
   const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]))
   const unreadBadge = (channelId: string) => {
@@ -43,6 +67,62 @@ export function WorkspaceSidebar(props: Props) {
       </span>
     ) : null
   }
+
+  // Restore the persisted sidebar width before first paint of the layout.
+  useEffect(() => {
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    if (!Number.isFinite(stored) || stored <= 0) return
+    const root = workspaceRootFor(sidebarRef.current)
+    if (root) applySidebarWidth(root, stored)
+  }, [])
+
+  const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const root = workspaceRootFor(sidebarRef.current)
+    const handle = event.currentTarget
+    if (!root) return
+    const startWidth = currentSidebarWidth(root)
+    const startX = event.clientX
+    let width = startWidth
+    handle.setPointerCapture(event.pointerId)
+
+    // The element is captured in a closure because React nulls
+    // event.currentTarget once the synthetic handler returns.
+    const onMove = (moveEvent: PointerEvent) => {
+      width = clampSidebarWidth(startWidth + (moveEvent.clientX - startX))
+      applySidebarWidth(root, width)
+    }
+    const onEnd = () => {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onEnd)
+      handle.removeEventListener('pointercancel', onEnd)
+      applySidebarWidth(root, width)
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onEnd)
+    handle.addEventListener('pointercancel', onEnd)
+  }, [])
+
+  const resizeByKeyboard = useCallback((delta: number) => {
+    const root = workspaceRootFor(sidebarRef.current)
+    if (!root) return
+    const width = clampSidebarWidth(currentSidebarWidth(root) + delta)
+    applySidebarWidth(root, width)
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+  }, [])
+
+  const onResizeKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        resizeByKeyboard(-16)
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        resizeByKeyboard(16)
+      }
+    },
+    [resizeByKeyboard]
+  )
   return (
     <>
       <button
@@ -63,9 +143,19 @@ export function WorkspaceSidebar(props: Props) {
         />
       ) : null}
       <aside
+        ref={sidebarRef}
         className={`conventional-sidebar${props.mobileOpen ? ' conventional-sidebar--open' : ''}`}
         aria-label="Workspace navigation"
       >
+        <div
+          className="conventional-sidebar__resize"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize workspace navigation"
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={onResizeKeyDown}
+        />
         <button
           type="button"
           aria-label="Close workspace navigation"

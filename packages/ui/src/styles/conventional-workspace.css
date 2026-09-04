@@ -171,6 +171,9 @@
   --cw-surface-muted: var(--muted);
   --cw-sidebar: var(--card);
   --cw-sidebar-hover: var(--muted);
+  /* The conversation surface sits a step away from the sidebar/card tone so
+     the chat area reads as its own region. */
+  --cw-main: oklch(0.985 0 0);
   --cw-text: var(--foreground);
   --cw-muted: var(--muted-foreground);
   --cw-border: var(--border);
@@ -185,7 +188,7 @@
 .conventional-workspace {
   position: relative;
   display: grid;
-  grid-template: minmax(0, 1fr) / 17rem minmax(0, 1fr);
+  grid-template: minmax(0, 1fr) / var(--conventional-sidebar-width, 17rem) minmax(0, 1fr);
   min-width: 0;
   width: 100%;
   height: 100svh;
@@ -302,6 +305,7 @@
 }
 
 .conventional-sidebar {
+  position: relative;
   grid-row: 1;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -309,6 +313,27 @@
   overflow: hidden;
   background: var(--cw-sidebar);
   color: var(--cw-text);
+}
+.conventional-sidebar__resize {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 0.5rem;
+  padding: 0;
+  border: 0;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+}
+.conventional-sidebar__resize:hover,
+.conventional-sidebar__resize:focus-visible {
+  background: var(--cw-accent-soft);
+}
+.conventional-sidebar__resize:focus-visible {
+  outline: 2px solid var(--cw-focus);
+  outline-offset: -2px;
 }
 .conventional-sidebar__close {
   display: none;
@@ -477,7 +502,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--cw-surface);
+  background: var(--cw-main);
 }
 .conventional-workspace--loading {
   grid-template: 1fr / 1fr;
@@ -1050,6 +1075,11 @@
 }
 .conventional-priority--high {
   color: #a34f00;
+}
+/* Dark mode recesses the conversation surface below the elevated sidebars. */
+.dark .conventional-workspace,
+.dark .conventional-dialog {
+  --cw-main: oklch(0.145 0 0);
 }
 .dark .conventional-priority--high {
   color: #ffb86b;
@@ -2010,6 +2040,9 @@
     transition: transform 0.18s ease;
     box-shadow: 12px 0 38px rgb(0 0 0 / 0.25);
     grid-template-rows: auto auto minmax(0, 1fr);
+  }
+  .conventional-sidebar__resize {
+    display: none;
   }
   .conventional-sidebar--open {
     transform: none;
