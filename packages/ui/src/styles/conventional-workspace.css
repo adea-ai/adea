@@ -63,14 +63,6 @@
   box-shadow: 0 0.8rem 2rem rgb(0 0 0 / 0.18);
 }
 
-.global-rail__workspace-label {
-  margin: 0;
-  padding: 0.35rem 0.5rem;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
 .global-rail__workspace-menu > button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1286,6 +1278,9 @@
 
 .conventional-settings-dialog {
   width: min(58rem, calc(100% - 2rem));
+  /* The shared dialog shell caps content at max-w-2xl; the settings dialog
+     needs its full intended width for the two-column layout. */
+  max-width: min(58rem, calc(100% - 2rem));
   max-height: min(42rem, calc(100svh - 2rem));
 }
 

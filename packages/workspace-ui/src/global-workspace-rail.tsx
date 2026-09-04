@@ -143,7 +143,6 @@ export function GlobalWorkspaceRail({
         </Button>
         {workspaceMenuOpen ? (
           <div className="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
-            <p className="global-rail__workspace-label">Workspaces</p>
             {workspaces.map((workspace) => (
               <button
                 type="button"
