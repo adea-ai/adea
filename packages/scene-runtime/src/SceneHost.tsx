@@ -2902,17 +2902,24 @@ export function SceneHost({
           disposeObjectTree(loadedCharacter.scene);
           return;
         }
+        // Top-down click-only sessions play idle and the locomotion clip and
+        // nothing else, so they load the reduced animation library immediately
+        // instead of waiting for the deferred full set; the deferred load below
+        // still tops up the remaining clips for a later camera switch.
+        const topDownAtLoad =
+          orthographicClickOnly && cameraController.viewMode === "orthographic";
         // Reference characters use their own 352-bone deformation rig. Pass
         // the loaded target scene so the shared runtime clips can be retargeted
         // to its compatible deformation bones before the mixer is created.
-        const pendingCoreAnimations = deferCharacterDetails
+        const pendingCoreAnimations =
+          deferCharacterDetails && !topDownAtLoad
           ? Promise.resolve({ clips: [], names: {} })
           : telemetry.track(
               "character.animations",
               loadCharacterAnimations(
             loader,
             requestedCharacterId,
-            coreAnimationKeys,
+            topDownAtLoad ? ["idle", "run"] : coreAnimationKeys,
             loadedCharacter.scene,
           ),
             );
@@ -3012,6 +3019,10 @@ export function SceneHost({
         let jumpWasAirborne = false;
         let jumpEndActive = false;
         let isSwimming = false;
+        // Top-down loads start with the reduced locomotion set; the remaining
+        // clips are fetched the first time the session leaves top-down instead
+        // of speculatively downloading the full library.
+        let extendedAnimationsRequested = topDownAtLoad ? false : true;
         debugLog(
           `[Agent HQ] ${requestedCharacterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
         );
@@ -3067,7 +3078,9 @@ export function SceneHost({
             [jumpName, jumpStartName, jumpEndName].forEach((name) => {
               if (name) animationController?.actions.get(name)?.setLoop(THREE.LoopOnce, 1);
             });
-            if (idleName && activeAnimationName !== idleName) {
+            // Start idle only when nothing is active; interrupting a playing
+            // locomotion clip here would visibly snap mid-step.
+            if (idleName && !activeAnimationName) {
               animationController.play(idleName);
               activeAnimationName = idleName;
             }
@@ -3825,6 +3838,12 @@ export function SceneHost({
           world.step();
           const inputFrozen = false;
           const topDownClickOnlyActive = isOrthographicClickOnly();
+          if (!topDownClickOnlyActive && !extendedAnimationsRequested) {
+            // The session left top-down, so jump, swim, and the remaining
+            // clips become reachable; fetch them once in the background.
+            extendedAnimationsRequested = true;
+            void loadDeferredCharacterDetails();
+          }
           const desiredAutostepHeight = 0.6;
           if (desiredAutostepHeight !== activeAutostepHeight) {
             characterController.enableAutostep(desiredAutostepHeight, 0.2, false);
@@ -4386,7 +4405,7 @@ export function SceneHost({
           proximityZonesReady = true;
           updateProximityZones();
         }, 5000);
-        if (deferCharacterDetails && loadDeferredCharacterDetails) {
+        if (deferCharacterDetails && loadDeferredCharacterDetails && !topDownAtLoad) {
           window.setTimeout(() => {
             if (!disposed) void loadDeferredCharacterDetails();
           }, 7000);

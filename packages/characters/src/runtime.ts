@@ -136,6 +136,10 @@ const characterLibraryVariantUrls = {
   builder: `${characterAssetRoot}/characters-builder.glb`,
 } as const
 const characterAnimationUrl = `${characterAssetRoot}/runtime.glb`
+// Top-down sessions only ever play idle and the locomotion clip, so they can
+// load this reduced library instead of the full animation set.
+const characterLocomotionAnimationUrl = `${characterAssetRoot}/runtime-locomotion.glb`
+const locomotionAnimationKeys = new Set(['idle', 'run', 'walk'])
 
 const animationMap: Record<string, string> = {
   idle: 'Idle_Relaxed',
@@ -280,23 +284,30 @@ export function loadAnimatedCharacter(
   return loadCharacter(loader, id, configuration)
 }
 
-let animationAsset:
-  | {
-      scene: THREE.Object3D
-      clips: readonly THREE.AnimationClip[]
-    }
-  | undefined
+const animationAssets = new Map<
+  string,
+  { scene: THREE.Object3D; clips: readonly THREE.AnimationClip[] }
+>()
+
+function selectAnimationAssetUrl(keys: readonly string[]): string {
+  return keys.length > 0 && keys.every((key) => locomotionAnimationKeys.has(key))
+    ? characterLocomotionAnimationUrl
+    : characterAnimationUrl
+}
 
 async function loadCharacterAnimationsFromAsset(
-  loader: GLTFLoader
+  loader: GLTFLoader,
+  assetUrl: string
 ): Promise<{ scene: THREE.Object3D; clips: readonly THREE.AnimationClip[] }> {
   // Do not cache an in-flight request. SceneHost aborts its LoadingManager when
   // a character is switched, so a promise created by the previous scene can
   // otherwise reject the next character load with its stale AbortError.
-  if (animationAsset) return animationAsset
-  const gltf = await loader.loadAsync(characterAnimationUrl)
-  animationAsset = { scene: gltf.scene, clips: gltf.animations }
-  return animationAsset
+  const cached = animationAssets.get(assetUrl)
+  if (cached) return cached
+  const gltf = await loader.loadAsync(assetUrl)
+  const asset = { scene: gltf.scene, clips: gltf.animations }
+  animationAssets.set(assetUrl, asset)
+  return asset
 }
 
 // GLTFLoader sanitizes Cartoon node names, so `DEF-spine.001` becomes
@@ -409,7 +420,7 @@ export async function loadCharacterAnimations(
 ): Promise<LoadedCharacterAnimations> {
   const reference = referenceCharacterIds.includes(id as ReferenceCharacterId)
   if (!isConfigurableCharacterId(id) && !reference) return { clips: [], names: {} }
-  const loaded = await loadCharacterAnimationsFromAsset(loader)
+  const loaded = await loadCharacterAnimationsFromAsset(loader, selectAnimationAssetUrl(keys))
   const clips: THREE.AnimationClip[] = []
   const names: Record<string, string> = {}
   for (const key of keys) {
