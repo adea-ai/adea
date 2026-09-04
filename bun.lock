@@ -172,6 +172,7 @@
       "version": "0.8.3",
       "dependencies": {
         "@agent-hq/api-client": "workspace:*",
+        "@agent-hq/state": "workspace:*",
         "@agent-hq/types": "workspace:*",
         "@tanstack/react-query": "^5.66.8",
         "react": "19.2.8",

@@ -1,7 +1,7 @@
 import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-export { AgentHqQueryProvider } from './provider'
+export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
