@@ -264,7 +264,7 @@ jobs:
         run: |
           set -euo pipefail
           staging="$RUNNER_TEMP/agent-hq-update-channel"
-          channel="https://0xplayerone.github.io/agent-hq/desktop-updates/"
+          channel="https://adea-ai.github.io/agent-hq/desktop-updates/"
           mkdir -p "$staging/site/desktop-updates"
           gh release download "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
@@ -307,7 +307,7 @@ jobs:
             --retry 12 \
             --retry-all-errors \
             --retry-delay 5 \
-            "https://0xplayerone.github.io/agent-hq/desktop-updates/latest.json" \
+            "https://adea-ai.github.io/agent-hq/desktop-updates/latest.json" \
             --output "$manifest"
           jq -e --arg version "$RELEASE_VERSION" \
             '. as $manifest |
@@ -315,7 +315,7 @@ jobs:
               (["darwin-aarch64", "linux-x86_64", "windows-x86_64"] | all(
                 . as $platform |
                 ($manifest.platforms[$platform].signature | type == "string" and length > 0) and
-                ($manifest.platforms[$platform].url | startswith("https://0xplayerone.github.io/agent-hq/desktop-updates/"))
+                ($manifest.platforms[$platform].url | startswith("https://adea-ai.github.io/agent-hq/desktop-updates/"))
               ))' \
             "$manifest" >/dev/null
 

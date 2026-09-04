@@ -77,7 +77,7 @@ function marketplaceFixture() {
       requiredConnectors: [],
       requiredCredentials: [],
       resolvedCommitSha: token.slice(0, 40),
-      resolvedRepositoryUrl: 'https://github.com/0xPlayerOne/plugins',
+      resolvedRepositoryUrl: 'https://github.com/adea-ai/plugins',
     }
     return {
       authors: ['Registry fixture'],
