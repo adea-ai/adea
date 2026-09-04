@@ -42,6 +42,7 @@ export async function POST(request: Request) {
       temporary: resolution.temporary,
       userId: resolution.principal.userId,
     },
+    sessionRotated: resolution.sessionRotated,
     ...(resolution.createdCredential &&
     trustedDesktopWorkspaceRequest(request, desktopTrustedOrigins())
       ? { temporaryCredential: resolution.createdCredential }

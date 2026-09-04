@@ -174,6 +174,7 @@ export type ApiWorkspaceResponse = {
 export type ApiWorkspaceBootstrapResponse = {
   activeWorkspace: WorkspaceSummary
   principal: Readonly<{ displayName?: string; temporary: boolean; userId?: string }>
+  sessionRotated: boolean
   temporaryCredential?: string
   workspaces: readonly WorkspaceSummary[]
 }
