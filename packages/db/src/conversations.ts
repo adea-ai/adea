@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type {
   ChannelSummary,
@@ -374,19 +374,30 @@ export const createRoomChannel = (
     visibility: 'workspace',
   })
 
-export const createDirectAgentChannel = (
+export const createDirectAgentChannel = async (
   database: AgentHqDatabase,
   workspaceId: string,
   agentId: string,
   principal: UserPrincipalRef
-) =>
-  createChannel(database, workspaceId, principal, {
+) => {
+  const existing = await createChannel(database, workspaceId, principal, {
     agentId,
     idempotencyKey: `direct-agent:${agentId}`,
     kind: 'direct_agent',
     title: 'Direct conversation',
     visibility: 'participants',
   })
+  if (existing.lifecycleState === 'active') return existing
+  // A deleted conversation stays deleted: opening a new one starts fresh
+  // history under a unique key instead of resurrecting the archived row.
+  return createChannel(database, workspaceId, principal, {
+    agentId,
+    idempotencyKey: `direct-agent:${agentId}:${randomUUID()}`,
+    kind: 'direct_agent',
+    title: 'Direct conversation',
+    visibility: 'participants',
+  })
+}
 
 export const createGroupChannel = (
   database: AgentHqDatabase,

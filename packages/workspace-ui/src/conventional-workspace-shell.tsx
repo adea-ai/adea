@@ -293,11 +293,14 @@ export function ConventionalWorkspaceShell({
       </a>
       <WorkspaceSidebar
         agents={controller.agents}
+        channelBusy={controller.channelBusy}
         collapsedRoomIds={collapsedRoomIds}
         mobileOpen={mobileSidebarOpen}
         navigation={controller.navigation}
+        onArchiveChannel={controller.channelActions.archive}
         onCreateGroup={() => setDialog('create-group')}
         onCreateRoom={() => setDialog('create-room')}
+        onRenameChannel={controller.channelActions.rename}
         onOpenAgents={() => {
           setSelectedArtifactId(null)
           setActiveSurface('agents')
@@ -310,6 +313,8 @@ export function ConventionalWorkspaceShell({
         onSelectChannel={selectChannel}
         onToggleMobile={setMobileSidebarOpen}
         onToggleRoom={toggleRoomCollapsed}
+        onUpdateRoom={controller.roomActions.update}
+        roomBusy={controller.roomBusy}
         selectedChannelId={selectedChannelId}
         readState={controller.readState}
       />

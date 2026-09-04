@@ -10,12 +10,13 @@ import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { useCreateMessageMutation, useMessageListQuery } from '@agent-hq/data'
 import { Info, MailOpen, MessagesSquare, Search } from 'lucide-react'
 
+import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components/ui/tooltip'
 import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
-import { AgentStatus } from './agent-status'
+import { AgentStatusBadge } from './agent-status'
 
 const scrollPositions = new Map<string, number>()
 
@@ -168,32 +169,55 @@ export function ConversationSurface({
             {channel.kind === 'room'
               ? 'Room conversation'
               : channel.kind === 'direct_agent'
-                ? 'Direct Agent'
+                ? 'Direct Conversation'
                 : 'Group conversation'}
           </span>
-          <h1>{channel.title}</h1>
-          {directAgent ? <AgentStatus agent={directAgent} compact /> : null}
+          <h1>{directAgent ? directAgent.name : channel.title}</h1>
         </div>
         <div className="conventional-conversation__actions">
-          <button
-            type="button"
-            aria-label="Search this conversation"
-            title="Search this conversation (Mod+F)"
-            onClick={onOpenSearch}
-          >
-            <Search aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label="Mark conversation unread"
-            title="Mark conversation unread (Mod+Shift+U)"
-            onClick={() => void onMarkUnread()}
-          >
-            <MailOpen aria-hidden="true" />
-          </button>
-          <button type="button" aria-label="Open conversation details" onClick={onOpenDetails}>
-            <Info aria-hidden="true" />
-          </button>
+          {directAgent ? <AgentStatusBadge agent={directAgent} /> : null}
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Search this conversation"
+                  onClick={onOpenSearch}
+                />
+              }
+            >
+              <Search aria-hidden="true" />
+            </TooltipTrigger>
+            <TooltipContent>Search this conversation (Mod+F)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Mark conversation unread"
+                  onClick={() => void onMarkUnread()}
+                />
+              }
+            >
+              <MailOpen aria-hidden="true" />
+            </TooltipTrigger>
+            <TooltipContent>Mark conversation unread (Mod+Shift+U)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label="Open conversation details"
+                  onClick={onOpenDetails}
+                />
+              }
+            >
+              <Info aria-hidden="true" />
+            </TooltipTrigger>
+            <TooltipContent>Open conversation details</TooltipContent>
+          </Tooltip>
         </div>
       </header>
       <div
@@ -210,7 +234,11 @@ export function ConversationSurface({
         ) : null}
         {!messageQuery.isPending && !messageQuery.isError && !rootMessages.length ? (
           <WorkspaceEmpty
-            title={`Start the ${channel.title} conversation`}
+            title={
+              directAgent
+                ? `Start a direct conversation with ${directAgent.name}`
+                : `Start the ${channel.title} conversation`
+            }
             detail="Messages here are canonical Agent HQ history and remain stable across runtime sessions."
           />
         ) : null}

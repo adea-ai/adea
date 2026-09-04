@@ -28,7 +28,6 @@ import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-
 type AccountMenuProps = Readonly<{
   authenticated: boolean
   busy?: boolean
-  label: string
   onOpenUpdates?: () => void
   onOpenAbout: () => void
   onOpenSettings: () => void
@@ -49,7 +48,6 @@ const icons = {
 export function AccountMenu({
   authenticated,
   busy = false,
-  label,
   onOpenUpdates,
   onOpenAbout,
   onOpenSettings,
@@ -70,7 +68,6 @@ export function AccountMenu({
             variant="ghost"
             size="icon-lg"
             aria-label="User settings"
-            title={authenticated ? `Account: ${label}` : 'Account: Not signed in'}
           />
         }
       >

@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@agent-hq/types'
-import { Bot, File, LockKeyhole, MessageSquareReply, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import {
+  BotMessageSquare,
+  CircleUserRound,
+  File,
+  LockKeyhole,
+  MessageSquareReply,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react'
 
 import type { PrivateContentResolver } from './platform'
 
@@ -147,7 +156,11 @@ export function MessageRow({
       aria-busy={pending || undefined}
     >
       <div className="conventional-message__avatar" aria-hidden="true">
-        {isAgent ? <Bot /> : label.slice(0, 2).toUpperCase()}
+        {message.sender.kind === 'user' ? (
+          <CircleUserRound aria-label="User" />
+        ) : (
+          <BotMessageSquare aria-label={message.sender.kind === 'system' ? 'System' : 'Agent'} />
+        )}
       </div>
       <div className="conventional-message__content">
         <header>

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createApiClient, type AgentHqApiClient } from '@agent-hq/api-client'
-import type { TaskSummary } from '@agent-hq/types'
+import type { ChannelSummary, TaskSummary } from '@agent-hq/types'
 import {
   useAgentListQuery,
   useArchiveAgentMutation,
+  useArchiveChannelMutation,
   useArchiveTaskMutation,
   useArtifactListQuery,
   useAssignAgentRoomMutation,
@@ -27,6 +28,8 @@ import {
   useSetTaskDependenciesMutation,
   useTaskListQuery,
   useUpdateAgentPresentationMutation,
+  useUpdateChannelMutation,
+  useUpdateRoomMutation,
   useWorkspaceBootstrapQuery,
 } from '@agent-hq/data'
 import { useWorkspaceStore } from '@agent-hq/state'
@@ -89,14 +92,26 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const markAllRead = useMarkAllReadMutation(client, workspaceId ?? '')
   const markChannelRead = useMarkChannelReadMutation(client, workspaceId ?? '')
   const markThreadRead = useMarkThreadReadMutation(client, workspaceId ?? '')
+  const updateRoom = useUpdateRoomMutation(client, workspaceId ?? '')
+  const updateChannel = useUpdateChannelMutation(client, workspaceId ?? '')
+  const archiveChannel = useArchiveChannelMutation(client, workspaceId ?? '')
 
   useEffect(() => {
     if (!persistenceReady || !bootstrap.data || activeWorkspace) return
     setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
   }, [activeWorkspace, bootstrap.data, persistenceReady, setSelectedWorkspaceId])
 
+  const explicitSelectionRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!channels.data?.length || channels.data.some(({ id }) => id === selectedChannelId)) return
+    if (!channels.data?.length || channels.data.some(({ id }) => id === selectedChannelId)) {
+      if (explicitSelectionRef.current && channels.data?.some(({ id }) => id === selectedChannelId))
+        explicitSelectionRef.current = null
+      return
+    }
+    // An explicit selection (freshly created channel, sidebar click) wins over the
+    // auto-default while the channel list refetch catches up. Stale persisted ids
+    // never pass through selectChannel, so they still fall back below.
+    if (selectedChannelId && selectedChannelId === explicitSelectionRef.current) return
     const firstRoom = navigation.rooms.find(({ selectionChannelId }) => selectionChannelId)
     const firstChannel =
       firstRoom?.selectionChannelId ??
@@ -118,6 +133,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   )
   const selectChannel = useCallback(
     (channelId: string, roomId?: string) => {
+      explicitSelectionRef.current = channelId
       setSelectedRoomId(roomId ?? null)
       setSelectedChannelId(channelId)
     },
@@ -174,6 +190,26 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       else setSelectedRoomId(result.room.id)
     },
     createRoomBusy: createRoom.isPending,
+    roomActions: {
+      update: (roomId: string, update: Readonly<{ functionKey?: string; name?: string }>) =>
+        updateRoom.mutateAsync({ roomId, update }).then(() => undefined),
+    },
+    roomBusy: updateRoom.isPending,
+    channelActions: {
+      archive: (channel: ChannelSummary) =>
+        archiveChannel
+          .mutateAsync({ channelId: channel.id, expectedVersion: channel.version })
+          .then(() => undefined),
+      rename: (channel: ChannelSummary, title: string) =>
+        updateChannel
+          .mutateAsync({
+            channelId: channel.id,
+            expectedVersion: channel.version,
+            update: { title },
+          })
+          .then(() => undefined),
+    },
+    channelBusy: updateChannel.isPending || archiveChannel.isPending,
     navigation,
     readState: readState.data?.readState ?? [],
     readStateActions: {

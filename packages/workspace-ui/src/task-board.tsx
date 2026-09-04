@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { AgentSummary, RoomSummary, TaskSummary } from '@agent-hq/types'
-import { Plus, X } from 'lucide-react'
+import { ListTodo, Plus, X } from 'lucide-react'
 
 import { TaskDetail } from './task-detail'
 import type { PrivateContentResolver } from './platform'
@@ -54,6 +54,7 @@ export function TaskBoard(props: Props) {
         >
           <Plus aria-hidden="true" />
           New Task
+          <ListTodo aria-hidden="true" />
         </button>
       </header>
       {creating ? (
@@ -126,12 +127,14 @@ export function TaskBoard(props: Props) {
                       className="conventional-task-card"
                       onClick={() => props.onSelect(task.id)}
                     >
-                      <span
-                        className={`conventional-priority conventional-priority--${task.priority}`}
-                      >
-                        {task.priority}
-                      </span>
-                      <strong>{task.title}</strong>
+                      <div className="conventional-task-card__header">
+                        <strong>{task.title}</strong>
+                        <span
+                          className={`conventional-priority conventional-priority--${task.priority}`}
+                        >
+                          {task.priority}
+                        </span>
+                      </div>
                       <p>
                         <TaskObjective privateContent={props.privateContent} task={task} />
                       </p>

@@ -1,19 +1,52 @@
-import type { AgentSummary, ChannelReadStateSummary } from '@agent-hq/types'
+import type {
+  AgentSummary,
+  ChannelReadStateSummary,
+  ChannelSummary,
+  RoomSummary,
+} from '@agent-hq/types'
 import {
+  BedDouble,
+  BookOpen,
   Bot,
+  Briefcase,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
+  Dumbbell,
+  EllipsisVertical,
+  Gamepad2,
   Hash,
+  Leaf,
+  Link2,
   ListTodo,
+  Megaphone,
   Menu,
   MessageCircle,
+  MessagesSquare,
+  Music,
+  Palette,
+  Pencil,
+  Plane,
   Plus,
+  Shapes,
   Users,
+  Utensils,
+  Wrench,
   X,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Button } from '@agent-hq/ui/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@agent-hq/ui/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components/ui/tooltip'
 
 import type { WorkspaceNavigation } from './workspace-model'
+import { EditRoomDialog, RenameConversationDialog } from './create-workspace-dialogs'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'agent-hq:workspace-sidebar-width'
 const SIDEBAR_MIN_WIDTH = 208
@@ -37,25 +70,124 @@ function applySidebarWidth(root: HTMLElement, width: number) {
   root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
 }
 
+function roomIconFor(functionKey: string) {
+  const key = functionKey.toLowerCase()
+  if (key.includes('kitchen') || key.includes('cook') || key.includes('dining')) return Utensils
+  if (key.includes('study') || key.includes('librar') || key.includes('read')) return BookOpen
+  if (key.includes('travel') || key.includes('trip') || key.includes('flight')) return Plane
+  if (key.includes('engineer') || key.includes('build') || key.includes('dev')) return Wrench
+  if (key.includes('market')) return Megaphone
+  if (key.includes('operation') || key === 'ops' || key.includes('ops-')) return ClipboardList
+  if (key.includes('music') || key.includes('audio')) return Music
+  if (key.includes('garden') || key.includes('plant')) return Leaf
+  if (key.includes('gym') || key.includes('fitness') || key.includes('health')) return Dumbbell
+  if (key.includes('sleep') || key.includes('bed') || key.includes('rest')) return BedDouble
+  if (key.includes('art') || key.includes('design') || key.includes('paint')) return Palette
+  if (key.includes('game') || key.includes('play')) return Gamepad2
+  if (key.includes('work') || key.includes('office')) return Briefcase
+  if (key.includes('chat') || key.includes('talk') || key.includes('discuss')) return MessagesSquare
+  return Shapes
+}
+
+function RoomIcon({ functionKey }: Readonly<{ functionKey: string }>) {
+  const Icon = roomIconFor(functionKey)
+  return <Icon aria-hidden="true" />
+}
+
+function ConversationChannelRow({
+  channel,
+  icon,
+  label,
+  onArchive,
+  onCopyLink,
+  onRename,
+  onSelect,
+  selected,
+  unread,
+}: Readonly<{
+  channel: ChannelSummary
+  icon: ReactNode
+  label: string
+  onArchive: (channel: ChannelSummary) => void
+  onCopyLink: (channel: ChannelSummary) => void
+  onRename: (channel: ChannelSummary) => void
+  onSelect: () => void
+  selected: boolean
+  unread: ReactNode
+}>) {
+  return (
+    <li className="conventional-channel-row">
+      <button type="button" aria-current={selected ? 'page' : undefined} onClick={onSelect}>
+        {icon}
+        <span>{label}</span>
+        {unread}
+      </button>
+      <span className="conventional-channel-actions">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Conversation options for ${label}`}
+              />
+            }
+          >
+            <EllipsisVertical aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="bottom">
+            <DropdownMenuItem onClick={() => onRename(channel)}>Rename</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onCopyLink(channel)}>
+              <Link2 aria-hidden="true" />
+              Copy link
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button
+          type="button"
+          variant="destructive"
+          size="icon"
+          aria-label={`Delete ${label}`}
+          onClick={() => onArchive(channel)}
+        >
+          <X aria-hidden="true" />
+        </Button>
+      </span>
+    </li>
+  )
+}
+
 type Props = Readonly<{
   agents: readonly AgentSummary[]
+  channelBusy: boolean
   collapsedRoomIds: readonly string[]
   mobileOpen: boolean
   navigation: WorkspaceNavigation
+  onArchiveChannel: (channel: ChannelSummary) => Promise<void>
   onCreateGroup: () => void
   onCreateRoom: () => void
   onOpenAgents: () => void
   onOpenTasks: () => void
   onMarkAllRead: () => void
+  onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
   onSelectChannel: (channelId: string, roomId?: string) => void
   onToggleMobile: (open: boolean) => void
   onToggleRoom: (roomId: string) => void
+  onUpdateRoom: (
+    roomId: string,
+    update: Readonly<{ functionKey?: string; name?: string }>
+  ) => Promise<void>
+  roomBusy: boolean
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
 }>
 
 export function WorkspaceSidebar(props: Props) {
   const sidebarRef = useRef<HTMLElement>(null)
+  const [editingRoom, setEditingRoom] = useState<RoomSummary | null>(null)
+  const [renamingChannel, setRenamingChannel] = useState<ChannelSummary | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
   const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]))
   const unreadBadge = (channelId: string) => {
@@ -66,6 +198,21 @@ export function WorkspaceSidebar(props: Props) {
         {count > 99 ? '99+' : count || '•'}
       </span>
     ) : null
+  }
+
+  const archiveChannel = (channel: ChannelSummary) => {
+    setActionError(null)
+    void props
+      .onArchiveChannel(channel)
+      .catch(() => setActionError('Conversation could not be deleted.'))
+  }
+  const copyChannelLink = (channel: ChannelSummary) => {
+    setActionError(null)
+    const url = new URL(window.location.href)
+    url.searchParams.set('channel', channel.id)
+    void navigator.clipboard
+      .writeText(url.toString())
+      .catch(() => setActionError('Conversation link could not be copied.'))
   }
 
   // Restore the persisted sidebar width before first paint of the layout.
@@ -174,14 +321,26 @@ export function WorkspaceSidebar(props: Props) {
             <Bot aria-hidden="true" />
             Agents
           </button>
-          <button type="button" onClick={props.onMarkAllRead} title="Mark all read (Mod+Shift+A)">
-            <MessageCircle aria-hidden="true" />
-            Mark all read
-            <kbd>⇧⌘A</kbd>
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button type="button" onClick={props.onMarkAllRead} aria-label="Mark all read" />
+              }
+            >
+              <MessageCircle aria-hidden="true" />
+              Mark all read
+              <kbd>⇧⌘A</kbd>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Mark all read (Mod+Shift+A)</TooltipContent>
+          </Tooltip>
         </div>
 
         <div className="conventional-sidebar__scroll">
+          {actionError ? (
+            <p role="alert" className="conventional-sidebar-error">
+              {actionError}
+            </p>
+          ) : null}
           <section className="conventional-sidebar-section" aria-labelledby="rooms-heading">
             <div className="conventional-sidebar-section__heading">
               <h2 id="rooms-heading">Rooms</h2>
@@ -210,6 +369,41 @@ export function WorkspaceSidebar(props: Props) {
                   return (
                     <li key={item.room.id}>
                       <div className="conventional-room-row">
+                        <button
+                          type="button"
+                          className="conventional-room-select"
+                          aria-current={selected ? 'page' : undefined}
+                          onClick={() =>
+                            item.selectionChannelId &&
+                            props.onSelectChannel(item.selectionChannelId, item.room.id)
+                          }
+                        >
+                          <RoomIcon functionKey={item.room.functionKey} />
+                          <span className="conventional-room-name">{item.room.name}</span>
+                          {!item.visibleChannels.length ? (
+                            <span className="conventional-room-kind">Room</span>
+                          ) : null}
+                          {roomUnread ? (
+                            <span
+                              className="conventional-unread-badge"
+                              aria-label={`${roomUnread} unread in ${item.room.name}`}
+                            >
+                              {roomUnread > 99 ? '99+' : roomUnread}
+                            </span>
+                          ) : null}
+                        </button>
+                        <span className="conventional-room-actions">
+                          <button
+                            type="button"
+                            aria-label={`Edit ${item.room.name}`}
+                            onClick={() => {
+                              setActionError(null)
+                              setEditingRoom(item.room)
+                            }}
+                          >
+                            <Pencil aria-hidden="true" />
+                          </button>
+                        </span>
                         {item.visibleChannels.length ? (
                           <button
                             type="button"
@@ -224,29 +418,7 @@ export function WorkspaceSidebar(props: Props) {
                               <ChevronDown aria-hidden="true" />
                             )}
                           </button>
-                        ) : (
-                          <span className="conventional-room-toggle" aria-hidden="true" />
-                        )}
-                        <button
-                          type="button"
-                          className="conventional-room-select"
-                          aria-current={selected ? 'page' : undefined}
-                          onClick={() =>
-                            item.selectionChannelId &&
-                            props.onSelectChannel(item.selectionChannelId, item.room.id)
-                          }
-                        >
-                          <span>{item.room.name}</span>
-                          {!item.visibleChannels.length ? <span>Room</span> : null}
-                          {roomUnread ? (
-                            <span
-                              className="conventional-unread-badge"
-                              aria-label={`${roomUnread} unread in ${item.room.name}`}
-                            >
-                              {roomUnread > 99 ? '99+' : roomUnread}
-                            </span>
-                          ) : null}
-                        </button>
+                        ) : null}
                       </div>
                       {item.visibleChannels.length && !collapsed ? (
                         <ul className="conventional-channel-list">
@@ -289,34 +461,34 @@ export function WorkspaceSidebar(props: Props) {
             </div>
             <ul className="conventional-channel-list conventional-channel-list--standalone">
               {props.navigation.directAgentChannels.map((channel) => (
-                <li key={channel.id}>
-                  <button
-                    type="button"
-                    aria-current={channel.id === props.selectedChannelId ? 'page' : undefined}
-                    onClick={() => props.onSelectChannel(channel.id)}
-                  >
-                    <Bot aria-hidden="true" />
-                    <span>
-                      {channel.agentId
-                        ? (agentById.get(channel.agentId)?.name ?? 'Agent')
-                        : 'Agent'}
-                    </span>
-                    {unreadBadge(channel.id)}
-                  </button>
-                </li>
+                <ConversationChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  icon={<Bot aria-hidden="true" />}
+                  label={
+                    channel.agentId ? (agentById.get(channel.agentId)?.name ?? 'Agent') : 'Agent'
+                  }
+                  onArchive={archiveChannel}
+                  onCopyLink={copyChannelLink}
+                  onRename={setRenamingChannel}
+                  onSelect={() => props.onSelectChannel(channel.id)}
+                  selected={channel.id === props.selectedChannelId}
+                  unread={unreadBadge(channel.id)}
+                />
               ))}
               {props.navigation.groupChannels.map((channel) => (
-                <li key={channel.id}>
-                  <button
-                    type="button"
-                    aria-current={channel.id === props.selectedChannelId ? 'page' : undefined}
-                    onClick={() => props.onSelectChannel(channel.id)}
-                  >
-                    <Users aria-hidden="true" />
-                    <span>{channel.title}</span>
-                    {unreadBadge(channel.id)}
-                  </button>
-                </li>
+                <ConversationChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  icon={<Users aria-hidden="true" />}
+                  label={channel.title}
+                  onArchive={archiveChannel}
+                  onCopyLink={copyChannelLink}
+                  onRename={setRenamingChannel}
+                  onSelect={() => props.onSelectChannel(channel.id)}
+                  selected={channel.id === props.selectedChannelId}
+                  unread={unreadBadge(channel.id)}
+                />
               ))}
             </ul>
             {!props.navigation.directAgentChannels.length &&
@@ -333,6 +505,26 @@ export function WorkspaceSidebar(props: Props) {
           </section>
         </div>
       </aside>
+      {editingRoom ? (
+        <EditRoomDialog
+          busy={props.roomBusy}
+          initialFunctionKey={editingRoom.functionKey}
+          initialName={editingRoom.name}
+          onClose={() => setEditingRoom(null)}
+          onSave={(input) => props.onUpdateRoom(editingRoom.id, input)}
+          open
+          roomName={editingRoom.name}
+        />
+      ) : null}
+      {renamingChannel ? (
+        <RenameConversationDialog
+          busy={props.channelBusy}
+          initialTitle={renamingChannel.title}
+          onClose={() => setRenamingChannel(null)}
+          onSave={(title) => props.onRenameChannel(renamingChannel, title)}
+          open
+        />
+      ) : null}
     </>
   )
 }

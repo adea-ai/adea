@@ -61,6 +61,7 @@ export function AgentRoster({
         >
           <Plus aria-hidden="true" />
           New Agent
+          <Bot aria-hidden="true" />
         </button>
       </header>
       {creating ? (

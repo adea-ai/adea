@@ -1,5 +1,6 @@
 'use client'
 
+import { TooltipProvider } from '@agent-hq/ui/components/ui/tooltip'
 import { ConventionalWorkspaceShell } from '@agent-hq/workspace-ui/conventional-workspace-shell'
 import type { WorkspacePlatformServices } from '@agent-hq/workspace-ui/platform'
 import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
@@ -17,11 +18,13 @@ export function ConventionalWorkspaceEntry({
   services: WorkspacePlatformServices
 }>) {
   return (
-    <ConventionalWorkspaceShell
-      manageSettings={manageSettings}
-      onViewChange={onViewChange}
-      view="chat"
-      services={{ ...services, client }}
-    />
+    <TooltipProvider>
+      <ConventionalWorkspaceShell
+        manageSettings={manageSettings}
+        onViewChange={onViewChange}
+        view="chat"
+        services={{ ...services, client }}
+      />
+    </TooltipProvider>
   )
 }

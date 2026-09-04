@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from '@agent-hq/types'
 import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from 'lucide-react'
 
+import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components/ui/tooltip'
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
 import { mergeTranscription } from './transcription'
 import { createClientRequestId } from './request-id'
@@ -205,30 +206,36 @@ export function MessageComposer({
           >
             <Paperclip aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            aria-label={
-              transcriptionState === 'listening' || transcriptionState === 'processing'
-                ? 'Cancel dictation'
-                : 'Start dictation'
-            }
-            aria-pressed={transcriptionState === 'listening' || undefined}
-            disabled={disabled || sending || transcriptionState === 'unavailable'}
-            title={
-              transcription
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  aria-label={
+                    transcriptionState === 'listening' || transcriptionState === 'processing'
+                      ? 'Cancel dictation'
+                      : 'Start dictation'
+                  }
+                  aria-pressed={transcriptionState === 'listening' || undefined}
+                  disabled={disabled || sending || transcriptionState === 'unavailable'}
+                  onClick={() => void dictate()}
+                />
+              }
+            >
+              {transcriptionState === 'processing' ? (
+                <LoaderCircle aria-hidden="true" className="conventional-spin" />
+              ) : transcriptionState === 'listening' ? (
+                <MicOff aria-hidden="true" />
+              ) : (
+                <Mic aria-hidden="true" />
+              )}
+            </TooltipTrigger>
+            <TooltipContent>
+              {transcription
                 ? `Dictate with ${transcription.label}`
-                : 'Dictation is available in Agent HQ Desktop'
-            }
-            onClick={() => void dictate()}
-          >
-            {transcriptionState === 'processing' ? (
-              <LoaderCircle aria-hidden="true" className="conventional-spin" />
-            ) : transcriptionState === 'listening' ? (
-              <MicOff aria-hidden="true" />
-            ) : (
-              <Mic aria-hidden="true" />
-            )}
-          </button>
+                : 'Dictation is available in Agent HQ Desktop'}
+            </TooltipContent>
+          </Tooltip>
           {attachmentsOpen ? (
             <div className="conventional-attachment-menu">
               <strong>Attach Artifact</strong>

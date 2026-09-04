@@ -99,6 +99,144 @@ export function CreateRoomDialog({
   )
 }
 
+export const roomFunctionKeySuggestions = [
+  'study',
+  'kitchen',
+  'travel',
+  'engineering',
+  'marketing',
+  'operations',
+] as const
+
+export function EditRoomDialog({
+  busy,
+  initialFunctionKey,
+  initialName,
+  onClose,
+  onSave,
+  open,
+  roomName,
+}: Readonly<{
+  busy: boolean
+  initialFunctionKey: string
+  initialName: string
+  onClose: () => void
+  onSave: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>
+  open: boolean
+  roomName: string
+}>) {
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <ModalDialog
+      open={open}
+      onClose={onClose}
+      title={`Edit ${roomName}`}
+      description="Rename the Room or change its function key to update its sidebar icon."
+    >
+      <form
+        className="conventional-dialog-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const form = new FormData(event.currentTarget)
+          setError(null)
+          void onSave({
+            functionKey: String(form.get('functionKey') ?? ''),
+            name: String(form.get('name') ?? ''),
+          })
+            .then(onClose)
+            .catch(() => setError('Room could not be updated. Check the fields and retry.'))
+        }}
+      >
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="edit-room-name">Room name</FieldLabel>
+            <Input
+              id="edit-room-name"
+              name="name"
+              required
+              maxLength={120}
+              defaultValue={initialName}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="edit-room-function-key">Function key</FieldLabel>
+            <Input
+              id="edit-room-function-key"
+              name="functionKey"
+              required
+              pattern={'[a-z0-9\\-]+'}
+              maxLength={80}
+              defaultValue={initialFunctionKey}
+              list="edit-room-function-keys"
+            />
+            <datalist id="edit-room-function-keys">
+              {roomFunctionKeySuggestions.map((key) => (
+                <option key={key} value={key} />
+              ))}
+            </datalist>
+          </Field>
+        </FieldGroup>
+        {error ? <FieldError>{error}</FieldError> : null}
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Saving…' : 'Save changes'}
+        </Button>
+      </form>
+    </ModalDialog>
+  )
+}
+
+export function RenameConversationDialog({
+  busy,
+  initialTitle,
+  onClose,
+  onSave,
+  open,
+}: Readonly<{
+  busy: boolean
+  initialTitle: string
+  onClose: () => void
+  onSave: (title: string) => Promise<void>
+  open: boolean
+}>) {
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <ModalDialog
+      open={open}
+      onClose={onClose}
+      title="Rename conversation"
+      description="Give this conversation a clear, durable title."
+    >
+      <form
+        className="conventional-dialog-form"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const title = String(new FormData(event.currentTarget).get('title') ?? '')
+          setError(null)
+          void onSave(title)
+            .then(onClose)
+            .catch(() => setError('Conversation could not be renamed.'))
+        }}
+      >
+        <Field>
+          <FieldLabel htmlFor="conversation-title">Conversation name</FieldLabel>
+          <Input
+            id="conversation-title"
+            name="title"
+            required
+            maxLength={120}
+            autoFocus
+            defaultValue={initialTitle}
+          />
+        </Field>
+        {error ? <FieldError>{error}</FieldError> : null}
+        <Button type="submit" disabled={busy}>
+          {busy ? 'Saving…' : 'Save title'}
+        </Button>
+      </form>
+    </ModalDialog>
+  )
+}
+
 export function CreateGroupDialog({
   busy,
   onClose,
