@@ -13,7 +13,7 @@ import {
 import { homedir, hostname } from "node:os";
 import { join, resolve } from "node:path";
 
-const repository = "0xPlayerOne/agent-hq";
+const repository = "adea-ai/agent-hq";
 const runnerVersion = "2.336.0";
 const root = resolve(import.meta.dirname, "..");
 // The Actions runner prepends its bundled tools to PATH without shell-escaping the
