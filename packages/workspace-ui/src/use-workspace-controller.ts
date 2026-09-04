@@ -12,20 +12,24 @@ import {
   useCancelTaskMutation,
   useChangeAgentProfileMutation,
   useChannelListQuery,
+  useCompleteTaskMutation,
   useCreateAgentMutation,
   useCreateDirectChannelMutation,
   useCreateGroupChannelMutation,
   useCreateRoomMutation,
   useCreateTaskMutation,
+  useUpdateTaskMutation,
   useMoveTaskRoomMutation,
   useMarkAllReadMutation,
   useMarkChannelReadMutation,
   useMarkThreadReadMutation,
   useQueueTaskMutation,
   useReadStateQuery,
+  useReviewTaskMutation,
   useRoomListQuery,
   useSetTaskConversationMutation,
   useSetTaskDependenciesMutation,
+  useStartTaskMutation,
   useTaskListQuery,
   useUpdateAgentPresentationMutation,
   useUpdateChannelMutation,
@@ -82,10 +86,14 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const changeAgentProfile = useChangeAgentProfileMutation(client, workspaceId ?? '')
   const updateAgentPresentation = useUpdateAgentPresentationMutation(client, workspaceId ?? '')
   const createTask = useCreateTaskMutation(client, workspaceId ?? '')
+  const updateTask = useUpdateTaskMutation(client, workspaceId ?? '')
   const assignTask = useAssignTaskMutation(client, workspaceId ?? '')
   const moveTask = useMoveTaskRoomMutation(client, workspaceId ?? '')
   const dependencies = useSetTaskDependenciesMutation(client, workspaceId ?? '')
   const queueTask = useQueueTaskMutation(client, workspaceId ?? '')
+  const startTask = useStartTaskMutation(client, workspaceId ?? '')
+  const completeTask = useCompleteTaskMutation(client, workspaceId ?? '')
+  const reviewTask = useReviewTaskMutation(client, workspaceId ?? '')
   const cancelTask = useCancelTaskMutation(client, workspaceId ?? '')
   const archiveTask = useArchiveTaskMutation(client, workspaceId ?? '')
   const taskConversation = useSetTaskConversationMutation(client, workspaceId ?? '')
@@ -236,8 +244,27 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       cancel: (task: TaskSummary) =>
         taskMutation(cancelTask, { command: taskInput(task, 'cancel'), taskId: task.id }),
       create: (
-        task: Readonly<{ objective: string; priority: TaskSummary['priority']; title: string }>
+        task: Readonly<{
+          kind?: TaskSummary['kind']
+          objective: string
+          priority: TaskSummary['priority']
+          title: string
+        }>
       ) => taskMutation(createTask, { command: command('create-task'), task }),
+      update: (
+        task: TaskSummary,
+        update: Readonly<{
+          kind?: TaskSummary['kind']
+          objective?: string
+          priority?: TaskSummary['priority']
+          title?: string
+        }>
+      ) =>
+        taskMutation(updateTask, {
+          command: taskInput(task, 'update'),
+          taskId: task.id,
+          update,
+        }),
       dependencies: (task: TaskSummary, dependencyIds: readonly string[]) =>
         taskMutation(dependencies, {
           command: taskInput(task, 'dependencies'),
@@ -263,16 +290,26 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       },
       queue: (task: TaskSummary) =>
         taskMutation(queueTask, { command: taskInput(task, 'queue'), taskId: task.id }),
+      review: (task: TaskSummary) =>
+        taskMutation(reviewTask, { command: taskInput(task, 'review'), taskId: task.id }),
+      start: (task: TaskSummary) =>
+        taskMutation(startTask, { command: taskInput(task, 'start'), taskId: task.id }),
+      complete: (task: TaskSummary) =>
+        taskMutation(completeTask, { command: taskInput(task, 'complete'), taskId: task.id }),
     },
     taskBusy: [
       archiveTask,
       assignTask,
       cancelTask,
+      completeTask,
       createTask,
       dependencies,
       moveTask,
       queueTask,
+      reviewTask,
+      startTask,
       taskConversation,
+      updateTask,
     ].some(({ isPending }) => isPending),
     tasks: tasks.data ?? [],
     workspaceId,

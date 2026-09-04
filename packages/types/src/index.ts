@@ -104,8 +104,16 @@ export type RoomSummary = Readonly<{
   workspaceId: string
 }>
 
-export type TaskLifecycleState = 'created' | 'queued' | 'cancelled' | 'archived'
+export type TaskLifecycleState =
+  | 'created'
+  | 'queued'
+  | 'in_progress'
+  | 'in_review'
+  | 'completed'
+  | 'cancelled'
+  | 'archived'
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
+export type TaskKind = 'bug' | 'feature' | 'chore'
 
 export type ContentRefSummary = Readonly<{
   availability: 'available' | 'offline' | 'missing' | 'deleted'
@@ -140,6 +148,7 @@ export type TaskSummary = Readonly<{
   creator: UserPrincipalRef
   dependencyIds: readonly string[]
   id: string
+  kind: TaskKind
   lifecycleState: TaskLifecycleState
   objective?: string
   objectiveContentRefId?: string

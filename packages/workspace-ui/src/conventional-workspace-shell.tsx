@@ -317,6 +317,7 @@ export function ConventionalWorkspaceShell({
         roomBusy={controller.roomBusy}
         selectedChannelId={selectedChannelId}
         readState={controller.readState}
+        workspaceName={controller.activeWorkspace.name}
       />
       <section id="workspace-main" className="conventional-main" tabIndex={-1}>
         {queryError ? (
@@ -428,16 +429,20 @@ export function ConventionalWorkspaceShell({
             onArchive={controller.taskActions.archive}
             onAssign={controller.taskActions.assign}
             onCancel={controller.taskActions.cancel}
+            onComplete={controller.taskActions.complete}
             onCreate={controller.taskActions.create}
             onDependencies={controller.taskActions.dependencies}
             onMoveRoom={controller.taskActions.moveRoom}
+            onUpdate={controller.taskActions.update}
             onOpenConversation={(task) =>
               void controller.taskActions
                 .openConversation(task)
                 .then(() => setActiveSurface('conversation'))
             }
             onQueue={controller.taskActions.queue}
+            onReview={controller.taskActions.review}
             onSelect={setSelectedTaskId}
+            onStart={controller.taskActions.start}
             privateContent={services?.privateContent}
             rooms={controller.rooms}
             selectedTaskId={selectedTaskId}

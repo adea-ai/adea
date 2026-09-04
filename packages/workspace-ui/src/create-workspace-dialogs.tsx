@@ -5,22 +5,19 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@agent-hq/ui/componen
 import { Input } from '@agent-hq/ui/components/ui/input'
 
 import { ModalDialog } from './modal-dialog'
+import { RoomIcon } from './room-icon'
 
-const roomTemplates: Record<
-  WorkspaceSceneId,
-  readonly Readonly<{ functionKey: string; name: string }>[]
-> = {
-  home: [
-    { functionKey: 'study', name: 'Study' },
-    { functionKey: 'kitchen', name: 'Kitchen' },
-    { functionKey: 'travel', name: 'Travel' },
-  ],
-  work: [
-    { functionKey: 'engineering', name: 'Engineering' },
-    { functionKey: 'marketing', name: 'Marketing' },
-    { functionKey: 'operations', name: 'Operations' },
-  ],
-}
+const roomTemplates: readonly Readonly<{ functionKey: string; name: string }>[] = [
+  { functionKey: 'study', name: 'Study' },
+  { functionKey: 'kitchen', name: 'Kitchen' },
+  { functionKey: 'travel', name: 'Travel' },
+  { functionKey: 'engineering', name: 'Engineering' },
+  { functionKey: 'marketing', name: 'Marketing' },
+  { functionKey: 'operations', name: 'Operations' },
+  { functionKey: 'gym', name: 'Gym' },
+  { functionKey: 'music', name: 'Music' },
+  { functionKey: 'garden', name: 'Garden' },
+]
 
 export function CreateRoomDialog({
   busy,
@@ -44,7 +41,7 @@ export function CreateRoomDialog({
       description="Rooms are the primary functional contexts in Agent HQ."
     >
       <div className="conventional-template-options" aria-label={`${template} Room suggestions`}>
-        {roomTemplates[template].map((room) => (
+        {roomTemplates.map((room) => (
           <Button
             key={room.functionKey}
             type="button"
@@ -56,8 +53,8 @@ export function CreateRoomDialog({
                 .catch(() => setError('Room could not be created.'))
             }
           >
+            <RoomIcon functionKey={room.functionKey} />
             <strong>{room.name}</strong>
-            <span>{template === 'work' ? 'Work template' : 'Home template'}</span>
           </Button>
         ))}
       </div>

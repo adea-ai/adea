@@ -5,33 +5,18 @@ import type {
   RoomSummary,
 } from '@agent-hq/types'
 import {
-  BedDouble,
-  BookOpen,
   Bot,
-  Briefcase,
   ChevronDown,
   ChevronRight,
-  ClipboardList,
-  Dumbbell,
   EllipsisVertical,
-  Gamepad2,
   Hash,
-  Leaf,
   Link2,
   ListTodo,
-  Megaphone,
   Menu,
   MessageCircle,
-  MessagesSquare,
-  Music,
-  Palette,
   Pencil,
-  Plane,
   Plus,
-  Shapes,
   Users,
-  Utensils,
-  Wrench,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -47,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components
 
 import type { WorkspaceNavigation } from './workspace-model'
 import { EditRoomDialog, RenameConversationDialog } from './create-workspace-dialogs'
+import { RoomIcon } from './room-icon'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'agent-hq:workspace-sidebar-width'
 const SIDEBAR_MIN_WIDTH = 208
@@ -68,30 +54,6 @@ function currentSidebarWidth(root: HTMLElement): number {
 
 function applySidebarWidth(root: HTMLElement, width: number) {
   root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
-}
-
-function roomIconFor(functionKey: string) {
-  const key = functionKey.toLowerCase()
-  if (key.includes('kitchen') || key.includes('cook') || key.includes('dining')) return Utensils
-  if (key.includes('study') || key.includes('librar') || key.includes('read')) return BookOpen
-  if (key.includes('travel') || key.includes('trip') || key.includes('flight')) return Plane
-  if (key.includes('engineer') || key.includes('build') || key.includes('dev')) return Wrench
-  if (key.includes('market')) return Megaphone
-  if (key.includes('operation') || key === 'ops' || key.includes('ops-')) return ClipboardList
-  if (key.includes('music') || key.includes('audio')) return Music
-  if (key.includes('garden') || key.includes('plant')) return Leaf
-  if (key.includes('gym') || key.includes('fitness') || key.includes('health')) return Dumbbell
-  if (key.includes('sleep') || key.includes('bed') || key.includes('rest')) return BedDouble
-  if (key.includes('art') || key.includes('design') || key.includes('paint')) return Palette
-  if (key.includes('game') || key.includes('play')) return Gamepad2
-  if (key.includes('work') || key.includes('office')) return Briefcase
-  if (key.includes('chat') || key.includes('talk') || key.includes('discuss')) return MessagesSquare
-  return Shapes
-}
-
-function RoomIcon({ functionKey }: Readonly<{ functionKey: string }>) {
-  const Icon = roomIconFor(functionKey)
-  return <Icon aria-hidden="true" />
 }
 
 function ConversationChannelRow({
@@ -181,6 +143,7 @@ type Props = Readonly<{
   roomBusy: boolean
   selectedChannelId: string | null
   readState: readonly ChannelReadStateSummary[]
+  workspaceName: string
 }>
 
 export function WorkspaceSidebar(props: Props) {
@@ -190,6 +153,11 @@ export function WorkspaceSidebar(props: Props) {
   const [actionError, setActionError] = useState<string | null>(null)
   const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
   const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]))
+  const hasUnread = props.readState.some(
+    (state) =>
+      (state.topLevelUnreadCount ?? 0) + (state.threadUnreadCount ?? 0) > 0 ||
+      Boolean(state.manuallyUnread)
+  )
   const unreadBadge = (channelId: string) => {
     const state = readStateByChannel.get(channelId)
     const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
@@ -312,6 +280,9 @@ export function WorkspaceSidebar(props: Props) {
           <X aria-hidden="true" />
         </button>
 
+        <div className="conventional-sidebar__title">
+          <h1>{props.workspaceName}</h1>
+        </div>
         <div className="conventional-sidebar__quick-actions">
           <button type="button" onClick={props.onOpenTasks}>
             <ListTodo aria-hidden="true" />
@@ -324,7 +295,12 @@ export function WorkspaceSidebar(props: Props) {
           <Tooltip>
             <TooltipTrigger
               render={
-                <button type="button" onClick={props.onMarkAllRead} aria-label="Mark all read" />
+                <button
+                  type="button"
+                  onClick={props.onMarkAllRead}
+                  aria-label="Mark all read"
+                  disabled={!hasUnread}
+                />
               }
             >
               <MessageCircle aria-hidden="true" />
@@ -390,16 +366,31 @@ export function WorkspaceSidebar(props: Props) {
                           ) : null}
                         </button>
                         <span className="conventional-room-actions">
-                          <button
-                            type="button"
-                            aria-label={`Edit ${item.room.name}`}
-                            onClick={() => {
-                              setActionError(null)
-                              setEditingRoom(item.room)
-                            }}
-                          >
-                            <Pencil aria-hidden="true" />
-                          </button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              render={
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  aria-label={`Room options for ${item.room.name}`}
+                                />
+                              }
+                            >
+                              <EllipsisVertical aria-hidden="true" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" side="bottom">
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setActionError(null)
+                                  setEditingRoom(item.room)
+                                }}
+                              >
+                                <Pencil aria-hidden="true" />
+                                Edit
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </span>
                         {item.visibleChannels.length ? (
                           <button

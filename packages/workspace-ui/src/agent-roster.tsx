@@ -115,6 +115,8 @@ export function AgentRoster({
             </div>
             <div className="conventional-agent-card__identity">
               <h2>{agent.name}</h2>
+            </div>
+            <div className="conventional-agent-card__status">
               <AgentStatus agent={agent} compact />
             </div>
             <p>{agent.roleSummary ?? 'No role summary yet.'}</p>

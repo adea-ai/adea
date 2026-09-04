@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type {
+  TaskKind,
   TaskLifecycleState,
   TaskPriority,
   TaskSummary,
@@ -41,6 +42,7 @@ export type TaskCreateInput = Readonly<{
     threadRootMessageId?: string
   }>
   dependencyIds?: readonly string[]
+  kind?: TaskKind
   objective?: string
   objectiveContentRefId?: string
   priority?: TaskPriority
@@ -51,6 +53,7 @@ export type TaskCreateInput = Readonly<{
 export type TaskUpdateInput = Readonly<{
   controlPlaneExecutionRef?: string | null
   controlPlaneWorkflowRef?: string | null
+  kind?: TaskKind
   objective?: string
   objectiveContentRefId?: string
   priority?: TaskPriority
@@ -152,6 +155,7 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
     creator: Object.freeze({ kind: 'user' as const, userId: row.creatorUserId }),
     dependencyIds: Object.freeze(dependencies.map(({ id }) => id)),
     id: row.id,
+    kind: row.kind,
     lifecycleState: row.lifecycleState,
     ...(row.objective ? { objective: row.objective } : {}),
     ...(row.objectiveContentRefId ? { objectiveContentRefId: row.objectiveContentRefId } : {}),
@@ -322,6 +326,7 @@ export async function createTask(
             controlPlaneExecutionRef: input.controlPlaneExecutionRef?.trim() || null,
             controlPlaneWorkflowRef: input.controlPlaneWorkflowRef?.trim() || null,
             creatorUserId: principal.userId,
+            kind: input.kind ?? 'feature',
             messageId: input.conversation?.messageId ?? null,
             objective: input.objective?.trim() || null,
             objectiveContentRefId: input.objectiveContentRefId ?? null,
@@ -471,6 +476,7 @@ export async function updateTask(
           ...(input.objectiveContentRefId !== undefined
             ? { objective: null, objectiveContentRefId: input.objectiveContentRefId }
             : {}),
+          ...(input.kind !== undefined ? { kind: input.kind } : {}),
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(input.title !== undefined ? { title: input.title.trim() } : {}),
           updatedAt: new Date(),
@@ -589,8 +595,11 @@ async function transitionTask(
       const valid: Record<TaskLifecycleState, readonly TaskLifecycleState[]> = {
         archived: [],
         cancelled: ['archived'],
-        created: ['queued', 'cancelled', 'archived'],
-        queued: ['cancelled', 'archived'],
+        completed: ['archived'],
+        created: ['queued', 'in_progress', 'completed', 'cancelled', 'archived'],
+        in_progress: ['in_review', 'completed', 'cancelled', 'archived'],
+        in_review: ['in_progress', 'completed', 'cancelled', 'archived'],
+        queued: ['in_progress', 'completed', 'cancelled', 'archived'],
       }
       if (!valid[row.lifecycleState].includes(target))
         throw new Error('Invalid Task lifecycle transition')
@@ -624,6 +633,27 @@ export const cancelTask = (
   principal: UserPrincipalRef,
   command: TaskCommand
 ) => transitionTask(database, workspaceId, taskId, principal, 'cancelled', command)
+export const startTask = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef,
+  command: TaskCommand
+) => transitionTask(database, workspaceId, taskId, principal, 'in_progress', command)
+export const completeTask = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef,
+  command: TaskCommand
+) => transitionTask(database, workspaceId, taskId, principal, 'completed', command)
+export const reviewTask = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef,
+  command: TaskCommand
+) => transitionTask(database, workspaceId, taskId, principal, 'in_review', command)
 export const archiveTask = (
   database: AgentHqDatabase,
   workspaceId: string,

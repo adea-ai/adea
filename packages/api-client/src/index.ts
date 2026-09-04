@@ -9,6 +9,7 @@ import type {
   MessageSummary,
   PrincipalRef,
   RoomSummary,
+  TaskKind,
   TaskSummary,
   WorkspaceSummary,
   WorkspaceSearchPage,
@@ -73,6 +74,7 @@ export type ApiTaskCreateInput = Readonly<{
     threadRootMessageId?: string
   }>
   dependencyIds?: readonly string[]
+  kind?: TaskKind
   objective?: string
   objectiveContentRefId?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
@@ -82,6 +84,7 @@ export type ApiTaskCreateInput = Readonly<{
 export type ApiTaskUpdateInput = Readonly<{
   controlPlaneExecutionRef?: string | null
   controlPlaneWorkflowRef?: string | null
+  kind?: TaskKind
   objective?: string
   objectiveContentRefId?: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
@@ -599,6 +602,18 @@ export class AgentHqApiClient {
 
   async queueTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
     return this.taskCommand(workspaceId, taskId, 'queue', {}, command)
+  }
+
+  async startTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
+    return this.taskCommand(workspaceId, taskId, 'start', {}, command)
+  }
+
+  async reviewTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
+    return this.taskCommand(workspaceId, taskId, 'review', {}, command)
+  }
+
+  async completeTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {
+    return this.taskCommand(workspaceId, taskId, 'complete', {}, command)
   }
 
   async cancelTask(workspaceId: string, taskId: string, command: ApiTaskCommand) {

@@ -52,6 +52,7 @@ export async function POST(request: Request, { params }: Context) {
   }
   const candidate = body as Record<string, unknown>
   const priorities = ['low', 'normal', 'high', 'urgent'] as const
+  const kinds = ['bug', 'feature', 'chore'] as const
   if (
     !command ||
     !candidate ||
@@ -66,6 +67,7 @@ export async function POST(request: Request, { params }: Context) {
         candidate.objective.length > 20_000)) ||
     (candidate.objectiveContentRefId !== undefined && !isUuid(candidate.objectiveContentRefId)) ||
     (candidate.priority !== undefined && !priorities.includes(candidate.priority as never)) ||
+    (candidate.kind !== undefined && !kinds.includes(candidate.kind as never)) ||
     (candidate.agentId !== undefined && !isUuid(candidate.agentId)) ||
     (candidate.roomId !== undefined && !isUuid(candidate.roomId)) ||
     (candidate.dependencyIds !== undefined &&
