@@ -64,7 +64,7 @@ async function runScenePerformanceGate(page: Page, scene: "home" | "work") {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
 
-  const response = await page.goto(`/?view=spatial&scene=${scene}&roomDesigner=0&camera=orthographic`, {
+  const response = await page.goto(`/?view=virtual&scene=${scene}&roomDesigner=0&camera=orthographic`, {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -145,7 +145,7 @@ test("HQ defers perspective-only backgrounds in top-down view", async ({ page })
     }
   });
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=0&camera=orthographic&debug=1",
+    "/?view=virtual&scene=home&roomDesigner=0&camera=orthographic&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -171,7 +171,7 @@ test("HQ defers perspective-only backgrounds in top-down view", async ({ page })
 });
 
 test("HQ keeps perspective backgrounds fixed while the camera moves", async ({ page }) => {
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=perspective&debug=1", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=perspective&debug=1", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -201,7 +201,7 @@ test("HQ keeps perspective backgrounds fixed while the camera moves", async ({ p
 });
 
 test("HQ plays only the active locomotion animation", async ({ page }) => {
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=perspective&debug=1", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=perspective&debug=1", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -239,7 +239,7 @@ test("direct character designer mount skips HQ scene assets", async ({ page }) =
     { timeout: 60_000 },
   );
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=0&characterDesigner=1&camera=perspective&character=f_1",
+    "/?view=virtual&scene=home&roomDesigner=0&characterDesigner=1&camera=perspective&character=f_1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -254,7 +254,7 @@ test("direct character designer mount skips HQ scene assets", async ({ page }) =
 
 test("character designer keeps feet visible and supports drag orbit and pan", async ({ page }) => {
   const response = await page.goto(
-    "/?view=spatial&characterDesigner=1&camera=perspective&character=configurable&debug=1",
+    "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -361,7 +361,7 @@ test("character designer starts slot thumbnails without a long delay", async ({ 
   );
 
   const response = await page.goto(
-    "/?view=spatial&characterDesigner=1&camera=perspective&character=configurable",
+    "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -384,7 +384,7 @@ test("character designer starts slot thumbnails without a long delay", async ({ 
 
 test("saving a customized body restores it in the virtual space", async ({ page }) => {
   const response = await page.goto(
-    "/?view=spatial&scene=home&characterDesigner=1&camera=perspective&character=configurable&debug=1",
+    "/?view=virtual&scene=home&characterDesigner=1&camera=perspective&character=configurable&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -425,7 +425,7 @@ test("saving a customized body restores it in the virtual space", async ({ page 
 
 test("saving a customized body from virtual space keeps the body model", async ({ page }) => {
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=0&characterDesigner=0&camera=orthographic&character=f_1&debug=1",
+    "/?view=virtual&scene=home&roomDesigner=0&characterDesigner=0&camera=orthographic&character=f_1&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -472,7 +472,7 @@ test("switching from a reference character to Custom in the character designer w
   });
 
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=0&characterDesigner=0&camera=perspective&character=f_1&debug=1",
+    "/?view=virtual&scene=home&roomDesigner=0&characterDesigner=0&camera=perspective&character=f_1&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -520,7 +520,7 @@ test("room designer loads compressed interior props", async ({ page }) => {
   });
 
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=1&camera=orthographic&debug=1",
+    "/?view=virtual&scene=home&roomDesigner=1&camera=orthographic&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -541,7 +541,7 @@ test("room designer camera state does not leak into HQ", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=1&camera=orthographic&debug=1",
+    "/?view=virtual&scene=home&roomDesigner=1&camera=orthographic&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -576,7 +576,7 @@ test("room designer camera state does not leak into HQ", async ({ page }) => {
 });
 
 test("web layout does not reserve space for the desktop status bar", async ({ page }) => {
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=orthographic", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=orthographic", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -619,7 +619,7 @@ test("desktop runtime keeps the shared scene layout without a status bar", async
   await page.addInitScript(() => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
   });
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=orthographic", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=orthographic", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);

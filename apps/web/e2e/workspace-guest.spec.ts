@@ -31,7 +31,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
     })
   })
 
-  await page.goto('/?view=spatial')
+  await page.goto('/?view=virtual')
   const userMenu = page.getByRole('button', { name: 'User settings' })
   await expect(userMenu).toBeVisible({ timeout: 20_000 })
   await expect(userMenu.locator('svg.lucide-user-round')).toHaveCount(1)
@@ -120,14 +120,14 @@ test('a guest can use a workspace before opening the optional persistence flow',
   })
   const shortcutSettings = page.getByRole('dialog', { name: 'Settings' })
   await expect(shortcutSettings).toBeVisible()
-  await expect(page).toHaveURL(/view=spatial/)
+  await expect(page).toHaveURL(/view=virtual/)
   await page.getByRole('button', { name: 'Close dialog' }).click()
 
   await userMenu.click()
   await accountMenu.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
-  await expect(page).toHaveURL(/view=spatial/)
+  await expect(page).toHaveURL(/view=virtual/)
   await expect(
     settings.locator('.conventional-dialog__heading .conventional-settings-logo')
   ).toBeVisible()

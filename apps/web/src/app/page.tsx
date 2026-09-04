@@ -43,10 +43,10 @@ export default async function HomePage({
 
   return (
     <WorkspaceEntry
-      spatial={view === 'spatial' || (roomDesigner !== undefined && roomDesigner !== '0')}
+      virtual={view === 'virtual' || (roomDesigner !== undefined && roomDesigner !== '0')}
       characterDesigner={characterDesigner !== undefined && characterDesigner !== '0'}
       roomDesigner={roomDesigner !== undefined && roomDesigner !== '0'}
-      spatialProps={{
+      virtualProps={{
         initialScene: hqSceneFromSearchParams(params),
         initialCharacter: isValidCharacter ? requestedCharacter! : configurableCharacterId,
         startPosition: readSceneStartPosition(params.spawn),

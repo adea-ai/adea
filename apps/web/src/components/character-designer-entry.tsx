@@ -33,7 +33,7 @@ const characterOptions = [
 function leaveDesigner() {
   const nextUrl = new URL(window.location.href)
   nextUrl.searchParams.set('characterDesigner', '0')
-  nextUrl.searchParams.set('view', 'spatial')
+  nextUrl.searchParams.set('view', 'virtual')
   window.location.assign(nextUrl)
 }
 

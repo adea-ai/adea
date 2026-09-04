@@ -761,7 +761,7 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
   await globalNavigation.getByRole('button', { name: 'Virtual view' }).click()
-  await expect(page).toHaveURL(/view=spatial/)
+  await expect(page).toHaveURL(/view=virtual/)
   await expect(page.getByRole('region', { name: 'Virtual Room' })).toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Product', exact: true })).toHaveAttribute(

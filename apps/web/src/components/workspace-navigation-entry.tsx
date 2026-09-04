@@ -143,12 +143,12 @@ function createDeferredPluginsProvider(
 }
 
 export function WorkspaceNavigationEntry({
-  spatial,
-  spatialProps,
+  virtual,
+  virtualProps,
   roomDesigner = false,
 }: Readonly<{
-  spatial: boolean
-  spatialProps: WorkspaceShellProps
+  virtual: boolean
+  virtualProps: WorkspaceShellProps
   roomDesigner?: boolean
 }>) {
   const [client] = useState(() => createApiClient())
@@ -182,17 +182,17 @@ export function WorkspaceNavigationEntry({
   const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace)
   const [viewParam, setViewParam] = useQueryState(
     'view',
-    parseAsStringLiteral(['chat', 'spatial'] as const)
-      .withDefault(spatial ? 'spatial' : 'chat')
+    parseAsStringLiteral(['chat', 'virtual'] as const)
+      .withDefault(virtual ? 'virtual' : 'chat')
       .withOptions({ clearOnDefault: false, history: 'replace' })
   )
   const [sceneParam, setScene] = useQueryState(
     'scene',
     parseAsStringLiteral(['home', 'work'] as const)
-      .withDefault(spatialProps.initialScene)
+      .withDefault(virtualProps.initialScene)
       .withOptions({ clearOnDefault: false, history: 'replace' })
   )
-  const view: WorkspaceView = viewParam === 'spatial' ? 'virtual' : 'chat'
+  const view: WorkspaceView = viewParam
   const requestedScene =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
       ? sceneParam
@@ -201,9 +201,9 @@ export function WorkspaceNavigationEntry({
     setRoomDesignerEnabled(enabled)
     const nextUrl = new URL(window.location.href)
     nextUrl.searchParams.set('roomDesigner', enabled ? '1' : '0')
-    if (enabled) nextUrl.searchParams.set('view', 'spatial')
+    if (enabled) nextUrl.searchParams.set('view', 'virtual')
     window.history.replaceState(null, '', nextUrl)
-    if (enabled && view !== 'virtual') void setViewParam('spatial')
+    if (enabled && view !== 'virtual') void setViewParam('virtual')
   }
   const activeWorkspace =
     bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
@@ -250,7 +250,7 @@ export function WorkspaceNavigationEntry({
   }, [setGlobalPanel])
 
   const changeView = (nextView: WorkspaceView) => {
-    void setViewParam(nextView === 'virtual' ? 'spatial' : 'chat')
+    void setViewParam(nextView)
   }
   const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
     window.history.replaceState(null, '', `#settings/${section}`)
@@ -293,14 +293,14 @@ export function WorkspaceNavigationEntry({
           roomDesignerEnabled ? (
             <RoomDesignerWorkspace
               key={activeWorkspace?.id ?? scene}
-              initialCharacter={spatialProps.initialCharacter}
+              initialCharacter={virtualProps.initialCharacter}
               initialScene={scene}
               onClose={() => setRoomDesignerRoute(false)}
             />
           ) : (
             <SpatialWorkspace
               key={activeWorkspace?.id ?? scene}
-              {...spatialProps}
+              {...virtualProps}
               apiClient={client}
               initialScene={scene}
               onOpenRoomDesigner={() => setRoomDesignerRoute(true)}

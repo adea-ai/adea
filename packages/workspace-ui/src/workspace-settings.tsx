@@ -229,10 +229,10 @@ export function WorkspaceSettingsDialog({
                 detail={`${services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${services?.app?.version ? ` · v${services.app.version}` : ''}`}
               />
               <SettingsRow
-                title="Spatial preview"
+                title="Virtual preview"
                 detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
               >
-                <a href="/?view=spatial">Open preview</a>
+                <a href="/?view=virtual">Open preview</a>
               </SettingsRow>
             </>
           ) : section === 'appearance' ? (

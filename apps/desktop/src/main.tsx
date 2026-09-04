@@ -145,7 +145,7 @@ function DesktopApp() {
   const [appVersion, setAppVersion] = useState<string>(packageVersion)
   const [updatesOpen, setUpdatesOpen] = useState(false)
   const [view, setView] = useState<WorkspaceView>(() =>
-    new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
+    new URLSearchParams(window.location.search).get('view') === 'virtual' ? 'virtual' : 'chat'
   )
   const selectedScene = useWorkspaceStore((state) => state.selectedScene)
   const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
@@ -324,7 +324,7 @@ function DesktopApp() {
   const changeView = (nextView: WorkspaceView) => {
     setView(nextView)
     const nextUrl = new URL(window.location.href)
-    nextUrl.searchParams.set('view', nextView === 'virtual' ? 'spatial' : 'chat')
+    nextUrl.searchParams.set('view', nextView)
     window.history.replaceState(null, '', nextUrl)
   }
 
@@ -396,7 +396,7 @@ function DesktopApp() {
             <Suspense
               fallback={
                 <main className="auth-shell" aria-busy="true">
-                  <p>Opening spatial preview…</p>
+                  <p>Opening virtual preview…</p>
                 </main>
               }
             >
