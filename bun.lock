@@ -264,7 +264,6 @@
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/character-designer-scene": "workspace:*",
         "@agent-hq/characters": "workspace:*",
-        "@agent-hq/room-designer-scene": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/ui": "workspace:*",
         "lucide-react": "^1.33.0",
@@ -381,8 +380,10 @@
       "version": "0.8.3",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
+        "@agent-hq/hq-scenes": "workspace:*",
         "@agent-hq/interior": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
+        "@agent-hq/scene-shell": "workspace:*",
         "@agent-hq/ui": "workspace:*",
         "lucide-react": "^1.33.0",
         "react": "19.2.8",

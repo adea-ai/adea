@@ -38,12 +38,13 @@ describe('scene package boundaries', () => {
 
   test('keeps editor catalogs behind scene-package boundaries', () => {
     const sceneShell = read('packages/scene-shell/src/scene-wrapper.tsx')
-    expect(sceneShell).not.toContain('import("./room-designer")')
-    expect(sceneShell).toContain('import("@agent-hq/room-designer-scene")')
+    expect(sceneShell).not.toContain('room-designer-scene')
     expect(sceneShell).toContain('import("@agent-hq/characters/customization")')
 
     const roomScene = read('scenes/room-designer/src/room-designer-scene.tsx')
     expect(roomScene).toContain("from '@agent-hq/interior'")
+    expect(roomScene).toContain("from '@agent-hq/hq-scenes'")
+    expect(roomScene).toContain('assignedPropsEnabled={false}')
   })
 
   test('cold-mounts the character designer without the HQ workspace scene', () => {
@@ -51,10 +52,13 @@ describe('scene package boundaries', () => {
     const entry = read('apps/web/src/components/workspace-entry.tsx')
     const desktop = read('apps/desktop/src/desktop-workspace.tsx')
     expect(page).toContain('characterDesigner=')
+    expect(page).toContain('roomDesigner=')
     expect(entry).toContain("import('./character-designer-entry')")
-    expect(entry).toContain("import('./room-designer-entry')")
     expect(entry).toContain('if (characterDesigner)')
-    expect(entry).toContain('if (roomDesigner)')
+    const navigation = read('apps/web/src/components/workspace-navigation-entry.tsx')
+    expect(navigation).toContain('RoomDesignerWorkspace')
+    expect(navigation).toContain('roomDesignerEnabled')
+    expect(entry).toContain('roomDesigner?: boolean')
     expect(entry).not.toContain("import('./workspace-shell')")
     expect(desktop).toContain("import('./desktop-character-designer')")
     expect(desktop).toContain('if (characterDesigner)')

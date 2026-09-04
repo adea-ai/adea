@@ -8,10 +8,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./scene-spawn": {
       "types": "./dist/scene-spawn.d.ts",
+      "development": "./src/scene-spawn.ts",
       "import": "./dist/scene-spawn.js"
     },
     "./globals.css": "./src/globals.css"
@@ -19,6 +21,7 @@
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/*.test.ts"
   },
@@ -26,7 +29,6 @@
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/character-designer-scene": "workspace:*",
     "@agent-hq/characters": "workspace:*",
-    "@agent-hq/room-designer-scene": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
     "lucide-react": "^1.33.0",

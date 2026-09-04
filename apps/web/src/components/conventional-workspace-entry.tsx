@@ -7,15 +7,18 @@ import type { AgentHqApiClient } from '@agent-hq/api-client'
 
 export function ConventionalWorkspaceEntry({
   client,
+  manageSettings = true,
   onViewChange,
   services,
 }: Readonly<{
   client: AgentHqApiClient
+  manageSettings?: boolean
   onViewChange: (view: WorkspaceView) => void
   services: WorkspacePlatformServices
 }>) {
   return (
     <ConventionalWorkspaceShell
+      manageSettings={manageSettings}
       onViewChange={onViewChange}
       view="chat"
       services={{ ...services, client }}

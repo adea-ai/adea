@@ -8,16 +8,19 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./provider": {
       "types": "./dist/provider.d.ts",
+      "development": "./src/provider.tsx",
       "import": "./dist/provider.js"
     }
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "test": "bun test tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

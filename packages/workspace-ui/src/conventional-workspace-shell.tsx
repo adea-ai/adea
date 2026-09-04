@@ -36,8 +36,10 @@ type DialogId =
   'conversation-search' | 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
 
 export function ConventionalWorkspaceShell({
+  manageSettings = true,
   services,
 }: Readonly<{
+  manageSettings?: boolean
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
@@ -83,19 +85,21 @@ export function ConventionalWorkspaceShell({
   )
 
   useEffect(() => {
+    if (globalPanel === 'settings' && !manageSettings) return
     if (globalPanel !== 'search' && globalPanel !== 'settings') return
     setDialog(globalPanel)
     setGlobalPanel(null)
-  }, [globalPanel, setGlobalPanel])
+  }, [globalPanel, manageSettings, setGlobalPanel])
 
   useEffect(() => {
+    if (!manageSettings) return
     const openDeepLinkedSettings = () => {
       if (window.location.hash.startsWith('#settings')) setDialog('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
     return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
-  }, [])
+  }, [manageSettings])
 
   useEffect(() => {
     const updateOnlineStatus = () => setOnline(navigator.onLine)
@@ -467,22 +471,24 @@ export function ConventionalWorkspaceShell({
           tasks={controller.tasks}
           workspaceId={controller.workspaceId}
         />
-        <WorkspaceSettingsDialog
-          accountAuthenticated={accountAuthenticated}
-          accountLabel={accountLabel}
-          agents={controller.agents}
-          busy={services?.account?.busy ?? accountBusy}
-          onClose={() => setDialog(null)}
-          onOpenAgents={() => {
-            setSelectedArtifactId(null)
-            setActiveSurface('agents')
-          }}
-          onSignIn={() => services?.account?.onSignIn()}
-          onSignOut={() => void signOut()}
-          open={dialog === 'settings'}
-          services={services}
-          workspace={controller.activeWorkspace}
-        />
+        {manageSettings ? (
+          <WorkspaceSettingsDialog
+            accountAuthenticated={accountAuthenticated}
+            accountLabel={accountLabel}
+            agents={controller.agents}
+            busy={services?.account?.busy ?? accountBusy}
+            onClose={() => setDialog(null)}
+            onOpenAgents={() => {
+              setSelectedArtifactId(null)
+              setActiveSurface('agents')
+            }}
+            onSignIn={() => services?.account?.onSignIn()}
+            onSignOut={() => void signOut()}
+            open={dialog === 'settings'}
+            services={services}
+            workspace={controller.activeWorkspace}
+          />
+        ) : null}
         <ModalDialog
           open={dialog === 'details'}
           onClose={() => setDialog(null)}

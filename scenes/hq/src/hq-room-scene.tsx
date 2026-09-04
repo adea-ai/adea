@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ReactNode,
+} from "react";
 import * as THREE from "three";
 import {
   characterIds,
@@ -24,16 +32,11 @@ import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifest
 import {
   ROOM_GALLERY_BOUNDS,
   ROOM_GALLERY_BUILDING_BOUNDS,
-  ROOM_GALLERY_DOORWAYS,
-  ROOM_GALLERY_DOORWAY_CLEARANCE_DEPTH,
   ROOM_GALLERY_EXTERIOR_WALL_THICKNESS,
-  ROOM_GALLERY_FOUNDATION_PIECES,
   ROOM_GALLERY_FOUNDATION_TOP_Y,
   ROOM_GALLERY_HUB,
-  ROOM_GALLERY_INTERIOR_WALL_THICKNESS,
   ROOM_GALLERY_MAIN_ENTRY_WALL_SHIFT,
   ROOM_GALLERY_OUTSIDE_DOORWAY_WIDTH,
-  ROOM_GALLERY_PATHWAY_SIDE_WALL_EXTENSION,
   ROOM_GALLERY_PERIMETER_BOUNDS,
   ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH,
   ROOM_GALLERY_RUNTIME_SCALE,
@@ -107,10 +110,6 @@ const hqExteriorVisualPadding = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
 // Work's concrete is the sidewalk outside the fence. Extend the dirt beneath
 // the fence footprint so no concrete strip appears on its inside edge.
 const hqWorkFenceDirtOverlap = 8;
-// Every approved HQ dimension is an exact multiple of the 12-unit interior
-// wall. Using that structural unit keeps the editor grid aligned with room
-// edges, door openings, and wall faces instead of introducing arbitrary gaps.
-const hqRoomDesignerGridSize = ROOM_GALLERY_INTERIOR_WALL_THICKNESS;
 const hqFrontGateWidth = ROOM_GALLERY_OUTSIDE_DOORWAY_WIDTH;
 const hqFrontWalkwayWidth = ROOM_GALLERY_OUTSIDE_DOORWAY_WIDTH;
 const hqFrontDoorInnerEdge = ROOM_GALLERY_HUB.zMax - ROOM_GALLERY_MAIN_ENTRY_WALL_SHIFT;
@@ -119,7 +118,7 @@ const hqSceneEditorLockedObjectPrefixes = [
   "HQFoundationWall-",
   "GalleryGrassFloor",
   "hq-grass-map-plane",
-  "hq-work-grass-map-plane",
+  "hq-work-dirt-map-plane",
   "hq-work-interior-dirt",
   "hq-front-door-walkway",
   "hq-front-sidewalk",
@@ -129,110 +128,6 @@ const hqSceneEditorLockedObjectPrefixes = [
   "hq-map-edge-fence",
   "hq-front-gate-",
 ] as const;
-const hqRoomDesignerRegions = [
-  // Indoor foundation slabs — each room is its own region.
-  ...ROOM_GALLERY_FOUNDATION_PIECES.map(({ id, x, z, width, depth }) => ({
-    id,
-    x,
-    z,
-    width,
-    depth,
-  })),
-];
-const hqOuterHorizontalBoundary = Math.max(
-  ...ROOM_GALLERY_WALL_SEGMENTS.filter(
-    ({ orientation, wallKind }) => orientation === "horizontal" && wallKind === "exterior",
-  ).map(({ z }) => Math.abs(z)),
-);
-const hqOuterVerticalBoundary = Math.max(
-  ...ROOM_GALLERY_WALL_SEGMENTS.filter(
-    ({ orientation, wallKind }) => orientation === "vertical" && wallKind === "exterior",
-  ).map(({ x }) => Math.abs(x)),
-);
-
-// Keep editor collision rectangles in the same positions as the generated
-// visual/collision walls. Exterior walls are shifted outward by half their
-// thickness; using the unshifted segment center made the editor reserve an
-// extra grid cell inside every thick perimeter wall.
-const hqRoomDesignerBlockedRects = ROOM_GALLERY_WALL_SEGMENTS.map((segment) => {
-  const isHorizontal = segment.orientation === "horizontal";
-  const isExterior = segment.wallKind === "exterior";
-  const offset = isExterior
-    ? segment.thickness / 2
-    : segment.wallPlacement === "center"
-      ? 0
-      : segment.thickness / 2;
-  let x = isHorizontal
-    ? segment.x
-    : segment.x +
-      (isExterior
-        ? segment.wallSide === "left"
-          ? -offset
-          : offset
-        : segment.wallSide === "left"
-          ? offset
-          : -offset);
-  let z = isHorizontal
-    ? segment.z +
-      (isExterior
-        ? segment.wallSide === "bottom"
-          ? -offset
-          : offset
-        : segment.wallSide === "bottom"
-          ? offset
-          : -offset)
-    : segment.z;
-  let length = segment.length;
-
-  if (isHorizontal && isExterior && Math.abs(segment.z - ROOM_GALLERY_HUB.zMax) < 0.001) {
-    z -= ROOM_GALLERY_MAIN_ENTRY_WALL_SHIFT;
-    length += ROOM_GALLERY_PATHWAY_SIDE_WALL_EXTENSION;
-    x +=
-      segment.x > 0
-        ? -ROOM_GALLERY_PATHWAY_SIDE_WALL_EXTENSION / 2
-        : ROOM_GALLERY_PATHWAY_SIDE_WALL_EXTENSION / 2;
-  }
-
-  const boundary = isHorizontal ? hqOuterVerticalBoundary : hqOuterHorizontalBoundary;
-  const axisCenter = isHorizontal ? segment.x : segment.z;
-  const spanStart = axisCenter - segment.length / 2;
-  const spanEnd = axisCenter + segment.length / 2;
-  const extendStart = isExterior && Math.abs(spanStart + boundary) < 0.001 ? segment.thickness : 0;
-  const extendEnd = isExterior && Math.abs(spanEnd - boundary) < 0.001 ? segment.thickness : 0;
-  if (extendStart || extendEnd) {
-    const expandedStart = spanStart - extendStart;
-    const expandedEnd = spanEnd + extendEnd;
-    length = expandedEnd - expandedStart;
-    if (isHorizontal) x = (expandedStart + expandedEnd) / 2;
-    else z = (expandedStart + expandedEnd) / 2;
-  }
-
-  return {
-    id: segment.id,
-    x,
-    z,
-    width: isHorizontal ? length : segment.thickness,
-    depth: isHorizontal ? segment.thickness : length,
-  };
-});
-const hqRoomDesignerDoorwayRects = ROOM_GALLERY_DOORWAYS.map((doorway) => ({
-  id: `doorway-clearance-${doorway.id}`,
-  x: doorway.x,
-  z: doorway.z,
-  width:
-    doorway.orientation === "horizontal" ? doorway.width : ROOM_GALLERY_DOORWAY_CLEARANCE_DEPTH,
-  depth:
-    doorway.orientation === "horizontal" ? ROOM_GALLERY_DOORWAY_CLEARANCE_DEPTH : doorway.width,
-}));
-// Block the front-door walkway so outdoor items can't be placed on the path.
-const hqFrontWalkwayBlockedRect = {
-  id: "front-walkway",
-  x: 0,
-  z: (hqFrontDoorInnerEdge + ROOM_GALLERY_BOUNDS.zMax) / 2,
-  width: hqFrontWalkwayWidth,
-  depth: ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
-};
-const hqRoomDesignerPlayerPosition = { x: 0, z: ROOM_GALLERY_HUB.zMax - 120 } as const;
 const hqClickNavigationBounds = {
   xMin: ROOM_GALLERY_BOUNDS.xMin + 30,
   xMax: ROOM_GALLERY_BOUNDS.xMax - 30,
@@ -245,7 +140,10 @@ const hqClickNavigationBounds = {
 const hqCameraTopPadding = 600;
 // Keep the rear sidewalk above the bottom camera controls in normal view.
 const hqBackSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH * 2;
-const hqRoomDesignerBackdropPadding = 840;
+// Extend the visual ground beyond the map so both gameplay and the separate
+// Room Designer scene have a themed surface outside the property. The extra
+// margin covers the designer's wider orthographic framing at tall viewports.
+const hqGroundVisualPadding = 1200;
 const hqCameraBounds = {
   ...ROOM_GALLERY_PERIMETER_BOUNDS,
   zMin: ROOM_GALLERY_BOUNDS.zMin - hqBackSidewalkDepth,
@@ -261,7 +159,7 @@ const hqFrontSidewalkDepth = ROOM_GALLERY_PERIMETER_SIDEWALK_DEPTH;
 const hqFrontRoadVisibleDepth = Math.max(0, hqCameraTopPadding - hqFrontSidewalkDepth * 2);
 const hqFrontRoadDepth = hqFrontRoadVisibleDepth;
 const hqFrontRoadWidth =
-  ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqRoomDesignerBackdropPadding) * 2;
+  ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqGroundVisualPadding) * 2;
 const hqEggshellWallColor = 0xe9e2d7;
 const hqExteriorWallPrefixes = ROOM_GALLERY_WALL_SEGMENTS.filter(
   ({ wallKind }) => wallKind === "exterior",
@@ -370,15 +268,17 @@ function createHqMaterial(
   repeatY: number,
 ): THREE.MeshStandardMaterial {
   const materialTheme = theme;
-  // Neighbor yards are shared landscape, so keep their grass texture owned by
-  // the Home material set instead of duplicating it under Work.
+  // Keep each scene's exterior texture aligned with its visual theme: Home
+  // uses grass while Work uses dirt for the surrounding yards.
   const root =
-    role === "exterior" || materialTheme === "home"
+    materialTheme === "home"
       ? "/assets/worlds/hq-home/materials"
       : "/assets/worlds/hq-work/materials";
   const stem =
     role === "exterior"
-      ? "grass"
+      ? materialTheme === "home"
+        ? "grass"
+        : "ground"
       : materialTheme === "home"
         ? {
             exterior: "grass",
@@ -451,23 +351,33 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   // Cover the full normal camera and Room Designer backdrop envelopes. The
   // authored property remains bounded by its fence; this larger surface is
   // only the visual ground beneath the surrounding neighbor yards.
-  const exteriorMinZ = ROOM_GALLERY_BOUNDS.zMin - hqRoomDesignerBackdropPadding;
-  const exteriorMaxZ = ROOM_GALLERY_BOUNDS.zMax + hqRoomDesignerBackdropPadding;
+  const exteriorMinZ = ROOM_GALLERY_BOUNDS.zMin - hqGroundVisualPadding;
+  const exteriorMaxZ = ROOM_GALLERY_BOUNDS.zMax + hqGroundVisualPadding;
   const exteriorWidth = Math.max(
     width + hqExteriorVisualPadding * 2,
     hqFrontRoadWidth,
-    width + hqRoomDesignerBackdropPadding * 2,
+    width + hqGroundVisualPadding * 2,
   );
   const exteriorDepth = exteriorMaxZ - exteriorMinZ;
   const isWork = theme === "work";
   const getMaterial = createHqMaterialFactory(theme);
+  const configureEnvironmentPlane = (mesh: THREE.Mesh) => {
+    // The Room Designer backdrop is added after the authored scene. Render
+    // these ground layers after it so the themed surface remains visible.
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.renderOrder = 1;
+    if (!Array.isArray(mesh.material)) {
+      mesh.material.side = THREE.DoubleSide;
+      mesh.material.needsUpdate = true;
+    }
+  };
 
   const exteriorSurface = new THREE.Mesh(
     new THREE.PlaneGeometry(exteriorWidth, exteriorDepth),
     getMaterial("exterior", exteriorWidth / 96, exteriorDepth / 96),
   );
-  exteriorSurface.name = isWork ? "hq-work-grass-map-plane" : "hq-grass-map-plane";
-  exteriorSurface.rotation.x = -Math.PI / 2;
+  exteriorSurface.name = isWork ? "hq-work-dirt-map-plane" : "hq-grass-map-plane";
+  configureEnvironmentPlane(exteriorSurface);
   // Keep the layer-1 exterior surface visually below the foundation slab. The raw HQ scale
   // makes a 13 cm separation vulnerable to depth-buffer flicker in perspective.
   exteriorSurface.position.y = -0.5;
@@ -491,7 +401,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth),
   );
   frontSidewalk.name = "hq-front-sidewalk";
-  frontSidewalk.rotation.x = -Math.PI / 2;
+  configureEnvironmentPlane(frontSidewalk);
   frontSidewalk.position.set(0, -0.46, ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth / 2);
   frontSidewalk.receiveShadow = true;
   visual.add(frontSidewalk);
@@ -508,7 +418,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       createSidewalkMaterial(sidewalkWidth, sidewalkDepth),
     );
     sidewalk.name = `hq-perimeter-sidewalk-${name}`;
-    sidewalk.rotation.x = -Math.PI / 2;
+    configureEnvironmentPlane(sidewalk);
     sidewalk.position.set(x, -0.46, z);
     sidewalk.receiveShadow = true;
     visual.add(sidewalk);
@@ -540,7 +450,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     new THREE.MeshStandardMaterial({ color: 0x171a1d, roughness: 0.94, metalness: 0 }),
   );
   roadway.name = "hq-front-roadway";
-  roadway.rotation.x = -Math.PI / 2;
+  configureEnvironmentPlane(roadway);
   roadway.position.set(
     0,
     -0.44,
@@ -553,35 +463,12 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   roadway.receiveShadow = true;
   visual.add(roadway);
 
-  // Continue the roadway through the larger Room Designer backdrop so the
-  // street never ends in a dark untextured strip when the camera is zoomed
-  // out for editing.
-  const hqFrontRoadTailDepth = Math.max(0, hqRoomDesignerBackdropPadding - hqCameraTopPadding);
-  if (hqFrontRoadTailDepth > 0) {
-    const roadwayTail = new THREE.Mesh(
-      new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontRoadTailDepth),
-      roadwayMaterial,
-    );
-    roadwayTail.name = "hq-front-roadway-designer-tail";
-    roadwayTail.rotation.x = -Math.PI / 2;
-    roadwayTail.position.set(
-      0,
-      -0.44,
-      ROOM_GALLERY_BOUNDS.zMax +
-        hqFrontSidewalkDepth * 2 +
-        hqFrontRoadDepth +
-        hqFrontRoadTailDepth / 2,
-    );
-    roadwayTail.receiveShadow = true;
-    visual.add(roadwayTail);
-  }
-
   const farSidewalk = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
     createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth),
   );
   farSidewalk.name = "hq-front-sidewalk-far";
-  farSidewalk.rotation.x = -Math.PI / 2;
+  configureEnvironmentPlane(farSidewalk);
   farSidewalk.position.set(
     0,
     -0.46,
@@ -595,8 +482,8 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     roughness: 0.62,
     metalness: 0,
   });
-  // Keep the center lines in the normal gameplay portion of the road; the
-  // additional tail exists to cover Room Designer's extended backdrop.
+  // Keep the center lines in the normal gameplay portion of the road, rather
+  // than extending them into the surrounding textured ground.
   const roadCenterZ = ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadVisibleDepth / 2;
   for (const offset of [-14, 14]) {
     const marking = new THREE.Mesh(
@@ -604,7 +491,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       roadMarkingMaterial,
     );
     marking.name = "hq-front-road-marking-center";
-    marking.rotation.x = -Math.PI / 2;
+    configureEnvironmentPlane(marking);
     // Keep markings above the scaled road plane so the depth buffer does not hide them.
     marking.position.set(0, 10, roadCenterZ + offset);
     marking.receiveShadow = true;
@@ -620,7 +507,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       ),
     );
     dirtSurface.name = "hq-work-interior-dirt";
-    dirtSurface.rotation.x = -Math.PI / 2;
+    configureEnvironmentPlane(dirtSurface);
     dirtSurface.position.y = -0.42;
     dirtSurface.receiveShadow = true;
     visual.add(dirtSurface);
@@ -863,8 +750,23 @@ export function HqRoomScene({
   showAccountDrawer,
   cameraTargetId,
   roomDesignerTargetId,
+  onOpenRoomDesigner,
   characterDesignerTargetId,
   sceneEditorTargetId,
+  sceneOverlay,
+  debugApiRef,
+  assignedPropsEnabled = true,
+  enablePropColliders = true,
+  enableCharacterDesigner = true,
+  allowCameraViewModeChange = true,
+  showOnScreenControls = true,
+  enableClickNavigation = true,
+  cameraWheelZoomEnabled = true,
+  ktx2Enabled = false,
+  enableSceneEditor = true,
+  enableAmbientAnimals = true,
+  deferCharacterDetails = true,
+  loadDeferredCharacterDetails = true,
 }: {
   initialCharacter: string;
   manifest: SceneManifest;
@@ -881,8 +783,28 @@ export function HqRoomScene({
   showAccountDrawer?: boolean;
   cameraTargetId?: string;
   roomDesignerTargetId?: string;
+  onOpenRoomDesigner?: () => void;
   characterDesignerTargetId?: string;
   sceneEditorTargetId?: string;
+  sceneOverlay?: ReactNode;
+  debugApiRef?: MutableRefObject<SceneDebugApi | null>;
+  assignedPropsEnabled?: boolean;
+  enablePropColliders?: boolean;
+  enableCharacterDesigner?: boolean;
+  allowCameraViewModeChange?: boolean;
+  showOnScreenControls?: boolean;
+  enableClickNavigation?: boolean;
+  cameraWheelZoomEnabled?: boolean;
+  /** HQ currently uses WebP/external textures and does not need a KTX2 transcoder. */
+  ktx2Enabled?: boolean;
+  /** Keep the development-only object editor out of dedicated scene mounts. */
+  enableSceneEditor?: boolean;
+  /** Ambient pets are optional decoration and stay off dedicated scene mounts. */
+  enableAmbientAnimals?: boolean;
+  /** Defer the animation-only runtime asset until the first scene frame. */
+  deferCharacterDetails?: boolean;
+  /** Allow deferred animation loading after the scene becomes playable. */
+  loadDeferredCharacterDetails?: boolean;
 }) {
   const initialCharacterConfiguration = getCharacterConfiguration(initialCharacter);
   const initialCharacterId = isCharacterConfigurationId(initialCharacter)
@@ -899,25 +821,27 @@ export function HqRoomScene({
   );
   useSceneMusic(manifest.id);
 
-  // Ambient animals (dog + cat) roam the Home scene freely. The visualSetup
-  // callback starts the async GLB load and adds them to the scene group; the
-  // visualUpdate callback advances their animation mixers and steering each
-  // frame. The ref holds the disposable handle for cleanup on unmount.
+  // Ambient animals (dog + cat) are optional decoration. Start their dynamic
+  // module and GLBs only after the first playable scene frame so they cannot
+  // delay the HQ entrance path. The ref holds the disposable handle for
+  // cleanup on unmount.
   const ambientAnimalsRef = useRef<AmbientAnimals | null>(null);
   const ambientAnimalsLoadingRef = useRef(false);
+  const ambientAnimalsStartTimerRef = useRef<number | null>(null);
+  const ambientAnimalsMountedRef = useRef(false);
   // Physics-based collision check for animals. Set when the debug API becomes
   // available; applied to the animals once they finish loading. Stored in a
   // ref so the async animal load callback can access the latest value.
   const animalCollisionCheckRef = useRef<((x: number, y: number, z: number) => boolean) | null>(
     null,
   );
-  const ambientAnimalsForHome = visualTheme === "home";
+  const ambientAnimalsForHome = enableAmbientAnimals && visualTheme === "home";
   const setupAmbientAnimals = useCallback(
-    (visual: THREE.Group) => {
-      if (!ambientAnimalsForHome) return;
-      // Avoid double-loading: visualSetup fires once for the main scene and
-      // again for each streamed zone. The loading flag prevents a second
-      // async load from racing past the first.
+    (parent: THREE.Object3D) => {
+      if (!ambientAnimalsForHome || !ambientAnimalsMountedRef.current) return;
+      // Avoid double-loading: the visual update callback runs every frame and
+      // the loading flag prevents a second async load from racing past the
+      // first.
       if (ambientAnimalsRef.current || ambientAnimalsLoadingRef.current) return;
       ambientAnimalsLoadingRef.current = true;
       const foundationTopY = ROOM_GALLERY_FOUNDATION_TOP_Y;
@@ -942,7 +866,7 @@ export function HqRoomScene({
       ];
       void import("@agent-hq/pets")
         .then(({ createAmbientAnimals }) =>
-          createAmbientAnimals(visual, [
+          createAmbientAnimals(parent, [
             {
               id: "dog",
               position: randomPos(),
@@ -960,6 +884,10 @@ export function HqRoomScene({
           ]),
         )
         .then((animals) => {
+          if (!ambientAnimalsMountedRef.current) {
+            animals.dispose();
+            return;
+          }
           ambientAnimalsRef.current = animals;
           // Apply the physics collision check if the debug API beat us to it.
           if (animalCollisionCheckRef.current)
@@ -979,13 +907,25 @@ export function HqRoomScene({
   const setupVisual = useCallback(
     (visual: THREE.Group) => {
       setupEnvironment(visual);
-      setupAmbientAnimals(visual);
     },
-    [setupAmbientAnimals, setupEnvironment],
+    [setupEnvironment],
   );
-  const updateAmbientAnimals = useCallback<SceneVisualUpdate>((_scene, delta) => {
+  const updateAmbientAnimals = useCallback<SceneVisualUpdate>((scene, delta) => {
+    if (
+      ambientAnimalsForHome &&
+      !ambientAnimalsRef.current &&
+      !ambientAnimalsLoadingRef.current &&
+      ambientAnimalsStartTimerRef.current === null
+    ) {
+      // Let SceneHost paint the first frame before starting optional module and
+      // model work. Subsequent frames continue advancing the handle normally.
+      ambientAnimalsStartTimerRef.current = window.setTimeout(() => {
+        ambientAnimalsStartTimerRef.current = null;
+        setupAmbientAnimals(scene);
+      }, 0);
+    }
     ambientAnimalsRef.current?.update(delta);
-  }, []);
+  }, [ambientAnimalsForHome, setupAmbientAnimals]);
 
   // Keep these scene-runtime inputs stable while the shell updates transient
   // UI state such as the active camera. Changing their identities would make
@@ -1015,14 +955,19 @@ export function HqRoomScene({
     [visualTheme],
   );
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    ambientAnimalsMountedRef.current = true;
+    return () => {
+      ambientAnimalsMountedRef.current = false;
+      if (ambientAnimalsStartTimerRef.current !== null) {
+        window.clearTimeout(ambientAnimalsStartTimerRef.current);
+        ambientAnimalsStartTimerRef.current = null;
+      }
       ambientAnimalsRef.current?.dispose();
       ambientAnimalsRef.current = null;
       animalCollisionCheckRef.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Once the scene's physics world is available, switch the ambient animals
   // from the fallback AABB wall check to the same Rapier colliders the player
@@ -1105,6 +1050,7 @@ export function HqRoomScene({
       showAccountDrawer={showAccountDrawer}
       cameraTargetId={cameraTargetId}
       roomDesignerTargetId={roomDesignerTargetId}
+      onOpenRoomDesigner={onOpenRoomDesigner}
       characterDesignerTargetId={characterDesignerTargetId}
       sceneEditorTargetId={sceneEditorTargetId}
       onCharacterSave={handleCharacterSave}
@@ -1114,7 +1060,9 @@ export function HqRoomScene({
       sceneScale={hqRuntimeScale}
       orthographicClickOnly
       orthographicMovementSpeedFactor={hqTopDownMovementSpeedFactor}
-      enableClickNavigation
+      enableClickNavigation={enableClickNavigation}
+      cameraWheelZoomEnabled={cameraWheelZoomEnabled}
+      ktx2Enabled={ktx2Enabled}
       clickNavigationBounds={hqClickNavigationBounds}
       clickNavigationIndicatorScale={80}
       cameraBounds={hqCameraBounds}
@@ -1124,38 +1072,22 @@ export function HqRoomScene({
       orthographicPitch={-0.9}
       orthographicPan={{ x: 0, z: 0 }}
       waterVolumes={waterVolumes}
-      deferCharacterDetails={false}
+      deferCharacterDetails={deferCharacterDetails}
+      loadDeferredCharacterDetails={loadDeferredCharacterDetails}
       environment={galleryEnvironments[visualTheme]}
-      enableSceneEditor
-      sceneEditorAvailable
+      enableSceneEditor={enableSceneEditor}
+      sceneEditorAvailable={enableSceneEditor && process.env.NODE_ENV === "development"}
       sceneEditorLockedObjectPrefixes={hqSceneEditorLockedObjectPrefixes}
       characterDesignerAvailable
-      enableCharacterDesigner
-      roomDesignerAvailable
-      enableRoomDesigner
-      roomDesignerSceneScale={hqRuntimeScale}
-      roomDesignerGroundY={ROOM_GALLERY_FOUNDATION_TOP_Y}
-      roomDesignerGridSize={hqRoomDesignerGridSize}
-      roomDesignerMapBounds={{
-        id: "hq-map",
-        x: 0,
-        z: 0,
-        width: ROOM_GALLERY_BOUNDS.width,
-        depth: ROOM_GALLERY_BOUNDS.depth,
-      }}
-      roomDesignerRegions={hqRoomDesignerRegions}
-      roomDesignerBlockedRects={[...hqRoomDesignerBlockedRects, hqFrontWalkwayBlockedRect]}
-      roomDesignerDoorwayRects={hqRoomDesignerDoorwayRects}
-      roomDesignerPlayerPosition={hqRoomDesignerPlayerPosition}
-      enablePropColliders
-      roomDesignerNormalOrthographicHalfHeight={hqOrthographicHalfHeight}
-      // Design mode gives the catalog panel enough map clearance to place
-      // props in the rightmost rooms while placement remains room-only.
-      roomDesignerDesignOrthographicHalfHeight={1320}
-      roomDesignerBackdropColor={0x171717}
-      // Design-only ground extension; gameplay navigation and collision remain
-      // locked to the actual property envelope.
-      roomDesignerBackdropPadding={hqRoomDesignerBackdropPadding}
+      enableCharacterDesigner={enableCharacterDesigner}
+      assignedPropsEnabled={assignedPropsEnabled}
+      assignedPropsScale={hqRuntimeScale}
+      assignedPropsGroundY={ROOM_GALLERY_FOUNDATION_TOP_Y}
+      enablePropColliders={enablePropColliders}
+      allowCameraViewModeChange={allowCameraViewModeChange}
+      showOnScreenControls={showOnScreenControls}
+      sceneOverlay={sceneOverlay}
+      debugApiRef={debugApiRef}
       keepZoneCollisionsActive
       staticColliders={hqBoundaryColliders}
       collideAdditionalVisualLayers={false}

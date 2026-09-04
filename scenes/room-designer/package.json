@@ -8,6 +8,7 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
@@ -16,13 +17,16 @@
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/*.test.ts"
   },
   "dependencies": {
     "@agent-hq/asset-manifests": "workspace:*",
+    "@agent-hq/hq-scenes": "workspace:*",
     "@agent-hq/interior": "workspace:*",
     "@agent-hq/scene-runtime": "workspace:*",
+    "@agent-hq/scene-shell": "workspace:*",
     "@agent-hq/ui": "workspace:*",
     "lucide-react": "^1.33.0",
     "react": "19.2.8",

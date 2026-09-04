@@ -1,6 +1,7 @@
 # Agent HQ
 
-Agent HQ is a browser-based spatial workspace with Home and Work scenes,
+Agent HQ is a browser-based spatial workspace with Home and Work workspaces,
+each backed by its own spatial scene,
 character and interior asset packages, a vanilla Three.js scene runtime, and an
 orthographic room designer.
 
@@ -41,9 +42,9 @@ value is server-only; do not rename it to a `NEXT_PUBLIC_` or `VITE_` variable.
 
 For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
-- Home: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
-- Work: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
-- Room designer: append `&roomDesigner=1` to the selected scene URL
+- Home workspace: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
+- Work workspace: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
+- Room designer: append `&roomDesigner=1` to the selected scene URL; it opens a dedicated scene with its own camera state
 
 Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 `NEXT_PUBLIC_AGENT_HQ_WORLD_URL` when the sibling World app uses a different

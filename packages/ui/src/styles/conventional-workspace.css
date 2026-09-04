@@ -73,7 +73,7 @@
 
 .global-rail__workspace-menu > button {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 0.55rem;
   align-items: center;
   width: 100%;
@@ -101,13 +101,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.global-rail__workspace-kind {
-  margin-left: auto;
-  color: var(--muted-foreground);
-  font-size: 0.7rem;
-  text-transform: capitalize;
 }
 
 .global-rail__button {

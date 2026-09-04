@@ -33,6 +33,7 @@ type SceneDebugState = {
 type SceneDebugApi = {
   getState: () => SceneDebugState;
   adjustPerspectiveZoom: (delta: number) => void;
+  setCameraViewMode: (viewMode: "perspective" | "orthographic") => void;
   teleportTo: (x: number, z: number) => void;
   camera: { position: { x: number; toArray: () => number[] } };
   scene?: {
@@ -129,14 +130,24 @@ test("work scene meets runtime performance gates", async ({ page }) => {
 
 test("HQ defers perspective-only backgrounds in top-down view", async ({ page }) => {
   const backgroundRequests: string[] = [];
+  const deferredRequests: string[] = [];
   page.on("request", (request) => {
-    if (request.url().includes("/assets/models/backgrounds/background_seasons_3.jpg")) {
-      backgroundRequests.push(request.url());
+    const url = request.url();
+    if (url.includes("/assets/models/backgrounds/background_seasons_3.jpg")) {
+      backgroundRequests.push(url);
+    }
+    if (
+      url.includes("/assets/models/runtime.glb") ||
+      url.includes("/assets/models/animals/Dog_001.glb") ||
+      url.includes("/assets/models/animals/Kitty_001.glb")
+    ) {
+      deferredRequests.push(url);
     }
   });
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=orthographic", {
-    waitUntil: "domcontentloaded",
-  });
+  const response = await page.goto(
+    "/?view=spatial&scene=home&roomDesigner=0&camera=orthographic&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
   expect(response?.ok()).toBe(true);
   await expect(page.locator("canvas")).toBeVisible({ timeout: sceneCanvasTimeout });
   await page.waitForFunction(
@@ -148,6 +159,15 @@ test("HQ defers perspective-only backgrounds in top-down view", async ({ page })
     { timeout: 90_000 },
   );
   expect(backgroundRequests).toHaveLength(0);
+  expect(deferredRequests).toHaveLength(0);
+
+  await Promise.all([
+    page.waitForRequest(
+      (request) => request.url().includes("/assets/models/backgrounds/background_seasons_3.jpg"),
+      { timeout: 30_000 },
+    ),
+    page.getByRole("button", { name: "Perspective camera" }).click(),
+  ]);
 });
 
 test("HQ keeps perspective backgrounds fixed while the camera moves", async ({ page }) => {
@@ -512,42 +532,6 @@ test("room designer loads compressed interior props", async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Top-down camera' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Open character designer' })).toHaveCount(0);
   await expect(page.locator('[aria-label^="Add "]').first()).toBeVisible({ timeout: 30_000 });
-
-  await page.getByRole('button', { name: /Switch workspace/ }).click();
-  await expect(page.getByRole('menuitemradio', { name: 'Work scene' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Plugins' })).toBeVisible();
-  await page.waitForFunction(
-    () => {
-      const api = (window as AgentHqWindow).__agentHq as SceneDebugApi | undefined;
-      const mesh = api?.scene?.getObjectByName('hq-grass-map-plane');
-      return (
-        mesh?.rotation.x === -Math.PI / 2 &&
-        mesh.material?.map?.image?.src?.includes('/hq-home/materials/grass-color.webp') &&
-        !api?.scene?.getObjectByName('hq-front-roadway-designer-tail')
-      );
-    },
-    undefined,
-    { timeout: 30_000 },
-  );
-
-  await page.getByRole('menuitemradio', { name: 'Work scene' }).click();
-  await expect(page).toHaveURL(/scene=work/);
-  await expect(page.locator('[aria-label="Room designer"]')).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('[aria-label^="Add "]').first()).toBeVisible({ timeout: 30_000 });
-  await page.waitForFunction(
-    () => {
-      const api = (window as AgentHqWindow).__agentHq as SceneDebugApi | undefined;
-      const mesh = api?.scene?.getObjectByName('hq-work-dirt-map-plane');
-      return (
-        mesh?.rotation.x === -Math.PI / 2 &&
-        mesh.material?.map?.image?.src?.includes('/hq-work/materials/ground-color.webp') &&
-        !api?.scene?.getObjectByName('hq-front-roadway-designer-tail')
-      );
-    },
-    undefined,
-    { timeout: 30_000 },
-  );
-  await page.waitForTimeout(1_500);
 
   expect(pageErrors).toEqual([]);
   expect(catalogWarnings).toEqual([]);

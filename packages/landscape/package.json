@@ -8,20 +8,24 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
+      "development": "./src/runtime.ts",
       "import": "./dist/runtime.js"
     },
     "./backgrounds": {
       "types": "./dist/backgrounds.d.ts",
+      "development": "./src/backgrounds.ts",
       "import": "./dist/backgrounds.js"
     }
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/*.test.ts"
   },

@@ -2091,19 +2091,32 @@ export function SceneHost({
             .detectSupport(activeRenderer);
           loader.setKTX2Loader(textureTranscoder);
         }
-        const pendingBackground = telemetry.track(
-          "background",
-          environment?.backgroundTextureUrl
-            ? new THREE.TextureLoader(manager)
-                .loadAsync(environment.backgroundTextureUrl)
-                .catch((cause) => {
-                  const message =
-                    cause instanceof Error ? cause.message : "unknown background texture error";
-                  console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
-                  return null;
-                })
-            : Promise.resolve<THREE.Texture | null>(null),
-        );
+        const backgroundTextureUrl = environment?.backgroundTextureUrl;
+        let pendingBackground: Promise<THREE.Texture | null> | null = null;
+        const loadBackground = () => {
+          if (!backgroundTextureUrl) return Promise.resolve<THREE.Texture | null>(null);
+          pendingBackground ??= telemetry.track(
+            "background",
+            new THREE.TextureLoader(manager)
+              .loadAsync(backgroundTextureUrl)
+              .catch((cause) => {
+                const message =
+                  cause instanceof Error ? cause.message : "unknown background texture error";
+                console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
+                return null;
+              }),
+          );
+          return pendingBackground;
+        };
+        // Perspective-only backgrounds are not part of the top-down critical
+        // path. Start them immediately only when the initial camera needs one;
+        // a later camera switch requests the texture without delaying scene
+        // readiness.
+        const pendingInitialBackground =
+          backgroundTextureUrl &&
+          (!environment?.backgroundTexturePerspectiveOnly || cameraController.isPerspective)
+            ? loadBackground()
+            : Promise.resolve<THREE.Texture | null>(null);
         const prepareSceneLayer = (root: THREE.Object3D) => {
           root.traverse((object) => {
             if (!(object instanceof THREE.Mesh)) return;
@@ -2380,14 +2393,7 @@ export function SceneHost({
                 : null,
             )
           : [];
-        const visual = await pendingVisual;
-        const loadedBackground = await pendingBackground;
-        if (disposed) {
-          disposeObjectTree(visual.scene);
-          loadedBackground?.dispose();
-          return;
-        }
-        if (loadedBackground) {
+        const applyLoadedBackground = (loadedBackground: THREE.Texture) => {
           backgroundTexture = loadedBackground;
           const mapping = environment?.backgroundTextureMapping ?? "2d";
           const repeat = environment?.backgroundTextureRepeat ?? [1, 1];
@@ -2418,7 +2424,15 @@ export function SceneHost({
                 ? fallbackBackground
                 : loadedBackground;
           }
+        };
+        const visual = await pendingVisual;
+        const loadedBackground = await pendingInitialBackground;
+        if (disposed) {
+          disposeObjectTree(visual.scene);
+          loadedBackground?.dispose();
+          return;
         }
+        if (loadedBackground) applyLoadedBackground(loadedBackground);
         prepareSceneLayer(visual.scene);
         visual.scene.scale.multiplyScalar(sceneScale);
         visualSetup?.(visual.scene);
@@ -3782,6 +3796,20 @@ export function SceneHost({
               navigationIndicator.visible = false;
               activeRenderer.domElement.style.cursor = "";
             }
+          }
+          if (
+            cameraController.isPerspective &&
+            backgroundTextureUrl &&
+            !backgroundTexture &&
+            !pendingBackground
+          ) {
+            void loadBackground().then((loaded) => {
+              if (disposed) {
+                loaded?.dispose();
+              } else if (loaded) {
+                applyLoadedBackground(loaded);
+              }
+            });
           }
           if (screenBackgroundActive) {
             screenBackgroundMesh.visible =

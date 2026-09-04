@@ -15,10 +15,10 @@ test.beforeEach(async ({ page }) => {
 })
 
 const timestamp = '2026-08-30T12:00:00.000Z'
-const workspace = { id: 'workspace-e2e', name: 'Acme Studio', scene: 'work', updatedAt: timestamp }
+const workspace = { id: 'workspace-e2e', name: 'Work', scene: 'work', updatedAt: timestamp }
 const homeWorkspace = {
   id: 'workspace-home-e2e',
-  name: 'Home Base',
+  name: 'Home',
   scene: 'home',
   updatedAt: timestamp,
 }
@@ -729,7 +729,7 @@ test('toggles chat and virtual Room views without losing shared selection or dra
     globalNavigation.getByRole('button', { name: 'Notifications (coming soon)' })
   ).toBeDisabled()
   await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Acme Studio' })
+    globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
   ).toBeVisible()
   await expect(globalNavigation.getByRole('button', { name: 'Home workspace' })).toHaveCount(0)
   await expect(globalNavigation.getByRole('button', { name: 'Work workspace' })).toHaveCount(0)
@@ -739,24 +739,26 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await page.getByRole('button', { name: /^Product Room/ }).click()
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
-  await globalNavigation
-    .getByRole('button', { name: 'Switch workspace, current Acme Studio' })
-    .click()
+  await globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' }).click()
   await expect(page).toHaveScreenshot('workspace-switcher.png', { animations: 'disabled' })
-  await page.getByRole('menuitemradio', { name: /Home Base/ }).click()
+  await expect(page.getByText('Scenes', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('menuitemradio', { name: /Home/ })).toBeVisible()
+  await expect(page.getByRole('menuitemradio', { name: /Work/ })).toBeVisible()
+  await page.getByRole('menuitemradio', { name: /Home/ }).click()
   await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Home Base' })
+    globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' })
   ).toBeVisible()
   await expect(page).toHaveURL(/scene=home/)
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('')
 
-  await globalNavigation
-    .getByRole('button', { name: 'Switch workspace, current Home Base' })
-    .click()
-  await page.getByRole('menuitemradio', { name: /Acme Studio/ }).click()
+  await globalNavigation.getByRole('button', { name: 'Switch workspace, current Home' }).click()
+  await page.getByRole('menuitemradio', { name: /Work/ }).click()
   await expect(page).toHaveURL(/scene=work/)
   await expect(
-    globalNavigation.getByRole('button', { name: 'Switch workspace, current Acme Studio' })
+    globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' })
   ).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue('')
+  await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
   await globalNavigation.getByRole('button', { name: 'Virtual view' }).click()
   await expect(page).toHaveURL(/view=spatial/)
@@ -775,6 +777,32 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(
     'Keep this connected draft.'
   )
+})
+
+test('keeps Plugins unavailable until workspace bootstrap completes', async ({ page }) => {
+  let releaseBootstrap!: () => void
+  const bootstrapBlocked = new Promise<void>((resolve) => {
+    releaseBootstrap = resolve
+  })
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    await bootstrapBlocked
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true, userId: 'user-e2e' },
+        workspaces: [workspace, homeWorkspace],
+      },
+    })
+  })
+  await page.goto('/?view=chat')
+  const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
+  const pluginsButton = globalNavigation.getByRole('button', { name: 'Plugins' })
+  await expect(pluginsButton).toBeVisible()
+  await expect(pluginsButton).toBeDisabled()
+
+  releaseBootstrap()
+  await expect(pluginsButton).toBeEnabled()
 })
 
 test('browses the verified registry marketplace and submits an exact install request', async ({

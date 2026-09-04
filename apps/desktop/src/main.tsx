@@ -1,5 +1,6 @@
 import { createApiClient } from '@agent-hq/api-client'
 import { SoundProvider } from '@agent-hq/audio'
+import { useAgentListQuery } from '@agent-hq/data'
 import { AgentHqQueryProvider } from '@agent-hq/data/provider'
 import {
   createDesktopAuthorizationManager,
@@ -23,6 +24,8 @@ import {
   GlobalWorkspaceRail,
   PluginsDialog,
   WorkspaceAboutDialog,
+  WorkspaceSettingsDialog,
+  type WorkspacePlatformServices,
   type WorkspaceView,
 } from '@agent-hq/workspace-ui'
 
@@ -46,6 +49,39 @@ const cloudOrigin = import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || 'https://agent
 const SpatialDesktopWorkspace = lazy(() =>
   import('./desktop-workspace').then(({ DesktopWorkspace }) => ({ default: DesktopWorkspace }))
 )
+
+function DesktopSettingsOverlay({
+  client,
+  open,
+  onClose,
+  onOpenAgents,
+  services,
+  workspace,
+}: Readonly<{
+  client: ReturnType<typeof workspaceClient>
+  onClose: () => void
+  onOpenAgents: () => void
+  open: boolean
+  services: WorkspacePlatformServices
+  workspace: DesktopWorkspaceBootstrap['workspace']
+}>) {
+  const agentsQuery = useAgentListQuery(client, workspace.id)
+  return (
+    <WorkspaceSettingsDialog
+      accountAuthenticated={Boolean(services.account?.authenticated)}
+      accountLabel={services.account?.label ?? 'Account'}
+      agents={agentsQuery.data ?? []}
+      busy={services.account?.busy ?? false}
+      onClose={onClose}
+      onOpenAgents={onOpenAgents}
+      onSignIn={() => services.account?.onSignIn()}
+      onSignOut={() => void services.account?.onSignOut()}
+      open={open}
+      services={services}
+      workspace={workspace}
+    />
+  )
+}
 
 type AppStatus =
   'authenticated' | 'failed' | 'guest' | 'loading' | 'offline' | 'opening' | 'waiting'
@@ -95,12 +131,11 @@ function DesktopApp() {
     new URLSearchParams(window.location.search).get('view') === 'spatial' ? 'virtual' : 'chat'
   )
   const selectedScene = useWorkspaceStore((state) => state.selectedScene)
+  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
   const globalPanel = useWorkspaceStore((state) => state.globalPanel)
   const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
-  const setSelectedChannelId = useWorkspaceStore((state) => state.setSelectedChannelId)
-  const setSelectedRoomId = useWorkspaceStore((state) => state.setSelectedRoomId)
   const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
-  const setSelectedWorkspaceId = useWorkspaceStore((state) => state.setSelectedWorkspaceId)
+  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace)
   const temporaryCredentialRef = useRef<string | null>(null)
   const sessionRef = useRef<DesktopSession | undefined>(undefined)
   const workspaceIdRef = useRef<string | undefined>(undefined)
@@ -149,6 +184,7 @@ function DesktopApp() {
       if (!requestIsCurrent()) return
       await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
       if (!requestIsCurrent()) return
+      switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
       temporaryCredentialRef.current = nextWorkspace.temporaryCredential
       workspaceIdRef.current = nextWorkspace.workspace.id
       userIdRef.current = nextWorkspace.userId
@@ -166,7 +202,7 @@ function DesktopApp() {
       setStatus('offline')
       setMessage('Agent HQ could not reach the workspace service. Your local credentials are safe.')
     }
-  }, [])
+  }, [switchWorkspace])
 
   useEffect(() => {
     let disposed = false
@@ -211,9 +247,15 @@ function DesktopApp() {
     }
   }, [openWorkspace])
 
+  const activeWorkspace = workspaceState
+    ? workspaceState.workspaces.find(({ id }) => id === selectedWorkspaceId) ?? workspaceState.workspace
+    : undefined
+
   useEffect(() => {
-    if (workspaceState) setSelectedScene(workspaceState.workspace.scene)
-  }, [setSelectedScene, workspaceState])
+    if (!activeWorkspace) return
+    workspaceIdRef.current = activeWorkspace.id
+    setSelectedScene(activeWorkspace.scene)
+  }, [activeWorkspace?.id, activeWorkspace?.scene, setSelectedScene])
 
   async function beginSignIn() {
     setStatus('opening')
@@ -269,8 +311,9 @@ function DesktopApp() {
     }
     const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
       window.history.replaceState(null, '', `#settings/${section}`)
+      // Settings is a global overlay. Do not unmount the current surface before
+      // the dialog can consume the panel state.
       setGlobalPanel('settings')
-      if (view !== 'chat') changeView('chat')
     }
     const openSearch = () => {
       setGlobalPanel('search')
@@ -288,25 +331,31 @@ function DesktopApp() {
             onOpenUpdates: () => setUpdatesOpen(true),
             platform: 'desktop',
           }}
-          activeWorkspace={workspaceState.workspace}
+          activeWorkspace={activeWorkspace}
           onOpenNotifications={() => openSettings('input-notifications')}
           onOpenAbout={() => setGlobalPanel('about')}
           onOpenPlugins={() => setGlobalPanel('plugins')}
           onOpenSearch={openSearch}
           onOpenSettings={() => openSettings('account')}
           onWorkspaceChange={(workspace) => {
-            setSelectedWorkspaceId(workspace.id)
-            setSelectedRoomId(null)
-            setSelectedChannelId(null)
-            setSelectedScene(workspace.scene)
+            if (workspace.id === activeWorkspace?.id) return
+            void localContentAuthority
+              .authorizeWorkspace(workspace.id)
+              .then(() => switchWorkspace(workspace.id, workspace.scene))
+              .catch(() => undefined)
           }}
           onViewChange={changeView}
           view={view}
-          workspaces={[workspaceState.workspace]}
+          workspaces={workspaceState.workspaces}
         />
         <div className="workspace-frame__surface">
           {view === 'chat' ? (
-            <ConventionalWorkspaceShell onViewChange={changeView} view={view} services={services} />
+            <ConventionalWorkspaceShell
+              manageSettings={false}
+              onViewChange={changeView}
+              view={view}
+              services={services}
+            />
           ) : (
             <Suspense
               fallback={
@@ -316,6 +365,7 @@ function DesktopApp() {
               }
             >
               <SpatialDesktopWorkspace
+                key={activeWorkspace?.id ?? selectedScene}
                 client={client}
                 onWorkspaceViewChange={changeView}
                 scene={selectedScene}
@@ -323,8 +373,21 @@ function DesktopApp() {
             </Suspense>
           )}
         </div>
+        {globalPanel === 'settings' ? (
+          <DesktopSettingsOverlay
+            client={client}
+            onClose={() => setGlobalPanel(null)}
+            onOpenAgents={() => {
+              setGlobalPanel(null)
+              changeView('chat')
+            }}
+            open
+            services={services}
+            workspace={activeWorkspace!}
+          />
+        ) : null}
         <PluginsDialog
-          open={globalPanel === 'plugins'}
+          open={globalPanel === 'plugins' && Boolean(workspaceState.workspace)}
           onClose={() => setGlobalPanel(null)}
           provider={plugins}
         />

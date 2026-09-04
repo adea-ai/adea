@@ -13,11 +13,6 @@ const CharacterDesignerEntry = dynamic(
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const RoomDesignerEntry = dynamic(
-  () => import('./room-designer-entry').then(({ RoomDesignerEntry: Entry }) => Entry),
-  { loading: () => <WorkspaceEntryLoading /> }
-)
-
 function WorkspaceEntryLoading() {
   return (
     <main className="conventional-workspace conventional-workspace--loading" aria-busy="true">
@@ -34,21 +29,19 @@ export function WorkspaceEntry({
 }: Readonly<{
   spatial: boolean
   spatialProps: WorkspaceShellProps
-  /** Cold-mount a designer URL without loading the normal workspace shell. */
+  /** Cold-mount the character designer URL without loading the normal workspace shell. */
   characterDesigner?: boolean
+  /** Mount the dedicated room designer scene beside global workspace navigation. */
   roomDesigner?: boolean
 }>) {
   if (characterDesigner) {
     return <CharacterDesignerEntry initialCharacter={spatialProps.initialCharacter} />
   }
-  if (roomDesigner) {
-    return (
-      <RoomDesignerEntry
-        initialCharacter={spatialProps.initialCharacter}
-        initialScene={spatialProps.initialScene}
-      />
-    )
-  }
-
-  return <WorkspaceNavigationEntry spatial={spatial} spatialProps={spatialProps} />
+  return (
+    <WorkspaceNavigationEntry
+      roomDesigner={roomDesigner}
+      spatial={spatial}
+      spatialProps={spatialProps}
+    />
+  )
 }

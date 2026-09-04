@@ -157,7 +157,6 @@ export function GlobalWorkspaceRail({
               >
                 <WorkspaceMark workspace={workspace} />
                 <span className="global-rail__workspace-name">{workspace.name}</span>
-                <span className="global-rail__workspace-kind">{workspace.scene}</span>
               </button>
             ))}
           </div>
@@ -193,7 +192,12 @@ export function GlobalWorkspaceRail({
       </div>
 
       <div className="global-rail__footer">
-        <RailAction icon={Plug} label="Plugins" onClick={onOpenPlugins} />
+        <RailAction
+          disabled={!activeWorkspace}
+          icon={Plug}
+          label="Plugins"
+          onClick={onOpenPlugins}
+        />
         <AccountMenu
           authenticated={account.authenticated}
           busy={account.busy}

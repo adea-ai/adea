@@ -53,6 +53,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
   const selectedChannelId = useWorkspaceStore((state) => state.selectedChannelId)
   const setSelectedWorkspaceId = useWorkspaceStore((state) => state.setSelectedWorkspaceId)
+  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace)
   const setSelectedRoomId = useWorkspaceStore((state) => state.setSelectedRoomId)
   const setSelectedChannelId = useWorkspaceStore((state) => state.setSelectedChannelId)
   const activeWorkspace =
@@ -109,11 +110,11 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
 
   const selectWorkspace = useCallback(
     (nextWorkspaceId: string) => {
-      setSelectedWorkspaceId(nextWorkspaceId)
-      setSelectedRoomId(null)
-      setSelectedChannelId(null)
+      const nextWorkspace = bootstrap.data?.workspaces.find(({ id }) => id === nextWorkspaceId)
+      if (!nextWorkspace || nextWorkspace.id === activeWorkspace?.id) return
+      switchWorkspace(nextWorkspace.id, nextWorkspace.scene)
     },
-    [setSelectedChannelId, setSelectedRoomId, setSelectedWorkspaceId]
+    [activeWorkspace?.id, bootstrap.data?.workspaces, switchWorkspace]
   )
   const selectChannel = useCallback(
     (channelId: string, roomId?: string) => {

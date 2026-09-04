@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useWorkspaceStore, type WorkspaceState } from '@agent-hq/state'
 
-const STORAGE_KEY = 'agent-hq:conventional-workspace:v1'
+const STORAGE_KEY = 'agent-hq:conventional-workspace:v2'
 type PersistedState = Pick<
   WorkspaceState,
   | 'activeSurface'

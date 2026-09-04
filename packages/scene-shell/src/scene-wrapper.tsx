@@ -31,10 +31,8 @@ import type {
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 import type { CharacterConfiguration } from "@agent-hq/characters/runtime";
 import type { CharacterPartOption } from "@agent-hq/characters/customization";
-import type { RoomDesignerRect } from "@agent-hq/room-designer-scene";
 import { Portals, type PortalLink } from "./portals";
 import { AssignedPropsRuntime } from "./assigned-props-runtime";
-import { invalidateAssignedPropsManifest } from "./assigned-props-document";
 import { PropColliders } from "./prop-colliders";
 
 const SceneHost = dynamic(
@@ -45,13 +43,6 @@ const SceneHost = dynamic(
 const SceneEditor = dynamic(() => import("./scene-editor").then((module) => module.SceneEditor), {
   ssr: false,
 });
-const RoomDesigner = dynamic(
-  () =>
-    import("@agent-hq/room-designer-scene").then(
-      (module) => module.RoomDesignerScene,
-    ),
-  { ssr: false },
-);
 const CharacterDesignerScene = dynamic(
   () =>
     import("@agent-hq/character-designer-scene").then(
@@ -121,6 +112,10 @@ export type SceneWrapperProps = {
   orthographicClickOnly?: boolean;
   /** Capture normal-view wheel and trackpad gestures for camera zoom. */
   cameraWheelZoomEnabled?: boolean;
+  /** Enable the KTX2 transcoder for scenes that reference KTX2 textures. */
+  ktx2Enabled?: boolean;
+  /** Show shared touch and zoom controls for this scene. */
+  showOnScreenControls?: boolean;
   /** Optional movement multiplier used only by orthographic click navigation. */
   orthographicMovementSpeedFactor?: number;
   /** Scene-specific orthographic framing; defaults preserve existing views. */
@@ -179,6 +174,8 @@ export type SceneWrapperProps = {
   cameraTargetId?: string;
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
   roomDesignerTargetId?: string;
+  /** Open a scene-specific room designer owned by the surrounding application. */
+  onOpenRoomDesigner?: () => void;
   /** DOM target for the standalone character designer trigger. */
   characterDesignerTargetId?: string;
   /** DOM target for the development scene editor trigger when an app supplies a shell toolbar. */
@@ -186,29 +183,18 @@ export type SceneWrapperProps = {
   /** Register the standalone character designer for apps with character parts. */
   characterDesignerAvailable?: boolean;
   enableCharacterDesigner?: boolean;
-  /** Register the top-down room designer for apps with authored room maps. */
-  roomDesignerAvailable?: boolean;
-  enableRoomDesigner?: boolean;
-  roomDesignerSceneScale?: number;
-  roomDesignerGroundY?: number;
-  roomDesignerGridSize?: number;
-  roomDesignerMapBounds?: RoomDesignerRect;
-  roomDesignerRegions?: readonly RoomDesignerRect[];
-  roomDesignerBlockedRects?: readonly RoomDesignerRect[];
-  roomDesignerDoorwayRects?: readonly RoomDesignerRect[];
-  roomDesignerNormalOrthographicHalfHeight?: number;
-  roomDesignerDesignOrthographicHalfHeight?: number;
-  roomDesignerBackdropColor?: number;
-  roomDesignerBackdropPadding?: number;
-  /** Authored position to use while the designer is open. */
-  roomDesignerPlayerPosition?: { x: number; z: number };
-  /** Enable physics colliders for room designer props. In orthographic mode,
-   *  lightweight box colliders are built from footprints; in perspective mode,
-   *  trimesh colliders are built from the visual mesh geometry. */
+  /** Render the scene's assigned props from its runtime manifest. */
+  assignedPropsEnabled?: boolean;
+  assignedPropsScale?: number;
+  assignedPropsGroundY?: number;
+  /** Enable physics colliders for assigned props. */
   enablePropColliders?: boolean;
-  /** Increments when the room designer saves a new layout, so prop colliders
-   *  can be rebuilt from the updated props.json. */
-  propCollidersVersion?: number;
+  /** Increments when assigned props change and their colliders must rebuild. */
+  assignedPropsVersion?: number;
+  /** Render a scene-owned overlay using the same debug API as SceneHost. */
+  sceneOverlay?: ReactNode;
+  /** Share the live SceneHost API with a scene-owned overlay. */
+  debugApiRef?: MutableRefObject<SceneDebugApi | null>;
   /** Called when the scene's debug API becomes available (initial mount and
    *  after each scene recreation, e.g. character switch). Lets callers hook
    *  into the physics world for custom collision queries. */
@@ -248,6 +234,8 @@ export function SceneWrapper({
   cameraBounds,
   orthographicClickOnly = false,
   cameraWheelZoomEnabled = true,
+  ktx2Enabled = true,
+  showOnScreenControls = true,
   orthographicMovementSpeedFactor,
   orthographicHalfHeight,
   orthographicPitch,
@@ -287,26 +275,18 @@ export function SceneWrapper({
   showAccountDrawer,
   cameraTargetId,
   roomDesignerTargetId,
+  onOpenRoomDesigner,
   characterDesignerTargetId,
   sceneEditorTargetId,
   characterDesignerAvailable = false,
   enableCharacterDesigner = false,
-  roomDesignerAvailable = false,
-  enableRoomDesigner = false,
-  roomDesignerSceneScale = sceneScale,
-  roomDesignerGroundY = 0,
-  roomDesignerGridSize = 100,
-  roomDesignerMapBounds,
-  roomDesignerRegions = [],
-  roomDesignerBlockedRects = [],
-  roomDesignerDoorwayRects = [],
-  roomDesignerNormalOrthographicHalfHeight = orthographicHalfHeight ?? 720,
-  roomDesignerDesignOrthographicHalfHeight = roomDesignerNormalOrthographicHalfHeight * 1.16,
-  roomDesignerBackdropColor,
-  roomDesignerBackdropPadding = 360,
-  roomDesignerPlayerPosition,
+  assignedPropsEnabled = true,
+  assignedPropsScale = sceneScale,
+  assignedPropsGroundY = 0,
   enablePropColliders = false,
-  propCollidersVersion = 0,
+  assignedPropsVersion = 0,
+  sceneOverlay,
+  debugApiRef: externalDebugApiRef,
   onDebugApiReady,
 }: SceneWrapperProps) {
   const canUseSceneEditor = enableSceneEditor && sceneEditorAvailable;
@@ -318,9 +298,8 @@ export function SceneWrapper({
     enableCharacterDesigner &&
     characterDesignerAvailable &&
     Boolean(onCharacterConfigurationChange);
-  const canUseRoomDesigner =
-    enableRoomDesigner && roomDesignerAvailable && Boolean(roomDesignerMapBounds);
-  const debugApiRef = useRef<SceneDebugApi | null>(null);
+  const internalDebugApiRef = useRef<SceneDebugApi | null>(null);
+  const debugApiRef = externalDebugApiRef ?? internalDebugApiRef;
   // Allow the camera view mode to be persisted via the `camera` query param
   // so navigating to a scene link or refreshing preserves the user's choice.
   const queryCameraViewMode =
@@ -358,39 +337,15 @@ export function SceneWrapper({
   } | null>(null);
   const characterDesignerSaveRef = useRef<(() => Promise<boolean>) | null>(null);
   const characterDesignerNavigationAllowedRef = useRef(false);
-  const [roomDesignerEnabled, setRoomDesignerEnabled] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const value = new URLSearchParams(window.location.search).get("roomDesigner");
-    return value !== null && value !== "0";
-  });
-  const [roomDesignerHasEdits, setRoomDesignerHasEdits] = useState(false);
-  const [pendingRoomDesignerClose, setPendingRoomDesignerClose] = useState<{
-    href?: string;
-    cameraViewMode?: CameraViewMode;
-  } | null>(null);
-  const roomDesignerSaveRef = useRef<(() => Promise<boolean>) | null>(null);
-  // Bump prop colliders version when the room designer's dirty flag clears
-  // after a save (hasEdits goes true→false while the designer is open).
-  const prevHasEditsRef = useRef(false);
-  const [internalPropCollidersVersion, setInternalPropCollidersVersion] = useState(0);
-  useEffect(() => {
-    if (prevHasEditsRef.current && !roomDesignerHasEdits && roomDesignerEnabled) {
-      if (manifest.assignedPropsManifestUrl) {
-        invalidateAssignedPropsManifest(manifest.assignedPropsManifestUrl);
-      }
-      setInternalPropCollidersVersion((v) => v + 1);
-    }
-    prevHasEditsRef.current = roomDesignerHasEdits;
-  }, [manifest.assignedPropsManifestUrl, roomDesignerHasEdits, roomDesignerEnabled]);
   const [sceneVersion, setSceneVersion] = useState(0);
   const handleDebugApiReady = useCallback(
     (api: SceneDebugApi) => {
       onDebugApiReady?.(api);
-      if (enablePropColliders || canUseRoomDesigner || manifest.assignedPropsManifestUrl) {
+      if (enablePropColliders || manifest.assignedPropsManifestUrl) {
         setSceneVersion((version) => version + 1);
       }
     },
-    [canUseRoomDesigner, enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady],
+    [enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady],
   );
 
   useEffect(() => {
@@ -418,25 +373,11 @@ export function SceneWrapper({
     };
   }, [canUseCharacterDesigner, characterDesignerEnabled, characterPartOptions]);
 
-  useEffect(() => {
-    if (!canUseRoomDesigner) return;
-    const value = new URLSearchParams(window.location.search).get("roomDesigner");
-    setRoomDesignerEnabled(value !== null && value !== "0");
-  }, [canUseRoomDesigner]);
-
   const applyCharacterDesignerChange = (enabled: boolean) => {
     setCharacterDesignerEnabled(enabled);
     const nextUrl = new URL(window.location.href);
     if (enabled) nextUrl.searchParams.set("characterDesigner", "");
     else nextUrl.searchParams.set("characterDesigner", "0");
-    window.history.replaceState(null, "", nextUrl);
-  };
-
-  const applyRoomDesignerChange = (enabled: boolean) => {
-    setRoomDesignerEnabled(enabled);
-    const nextUrl = new URL(window.location.href);
-    if (enabled) nextUrl.searchParams.set("roomDesigner", "");
-    else nextUrl.searchParams.set("roomDesigner", "0");
     window.history.replaceState(null, "", nextUrl);
   };
 
@@ -446,26 +387,6 @@ export function SceneWrapper({
     if (enabled) nextUrl.searchParams.set("sceneEditor", "");
     else nextUrl.searchParams.set("sceneEditor", "0");
     window.history.replaceState(null, "", nextUrl);
-  };
-
-  const requestRoomDesignerClose = (
-    request: { href?: string; cameraViewMode?: CameraViewMode } = {},
-  ) => {
-    if (roomDesignerHasEdits) {
-      setPendingRoomDesignerClose(request);
-      return;
-    }
-    if (request.cameraViewMode) {
-      setActiveCameraViewMode(request.cameraViewMode);
-      cameraViewModeRef.current = request.cameraViewMode;
-      debugApiRef.current?.setCameraViewMode(request.cameraViewMode);
-      onCameraViewModeChangeProp?.(request.cameraViewMode);
-      applyRoomDesignerChange(false);
-    } else if (request.href) {
-      window.location.assign(request.href);
-    } else {
-      applyRoomDesignerChange(false);
-    }
   };
 
   const requestCharacterDesignerClose = (options: { skipPrompt?: boolean } = {}) => {
@@ -481,29 +402,7 @@ export function SceneWrapper({
       requestCharacterDesignerClose();
       return;
     }
-    if (roomDesignerEnabled) {
-      if (roomDesignerHasEdits) {
-        requestRoomDesignerClose();
-        return;
-      }
-      applyRoomDesignerChange(false);
-    }
     applyCharacterDesignerChange(true);
-  };
-
-  const onRoomDesignerChange = (enabled: boolean) => {
-    if (!enabled) {
-      requestRoomDesignerClose();
-      return;
-    }
-    if (characterDesignerEnabled) {
-      if (characterDesignerHasEdits) {
-        requestCharacterDesignerClose();
-        return;
-      }
-      applyCharacterDesignerChange(false);
-    }
-    applyRoomDesignerChange(true);
   };
 
   useEffect(() => {
@@ -546,55 +445,7 @@ export function SceneWrapper({
     };
   }, [characterDesignerEnabled, characterDesignerHasEdits]);
 
-  useEffect(() => {
-    if (!roomDesignerEnabled || !roomDesignerHasEdits) return;
-    const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    const onDocumentClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (
-        !(target instanceof Element) ||
-        target.closest('[data-room-designer-modal], [aria-label="Room designer"]')
-      )
-        return;
-      const link = target.closest("a");
-      if (!link || !link.href || link.target === "_blank" || link.href === window.location.href)
-        return;
-      event.preventDefault();
-      event.stopPropagation();
-      setPendingRoomDesignerClose({ href: link.href });
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    document.addEventListener("click", onDocumentClick, true);
-    return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      document.removeEventListener("click", onDocumentClick, true);
-    };
-  }, [roomDesignerEnabled, roomDesignerHasEdits]);
-
-  useEffect(() => {
-    if (!enableClickNavigation || !canUseRoomDesigner) return;
-    const navigationEnabled = !(roomDesignerEnabled && activeCameraViewMode === "orthographic");
-    let frame = 0;
-    const apply = () => {
-      const api = debugApiRef.current;
-      if (api) {
-        api.setClickNavigationEnabled(navigationEnabled);
-        return;
-      }
-      frame = requestAnimationFrame(apply);
-    };
-    apply();
-    return () => cancelAnimationFrame(frame);
-  }, [activeCameraViewMode, canUseRoomDesigner, enableClickNavigation, roomDesignerEnabled]);
-
   const onCameraViewModeChange = (nextViewMode: CameraViewMode) => {
-    if (nextViewMode !== "orthographic" && roomDesignerEnabled) {
-      requestRoomDesignerClose({ cameraViewMode: nextViewMode });
-      if (roomDesignerHasEdits) return;
-    }
     setActiveCameraViewMode(nextViewMode);
     cameraViewModeRef.current = nextViewMode;
     debugApiRef.current?.setCameraViewMode(nextViewMode);
@@ -607,26 +458,22 @@ export function SceneWrapper({
   };
 
   const zoomIn = useCallback(() => {
-    if (roomDesignerEnabled) return;
     if (activeCameraViewMode === "perspective") {
       debugApiRef.current?.adjustPerspectiveZoom(0.15);
     } else {
       debugApiRef.current?.adjustOrthographicZoom(0.15);
     }
-  }, [activeCameraViewMode, roomDesignerEnabled]);
+  }, [activeCameraViewMode]);
   const zoomOut = useCallback(() => {
-    if (roomDesignerEnabled) return;
     if (activeCameraViewMode === "perspective") {
       debugApiRef.current?.adjustPerspectiveZoom(-0.15);
     } else {
       debugApiRef.current?.adjustOrthographicZoom(-0.15);
     }
-  }, [activeCameraViewMode, roomDesignerEnabled]);
+  }, [activeCameraViewMode]);
 
   const characterDesignerIsActive = canUseCharacterDesigner && characterDesignerEnabled;
-  const showNormalZoomControls = !roomDesignerEnabled;
-  const showOnScreenControls =
-    !orthographicClickOnly || activeCameraViewMode !== "orthographic" || showNormalZoomControls;
+  const showNormalZoomControls = true;
 
   return (
     <>
@@ -648,15 +495,13 @@ export function SceneWrapper({
         characterScale={characterScale}
         sceneScale={sceneScale}
         movementSpeedFactor={movementSpeedFactor}
-        // Keep the SceneHost mounted while Room Designer toggles. The shared
-        // runtime receives the designer's navigation mode through its debug
-        // API below instead of tearing down the whole scene.
         enableClickNavigation={enableClickNavigation}
         clickNavigationBounds={clickNavigationBounds}
         clickNavigationIndicatorScale={clickNavigationIndicatorScale}
         cameraBounds={cameraBounds}
         orthographicClickOnly={orthographicClickOnly}
-        cameraWheelZoomEnabled={cameraWheelZoomEnabled && !roomDesignerEnabled}
+        cameraWheelZoomEnabled={cameraWheelZoomEnabled}
+        ktx2Enabled={ktx2Enabled}
         orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
         orthographicHalfHeight={orthographicHalfHeight}
         orthographicPitch={orthographicPitch}
@@ -680,7 +525,9 @@ export function SceneWrapper({
         playerVisibilityGroups={playerVisibilityGroups}
         environment={environment}
         editorOverridesUrl={
-          manifest.editorOverridesUrl ?? `/assets/worlds/${manifest.id}/editor-overrides.json`
+          canUseSceneEditor
+            ? manifest.editorOverridesUrl ?? `/assets/worlds/${manifest.id}/editor-overrides.json`
+            : undefined
         }
         visualSetup={visualSetup}
         visualUpdate={visualUpdate}
@@ -706,6 +553,7 @@ export function SceneWrapper({
           onDirtyChange={setCharacterDesignerHasEdits}
         />
       )}
+      {!characterDesignerIsActive ? sceneOverlay : null}
       {!characterDesignerIsActive && !sceneReady ? (
         <div
           className="pointer-events-none fixed inset-0 z-10 flex items-center justify-center"
@@ -737,46 +585,23 @@ export function SceneWrapper({
           enabled={sceneEditorEnabled}
         />
       ) : null}
-      {!characterDesignerIsActive && canUseRoomDesigner && roomDesignerMapBounds && roomDesignerEnabled && activeCameraViewMode === "orthographic" ? (
-        <RoomDesigner
-          manifest={manifest}
-          debugApiRef={debugApiRef}
-          enabled
-          sceneScale={roomDesignerSceneScale}
-          groundY={roomDesignerGroundY}
-          gridSize={roomDesignerGridSize}
-          mapBounds={roomDesignerMapBounds}
-          regions={roomDesignerRegions}
-          blockedRects={roomDesignerBlockedRects}
-          doorwayRects={roomDesignerDoorwayRects}
-          normalOrthographicHalfHeight={roomDesignerNormalOrthographicHalfHeight}
-          designOrthographicHalfHeight={roomDesignerDesignOrthographicHalfHeight}
-          designBackdropColor={roomDesignerBackdropColor}
-          designBackdropPadding={roomDesignerBackdropPadding}
-          playerPosition={roomDesignerPlayerPosition}
-          sceneVersion={sceneVersion}
-          onClose={() => onRoomDesignerChange(false)}
-          saveRef={roomDesignerSaveRef}
-          onDirtyChange={setRoomDesignerHasEdits}
-        />
-      ) : null}
-      {!characterDesignerIsActive && !roomDesignerEnabled ? (
+      {!characterDesignerIsActive && assignedPropsEnabled ? (
         <AssignedPropsRuntime
           debugApiRef={debugApiRef}
           manifestUrl={manifest.assignedPropsManifestUrl}
-          sceneScale={roomDesignerSceneScale}
+          sceneScale={assignedPropsScale}
           sceneVersion={sceneVersion}
         />
       ) : null}
-      {!characterDesignerIsActive && enablePropColliders && manifest.assignedPropsManifestUrl ? (
+      {!characterDesignerIsActive && enablePropColliders && assignedPropsEnabled && manifest.assignedPropsManifestUrl ? (
         <PropColliders
           debugApiRef={debugApiRef}
           manifestUrl={manifest.assignedPropsManifestUrl}
-          sceneScale={roomDesignerSceneScale ?? 1}
-          groundY={roomDesignerGroundY ?? 0}
+          sceneScale={assignedPropsScale}
+          groundY={assignedPropsGroundY}
           cameraViewMode={activeCameraViewMode}
           sceneVersion={sceneVersion}
-          propsVersion={propCollidersVersion + internalPropCollidersVersion}
+          propsVersion={assignedPropsVersion}
         />
       ) : null}
       {!characterDesignerIsActive && portals ? (
@@ -786,31 +611,10 @@ export function SceneWrapper({
         cameraViewMode={activeCameraViewMode}
         onCameraViewModeChange={onCameraViewModeChange}
         allowCameraViewModeChange={!characterDesignerIsActive && allowCameraViewModeChange}
-        characterDesignerEnabled={
-          characterDesignerIsActive
-            ? undefined
-            : canUseCharacterDesigner
-              ? characterDesignerEnabled
-              : undefined
-        }
-        onCharacterDesignerChange={
-          characterDesignerIsActive
-            ? undefined
-            : canUseCharacterDesigner
-              ? onCharacterDesignerChange
-              : undefined
-        }
+        characterDesignerEnabled={canUseCharacterDesigner ? characterDesignerEnabled : undefined}
+        onCharacterDesignerChange={canUseCharacterDesigner ? onCharacterDesignerChange : undefined}
         characterDesignerTargetId={characterDesignerTargetId}
-        roomDesignerEnabled={
-          !characterDesignerIsActive && canUseRoomDesigner && activeCameraViewMode === "orthographic"
-            ? roomDesignerEnabled
-            : undefined
-        }
-        onRoomDesignerChange={
-          !characterDesignerIsActive && canUseRoomDesigner && activeCameraViewMode === "orthographic"
-            ? onRoomDesignerChange
-            : undefined
-        }
+        onOpenRoomDesigner={!characterDesignerIsActive ? onOpenRoomDesigner : undefined}
         sceneEditorEnabled={
           !characterDesignerIsActive && canUseSceneEditor ? sceneEditorEnabled : undefined
         }
@@ -882,66 +686,6 @@ export function SceneWrapper({
                     characterDesignerNavigationAllowedRef.current = true;
                     window.location.assign(request.href);
                   }
-                }}
-              >
-                Save &amp; continue
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-      {pendingRoomDesignerClose ? (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/35 p-4"
-          data-room-designer-modal
-        >
-          <div className="w-full max-w-sm rounded-xl border border-border bg-background p-5 text-foreground shadow-2xl">
-            <h2 className="text-base font-semibold">Save room changes?</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              You have unsaved room edits. Save them before closing or leaving?
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setPendingRoomDesignerClose(null)}
-              >
-                Keep editing
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  const request = pendingRoomDesignerClose;
-                  setPendingRoomDesignerClose(null);
-                  if (request.href) window.location.assign(request.href);
-                  else if (request.cameraViewMode) {
-                    setActiveCameraViewMode(request.cameraViewMode);
-                    cameraViewModeRef.current = request.cameraViewMode;
-                    debugApiRef.current?.setCameraViewMode(request.cameraViewMode);
-                    onCameraViewModeChangeProp?.(request.cameraViewMode);
-                    applyRoomDesignerChange(false);
-                  } else applyRoomDesignerChange(false);
-                }}
-              >
-                Discard
-              </Button>
-              <Button
-                type="button"
-                className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-                onClick={async () => {
-                  const request = pendingRoomDesignerClose;
-                  const saved = await roomDesignerSaveRef.current?.();
-                  if (saved === false) return;
-                  setPendingRoomDesignerClose(null);
-                  if (request.href) window.location.assign(request.href);
-                  else if (request.cameraViewMode) {
-                    setActiveCameraViewMode(request.cameraViewMode);
-                    cameraViewModeRef.current = request.cameraViewMode;
-                    debugApiRef.current?.setCameraViewMode(request.cameraViewMode);
-                    onCameraViewModeChangeProp?.(request.cameraViewMode);
-                    applyRoomDesignerChange(false);
-                  } else applyRoomDesignerChange(false);
                 }}
               >
                 Save &amp; continue

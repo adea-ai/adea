@@ -268,7 +268,7 @@ export function WorkspaceSettingsDialog({
               </header>
               <SettingsRow
                 title={workspace.name}
-                detail={`${workspace.scene === 'work' ? 'Work' : 'Home'} template · Rooms remain the primary navigation.`}
+                detail={`${workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
               />
               <SettingsRow
                 title="Room defaults"

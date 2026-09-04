@@ -60,6 +60,7 @@ export {
   addWorkspaceMembership,
   archiveWorkspace,
   createWorkspaceWithOwner,
+  ensureBootstrapWorkspaces,
   findWorkspaceMembership,
   getWorkspaceForUser,
   listWorkspacesForUser,

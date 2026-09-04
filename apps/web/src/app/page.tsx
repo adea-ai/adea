@@ -43,7 +43,7 @@ export default async function HomePage({
 
   return (
     <WorkspaceEntry
-      spatial={view === 'spatial'}
+      spatial={view === 'spatial' || (roomDesigner !== undefined && roomDesigner !== '0')}
       characterDesigner={characterDesigner !== undefined && characterDesigner !== '0'}
       roomDesigner={roomDesigner !== undefined && roomDesigner !== '0'}
       spatialProps={{
