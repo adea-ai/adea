@@ -11,15 +11,15 @@ function releaseManifest() {
     platforms: {
       "darwin-aarch64": {
         signature,
-        url: "https://api.github.com/repos/0xPlayerOne/agent-hq/releases/assets/101",
+        url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/101",
       },
       "darwin-aarch64-app": {
         signature,
-        url: "https://api.github.com/repos/0xPlayerOne/agent-hq/releases/assets/101",
+        url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/101",
       },
       "windows-x86_64": {
         signature,
-        url: "https://api.github.com/repos/0xPlayerOne/agent-hq/releases/assets/202",
+        url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/202",
       },
     },
   };
@@ -29,12 +29,12 @@ const releaseAssets = [
   {
     id: 101,
     name: "Agent.HQ_0.3.4_aarch64.app.tar.gz",
-    url: "https://api.github.com/repos/0xPlayerOne/agent-hq/releases/assets/101",
+    url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/101",
   },
   {
     id: 202,
     name: "Agent.HQ_0.3.4_x64-setup.exe",
-    url: "https://api.github.com/repos/0xPlayerOne/agent-hq/releases/assets/202",
+    url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/202",
   },
 ];
 
@@ -43,7 +43,7 @@ describe("desktop update channel", () => {
     const result = prepareUpdateManifest(
       releaseManifest(),
       releaseAssets,
-      "https://0xplayerone.github.io/agent-hq/desktop-updates/",
+      "https://adea-ai.github.io/agent-hq/desktop-updates/",
     );
 
     expect(result.assetNames).toEqual([
@@ -52,13 +52,13 @@ describe("desktop update channel", () => {
     ]);
     expect(result.manifest.platforms["darwin-aarch64"]).toEqual({
       signature,
-      url: "https://0xplayerone.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_aarch64.app.tar.gz",
+      url: "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_aarch64.app.tar.gz",
     });
     expect(result.manifest.platforms["darwin-aarch64-app"]).toEqual(
       result.manifest.platforms["darwin-aarch64"],
     );
     expect(result.manifest.platforms["windows-x86_64"].url).toBe(
-      "https://0xplayerone.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_x64-setup.exe",
+      "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_x64-setup.exe",
     );
   });
 
