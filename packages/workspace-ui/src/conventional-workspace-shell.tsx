@@ -1,6 +1,7 @@
 'use client'
 
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, X } from 'lucide-react'
 import { useWorkspaceStore } from '@agent-hq/state'
 
 import { AgentRoster } from './agent-roster'
@@ -50,6 +51,7 @@ export function ConventionalWorkspaceShell({
   const [online, setOnline] = useState(true)
   const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
+  const [sessionNoticeDismissed, setSessionNoticeDismissed] = useState(false)
   const activeSurface = useWorkspaceStore((state) => state.activeSurface)
   const globalPanel = useWorkspaceStore((state) => state.globalPanel)
   const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds)
@@ -67,6 +69,11 @@ export function ConventionalWorkspaceShell({
   const setSelectedTaskId = useWorkspaceStore((state) => state.setSelectedTaskId)
   const setThreadRootMessageId = useWorkspaceStore((state) => state.setThreadRootMessageId)
   const toggleRoomCollapsed = useWorkspaceStore((state) => state.toggleRoomCollapsed)
+  const sessionRotated = controller.bootstrap.data?.sessionRotated ?? false
+  const sessionIdentity = controller.bootstrap.data?.principal.userId
+  useEffect(() => {
+    setSessionNoticeDismissed(false)
+  }, [sessionIdentity])
   const principal = controller.bootstrap.data?.principal
   const accountAuthenticated =
     services?.account?.authenticated ?? Boolean(principal && !principal.temporary)
@@ -320,6 +327,26 @@ export function ConventionalWorkspaceShell({
         workspaceName={controller.activeWorkspace.name}
       />
       <section id="workspace-main" className="conventional-main" tabIndex={-1}>
+        {sessionRotated && !sessionNoticeDismissed ? (
+          <section className="conventional-session-notice" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <h2>Your previous session wasn&apos;t recognized</h2>
+              <p>
+                You&apos;re in a new temporary workspace, so earlier tasks and conversations
+                aren&apos;t visible here. Use the workspace switcher to return to your previous
+                workspace if it&apos;s still available.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss session notice"
+              onClick={() => setSessionNoticeDismissed(true)}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </section>
+        ) : null}
         {queryError ? (
           <WorkspaceError error={queryError.error} retry={() => void queryError.refetch()} />
         ) : selectedArtifact ? (
