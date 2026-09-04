@@ -15,7 +15,9 @@ server-side through Control Plane:
 Agent HQ does not request those GitHub URLs from a browser or desktop client.
 The same-origin `/api/marketplace/catalog` route calls the authenticated
 Control Plane catalog proxy. Control Plane fetches the registry and returns
-sanitized artifact metadata only. Configure the proxy with:
+sanitized artifact metadata only. The Plugins action remains unavailable until
+workspace bootstrap resolves, so provider loading never races workspace identity.
+Configure the proxy with:
 
 - `CONTROL_PLANE_ORIGIN` — HTTPS Control Plane origin in production;
 - `CONTROL_PLANE_SERVICE_TOKEN` — server-only scoped service credential;

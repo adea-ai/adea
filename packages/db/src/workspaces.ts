@@ -7,7 +7,7 @@ import type {
 } from "@agent-hq/types";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 
-import type { AgentHqDatabase } from "./connection";
+import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
 import {
   authorizationAuditRecords,
   workspaceEvents,
@@ -32,54 +32,117 @@ function workspaceSummary(row: typeof workspaces.$inferSelect): WorkspaceSummary
   });
 }
 
+type WorkspaceCreationInput = Readonly<{
+  idempotencyKey: string;
+  name: string;
+  owner: UserPrincipalRef;
+  scene?: WorkspaceSceneId;
+}>;
+
+async function createWorkspaceWithOwnerInTransaction(
+  transaction: AgentHqTransaction,
+  input: WorkspaceCreationInput,
+): Promise<Readonly<{ created: boolean; workspace: WorkspaceSummary }>> {
+  const [createdWorkspace] = await transaction
+    .insert(workspaces)
+    .values({
+      idempotencyKey: input.idempotencyKey,
+      name: input.name.trim(),
+      ownerUserId: input.owner.userId,
+      scene: input.scene ?? "home",
+    })
+    .onConflictDoNothing({ target: [workspaces.ownerUserId, workspaces.idempotencyKey] })
+    .returning();
+
+  if (!createdWorkspace) {
+    const [existingWorkspace] = await transaction
+      .select()
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.ownerUserId, input.owner.userId),
+          eq(workspaces.idempotencyKey, input.idempotencyKey),
+        ),
+      )
+      .limit(1);
+    if (!existingWorkspace) throw new Error("Workspace creation conflict");
+    return Object.freeze({ created: false, workspace: workspaceSummary(existingWorkspace) });
+  }
+
+  await transaction.insert(workspaceMemberships).values({
+    role: "owner",
+    userId: input.owner.userId,
+    workspaceId: createdWorkspace.id,
+  });
+  await transaction.insert(workspaceEvents).values({
+    eventType: "workspace.created",
+    payload: { ownerUserId: input.owner.userId },
+    workspaceId: createdWorkspace.id,
+  });
+
+  return Object.freeze({ created: true, workspace: workspaceSummary(createdWorkspace) });
+}
+
 export async function createWorkspaceWithOwner(
   database: AgentHqDatabase,
-  input: Readonly<{
-    idempotencyKey: string;
-    name: string;
-    owner: UserPrincipalRef;
-    scene?: WorkspaceSceneId;
-  }>,
+  input: WorkspaceCreationInput,
 ): Promise<Readonly<{ created: boolean; workspace: WorkspaceSummary }>> {
-  return database.transaction(async (transaction) => {
-    const [createdWorkspace] = await transaction
-      .insert(workspaces)
-      .values({
-        idempotencyKey: input.idempotencyKey,
-        name: input.name.trim(),
-        ownerUserId: input.owner.userId,
-        scene: input.scene ?? "home",
-      })
-      .onConflictDoNothing({ target: [workspaces.ownerUserId, workspaces.idempotencyKey] })
-      .returning();
+  return database.transaction((transaction) =>
+    createWorkspaceWithOwnerInTransaction(transaction, input),
+  );
+}
 
-    if (!createdWorkspace) {
-      const [existingWorkspace] = await transaction
-        .select()
-        .from(workspaces)
-        .where(
-          and(
-            eq(workspaces.ownerUserId, input.owner.userId),
-            eq(workspaces.idempotencyKey, input.idempotencyKey),
-          ),
-        )
-        .limit(1);
-      if (!existingWorkspace) throw new Error("Workspace creation conflict");
-      return Object.freeze({ created: false, workspace: workspaceSummary(existingWorkspace) });
+const bootstrapWorkspaceInputs = [
+  { idempotencyKey: "default-home", name: "Home", scene: "home" as const },
+  { idempotencyKey: "default-work", name: "Work", scene: "work" as const },
+] as const;
+
+async function workspacesForUser(
+  transaction: AgentHqTransaction,
+  owner: UserPrincipalRef,
+) {
+  return transaction
+    .select({ workspace: workspaces })
+    .from(workspaceMemberships)
+    .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
+    .where(and(eq(workspaceMemberships.userId, owner.userId), isNull(workspaces.deletedAt)))
+    .orderBy(desc(workspaces.updatedAt));
+}
+
+/**
+ * Ensures first-launch workspaces exist and upgrades the legacy single default
+ * workspace without changing the workspace data stored under its ID.
+ */
+export async function ensureBootstrapWorkspaces(
+  database: AgentHqDatabase,
+  owner: UserPrincipalRef,
+): Promise<WorkspaceSummary[]> {
+  return database.transaction(async (transaction) => {
+    let rows = await workspacesForUser(transaction, owner);
+    const hasBootstrapWorkspace = rows.some(({ workspace }) =>
+      ["default", "default-home", "default-work"].includes(workspace.idempotencyKey),
+    );
+
+    if (rows.length === 0 || hasBootstrapWorkspace) {
+      const legacy = rows.find(({ workspace }) => workspace.idempotencyKey === "default");
+      const home = rows.find(({ workspace }) => workspace.idempotencyKey === "default-home");
+      if (legacy && !home) {
+        await transaction
+          .update(workspaces)
+          .set({ idempotencyKey: "default-home", name: "Home", scene: "home" })
+          .where(eq(workspaces.id, legacy.workspace.id));
+      }
+
+      rows = await workspacesForUser(transaction, owner);
+      for (const input of bootstrapWorkspaceInputs) {
+        if (!rows.some(({ workspace }) => workspace.idempotencyKey === input.idempotencyKey)) {
+          await createWorkspaceWithOwnerInTransaction(transaction, { ...input, owner });
+        }
+        rows = await workspacesForUser(transaction, owner);
+      }
     }
 
-    await transaction.insert(workspaceMemberships).values({
-      role: "owner",
-      userId: input.owner.userId,
-      workspaceId: createdWorkspace.id,
-    });
-    await transaction.insert(workspaceEvents).values({
-      eventType: "workspace.created",
-      payload: { ownerUserId: input.owner.userId },
-      workspaceId: createdWorkspace.id,
-    });
-
-    return Object.freeze({ created: true, workspace: workspaceSummary(createdWorkspace) });
+    return rows.map(({ workspace }) => workspaceSummary(workspace));
   });
 }
 

@@ -8,56 +8,73 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./platform": {
       "types": "./dist/platform.d.ts",
+      "development": "./src/platform.ts",
       "import": "./dist/platform.js"
     },
     "./plugins-dialog": {
       "types": "./dist/plugins-dialog.d.ts",
+      "development": "./src/plugins-dialog.tsx",
       "import": "./dist/plugins-dialog.js",
       "default": "./dist/plugins-dialog.js"
     },
     "./plugins": {
       "types": "./dist/plugins.d.ts",
+      "development": "./src/plugins.ts",
       "import": "./dist/plugins.js",
       "default": "./dist/plugins.js"
     },
     "./marketplace-catalog": {
       "types": "./dist/marketplace-catalog.d.ts",
+      "development": "./src/marketplace-catalog.ts",
       "import": "./dist/marketplace-catalog.js",
       "default": "./dist/marketplace-catalog.js"
     },
     "./preferences": {
       "types": "./dist/preferences.d.ts",
+      "development": "./src/preferences.ts",
       "import": "./dist/preferences.js",
       "default": "./dist/preferences.js"
     },
     "./global-workspace-rail": {
       "types": "./dist/global-workspace-rail.d.ts",
+      "development": "./src/global-workspace-rail.tsx",
       "import": "./dist/global-workspace-rail.js",
       "default": "./dist/global-workspace-rail.js"
     },
     "./workspace-about-dialog": {
       "types": "./dist/workspace-about-dialog.d.ts",
+      "development": "./src/workspace-about-dialog.tsx",
       "import": "./dist/workspace-about-dialog.js",
       "default": "./dist/workspace-about-dialog.js"
     },
+    "./workspace-settings": {
+      "types": "./dist/workspace-settings.d.ts",
+      "development": "./src/workspace-settings.tsx",
+      "import": "./dist/workspace-settings.js",
+      "default": "./dist/workspace-settings.js"
+    },
     "./conventional-workspace-shell": {
       "types": "./dist/conventional-workspace-shell.d.ts",
+      "development": "./src/conventional-workspace-shell.tsx",
       "import": "./dist/conventional-workspace-shell.js",
       "default": "./dist/conventional-workspace-shell.js"
     },
     "./workspace-view-toggle": {
       "types": "./dist/workspace-view-toggle.d.ts",
+      "development": "./src/workspace-view-toggle.tsx",
       "import": "./dist/workspace-view-toggle.js",
       "default": "./dist/workspace-view-toggle.js"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "lint": "eslint .",
     "test": "bun test tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"

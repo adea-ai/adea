@@ -13,10 +13,14 @@ import { workspaces } from './workspaces'
 export const taskLifecycleState = appSchema.enum('task_lifecycle_state', [
   'created',
   'queued',
+  'in_progress',
+  'in_review',
+  'completed',
   'cancelled',
   'archived',
 ])
 export const taskPriority = appSchema.enum('task_priority', ['low', 'normal', 'high', 'urgent'])
+export const taskKind = appSchema.enum('task_kind', ['bug', 'feature', 'chore'])
 
 export const tasks = appSchema.table(
   'tasks',
@@ -36,6 +40,7 @@ export const tasks = appSchema.table(
       onDelete: 'restrict',
     }),
     lifecycleState: taskLifecycleState('lifecycle_state').default('created').notNull(),
+    kind: taskKind('kind').default('feature').notNull(),
     priority: taskPriority('priority').default('normal').notNull(),
     version: integer('version').default(1).notNull(),
     artifactRefs: text('artifact_refs')

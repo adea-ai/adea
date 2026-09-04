@@ -7,6 +7,7 @@ import {
   archiveWorkspace,
   addWorkspaceMembership,
   createWorkspaceWithOwner,
+  ensureBootstrapWorkspaces,
   findWorkspaceMembership,
   getWorkspaceForUser,
   listWorkspacesForUser,
@@ -108,6 +109,39 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
       .delete(workspaceMemberships)
       .where(eq(workspaceMemberships.workspaceId, first.workspace.id));
     await connection.db.delete(workspaces).where(eq(workspaces.id, first.workspace.id));
+    await connection.db
+      .delete(temporaryUserSessions)
+      .where(eq(temporaryUserSessions.userId, temporary.principal.userId));
+    await connection.db.delete(users).where(eq(users.id, temporary.principal.userId));
+  });
+
+  test("upgrades the legacy default workspace into Home and adds Work", async () => {
+    const temporary = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `bootstrap-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const legacy = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: "default",
+      name: "My Agent HQ",
+      owner: temporary.principal,
+    });
+
+    const bootstrapped = await ensureBootstrapWorkspaces(connection.db, temporary.principal);
+
+    expect(bootstrapped.map(({ name }) => name).sort()).toEqual(["Home", "Work"]);
+    expect(await getWorkspaceForUser(connection.db, legacy.workspace.id, temporary.principal)).toMatchObject({
+      id: legacy.workspace.id,
+      name: "Home",
+      scene: "home",
+    });
+    expect(bootstrapped.find(({ name }) => name === "Work")).toMatchObject({ scene: "work" });
+
+    for (const workspace of bootstrapped) {
+      await connection.db
+        .delete(workspaceMemberships)
+        .where(eq(workspaceMemberships.workspaceId, workspace.id));
+      await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id));
+    }
     await connection.db
       .delete(temporaryUserSessions)
       .where(eq(temporaryUserSessions.userId, temporary.principal.userId));

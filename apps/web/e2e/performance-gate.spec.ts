@@ -17,6 +17,8 @@ type BrowserSceneReport = {
 const sceneCanvasTimeout = 60_000
 
 type SceneDebugState = {
+  cameraYaw: number;
+  pitch: number;
   activeAnimationName: string | null;
   activeAnimationActions: string[];
   background: {
@@ -31,7 +33,25 @@ type SceneDebugState = {
 type SceneDebugApi = {
   getState: () => SceneDebugState;
   adjustPerspectiveZoom: (delta: number) => void;
+  setCameraViewMode: (viewMode: "perspective" | "orthographic") => void;
   teleportTo: (x: number, z: number) => void;
+  camera: { position: { x: number; toArray: () => number[] } };
+  scene?: {
+    getObjectByName: (name: string) =>
+      | {
+          material?: { map?: { image?: { src?: string } } };
+          rotation: { x: number };
+        }
+      | undefined;
+  };
+};
+
+type CharacterDesignerDebugApi = SceneDebugApi & {
+  characterRoot?: {
+    position: { toArray: () => number[] };
+    rotation: { toArray: () => number[] };
+    traverse: (callback: (object: { isMesh?: boolean; visible?: boolean; name?: string }) => void) => void;
+  } | null;
 };
 
 type AgentHqWindow = Window & { __agentHq?: SceneDebugApi };
@@ -44,7 +64,7 @@ async function runScenePerformanceGate(page: Page, scene: "home" | "work") {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
 
-  const response = await page.goto(`/?view=spatial&scene=${scene}&roomDesigner=0&camera=orthographic`, {
+  const response = await page.goto(`/?view=virtual&scene=${scene}&roomDesigner=0&camera=orthographic`, {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -108,8 +128,50 @@ test("work scene meets runtime performance gates", async ({ page }) => {
   await runScenePerformanceGate(page, "work");
 });
 
+test("HQ defers perspective-only backgrounds in top-down view", async ({ page }) => {
+  const backgroundRequests: string[] = [];
+  const deferredRequests: string[] = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url.includes("/assets/models/backgrounds/background_seasons_3.jpg")) {
+      backgroundRequests.push(url);
+    }
+    if (
+      url.includes("/assets/models/runtime.glb") ||
+      url.includes("/assets/models/animals/Dog_001.glb") ||
+      url.includes("/assets/models/animals/Kitty_001.glb")
+    ) {
+      deferredRequests.push(url);
+    }
+  });
+  const response = await page.goto(
+    "/?view=virtual&scene=home&roomDesigner=0&camera=orthographic&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator("canvas")).toBeVisible({ timeout: sceneCanvasTimeout });
+  await page.waitForFunction(
+    () =>
+      ((window as Window & { __AGENT_HQ_SCENE_PERF__?: BrowserSceneReport[] })
+        .__AGENT_HQ_SCENE_PERF__ ?? []
+      ).some((report) => report.event === "load" || report.event === "error"),
+    undefined,
+    { timeout: 90_000 },
+  );
+  expect(backgroundRequests).toHaveLength(0);
+  expect(deferredRequests).toHaveLength(0);
+
+  await Promise.all([
+    page.waitForRequest(
+      (request) => request.url().includes("/assets/models/backgrounds/background_seasons_3.jpg"),
+      { timeout: 30_000 },
+    ),
+    page.getByRole("button", { name: "Perspective camera" }).click(),
+  ]);
+});
+
 test("HQ keeps perspective backgrounds fixed while the camera moves", async ({ page }) => {
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=perspective&debug=1", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=perspective&debug=1", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -139,7 +201,7 @@ test("HQ keeps perspective backgrounds fixed while the camera moves", async ({ p
 });
 
 test("HQ plays only the active locomotion animation", async ({ page }) => {
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=perspective&debug=1", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=perspective&debug=1", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -165,6 +227,240 @@ test("HQ plays only the active locomotion animation", async ({ page }) => {
     .toMatchObject({ activeAnimationName: "idle", activeAnimationActions: ["idle"] });
 });
 
+test("direct character designer mount skips HQ scene assets", async ({ page }) => {
+  const assetRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/assets/")) assetRequests.push(request.url());
+  });
+
+  const characterAsset = page.waitForResponse(
+    (assetResponse) =>
+      assetResponse.url().endsWith("/assets/models/_complete/f_1.glb") && assetResponse.ok(),
+    { timeout: 60_000 },
+  );
+  const response = await page.goto(
+    "/?view=virtual&scene=home&roomDesigner=0&characterDesigner=1&camera=perspective&character=f_1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("canvas").first()).toBeVisible({ timeout: sceneCanvasTimeout });
+  await characterAsset;
+
+  expect(assetRequests.some((url) => url.includes("/worlds/hq-home/floor.glb"))).toBe(false);
+  expect(assetRequests.some((url) => url.includes("/worlds/hq-home/foliage.json"))).toBe(false);
+  expect(assetRequests.some((url) => url.includes("/worlds/hq-home/props-runtime.json"))).toBe(false);
+});
+
+test("character designer keeps feet visible and supports drag orbit and pan", async ({ page }) => {
+  const response = await page.goto(
+    "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.waitForFunction(
+    () => Boolean((window as AgentHqWindow).__agentHq?.characterRoot),
+    undefined,
+    { timeout: 60_000 },
+  );
+
+  const initial = await page.evaluate(() => {
+    const api = (window as AgentHqWindow).__agentHq as CharacterDesignerDebugApi;
+    return {
+      characterPositionY: api.characterRoot?.position.toArray()[1] ?? 0,
+      characterRotationY: api.characterRoot?.rotation.toArray()[1] ?? 0,
+      cameraYaw: api.getState().cameraYaw,
+      cameraPitch: api.getState().pitch,
+    };
+  });
+  expect(initial.characterPositionY).toBeGreaterThan(0.1);
+  expect(Math.abs(Math.sin((initial.characterRotationY - Math.PI) / 2))).toBeLessThan(0.1);
+
+  for (const bodyName of [
+    "Body 01",
+    "Body 02",
+    "Body 03",
+    "Body 04",
+    "Body 05",
+    "Body 06",
+    "Body 07",
+    "Body 08",
+    "Body 09",
+    "Body 10",
+    "Body 11",
+    "Body 12",
+    "Body 13",
+    "Body 14",
+    "Body 15",
+    "Body 16",
+  ]) {
+    await page.getByRole("radio", { name: bodyName, exact: true }).click();
+    await expect(page.getByRole("radio", { name: bodyName, exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    const bodyPositionY = await page.evaluate(
+      () => (window as AgentHqWindow).__agentHq?.characterRoot?.position.toArray()[1] ?? 0,
+    );
+    expect(bodyPositionY, `${bodyName} should keep its feet above the platform`).toBeGreaterThan(
+      0.1,
+    );
+  }
+
+  const canvas = page.locator('.character-designer-room canvas[data-engine="three.js r185"]');
+  const canvasBounds = await canvas.boundingBox();
+  expect(canvasBounds).not.toBeNull();
+  const startX = canvasBounds!.x + canvasBounds!.width * 0.75;
+  const startY = canvasBounds!.y + canvasBounds!.height * 0.7;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + 120, startY + 40, { steps: 3 });
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+  const afterOrbit = await page.evaluate(() => {
+    const api = (window as AgentHqWindow).__agentHq as CharacterDesignerDebugApi;
+    return {
+      pointerLocked: document.pointerLockElement !== null,
+      cameraYaw: api.getState().cameraYaw,
+      cameraPitch: api.getState().pitch,
+    };
+  });
+  expect(afterOrbit.pointerLocked).toBe(false);
+  expect(afterOrbit.cameraYaw).not.toBeCloseTo(initial.cameraYaw, 5);
+  expect(afterOrbit.cameraPitch).not.toBeCloseTo(initial.cameraPitch, 5);
+
+  const beforePan = await page.evaluate(
+    () => ((window as AgentHqWindow).__agentHq as CharacterDesignerDebugApi).camera.position.toArray(),
+  );
+  await page.mouse.move(startX, startY);
+  await page.mouse.down({ button: "right" });
+  await page.mouse.move(startX + 100, startY + 50, { steps: 3 });
+  await page.mouse.up({ button: "right" });
+  await page.waitForTimeout(100);
+  const afterPan = await page.evaluate(
+    () => ((window as AgentHqWindow).__agentHq as CharacterDesignerDebugApi).camera.position.toArray(),
+  );
+  expect(
+    Math.hypot(
+      afterPan[0] - beforePan[0],
+      afterPan[1] - beforePan[1],
+      afterPan[2] - beforePan[2],
+    ),
+  ).toBeGreaterThan(0.1);
+});
+
+test("character designer starts slot thumbnails without a long delay", async ({ page }) => {
+  const startedAt = Date.now();
+  const firstSlotAsset = page.waitForRequest(
+    (request) => /\/assets\/models\/body\/[^/]+\.glb$/.test(request.url()),
+    { timeout: 12_000 },
+  );
+
+  const response = await page.goto(
+    "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await firstSlotAsset;
+  expect(Date.now() - startedAt).toBeLessThan(12_000);
+
+  const characterCategoryStartedAt = Date.now();
+  const firstCharacterAsset = page.waitForRequest(
+    (request) => /\/assets\/models\/_complete\/[fm]_\d+\.glb$/.test(request.url()),
+    { timeout: 12_000 },
+  );
+  await page.getByRole("tab", { name: "Characters", exact: true }).click();
+  await firstCharacterAsset;
+  expect(Date.now() - characterCategoryStartedAt).toBeLessThan(12_000);
+});
+
+test("saving a customized body restores it in the virtual space", async ({ page }) => {
+  const response = await page.goto(
+    "/?view=virtual&scene=home&characterDesigner=1&camera=perspective&character=configurable&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.waitForFunction(
+    () => Boolean((window as AgentHqWindow).__agentHq?.characterRoot),
+    undefined,
+    { timeout: 60_000 },
+  );
+  await page.getByRole("tab", { name: "Body", exact: true }).click();
+  const bodyOption = page.getByRole("radio", { name: "Body 09", exact: true });
+  await bodyOption.click();
+  await expect(bodyOption).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Save & return", exact: true }).click();
+
+  await page.waitForURL(/characterDesigner=0/, { timeout: 60_000 });
+  await expect(page.locator('canvas:not([aria-hidden="true"])').first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await page.waitForFunction(
+    () => Boolean((window as AgentHqWindow).__agentHq?.characterRoot),
+    undefined,
+    { timeout: 60_000 },
+  );
+  const visibleMeshes = await page.evaluate(() => {
+    const api = (window as AgentHqWindow).__agentHq as CharacterDesignerDebugApi;
+    const names: string[] = [];
+    api.characterRoot?.traverse((object) => {
+      if (object.isMesh && object.visible && object.name) names.push(object.name);
+    });
+    return names;
+  });
+  expect(visibleMeshes).toContain("Body_09");
+  expect(visibleMeshes).toContain("Shoe_Sneakers_01");
+});
+
+test("saving a customized body from virtual space keeps the body model", async ({ page }) => {
+  const response = await page.goto(
+    "/?view=virtual&scene=home&roomDesigner=0&characterDesigner=0&camera=orthographic&character=f_1&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('canvas:not([aria-hidden="true"])').first()).toBeVisible({
+    timeout: 60_000,
+  });
+  await page.getByRole("button", { name: "Open character designer" }).click();
+  await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole("tab", { name: "Body", exact: true }).click();
+  const bodyOption = page.getByRole("radio", { name: "Body 09", exact: true });
+  await bodyOption.click();
+  await expect(bodyOption).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("button", { name: "Save & return", exact: true }).click();
+
+  await expect(page.locator('[aria-label="Character designer"]')).toHaveCount(0);
+  await page.waitForFunction(
+    () => Boolean((window as AgentHqWindow).__agentHq?.characterRoot),
+    undefined,
+    { timeout: 60_000 },
+  );
+  await page.waitForTimeout(1_000);
+  const visibleMeshes = await page.evaluate(() => {
+    const api = (window as AgentHqWindow).__agentHq as CharacterDesignerDebugApi;
+    const names: string[] = [];
+    api.characterRoot?.traverse((object) => {
+      if (object.isMesh && object.visible && object.name) names.push(object.name);
+    });
+    return names;
+  });
+  expect(visibleMeshes).toContain("Body_09");
+  expect(visibleMeshes).toContain("Shoe_Sneakers_01");
+});
+
 test("switching from a reference character to Custom in the character designer without asset errors", async ({ page }) => {
   const pageErrors: string[] = [];
   const assetErrors: string[] = [];
@@ -176,7 +472,7 @@ test("switching from a reference character to Custom in the character designer w
   });
 
   const response = await page.goto(
-    "/?view=spatial&scene=home&roomDesigner=0&characterDesigner=0&camera=perspective&character=f_1&debug=1",
+    "/?view=virtual&scene=home&roomDesigner=0&characterDesigner=0&camera=perspective&character=f_1&debug=1",
     { waitUntil: "domcontentloaded" },
   );
   expect(response?.ok()).toBe(true);
@@ -223,20 +519,64 @@ test("room designer loads compressed interior props", async ({ page }) => {
     }
   });
 
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=1&camera=orthographic", {
-    waitUntil: "domcontentloaded",
-  });
+  const response = await page.goto(
+    "/?view=virtual&scene=home&roomDesigner=1&camera=orthographic&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
   expect(response?.ok()).toBe(true);
   await expect(page.locator('[aria-label="Room designer"]')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.global-rail')).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.workspace-ui')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Virtual Room' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Perspective camera' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Top-down camera' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open character designer' })).toHaveCount(0);
   await expect(page.locator('[aria-label^="Add "]').first()).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(1_500);
 
   expect(pageErrors).toEqual([]);
   expect(catalogWarnings).toEqual([]);
 });
 
+test("room designer camera state does not leak into HQ", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  const response = await page.goto(
+    "/?view=virtual&scene=home&roomDesigner=1&camera=orthographic&debug=1",
+    { waitUntil: "domcontentloaded" },
+  );
+  expect(response?.ok()).toBe(true);
+  await expect(page.locator('[aria-label="Room designer"]')).toBeVisible({ timeout: 30_000 });
+  await page.waitForFunction(
+    () => Boolean((window as AgentHqWindow).__agentHq?.characterRoot),
+    undefined,
+    { timeout: 60_000 },
+  );
+
+  await page.evaluate(() => {
+    (window as AgentHqWindow).__agentHq?.setOrthographicPan(6, 6);
+  });
+  await page.waitForTimeout(250);
+  await page.getByRole('button', { name: 'Close room designer' }).click();
+  await expect(page.locator('[aria-label="Room designer"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open room designer' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.waitForFunction(
+    () => {
+      const api = (window as AgentHqWindow).__agentHq;
+      return Boolean(api?.characterRoot) && Math.abs((api?.camera.position.x ?? 99)) < 0.1;
+    },
+    undefined,
+    { timeout: 60_000 },
+  );
+  await page.getByRole('button', { name: 'Open room designer' }).click();
+  await expect(page.locator('[aria-label="Room designer"]')).toBeVisible({ timeout: 30_000 });
+
+  expect(pageErrors).toEqual([]);
+});
+
 test("web layout does not reserve space for the desktop status bar", async ({ page }) => {
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=orthographic", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=orthographic", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
@@ -279,7 +619,7 @@ test("desktop runtime keeps the shared scene layout without a status bar", async
   await page.addInitScript(() => {
     Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
   });
-  const response = await page.goto("/?view=spatial&scene=home&roomDesigner=0&camera=orthographic", {
+  const response = await page.goto("/?view=virtual&scene=home&roomDesigner=0&camera=orthographic", {
     waitUntil: "domcontentloaded",
   });
   expect(response?.ok()).toBe(true);
