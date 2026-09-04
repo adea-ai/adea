@@ -8,7 +8,7 @@ set -euo pipefail
   --unattended \
   --ephemeral \
   --replace \
-  --url https://github.com/0xPlayerOne/agent-hq \
+  --url https://github.com/adea-ai/agent-hq \
   --token "$RUNNER_TOKEN" \
   --name "$RUNNER_NAME" \
   --labels agent-hq-release-linux-x64 \
