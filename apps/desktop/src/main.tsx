@@ -18,16 +18,13 @@ import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } 
 import { createRoot } from 'react-dom/client'
 import { useWorkspaceStore } from '@agent-hq/state'
 import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
-import {
-  ConventionalWorkspaceShell,
-  createRegistryPluginsProvider,
-  GlobalWorkspaceRail,
-  PluginsDialog,
-  WorkspaceAboutDialog,
-  WorkspaceSettingsDialog,
-  type WorkspacePlatformServices,
-  type WorkspaceView,
-} from '@agent-hq/workspace-ui'
+import { ConventionalWorkspaceShell } from '@agent-hq/workspace-ui/conventional-workspace-shell'
+import { GlobalWorkspaceRail } from '@agent-hq/workspace-ui/global-workspace-rail'
+import type {
+  WorkspacePlatformServices,
+  WorkspacePluginsProvider,
+} from '@agent-hq/workspace-ui/platform'
+import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
 
 import { localContentAuthority } from './local-content'
 import packageJson from '../package.json'
@@ -50,6 +47,24 @@ const SpatialDesktopWorkspace = lazy(() =>
   import('./desktop-workspace').then(({ DesktopWorkspace }) => ({ default: DesktopWorkspace }))
 )
 
+// Dialogs are infrequent overlays, so their code stays out of the startup
+// chunk and loads the first time each one mounts.
+const PluginsDialog = lazy(() =>
+  import('@agent-hq/workspace-ui/plugins-dialog').then(({ PluginsDialog }) => ({
+    default: PluginsDialog,
+  }))
+)
+const WorkspaceAboutDialog = lazy(() =>
+  import('@agent-hq/workspace-ui/workspace-about-dialog').then(({ WorkspaceAboutDialog }) => ({
+    default: WorkspaceAboutDialog,
+  }))
+)
+const WorkspaceSettingsDialog = lazy(() =>
+  import('@agent-hq/workspace-ui/workspace-settings').then(({ WorkspaceSettingsDialog }) => ({
+    default: WorkspaceSettingsDialog,
+  }))
+)
+
 function DesktopSettingsOverlay({
   client,
   open,
@@ -67,19 +82,21 @@ function DesktopSettingsOverlay({
 }>) {
   const agentsQuery = useAgentListQuery(client, workspace.id)
   return (
-    <WorkspaceSettingsDialog
-      accountAuthenticated={Boolean(services.account?.authenticated)}
-      accountLabel={services.account?.label ?? 'Account'}
-      agents={agentsQuery.data ?? []}
-      busy={services.account?.busy ?? false}
-      onClose={onClose}
-      onOpenAgents={onOpenAgents}
-      onSignIn={() => services.account?.onSignIn()}
-      onSignOut={() => void services.account?.onSignOut()}
-      open={open}
-      services={services}
-      workspace={workspace}
-    />
+    <Suspense fallback={null}>
+      <WorkspaceSettingsDialog
+        accountAuthenticated={Boolean(services.account?.authenticated)}
+        accountLabel={services.account?.label ?? 'Account'}
+        agents={agentsQuery.data ?? []}
+        busy={services.account?.busy ?? false}
+        onClose={onClose}
+        onOpenAgents={onOpenAgents}
+        onSignIn={() => services.account?.onSignIn()}
+        onSignOut={() => void services.account?.onSignOut()}
+        open={open}
+        services={services}
+        workspace={workspace}
+      />
+    </Suspense>
   )
 }
 
@@ -140,15 +157,34 @@ function DesktopApp() {
   const sessionRef = useRef<DesktopSession | undefined>(undefined)
   const workspaceIdRef = useRef<string | undefined>(undefined)
   const userIdRef = useRef<string | undefined>(undefined)
-  const [plugins] = useState(() =>
-    createRegistryPluginsProvider({
-      client: () =>
-        workspaceClient(sessionRef.current, temporaryCredentialRef.current ?? undefined),
-      getWorkspaceId: () => workspaceIdRef.current,
-      getUserId: () => userIdRef.current,
-      requestedHarness: 'codex',
-    })
-  )
+  const [plugins] = useState<WorkspacePluginsProvider>(() => {
+    // The registry provider pulls in the marketplace catalog and its artifact
+    // verification, so it loads the first time plugins are actually used.
+    let provider: Promise<WorkspacePluginsProvider> | undefined
+    let loaded: WorkspacePluginsProvider | undefined
+    const load = () => {
+      provider ??= import('@agent-hq/workspace-ui/plugins')
+        .then(({ createRegistryPluginsProvider }) =>
+          createRegistryPluginsProvider({
+            client: () =>
+              workspaceClient(sessionRef.current, temporaryCredentialRef.current ?? undefined),
+            getWorkspaceId: () => workspaceIdRef.current,
+            getUserId: () => userIdRef.current,
+            requestedHarness: 'codex',
+          }),
+        )
+        .then((value) => {
+          loaded = value
+          return value
+        })
+      return provider
+    }
+    return {
+      getState: () => loaded?.getState?.() ?? 'idle',
+      list: () => load().then((value) => value.list()),
+      requestInstall: (pluginId) => load().then((value) => value.requestInstall(pluginId)),
+    }
+  })
   const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
   const authCallbackObservedRef = useRef(false)
 
@@ -386,18 +422,20 @@ function DesktopApp() {
             workspace={activeWorkspace!}
           />
         ) : null}
-        <PluginsDialog
-          open={globalPanel === 'plugins' && Boolean(workspaceState.workspace)}
-          onClose={() => setGlobalPanel(null)}
-          provider={plugins}
-        />
-        <WorkspaceAboutDialog
-          appName="Agent HQ"
-          open={globalPanel === 'about'}
-          onClose={() => setGlobalPanel(null)}
-          platform="desktop"
-          version={appVersion}
-        />
+        <Suspense fallback={null}>
+          <PluginsDialog
+            open={globalPanel === 'plugins' && Boolean(workspaceState.workspace)}
+            onClose={() => setGlobalPanel(null)}
+            provider={plugins}
+          />
+          <WorkspaceAboutDialog
+            appName="Agent HQ"
+            open={globalPanel === 'about'}
+            onClose={() => setGlobalPanel(null)}
+            platform="desktop"
+            version={appVersion}
+          />
+        </Suspense>
         <VersionDialog open={updatesOpen} onOpenChange={setUpdatesOpen} />
       </div>
     )
