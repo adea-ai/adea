@@ -662,6 +662,65 @@ export const archiveTask = (
   command: TaskCommand
 ) => transitionTask(database, workspaceId, taskId, principal, 'archived', command)
 
+export async function reopenTasksForChannelMessage(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  messageId: string,
+  principal: UserPrincipalRef
+) {
+  const candidates = await transaction
+    .select({ id: tasks.id, version: tasks.version })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.workspaceId, workspaceId),
+        eq(tasks.channelId, channelId),
+        eq(tasks.lifecycleState, 'in_review')
+      )
+    )
+  for (const candidate of candidates) {
+    try {
+      await runMutation(
+        transaction,
+        workspaceId,
+        principal,
+        'task.in_progress',
+        'task.in_progress',
+        { expectedVersion: candidate.version, target: 'in_progress', taskId: candidate.id },
+        {
+          idempotencyKey: `reopen-on-comment:${candidate.id}:${messageId}`,
+          requestId: randomUUID(),
+        },
+        async () => {
+          const row = await requireTask(transaction, workspaceId, candidate.id)
+          if (row.lifecycleState !== 'in_review' || row.version !== candidate.version)
+            throw new Error('Task version conflict')
+          const [updated] = await transaction
+            .update(tasks)
+            .set({
+              lifecycleState: 'in_progress',
+              updatedAt: new Date(),
+              version: row.version + 1,
+            })
+            .where(
+              and(
+                eq(tasks.id, candidate.id),
+                eq(tasks.workspaceId, workspaceId),
+                eq(tasks.version, row.version)
+              )
+            )
+            .returning()
+          return summarize(transaction, requireUpdated(updated))
+        }
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Task version conflict') continue
+      throw error
+    }
+  }
+}
+
 export async function setTaskDependencies(
   database: AgentHqDatabase,
   workspaceId: string,

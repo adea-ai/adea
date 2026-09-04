@@ -327,6 +327,91 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
   })
 
+  test('reopens in_review Tasks when their linked conversation receives a message', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `task-reopen-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `task-reopen-${crypto.randomUUID()}`,
+      name: 'Reopen HQ',
+      owner: owner.principal,
+    })
+    let task = await createTask(
+      connection.db,
+      workspace.id,
+      owner.principal,
+      { objective: 'Review then comment', priority: 'normal', title: 'Reopenable' },
+      command('reopen-create')
+    )
+    task = await queueTask(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      command('reopen-queue', task.version)
+    )
+    task = await startTask(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      command('reopen-start', task.version)
+    )
+    task = await reviewTask(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      command('reopen-review', task.version)
+    )
+    expect(task.lifecycleState).toBe('in_review')
+    const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+      idempotencyKey: 'reopen-channel',
+      title: 'Task thread',
+    })
+    const otherChannel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+      idempotencyKey: 'reopen-other-channel',
+      title: 'Unrelated thread',
+    })
+    task = await setTaskConversationReferences(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      { channelId: channel.id },
+      command('reopen-conversation', task.version)
+    )
+    await createMessage(connection.db, workspace.id, otherChannel.id, owner.principal, {
+      bodyText: 'Unrelated comment',
+      idempotencyKey: 'reopen-unrelated-message',
+      sender: owner.principal,
+    })
+    expect(
+      (await getTaskForUser(connection.db, workspace.id, task.id, owner.principal))?.lifecycleState
+    ).toBe('in_review')
+    await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+      bodyText: 'Needs another change',
+      idempotencyKey: 'reopen-linked-message',
+      sender: owner.principal,
+    })
+    const reopened = await getTaskForUser(connection.db, workspace.id, task.id, owner.principal)
+    expect(reopened).toMatchObject({ lifecycleState: 'in_progress', version: task.version + 1 })
+
+    await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
+    await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
+    await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, workspace.id))
+    await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id))
+    await connection.db
+      .delete(temporaryUserSessions)
+      .where(eq(temporaryUserSessions.userId, owner.principal.userId))
+    await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
+  })
+
   test('defaults Task kind to feature and allows bug/chore updates', async () => {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: `task-kind-${crypto.randomUUID()}`,

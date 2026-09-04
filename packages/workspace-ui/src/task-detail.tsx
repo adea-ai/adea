@@ -401,6 +401,9 @@ export function TaskDetail(props: Props) {
             </ul>
           </fieldset>
           <hr className="conventional-detail-panel__divider" />
+          {props.task.lifecycleState === 'in_review' ? (
+            <p>Waiting on review. A new comment in the linked conversation reopens the Task.</p>
+          ) : null}
           <div className="conventional-detail-panel__actions">
             {props.task.lifecycleState === 'created' ? (
               <button type="button" onClick={() => void runImmediate(props.task, props.onQueue)}>

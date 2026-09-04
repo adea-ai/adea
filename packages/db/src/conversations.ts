@@ -11,6 +11,7 @@ import { and, asc, eq, gt, inArray, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
+import { reopenTasksForChannelMessage } from './tasks'
 import {
   agents,
   artifacts,
@@ -805,6 +806,13 @@ export async function createMessage(
         .limit(1)
       if (!existing || existing.createPayloadHash !== payloadHash)
         throw new Error('Message idempotency conflict')
+      await reopenTasksForChannelMessage(
+        transaction,
+        workspaceId,
+        channelId,
+        existing.id,
+        principal
+      )
       return messageSummary(transaction, existing)
     }
     if (input.bodyContentRefId)
@@ -835,6 +843,7 @@ export async function createMessage(
       },
       workspaceId,
     })
+    await reopenTasksForChannelMessage(transaction, workspaceId, channelId, created.id, principal)
     return messageSummary(transaction, created)
   })
 }
