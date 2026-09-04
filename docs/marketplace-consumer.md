@@ -1,15 +1,15 @@
 # Marketplace consumer contract
 
 Agent HQ uses the plugin registry maintained in
-[`0xPlayerOne/plugins`](https://github.com/0xPlayerOne/plugins). Discovery is
+[`adea-ai/plugins`](https://github.com/adea-ai/plugins). Discovery is
 server-side through Control Plane:
 
 - Registry latest artifact:
-  `https://github.com/0xPlayerOne/plugins/releases/latest/download/catalog-latest.v1.json`
+  `https://github.com/adea-ai/plugins/releases/latest/download/catalog-latest.v1.json`
 - Registry latest integrity manifest:
-  `https://github.com/0xPlayerOne/plugins/releases/latest/download/integrity.json`
+  `https://github.com/adea-ai/plugins/releases/latest/download/integrity.json`
 - Immutable release URL:
-  `https://github.com/0xPlayerOne/plugins/releases/download/catalog/<catalogId-suffix>/catalog.v1.json`
+  `https://github.com/adea-ai/plugins/releases/download/catalog/<catalogId-suffix>/catalog.v1.json`
 - Immutable tag: `catalog/<catalogId-suffix>` for `catalog:<64 lowercase hex>`.
 
 Agent HQ does not request those GitHub URLs from a browser or desktop client.
