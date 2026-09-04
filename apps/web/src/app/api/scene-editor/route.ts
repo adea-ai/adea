@@ -211,13 +211,40 @@ export async function POST(request: Request) {
               ? `${body.category}.json`
               : "editor-overrides.json",
         );
+        const assignedPropsManifestPath = path.join(
+          repoRoot,
+          "apps",
+          "web",
+          "public",
+          "assets",
+          "worlds",
+          body.scene as string,
+          "props-runtime.json",
+        );
         const previousPublicBytes = await readFile(publicManifestPath, "utf8").catch(() => null);
+        const previousAssignedPropsBytes = await readFile(assignedPropsManifestPath, "utf8").catch(
+          () => null,
+        );
         try {
           await atomicWrite(publicManifestPath, nextBytes);
           await atomicWrite(sourcePath, nextBytes);
+          if (isRoomDesigner && previousAssignedPropsBytes != null) {
+            const assignedPropsManifest = JSON.parse(previousAssignedPropsBytes) as {
+              placements?: Record<string, Placement[]>;
+            };
+            assignedPropsManifest.placements = (
+              JSON.parse(nextBytes) as { placements: Record<string, Placement[]> }
+            ).placements;
+            await atomicWrite(
+              assignedPropsManifestPath,
+              `${JSON.stringify(assignedPropsManifest, null, 2)}\n`,
+            );
+          }
         } catch (error) {
           if (previousPublicBytes != null)
             await atomicWrite(publicManifestPath, previousPublicBytes);
+          if (previousAssignedPropsBytes != null)
+            await atomicWrite(assignedPropsManifestPath, previousAssignedPropsBytes);
           throw error;
         }
       });

@@ -1,7 +1,7 @@
 import type { AgentHqApiClient } from '@agent-hq/api-client'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-export { AgentHqQueryProvider } from './provider'
+export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
 
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
@@ -411,6 +411,24 @@ export const taskMutationOptions = {
     ) => client.queueTask(workspaceId, input.taskId, input.command),
     onSuccess: taskMutationSuccess(queryClient, workspaceId),
   }),
+  review: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{ command: Parameters<AgentHqApiClient['reviewTask']>[2]; taskId: string }>
+    ) => client.reviewTask(workspaceId, input.taskId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  start: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{ command: Parameters<AgentHqApiClient['startTask']>[2]; taskId: string }>
+    ) => client.startTask(workspaceId, input.taskId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
+  complete: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{ command: Parameters<AgentHqApiClient['completeTask']>[2]; taskId: string }>
+    ) => client.completeTask(workspaceId, input.taskId, input.command),
+    onSuccess: taskMutationSuccess(queryClient, workspaceId),
+  }),
   update: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (
       input: Readonly<{
@@ -675,6 +693,15 @@ export function useMoveTaskRoomMutation(client: AgentHqApiClient, workspaceId: s
 }
 export function useQueueTaskMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(taskMutationOptions.queue(client, useQueryClient(), workspaceId))
+}
+export function useReviewTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.review(client, useQueryClient(), workspaceId))
+}
+export function useStartTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.start(client, useQueryClient(), workspaceId))
+}
+export function useCompleteTaskMutation(client: AgentHqApiClient, workspaceId: string) {
+  return useMutation(taskMutationOptions.complete(client, useQueryClient(), workspaceId))
 }
 export function useCancelTaskMutation(client: AgentHqApiClient, workspaceId: string) {
   return useMutation(taskMutationOptions.cancel(client, useQueryClient(), workspaceId))

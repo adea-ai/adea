@@ -8,12 +8,14 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     }
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/*.test.ts"
   },

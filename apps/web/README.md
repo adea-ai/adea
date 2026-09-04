@@ -1,7 +1,7 @@
 # Web app
 
 The Agent HQ Next.js application. It owns the unified workspace route, shell UI,
-scene selection, and composition of the shared runtime and package APIs.
+workspace switching, and composition of the shared runtime and package APIs.
 
 Run it from the repository root with `portless` to use the stable
 `https://agent-hq.localhost` development URL. The direct fallback is

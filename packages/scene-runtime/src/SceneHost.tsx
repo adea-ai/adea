@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Timer } from "three";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
+import type { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";
 import { disposeObjectResources, type DisposedObjectResources } from "./resources";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import {
@@ -14,17 +14,18 @@ import {
   loadCharacterAnimations,
   type CharacterAnimationController,
   type CharacterConfiguration,
-} from "@agent-hq/characters";
-import { loadLandscapeField } from "@agent-hq/landscape/runtime";
-import { loadPropsField } from "@agent-hq/interior/runtime";
+} from "@agent-hq/characters/runtime";
 import { createScenePerformanceTelemetry } from "./performance";
 import { createSceneLoadScope } from "./loading";
-import RAPIER, {
-  type Collider,
-  type KinematicCharacterController,
-  type World,
-} from "@dimforge/rapier3d-compat";
 import type { SceneZone, StaticFieldAssetUrls } from "@agent-hq/asset-manifests";
+import type {
+  Collider,
+  KinematicCharacterController,
+  World,
+} from "@dimforge/rapier3d-compat";
+
+type RapierModule = typeof import("@dimforge/rapier3d-compat").default;
+let RAPIER: RapierModule;
 import {
   DEBUG_COMPONENT_PROXY,
   isSceneEditorObject,
@@ -177,7 +178,12 @@ export type SceneHostProps = {
   label?: string;
   /** Size the renderer to its containing layout region instead of the browser viewport. */
   viewportMode?: "window" | "container";
-  assetUrl: string;
+  /** Optional authored world asset. Omit it for a procedural preview stage. */
+  assetUrl?: string;
+  /** Skip the Rapier runtime for visual-only previews such as the character studio. */
+  physicsEnabled?: boolean;
+  /** Skip the KTX2 transcoder for previews whose assets use ordinary textures. */
+  ktx2Enabled?: boolean;
   entryZoneId?: string;
   /** Keep the entry zone collision active while another zone is loaded. */
   preserveEntryCollision?: boolean;
@@ -214,6 +220,10 @@ export type SceneHostProps = {
   characterId?: string;
   /** Optional modular Cute character configuration for the selected id. */
   characterConfiguration?: CharacterConfiguration;
+  /** Keep the full configurable library in memory for in-place slot previews. */
+  characterPreview?: boolean;
+  /** Aim the camera at the character's head (default) or visual center. */
+  cameraTargetMode?: "head" | "center";
   /** Defer optional animation assets until after the scene is playable. */
   deferCharacterDetails?: boolean;
   /** Whether deferred character details should be fetched automatically. */
@@ -251,6 +261,10 @@ export type SceneHostProps = {
   orthographicClickOnly?: boolean;
   /** Capture canvas wheel/pinch gestures for camera zoom instead of browser zoom. */
   cameraWheelZoomEnabled?: boolean;
+  /** Allow pointer-lock mouse input to rotate the perspective camera. */
+  cameraMouseControlEnabled?: boolean;
+  /** Allow direct mouse dragging to orbit and pan without pointer lock. */
+  cameraDragControlEnabled?: boolean;
   /** Optional movement multiplier used only by orthographic click navigation. */
   orthographicMovementSpeedFactor?: number;
   /** Optional camera envelope. The view is clamped to keep the map edges in frame. */
@@ -551,6 +565,10 @@ async function initializeRapier(): Promise<void> {
   // promise so the second mount waits for the first instead of re-initializing.
   if (rapierInitPromise) return rapierInitPromise;
   rapierInitPromise = (async () => {
+    // Keep Rapier out of visual-only scenes until a physics-enabled scene asks
+    // for it. The dynamic import also keeps the multi-megabyte WASM wrapper out
+    // of the character studio's cold bundle.
+    RAPIER = (await import("@dimforge/rapier3d-compat")).default;
     // Rapier 0.19.3's compatibility wrapper emits this warning internally while
     // loading its embedded WASM, even when its public init() API is called correctly.
     const originalWarn = console.warn;
@@ -1181,6 +1199,8 @@ export function SceneHost({
   label = "Scene",
   viewportMode = "window",
   assetUrl,
+  physicsEnabled = true,
+  ktx2Enabled = true,
   entryZoneId,
   preserveEntryCollision = false,
   keepZoneCollisionsActive = false,
@@ -1197,6 +1217,8 @@ export function SceneHost({
   playerVisibilityGroups = EMPTY_VISIBILITY_GROUPS,
   characterId = configurableCharacterId,
   characterConfiguration,
+  characterPreview = false,
+  cameraTargetMode = "head",
   characterScale = DEFAULT_characterModelScale,
   sceneScale = 1,
   movementSpeedFactor = 1,
@@ -1205,6 +1227,8 @@ export function SceneHost({
   clickNavigationIndicatorScale = 1,
   orthographicClickOnly = false,
   cameraWheelZoomEnabled = true,
+  cameraMouseControlEnabled = true,
+  cameraDragControlEnabled = false,
   orthographicMovementSpeedFactor = movementSpeedFactor,
   cameraBounds,
   orthographicHalfHeight,
@@ -1234,6 +1258,25 @@ export function SceneHost({
   propsManifestUrl,
 }: SceneHostProps) {
   const playerHeight = characterScale.height;
+  const characterIdRef = useRef(characterId);
+  const characterConfigurationRef = useRef(characterConfiguration);
+  const characterPreviewUpdateRef = useRef<
+    ((id: string, configuration?: CharacterConfiguration) => void) | null
+  >(null);
+  // Preview configuration updates are applied in place, but switching between
+  // a reference character and the configurable library must recreate only the
+  // character scene. Keeping this key here preserves the designer's dirty UI
+  // state while still loading the correct preview asset.
+  const characterLoadKey = characterPreview
+    ? characterId
+    : `${characterId}:${characterConfiguration ? JSON.stringify(characterConfiguration) : ""}`;
+  characterIdRef.current = characterId;
+  characterConfigurationRef.current = characterConfiguration;
+
+  useEffect(() => {
+    if (!characterPreview) return;
+    characterPreviewUpdateRef.current?.(characterId, characterConfiguration);
+  }, [characterConfiguration, characterId, characterPreview]);
   const playerRadius = characterScale.radius;
   const playerSpeed = PLAYER_SPEED;
   const jumpSpeed = JUMP_SPEED;
@@ -1437,6 +1480,8 @@ export function SceneHost({
       initialViewMode: initialCameraViewModeRef.current,
       initialYaw: startPosition.yaw ?? 0,
       initialPerspectivePitch: startPosition.pitch ?? -0.2,
+      mouseInputEnabled: cameraMouseControlEnabled,
+      dragInputEnabled: cameraDragControlEnabled,
       characterScale: playerHeight / 1.8,
       perspectiveCameraDistance,
       cameraBounds: runtimeCameraBounds,
@@ -2026,9 +2071,11 @@ export function SceneHost({
 
     const load = async () => {
       try {
-        await telemetry.track("physics.initialize", initializeRapier());
-        if (disposed) return;
-        world = new RAPIER.World({ x: 0, y: gravity, z: 0 });
+        if (physicsEnabled) {
+          await telemetry.track("physics.initialize", initializeRapier());
+          if (disposed) return;
+          world = new RAPIER.World({ x: 0, y: gravity, z: 0 });
+        }
 
         const manager = new THREE.LoadingManager();
         manager.onProgress = (_url, loaded, total) =>
@@ -2037,20 +2084,39 @@ export function SceneHost({
         // meshopt-compressed GLBs (produced by the asset pipeline for large
         // scene geometry) decode in the browser instead of shipping raw floats.
         loader.setMeshoptDecoder(MeshoptDecoder);
-        textureTranscoder = new KTX2Loader(manager)
-          .setTranscoderPath("/assets/basis/")
-          .detectSupport(activeRenderer);
-        loader.setKTX2Loader(textureTranscoder);
-        const pendingBackground = environment?.backgroundTextureUrl
-          ? new THREE.TextureLoader(manager)
-              .loadAsync(environment.backgroundTextureUrl)
+        if (ktx2Enabled) {
+          const { KTX2Loader } = await import("three/examples/jsm/loaders/KTX2Loader.js");
+          textureTranscoder = new KTX2Loader(manager)
+            .setTranscoderPath("/assets/basis/")
+            .detectSupport(activeRenderer);
+          loader.setKTX2Loader(textureTranscoder);
+        }
+        const backgroundTextureUrl = environment?.backgroundTextureUrl;
+        let pendingBackground: Promise<THREE.Texture | null> | null = null;
+        const loadBackground = () => {
+          if (!backgroundTextureUrl) return Promise.resolve<THREE.Texture | null>(null);
+          pendingBackground ??= telemetry.track(
+            "background",
+            new THREE.TextureLoader(manager)
+              .loadAsync(backgroundTextureUrl)
               .catch((cause) => {
                 const message =
                   cause instanceof Error ? cause.message : "unknown background texture error";
                 console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
                 return null;
-              })
-          : Promise.resolve<THREE.Texture | null>(null);
+              }),
+          );
+          return pendingBackground;
+        };
+        // Perspective-only backgrounds are not part of the top-down critical
+        // path. Start them immediately only when the initial camera needs one;
+        // a later camera switch requests the texture without delaying scene
+        // readiness.
+        const pendingInitialBackground =
+          backgroundTextureUrl &&
+          (!environment?.backgroundTexturePerspectiveOnly || cameraController.isPerspective)
+            ? loadBackground()
+            : Promise.resolve<THREE.Texture | null>(null);
         const prepareSceneLayer = (root: THREE.Object3D) => {
           root.traverse((object) => {
             if (!(object instanceof THREE.Mesh)) return;
@@ -2242,21 +2308,41 @@ export function SceneHost({
         // Kick off only the entry scene, its collision, and the character on the
         // critical path. Optional gallery zones are distance-loaded after the
         // player is ready, so large room meshes never delay the first frame.
-        const pendingVisual = telemetry.track("visual", loader.loadAsync(assetUrl));
-        const pendingCollision = [
-          ...(collisionAssetUrl
-            ? [telemetry.track("physics.asset", loader.loadAsync(collisionAssetUrl))]
-            : []),
-          ...additionalCollisionAssetUrls.map((url, index) =>
-            telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url)),
-          ),
-        ];
+        const pendingVisual = assetUrl
+          ? telemetry.track("visual", loader.loadAsync(assetUrl))
+          : Promise.resolve({ scene: new THREE.Group() });
+        const pendingCollision = physicsEnabled
+          ? [
+              ...(collisionAssetUrl
+                ? [telemetry.track("physics.asset", loader.loadAsync(collisionAssetUrl))]
+                : []),
+              ...additionalCollisionAssetUrls.map((url, index) =>
+                telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url)),
+              ),
+            ]
+          : [];
         const pendingAdditional = additionalAssetUrls.map((url) =>
           guardPendingRejection(loader.loadAsync(url)),
         );
+        const requestedCharacterId = characterIdRef.current;
+        const requestedCharacterConfiguration = characterConfigurationRef.current;
+        const pendingPreviewApi = characterPreview
+          ? import("@agent-hq/characters/preview")
+          : undefined;
         const pendingCharacter: Promise<Awaited<ReturnType<typeof loadCharacter>>> =
-          guardPendingRejection(
-            loadCharacter(loader, characterId, characterConfiguration),
+          telemetry.track(
+            "character",
+            guardPendingRejection(
+              characterPreview
+                ? pendingPreviewApi!.then(({ loadCharacterPreview }) =>
+                    loadCharacterPreview(
+                      loader,
+                      requestedCharacterId,
+                      requestedCharacterConfiguration,
+                    ),
+                  )
+                : loadCharacter(loader, requestedCharacterId, requestedCharacterConfiguration),
+            ),
           );
         // Runtime-generated catalog fields are independent of the base scene
         // and of one another. Begin their manifest/model requests during the
@@ -2270,12 +2356,16 @@ export function SceneHost({
           staticFieldAssetUrls?.foliage
             ? loader.loadAsync(staticFieldAssetUrls.foliage).then(({ scene }) => scene)
             : foliageManifestUrl
-              ? loadLandscapeField(loader, foliageManifestUrl, loadScope.signal)
+              ? import("@agent-hq/landscape/runtime").then(({ loadLandscapeField }) =>
+                  loadLandscapeField(loader, foliageManifestUrl, loadScope.signal),
+                )
               : null,
           staticFieldAssetUrls?.props
             ? loader.loadAsync(staticFieldAssetUrls.props).then(({ scene }) => scene)
             : propsManifestUrl
-              ? loadPropsField(loader, propsManifestUrl, loadScope.signal)
+              ? import("@agent-hq/interior/runtime").then(({ loadPropsField }) =>
+                  loadPropsField(loader, propsManifestUrl, loadScope.signal),
+                )
               : null,
         ].map((pending, index) =>
           pending ? telemetry.track(`field.${fieldNames[index]}`, pending) : null,
@@ -2284,31 +2374,26 @@ export function SceneHost({
           staticFieldCollisionAssetUrls?.foliage,
           staticFieldCollisionAssetUrls?.props,
         ] as const;
-        const pendingCollisionFields = collisionFieldSources.map((source, index) =>
-          source
-            ? telemetry.track(
-                `physics.field.${fieldNames[index]}`,
-                loader.loadAsync(source).then(({ scene: collisionScene }) => {
-                  // Field downloads can finish after an unmount or an earlier
-                  // layer failure. Dispose at the promise boundary so detached
-                  // exact-collider roots are never orphaned by an early return.
-                  if (disposed) {
-                    disposeObjectTree(collisionScene);
-                    return null;
-                  }
-                  return collisionScene;
-                }),
-              )
-            : null,
-        );
-        const visual = await pendingVisual;
-        const loadedBackground = await pendingBackground;
-        if (disposed) {
-          disposeObjectTree(visual.scene);
-          loadedBackground?.dispose();
-          return;
-        }
-        if (loadedBackground) {
+        const pendingCollisionFields = physicsEnabled
+          ? collisionFieldSources.map((source, index) =>
+              source
+                ? telemetry.track(
+                    `physics.field.${fieldNames[index]}`,
+                    loader.loadAsync(source).then(({ scene: collisionScene }) => {
+                      // Field downloads can finish after an unmount or an earlier
+                      // layer failure. Dispose at the promise boundary so detached
+                      // exact-collider roots are never orphaned by an early return.
+                      if (disposed) {
+                        disposeObjectTree(collisionScene);
+                        return null;
+                      }
+                      return collisionScene;
+                    }),
+                  )
+                : null,
+            )
+          : [];
+        const applyLoadedBackground = (loadedBackground: THREE.Texture) => {
           backgroundTexture = loadedBackground;
           const mapping = environment?.backgroundTextureMapping ?? "2d";
           const repeat = environment?.backgroundTextureRepeat ?? [1, 1];
@@ -2339,7 +2424,15 @@ export function SceneHost({
                 ? fallbackBackground
                 : loadedBackground;
           }
+        };
+        const visual = await pendingVisual;
+        const loadedBackground = await pendingInitialBackground;
+        if (disposed) {
+          disposeObjectTree(visual.scene);
+          loadedBackground?.dispose();
+          return;
         }
+        if (loadedBackground) applyLoadedBackground(loadedBackground);
         prepareSceneLayer(visual.scene);
         visual.scene.scale.multiplyScalar(sceneScale);
         visualSetup?.(visual.scene);
@@ -2607,185 +2700,188 @@ export function SceneHost({
         const colliderBounds = new THREE.Box3();
         if (collisionRoot) colliderBounds.expandByObject(collisionRoot);
         visualCollisionLayers.forEach((root) => colliderBounds.expandByObject(root));
-        const physicsWorld = world;
-        if (!physicsWorld)
-          throw new Error("Rapier world was disposed before scene colliders were created");
-        const initialCollisionColliders: Collider[] = [];
-        let colliderCount = collisionRoot
-          ? addSceneColliders(
-              physicsWorld,
-              collisionRoot,
-              true,
-              runtimeCollisionExclusionAreas,
-              undefined,
-              collisionIncludePatterns,
-              initialCollisionColliders,
-            )
-          : 0;
-        if (separateCollisionRoot) {
-          for (const collisionLayer of separateCollisionRoot.children) {
-            if (collisionLayer === collisionRoot) continue;
-            colliderCount += addSceneColliders(
-              physicsWorld,
-              collisionLayer,
-              true,
-              runtimeCollisionExclusionAreas,
-              undefined,
-              collisionIncludePatterns,
-              initialCollisionColliders,
-            );
-          }
-        }
-        visualCollisionLayers.forEach((root) => {
-          colliderCount += addSceneColliders(
-            physicsWorld,
-            root,
-            false,
-            runtimeCollisionExclusionAreas,
-            undefined,
-            collisionIncludePatterns,
-            initialCollisionColliders,
-          );
-        });
-        for (const field of collisionFields) {
-          if (field) {
-            colliderCount += addSceneColliders(
-              physicsWorld,
-              field,
-              true,
-              runtimeCollisionExclusionAreas,
-              undefined,
-              collisionIncludePatterns,
-              initialCollisionColliders,
-              true,
-            );
-          }
-        }
-        if (staticFieldCollisionPatterns.length > 0) {
-          const fieldMeshFilter = (mesh: THREE.Mesh) => {
-            let current: THREE.Object3D | null = mesh;
-            while (current) {
-              const objectName = current.name;
-              if (staticFieldCollisionPatterns.some((pattern) => pattern.test(objectName)))
-                return true;
-              current = current.parent;
+        let colliderCount = 0;
+        if (physicsEnabled) {
+          const physicsWorld = world;
+          if (!physicsWorld)
+            throw new Error("Rapier world was disposed before scene colliders were created");
+          const initialCollisionColliders: Collider[] = [];
+          colliderCount = collisionRoot
+            ? addSceneColliders(
+                physicsWorld,
+                collisionRoot,
+                true,
+                runtimeCollisionExclusionAreas,
+                undefined,
+                collisionIncludePatterns,
+                initialCollisionColliders,
+              )
+            : 0;
+          if (separateCollisionRoot) {
+            for (const collisionLayer of separateCollisionRoot.children) {
+              if (collisionLayer === collisionRoot) continue;
+              colliderCount += addSceneColliders(
+                physicsWorld,
+                collisionLayer,
+                true,
+                runtimeCollisionExclusionAreas,
+                undefined,
+                collisionIncludePatterns,
+                initialCollisionColliders,
+              );
             }
-            return false;
-          };
-          for (const [field, exactCompanion] of [[props, collisionFields[1]]] as const) {
-            if (field && !exactCompanion) {
-              // This filter is the explicit opt-in for otherwise visual-only
-              // generated fields. Treat the selected meshes as trusted so the
-              // generic props-layer exclusion cannot discard them before the
-              // field filter gets a chance to include them.
+          }
+          visualCollisionLayers.forEach((root) => {
+            colliderCount += addSceneColliders(
+              physicsWorld,
+              root,
+              false,
+              runtimeCollisionExclusionAreas,
+              undefined,
+              collisionIncludePatterns,
+              initialCollisionColliders,
+            );
+          });
+          for (const field of collisionFields) {
+            if (field) {
               colliderCount += addSceneColliders(
                 physicsWorld,
                 field,
-                false,
+                true,
                 runtimeCollisionExclusionAreas,
-                fieldMeshFilter,
+                undefined,
                 collisionIncludePatterns,
                 initialCollisionColliders,
                 true,
               );
             }
           }
-        }
-        for (const collider of staticColliders) {
-          const descriptor = RAPIER.ColliderDesc.cuboid(
-            collider.halfExtents[0] * sceneScale,
-            collider.halfExtents[1] * sceneScale,
-            collider.halfExtents[2] * sceneScale,
-          )
-            .setTranslation(
-              collider.x * sceneScale,
-              collider.y * sceneScale,
-              collider.z * sceneScale,
-            )
-            .setFriction(0.9);
-          if (collider.rotation) {
-            descriptor.setRotation({
-              x: collider.rotation[0],
-              y: collider.rotation[1],
-              z: collider.rotation[2],
-              w: collider.rotation[3],
-            });
-          }
-          try {
-            const created = physicsWorld.createCollider(descriptor);
-            initialCollisionColliders.push(created);
-            colliderCount += 1;
-          } catch (cause) {
-            console.warn(
-              `[Agent HQ] static collider at ${collider.x},${collider.z} unavailable`,
-              cause,
-            );
-          }
-        }
-        if (colliderCount === 0) {
-          colliderCount = createFallbackFloorCollider(
-            physicsWorld,
-            colliderBounds,
-            playerPosition,
-            playerHeight,
-          )
-            ? 1
-            : 0;
-          if (colliderCount > 0) console.info(`[Agent HQ] ${label} using fallback spawn floor`);
-        }
-        if (separateCollisionRoot) {
-          disposeObjectTree(separateCollisionRoot);
-          detachedCollisionRoots.delete(separateCollisionRoot);
-        }
-        for (const field of collisionFields) {
-          if (!field) continue;
-          disposeObjectTree(field);
-          detachedCollisionRoots.delete(field);
-        }
-        if (entryZoneId && initialCollisionColliders.length > 0) {
-          zoneCollisionColliders.set(entryZoneId, initialCollisionColliders);
-          activeZoneCollisionId = entryZoneId;
-        }
-        if (pendingCollision.length > 0 && startPosition.snapToGround !== false) {
-          // A poisoned Rapier world throws here after collider failures. Keep
-          // the scene alive on the authored spawn position instead of failing
-          // the whole load.
-          try {
-            const spawnRay = new RAPIER.Ray(
-              { x: playerPosition.x, y: playerPosition.y + 4, z: playerPosition.z },
-              { x: 0, y: -1, z: 0 },
-            );
-            const surface = world.castRay(spawnRay, 20, true);
-            if (surface) {
-              playerPosition.y = playerPosition.y + 4 - surface.timeOfImpact + playerHeight / 2;
-              console.info(`[Agent HQ] ${label} snapped spawn to y=${playerPosition.y}`);
-            } else {
-              // The physics colliders may not cover the spawn point (e.g. a
-              // plaza gap between road tiles): fall back to the visible ground
-              // so the player does not spawn buried underground.
-              const fallbackRaycaster = new THREE.Raycaster();
-              fallbackRaycaster.set(
-                new THREE.Vector3(playerPosition.x, playerPosition.y + 4, playerPosition.z),
-                new THREE.Vector3(0, -1, 0),
-              );
-              const visualHits = fallbackRaycaster.intersectObjects(scene.children, true);
-              if (visualHits.length > 0) {
-                playerPosition.y = visualHits[0].point.y + playerHeight / 2;
-                console.info(
-                  `[Agent HQ] ${label} snapped spawn to visible ground y=${playerPosition.y}`,
+          if (staticFieldCollisionPatterns.length > 0) {
+            const fieldMeshFilter = (mesh: THREE.Mesh) => {
+              let current: THREE.Object3D | null = mesh;
+              while (current) {
+                const objectName = current.name;
+                if (staticFieldCollisionPatterns.some((pattern) => pattern.test(objectName)))
+                  return true;
+                current = current.parent;
+              }
+              return false;
+            };
+            for (const [field, exactCompanion] of [[props, collisionFields[1]]] as const) {
+              if (field && !exactCompanion) {
+                // This filter is the explicit opt-in for otherwise visual-only
+                // generated fields. Treat the selected meshes as trusted so the
+                // generic props-layer exclusion cannot discard them before the
+                // field filter gets a chance to include them.
+                colliderCount += addSceneColliders(
+                  physicsWorld,
+                  field,
+                  false,
+                  runtimeCollisionExclusionAreas,
+                  fieldMeshFilter,
+                  collisionIncludePatterns,
+                  initialCollisionColliders,
+                  true,
                 );
               }
             }
-          } catch (cause) {
-            const message = cause instanceof Error ? cause.message : "unknown spawn ray error";
-            console.warn(`[Agent HQ] ${label} spawn ray unavailable: ${message}`);
           }
+          for (const collider of staticColliders) {
+            const descriptor = RAPIER.ColliderDesc.cuboid(
+              collider.halfExtents[0] * sceneScale,
+              collider.halfExtents[1] * sceneScale,
+              collider.halfExtents[2] * sceneScale,
+            )
+              .setTranslation(
+                collider.x * sceneScale,
+                collider.y * sceneScale,
+                collider.z * sceneScale,
+              )
+              .setFriction(0.9);
+            if (collider.rotation) {
+              descriptor.setRotation({
+                x: collider.rotation[0],
+                y: collider.rotation[1],
+                z: collider.rotation[2],
+                w: collider.rotation[3],
+              });
+            }
+            try {
+              const created = physicsWorld.createCollider(descriptor);
+              initialCollisionColliders.push(created);
+              colliderCount += 1;
+            } catch (cause) {
+              console.warn(
+                `[Agent HQ] static collider at ${collider.x},${collider.z} unavailable`,
+                cause,
+              );
+            }
+          }
+          if (colliderCount === 0) {
+            colliderCount = createFallbackFloorCollider(
+              physicsWorld,
+              colliderBounds,
+              playerPosition,
+              playerHeight,
+            )
+              ? 1
+              : 0;
+            if (colliderCount > 0) console.info(`[Agent HQ] ${label} using fallback spawn floor`);
+          }
+          if (separateCollisionRoot) {
+            disposeObjectTree(separateCollisionRoot);
+            detachedCollisionRoots.delete(separateCollisionRoot);
+          }
+          for (const field of collisionFields) {
+            if (!field) continue;
+            disposeObjectTree(field);
+            detachedCollisionRoots.delete(field);
+          }
+          if (entryZoneId && initialCollisionColliders.length > 0) {
+            zoneCollisionColliders.set(entryZoneId, initialCollisionColliders);
+            activeZoneCollisionId = entryZoneId;
+          }
+          if (pendingCollision.length > 0 && startPosition.snapToGround !== false) {
+            // A poisoned Rapier world throws here after collider failures. Keep
+            // the scene alive on the authored spawn position instead of failing
+            // the whole load.
+            try {
+              const spawnRay = new RAPIER.Ray(
+                { x: playerPosition.x, y: playerPosition.y + 4, z: playerPosition.z },
+                { x: 0, y: -1, z: 0 },
+              );
+              const surface = physicsWorld.castRay(spawnRay, 20, true);
+              if (surface) {
+                playerPosition.y = playerPosition.y + 4 - surface.timeOfImpact + playerHeight / 2;
+                console.info(`[Agent HQ] ${label} snapped spawn to y=${playerPosition.y}`);
+              } else {
+                // The physics colliders may not cover the spawn point (e.g. a
+                // plaza gap between road tiles): fall back to the visible ground
+                // so the player does not spawn buried underground.
+                const fallbackRaycaster = new THREE.Raycaster();
+                fallbackRaycaster.set(
+                  new THREE.Vector3(playerPosition.x, playerPosition.y + 4, playerPosition.z),
+                  new THREE.Vector3(0, -1, 0),
+                );
+                const visualHits = fallbackRaycaster.intersectObjects(scene.children, true);
+                if (visualHits.length > 0) {
+                  playerPosition.y = visualHits[0].point.y + playerHeight / 2;
+                  console.info(
+                    `[Agent HQ] ${label} snapped spawn to visible ground y=${playerPosition.y}`,
+                  );
+                }
+              }
+            } catch (cause) {
+              const message = cause instanceof Error ? cause.message : "unknown spawn ray error";
+              console.warn(`[Agent HQ] ${label} spawn ray unavailable: ${message}`);
+            }
+          }
+          const playerShape = RAPIER.ColliderDesc.capsule(segmentHalfHeight, playerRadius)
+            .setTranslation(playerPosition.x, playerPosition.y, playerPosition.z)
+            .setFriction(0);
+          playerCollider = physicsWorld.createCollider(playerShape);
+          telemetry.mark("physics.ready");
         }
-        const playerShape = RAPIER.ColliderDesc.capsule(segmentHalfHeight, playerRadius)
-          .setTranslation(playerPosition.x, playerPosition.y, playerPosition.z)
-          .setFriction(0);
-        playerCollider = world.createCollider(playerShape);
-        telemetry.mark("physics.ready");
         debugLog(
           `[Agent HQ] ${label} physics ready colliders=${colliderCount} player=${playerPosition.toArray().join(",")}`,
         );
@@ -2806,12 +2902,27 @@ export function SceneHost({
           disposeObjectTree(loadedCharacter.scene);
           return;
         }
+        // Top-down click-only sessions play idle and the locomotion clip and
+        // nothing else, so they load the reduced animation library immediately
+        // instead of waiting for the deferred full set; the deferred load below
+        // still tops up the remaining clips for a later camera switch.
+        const topDownAtLoad =
+          orthographicClickOnly && cameraController.viewMode === "orthographic";
         // Reference characters use their own 352-bone deformation rig. Pass
         // the loaded target scene so the shared runtime clips can be retargeted
         // to its compatible deformation bones before the mixer is created.
-        const pendingCoreAnimations = deferCharacterDetails
+        const pendingCoreAnimations =
+          deferCharacterDetails && !topDownAtLoad
           ? Promise.resolve({ clips: [], names: {} })
-          : loadCharacterAnimations(loader, characterId, coreAnimationKeys, loadedCharacter.scene);
+          : telemetry.track(
+              "character.animations",
+              loadCharacterAnimations(
+            loader,
+            requestedCharacterId,
+            topDownAtLoad ? ["idle", "run"] : coreAnimationKeys,
+            loadedCharacter.scene,
+          ),
+            );
         let coreAnimations: Awaited<ReturnType<typeof loadCharacterAnimations>> = {
           clips: [],
           names: {},
@@ -2821,7 +2932,7 @@ export function SceneHost({
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : "unknown core animation error";
           console.warn(
-            `[Agent HQ] ${characterId} core animation catalog partially unavailable: ${message}`,
+            `[Agent HQ] ${requestedCharacterId} core animation catalog partially unavailable: ${message}`,
           );
         }
         const character = loadedCharacter.scene;
@@ -2844,17 +2955,45 @@ export function SceneHost({
         scene.add(character);
         character.updateMatrixWorld(true);
         const characterBounds = new THREE.Box3();
-        character.traverse((object) => {
-          if (object instanceof THREE.Mesh && object.visible)
-            characterBounds.expandByObject(object);
-        });
-        const characterBottom = characterBounds.min.y;
-        // Aim near the upper torso/head of the visual model instead of relying
-        // on the physics capsule height.
-        const cameraTargetOffset = characterGroundOffset + characterBounds.max.y * 0.9;
+        const characterOrigin = new THREE.Vector3();
+        let characterBottom = 0;
+        let cameraTargetOffset = 0;
+        const recalculateCharacterFraming = () => {
+          character.updateMatrixWorld(true);
+          character.getWorldPosition(characterOrigin);
+          characterBounds.makeEmpty();
+          character.traverse((object) => {
+            if (object instanceof THREE.Mesh && object.visible)
+              characterBounds.expandByObject(object);
+          });
+          // Keep framing coordinates relative to the character root. Preview
+          // updates can run while the root already has its ground offset;
+          // storing the world-space minimum here would apply that offset twice
+          // on the next render and bury some body variants' shoes.
+          characterBottom = characterBounds.min.y - characterOrigin.y;
+          const characterCenter =
+            (characterBounds.min.y + characterBounds.max.y) / 2 - characterOrigin.y;
+          cameraTargetOffset =
+            cameraTargetMode === "center"
+              ? characterGroundOffset - characterBottom + characterCenter
+              : characterGroundOffset + characterBounds.max.y * 0.9;
+        };
+        recalculateCharacterFraming();
         const characterClips = [...loadedCharacter.clips, ...coreAnimations.clips];
         const controller = createCharacterAnimationController(character, characterClips);
         animationController = controller;
+        if (characterPreview && pendingPreviewApi) {
+          const { updateCharacterConfiguration } = await pendingPreviewApi;
+          characterPreviewUpdateRef.current = (id, configuration) => {
+            if (id !== configurableCharacterId || !configuration || characterRoot !== character) return;
+            updateCharacterConfiguration(character, configuration);
+            recalculateCharacterFraming();
+          };
+          characterPreviewUpdateRef.current(
+            characterIdRef.current,
+            characterConfigurationRef.current,
+          );
+        }
         let runName = coreAnimations.names.run ?? loadedCharacter.clips[0]?.name;
         let locomotionName = runName ?? coreAnimations.names.walk;
         let idleName = coreAnimations.names.idle;
@@ -2880,25 +3019,31 @@ export function SceneHost({
         let jumpWasAirborne = false;
         let jumpEndActive = false;
         let isSwimming = false;
+        // Top-down loads start with the reduced locomotion set; the remaining
+        // clips are fetched the first time the session leaves top-down instead
+        // of speculatively downloading the full library.
+        let extendedAnimationsRequested = topDownAtLoad ? false : true;
         debugLog(
-          `[Agent HQ] ${characterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
+          `[Agent HQ] ${requestedCharacterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
         );
 
-        characterController = world.createCharacterController(0.05);
-        characterController.setUp({ x: 0, y: 1, z: 0 });
-        characterController.setMaxSlopeClimbAngle(THREE.MathUtils.degToRad(48));
-        // The cafe/beach-house decks sit ~0.6 above the sand. HQ switches to
-        // its larger slab step only while click-only orthographic mode is
-        // active; perspective keeps the shared World value.
-        characterController.enableAutostep(0.6, 0.2, false);
-        characterController.enableSnapToGround(0.3);
         let activeAutostepHeight = 0.6;
+        if (physicsEnabled && world) {
+          characterController = world.createCharacterController(0.05);
+          characterController.setUp({ x: 0, y: 1, z: 0 });
+          characterController.setMaxSlopeClimbAngle(THREE.MathUtils.degToRad(48));
+          // The cafe/beach-house decks sit ~0.6 above the sand. HQ switches to
+          // its larger slab step only while click-only orthographic mode is
+          // active; perspective keeps the shared World value.
+          characterController.enableAutostep(0.6, 0.2, false);
+          characterController.enableSnapToGround(0.3);
+        }
 
         const loadDeferredCharacterDetails = async () => {
           try {
             const animations = await loadCharacterAnimations(
               loader,
-              characterId,
+              requestedCharacterId,
               coreAnimationKeys,
               character,
             );
@@ -2933,7 +3078,9 @@ export function SceneHost({
             [jumpName, jumpStartName, jumpEndName].forEach((name) => {
               if (name) animationController?.actions.get(name)?.setLoop(THREE.LoopOnce, 1);
             });
-            if (idleName && activeAnimationName !== idleName) {
+            // Start idle only when nothing is active; interrupting a playing
+            // locomotion clip here would visibly snap mid-step.
+            if (idleName && !activeAnimationName) {
               animationController.play(idleName);
               activeAnimationName = idleName;
             }
@@ -2941,19 +3088,25 @@ export function SceneHost({
             const message =
               cause instanceof Error ? cause.message : "unknown deferred character detail error";
             console.warn(
-              `[Agent HQ] ${characterId} deferred character details unavailable: ${message}`,
+              `[Agent HQ] ${requestedCharacterId} deferred character details unavailable: ${message}`,
             );
           }
         };
 
         const colliderLabel = collisionAssetUrl ? "collision mesh" : "colliders";
-        const readyStatus = `${label} ready · ${colliderCount.toLocaleString()} ${colliderLabel} · ${characterId}`;
+        const readyStatus = `${label} ready · ${colliderCount.toLocaleString()} ${colliderLabel} · ${requestedCharacterId}`;
         setStatus(readyStatus);
         telemetry.markPlayable();
         const viewDirection = new THREE.Vector3();
-        const cameraRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
-        const floorRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
-        const climbRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+        const cameraRay = physicsEnabled
+          ? new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })
+          : null;
+        const floorRay = physicsEnabled
+          ? new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })
+          : null;
+        const climbRay = physicsEnabled
+          ? new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 })
+          : null;
         const cameraOcclusionRaycaster = new THREE.Raycaster();
         const cameraOcclusionDirection = new THREE.Vector3();
         const forward = new THREE.Vector3();
@@ -2966,10 +3119,10 @@ export function SceneHost({
         const characterTarget = new THREE.Vector3();
         let cameraOcclusionFrame = 0;
         let cameraDistance = cameraController.perspectiveDistance;
-        // Face the character along the spawn view direction: the camera yaw
-        // already honors startPosition.yaw, so the avatar must start turned
-        // the same way instead of staring at the default +z heading.
-        let characterYaw = startPosition.yaw ?? 0;
+        // Face the character along the spawn view direction. Preview scenes
+        // place the camera in front of the avatar, so they need the opposite
+        // body heading from the third-person gameplay camera.
+        let characterYaw = (startPosition.yaw ?? 0) + (characterPreview ? Math.PI : 0);
         let swimTilt = 0;
         const characterYawEuler = new THREE.Euler();
         const swimTiltEuler = new THREE.Euler();
@@ -3159,7 +3312,7 @@ export function SceneHost({
             if (yaw != null) cameraController.setYaw(yaw);
             if (bodyYaw != null) characterYaw = bodyYaw;
             if (isSwimming) isSwimming = false;
-            if (snapToGround) {
+            if (snapToGround && physicsEnabled && world) {
               try {
                 const seededPlayerY = y != null ? y : null;
                 const seededFloorY =
@@ -3350,8 +3503,9 @@ export function SceneHost({
             return found;
           },
           groundY: (x, z) => {
+            if (!world || !physicsEnabled) return null;
             const ray = new RAPIER.Ray({ x, y: 150, z }, { x: 0, y: -1, z: 0 });
-            const hit = world?.castRay(
+            const hit = world.castRay(
               ray,
               300,
               true,
@@ -3364,9 +3518,10 @@ export function SceneHost({
             return hit ? 150 - hit.timeOfImpact : null;
           },
           groundYAt: (x, z, seedY) => {
+            if (!world || !physicsEnabled) return null;
             const ray = new RAPIER.Ray({ x, y: seedY + 4, z }, { x: 0, y: -1, z: 0 });
             const surfaces: number[] = [];
-            world?.intersectionsWithRay(
+            world.intersectionsWithRay(
               ray,
               20,
               true,
@@ -3598,12 +3753,44 @@ export function SceneHost({
         }
         for (const zone of zones) if (zone.preload) scheduleZoneLoad(zone.id);
         const render = () => {
-          if (disposed || !world || !characterController || !playerCollider) return;
+          if (disposed) return;
           const frameStartedAt = performance.now();
           animationFrame = requestAnimationFrame(render);
           timer.update();
-          updateProximityZones();
           const delta = Math.min(timer.getDelta(), 0.05);
+          if (!physicsEnabled) {
+            cameraController.setCameraRelativeBasis(forward, right);
+            visualUpdate?.(scene, delta, timer.getElapsed());
+            animationController?.update(delta);
+            if (characterRoot) {
+              characterRoot.position.set(
+                playerPosition.x,
+                playerPosition.y - playerHeight / 2 - characterBottom + characterGroundOffset,
+                playerPosition.z,
+              );
+              characterRoot.rotation.set(0, characterYaw, 0);
+            }
+            characterTarget.set(
+              playerPosition.x,
+              playerPosition.y - playerHeight / 2 + cameraTargetOffset,
+              playerPosition.z,
+            );
+            cameraController.update(characterTarget, delta, Infinity);
+            camera = cameraController.camera;
+            activeRenderer.clear();
+            if (screenBackgroundMesh.visible) {
+              activeRenderer.render(screenBackgroundScene, screenBackgroundCamera);
+              activeRenderer.clearDepth();
+            }
+            activeRenderer.render(scene, camera);
+            telemetry.recordFrame(
+              performance.now() - frameStartedAt,
+              activeRenderer.info.render.calls,
+            );
+            return;
+          }
+          if (!world || !characterController || !playerCollider) return;
+          updateProximityZones();
           if (cameraViewModeRef && cameraViewModeRef.current !== cameraController.viewMode) {
             cameraController.setViewMode(cameraViewModeRef.current);
             camera = cameraController.camera;
@@ -3623,6 +3810,20 @@ export function SceneHost({
               activeRenderer.domElement.style.cursor = "";
             }
           }
+          if (
+            cameraController.isPerspective &&
+            backgroundTextureUrl &&
+            !backgroundTexture &&
+            !pendingBackground
+          ) {
+            void loadBackground().then((loaded) => {
+              if (disposed) {
+                loaded?.dispose();
+              } else if (loaded) {
+                applyLoadedBackground(loaded);
+              }
+            });
+          }
           if (screenBackgroundActive) {
             screenBackgroundMesh.visible =
               !environment?.backgroundTexturePerspectiveOnly || cameraController.isPerspective;
@@ -3637,6 +3838,12 @@ export function SceneHost({
           world.step();
           const inputFrozen = false;
           const topDownClickOnlyActive = isOrthographicClickOnly();
+          if (!topDownClickOnlyActive && !extendedAnimationsRequested) {
+            // The session left top-down, so jump, swim, and the remaining
+            // clips become reachable; fetch them once in the background.
+            extendedAnimationsRequested = true;
+            void loadDeferredCharacterDetails();
+          }
           const desiredAutostepHeight = 0.6;
           if (desiredAutostepHeight !== activeAutostepHeight) {
             characterController.enableAutostep(desiredAutostepHeight, 0.2, false);
@@ -3825,14 +4032,14 @@ export function SceneHost({
             const probeWorld = world;
             const probeCollider = playerCollider;
             const probeFloor = (x: number, z: number) => {
-              floorRay.origin.x = x;
-              floorRay.origin.y = referenceWater.surfaceY + SWIM_FLOOR_PROBE_ORIGIN;
-              floorRay.origin.z = z;
-              floorRay.dir.x = 0;
-              floorRay.dir.y = -1;
-              floorRay.dir.z = 0;
+              floorRay!.origin.x = x;
+              floorRay!.origin.y = referenceWater.surfaceY + SWIM_FLOOR_PROBE_ORIGIN;
+              floorRay!.origin.z = z;
+              floorRay!.dir.x = 0;
+              floorRay!.dir.y = -1;
+              floorRay!.dir.z = 0;
               const hit = probeWorld.castRay(
-                floorRay,
+                floorRay!,
                 SWIM_FLOOR_PROBE_ORIGIN + SWIM_FLOOR_PROBE_DISTANCE,
                 true,
                 undefined,
@@ -3877,14 +4084,14 @@ export function SceneHost({
                 // body center runs underneath the sand edge and never finds the
                 // bank. From the capsule top it clears the lip and the downhill
                 // probe can locate the bank top.
-                climbRay.origin.x = playerPosition.x;
-                climbRay.origin.y = playerPosition.y + playerHeight / 2;
-                climbRay.origin.z = playerPosition.z;
-                climbRay.dir.x = climbDir.x;
-                climbRay.dir.y = 0;
-                climbRay.dir.z = climbDir.z;
+                climbRay!.origin.x = playerPosition.x;
+                climbRay!.origin.y = playerPosition.y + playerHeight / 2;
+                climbRay!.origin.z = playerPosition.z;
+                climbRay!.dir.x = climbDir.x;
+                climbRay!.dir.y = 0;
+                climbRay!.dir.z = climbDir.z;
                 const climbHit = world.castRay(
-                  climbRay,
+                  climbRay!,
                   CLIMB_RAY_DISTANCE,
                   true,
                   undefined,
@@ -3894,19 +4101,19 @@ export function SceneHost({
                 if (climbHit) {
                   const bankX = playerPosition.x + climbDir.x * climbHit.timeOfImpact;
                   const bankZ = playerPosition.z + climbDir.z * climbHit.timeOfImpact;
-                  floorRay.origin.x = bankX;
-                  floorRay.origin.y = playerPosition.y + CLIMB_MAX_RISE + 1.5;
-                  floorRay.origin.z = bankZ;
-                  floorRay.dir.y = -1;
+                  floorRay!.origin.x = bankX;
+                  floorRay!.origin.y = playerPosition.y + CLIMB_MAX_RISE + 1.5;
+                  floorRay!.origin.z = bankZ;
+                  floorRay!.dir.y = -1;
                   const bankHit = world.castRay(
-                    floorRay,
+                    floorRay!,
                     CLIMB_MAX_RISE + 4,
                     true,
                     undefined,
                     undefined,
                     playerCollider,
                   );
-                  const bankY = bankHit ? floorRay.origin.y - bankHit.timeOfImpact : -Infinity;
+                  const bankY = bankHit ? floorRay!.origin.y - bankHit.timeOfImpact : -Infinity;
                   if (
                     bankY > referenceWater.surfaceY + 0.15 &&
                     bankY - playerPosition.y <= CLIMB_MAX_RISE
@@ -4097,14 +4304,14 @@ export function SceneHost({
           if (cameraController.isPerspective) {
             cameraController.getTargetViewDirection(viewDirection);
             if (cameraOcclusionFrame++ % 4 === 0) {
-              cameraRay.origin.x = characterTarget.x;
-              cameraRay.origin.y = characterTarget.y;
-              cameraRay.origin.z = characterTarget.z;
-              cameraRay.dir.x = -viewDirection.x;
-              cameraRay.dir.y = -viewDirection.y;
-              cameraRay.dir.z = -viewDirection.z;
+              cameraRay!.origin.x = characterTarget.x;
+              cameraRay!.origin.y = characterTarget.y;
+              cameraRay!.origin.z = characterTarget.z;
+              cameraRay!.dir.x = -viewDirection.x;
+              cameraRay!.dir.y = -viewDirection.y;
+              cameraRay!.dir.z = -viewDirection.z;
               const obstruction = world.castRay(
-                cameraRay,
+                cameraRay!,
                 cameraController.perspectiveDistance,
                 true,
                 undefined,
@@ -4198,7 +4405,7 @@ export function SceneHost({
           proximityZonesReady = true;
           updateProximityZones();
         }, 5000);
-        if (deferCharacterDetails && loadDeferredCharacterDetails) {
+        if (deferCharacterDetails && loadDeferredCharacterDetails && !topDownAtLoad) {
           window.setTimeout(() => {
             if (!disposed) void loadDeferredCharacterDetails();
           }, 7000);
@@ -4236,6 +4443,7 @@ export function SceneHost({
       navigationIndicator.geometry.dispose();
       navigationIndicator.material.dispose();
       cameraController.dispose();
+      characterPreviewUpdateRef.current = null;
       if (debugApiRef) debugApiRef.current = null;
       for (const colliders of zoneCollisionColliders.values()) {
         colliders.forEach((collider) => world?.removeCollider(collider, true));
@@ -4249,9 +4457,12 @@ export function SceneHost({
     additionalCollisionAssetUrls,
     assetUrl,
     cameraBounds,
-    characterConfiguration,
+    cameraMouseControlEnabled,
+    cameraDragControlEnabled,
+    cameraTargetMode,
     characterGroundOffset,
-    characterId,
+    characterLoadKey,
+    characterPreview,
     characterScale,
     clickNavigationBounds,
     clickNavigationIndicatorScale,
@@ -4266,6 +4477,8 @@ export function SceneHost({
     entryZoneId,
     environment,
     foliageManifestUrl,
+    physicsEnabled,
+    ktx2Enabled,
     keepZoneCollisionsActive,
     label,
     loadDeferredCharacterDetails,

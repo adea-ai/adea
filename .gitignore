@@ -39,6 +39,8 @@ htmlcov/
 .coverage*
 .next/
 /artifacts/
+/.artifacts/
+test-results/
 apps/*/public/assets/
 cache/
 !.github/actions/cache/

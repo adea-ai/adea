@@ -31,9 +31,13 @@ test('a guest can use a workspace before opening the optional persistence flow',
     })
   })
 
-  await page.goto('/?view=spatial')
+  await page.goto('/?view=virtual')
   const userMenu = page.getByRole('button', { name: 'User settings' })
   await expect(userMenu).toBeVisible({ timeout: 20_000 })
+  await expect(userMenu.locator('svg.lucide-user-round')).toHaveCount(1)
+  const characterButton = page.getByRole('button', { name: 'Open character designer' })
+  await expect(characterButton).toBeVisible({ timeout: 20_000 })
+  await expect(characterButton.locator('svg.lucide-user-round-pen')).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Open user menu for Sign in' })).toHaveCount(0)
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
   await expect(page.locator('.workspace-topbar')).toHaveCount(0)
@@ -116,13 +120,17 @@ test('a guest can use a workspace before opening the optional persistence flow',
   })
   const shortcutSettings = page.getByRole('dialog', { name: 'Settings' })
   await expect(shortcutSettings).toBeVisible()
+  await expect(page).toHaveURL(/view=virtual/)
   await page.getByRole('button', { name: 'Close dialog' }).click()
 
   await userMenu.click()
   await accountMenu.getByRole('menuitem', { name: 'Settings' }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
-  await expect(settings.locator('.conventional-dialog__heading .conventional-settings-logo')).toBeVisible()
+  await expect(page).toHaveURL(/view=virtual/)
+  await expect(
+    settings.locator('.conventional-dialog__heading .conventional-settings-logo')
+  ).toBeVisible()
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()
 
@@ -135,6 +143,29 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(page).toHaveURL(/\/auth\/sign-in\?returnTo=%2F$/)
   await expect(page.getByRole('heading', { name: 'Save your workspace' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Continue without an account' })).toBeVisible()
+})
+
+test('settings opens over chat without changing the current view', async ({ page }) => {
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true },
+        workspaces: [workspace],
+      },
+    })
+  })
+
+  await page.goto('/?view=chat')
+  const userMenu = page.getByRole('button', { name: 'User settings' })
+  await expect(userMenu).toBeVisible({ timeout: 20_000 })
+  await userMenu.click()
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Settings' }).click()
+
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible({ timeout: 20_000 })
+  await expect(page).toHaveURL(/view=chat/)
 })
 
 test('desktop authentication ends on a clear browser success page', async ({ page }) => {

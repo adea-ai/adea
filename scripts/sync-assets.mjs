@@ -1,6 +1,6 @@
-import { access, cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const publicAssets = resolve(repoRoot, "apps/web/public/assets");
@@ -24,6 +24,47 @@ async function resolveAsset(...candidates) {
     }
   }
   throw new Error(`Could not find runtime asset in any of: ${candidates.join(", ")}`);
+}
+
+async function writeAssignedPropsManifest(scene, assetDirectory) {
+  // Bun can load the TypeScript catalog directly. Keeping this transform in
+  // the asset sync step means the HQ bundle only needs the placed assets and
+  // never imports the authoring catalog.
+  const { interiorPropAssets } = await import(
+    pathToFileURL(resolve(repoRoot, "packages/interior/src/catalog.ts")).href
+  );
+  const catalogById = new Map(interiorPropAssets.map((asset) => [asset.id, asset]));
+  const propsPath = resolve(repoRoot, "scenes/hq/assets", assetDirectory, "props.json");
+  const document = JSON.parse(await readFile(propsPath, "utf8"));
+  const placements = document.placements ?? {};
+  const assets = Object.fromEntries(
+    Object.keys(placements).flatMap((modelId) => {
+      const asset = catalogById.get(modelId);
+      if (!asset) {
+        console.warn(`[Agent HQ] Missing interior catalog entry for assigned prop ${modelId}.`);
+        return [];
+      }
+      return [
+        [
+          modelId,
+          {
+            assetUrl: asset.assetUrl,
+            defaultScale: asset.defaultScale,
+            footprint: asset.footprint,
+            placementSurface: asset.placementSurface,
+            wallMountHeight: asset.wallMountHeight,
+            floorLift: asset.floorLift,
+            placeableOnTop: asset.placeableOnTop,
+          },
+        ],
+      ];
+    }),
+  );
+  const destination = resolve(publicAssets, "worlds", scene, "props-runtime.json");
+  await writeFile(
+    destination,
+    `${JSON.stringify({ version: 1, scene, assets, placements }, null, 2)}\n`,
+  );
 }
 
 await rm(publicAssets, { recursive: true, force: true });
@@ -55,6 +96,7 @@ for (const [scene, assetDirectory] of [
     resolve(repoRoot, "scenes", "hq", "assets", assetDirectory),
     resolve(publicAssets, "worlds", scene),
   );
+  await writeAssignedPropsManifest(scene, assetDirectory);
 }
 
 await copyAsset(resolve(repoRoot, "packages/interior/assets"), resolve(publicAssets, "models"));

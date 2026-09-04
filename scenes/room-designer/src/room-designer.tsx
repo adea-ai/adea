@@ -117,9 +117,11 @@ export type RoomDesignerProps = {
   sceneVersion?: number;
   /** Close the designer, allowing the shell to show its unsaved-changes prompt. */
   onClose?: () => void;
-  /** Expose the save action to the shell's unsaved-changes prompt. */
+  /** Expose the save action to the surrounding scene's unsaved-changes prompt. */
   saveRef?: MutableRefObject<(() => Promise<boolean>) | null>;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Notify the surrounding scene after the saved layout is persisted. */
+  onSaved?: () => void;
 };
 
 const IDENTITY_QUATERNION: [number, number, number, number] = [0, 0, 0, 1];
@@ -614,6 +616,7 @@ export function RoomDesigner({
   onClose,
   saveRef,
   onDirtyChange,
+  onSaved,
 }: RoomDesignerProps) {
   const [placements, setPlacements] = useState<RoomDesignerPlacement[]>([]);
   const [savedPlacements, setSavedPlacements] = useState<RoomDesignerPlacement[]>([]);
@@ -1660,6 +1663,7 @@ export function RoomDesigner({
         );
       const nextPlacements = placementsRef.current.map(clonePlacement);
       invalidateRoomDesignerDocument(manifest.id);
+      onSaved?.();
       savedPlacementsRef.current = nextPlacements;
       setSavedPlacements(nextPlacements);
       setStatus("Saved.");
@@ -1668,7 +1672,7 @@ export function RoomDesigner({
       setStatus(error instanceof Error ? error.message : "Could not save room layout.");
       return false;
     }
-  }, [manifest.id]);
+  }, [manifest.id, onSaved]);
 
   useEffect(() => {
     if (!saveRef) return;
@@ -1855,6 +1859,7 @@ export function RoomDesigner({
         }}
         aria-label="Room designer"
         aria-hidden={dragActive}
+        data-room-designer-active="true"
       >
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-3">
           <p className="text-sm font-semibold">Room designer</p>

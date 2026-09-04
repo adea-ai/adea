@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import * as THREE from 'three'
 import { createDefaultCharacterConfiguration } from '@agent-hq/characters'
+import { createDesignerStage } from '../src/character-designer-scene'
 import {
   characterDesignerSlotCategories,
   hasCharacterDesignerChanges,
@@ -21,6 +23,18 @@ describe('character designer change tracking', () => {
       'gloves',
       'accessory',
       'costume',
+    ])
+  })
+
+  test('keeps the designer stage open so the camera cannot hit backdrop walls', () => {
+    const root = new THREE.Group()
+
+    createDesignerStage(root)
+
+    expect(root.children.map((child) => child.name)).toEqual([
+      'character-designer-floor',
+      'character-designer-platform',
+      'character-designer-platform-accent',
     ])
   })
 

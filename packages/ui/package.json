@@ -8,14 +8,17 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.tsx",
       "import": "./dist/index.js"
     },
     "./components/*": {
       "types": "./dist/components/*.d.ts",
+      "development": "./src/components/*",
       "import": "./dist/components/*.js"
     },
     "./lib/*": {
       "types": "./dist/lib/*.d.ts",
+      "development": "./src/lib/*",
       "import": "./dist/lib/*.js"
     },
     "./globals.css": "./src/styles/globals.css",
@@ -31,6 +34,7 @@
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
