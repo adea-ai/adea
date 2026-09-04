@@ -43,7 +43,7 @@ Agent HQ consumes the authoritative registry through the same-origin server
 proxy. The proxy calls Control Plane; browser and desktop clients never fetch
 GitHub release assets or upstream plugin content directly. The registry's stable
 latest artifact is
-[`catalog-latest.v1.json`](https://github.com/0xPlayerOne/plugins/releases/latest/download/catalog-latest.v1.json),
+[`catalog-latest.v1.json`](https://github.com/adea-ai/plugins/releases/latest/download/catalog-latest.v1.json),
 and each verified catalog is pinned by its `catalogId` and immutable release
 tag.
 
