@@ -169,7 +169,7 @@ export function MessageComposer({
           value={draft}
           rows={3}
           disabled={disabled || sending}
-          placeholder={disabled ? 'Messaging is unavailable' : 'Message this conversation'}
+          placeholder={disabled ? 'Messaging is unavailable' : 'Type something...'}
           aria-describedby={`composer-help-${channelId}`}
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
@@ -196,7 +196,7 @@ export function MessageComposer({
         ) : null}
       </div>
       <div className="conventional-composer__toolbar">
-        <div>
+        <div className="conventional-composer__attachment-control">
           <button
             type="button"
             aria-label="Attach an Artifact"
@@ -206,6 +206,34 @@ export function MessageComposer({
           >
             <Paperclip aria-hidden="true" />
           </button>
+          {attachmentsOpen ? (
+            <div className="conventional-attachment-menu">
+              <strong>Attach Artifact</strong>
+              {artifacts.map((artifact) => (
+                <label key={artifact.id}>
+                  <input
+                    type="checkbox"
+                    checked={attachmentIds.includes(artifact.id)}
+                    disabled={artifact.availability !== 'available'}
+                    onChange={(event) =>
+                      setAttachmentIds((ids) =>
+                        event.target.checked
+                          ? [...ids, artifact.id]
+                          : ids.filter((id) => id !== artifact.id)
+                      )
+                    }
+                  />
+                  <span>{artifact.filename}</span>
+                  <small>{artifact.availability}</small>
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <p id={`composer-help-${channelId}`} className="visually-hidden">
+          Enter to send · Shift+Enter newline · Mod+Shift+M focus
+        </p>
+        <div className="conventional-composer__voice-control">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -236,41 +264,16 @@ export function MessageComposer({
                 : 'Dictation is available in Agent HQ Desktop'}
             </TooltipContent>
           </Tooltip>
-          {attachmentsOpen ? (
-            <div className="conventional-attachment-menu">
-              <strong>Attach Artifact</strong>
-              {artifacts.map((artifact) => (
-                <label key={artifact.id}>
-                  <input
-                    type="checkbox"
-                    checked={attachmentIds.includes(artifact.id)}
-                    disabled={artifact.availability !== 'available'}
-                    onChange={(event) =>
-                      setAttachmentIds((ids) =>
-                        event.target.checked
-                          ? [...ids, artifact.id]
-                          : ids.filter((id) => id !== artifact.id)
-                      )
-                    }
-                  />
-                  <span>{artifact.filename}</span>
-                  <small>{artifact.availability}</small>
-                </label>
-              ))}
-            </div>
-          ) : null}
         </div>
-        <p id={`composer-help-${channelId}`}>
-          Enter to send · Shift+Enter newline · Mod+Shift+M focus
-        </p>
         <button
           type="button"
           className="conventional-send-button"
+          aria-label={sending ? 'Sending message' : 'Send message'}
           disabled={disabled || sending || !draft.trim()}
           onClick={() => void send()}
         >
           <Send aria-hidden="true" />
-          {sending ? 'Sending' : 'Send'}
+          <span className="visually-hidden">{sending ? 'Sending' : 'Send'}</span>
         </button>
       </div>
       <div className="conventional-composer__status" aria-live="polite">
@@ -279,7 +282,7 @@ export function MessageComposer({
         ) : transcriptionError ? (
           <p role="alert">{transcriptionError}</p>
         ) : sending ? (
-          <p>Sending message…</p>
+          <p className="conventional-composer__status--muted">Sending message…</p>
         ) : transcriptionState === 'listening' ? (
           <p>Listening… Select the microphone again to cancel.</p>
         ) : transcriptionState === 'processing' ? (

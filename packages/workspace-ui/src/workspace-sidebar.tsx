@@ -380,9 +380,6 @@ export function WorkspaceSidebar(props: Props) {
                         >
                           <RoomIcon functionKey={item.room.functionKey} />
                           <span className="conventional-room-name">{item.room.name}</span>
-                          {!item.visibleChannels.length ? (
-                            <span className="conventional-room-kind">Room</span>
-                          ) : null}
                           {roomUnread ? (
                             <span
                               className="conventional-unread-badge"

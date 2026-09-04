@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AgentSummary,
   ArtifactSummary,
@@ -17,8 +17,57 @@ import { ThreadPanel } from './thread-panel'
 import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
+import { ConversationAvatar } from './conversation-avatar'
 
 const scrollPositions = new Map<string, number>()
+
+type ConversationPerson = Readonly<{
+  active: boolean
+  id: string
+  label: string
+  kind: 'agent' | 'user'
+  avatarRef?: string
+}>
+
+function peopleForConversation(
+  channel: ChannelSummary,
+  agents: readonly AgentSummary[],
+  directAgent?: AgentSummary
+): ConversationPerson[] {
+  const participantIds = new Set(
+    channel.participants
+      .filter(
+        (participant): participant is { kind: 'agent'; agentId: string } =>
+          participant.kind === 'agent'
+      )
+      .map(({ agentId }) => agentId)
+  )
+  if (directAgent) participantIds.add(directAgent.id)
+  if (channel.kind === 'room' && participantIds.size === 0) {
+    for (const agent of agents) if (agent.roomId === channel.roomId) participantIds.add(agent.id)
+  }
+  const activeAgentId = directAgent?.id ?? participantIds.values().next().value
+  const people: ConversationPerson[] = [
+    { active: false, id: 'current-user', kind: 'user', label: 'You' },
+  ]
+  for (const agent of agents) {
+    if (!participantIds.has(agent.id)) continue
+    people.push({
+      active: activeAgentId === agent.id,
+      id: agent.id,
+      kind: 'agent',
+      label: agent.name,
+      ...(agent.avatarRef ? { avatarRef: agent.avatarRef } : {}),
+    })
+  }
+  return people
+}
+
+function formatMessageDay(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' }).format(
+    new Date(value)
+  )
+}
 
 export function ConversationSurface({
   agents,
@@ -69,7 +118,7 @@ export function ConversationSurface({
 }>) {
   const [cursor, setCursor] = useState<number | undefined>()
   const [messages, setMessages] = useState<readonly MessageSummary[]>([])
-  const [optimisticBody, setOptimisticBody] = useState<string | null>(null)
+  const [optimisticMessage, setOptimisticMessage] = useState<MessageSummary | null>(null)
   const transcriptRef = useRef<HTMLDivElement>(null)
   const lastMarkedReadRef = useRef('')
   const messageQuery = useMessageListQuery(client, workspaceId, channel?.id, {
@@ -81,7 +130,7 @@ export function ConversationSurface({
   useEffect(() => {
     setCursor(undefined)
     setMessages([])
-    setOptimisticBody(null)
+    setOptimisticMessage(null)
     requestAnimationFrame(() => {
       if (transcriptRef.current && channel)
         transcriptRef.current.scrollTop = scrollPositions.get(channel.id) ?? 0
@@ -141,13 +190,28 @@ export function ConversationSurface({
   const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]))
   const taskById = new Map(tasks.map((task) => [task.id, task]))
   const directAgent = channel?.agentId ? agents.find(({ id }) => id === channel.agentId) : undefined
+  const conversationPeople = channel ? peopleForConversation(channel, agents, directAgent) : []
 
   const submit = async (submission: ComposerSubmission) => {
-    setOptimisticBody(submission.bodyText)
+    const createdAt = new Date().toISOString()
+    setOptimisticMessage({
+      artifactIds: submission.artifactIds,
+      bodyText: submission.bodyText,
+      channelId: channel?.id ?? '',
+      createdAt,
+      deleted: false,
+      id: 'optimistic-message',
+      mentions: submission.mentions,
+      sender: { kind: 'user', userId: 'current-user' },
+      sequence: Number.MAX_SAFE_INTEGER,
+      updatedAt: createdAt,
+      version: 0,
+      workspaceId,
+    })
     try {
       await createMessage.mutateAsync(submission)
     } finally {
-      setOptimisticBody(null)
+      setOptimisticMessage(null)
     }
   }
 
@@ -164,61 +228,84 @@ export function ConversationSurface({
       className={`conventional-conversation${root ? ' conventional-conversation--thread-open' : ''}`}
     >
       <header className="conventional-conversation__header">
-        <div>
-          <span>
-            {channel.kind === 'room'
-              ? 'Room conversation'
-              : channel.kind === 'direct_agent'
-                ? 'Direct Conversation'
-                : 'Group conversation'}
-          </span>
-          <h1>{directAgent ? directAgent.name : channel.title}</h1>
+        <div className="conventional-conversation__header-top">
+          <div className="conventional-conversation__identity">
+            <span>
+              {channel.kind === 'room'
+                ? 'Room conversation'
+                : channel.kind === 'direct_agent'
+                  ? 'Direct Conversation'
+                  : 'Group conversation'}
+            </span>
+            <h1>{directAgent ? directAgent.name : channel.title}</h1>
+          </div>
+          <div className="conventional-conversation__actions">
+            {directAgent ? <AgentStatusBadge agent={directAgent} /> : null}
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Search this conversation"
+                    onClick={onOpenSearch}
+                  />
+                }
+              >
+                <Search aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Search this conversation (Mod+F)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Mark conversation unread"
+                    onClick={() => void onMarkUnread()}
+                  />
+                }
+              >
+                <MailOpen aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Mark conversation unread (Mod+Shift+U)</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    aria-label="Open conversation details"
+                    onClick={onOpenDetails}
+                  />
+                }
+              >
+                <Info aria-hidden="true" />
+              </TooltipTrigger>
+              <TooltipContent>Open conversation details</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-        <div className="conventional-conversation__actions">
-          {directAgent ? <AgentStatusBadge agent={directAgent} /> : null}
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Search this conversation"
-                  onClick={onOpenSearch}
-                />
-              }
-            >
-              <Search aria-hidden="true" />
-            </TooltipTrigger>
-            <TooltipContent>Search this conversation (Mod+F)</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Mark conversation unread"
-                  onClick={() => void onMarkUnread()}
-                />
-              }
-            >
-              <MailOpen aria-hidden="true" />
-            </TooltipTrigger>
-            <TooltipContent>Mark conversation unread (Mod+Shift+U)</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Open conversation details"
-                  onClick={onOpenDetails}
-                />
-              }
-            >
-              <Info aria-hidden="true" />
-            </TooltipTrigger>
-            <TooltipContent>Open conversation details</TooltipContent>
-          </Tooltip>
-        </div>
+        <nav className="conventional-conversation__people" aria-label="People in this conversation">
+          <ul>
+            {conversationPeople.map((person) => (
+              <li
+                key={person.id}
+                className={person.active ? 'conventional-conversation__person--active' : undefined}
+                aria-label={person.label}
+                title={person.label}
+              >
+                <span
+                  className={`conventional-conversation__person-avatar conventional-conversation__person-avatar--${person.kind}`}
+                >
+                  <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
+                </span>
+                {person.active ? (
+                  <span className="conventional-conversation__person-presence" />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </nav>
       </header>
       <div
         ref={transcriptRef}
@@ -242,25 +329,41 @@ export function ConversationSurface({
             detail="Messages here are canonical Agent HQ history and remain stable across runtime sessions."
           />
         ) : null}
-        {rootMessages.map((message) => (
+        {rootMessages.map((message, index) => {
+          const previousMessage = rootMessages[index - 1]
+          const showDayDivider =
+            previousMessage &&
+            formatMessageDay(previousMessage.createdAt) !== formatMessageDay(message.createdAt)
+          return (
+            <Fragment key={message.id}>
+              {showDayDivider ? (
+                <div className="conventional-date-divider" role="separator">
+                  <span>{formatMessageDay(message.createdAt)}</span>
+                </div>
+              ) : null}
+              <MessageRow
+                agents={agents}
+                artifacts={artifactById}
+                message={message}
+                highlighted={message.id === searchTargetMessageId}
+                onOpenTask={onOpenTask}
+                onOpenThread={onThreadChange}
+                privateContent={privateContent}
+                task={message.taskId ? taskById.get(message.taskId) : undefined}
+              />
+            </Fragment>
+          )
+        })}
+        {optimisticMessage ? (
           <MessageRow
-            key={message.id}
             agents={agents}
             artifacts={artifactById}
-            message={message}
-            highlighted={message.id === searchTargetMessageId}
+            message={optimisticMessage}
             onOpenTask={onOpenTask}
             onOpenThread={onThreadChange}
+            pending
             privateContent={privateContent}
-            task={message.taskId ? taskById.get(message.taskId) : undefined}
           />
-        ))}
-        {optimisticBody ? (
-          <div className="conventional-optimistic-message" role="status">
-            <span>You</span>
-            <p>{optimisticBody}</p>
-            <small>Sending…</small>
-          </div>
         ) : null}
         {messageQuery.data?.nextAfterSequence ? (
           <button
