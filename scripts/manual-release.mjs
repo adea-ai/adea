@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { createReleasePlan, parseCommitLog } from "./manual-release-core.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const repository = "0xPlayerOne/agent-hq";
+const repository = "adea-ai/agent-hq";
 const releaseHeadPrefix = "release-please--branches--main";
 // The emulated Linux fallback may run for up to 120 minutes. Keep the local
 // orchestrator alive beyond that workflow deadline so it never tears down a
@@ -225,7 +225,7 @@ function verifyReleaseAssets(tag) {
         "--silent",
         "--show-error",
         "--location",
-        `https://0xplayerone.github.io/agent-hq/desktop-updates/latest.json?release=${tag}`,
+        `https://adea-ai.github.io/agent-hq/desktop-updates/latest.json?release=${tag}`,
       ],
       { capture: true },
     ),
@@ -240,7 +240,7 @@ function verifyReleaseAssets(tag) {
       typeof entry?.signature !== "string" ||
       entry.signature.length === 0 ||
       typeof entry?.url !== "string" ||
-      !entry.url.startsWith("https://0xplayerone.github.io/agent-hq/desktop-updates/")
+      !entry.url.startsWith("https://adea-ai.github.io/agent-hq/desktop-updates/")
     ) {
       throw new Error(`The public updater manifest is missing a signed ${platform} package.`);
     }
