@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@agent-hq/types'
-import { Bot, File, LockKeyhole, MessageSquareReply, Pencil, RotateCcw, Trash2 } from 'lucide-react'
+import {
+  CheckCheck,
+  File,
+  LockKeyhole,
+  MessageSquareReply,
+  Pencil,
+  RotateCcw,
+  Trash2,
+} from 'lucide-react'
 
 import type { PrivateContentResolver } from './platform'
+import { ConversationAvatar } from './conversation-avatar'
 
 function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
   if (message.sender.kind === 'user') return 'You'
@@ -138,7 +147,8 @@ export function MessageRow({
   task?: TaskSummary
 }>) {
   const label = senderLabel(message, agents)
-  const isAgent = message.sender.kind === 'agent'
+  const senderAgentId = message.sender.kind === 'agent' ? message.sender.agentId : undefined
+  const senderAgent = senderAgentId ? agents.find(({ id }) => id === senderAgentId) : undefined
   return (
     <article
       className={`conventional-message conventional-message--${message.sender.kind}${highlighted ? ' conventional-message--highlighted' : ''}`}
@@ -147,44 +157,47 @@ export function MessageRow({
       aria-busy={pending || undefined}
     >
       <div className="conventional-message__avatar" aria-hidden="true">
-        {isAgent ? <Bot /> : label.slice(0, 2).toUpperCase()}
+        <ConversationAvatar kind={message.sender.kind} avatarRef={senderAgent?.avatarRef} />
       </div>
       <div className="conventional-message__content">
-        <header>
-          <strong>{label}</strong>
-          {isAgent ? <span className="conventional-principal-badge">Agent</span> : null}
-          {message.sender.kind === 'system' ? (
-            <span className="conventional-principal-badge">System</span>
+        <div className="conventional-message__bubble">
+          <span className="visually-hidden">{label}</span>
+          <MessageBody message={message} privateContent={privateContent} />
+          {message.artifactIds.length ? (
+            <div className="conventional-message__artifacts">
+              {message.artifactIds.map((artifactId) => (
+                <ArtifactCard
+                  key={artifactId}
+                  artifactId={artifactId}
+                  artifact={artifacts.get(artifactId)}
+                />
+              ))}
+            </div>
           ) : null}
-          <time dateTime={message.createdAt}>
-            {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-              new Date(message.createdAt)
-            )}
-          </time>
-          {message.editedAt ? <span>edited</span> : null}
-          {pending ? <span role="status">sending…</span> : null}
-        </header>
-        <MessageBody message={message} privateContent={privateContent} />
-        {message.artifactIds.length ? (
-          <div className="conventional-message__artifacts">
-            {message.artifactIds.map((artifactId) => (
-              <ArtifactCard
-                key={artifactId}
-                artifactId={artifactId}
-                artifact={artifacts.get(artifactId)}
-              />
-            ))}
+          {task ? (
+            <button
+              type="button"
+              className="conventional-task-link"
+              onClick={() => onOpenTask?.(task.id)}
+            >
+              Task · {task.title}
+            </button>
+          ) : null}
+          <div className="conventional-message__meta">
+            <time dateTime={message.createdAt}>
+              {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
+                new Date(message.createdAt)
+              )}
+            </time>
+            {message.editedAt ? <span>edited</span> : null}
+            {pending ? <span role="status">sending…</span> : null}
+            {message.sender.kind === 'user' ? (
+              <span className="conventional-message__receipt" aria-label="Delivered">
+                <CheckCheck aria-hidden="true" />
+              </span>
+            ) : null}
           </div>
-        ) : null}
-        {task ? (
-          <button
-            type="button"
-            className="conventional-task-link"
-            onClick={() => onOpenTask?.(task.id)}
-          >
-            Task · {task.title}
-          </button>
-        ) : null}
+        </div>
         <footer className="conventional-message__actions">
           {!message.threadRootMessageId && !message.deleted ? (
             <button type="button" onClick={() => onOpenThread?.(message.id)}>

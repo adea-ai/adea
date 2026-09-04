@@ -1,5 +1,5 @@
 import type { ApiWorkspaceBootstrapResponse } from '@agent-hq/api-client'
-import { createWorkspaceWithOwner, getUserDisplayName, listWorkspacesForUser } from '@agent-hq/db'
+import { ensureBootstrapWorkspaces, getUserDisplayName } from '@agent-hq/db'
 
 import { applicationDatabase } from '../../../../server/database'
 import {
@@ -29,15 +29,10 @@ export async function POST(request: Request) {
   const authorization = await authorizeWorkspace(resolution.principal, 'workspace.create', null)
   if (!authorization.allowed) return workspaceUnavailableResponse(request)
 
-  let workspaces = await listWorkspacesForUser(applicationDatabase(), resolution.principal)
-  if (workspaces.length === 0) {
-    const created = await createWorkspaceWithOwner(applicationDatabase(), {
-      idempotencyKey: 'default',
-      name: 'My Agent HQ',
-      owner: resolution.principal,
-    })
-    workspaces = [created.workspace]
-  }
+  const workspaces = await ensureBootstrapWorkspaces(
+    applicationDatabase(),
+    resolution.principal,
+  )
   const displayName = await getUserDisplayName(applicationDatabase(), resolution.principal)
 
   const payload: ApiWorkspaceBootstrapResponse = {
@@ -47,6 +42,7 @@ export async function POST(request: Request) {
       temporary: resolution.temporary,
       userId: resolution.principal.userId,
     },
+    sessionRotated: resolution.sessionRotated,
     ...(resolution.createdCredential &&
     trustedDesktopWorkspaceRequest(request, desktopTrustedOrigins())
       ? { temporaryCredential: resolution.createdCredential }

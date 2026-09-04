@@ -5,6 +5,11 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 
 const repoRoot = resolve(import.meta.dirname, '..')
 const characterAssetRoot = resolve(repoRoot, 'packages/characters/assets')
+const requiredCharacterRuntimeVariants = [
+  'characters-default.glb',
+  'characters-researcher.glb',
+  'characters-builder.glb',
+]
 
 const runtimeAssetSources = [
   [characterAssetRoot, 'runtime.glb'],
@@ -133,6 +138,15 @@ async function checkAssets() {
   let smallAssetsKeptRaw = 0
   let normalMapCandidates = 0
   let normalMapCompressed = 0
+  if (optimizeAllAssets) {
+    for (const file of requiredCharacterRuntimeVariants) {
+      try {
+        await stat(join(characterAssetRoot, file))
+      } catch {
+        failures.push(`packages/characters/assets/${file} is required by the runtime`)
+      }
+    }
+  }
   for await (const input of assetPaths()) {
     const document = readGlbJson(Buffer.from(await readFile(input)))
     const status = compressionStatus(document)

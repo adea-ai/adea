@@ -8,16 +8,19 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./workspace-scene": {
       "types": "./dist/workspace-scene.d.ts",
+      "development": "./src/workspace-scene.ts",
       "import": "./dist/workspace-scene.js"
     }
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "test": "bun test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

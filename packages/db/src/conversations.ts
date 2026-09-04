@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type {
   ChannelSummary,
@@ -11,6 +11,7 @@ import { and, asc, eq, gt, inArray, isNull, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
+import { reopenTasksForChannelMessage } from './tasks'
 import {
   agents,
   artifacts,
@@ -205,6 +206,26 @@ async function nextChannelSortOrder(database: Database, workspaceId: string) {
   return (position?.value ?? -1) + 1
 }
 
+async function findActiveDirectAgentChannel(
+  database: Database,
+  workspaceId: string,
+  agentId: string
+) {
+  const [row] = await database
+    .select()
+    .from(channels)
+    .where(
+      and(
+        eq(channels.workspaceId, workspaceId),
+        eq(channels.agentId, agentId),
+        eq(channels.kind, 'direct_agent'),
+        eq(channels.lifecycleState, 'active')
+      )
+    )
+    .limit(1)
+  return row ?? null
+}
+
 export async function provisionPrimaryRoomChannelInTransaction(
   transaction: AgentHqTransaction,
   workspaceId: string,
@@ -374,19 +395,49 @@ export const createRoomChannel = (
     visibility: 'workspace',
   })
 
-export const createDirectAgentChannel = (
+export const createDirectAgentChannel = async (
   database: AgentHqDatabase,
   workspaceId: string,
   agentId: string,
   principal: UserPrincipalRef
-) =>
-  createChannel(database, workspaceId, principal, {
-    agentId,
-    idempotencyKey: `direct-agent:${agentId}`,
-    kind: 'direct_agent',
-    title: 'Direct conversation',
-    visibility: 'participants',
-  })
+) => {
+  await requireMembership(database, workspaceId, principal)
+  await requireActiveAgent(database, workspaceId, agentId)
+  // Semantic idempotency first: at most one active direct channel may exist per
+  // agent, but the canonical idempotency key can point at an archived row while
+  // the live row (created by the reopen path below) carries a suffixed key.
+  // Opening the conversation must return the live row instead of attempting a
+  // fresh insert that would violate channels_active_direct_agent_unique.
+  const live = await findActiveDirectAgentChannel(database, workspaceId, agentId)
+  if (live) return channelSummary(database, live)
+  try {
+    const existing = await createChannel(database, workspaceId, principal, {
+      agentId,
+      idempotencyKey: `direct-agent:${agentId}`,
+      kind: 'direct_agent',
+      title: 'Direct conversation',
+      visibility: 'participants',
+    })
+    if (existing.lifecycleState === 'active') return existing
+    // A deleted conversation stays deleted: opening a new one starts fresh
+    // history under a unique key instead of resurrecting the archived row.
+    return await createChannel(database, workspaceId, principal, {
+      agentId,
+      idempotencyKey: `direct-agent:${agentId}:${randomUUID()}`,
+      kind: 'direct_agent',
+      title: 'Direct conversation',
+      visibility: 'participants',
+    })
+  } catch (error) {
+    // A concurrent open may have inserted the live row after the lookup above.
+    // Return it instead of surfacing the unique violation as a generic error.
+    if (error instanceof Error && error.message.includes('channels_active_direct_agent_unique')) {
+      const retry = await findActiveDirectAgentChannel(database, workspaceId, agentId)
+      if (retry) return channelSummary(database, retry)
+    }
+    throw error
+  }
+}
 
 export const createGroupChannel = (
   database: AgentHqDatabase,
@@ -755,6 +806,13 @@ export async function createMessage(
         .limit(1)
       if (!existing || existing.createPayloadHash !== payloadHash)
         throw new Error('Message idempotency conflict')
+      await reopenTasksForChannelMessage(
+        transaction,
+        workspaceId,
+        channelId,
+        existing.id,
+        principal
+      )
       return messageSummary(transaction, existing)
     }
     if (input.bodyContentRefId)
@@ -785,6 +843,7 @@ export async function createMessage(
       },
       workspaceId,
     })
+    await reopenTasksForChannelMessage(transaction, workspaceId, channelId, created.id, principal)
     return messageSummary(transaction, created)
   })
 }

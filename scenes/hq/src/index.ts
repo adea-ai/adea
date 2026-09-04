@@ -5,7 +5,7 @@ import {
   ROOM_GALLERY_SLOTS,
   ROOM_GALLERY_SQUARE_SCALE,
   type RoomPlacement,
-} from "@agent-hq/interior";
+} from "@agent-hq/interior/room-config";
 
 type HqScene = "home" | "work";
 
@@ -27,6 +27,7 @@ function createHqManifest(scene: HqScene): SceneManifest {
     entryAssetUrl: `/assets/worlds/${sceneId}/floor.glb?v=${floorVersion}`,
     collisionAssetUrl: `/assets/worlds/${sceneId}/floor-collision.glb?v=${floorVersion}`,
     foliageManifestUrl: `/assets/worlds/${sceneId}/foliage.json?v=${foliageVersion}`,
+    assignedPropsManifestUrl: `/assets/worlds/${sceneId}/props-runtime.json?v=room-layout`,
     zones: [],
     startPosition: { x: 0, y: ROOM_GALLERY_FOUNDATION_TOP_Y + 135, z: 0, yaw: 0, pitch: -0.2 },
   };

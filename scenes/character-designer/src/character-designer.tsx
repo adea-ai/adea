@@ -90,7 +90,7 @@ export type CharacterDesignerProps = {
   onCharacterConfigurationChange: (configuration: CharacterConfiguration) => void
   onCharacterConfigurationReset?: () => void
   onSave?: (value: CharacterDesignerValue) => void | boolean | Promise<void | boolean>
-  onClose?: () => void
+  onClose?: (options?: { skipPrompt?: boolean }) => void
   saveRef?: MutableRefObject<(() => Promise<boolean>) | null>
   onDirtyChange?: (dirty: boolean) => void
 }
@@ -214,32 +214,37 @@ export function CharacterDesigner({
     setStatus('Unsaved character changes discarded.')
   }, [onCharacterChange, onCharacterConfigurationChange, onCharacterConfigurationReset])
 
-  const save = useCallback(async (): Promise<boolean> => {
-    const value = { character, configuration: characterConfiguration }
-    setStatus('Saving character design…')
-    try {
-      const result = await onSave?.(value)
-      if (result === false) {
-        setStatus('Could not save character design.')
+  const save = useCallback(
+    async (returnToWorkspace = false): Promise<boolean> => {
+      const value = { character, configuration: characterConfiguration }
+      setStatus('Saving character design…')
+      try {
+        const result = await onSave?.(value)
+        if (result === false) {
+          setStatus('Could not save character design.')
+          return false
+        }
+        savedValueRef.current = {
+          character: value.character,
+          configuration: value.configuration,
+        }
+        setStatus('Character design saved.')
+        if (returnToWorkspace) onClose?.({ skipPrompt: true })
+        return true
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : 'Could not save character design.')
         return false
       }
-      savedValueRef.current = {
-        character: value.character,
-        configuration: value.configuration,
-      }
-      setStatus('Character design saved.')
-      return true
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not save character design.')
-      return false
-    }
-  }, [character, characterConfiguration, onSave])
+    },
+    [character, characterConfiguration, onClose, onSave]
+  )
 
   useEffect(() => {
     if (!saveRef) return
-    saveRef.current = save
+    const saveForClose = () => save()
+    saveRef.current = saveForClose
     return () => {
-      if (saveRef.current === save) saveRef.current = null
+      if (saveRef.current === saveForClose) saveRef.current = null
     }
   }, [save, saveRef])
 
@@ -271,7 +276,7 @@ export function CharacterDesigner({
 
   return enabled ? (
     <aside
-      className="pointer-events-auto fixed right-3 z-[110] flex w-[min(24rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-xl border border-border bg-background/80 text-foreground shadow-2xl backdrop-blur-md"
+      className="character-designer-panel pointer-events-auto fixed z-[110] flex w-[min(31rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-[#d9b2c9] bg-[#fffafc]/92 text-[#3d2c37] shadow-2xl backdrop-blur-md"
       style={{
         top: 'calc(var(--workspace-topbar-offset, 0px) + 0.75rem)',
         maxHeight: 'calc(100dvh - var(--workspace-topbar-offset, 0px) - 1.5rem)',
@@ -280,9 +285,9 @@ export function CharacterDesigner({
     >
       <header className="flex shrink-0 items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <p className="text-sm font-semibold">Character select</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Build a look and watch it update live.
+          <p className="text-sm font-semibold tracking-tight">Character studio</p>
+          <p className="mt-0.5 text-xs text-[#765b6a]">
+            Drag to spin · right-drag to pan · scroll to zoom.
           </p>
         </div>
         {onClose ? (
@@ -292,15 +297,15 @@ export function CharacterDesigner({
             variant="ghost"
             aria-label="Close character designer"
             title="Close character designer"
-            onClick={onClose}
+            onClick={() => onClose?.()}
           >
             <X className="size-4" aria-hidden="true" />
           </Button>
         ) : null}
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3">
-        <div
-          className="flex shrink-0 gap-1 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      <div className="character-designer-body flex min-h-0 flex-1 gap-3 overflow-hidden px-3 py-3">
+        <nav
+          className="character-designer-categories flex shrink-0 flex-col gap-1 overflow-y-auto pr-1"
           role="tablist"
           aria-label="Character categories"
         >
@@ -308,15 +313,15 @@ export function CharacterDesigner({
             type="button"
             role="tab"
             aria-label="Characters"
-            title="Characters"
             aria-selected={activeCategory === 'characters'}
             className={cn(
-              'flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background/30 text-muted-foreground transition-colors hover:border-primary/70 hover:bg-accent/70 hover:text-accent-foreground',
-              activeCategory === 'characters' && 'border-primary bg-accent text-accent-foreground'
+              'character-designer-category',
+              activeCategory === 'characters' && 'is-selected'
             )}
             onClick={() => setActiveCategory('characters')}
           >
             <UserRound className="size-4" aria-hidden="true" />
+            <span>Characters</span>
           </button>
           {characterDesignerSlotCategories.map(({ id, label, icon: Icon }) => (
             <button
@@ -324,18 +329,15 @@ export function CharacterDesigner({
               type="button"
               role="tab"
               aria-label={label}
-              title={label}
               aria-selected={activeCategory === id}
-              className={cn(
-                'flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background/30 text-muted-foreground transition-colors hover:border-primary/70 hover:bg-accent/70 hover:text-accent-foreground',
-                activeCategory === id && 'border-primary bg-accent text-accent-foreground'
-              )}
+              className={cn('character-designer-category', activeCategory === id && 'is-selected')}
               onClick={() => setActiveCategory(id)}
             >
               <Icon className="size-4" aria-hidden="true" />
+              <span>{label}</span>
             </button>
           ))}
-        </div>
+        </nav>
         <div className="flex min-h-0 flex-1 flex-col" role="tabpanel">
           <div className="mb-2 flex shrink-0 items-center justify-between">
             <p className="text-xs font-semibold">{activeSlot?.label ?? 'Characters'}</p>
@@ -369,7 +371,7 @@ export function CharacterDesigner({
                     selected={selectedPart === option.id}
                     onClick={() => selectPart(activeSlot.id, option.id)}
                   >
-                    <ModelThumbnail item={thumbnailItems.get(option.id)!} deferMs={3000} />
+                    <ModelThumbnail item={thumbnailItems.get(option.id)!} />
                   </ChoiceCard>
                 ))}
               </div>
@@ -385,7 +387,7 @@ export function CharacterDesigner({
                       onClick={() => selectCharacter(option.id)}
                     >
                       {thumbnail ? (
-                        <ModelThumbnail item={thumbnail} deferMs={3000} />
+                        <ModelThumbnail item={thumbnail} />
                       ) : option.iconUrl ? (
                         <span className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-muted/60">
                           <img src={option.iconUrl} alt="" className="size-full object-contain" />
@@ -415,8 +417,8 @@ export function CharacterDesigner({
         <Button type="button" variant="secondary" disabled={!hasEdits} onClick={discard}>
           Reset design
         </Button>
-        <Button type="button" variant="default" disabled={!hasEdits} onClick={() => void save()}>
-          Save design
+        <Button type="button" variant="default" onClick={() => void save(true)}>
+          Save &amp; return
         </Button>
       </div>
     </aside>

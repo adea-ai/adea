@@ -26,7 +26,7 @@ export function ThemeToggle({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border border-input bg-background p-1',
+        'inline-flex items-center gap-1.5 rounded-full border border-input bg-background p-1.5',
         className
       )}
       role="radiogroup"
@@ -38,11 +38,11 @@ export function ThemeToggle({ className }: { className?: string }) {
         aria-checked={selectedTheme === 'system'}
         aria-label="System theme"
         variant={selectedTheme === 'system' ? 'default' : 'ghost'}
-        size="icon-xs"
+        size="icon-sm"
         onClick={() => setTheme('system')}
         className="rounded-full"
       >
-        <Monitor className="size-3.5" aria-hidden="true" />
+        <Monitor className="size-4" aria-hidden="true" />
       </Button>
       <Button
         type="button"
@@ -50,11 +50,11 @@ export function ThemeToggle({ className }: { className?: string }) {
         aria-checked={selectedTheme === 'light'}
         aria-label="Light theme"
         variant={selectedTheme === 'light' ? 'default' : 'ghost'}
-        size="icon-xs"
+        size="icon-sm"
         onClick={() => setTheme('light')}
         className="rounded-full"
       >
-        <Sun className="size-3.5" aria-hidden="true" />
+        <Sun className="size-4" aria-hidden="true" />
       </Button>
       <Button
         type="button"
@@ -62,11 +62,11 @@ export function ThemeToggle({ className }: { className?: string }) {
         aria-checked={selectedTheme === 'dark'}
         aria-label="Dark theme"
         variant={selectedTheme === 'dark' ? 'default' : 'ghost'}
-        size="icon-xs"
+        size="icon-sm"
         onClick={() => setTheme('dark')}
         className="rounded-full"
       >
-        <Moon className="size-3.5" aria-hidden="true" />
+        <Moon className="size-4" aria-hidden="true" />
       </Button>
     </div>
   )

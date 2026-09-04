@@ -35,6 +35,7 @@ export {
   type SharedDesktopUpdate,
   type VersionDialogAdapter,
 } from './components/version-dialog'
+export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip'
 export { Card, CardContent } from './components/ui/card'
 export { Spinner } from './components/ui/spinner'
 export {

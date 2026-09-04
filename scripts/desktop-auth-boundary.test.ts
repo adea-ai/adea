@@ -106,6 +106,10 @@ describe('desktop packaging and privilege boundary', () => {
       join(root, 'apps/web/src/components/workspace-shell.tsx'),
       'utf8'
     )
+    const webNavigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation-entry.tsx'),
+      'utf8'
+    )
     const webLayout = await readFile(join(root, 'apps/web/src/app/layout.tsx'), 'utf8')
     const webStyles = await readFile(join(root, 'apps/web/src/app/globals.css'), 'utf8')
     const globalRail = await readFile(
@@ -119,7 +123,7 @@ describe('desktop packaging and privilege boundary', () => {
 
     expect(desktopMain).toContain('<SoundProvider>')
     expect(desktopMain).toContain('<ThemeProvider>')
-    expect(webWorkspace).toContain('accountLabel=')
+    expect(webNavigation).toContain('accountLabel=')
     expect(globalRail).toContain('aria-label="Global navigation"')
     expect(globalRail).toContain('label="Virtual view"')
     expect(globalRail).toContain('label="Chat view"')

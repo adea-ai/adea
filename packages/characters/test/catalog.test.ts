@@ -8,16 +8,49 @@ import {
   referenceCharacterAssets,
   referenceCharacterIds,
   characterPartAssets,
+  characterPartName,
   characterPartsBySlot,
   configurableCharacterId,
   getCharacterManifest,
+  getCharacterLibraryAssetUrl,
+  updateCharacterConfiguration,
   isCharacterId,
   isCustomCharacterId,
   normalizeInPlaceLocomotionClip,
 } from '../src'
 import { characterPartOffsets } from '../src/generated-part-offsets'
+import { createDefaultCharacterConfiguration } from '../src/configuration'
+import { loadCharacter } from '../src/runtime'
 
 const characterAssets = resolve(import.meta.dir, '../assets')
+
+function previewPart(id: string): THREE.SkinnedMesh {
+  const mesh = new THREE.SkinnedMesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshBasicMaterial(),
+  )
+  mesh.name = characterPartName(id)
+  return mesh
+}
+
+function createPreviewConfiguration() {
+  return {
+    version: 1 as const,
+    body: 'body-body-01',
+    ears: null,
+    face: null,
+    hair: 'hair-hairstyle-female-01',
+    hat: null,
+    top: null,
+    bottom: null,
+    shoes: null,
+    socks: null,
+    glasses: null,
+    gloves: null,
+    accessory: null,
+    costume: null,
+  }
+}
 
 interface GlbDocument {
   meshes: readonly {
@@ -59,6 +92,73 @@ describe('character package catalog', () => {
     expect(referenceManifest?.assetUrl).toBe('/assets/models/_complete/f_1.glb')
     expect(existsSync(resolve(characterAssets, 'characters.glb'))).toBe(true)
     expect(referenceCharacterAssets).toHaveLength(referenceCharacterIds.length)
+  })
+
+  test('uses compact runtime variants for the built-in character configurations', () => {
+    expect(getCharacterLibraryAssetUrl('default')).toBe('/assets/models/characters-default.glb')
+    expect(getCharacterLibraryAssetUrl('researcher')).toBe(
+      '/assets/models/characters-researcher.glb'
+    )
+    expect(getCharacterLibraryAssetUrl('builder')).toBe('/assets/models/characters-builder.glb')
+    expect(getCharacterLibraryAssetUrl('character:v1:unknown')).toBe(
+      '/assets/models/characters.glb'
+    )
+    expect(existsSync(resolve(characterAssets, 'characters-default.glb'))).toBe(true)
+    expect(existsSync(resolve(characterAssets, 'characters-researcher.glb'))).toBe(true)
+    expect(existsSync(resolve(characterAssets, 'characters-builder.glb'))).toBe(true)
+
+    for (const [file, partCount] of [
+      ['characters-default.glb', 7],
+      ['characters-researcher.glb', 11],
+      ['characters-builder.glb', 9],
+    ] as const) {
+      const variant = readGlbJson(resolve(characterAssets, file))
+      expect(variant.meshes).toHaveLength(partCount)
+      expect(variant.skins).toHaveLength(partCount)
+      expect(variant.nodes.filter((node) => node.skin != null)).toHaveLength(partCount)
+    }
+  })
+
+  test('loads arbitrary saved configurations from the full character library', async () => {
+    const requestedUrls: string[] = []
+    const loader = {
+      loadAsync: async (url: string) => {
+        requestedUrls.push(url)
+        return { scene: new THREE.Group(), animations: [] }
+      },
+    } as unknown as GLTFLoader
+    const configuration = {
+      ...createDefaultCharacterConfiguration(),
+      body: 'body-body-09' as const,
+    }
+
+    await loadCharacter(loader, configurableCharacterId, configuration)
+
+    expect(requestedUrls).toEqual(['/assets/models/characters.glb'])
+  })
+
+  test('updates a preview in place without removing alternate wearable meshes', () => {
+    const configuration = createPreviewConfiguration()
+    const root = new THREE.Group()
+    const body = previewPart(configuration.body)
+    const firstHair = previewPart('hair-hairstyle-female-01')
+    const secondHair = previewPart('hair-hairstyle-male-01')
+    const unknownHelper = previewPart('body-body-01')
+    unknownHelper.name = 'body_1305'
+    root.add(body, firstHair, secondHair, unknownHelper)
+
+    updateCharacterConfiguration(root, configuration)
+    expect(body.visible).toBe(true)
+    expect(firstHair.visible).toBe(true)
+    expect(secondHair.visible).toBe(false)
+    expect(unknownHelper.parent).toBeNull()
+
+    updateCharacterConfiguration(root, {
+      ...configuration,
+      hair: 'hair-hairstyle-male-01',
+    })
+    expect(firstHair.visible).toBe(false)
+    expect(secondHair.visible).toBe(true)
   })
 
   test('catalogues every wearable and character part', () => {

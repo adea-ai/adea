@@ -2,32 +2,72 @@
 
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { retargetClip } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import {
-  normalizeInPlaceLocomotionClip,
   registerCharacterProvider,
   type CharacterManifest,
   type CharacterProvider,
   type LoadedCharacter,
   type LoadedCharacterAnimations,
 } from './provider'
-import { characterPartAssets, characterPartIds } from './customization'
+import { characterPartAssets, characterPartIds, characterPartSlots } from './customization'
 import { characterPartOffsets } from './generated-part-offsets'
+import { loadCharacterAnimations as loadRuntimeCharacterAnimations } from './runtime'
 import {
   characterConfigurationPresets,
   characterPartName,
   configurableCharacterId,
   createDefaultCharacterConfiguration,
+  defaultCharacterConfiguration,
   getCharacterConfiguration,
   getCharacterConfigurationLabel,
   isConfigurableCharacterId,
+  serializeCharacterConfiguration,
   validateCharacterConfiguration,
   type CharacterConfiguration,
 } from './configuration'
 
 const assetRoot = '/assets/models'
 const characterLibraryUrl = `${assetRoot}/characters.glb`
-const characterAnimationUrl = `${assetRoot}/runtime.glb`
+
+/**
+ * The authoring library contains every wearable (and hundreds of duplicate
+ * skins). Keep it available for arbitrary custom combinations, but use the
+ * compact, generated variants for the configurations shipped in the picker.
+ * Loading the full authoring board during the first scene render otherwise
+ * spends tens of seconds constructing unused skeletons.
+ */
+const characterLibraryVariantUrls = {
+  default: `${assetRoot}/characters-default.glb`,
+  researcher: `${assetRoot}/characters-researcher.glb`,
+  builder: `${assetRoot}/characters-builder.glb`,
+} as const
+
+type CharacterLibraryVariant = keyof typeof characterLibraryVariantUrls
+
+function sameCharacterConfiguration(
+  left: CharacterConfiguration,
+  right: CharacterConfiguration
+): boolean {
+  return (
+    left.version === right.version && characterPartSlots.every((slot) => left[slot] === right[slot])
+  )
+}
+
+/** Resolve the smallest packaged library for a character configuration. */
+export function getCharacterLibraryAssetUrl(id: string): string {
+  const configuration = getCharacterConfiguration(id)
+  if (!configuration) return characterLibraryUrl
+  if (sameCharacterConfiguration(configuration, defaultCharacterConfiguration)) {
+    return characterLibraryVariantUrls.default
+  }
+  const preset = characterConfigurationPresets.find(({ configuration: presetConfiguration }) =>
+    sameCharacterConfiguration(configuration, presetConfiguration)
+  )
+  if (preset && preset.id in characterLibraryVariantUrls) {
+    return characterLibraryVariantUrls[preset.id as CharacterLibraryVariant]
+  }
+  return characterLibraryUrl
+}
 
 export const referenceCharacterIds = [
   'f_1',
@@ -88,18 +128,6 @@ export const characterLibraryAssets = [
   },
 ] as const
 
-const animationMap: Record<string, string> = {
-  idle: 'Idle_Relaxed',
-  walk: 'Walk_Forward',
-  run: 'Run_Forward',
-  jump: 'Jump_Start',
-  jumpStart: 'Jump_Start',
-  jumpLoop: 'Jump_Loop',
-  jumpEnd: 'Jump_End',
-  doubleJump: 'Jump_Loop',
-  swim: 'Walk_Forward',
-}
-
 export function isCharacterId(value: string | undefined): value is CharacterId {
   return value !== undefined && characterIds.includes(value as CharacterId)
 }
@@ -140,16 +168,12 @@ function getManifest(id: string): CharacterManifest | undefined {
   return undefined
 }
 
-let animationAsset: {
-  scene: THREE.Object3D
-  clips: readonly THREE.AnimationClip[]
-} | undefined
-
 const characterPartIdsByName = new Map(characterPartIds.map((id) => [characterPartName(id), id]))
 
 function configureCharacterLibrary(
   scene: THREE.Object3D,
-  configuration: CharacterConfiguration
+  configuration: CharacterConfiguration,
+  preserveUnselected = false
 ): THREE.Object3D {
   const selectedNames = new Set(
     Object.values(configuration)
@@ -166,9 +190,17 @@ function configureCharacterLibrary(
     const partId = characterPartIdsByName.get(mesh.name)
     const selected = partId !== undefined && selectedNames.has(mesh.name)
     if (!selected) {
-      discardedObjects.push(mesh)
+      if (preserveUnselected && partId !== undefined) {
+        // Designer previews keep every wearable in the one loaded library so
+        // changing a slot only flips visibility instead of rebuilding the
+        // scene or fetching another model.
+        mesh.visible = false
+      } else {
+        discardedObjects.push(mesh)
+      }
       return
     }
+    mesh.visible = true
     if (partId) {
       const [x, y, z] = characterPartOffsets[partId] ?? [0, 0, 0]
       // The checked-in library is an authoring board: its skinned vertices
@@ -177,12 +209,27 @@ function configureCharacterLibrary(
       mesh.position.set(-x, -y, -z)
     }
   })
-  // Do not make SceneHost traverse or upload the unselected wearable
-  // meshes. Detaching them also lets the temporary GLTF object graph reclaim
-  // their geometry while the selected meshes retain shared materials/textures.
-  discardedObjects.forEach((object) => object.removeFromParent())
+  if (!preserveUnselected) {
+    // Do not make SceneHost traverse or upload the unselected wearable
+    // meshes. Detaching them also lets the temporary GLTF object graph reclaim
+    // their geometry while the selected meshes retain shared materials/textures.
+    discardedObjects.forEach((object) => object.removeFromParent())
+  } else {
+    // Unknown helper meshes are never part of a wearable preview or runtime
+    // character and should not add draw calls to the designer. This includes
+    // skinned helper meshes, so remove every discarded object here.
+    discardedObjects.forEach((object) => object.removeFromParent())
+  }
   scene.updateMatrixWorld(true)
   return scene
+}
+
+/** Apply a new configuration to a full preview library without reloading it. */
+export function updateCharacterConfiguration(
+  scene: THREE.Object3D,
+  configuration: CharacterConfiguration
+): THREE.Object3D {
+  return configureCharacterLibrary(scene, validateCharacterConfiguration(configuration), true)
 }
 
 async function loadConfigurableCharacter(
@@ -195,14 +242,14 @@ async function loadConfigurableCharacter(
     : (getCharacterConfiguration(id) ?? createDefaultCharacterConfiguration())
   const manifest = getManifest(id)
   if (!manifest) throw new Error(`Unknown character: ${id}`)
-  const gltf = await loader.loadAsync(manifest.assetUrl)
+  const assetId = requestedConfiguration
+    ? serializeCharacterConfiguration(configuration)
+    : id
+  const gltf = await loader.loadAsync(getCharacterLibraryAssetUrl(assetId))
   return { scene: configureCharacterLibrary(gltf.scene, configuration), clips: [] }
 }
 
-async function loadReferenceCharacter(
-  loader: GLTFLoader,
-  id: string
-): Promise<LoadedCharacter> {
+async function loadReferenceCharacter(loader: GLTFLoader, id: string): Promise<LoadedCharacter> {
   const manifest = getManifest(id)
   if (!manifest || !referenceCharacterIds.includes(id as ReferenceCharacterId))
     throw new Error(`Unknown reference character: ${id}`)
@@ -220,118 +267,22 @@ async function loadCatalogCharacter(
     : loadReferenceCharacter(loader, id)
 }
 
-async function loadCharacterAnimationsFromAsset(
-  loader: GLTFLoader
-): Promise<{ scene: THREE.Object3D; clips: readonly THREE.AnimationClip[] }> {
-  // Do not cache an in-flight request. SceneHost aborts its LoadingManager when
-  // a character is switched, so a promise created by the previous scene can
-  // otherwise reject the next character load with its stale AbortError.
-  if (animationAsset) return animationAsset
-  const gltf = await loader.loadAsync(characterAnimationUrl)
-  animationAsset = { scene: gltf.scene, clips: gltf.animations }
-  return animationAsset
-}
-
-// GLTFLoader sanitizes Cartoon node names, so `DEF-spine.001` becomes
-// `DEF-spine001` and side suffixes such as `.R` become `R`.
-const referenceAnimationBoneMap: Record<string, string> = {
-  'DEF-spine': 'Hips',
-  'DEF-spine001': 'Spine',
-  'DEF-spine003': 'Spine1',
-  'DEF-spine005': 'Neck',
-  'DEF-spine006': 'Head',
-  'DEF-shoulderR': 'RightShoulder',
-  'DEF-upper_armR': 'RightArm',
-  'DEF-forearmR': 'RightForeArm',
-  'DEF-handR': 'RightHand',
-  'DEF-f_index01R': 'RightHandIndex1',
-  'DEF-f_index02R': 'RightHandIndex2',
-  'DEF-f_middle01R': 'RightHandMiddle1',
-  'DEF-f_middle02R': 'RightHandMiddle2',
-  'DEF-f_ring01R': 'RightHandRing1',
-  'DEF-f_ring02R': 'RightHandRing2',
-  'DEF-f_pinky01R': 'RightHandPinky1',
-  'DEF-f_pinky02R': 'RightHandPinky2',
-  'DEF-thumb01R': 'RightHandThumb1',
-  'DEF-thumb02R': 'RightHandThumb2',
-  'DEF-shoulderL': 'LeftShoulder',
-  'DEF-upper_armL': 'LeftArm',
-  'DEF-forearmL': 'LeftForeArm',
-  'DEF-handL': 'LeftHand',
-  'DEF-f_index01L': 'LeftHandIndex1',
-  'DEF-f_index02L': 'LeftHandIndex2',
-  'DEF-f_middle01L': 'LeftHandMiddle1',
-  'DEF-f_middle02L': 'LeftHandMiddle2',
-  'DEF-f_ring01L': 'LeftHandRing1',
-  'DEF-f_ring02L': 'LeftHandRing2',
-  'DEF-f_pinky01L': 'LeftHandPinky1',
-  'DEF-f_pinky02L': 'LeftHandPinky2',
-  'DEF-thumb01L': 'LeftHandThumb1',
-  'DEF-thumb02L': 'LeftHandThumb2',
-  'DEF-thighR': 'RightUpLeg',
-  'DEF-shinR': 'RightLeg',
-  'DEF-footR': 'RightFoot',
-  'DEF-toeR': 'RightToeBase',
-  'DEF-thighL': 'LeftUpLeg',
-  'DEF-shinL': 'LeftLeg',
-  'DEF-footL': 'LeftFoot',
-  'DEF-toeL': 'LeftToeBase',
-}
-
-function findSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh | undefined {
-  let result: THREE.SkinnedMesh | undefined
-  root.traverse((object) => {
-    if (!result && (object as THREE.SkinnedMesh).isSkinnedMesh)
-      result = object as THREE.SkinnedMesh
-  })
-  return result
-}
-
-function cloneAnimationBone(
-  source: THREE.Object3D,
-  bones: THREE.Bone[]
-): THREE.Bone {
-  const bone = new THREE.Bone()
-  bone.name = source.name
-  bone.position.copy(source.position)
-  bone.quaternion.copy(source.quaternion)
-  bone.scale.copy(source.scale)
-  bones.push(bone)
-  source.children.forEach((child) => bone.add(cloneAnimationBone(child, bones)))
-  return bone
-}
-
-function findAnimationSource(root: THREE.Object3D): THREE.Object3D | THREE.Skeleton | undefined {
-  const sourceRoot = root.getObjectByName('Root')
-  if (sourceRoot) {
-    const bones: THREE.Bone[] = []
-    cloneAnimationBone(sourceRoot, bones)
-    return new THREE.Skeleton(bones)
-  }
-  return findSkinnedMesh(root)
-}
-
-function retargetReferenceAnimation(
-  clip: THREE.AnimationClip,
-  sourceRoot: THREE.Object3D,
-  target: THREE.Object3D | undefined
-): THREE.AnimationClip {
-  const source = findAnimationSource(sourceRoot)
-  const targetMesh = target ? findSkinnedMesh(target) : undefined
-  if (!source || !targetMesh) return clip.clone()
-  const retargeted = retargetClip(targetMesh, source, clip, {
-    names: referenceAnimationBoneMap,
-    hip: 'DEF-spine',
-    scale: 1,
-  })
-  // SkeletonUtils emits `.bones[BoneName]` bindings for a SkinnedMesh root,
-  // while SceneHost mixes clips against the loaded GLTF scene root. Rewrite
-  // the paths to the named-bone form used by the shared character clips.
-  for (const track of retargeted.tracks) {
-    const match = /^\.bones\[([^\]]+)\]\.(.+)$/.exec(track.name)
-    if (match) track.name = `${match[1]}.${match[2]}`
-  }
-  return retargeted
+/**
+ * Load the full configurable library for the character studio. Unlike the
+ * workspace loader, the preview intentionally retains unselected wearables
+ * so slot changes can be applied in place.
+ */
+export async function loadCharacterPreview(
+  loader: GLTFLoader,
+  id: string,
+  requestedConfiguration?: CharacterConfiguration
+): Promise<LoadedCharacter> {
+  if (!isConfigurableCharacterId(id)) return loadReferenceCharacter(loader, id)
+  const configuration = requestedConfiguration
+    ? validateCharacterConfiguration(requestedConfiguration)
+    : (getCharacterConfiguration(id) ?? createDefaultCharacterConfiguration())
+  const gltf = await loader.loadAsync(characterLibraryUrl)
+  return { scene: configureCharacterLibrary(gltf.scene, configuration, true), clips: [] }
 }
 
 async function loadCatalogCharacterAnimations(
@@ -340,25 +291,7 @@ async function loadCatalogCharacterAnimations(
   keys: readonly string[],
   target?: THREE.Object3D
 ): Promise<LoadedCharacterAnimations> {
-  const reference = referenceCharacterIds.includes(id as ReferenceCharacterId)
-  if (!isConfigurableCharacterId(id) && !reference) return { clips: [], names: {} }
-  const animationAsset = await loadCharacterAnimationsFromAsset(loader)
-  const clips: THREE.AnimationClip[] = []
-  const names: Record<string, string> = {}
-  for (const key of keys) {
-    const source = animationAsset.clips.find((clip) => clip.name === animationMap[key])
-    if (!source) continue
-    const normalized = ['walk', 'run', 'swim'].includes(key)
-      ? normalizeInPlaceLocomotionClip(source)
-      : source.clone()
-    const clip = reference
-      ? retargetReferenceAnimation(normalized, animationAsset.scene, target)
-      : normalized
-    clip.name = key
-    clips.push(clip)
-    names[key] = key
-  }
-  return { clips, names }
+  return loadRuntimeCharacterAnimations(loader, id, keys, target)
 }
 
 const characterProvider: CharacterProvider = {

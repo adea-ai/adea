@@ -3,6 +3,12 @@
 import type { WorkspaceSummary } from '@agent-hq/types'
 import { Button } from '@agent-hq/ui/components/ui/button'
 import { Separator } from '@agent-hq/ui/components/ui/separator'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@agent-hq/ui/components/ui/tooltip'
 import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 
@@ -25,19 +31,25 @@ function RailAction({
   onClick,
 }: RailActionProps) {
   return (
-    <Button
-      type="button"
-      className="global-rail__button"
-      variant={active ? 'secondary' : 'ghost'}
-      size="icon-lg"
-      aria-label={label}
-      aria-pressed={active || undefined}
-      title={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <Icon aria-hidden="true" />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            className="global-rail__button"
+            variant={active ? 'secondary' : 'ghost'}
+            size="icon-lg"
+            aria-label={label}
+            aria-pressed={active || undefined}
+            disabled={disabled}
+            onClick={onClick}
+          />
+        }
+      >
+        <Icon aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -125,87 +137,97 @@ export function GlobalWorkspaceRail({
   }, [onOpenSettings])
 
   return (
-    <nav className="global-rail" aria-label="Global navigation">
-      <div className="global-rail__workspace" ref={workspaceMenuRef}>
-        <Button
-          type="button"
-          className="global-rail__workspace-trigger"
-          variant="default"
-          size="icon-lg"
-          aria-controls={workspaceMenuId}
-          aria-expanded={workspaceMenuOpen}
-          aria-haspopup="menu"
-          aria-label={`Switch workspace, current ${activeWorkspaceLabel}`}
-          title="Switch workspace"
-          onClick={() => setWorkspaceMenuOpen((open) => !open)}
-        >
-          <WorkspaceMark workspace={activeWorkspace} />
-        </Button>
-        {workspaceMenuOpen ? (
-          <div className="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
-            <p className="global-rail__workspace-label">Workspaces</p>
-            {workspaces.map((workspace) => (
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={workspace.id === activeWorkspace?.id}
-                key={workspace.id}
-                onClick={() => {
-                  onWorkspaceChange(workspace)
-                  setWorkspaceMenuOpen(false)
-                }}
-              >
-                <WorkspaceMark workspace={workspace} />
-                <span className="global-rail__workspace-name">{workspace.name}</span>
-                <span className="global-rail__workspace-kind">{workspace.scene}</span>
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
+    <TooltipProvider>
+      <nav className="global-rail" aria-label="Global navigation">
+        <div className="global-rail__workspace" ref={workspaceMenuRef}>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  className="global-rail__workspace-trigger"
+                  variant="default"
+                  size="icon-lg"
+                  aria-controls={workspaceMenuId}
+                  aria-expanded={workspaceMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label={`Switch workspace, current ${activeWorkspaceLabel}`}
+                  onClick={() => setWorkspaceMenuOpen((open) => !open)}
+                />
+              }
+            >
+              <WorkspaceMark workspace={activeWorkspace} />
+            </TooltipTrigger>
+            <TooltipContent side="right">Switch workspace</TooltipContent>
+          </Tooltip>
+          {workspaceMenuOpen ? (
+            <div className="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
+              {workspaces.map((workspace) => (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={workspace.id === activeWorkspace?.id}
+                  key={workspace.id}
+                  onClick={() => {
+                    onWorkspaceChange(workspace)
+                    setWorkspaceMenuOpen(false)
+                  }}
+                >
+                  <WorkspaceMark workspace={workspace} />
+                  <span className="global-rail__workspace-name">{workspace.name}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
 
-      <div className="global-rail__search">
-        <RailAction icon={Search} label="Search workspace" onClick={onOpenSearch} />
-        <kbd aria-hidden="true">⌘ K</kbd>
-      </div>
+        <div className="global-rail__search">
+          <RailAction icon={Search} label="Search workspace" onClick={onOpenSearch} />
+          <kbd aria-hidden="true">⌘ K</kbd>
+        </div>
 
-      <Separator className="global-rail__separator" />
+        <Separator className="global-rail__separator" />
 
-      <div className="global-rail__views" role="group" aria-label="Workspace views">
-        <RailAction
-          active={view === 'virtual'}
-          icon={Map}
-          label="Virtual view"
-          onClick={() => onViewChange('virtual')}
-        />
-        <RailAction
-          active={view === 'chat'}
-          icon={MessageSquareText}
-          label="Chat view"
-          onClick={() => onViewChange('chat')}
-        />
-        <RailAction
-          disabled
-          icon={Bell}
-          label="Notifications (coming soon)"
-          onClick={onOpenNotifications}
-        />
-      </div>
+        <div className="global-rail__views" role="group" aria-label="Workspace views">
+          <RailAction
+            active={view === 'virtual'}
+            icon={Map}
+            label="Virtual view"
+            onClick={() => onViewChange('virtual')}
+          />
+          <RailAction
+            active={view === 'chat'}
+            icon={MessageSquareText}
+            label="Chat view"
+            onClick={() => onViewChange('chat')}
+          />
+          <RailAction
+            disabled
+            icon={Bell}
+            label="Notifications (coming soon)"
+            onClick={onOpenNotifications}
+          />
+        </div>
 
-      <div className="global-rail__footer">
-        <RailAction icon={Plug} label="Plugins" onClick={onOpenPlugins} />
-        <AccountMenu
-          authenticated={account.authenticated}
-          busy={account.busy}
-          label={account.label}
-          onOpenUpdates={account.onOpenUpdates}
-          onOpenAbout={onOpenAbout}
-          onOpenSettings={onOpenSettings}
-          onSignIn={account.onSignIn}
-          onSignOut={account.onSignOut}
-          platform={account.platform}
-        />
-      </div>
-    </nav>
+        <div className="global-rail__footer">
+          <RailAction
+            disabled={!activeWorkspace}
+            icon={Plug}
+            label="Plugins"
+            onClick={onOpenPlugins}
+          />
+          <AccountMenu
+            authenticated={account.authenticated}
+            busy={account.busy}
+            onOpenUpdates={account.onOpenUpdates}
+            onOpenAbout={onOpenAbout}
+            onOpenSettings={onOpenSettings}
+            onSignIn={account.onSignIn}
+            onSignOut={account.onSignOut}
+            platform={account.platform}
+          />
+        </div>
+      </nav>
+    </TooltipProvider>
   )
 }
