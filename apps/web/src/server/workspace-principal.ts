@@ -25,6 +25,7 @@ export type WorkspacePrincipalResolution = Readonly<{
   createdCredential?: string;
   expiresAt?: Date;
   principal: UserPrincipalRef;
+  sessionRotated: boolean;
   temporary: boolean;
 }>;
 
@@ -37,7 +38,12 @@ export async function resolveWorkspacePrincipal(
     try {
       const principal = await resolveDesktopSessionPrincipal(request);
       return principal
-        ? Object.freeze({ clearTemporaryCredential: false, principal, temporary: false })
+        ? Object.freeze({
+            clearTemporaryCredential: false,
+            principal,
+            sessionRotated: false,
+            temporary: false,
+          })
         : null;
     } catch {
       return null;
@@ -61,7 +67,12 @@ export async function resolveWorkspacePrincipal(
             ? { profile: { displayName: authentication.profile.displayName } }
             : {}),
         });
-        return Object.freeze({ clearTemporaryCredential: true, principal, temporary: false });
+        return Object.freeze({
+          clearTemporaryCredential: true,
+          principal,
+          sessionRotated: false,
+          temporary: false,
+        });
       } catch {
         // A claimed, expired, or foreign temporary credential must not block a valid account.
       }
@@ -75,6 +86,7 @@ export async function resolveWorkspacePrincipal(
       ? Object.freeze({
           clearTemporaryCredential: Boolean(credential),
           principal,
+          sessionRotated: false,
           temporary: false,
         })
       : null;
@@ -86,7 +98,12 @@ export async function resolveWorkspacePrincipal(
       await digestTemporaryCredential(credential),
     );
     if (principal) {
-      return Object.freeze({ clearTemporaryCredential: false, principal, temporary: true });
+      return Object.freeze({
+        clearTemporaryCredential: false,
+        principal,
+        sessionRotated: false,
+        temporary: true,
+      });
     }
   }
 
@@ -103,6 +120,10 @@ export async function resolveWorkspacePrincipal(
     createdCredential,
     expiresAt,
     principal: session.principal,
+    // A presented-but-unrecognized credential means the previous guest session
+    // was silently rotated (expired, unknown database, reset data). Surface it
+    // so the UI can warn instead of showing a bare empty workspace.
+    sessionRotated: Boolean(credential),
     temporary: true,
   });
 }

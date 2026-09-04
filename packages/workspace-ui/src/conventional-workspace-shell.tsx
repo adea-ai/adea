@@ -1,6 +1,7 @@
 'use client'
 
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, X } from 'lucide-react'
 import { useWorkspaceStore } from '@agent-hq/state'
 
 import { AgentRoster } from './agent-roster'
@@ -36,8 +37,10 @@ type DialogId =
   'conversation-search' | 'create-group' | 'create-room' | 'details' | 'search' | 'settings' | null
 
 export function ConventionalWorkspaceShell({
+  manageSettings = true,
   services,
 }: Readonly<{
+  manageSettings?: boolean
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
@@ -48,6 +51,7 @@ export function ConventionalWorkspaceShell({
   const [online, setOnline] = useState(true)
   const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
+  const [sessionNoticeDismissed, setSessionNoticeDismissed] = useState(false)
   const activeSurface = useWorkspaceStore((state) => state.activeSurface)
   const globalPanel = useWorkspaceStore((state) => state.globalPanel)
   const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds)
@@ -65,6 +69,11 @@ export function ConventionalWorkspaceShell({
   const setSelectedTaskId = useWorkspaceStore((state) => state.setSelectedTaskId)
   const setThreadRootMessageId = useWorkspaceStore((state) => state.setThreadRootMessageId)
   const toggleRoomCollapsed = useWorkspaceStore((state) => state.toggleRoomCollapsed)
+  const sessionRotated = controller.bootstrap.data?.sessionRotated ?? false
+  const sessionIdentity = controller.bootstrap.data?.principal.userId
+  useEffect(() => {
+    setSessionNoticeDismissed(false)
+  }, [sessionIdentity])
   const principal = controller.bootstrap.data?.principal
   const accountAuthenticated =
     services?.account?.authenticated ?? Boolean(principal && !principal.temporary)
@@ -83,19 +92,21 @@ export function ConventionalWorkspaceShell({
   )
 
   useEffect(() => {
+    if (globalPanel === 'settings' && !manageSettings) return
     if (globalPanel !== 'search' && globalPanel !== 'settings') return
     setDialog(globalPanel)
     setGlobalPanel(null)
-  }, [globalPanel, setGlobalPanel])
+  }, [globalPanel, manageSettings, setGlobalPanel])
 
   useEffect(() => {
+    if (!manageSettings) return
     const openDeepLinkedSettings = () => {
       if (window.location.hash.startsWith('#settings')) setDialog('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
     return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
-  }, [])
+  }, [manageSettings])
 
   useEffect(() => {
     const updateOnlineStatus = () => setOnline(navigator.onLine)
@@ -289,11 +300,14 @@ export function ConventionalWorkspaceShell({
       </a>
       <WorkspaceSidebar
         agents={controller.agents}
+        channelBusy={controller.channelBusy}
         collapsedRoomIds={collapsedRoomIds}
         mobileOpen={mobileSidebarOpen}
         navigation={controller.navigation}
+        onArchiveChannel={controller.channelActions.archive}
         onCreateGroup={() => setDialog('create-group')}
         onCreateRoom={() => setDialog('create-room')}
+        onRenameChannel={controller.channelActions.rename}
         onOpenAgents={() => {
           setSelectedArtifactId(null)
           setActiveSurface('agents')
@@ -306,10 +320,33 @@ export function ConventionalWorkspaceShell({
         onSelectChannel={selectChannel}
         onToggleMobile={setMobileSidebarOpen}
         onToggleRoom={toggleRoomCollapsed}
+        onUpdateRoom={controller.roomActions.update}
+        roomBusy={controller.roomBusy}
         selectedChannelId={selectedChannelId}
         readState={controller.readState}
+        workspaceName={controller.activeWorkspace.name}
       />
       <section id="workspace-main" className="conventional-main" tabIndex={-1}>
+        {sessionRotated && !sessionNoticeDismissed ? (
+          <section className="conventional-session-notice" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <h2>Your previous session wasn&apos;t recognized</h2>
+              <p>
+                You&apos;re in a new temporary workspace, so earlier tasks and conversations
+                aren&apos;t visible here. Use the workspace switcher to return to your previous
+                workspace if it&apos;s still available.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss session notice"
+              onClick={() => setSessionNoticeDismissed(true)}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </section>
+        ) : null}
         {queryError ? (
           <WorkspaceError error={queryError.error} retry={() => void queryError.refetch()} />
         ) : selectedArtifact ? (
@@ -419,16 +456,20 @@ export function ConventionalWorkspaceShell({
             onArchive={controller.taskActions.archive}
             onAssign={controller.taskActions.assign}
             onCancel={controller.taskActions.cancel}
+            onComplete={controller.taskActions.complete}
             onCreate={controller.taskActions.create}
             onDependencies={controller.taskActions.dependencies}
             onMoveRoom={controller.taskActions.moveRoom}
+            onUpdate={controller.taskActions.update}
             onOpenConversation={(task) =>
               void controller.taskActions
                 .openConversation(task)
                 .then(() => setActiveSurface('conversation'))
             }
             onQueue={controller.taskActions.queue}
+            onReview={controller.taskActions.review}
             onSelect={setSelectedTaskId}
+            onStart={controller.taskActions.start}
             privateContent={services?.privateContent}
             rooms={controller.rooms}
             selectedTaskId={selectedTaskId}
@@ -467,22 +508,24 @@ export function ConventionalWorkspaceShell({
           tasks={controller.tasks}
           workspaceId={controller.workspaceId}
         />
-        <WorkspaceSettingsDialog
-          accountAuthenticated={accountAuthenticated}
-          accountLabel={accountLabel}
-          agents={controller.agents}
-          busy={services?.account?.busy ?? accountBusy}
-          onClose={() => setDialog(null)}
-          onOpenAgents={() => {
-            setSelectedArtifactId(null)
-            setActiveSurface('agents')
-          }}
-          onSignIn={() => services?.account?.onSignIn()}
-          onSignOut={() => void signOut()}
-          open={dialog === 'settings'}
-          services={services}
-          workspace={controller.activeWorkspace}
-        />
+        {manageSettings ? (
+          <WorkspaceSettingsDialog
+            accountAuthenticated={accountAuthenticated}
+            accountLabel={accountLabel}
+            agents={controller.agents}
+            busy={services?.account?.busy ?? accountBusy}
+            onClose={() => setDialog(null)}
+            onOpenAgents={() => {
+              setSelectedArtifactId(null)
+              setActiveSurface('agents')
+            }}
+            onSignIn={() => services?.account?.onSignIn()}
+            onSignOut={() => void signOut()}
+            open={dialog === 'settings'}
+            services={services}
+            workspace={controller.activeWorkspace}
+          />
+        ) : null}
         <ModalDialog
           open={dialog === 'details'}
           onClose={() => setDialog(null)}

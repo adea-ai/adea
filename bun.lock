@@ -25,9 +25,11 @@
         "@agent-hq/api-client": "workspace:*",
         "@agent-hq/audio": "workspace:*",
         "@agent-hq/auth": "workspace:*",
+        "@agent-hq/character-designer-scene": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/data": "workspace:*",
         "@agent-hq/hq-scenes": "workspace:*",
+        "@agent-hq/room-designer-scene": "workspace:*",
         "@agent-hq/scene-shell": "workspace:*",
         "@agent-hq/state": "workspace:*",
         "@agent-hq/ui": "workspace:*",
@@ -68,12 +70,14 @@
         "@agent-hq/asset-manifests": "workspace:*",
         "@agent-hq/audio": "workspace:*",
         "@agent-hq/auth": "workspace:*",
+        "@agent-hq/character-designer-scene": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/data": "workspace:*",
         "@agent-hq/db": "workspace:*",
         "@agent-hq/hq-scenes": "workspace:*",
         "@agent-hq/interior": "workspace:*",
         "@agent-hq/pets": "workspace:*",
+        "@agent-hq/room-designer-scene": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/scene-shell": "workspace:*",
         "@agent-hq/scene-telemetry": "workspace:*",
@@ -168,6 +172,7 @@
       "version": "0.8.3",
       "dependencies": {
         "@agent-hq/api-client": "workspace:*",
+        "@agent-hq/state": "workspace:*",
         "@agent-hq/types": "workspace:*",
         "@tanstack/react-query": "^5.66.8",
         "react": "19.2.8",
@@ -258,6 +263,7 @@
       "version": "0.8.3",
       "dependencies": {
         "@agent-hq/asset-manifests": "workspace:*",
+        "@agent-hq/character-designer-scene": "workspace:*",
         "@agent-hq/characters": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/ui": "workspace:*",
@@ -334,6 +340,22 @@
         "@types/react-dom": "^19.2.4",
       },
     },
+    "scenes/character-designer": {
+      "name": "@agent-hq/character-designer-scene",
+      "version": "0.8.3",
+      "dependencies": {
+        "@agent-hq/characters": "workspace:*",
+        "@agent-hq/scene-runtime": "workspace:*",
+        "@agent-hq/ui": "workspace:*",
+        "lucide-react": "^1.33.0",
+        "react": "19.2.8",
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.18",
+        "@types/three": "^0.185.0",
+      },
+    },
     "scenes/hq": {
       "name": "@agent-hq/hq-scenes",
       "version": "0.8.3",
@@ -346,6 +368,25 @@
         "@agent-hq/pets": "workspace:*",
         "@agent-hq/scene-runtime": "workspace:*",
         "@agent-hq/scene-shell": "workspace:*",
+        "react": "19.2.8",
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@types/react": "^19.2.18",
+        "@types/three": "^0.185.0",
+      },
+    },
+    "scenes/room-designer": {
+      "name": "@agent-hq/room-designer-scene",
+      "version": "0.8.3",
+      "dependencies": {
+        "@agent-hq/asset-manifests": "workspace:*",
+        "@agent-hq/hq-scenes": "workspace:*",
+        "@agent-hq/interior": "workspace:*",
+        "@agent-hq/scene-runtime": "workspace:*",
+        "@agent-hq/scene-shell": "workspace:*",
+        "@agent-hq/ui": "workspace:*",
+        "lucide-react": "^1.33.0",
         "react": "19.2.8",
         "three": "^0.185.1",
       },
@@ -371,6 +412,8 @@
 
     "@agent-hq/auth": ["@agent-hq/auth@workspace:packages/auth"],
 
+    "@agent-hq/character-designer-scene": ["@agent-hq/character-designer-scene@workspace:scenes/character-designer"],
+
     "@agent-hq/characters": ["@agent-hq/characters@workspace:packages/characters"],
 
     "@agent-hq/config": ["@agent-hq/config@workspace:packages/config"],
@@ -390,6 +433,8 @@
     "@agent-hq/mobile": ["@agent-hq/mobile@workspace:apps/mobile"],
 
     "@agent-hq/pets": ["@agent-hq/pets@workspace:packages/pets"],
+
+    "@agent-hq/room-designer-scene": ["@agent-hq/room-designer-scene@workspace:scenes/room-designer"],
 
     "@agent-hq/rooms": ["@agent-hq/rooms@workspace:packages/rooms"],
 

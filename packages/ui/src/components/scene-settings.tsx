@@ -2,7 +2,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
-import { Box, Camera, Focus, Grid3X3, UserRound } from "lucide-react";
+import { Box, Camera, Focus, Grid3X3, UserRoundPen } from "lucide-react";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
 
@@ -15,9 +15,8 @@ export type SceneSettingsProps = {
   onCharacterDesignerChange?: (value: boolean) => void;
   /** DOM target for the character designer control in an app shell toolbar. */
   characterDesignerTargetId?: string;
-  /** Top-down room layout and interior prop designer toggle. */
-  roomDesignerEnabled?: boolean;
-  onRoomDesignerChange?: (value: boolean) => void;
+  /** Open the scene-specific room layout and interior prop designer. */
+  onOpenRoomDesigner?: () => void;
   /** DOM target for the account drawer trigger in an app shell toolbar. */
   accountTargetId?: string;
   accountLabel?: string;
@@ -60,8 +59,7 @@ export function SceneSettings({
   characterDesignerEnabled,
   onCharacterDesignerChange,
   characterDesignerTargetId,
-  roomDesignerEnabled,
-  onRoomDesignerChange,
+  onOpenRoomDesigner,
   accountTargetId,
   accountLabel,
   accountAuthenticated,
@@ -123,7 +121,7 @@ export function SceneSettings({
       aria-pressed={characterDesignerEnabled}
       onClick={() => onCharacterDesignerChange?.(!characterDesignerEnabled)}
     >
-      <UserRound className="size-4" aria-hidden="true" />
+      <UserRoundPen className="size-4" aria-hidden="true" />
       <span className="workspace-character-designer-label">Character</span>
     </Button>
   );
@@ -131,13 +129,12 @@ export function SceneSettings({
   const roomDesignerControl = (
     <Button
       type="button"
-      variant={roomDesignerEnabled ? "default" : "outline"}
+      variant="outline"
       size="sm"
       aria-haspopup="dialog"
-      aria-label={roomDesignerEnabled ? "Close room designer" : "Open room designer"}
-      title={roomDesignerEnabled ? "Close room designer" : "Open room designer"}
-      aria-pressed={roomDesignerEnabled}
-      onClick={() => onRoomDesignerChange?.(!roomDesignerEnabled)}
+      aria-label="Open room designer"
+      title="Open room designer"
+      onClick={onOpenRoomDesigner}
     >
       <Grid3X3 className="size-4" aria-hidden="true" />
       <span className="workspace-room-designer-label">Room designer</span>
@@ -183,16 +180,11 @@ export function SceneSettings({
           <div className="fixed right-4 top-16 z-40">{characterDesignerControl}</div>
         )
       ) : null}
-      {roomDesignerEnabled != null &&
-      !roomDesignerEnabled &&
-      onRoomDesignerChange &&
-      cameraViewMode === "orthographic" ? (
-        roomDesignerTarget ? (
-          createPortal(roomDesignerControl, roomDesignerTarget)
-        ) : (
-          <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
-        )
-      ) : null}
+      {onOpenRoomDesigner && cameraViewMode === "orthographic"
+        ? roomDesignerTarget
+          ? createPortal(roomDesignerControl, roomDesignerTarget)
+          : <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
+        : null}
       {sceneEditorEnabled != null &&
       !sceneEditorEnabled &&
       onSceneEditorChange &&

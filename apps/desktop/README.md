@@ -13,11 +13,11 @@ Agent HQ deployment; native code reads that same compile-time value when it
 allowlists the authorization origin. Release builds default to
 `https://agent-hq-site.vercel.app`.
 
-First launch opens directly into the bundled Home or Work scene. The cloud workspace service
-creates a temporary canonical user, owner membership, and default workspace without requiring
+First launch opens directly into the bundled Home or Work workspace scene. The cloud workspace service
+creates a temporary canonical user, owner membership, and default Home and Work workspaces without requiring
 authentication; the opaque guest credential is kept in the operating-system credential store. The
 workspace remains usable for the current process if that store is unavailable, and the top bar
-offers optional sign-in at any time to claim and persist the same workspace.
+offers optional sign-in at any time to claim and persist the same workspaces.
 
 Desktop sign-in starts in the system browser and returns through the registered
 `agent-hq://auth/callback` scheme. The local client creates state, nonce, and a

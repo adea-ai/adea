@@ -7,6 +7,7 @@ const resolution = {
   createdCredential: `ahq_tmp_${"a".repeat(43)}`,
   expiresAt: new Date("2030-01-01T00:00:00.000Z"),
   principal: { kind: "user" as const, userId: "temporary-user" },
+  sessionRotated: false,
   temporary: true,
 };
 

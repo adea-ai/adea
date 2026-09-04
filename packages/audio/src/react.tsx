@@ -82,12 +82,12 @@ function MusicButton({ muted, onToggle }: { muted: boolean; onToggle: () => void
       aria-label={muted ? "Unmute music" : "Mute music"}
       aria-pressed={muted}
       onClick={onToggle}
-      className={`inline-flex size-8 items-center justify-center rounded-lg border border-input bg-background transition-colors ${muted ? "text-muted-foreground hover:text-foreground" : "bg-primary text-primary-foreground"}`}
+      className={`inline-flex size-9 items-center justify-center rounded-lg border border-input bg-background transition-colors ${muted ? "text-muted-foreground hover:text-foreground" : "bg-primary text-primary-foreground"}`}
     >
       {muted ? (
-        <Music className="size-4" aria-hidden="true" />
+        <Music className="size-5" aria-hidden="true" />
       ) : (
-        <Music2 className="size-4" aria-hidden="true" />
+        <Music2 className="size-5" aria-hidden="true" />
       )}
     </button>
   );
