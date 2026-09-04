@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import { useWorkspaceStore, type WorkspaceState } from '@agent-hq/state'
 
+import { createWorkspaceStatePersister } from './workspace-state-persister'
+
 const STORAGE_KEY = 'agent-hq:conventional-workspace:v2'
 type PersistedState = Pick<
   WorkspaceState,
@@ -47,15 +49,29 @@ export function useWorkspacePersistence() {
 
   useEffect(() => {
     if (!ready) return
-    const save = (state: WorkspaceState) => {
+    const persister = createWorkspaceStatePersister((state) => {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedState(state)))
       } catch {
         // Private browsing or storage pressure must not break the workspace.
       }
+    })
+    const writeNow = (state: WorkspaceState) => persister.save(state)
+    writeNow(useWorkspaceStore.getState())
+    const unsubscribe = useWorkspaceStore.subscribe(writeNow)
+    // The debounced write must not lose the latest state when the app goes
+    // away before the timer fires.
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') persister.flush()
     }
-    save(useWorkspaceStore.getState())
-    return useWorkspaceStore.subscribe(save)
+    window.addEventListener('pagehide', persister.flush)
+    document.addEventListener('visibilitychange', flushWhenHidden)
+    return () => {
+      unsubscribe()
+      window.removeEventListener('pagehide', persister.flush)
+      document.removeEventListener('visibilitychange', flushWhenHidden)
+      persister.flush()
+    }
   }, [ready])
 
   return ready

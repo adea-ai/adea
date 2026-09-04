@@ -249,10 +249,6 @@ export function WorkspaceNavigationEntry({
     return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
   }, [setGlobalPanel])
 
-  useEffect(() => {
-    if (activeWorkspace) void import('@agent-hq/workspace-ui/workspace-settings')
-  }, [activeWorkspace?.id])
-
   const changeView = (nextView: WorkspaceView) => {
     void setViewParam(nextView === 'virtual' ? 'spatial' : 'chat')
   }
