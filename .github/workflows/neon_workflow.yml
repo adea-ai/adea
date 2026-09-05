@@ -99,17 +99,17 @@ jobs:
             return url.toString();
           };
           const runtimeUrl = connectionUrl(
-            "agent_hq_dev_app",
+            "adea_dev_app",
             DATABASE_APP_PASSWORD,
             DATABASE_HOST_POOLED,
           );
           const runtimeUnpooledUrl = connectionUrl(
-            "agent_hq_dev_app",
+            "adea_dev_app",
             DATABASE_APP_PASSWORD,
             DATABASE_HOST,
           );
           const migrationUrl = connectionUrl(
-            "agent_hq_dev_migration",
+            "adea_dev_migration",
             DATABASE_MIGRATION_PASSWORD,
             DATABASE_HOST,
           );
