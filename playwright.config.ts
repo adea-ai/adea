@@ -1,6 +1,19 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.PERF_BASE_URL ?? "http://localhost:3000";
+// The E2E web server boots the app, which needs a migrated database. CI and
+// local shells without DATABASE_URL fall back to the compose Postgres that
+// scripts/e2e-setup.mjs starts (same defaults as test-integration.mjs).
+const e2eDatabaseEnvironment = process.env.DATABASE_URL
+  ? {}
+  : {
+      DATABASE_URL:
+        "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable",
+      DATABASE_URL_UNPOOLED:
+        "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable",
+      DATABASE_MIGRATION_URL:
+        "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable",
+    };
 const headless = process.env.PLAYWRIGHT_HEADLESS
   ? process.env.PLAYWRIGHT_HEADLESS === "1"
   : process.platform !== "darwin";
@@ -37,5 +50,6 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
+        env: { ...process.env, ...e2eDatabaseEnvironment },
       },
 });
