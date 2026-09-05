@@ -19,7 +19,7 @@ export function desktopTrustedOrigins(environment: NodeJS.ProcessEnv = process.e
         origin.includes("*") ||
         origin.includes("@") ||
         origin.endsWith("/") ||
-        !/^(?:https?:\/\/|tauri:\/\/)[A-Za-z0-9.:[\]-]+$/u.test(origin),
+        !/^(?:https?:\/\/|tauri:\/\/)[A-Za-z0-9.:[\]-]+$/u.test(origin)
     )
   ) {
     throw new Error("Desktop auth trusted origins are invalid");
@@ -33,7 +33,7 @@ function markedDesktopRequest(request: Request) {
 
 export function trustedDesktopWorkspaceRequest(
   request: Request,
-  trustedOrigins: readonly string[],
+  trustedOrigins: readonly string[]
 ) {
   return (
     markedDesktopRequest(request) && trustedOrigins.includes(request.headers.get("origin") ?? "")
@@ -42,14 +42,14 @@ export function trustedDesktopWorkspaceRequest(
 
 export function rejectUntrustedDesktopWorkspaceRequest(
   request: Request,
-  trustedOrigins: readonly string[],
+  trustedOrigins: readonly string[]
 ): Response | null {
   if (!markedDesktopRequest(request) || trustedDesktopWorkspaceRequest(request, trustedOrigins)) {
     return null;
   }
   return Response.json(
     { code: "workspace_unavailable", message: "Workspace unavailable" },
-    { headers: { "cache-control": "no-store", vary: "Origin" }, status: 403 },
+    { headers: { "cache-control": "no-store", vary: "Origin" }, status: 403 }
   );
 }
 
@@ -58,7 +58,7 @@ export function desktopWorkspacePreflight(request: Request, trustedOrigins: read
   if (!trustedOrigins.includes(origin)) {
     return Response.json(
       { code: "workspace_unavailable", message: "Workspace unavailable" },
-      { headers: { "cache-control": "no-store", vary: "Origin" }, status: 403 },
+      { headers: { "cache-control": "no-store", vary: "Origin" }, status: 403 }
     );
   }
   return new Response(null, {
@@ -78,7 +78,7 @@ export function desktopWorkspacePreflight(request: Request, trustedOrigins: read
 export function applyDesktopWorkspaceCors(
   response: Response,
   request: Request,
-  trustedOrigins: readonly string[],
+  trustedOrigins: readonly string[]
 ) {
   if (!trustedDesktopWorkspaceRequest(request, trustedOrigins)) return response;
   response.headers.set("access-control-allow-origin", request.headers.get("origin")!);

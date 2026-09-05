@@ -14,7 +14,7 @@ export default async function SignInPage({
 }) {
   const requestedReturn = (await searchParams).returnTo;
   const returnTo = normalizeDesktopAuthorizationReturnTo(
-    typeof requestedReturn === "string" ? requestedReturn : null,
+    typeof requestedReturn === "string" ? requestedReturn : null
   );
   const desktopFlow = returnTo?.startsWith("/api/auth/desktop/authorize?") ?? false;
 

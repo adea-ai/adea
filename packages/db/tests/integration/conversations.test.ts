@@ -1,10 +1,10 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { eq } from "drizzle-orm";
 
-import { createAgent } from '../../src/agents'
-import { createArtifact } from '../../src/artifacts'
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { createContentRef } from '../../src/content-refs'
+import { createAgent } from "../../src/agents";
+import { createArtifact } from "../../src/artifacts";
+import { createDatabase, type DatabaseConnection } from "../../src/connection";
+import { createContentRef } from "../../src/content-refs";
 import {
   archiveChannel,
   createDirectAgentChannel,
@@ -17,9 +17,9 @@ import {
   listMessagesForUser,
   provisionPrimaryRoomChannel,
   setChannelParticipants,
-} from '../../src/conversations'
-import { createTemporaryUserSession } from '../../src/identity'
-import { archiveRoom, createRoom } from '../../src/rooms'
+} from "../../src/conversations";
+import { createTemporaryUserSession } from "../../src/identity";
+import { archiveRoom, createRoom } from "../../src/rooms";
 import {
   agents,
   artifacts,
@@ -34,125 +34,125 @@ import {
   users,
   workspaceMemberships,
   workspaces,
-} from '../../src/schema'
-import { createTask } from '../../src/tasks'
-import { addWorkspaceMembership, createWorkspaceWithOwner } from '../../src/workspaces'
+} from "../../src/schema";
+import { createTask } from "../../src/tasks";
+import { addWorkspaceMembership, createWorkspaceWithOwner } from "../../src/workspaces";
 
-const connectionUrl = process.env.DATABASE_URL
+const connectionUrl = process.env.DATABASE_URL;
 
-describe.skipIf(!connectionUrl)('canonical conversations', () => {
-  let connection: DatabaseConnection
+describe.skipIf(!connectionUrl)("canonical conversations", () => {
+  let connection: DatabaseConnection;
   beforeAll(() => {
-    connection = createDatabase(connectionUrl!)
-  })
-  afterAll(async () => connection.close())
+    connection = createDatabase(connectionUrl!);
+  });
+  afterAll(async () => connection.close());
 
   async function fixture(name: string) {
     const owner = await createTemporaryUserSession(connection.db, {
       credentialDigest: `${name}-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
-    })
+    });
     const { workspace } = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: `${name}-${crypto.randomUUID()}`,
       name,
       owner: owner.principal,
-    })
-    return { owner, workspace }
+    });
+    return { owner, workspace };
   }
 
   async function cleanup(workspaceId: string, userIds: readonly string[]) {
-    await connection.db.delete(messageMentions).where(eq(messageMentions.workspaceId, workspaceId))
+    await connection.db.delete(messageMentions).where(eq(messageMentions.workspaceId, workspaceId));
     await connection.db
       .delete(messageArtifactReferences)
-      .where(eq(messageArtifactReferences.workspaceId, workspaceId))
-    await connection.db.delete(artifacts).where(eq(artifacts.workspaceId, workspaceId))
-    await connection.db.delete(messages).where(eq(messages.workspaceId, workspaceId))
-    await connection.db.delete(contentRefs).where(eq(contentRefs.workspaceId, workspaceId))
+      .where(eq(messageArtifactReferences.workspaceId, workspaceId));
+    await connection.db.delete(artifacts).where(eq(artifacts.workspaceId, workspaceId));
+    await connection.db.delete(messages).where(eq(messages.workspaceId, workspaceId));
+    await connection.db.delete(contentRefs).where(eq(contentRefs.workspaceId, workspaceId));
     await connection.db
       .delete(channelParticipants)
-      .where(eq(channelParticipants.workspaceId, workspaceId))
-    await connection.db.delete(channels).where(eq(channels.workspaceId, workspaceId))
-    await connection.db.delete(agents).where(eq(agents.workspaceId, workspaceId))
-    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspaceId))
+      .where(eq(channelParticipants.workspaceId, workspaceId));
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspaceId));
+    await connection.db.delete(agents).where(eq(agents.workspaceId, workspaceId));
+    await connection.db.delete(rooms).where(eq(rooms.workspaceId, workspaceId));
     await connection.db
       .delete(workspaceMemberships)
-      .where(eq(workspaceMemberships.workspaceId, workspaceId))
-    await connection.db.delete(workspaces).where(eq(workspaces.id, workspaceId))
+      .where(eq(workspaceMemberships.workspaceId, workspaceId));
+    await connection.db.delete(workspaces).where(eq(workspaces.id, workspaceId));
     for (const userId of userIds) {
       await connection.db
         .delete(temporaryUserSessions)
-        .where(eq(temporaryUserSessions.userId, userId))
-      await connection.db.delete(users).where(eq(users.id, userId))
+        .where(eq(temporaryUserSessions.userId, userId));
+      await connection.db.delete(users).where(eq(users.id, userId));
     }
   }
 
-  test('provisions exactly one primary Channel and protects it through Room lifecycle', async () => {
-    const { owner, workspace } = await fixture('Rooms and channels')
+  test("provisions exactly one primary Channel and protects it through Room lifecycle", async () => {
+    const { owner, workspace } = await fixture("Rooms and channels");
     const room = await createRoom(connection.db, workspace.id, owner.principal, {
-      functionKey: 'engineering',
-      name: 'Engineering',
-    })
+      functionKey: "engineering",
+      name: "Engineering",
+    });
     const channelsAfterRoom = await listChannelsForUser(
       connection.db,
       workspace.id,
       owner.principal
-    )
-    expect(channelsAfterRoom).toHaveLength(1)
+    );
+    expect(channelsAfterRoom).toHaveLength(1);
     expect(channelsAfterRoom[0]).toMatchObject({
       isPrimaryRoomChannel: true,
-      kind: 'room',
+      kind: "room",
       roomId: room.id,
-    })
+    });
     const repaired = await provisionPrimaryRoomChannel(
       connection.db,
       workspace.id,
       room.id,
       owner.principal
-    )
-    expect(repaired.id).toBe(channelsAfterRoom[0]!.id)
+    );
+    expect(repaired.id).toBe(channelsAfterRoom[0]!.id);
     const secondary = await createRoomChannel(
       connection.db,
       workspace.id,
       room.id,
       owner.principal,
-      { idempotencyKey: 'room-secondary', title: 'Architecture' }
-    )
-    expect(secondary.isPrimaryRoomChannel).toBe(false)
+      { idempotencyKey: "room-secondary", title: "Architecture" }
+    );
+    expect(secondary.isPrimaryRoomChannel).toBe(false);
     await expect(
       archiveChannel(connection.db, workspace.id, repaired.id, owner.principal, repaired.version)
-    ).rejects.toThrow('Primary Room Channel required')
-    await archiveRoom(connection.db, workspace.id, room.id, owner.principal)
-    expect(await listChannelsForUser(connection.db, workspace.id, owner.principal)).toEqual([])
-    await cleanup(workspace.id, [owner.principal.userId])
-  })
+    ).rejects.toThrow("Primary Room Channel required");
+    await archiveRoom(connection.db, workspace.id, room.id, owner.principal);
+    expect(await listChannelsForUser(connection.db, workspace.id, owner.principal)).toEqual([]);
+    await cleanup(workspace.id, [owner.principal.userId]);
+  });
 
-  test('keeps direct and group conversation identity independent from Room and runtime state', async () => {
-    const { owner, workspace } = await fixture('Direct and group')
+  test("keeps direct and group conversation identity independent from Room and runtime state", async () => {
+    const { owner, workspace } = await fixture("Direct and group");
     const nonParticipant = await createTemporaryUserSession(connection.db, {
       credentialDigest: `channel-nonparticipant-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
-    })
-    await addWorkspaceMembership(connection.db, workspace.id, nonParticipant.principal, 'member')
+    });
+    await addWorkspaceMembership(connection.db, workspace.id, nonParticipant.principal, "member");
     const agent = await createAgent(connection.db, workspace.id, owner.principal, {
-      name: 'Ada',
-      profileId: 'engineer',
-      profileVersion: '1',
-    })
+      name: "Ada",
+      profileId: "engineer",
+      profileVersion: "1",
+    });
     const direct = await createDirectAgentChannel(
       connection.db,
       workspace.id,
       agent.id,
       owner.principal
-    )
+    );
     const retried = await createDirectAgentChannel(
       connection.db,
       workspace.id,
       agent.id,
       owner.principal
-    )
-    expect(retried.id).toBe(direct.id)
-    expect(direct).toMatchObject({ agentId: agent.id, kind: 'direct_agent' })
-    expect(direct).not.toHaveProperty('roomId')
+    );
+    expect(retried.id).toBe(direct.id);
+    expect(direct).toMatchObject({ agentId: agent.id, kind: "direct_agent" });
+    expect(direct).not.toHaveProperty("roomId");
 
     // Archiving then reopening moves the live conversation to a suffixed
     // idempotency key. Opening again must return that live row instead of
@@ -164,124 +164,124 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
       direct.id,
       owner.principal,
       direct.version
-    )
-    expect(archived.lifecycleState).toBe('archived')
+    );
+    expect(archived.lifecycleState).toBe("archived");
     const reopened = await createDirectAgentChannel(
       connection.db,
       workspace.id,
       agent.id,
       owner.principal
-    )
-    expect(reopened.lifecycleState).toBe('active')
-    expect(reopened.id).not.toBe(direct.id)
+    );
+    expect(reopened.lifecycleState).toBe("active");
+    expect(reopened.id).not.toBe(direct.id);
     const reopenedAgain = await createDirectAgentChannel(
       connection.db,
       workspace.id,
       agent.id,
       owner.principal
-    )
-    expect(reopenedAgain.id).toBe(reopened.id)
+    );
+    expect(reopenedAgain.id).toBe(reopened.id);
 
     const group = await createGroupChannel(connection.db, workspace.id, owner.principal, {
-      idempotencyKey: 'group-1',
-      title: 'Launch group',
-    })
+      idempotencyKey: "group-1",
+      title: "Launch group",
+    });
     const withParticipants = await setChannelParticipants(
       connection.db,
       workspace.id,
       group.id,
       owner.principal,
       [
-        { kind: 'user', userId: owner.principal.userId },
-        { agentId: agent.id, kind: 'agent' },
+        { kind: "user", userId: owner.principal.userId },
+        { agentId: agent.id, kind: "agent" },
       ],
       group.version
-    )
+    );
     expect(withParticipants.participants).toEqual([
-      { agentId: agent.id, kind: 'agent' },
-      { kind: 'user', userId: owner.principal.userId },
-    ])
-    expect(withParticipants).not.toHaveProperty('roomId')
+      { agentId: agent.id, kind: "agent" },
+      { kind: "user", userId: owner.principal.userId },
+    ]);
+    expect(withParticipants).not.toHaveProperty("roomId");
     expect(
       await listChannelsForUser(connection.db, workspace.id, nonParticipant.principal)
-    ).toEqual([])
-    await cleanup(workspace.id, [owner.principal.userId, nonParticipant.principal.userId])
-  })
+    ).toEqual([]);
+    await cleanup(workspace.id, [owner.principal.userId, nonParticipant.principal.userId]);
+  });
 
-  test('orders canonical Messages, preserves threads and refs, and rejects stale or foreign access', async () => {
-    const { owner, workspace } = await fixture('Messages')
+  test("orders canonical Messages, preserves threads and refs, and rejects stale or foreign access", async () => {
+    const { owner, workspace } = await fixture("Messages");
     const outsider = await createTemporaryUserSession(connection.db, {
       credentialDigest: `message-outsider-${crypto.randomUUID()}`,
       expiresAt: new Date(Date.now() + 60_000),
-    })
+    });
     const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
-      idempotencyKey: 'messages-group',
-      title: 'Messages',
-    })
+      idempotencyKey: "messages-group",
+      title: "Messages",
+    });
     const task = await createTask(
       connection.db,
       workspace.id,
       owner.principal,
-      { objective: 'Discuss', title: 'Discussion' },
-      { idempotencyKey: 'message-task', requestId: crypto.randomUUID() }
-    )
+      { objective: "Discuss", title: "Discussion" },
+      { idempotencyKey: "message-task", requestId: crypto.randomUUID() }
+    );
     const artifact = await createArtifact(connection.db, workspace.id, owner.principal, {
-      checksumSha256: 'd'.repeat(64),
-      filename: 'message.txt',
-      location: { reference: 'messages/message-1', type: 'object_store' },
-      mediaType: 'text/plain',
+      checksumSha256: "d".repeat(64),
+      filename: "message.txt",
+      location: { reference: "messages/message-1", type: "object_store" },
+      mediaType: "text/plain",
       sizeBytes: 12,
-      sourceArtifactRef: 'message-artifact:1',
+      sourceArtifactRef: "message-artifact:1",
       sourcePrincipal: owner.principal,
       taskId: task.id,
-    })
+    });
     const root = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
       artifactIds: [artifact.id],
-      bodyText: 'Canonical history',
-      idempotencyKey: 'root-message',
-      mentions: [{ kind: 'user', userId: owner.principal.userId }],
+      bodyText: "Canonical history",
+      idempotencyKey: "root-message",
+      mentions: [{ kind: "user", userId: owner.principal.userId }],
       sender: owner.principal,
       taskId: task.id,
-    })
+    });
     const retried = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
       artifactIds: [...root.artifactIds],
-      bodyText: 'Canonical history',
-      idempotencyKey: 'root-message',
-      mentions: [{ kind: 'user', userId: owner.principal.userId }],
+      bodyText: "Canonical history",
+      idempotencyKey: "root-message",
+      mentions: [{ kind: "user", userId: owner.principal.userId }],
       sender: owner.principal,
       taskId: task.id,
-    })
-    expect(retried.id).toBe(root.id)
-    const bodyContentRefId = crypto.randomUUID()
+    });
+    expect(retried.id).toBe(root.id);
+    const bodyContentRefId = crypto.randomUUID();
     await createContentRef(connection.db, workspace.id, owner.principal, {
-      availability: 'available',
-      contentType: 'message_body',
-      digestSha256: 'e'.repeat(64),
+      availability: "available",
+      contentType: "message_body",
+      digestSha256: "e".repeat(64),
       id: bodyContentRefId,
       keyVersion: 1,
       schemaVersion: 1,
-      sensitivity: 'restricted',
-      storagePolicy: 'local_authority',
-      synchronizationPolicy: 'local_only',
-    })
+      sensitivity: "restricted",
+      storagePolicy: "local_authority",
+      synchronizationPolicy: "local_only",
+    });
     const reply = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
       bodyContentRefId,
-      idempotencyKey: 'reply-message',
+      idempotencyKey: "reply-message",
       replyToMessageId: root.id,
-      sender: { kind: 'system', systemId: 'agent-hq' },
+      sender: { kind: "system", systemId: "agent-hq" },
       threadRootMessageId: root.id,
-    })
-    expect(reply).not.toHaveProperty('bodyText')
-    expect(reply).toMatchObject({ replyToMessageId: root.id, threadRootMessageId: root.id })
+    });
+    expect(reply).not.toHaveProperty("bodyText");
+    expect(reply).toMatchObject({ replyToMessageId: root.id, threadRootMessageId: root.id });
     const page = await listMessagesForUser(
       connection.db,
       workspace.id,
       channel.id,
       owner.principal,
       { limit: 1 }
-    )
-    expect(page.messages).toEqual([root])
-    expect(page.nextAfterSequence).toBe(root.sequence)
+    );
+    expect(page.messages).toEqual([root]);
+    expect(page.nextAfterSequence).toBe(root.sequence);
     expect(
       (
         await listMessagesForUser(connection.db, workspace.id, channel.id, owner.principal, {
@@ -289,26 +289,26 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
           limit: 10,
         })
       ).messages
-    ).toEqual([reply])
+    ).toEqual([reply]);
     await expect(
       listMessagesForUser(connection.db, workspace.id, channel.id, outsider.principal)
-    ).rejects.toThrow('Channel unavailable')
+    ).rejects.toThrow("Channel unavailable");
 
     const edited = await editMessage(
       connection.db,
       workspace.id,
       root.id,
       owner.principal,
-      { bodyText: 'Edited canonical history' },
+      { bodyText: "Edited canonical history" },
       1
-    )
-    expect(edited).toMatchObject({ bodyText: 'Edited canonical history', version: 2 })
+    );
+    expect(edited).toMatchObject({ bodyText: "Edited canonical history", version: 2 });
     await expect(
-      editMessage(connection.db, workspace.id, root.id, owner.principal, { bodyText: 'Stale' }, 1)
-    ).rejects.toThrow('Message version conflict')
-    const deleted = await deleteMessage(connection.db, workspace.id, root.id, owner.principal, 2)
-    expect(deleted).toMatchObject({ deleted: true, version: 3 })
-    expect(deleted).not.toHaveProperty('bodyText')
-    await cleanup(workspace.id, [owner.principal.userId, outsider.principal.userId])
-  })
-})
+      editMessage(connection.db, workspace.id, root.id, owner.principal, { bodyText: "Stale" }, 1)
+    ).rejects.toThrow("Message version conflict");
+    const deleted = await deleteMessage(connection.db, workspace.id, root.id, owner.principal, 2);
+    expect(deleted).toMatchObject({ deleted: true, version: 3 });
+    expect(deleted).not.toHaveProperty("bodyText");
+    await cleanup(workspace.id, [owner.principal.userId, outsider.principal.userId]);
+  });
+});

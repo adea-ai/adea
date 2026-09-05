@@ -121,7 +121,7 @@ describe("desktop server-side code exchange", () => {
         redirectUri: verifierAttempt.redirectUri,
         state: verifierAttempt.state,
         userId: "user-1",
-      }),
+      })
     );
     await expect(
       verifierBroker.exchange({
@@ -129,7 +129,7 @@ describe("desktop server-side code exchange", () => {
         codeVerifier: "x".repeat(64),
         nonce: verifierAttempt.nonce,
         redirectUri: verifierAttempt.redirectUri,
-      }),
+      })
     ).rejects.toThrow("PKCE verifier mismatch");
 
     const expiredAttempt = await createDesktopAuthorizationAttempt({ now: 1_000 });
@@ -151,7 +151,7 @@ describe("desktop server-side code exchange", () => {
         redirectUri: expiredAttempt.redirectUri,
         state: expiredAttempt.state,
         userId: "user-1",
-      }),
+      })
     );
     now = 1_006;
     await expect(
@@ -160,7 +160,7 @@ describe("desktop server-side code exchange", () => {
         codeVerifier: expiredAttempt.codeVerifier,
         nonce: expiredAttempt.nonce,
         redirectUri: expiredAttempt.redirectUri,
-      }),
+      })
     ).rejects.toThrow("expired");
   });
 });
@@ -237,7 +237,7 @@ describe("desktop application sessions", () => {
         providerExpiresAt: now,
         providerSessionId: "provider-session-1",
         userId: "user-1",
-      }),
+      })
     ).rejects.toThrow("expired");
   });
 });

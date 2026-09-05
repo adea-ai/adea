@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
   TaskKind,
@@ -6,11 +6,11 @@ import type {
   TaskPriority,
   TaskSummary,
   UserPrincipalRef,
-} from '@agent-hq/types'
-import { and, asc, eq, inArray, not } from 'drizzle-orm'
+} from "@agent-hq/types";
+import { and, asc, eq, inArray, not } from "drizzle-orm";
 
-import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { attachTaskContentRef } from './content-refs'
+import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
+import { attachTaskContentRef } from "./content-refs";
 import {
   agents,
   artifacts,
@@ -22,63 +22,63 @@ import {
   tasks,
   workspaceEvents,
   workspaceMemberships,
-} from './schema'
+} from "./schema";
 
 export type TaskCommand = Readonly<{
-  correlationId?: string
-  expectedVersion?: number
-  idempotencyKey: string
-  requestId: string
-}>
+  correlationId?: string;
+  expectedVersion?: number;
+  idempotencyKey: string;
+  requestId: string;
+}>;
 
 export type TaskCreateInput = Readonly<{
-  agentId?: string
-  artifactRefs?: readonly string[]
-  controlPlaneExecutionRef?: string
-  controlPlaneWorkflowRef?: string
+  agentId?: string;
+  artifactRefs?: readonly string[];
+  controlPlaneExecutionRef?: string;
+  controlPlaneWorkflowRef?: string;
   conversation?: Readonly<{
-    channelId?: string
-    messageId?: string
-    threadRootMessageId?: string
-  }>
-  dependencyIds?: readonly string[]
-  kind?: TaskKind
-  objective?: string
-  objectiveContentRefId?: string
-  priority?: TaskPriority
-  roomId?: string
-  title: string
-}>
+    channelId?: string;
+    messageId?: string;
+    threadRootMessageId?: string;
+  }>;
+  dependencyIds?: readonly string[];
+  kind?: TaskKind;
+  objective?: string;
+  objectiveContentRefId?: string;
+  priority?: TaskPriority;
+  roomId?: string;
+  title: string;
+}>;
 
 export type TaskUpdateInput = Readonly<{
-  controlPlaneExecutionRef?: string | null
-  controlPlaneWorkflowRef?: string | null
-  kind?: TaskKind
-  objective?: string
-  objectiveContentRefId?: string
-  priority?: TaskPriority
-  title?: string
-}>
+  controlPlaneExecutionRef?: string | null;
+  controlPlaneWorkflowRef?: string | null;
+  kind?: TaskKind;
+  objective?: string;
+  objectiveContentRefId?: string;
+  priority?: TaskPriority;
+  title?: string;
+}>;
 
-type Database = AgentHqDatabase | AgentHqTransaction
-type TaskRow = typeof tasks.$inferSelect
+type Database = AgentHqDatabase | AgentHqTransaction;
+type TaskRow = typeof tasks.$inferSelect;
 
 function stableValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stableValue)
-  if (value && typeof value === 'object')
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .filter(([, entry]) => entry !== undefined)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, entry]) => [key, stableValue(entry)])
-    )
-  return value
+    );
+  return value;
 }
 
 function hashPayload(value: unknown): string {
-  return createHash('sha256')
+  return createHash("sha256")
     .update(JSON.stringify(stableValue(value)))
-    .digest('hex')
+    .digest("hex");
 }
 
 async function requireMembership(
@@ -95,8 +95,8 @@ async function requireMembership(
         eq(workspaceMemberships.userId, principal.userId)
       )
     )
-    .limit(1)
-  if (!membership) throw new Error('Task unavailable')
+    .limit(1);
+  if (!membership) throw new Error("Task unavailable");
 }
 
 async function requireActiveRoom(database: Database, workspaceId: string, roomId: string) {
@@ -107,11 +107,11 @@ async function requireActiveRoom(database: Database, workspaceId: string, roomId
       and(
         eq(rooms.id, roomId),
         eq(rooms.workspaceId, workspaceId),
-        eq(rooms.lifecycleState, 'active')
+        eq(rooms.lifecycleState, "active")
       )
     )
-    .limit(1)
-  if (!room) throw new Error('Room unavailable')
+    .limit(1);
+  if (!room) throw new Error("Room unavailable");
 }
 
 async function requireActiveAgent(database: Database, workspaceId: string, agentId: string) {
@@ -122,11 +122,11 @@ async function requireActiveAgent(database: Database, workspaceId: string, agent
       and(
         eq(agents.id, agentId),
         eq(agents.workspaceId, workspaceId),
-        eq(agents.lifecycleState, 'active')
+        eq(agents.lifecycleState, "active")
       )
     )
-    .limit(1)
-  if (!agent) throw new Error('Agent unavailable')
+    .limit(1);
+  if (!agent) throw new Error("Agent unavailable");
 }
 
 async function summarize(database: Database, row: TaskRow): Promise<TaskSummary> {
@@ -136,7 +136,7 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
     .where(
       and(eq(taskDependencies.workspaceId, row.workspaceId), eq(taskDependencies.taskId, row.id))
     )
-    .orderBy(asc(taskDependencies.dependsOnTaskId))
+    .orderBy(asc(taskDependencies.dependsOnTaskId));
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     artifactRefs: Object.freeze([...row.artifactRefs]),
@@ -152,7 +152,7 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
       ...(row.threadRootMessageId ? { threadRootMessageId: row.threadRootMessageId } : {}),
     }),
     createdAt: row.createdAt.toISOString(),
-    creator: Object.freeze({ kind: 'user' as const, userId: row.creatorUserId }),
+    creator: Object.freeze({ kind: "user" as const, userId: row.creatorUserId }),
     dependencyIds: Object.freeze(dependencies.map(({ id }) => id)),
     id: row.id,
     kind: row.kind,
@@ -165,7 +165,7 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
     updatedAt: row.updatedAt.toISOString(),
     version: row.version,
     workspaceId: row.workspaceId,
-  })
+  });
 }
 
 async function requireTask(database: Database, workspaceId: string, taskId: string) {
@@ -173,19 +173,19 @@ async function requireTask(database: Database, workspaceId: string, taskId: stri
     .select()
     .from(tasks)
     .where(and(eq(tasks.id, taskId), eq(tasks.workspaceId, workspaceId)))
-    .limit(1)
-  if (!task) throw new Error('Task unavailable')
-  return task
+    .limit(1);
+  if (!task) throw new Error("Task unavailable");
+  return task;
 }
 
 function requireExpectedVersion(row: TaskRow, command: TaskCommand) {
   if (!Number.isInteger(command.expectedVersion) || command.expectedVersion !== row.version)
-    throw new Error('Task version conflict')
+    throw new Error("Task version conflict");
 }
 
 function requireUpdated(row: TaskRow | undefined): TaskRow {
-  if (!row) throw new Error('Task version conflict')
-  return row
+  if (!row) throw new Error("Task version conflict");
+  return row;
 }
 
 async function runMutation(
@@ -199,8 +199,8 @@ async function runMutation(
   mutate: () => Promise<TaskSummary>
 ): Promise<TaskSummary> {
   if (!command.idempotencyKey.trim() || !command.requestId.trim())
-    throw new Error('Task command metadata invalid')
-  const payloadHash = hashPayload(payload)
+    throw new Error("Task command metadata invalid");
+  const payloadHash = hashPayload(payload);
   const [reservation] = await transaction
     .insert(taskMutations)
     .values({
@@ -212,7 +212,7 @@ async function runMutation(
       workspaceId,
     })
     .onConflictDoNothing({ target: [taskMutations.workspaceId, taskMutations.idempotencyKey] })
-    .returning({ id: taskMutations.id })
+    .returning({ id: taskMutations.id });
   if (!reservation) {
     const [existing] = await transaction
       .select()
@@ -223,17 +223,17 @@ async function runMutation(
           eq(taskMutations.idempotencyKey, command.idempotencyKey.trim())
         )
       )
-      .limit(1)
+      .limit(1);
     if (
       !existing ||
       existing.commandType !== commandType ||
       existing.payloadHash !== payloadHash ||
       !existing.resultSnapshot
     )
-      throw new Error('Task idempotency conflict')
-    return Object.freeze(existing.resultSnapshot)
+      throw new Error("Task idempotency conflict");
+    return Object.freeze(existing.resultSnapshot);
   }
-  const result = await mutate()
+  const result = await mutate();
   await transaction
     .update(taskMutations)
     .set({
@@ -242,7 +242,7 @@ async function runMutation(
       taskId: result.id,
       updatedAt: new Date(),
     })
-    .where(eq(taskMutations.id, reservation.id))
+    .where(eq(taskMutations.id, reservation.id));
   await transaction.insert(workspaceEvents).values({
     eventType,
     payload: {
@@ -254,8 +254,8 @@ async function runMutation(
       version: result.version,
     },
     workspaceId,
-  })
-  return result
+  });
+  return result;
 }
 
 async function validateDependencies(
@@ -265,32 +265,32 @@ async function validateDependencies(
   dependencyIds: readonly string[]
 ) {
   if (new Set(dependencyIds).size !== dependencyIds.length || dependencyIds.includes(taskId))
-    throw new Error('Task dependency conflict')
+    throw new Error("Task dependency conflict");
   if (dependencyIds.length) {
     const found = await database
       .select({ id: tasks.id })
       .from(tasks)
-      .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, [...dependencyIds])))
-    if (found.length !== dependencyIds.length) throw new Error('Task dependency unavailable')
+      .where(and(eq(tasks.workspaceId, workspaceId), inArray(tasks.id, [...dependencyIds])));
+    if (found.length !== dependencyIds.length) throw new Error("Task dependency unavailable");
   }
   const existing = await database
     .select({ dependsOnTaskId: taskDependencies.dependsOnTaskId, taskId: taskDependencies.taskId })
     .from(taskDependencies)
-    .where(eq(taskDependencies.workspaceId, workspaceId))
-  const graph = new Map<string, string[]>()
+    .where(eq(taskDependencies.workspaceId, workspaceId));
+  const graph = new Map<string, string[]>();
   for (const edge of existing) {
     if (edge.taskId !== taskId)
-      graph.set(edge.taskId, [...(graph.get(edge.taskId) ?? []), edge.dependsOnTaskId])
+      graph.set(edge.taskId, [...(graph.get(edge.taskId) ?? []), edge.dependsOnTaskId]);
   }
-  graph.set(taskId, [...dependencyIds])
+  graph.set(taskId, [...dependencyIds]);
   const reachesTask = (node: string, seen: Set<string>): boolean => {
-    if (node === taskId) return true
-    if (seen.has(node)) return false
-    seen.add(node)
-    return (graph.get(node) ?? []).some((next) => reachesTask(next, seen))
-  }
+    if (node === taskId) return true;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    return (graph.get(node) ?? []).some((next) => reachesTask(next, seen));
+  };
   if (dependencyIds.some((id) => reachesTask(id, new Set())))
-    throw new Error('Task dependency cycle')
+    throw new Error("Task dependency cycle");
 }
 
 export async function createTask(
@@ -301,22 +301,23 @@ export async function createTask(
   command: TaskCommand
 ): Promise<TaskSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireMembership(transaction, workspaceId, principal);
     return runMutation(
       transaction,
       workspaceId,
       principal,
-      'task.create',
-      'task.created',
+      "task.create",
+      "task.created",
       input,
       command,
       async () => {
         if (Boolean(input.objective?.trim()) === Boolean(input.objectiveContentRefId))
-          throw new Error('Task objective invalid')
-        if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId)
-        if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId)
-        const artifactRefs = [...new Set(input.artifactRefs?.map((value) => value.trim()) ?? [])]
-        if (artifactRefs.some((value) => !value)) throw new Error('Task Artifact reference invalid')
+          throw new Error("Task objective invalid");
+        if (input.agentId) await requireActiveAgent(transaction, workspaceId, input.agentId);
+        if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId);
+        const artifactRefs = [...new Set(input.artifactRefs?.map((value) => value.trim()) ?? [])];
+        if (artifactRefs.some((value) => !value))
+          throw new Error("Task Artifact reference invalid");
         const [created] = await transaction
           .insert(tasks)
           .values({
@@ -326,27 +327,27 @@ export async function createTask(
             controlPlaneExecutionRef: input.controlPlaneExecutionRef?.trim() || null,
             controlPlaneWorkflowRef: input.controlPlaneWorkflowRef?.trim() || null,
             creatorUserId: principal.userId,
-            kind: input.kind ?? 'feature',
+            kind: input.kind ?? "feature",
             messageId: input.conversation?.messageId ?? null,
             objective: input.objective?.trim() || null,
             objectiveContentRefId: input.objectiveContentRefId ?? null,
-            priority: input.priority ?? 'normal',
+            priority: input.priority ?? "normal",
             roomId: input.roomId ?? null,
             threadRootMessageId: input.conversation?.threadRootMessageId ?? null,
             title: input.title.trim(),
             workspaceId,
           })
-          .returning()
-        if (!created) throw new Error('Task creation failed')
+          .returning();
+        if (!created) throw new Error("Task creation failed");
         if (input.objectiveContentRefId)
           await attachTaskContentRef(
             transaction,
             workspaceId,
             input.objectiveContentRefId,
             created.id,
-            'task_objective'
-          )
-        await validateDependencies(transaction, workspaceId, created.id, input.dependencyIds ?? [])
+            "task_objective"
+          );
+        await validateDependencies(transaction, workspaceId, created.id, input.dependencyIds ?? []);
         if (input.dependencyIds?.length)
           await transaction.insert(taskDependencies).values(
             input.dependencyIds.map((dependsOnTaskId) => ({
@@ -354,11 +355,11 @@ export async function createTask(
               taskId: created.id,
               workspaceId,
             }))
-          )
-        return summarize(transaction, created)
+          );
+        return summarize(transaction, created);
       }
-    )
-  })
+    );
+  });
 }
 
 export async function listTasksForUser(
@@ -367,18 +368,18 @@ export async function listTasksForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<TaskSummary[]> {
-  await requireMembership(database, workspaceId, principal)
+  await requireMembership(database, workspaceId, principal);
   const rows = await database
     .select()
     .from(tasks)
     .where(
       and(
         eq(tasks.workspaceId, workspaceId),
-        ...(options.includeArchived ? [] : [not(eq(tasks.lifecycleState, 'archived'))])
+        ...(options.includeArchived ? [] : [not(eq(tasks.lifecycleState, "archived"))])
       )
     )
-    .orderBy(asc(tasks.createdAt), asc(tasks.id))
-  return Promise.all(rows.map((row) => summarize(database, row)))
+    .orderBy(asc(tasks.createdAt), asc(tasks.id));
+  return Promise.all(rows.map((row) => summarize(database, row)));
 }
 
 export async function getTaskForUser(
@@ -402,11 +403,11 @@ export async function getTaskForUser(
       and(
         eq(tasks.id, taskId),
         eq(tasks.workspaceId, workspaceId),
-        ...(options.includeArchived ? [] : [not(eq(tasks.lifecycleState, 'archived'))])
+        ...(options.includeArchived ? [] : [not(eq(tasks.lifecycleState, "archived"))])
       )
     )
-    .limit(1)
-  return row ? summarize(database, row.task) : null
+    .limit(1);
+  return row ? summarize(database, row.task) : null;
 }
 
 async function mutateExisting(
@@ -421,7 +422,7 @@ async function mutateExisting(
   mutate: (transaction: AgentHqTransaction, row: TaskRow) => Promise<TaskRow>
 ): Promise<TaskSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireMembership(transaction, workspaceId, principal);
     return runMutation(
       transaction,
       workspaceId,
@@ -431,13 +432,13 @@ async function mutateExisting(
       { ...payload, expectedVersion: command.expectedVersion, taskId },
       command,
       async () => {
-        const row = await requireTask(transaction, workspaceId, taskId)
-        requireExpectedVersion(row, command)
-        if (row.lifecycleState === 'archived') throw new Error('Task unavailable')
-        return summarize(transaction, await mutate(transaction, row))
+        const row = await requireTask(transaction, workspaceId, taskId);
+        requireExpectedVersion(row, command);
+        if (row.lifecycleState === "archived") throw new Error("Task unavailable");
+        return summarize(transaction, await mutate(transaction, row));
       }
-    )
-  })
+    );
+  });
 }
 
 export async function updateTask(
@@ -449,16 +450,16 @@ export async function updateTask(
   command: TaskCommand
 ) {
   if (input.objective !== undefined && input.objectiveContentRefId !== undefined)
-    throw new Error('Task objective invalid')
+    throw new Error("Task objective invalid");
   if (input.objective !== undefined && !input.objective.trim())
-    throw new Error('Task objective invalid')
+    throw new Error("Task objective invalid");
   return mutateExisting(
     database,
     workspaceId,
     taskId,
     principal,
-    'task.update',
-    'task.updated',
+    "task.update",
+    "task.updated",
     { ...input },
     command,
     async (transaction, row) => {
@@ -489,19 +490,19 @@ export async function updateTask(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      const required = requireUpdated(updated)
+        .returning();
+      const required = requireUpdated(updated);
       if (input.objectiveContentRefId)
         await attachTaskContentRef(
           transaction,
           workspaceId,
           input.objectiveContentRefId,
           taskId,
-          'task_objective'
-        )
-      return required
+          "task_objective"
+        );
+      return required;
     }
-  )
+  );
 }
 
 export async function assignTask(
@@ -517,12 +518,12 @@ export async function assignTask(
     workspaceId,
     taskId,
     principal,
-    'task.assign',
-    'task.assigned',
+    "task.assign",
+    "task.assigned",
     { agentId },
     command,
     async (transaction, row) => {
-      if (agentId) await requireActiveAgent(transaction, workspaceId, agentId)
+      if (agentId) await requireActiveAgent(transaction, workspaceId, agentId);
       const [updated] = await transaction
         .update(tasks)
         .set({ agentId, updatedAt: new Date(), version: row.version + 1 })
@@ -533,10 +534,10 @@ export async function assignTask(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      return requireUpdated(updated)
+        .returning();
+      return requireUpdated(updated);
     }
-  )
+  );
 }
 
 export async function moveTaskToRoom(
@@ -552,12 +553,12 @@ export async function moveTaskToRoom(
     workspaceId,
     taskId,
     principal,
-    'task.move_room',
-    'task.room_changed',
+    "task.move_room",
+    "task.room_changed",
     { roomId },
     command,
     async (transaction, row) => {
-      if (roomId) await requireActiveRoom(transaction, workspaceId, roomId)
+      if (roomId) await requireActiveRoom(transaction, workspaceId, roomId);
       const [updated] = await transaction
         .update(tasks)
         .set({ roomId, updatedAt: new Date(), version: row.version + 1 })
@@ -568,10 +569,10 @@ export async function moveTaskToRoom(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      return requireUpdated(updated)
+        .returning();
+      return requireUpdated(updated);
     }
-  )
+  );
 }
 
 async function transitionTask(
@@ -594,15 +595,15 @@ async function transitionTask(
     async (transaction, row) => {
       const valid: Record<TaskLifecycleState, readonly TaskLifecycleState[]> = {
         archived: [],
-        cancelled: ['archived'],
-        completed: ['archived'],
-        created: ['queued', 'in_progress', 'completed', 'cancelled', 'archived'],
-        in_progress: ['in_review', 'completed', 'cancelled', 'archived'],
-        in_review: ['in_progress', 'completed', 'cancelled', 'archived'],
-        queued: ['in_progress', 'completed', 'cancelled', 'archived'],
-      }
+        cancelled: ["archived"],
+        completed: ["archived"],
+        created: ["queued", "in_progress", "completed", "cancelled", "archived"],
+        in_progress: ["in_review", "completed", "cancelled", "archived"],
+        in_review: ["in_progress", "completed", "cancelled", "archived"],
+        queued: ["in_progress", "completed", "cancelled", "archived"],
+      };
       if (!valid[row.lifecycleState].includes(target))
-        throw new Error('Invalid Task lifecycle transition')
+        throw new Error("Invalid Task lifecycle transition");
       const [updated] = await transaction
         .update(tasks)
         .set({ lifecycleState: target, updatedAt: new Date(), version: row.version + 1 })
@@ -613,10 +614,10 @@ async function transitionTask(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      return requireUpdated(updated)
+        .returning();
+      return requireUpdated(updated);
     }
-  )
+  );
 }
 
 export const queueTask = (
@@ -625,42 +626,42 @@ export const queueTask = (
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'queued', command)
+) => transitionTask(database, workspaceId, taskId, principal, "queued", command);
 export const cancelTask = (
   database: AgentHqDatabase,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'cancelled', command)
+) => transitionTask(database, workspaceId, taskId, principal, "cancelled", command);
 export const startTask = (
   database: AgentHqDatabase,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'in_progress', command)
+) => transitionTask(database, workspaceId, taskId, principal, "in_progress", command);
 export const completeTask = (
   database: AgentHqDatabase,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'completed', command)
+) => transitionTask(database, workspaceId, taskId, principal, "completed", command);
 export const reviewTask = (
   database: AgentHqDatabase,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'in_review', command)
+) => transitionTask(database, workspaceId, taskId, principal, "in_review", command);
 export const archiveTask = (
   database: AgentHqDatabase,
   workspaceId: string,
   taskId: string,
   principal: UserPrincipalRef,
   command: TaskCommand
-) => transitionTask(database, workspaceId, taskId, principal, 'archived', command)
+) => transitionTask(database, workspaceId, taskId, principal, "archived", command);
 
 export async function reopenTasksForChannelMessage(
   transaction: AgentHqTransaction,
@@ -676,30 +677,30 @@ export async function reopenTasksForChannelMessage(
       and(
         eq(tasks.workspaceId, workspaceId),
         eq(tasks.channelId, channelId),
-        eq(tasks.lifecycleState, 'in_review')
+        eq(tasks.lifecycleState, "in_review")
       )
-    )
+    );
   for (const candidate of candidates) {
     try {
       await runMutation(
         transaction,
         workspaceId,
         principal,
-        'task.in_progress',
-        'task.in_progress',
-        { expectedVersion: candidate.version, target: 'in_progress', taskId: candidate.id },
+        "task.in_progress",
+        "task.in_progress",
+        { expectedVersion: candidate.version, target: "in_progress", taskId: candidate.id },
         {
           idempotencyKey: `reopen-on-comment:${candidate.id}:${messageId}`,
           requestId: randomUUID(),
         },
         async () => {
-          const row = await requireTask(transaction, workspaceId, candidate.id)
-          if (row.lifecycleState !== 'in_review' || row.version !== candidate.version)
-            throw new Error('Task version conflict')
+          const row = await requireTask(transaction, workspaceId, candidate.id);
+          if (row.lifecycleState !== "in_review" || row.version !== candidate.version)
+            throw new Error("Task version conflict");
           const [updated] = await transaction
             .update(tasks)
             .set({
-              lifecycleState: 'in_progress',
+              lifecycleState: "in_progress",
               updatedAt: new Date(),
               version: row.version + 1,
             })
@@ -710,13 +711,13 @@ export async function reopenTasksForChannelMessage(
                 eq(tasks.version, row.version)
               )
             )
-            .returning()
-          return summarize(transaction, requireUpdated(updated))
+            .returning();
+          return summarize(transaction, requireUpdated(updated));
         }
-      )
+      );
     } catch (error) {
-      if (error instanceof Error && error.message === 'Task version conflict') continue
-      throw error
+      if (error instanceof Error && error.message === "Task version conflict") continue;
+      throw error;
     }
   }
 }
@@ -734,23 +735,23 @@ export async function setTaskDependencies(
     workspaceId,
     taskId,
     principal,
-    'task.set_dependencies',
-    'task.dependencies_changed',
+    "task.set_dependencies",
+    "task.dependencies_changed",
     { dependencyIds },
     command,
     async (transaction, row) => {
-      await validateDependencies(transaction, workspaceId, taskId, dependencyIds)
+      await validateDependencies(transaction, workspaceId, taskId, dependencyIds);
       await transaction
         .delete(taskDependencies)
         .where(
           and(eq(taskDependencies.workspaceId, workspaceId), eq(taskDependencies.taskId, taskId))
-        )
+        );
       if (dependencyIds.length)
         await transaction
           .insert(taskDependencies)
           .values(
             dependencyIds.map((dependsOnTaskId) => ({ dependsOnTaskId, taskId, workspaceId }))
-          )
+          );
       const [updated] = await transaction
         .update(tasks)
         .set({ updatedAt: new Date(), version: row.version + 1 })
@@ -761,10 +762,10 @@ export async function setTaskDependencies(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      return requireUpdated(updated)
+        .returning();
+      return requireUpdated(updated);
     }
-  )
+  );
 }
 
 export async function setTaskArtifactReferences(
@@ -775,15 +776,15 @@ export async function setTaskArtifactReferences(
   artifactRefs: readonly string[],
   command: TaskCommand
 ) {
-  const normalized = [...new Set(artifactRefs.map((value) => value.trim()))]
-  if (normalized.some((value) => !value)) throw new Error('Task Artifact reference invalid')
+  const normalized = [...new Set(artifactRefs.map((value) => value.trim()))];
+  if (normalized.some((value) => !value)) throw new Error("Task Artifact reference invalid");
   return mutateExisting(
     database,
     workspaceId,
     taskId,
     principal,
-    'task.set_artifacts',
-    'task.artifacts_changed',
+    "task.set_artifacts",
+    "task.artifacts_changed",
     { artifactRefs: normalized },
     command,
     async (transaction, row) => {
@@ -794,12 +795,12 @@ export async function setTaskArtifactReferences(
           .where(
             and(
               eq(artifacts.workspaceId, workspaceId),
-              eq(artifacts.deletionState, 'active'),
+              eq(artifacts.deletionState, "active"),
               inArray(artifacts.id, normalized)
             )
-          )
+          );
         if (availableArtifacts.length !== normalized.length)
-          throw new Error('Task Artifact unavailable')
+          throw new Error("Task Artifact unavailable");
       }
       const [updated] = await transaction
         .update(tasks)
@@ -811,10 +812,10 @@ export async function setTaskArtifactReferences(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      return requireUpdated(updated)
+        .returning();
+      return requireUpdated(updated);
     }
-  )
+  );
 }
 
 export async function setTaskConversationReferences(
@@ -823,9 +824,9 @@ export async function setTaskConversationReferences(
   taskId: string,
   principal: UserPrincipalRef,
   conversation: Readonly<{
-    channelId?: string | null
-    messageId?: string | null
-    threadRootMessageId?: string | null
+    channelId?: string | null;
+    messageId?: string | null;
+    threadRootMessageId?: string | null;
   }>,
   command: TaskCommand
 ) {
@@ -834,12 +835,12 @@ export async function setTaskConversationReferences(
     workspaceId,
     taskId,
     principal,
-    'task.set_conversation',
-    'task.conversation_changed',
+    "task.set_conversation",
+    "task.conversation_changed",
     { ...conversation },
     command,
     async (transaction, row) => {
-      let channelId = conversation.channelId ?? null
+      let channelId = conversation.channelId ?? null;
       if (channelId) {
         const [channel] = await transaction
           .select({ id: channels.id })
@@ -848,22 +849,22 @@ export async function setTaskConversationReferences(
             and(
               eq(channels.id, channelId),
               eq(channels.workspaceId, workspaceId),
-              eq(channels.lifecycleState, 'active')
+              eq(channels.lifecycleState, "active")
             )
           )
-          .limit(1)
-        if (!channel) throw new Error('Channel unavailable')
+          .limit(1);
+        if (!channel) throw new Error("Channel unavailable");
       }
       for (const messageId of [conversation.messageId, conversation.threadRootMessageId]) {
-        if (!messageId) continue
+        if (!messageId) continue;
         const [message] = await transaction
           .select({ channelId: messages.channelId })
           .from(messages)
           .where(and(eq(messages.id, messageId), eq(messages.workspaceId, workspaceId)))
-          .limit(1)
+          .limit(1);
         if (!message || (channelId && message.channelId !== channelId))
-          throw new Error('Message unavailable')
-        channelId ??= message.channelId
+          throw new Error("Message unavailable");
+        channelId ??= message.channelId;
       }
       const [updated] = await transaction
         .update(tasks)
@@ -881,8 +882,8 @@ export async function setTaskConversationReferences(
             eq(tasks.version, row.version)
           )
         )
-        .returning()
-      return requireUpdated(updated)
+        .returning();
+      return requireUpdated(updated);
     }
-  )
+  );
 }

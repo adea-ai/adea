@@ -12,7 +12,7 @@ describe("manual release preflight", () => {
         record("a", "docs: clarify setup"),
         record("b", "feat(auth): add desktop sign-in"),
         record("c", "chore: refresh generated files", "Release-As: 0.6.0"),
-      ].join(""),
+      ].join("")
     );
 
     const plan = createReleasePlan({

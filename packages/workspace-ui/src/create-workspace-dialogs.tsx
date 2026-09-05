@@ -1,23 +1,23 @@
-import { useState } from 'react'
-import type { WorkspaceSceneId } from '@agent-hq/types'
-import { Button } from '@agent-hq/ui/components/ui/button'
-import { Field, FieldError, FieldGroup, FieldLabel } from '@agent-hq/ui/components/ui/field'
-import { Input } from '@agent-hq/ui/components/ui/input'
+import { useState } from "react";
+import type { WorkspaceSceneId } from "@agent-hq/types";
+import { Button } from "@agent-hq/ui/components/ui/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@agent-hq/ui/components/ui/field";
+import { Input } from "@agent-hq/ui/components/ui/input";
 
-import { ModalDialog } from './modal-dialog'
-import { RoomIcon } from './room-icon'
+import { ModalDialog } from "./modal-dialog";
+import { RoomIcon } from "./room-icon";
 
 const roomTemplates: readonly Readonly<{ functionKey: string; name: string }>[] = [
-  { functionKey: 'study', name: 'Study' },
-  { functionKey: 'kitchen', name: 'Kitchen' },
-  { functionKey: 'travel', name: 'Travel' },
-  { functionKey: 'engineering', name: 'Engineering' },
-  { functionKey: 'marketing', name: 'Marketing' },
-  { functionKey: 'operations', name: 'Operations' },
-  { functionKey: 'gym', name: 'Gym' },
-  { functionKey: 'music', name: 'Music' },
-  { functionKey: 'garden', name: 'Garden' },
-]
+  { functionKey: "study", name: "Study" },
+  { functionKey: "kitchen", name: "Kitchen" },
+  { functionKey: "travel", name: "Travel" },
+  { functionKey: "engineering", name: "Engineering" },
+  { functionKey: "marketing", name: "Marketing" },
+  { functionKey: "operations", name: "Operations" },
+  { functionKey: "gym", name: "Gym" },
+  { functionKey: "music", name: "Music" },
+  { functionKey: "garden", name: "Garden" },
+];
 
 export function CreateRoomDialog({
   busy,
@@ -26,13 +26,13 @@ export function CreateRoomDialog({
   open,
   template,
 }: Readonly<{
-  busy: boolean
-  onClose: () => void
-  onCreate: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>
-  open: boolean
-  template: WorkspaceSceneId
+  busy: boolean;
+  onClose: () => void;
+  onCreate: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>;
+  open: boolean;
+  template: WorkspaceSceneId;
 }>) {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null);
   return (
     <ModalDialog
       open={open}
@@ -50,7 +50,7 @@ export function CreateRoomDialog({
             onClick={() =>
               void onCreate(room)
                 .then(onClose)
-                .catch(() => setError('Room could not be created.'))
+                .catch(() => setError("Room could not be created."))
             }
           >
             <RoomIcon functionKey={room.functionKey} />
@@ -61,14 +61,14 @@ export function CreateRoomDialog({
       <form
         className="conventional-dialog-form"
         onSubmit={(event) => {
-          event.preventDefault()
-          const form = new FormData(event.currentTarget)
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
           void onCreate({
-            functionKey: String(form.get('functionKey') ?? ''),
-            name: String(form.get('name') ?? ''),
+            functionKey: String(form.get("functionKey") ?? ""),
+            name: String(form.get("name") ?? ""),
           })
             .then(onClose)
-            .catch(() => setError('Room could not be created. Check the fields and retry.'))
+            .catch(() => setError("Room could not be created. Check the fields and retry."));
         }}
       >
         <FieldGroup>
@@ -82,28 +82,28 @@ export function CreateRoomDialog({
               id="room-function-key"
               name="functionKey"
               required
-              pattern={'[a-z0-9\\-]+'}
+              pattern={"[a-z0-9\\-]+"}
               maxLength={80}
             />
           </Field>
         </FieldGroup>
         {error ? <FieldError>{error}</FieldError> : null}
         <Button type="submit" disabled={busy}>
-          {busy ? 'Creating…' : 'Create Room'}
+          {busy ? "Creating…" : "Create Room"}
         </Button>
       </form>
     </ModalDialog>
-  )
+  );
 }
 
 export const roomFunctionKeySuggestions = [
-  'study',
-  'kitchen',
-  'travel',
-  'engineering',
-  'marketing',
-  'operations',
-] as const
+  "study",
+  "kitchen",
+  "travel",
+  "engineering",
+  "marketing",
+  "operations",
+] as const;
 
 export function EditRoomDialog({
   busy,
@@ -114,15 +114,15 @@ export function EditRoomDialog({
   open,
   roomName,
 }: Readonly<{
-  busy: boolean
-  initialFunctionKey: string
-  initialName: string
-  onClose: () => void
-  onSave: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>
-  open: boolean
-  roomName: string
+  busy: boolean;
+  initialFunctionKey: string;
+  initialName: string;
+  onClose: () => void;
+  onSave: (input: Readonly<{ functionKey: string; name: string }>) => Promise<void>;
+  open: boolean;
+  roomName: string;
 }>) {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null);
   return (
     <ModalDialog
       open={open}
@@ -133,15 +133,15 @@ export function EditRoomDialog({
       <form
         className="conventional-dialog-form"
         onSubmit={(event) => {
-          event.preventDefault()
-          const form = new FormData(event.currentTarget)
-          setError(null)
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          setError(null);
           void onSave({
-            functionKey: String(form.get('functionKey') ?? ''),
-            name: String(form.get('name') ?? ''),
+            functionKey: String(form.get("functionKey") ?? ""),
+            name: String(form.get("name") ?? ""),
           })
             .then(onClose)
-            .catch(() => setError('Room could not be updated. Check the fields and retry.'))
+            .catch(() => setError("Room could not be updated. Check the fields and retry."));
         }}
       >
         <FieldGroup>
@@ -161,7 +161,7 @@ export function EditRoomDialog({
               id="edit-room-function-key"
               name="functionKey"
               required
-              pattern={'[a-z0-9\\-]+'}
+              pattern={"[a-z0-9\\-]+"}
               maxLength={80}
               defaultValue={initialFunctionKey}
               list="edit-room-function-keys"
@@ -175,11 +175,11 @@ export function EditRoomDialog({
         </FieldGroup>
         {error ? <FieldError>{error}</FieldError> : null}
         <Button type="submit" disabled={busy}>
-          {busy ? 'Saving…' : 'Save changes'}
+          {busy ? "Saving…" : "Save changes"}
         </Button>
       </form>
     </ModalDialog>
-  )
+  );
 }
 
 export function RenameConversationDialog({
@@ -189,13 +189,13 @@ export function RenameConversationDialog({
   onSave,
   open,
 }: Readonly<{
-  busy: boolean
-  initialTitle: string
-  onClose: () => void
-  onSave: (title: string) => Promise<void>
-  open: boolean
+  busy: boolean;
+  initialTitle: string;
+  onClose: () => void;
+  onSave: (title: string) => Promise<void>;
+  open: boolean;
 }>) {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null);
   return (
     <ModalDialog
       open={open}
@@ -206,12 +206,12 @@ export function RenameConversationDialog({
       <form
         className="conventional-dialog-form"
         onSubmit={(event) => {
-          event.preventDefault()
-          const title = String(new FormData(event.currentTarget).get('title') ?? '')
-          setError(null)
+          event.preventDefault();
+          const title = String(new FormData(event.currentTarget).get("title") ?? "");
+          setError(null);
           void onSave(title)
             .then(onClose)
-            .catch(() => setError('Conversation could not be renamed.'))
+            .catch(() => setError("Conversation could not be renamed."));
         }}
       >
         <Field>
@@ -227,11 +227,11 @@ export function RenameConversationDialog({
         </Field>
         {error ? <FieldError>{error}</FieldError> : null}
         <Button type="submit" disabled={busy}>
-          {busy ? 'Saving…' : 'Save title'}
+          {busy ? "Saving…" : "Save title"}
         </Button>
       </form>
     </ModalDialog>
-  )
+  );
 }
 
 export function CreateGroupDialog({
@@ -240,12 +240,12 @@ export function CreateGroupDialog({
   onCreate,
   open,
 }: Readonly<{
-  busy: boolean
-  onClose: () => void
-  onCreate: (title: string) => Promise<void>
-  open: boolean
+  busy: boolean;
+  onClose: () => void;
+  onCreate: (title: string) => Promise<void>;
+  open: boolean;
 }>) {
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null);
   return (
     <ModalDialog
       open={open}
@@ -256,11 +256,11 @@ export function CreateGroupDialog({
       <form
         className="conventional-dialog-form"
         onSubmit={(event) => {
-          event.preventDefault()
-          const title = String(new FormData(event.currentTarget).get('title') ?? '')
+          event.preventDefault();
+          const title = String(new FormData(event.currentTarget).get("title") ?? "");
           void onCreate(title)
             .then(onClose)
-            .catch(() => setError('Group conversation could not be created.'))
+            .catch(() => setError("Group conversation could not be created."));
         }}
       >
         <Field>
@@ -269,9 +269,9 @@ export function CreateGroupDialog({
         </Field>
         {error ? <FieldError>{error}</FieldError> : null}
         <Button type="submit" disabled={busy}>
-          {busy ? 'Creating…' : 'Create conversation'}
+          {busy ? "Creating…" : "Create conversation"}
         </Button>
       </form>
     </ModalDialog>
-  )
+  );
 }

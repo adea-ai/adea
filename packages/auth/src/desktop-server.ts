@@ -49,7 +49,7 @@ export interface DesktopSessionStore {
   create(record: DesktopSessionRecord): Promise<void>;
   revoke(input: Readonly<{ credentialDigest: string; sessionId: string }>): Promise<boolean>;
   resolve(
-    input: Readonly<{ credentialDigest: string; now: number; sessionId: string }>,
+    input: Readonly<{ credentialDigest: string; now: number; sessionId: string }>
   ): Promise<DesktopSessionRecord | null>;
   rotate(
     input: Readonly<{
@@ -58,7 +58,7 @@ export interface DesktopSessionStore {
       nextCredentialDigest: string;
       now: number;
       sessionId: string;
-    }>,
+    }>
   ): Promise<DesktopSessionRecord | null>;
 }
 

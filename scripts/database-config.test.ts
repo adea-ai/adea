@@ -30,7 +30,7 @@ describe("inspectDatabaseConfiguration", () => {
         ...localEnvironment,
         DATABASE_URL:
           "postgresql://agent_hq_prod_app:secret@prod.example.com/agent_hq?sslmode=disable",
-      }),
+      })
     ).toThrow("Hosted DATABASE_URL must require TLS");
   });
 
@@ -39,7 +39,7 @@ describe("inspectDatabaseConfiguration", () => {
       inspectDatabaseConfiguration({
         ...localEnvironment,
         DATABASE_MIGRATION_URL: localEnvironment.DATABASE_URL,
-      }),
+      })
     ).toThrow("must use different roles");
   });
 
@@ -48,7 +48,7 @@ describe("inspectDatabaseConfiguration", () => {
       inspectDatabaseConfiguration({
         ...localEnvironment,
         NEXT_PUBLIC_DATABASE_URL: localEnvironment.DATABASE_URL,
-      }),
+      })
     ).toThrow("must never be client-exposed");
   });
 });

@@ -11,7 +11,7 @@ type DesktopPrincipalProvisioning = AuthIdentityMapping &
       profile?: Readonly<{ displayName?: string }>;
     }): Promise<unknown>;
     setDisplayNameIfMissing(
-      input: Readonly<{ displayName: string; userId: string }>,
+      input: Readonly<{ displayName: string; userId: string }>
     ): Promise<void>;
   }>;
 
@@ -21,7 +21,7 @@ function accountLabel(authentication: AuthResult) {
 
 export async function resolveOrProvisionDesktopPrincipal(
   authentication: AuthResult,
-  provisioning: DesktopPrincipalProvisioning,
+  provisioning: DesktopPrincipalProvisioning
 ) {
   const displayName = accountLabel(authentication);
   const existing = await resolveAuthenticatedPrincipal(authentication, provisioning);

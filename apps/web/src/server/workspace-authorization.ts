@@ -10,7 +10,7 @@ export async function authorizeWorkspace(
   principal: UserPrincipalRef,
   permission: WorkspacePermission,
   workspaceId: string | null,
-  options: Readonly<{ includeArchived?: boolean }> = {},
+  options: Readonly<{ includeArchived?: boolean }> = {}
 ) {
   const database = applicationDatabase();
   return authorizeWorkspaceAction(
@@ -19,6 +19,6 @@ export async function authorizeWorkspace(
       audit: (record) => recordWorkspaceAuthorizationDecision(database, record),
       findMembership: ({ principal: member, workspaceId: id }) =>
         findWorkspaceMembership(database, id, member, options),
-    },
+    }
   );
 }

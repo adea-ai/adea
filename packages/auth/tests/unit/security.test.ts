@@ -12,7 +12,7 @@ describe("auth request security", () => {
     expect(() => assertTrustedOrigin(undefined, trusted)).toThrow("origin");
     expect(() => assertTrustedOrigin("https://attacker.example", trusted)).toThrow("origin");
     expect(assertTrustedOrigin("https://agent-hq.example/path", trusted)).toBe(
-      "https://agent-hq.example",
+      "https://agent-hq.example"
     );
   });
 
@@ -29,14 +29,14 @@ describe("auth request security", () => {
         state: transaction.state,
         nonce: transaction.nonce,
         redirectUri: "agent-hq://auth/callback",
-      }),
+      })
     ).toBe(true);
     await expect(
       verifyAuthorizationState(transaction, {
         state: "wrong",
         nonce: transaction.nonce,
         redirectUri: "agent-hq://auth/callback",
-      }),
+      })
     ).rejects.toThrow("state");
   });
 });

@@ -38,7 +38,7 @@ function queryPrivileges(rawUrl) {
         PGUSER: decodeURIComponent(url.username),
       },
       stdio: ["ignore", "pipe", "pipe"],
-    },
+    }
   );
 
   if (result.error?.code === "ENOENT") {
@@ -83,7 +83,7 @@ try {
   }
 
   console.log(
-    `Database health check passed (database=${configuration.database}, runtimeRole=${runtime.role}, migrationRole=${migration.role})`,
+    `Database health check passed (database=${configuration.database}, runtimeRole=${runtime.role}, migrationRole=${migration.role})`
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : "Database health check failed");

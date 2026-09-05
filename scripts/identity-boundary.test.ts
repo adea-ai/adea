@@ -14,13 +14,15 @@ async function sourceFiles(directory: string): Promise<string[]> {
         const path = join(directory, entry.name);
         if (
           entry.isDirectory() &&
-          [".next", ".turbo", "dist", "node_modules"].includes(entry.name)
+          [".next", ".open-next", ".turbo", ".wrangler", "dist", "node_modules"].includes(
+            entry.name
+          )
         ) {
           return [];
         }
         if (entry.isDirectory()) return sourceFiles(path);
         return /\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : [];
-      }),
+      })
     )
   ).flat();
 }
@@ -46,7 +48,7 @@ describe("principal boundary", () => {
     expect(principals.every(isPrincipalRef)).toBe(true);
     expect(isPrincipalRef({ kind: "user", subject: "provider-subject" })).toBe(false);
     expect(isPrincipalRef({ kind: "user", userId: "user-1", subject: "provider-subject" })).toBe(
-      false,
+      false
     );
     expect(isPrincipalRef({ kind: "runtime_node", runtimeNodeId: "" })).toBe(false);
     expect(JSON.stringify(principals)).not.toContain("subject");

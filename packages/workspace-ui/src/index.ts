@@ -1,9 +1,9 @@
-export { ConventionalWorkspaceShell } from './conventional-workspace-shell'
-export { WorkspaceViewToggle, type WorkspaceView } from './workspace-view-toggle'
-export { VirtualRoomControls } from './virtual-room-controls'
-export { GlobalWorkspaceRail } from './global-workspace-rail'
-export { WorkspaceAboutDialog } from './workspace-about-dialog'
-export { PluginsDialog } from './plugins-dialog'
+export { ConventionalWorkspaceShell } from "./conventional-workspace-shell";
+export { WorkspaceViewToggle, type WorkspaceView } from "./workspace-view-toggle";
+export { VirtualRoomControls } from "./virtual-room-controls";
+export { GlobalWorkspaceRail } from "./global-workspace-rail";
+export { WorkspaceAboutDialog } from "./workspace-about-dialog";
+export { PluginsDialog } from "./plugins-dialog";
 export {
   createRegistryPluginsProvider,
   filterWorkspacePlugins,
@@ -11,7 +11,7 @@ export {
   groupWorkspacePlugins,
   popularWorkspacePluginIds,
   workspacePluginCategoryOrder,
-} from './plugins'
+} from "./plugins";
 export {
   canonicalDigest,
   canonicalJson,
@@ -19,11 +19,11 @@ export {
   MarketplaceCatalogError,
   parseCatalog,
   verifyRegistryArtifacts,
-} from './marketplace-catalog'
-export { WorkspaceSettingsDialog } from './workspace-settings'
-export { mergeTranscription } from './transcription'
-export { canonicalNotificationHref, notificationPreview } from './notifications'
-export { createBrowserSettingsProvider, normalizeWorkspacePreferences } from './preferences'
+} from "./marketplace-catalog";
+export { WorkspaceSettingsDialog } from "./workspace-settings";
+export { mergeTranscription } from "./transcription";
+export { canonicalNotificationHref, notificationPreview } from "./notifications";
+export { createBrowserSettingsProvider, normalizeWorkspacePreferences } from "./preferences";
 export type {
   PrivateContentResolver,
   TranscriptionProvider,
@@ -39,5 +39,5 @@ export type {
   WorkspaceSettingsProvider,
   WorkspacePluginInstallationStatus,
   WorkspacePluginsProviderState,
-} from './platform'
-export { defaultWorkspacePreferences } from './platform'
+} from "./platform";
+export { defaultWorkspacePreferences } from "./platform";

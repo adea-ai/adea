@@ -13,7 +13,7 @@ describe("database configuration", () => {
       readDatabaseUrl({
         DATABASE_URL: "postgresql://app:secret@localhost:5432/agent_hq",
         NEXT_PUBLIC_DATABASE_URL: "postgresql://leaked:secret@localhost/db",
-      }),
+      })
     ).toThrow("client-exposed");
   });
 });

@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react'
+import type { SVGProps } from "react";
 
 /** The canonical Agent HQ mark used by web, desktop, and dialogs. */
 export function WorkspaceLogo(props: SVGProps<SVGSVGElement>) {
@@ -13,5 +13,5 @@ export function WorkspaceLogo(props: SVGProps<SVGSVGElement>) {
       />
       <path d="m45 35 11 11-4 4-11-11z" fill="#f8fafc" />
     </svg>
-  )
+  );
 }

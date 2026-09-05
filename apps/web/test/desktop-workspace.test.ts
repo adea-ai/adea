@@ -24,27 +24,27 @@ describe("desktop workspace HTTP boundary", () => {
       desktopTrustedOrigins({
         DESKTOP_AUTH_TRUSTED_ORIGINS: "tauri://localhost",
         NODE_ENV: "production",
-      }),
+      })
     ).toContain("http://127.0.0.1:1420");
   });
 
   test("recognizes only an explicitly marked request from a trusted packaged origin", () => {
     expect(trustedDesktopWorkspaceRequest(request("tauri://localhost"), trustedOrigins)).toBe(true);
     expect(
-      trustedDesktopWorkspaceRequest(request("https://hq.example", "browser"), trustedOrigins),
+      trustedDesktopWorkspaceRequest(request("https://hq.example", "browser"), trustedOrigins)
     ).toBe(false);
     expect(trustedDesktopWorkspaceRequest(request("https://evil.example"), trustedOrigins)).toBe(
-      false,
+      false
     );
   });
 
   test("rejects untrusted desktop markers before workspace provisioning", async () => {
     expect(
-      rejectUntrustedDesktopWorkspaceRequest(request("tauri://localhost"), trustedOrigins),
+      rejectUntrustedDesktopWorkspaceRequest(request("tauri://localhost"), trustedOrigins)
     ).toBeNull();
     const rejected = rejectUntrustedDesktopWorkspaceRequest(
       request("https://evil.example"),
-      trustedOrigins,
+      trustedOrigins
     );
     expect(rejected?.status).toBe(403);
     expect(rejected?.headers.get("access-control-allow-origin")).toBeNull();
@@ -59,20 +59,20 @@ describe("desktop workspace HTTP boundary", () => {
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe("tauri://localhost");
     expect(preflight.headers.get("access-control-allow-headers")).toContain(
-      "X-Agent-HQ-Temporary-Session",
+      "X-Agent-HQ-Temporary-Session"
     );
 
     const response = applyDesktopWorkspaceCors(
       Response.json({ ok: true }),
       request("tauri://localhost"),
-      trustedOrigins,
+      trustedOrigins
     );
     expect(response.headers.get("access-control-allow-origin")).toBe("tauri://localhost");
     expect(response.headers.get("vary")).toContain("Origin");
 
     const untrustedPreflight = desktopWorkspacePreflight(
       request("https://evil.example"),
-      trustedOrigins,
+      trustedOrigins
     );
     expect(untrustedPreflight.status).toBe(403);
     expect(untrustedPreflight.headers.get("access-control-allow-origin")).toBeNull();

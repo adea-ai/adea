@@ -37,7 +37,7 @@ function run(command, args, { capture = false, displayArgs = args, env = process
   if (result.status !== 0) {
     const detail = capture ? (result.stderr || result.stdout).trim() : "";
     throw new Error(
-      `${command} ${displayArgs.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`,
+      `${command} ${displayArgs.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`
     );
   }
   return capture ? result.stdout.trim() : "";
@@ -71,13 +71,13 @@ function waitForWorkflowRun(runId) {
       console.warn(
         `Release status check failed; retrying (${consecutiveApiFailures}/12): ${
           error instanceof Error ? error.message : String(error)
-        }`,
+        }`
       );
     }
     if (workflowRun?.status === "completed") {
       if (workflowRun.conclusion !== "success") {
         throw new Error(
-          `Release-assets workflow ${runId} completed with ${workflowRun.conclusion}: ${workflowRun.url}`,
+          `Release-assets workflow ${runId} completed with ${workflowRun.conclusion}: ${workflowRun.url}`
         );
       }
       return workflowRun;
@@ -125,7 +125,7 @@ function findReleasePullRequests() {
   return pullRequests.filter(
     (pullRequest) =>
       pullRequest.headRefName.startsWith(releaseHeadPrefix) &&
-      pullRequest.title.startsWith("chore(main): release "),
+      pullRequest.title.startsWith("chore(main): release ")
   );
 }
 
@@ -152,7 +152,7 @@ function workflowRunIds(event) {
       "20",
       "--json",
       "databaseId",
-    ]).map((item) => item.databaseId),
+    ]).map((item) => item.databaseId)
   );
 }
 
@@ -214,7 +214,7 @@ function verifyReleaseAssets(tag) {
   const desktopAssets = release.assets.filter((asset) => /agent[ ._-]*hq/i.test(asset.name));
   if (desktopAssets.length < 3 || !release.assets.some((asset) => asset.name === "latest.json")) {
     throw new Error(
-      `${tag} is incomplete: expected latest.json and at least three Agent HQ desktop assets; found ${desktopAssets.length}.`,
+      `${tag} is incomplete: expected latest.json and at least three Agent HQ desktop assets; found ${desktopAssets.length}.`
     );
   }
   const manifest = JSON.parse(
@@ -227,8 +227,8 @@ function verifyReleaseAssets(tag) {
         "--location",
         `https://adea-ai.github.io/agent-hq/desktop-updates/latest.json?release=${tag}`,
       ],
-      { capture: true },
-    ),
+      { capture: true }
+    )
   );
   const requiredPlatforms = ["darwin-aarch64", "linux-x86_64", "windows-x86_64"];
   if (manifest.version !== tag.replace(/^v/, "")) {
@@ -253,7 +253,7 @@ function releaseAssetsAreComplete(tag) {
     return true;
   } catch (error) {
     console.log(
-      `Desktop assets for ${tag} need repair: ${error instanceof Error ? error.message : String(error)}`,
+      `Desktop assets for ${tag} need repair: ${error instanceof Error ? error.message : String(error)}`
     );
     return false;
   }
@@ -293,7 +293,7 @@ function main() {
   const latestTag = latestReleaseTag();
   run("git", ["rev-parse", "--verify", `${latestTag}^{commit}`], { capture: true });
   const commits = parseCommitLog(
-    run("git", ["log", "--format=%H%x1f%s%x1f%b%x1e", `${latestTag}..${head}`], { capture: true }),
+    run("git", ["log", "--format=%H%x1f%s%x1f%b%x1e", `${latestTag}..${head}`], { capture: true })
   );
   const plan = createReleasePlan({ branch, commits, head, latestTag, remoteHead, status });
 
@@ -333,7 +333,7 @@ function main() {
   const validatedRemoteHead = run("git", ["rev-parse", "origin/main"], { capture: true });
   if (validatedStatus.trim()) {
     throw new Error(
-      "Release validation changed tracked files; inspect the worktree before retrying.",
+      "Release validation changed tracked files; inspect the worktree before retrying."
     );
   }
   if (validatedHead !== head || validatedRemoteHead !== head) {
@@ -347,7 +347,7 @@ function main() {
   const releasePullRequests = findReleasePullRequests();
   if (releasePullRequests.length !== 1) {
     throw new Error(
-      `Expected exactly one generated release pull request, found ${releasePullRequests.length}.`,
+      `Expected exactly one generated release pull request, found ${releasePullRequests.length}.`
     );
   }
   const releasePullRequest = releasePullRequests[0];

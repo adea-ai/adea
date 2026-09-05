@@ -11,22 +11,22 @@ const validEnvironment = {
 describe("auth configuration", () => {
   test("requires an HTTPS provider URL and a strong cookie secret", () => {
     expect(() =>
-      readAuthConfig({ ...validEnvironment, NEON_AUTH_BASE_URL: "http://remote.test" }),
+      readAuthConfig({ ...validEnvironment, NEON_AUTH_BASE_URL: "http://remote.test" })
     ).toThrow("HTTPS");
     expect(() =>
-      readAuthConfig({ ...validEnvironment, NEON_AUTH_COOKIE_SECRET: "too-short" }),
+      readAuthConfig({ ...validEnvironment, NEON_AUTH_COOKIE_SECRET: "too-short" })
     ).toThrow("32");
   });
 
   test("requires an exact redirect allowlist without wildcards or credentials", () => {
     expect(() =>
-      readAuthConfig({ ...validEnvironment, AUTH_TRUSTED_ORIGINS: "https://*.vercel.app" }),
+      readAuthConfig({ ...validEnvironment, AUTH_TRUSTED_ORIGINS: "https://*.vercel.app" })
     ).toThrow("wildcard");
     expect(() =>
       readAuthConfig({
         ...validEnvironment,
         AUTH_TRUSTED_ORIGINS: "https://user:secret@agent-hq.example",
-      }),
+      })
     ).toThrow("credentials");
   });
 
@@ -50,7 +50,7 @@ describe("auth configuration", () => {
 
     expect(config.trustedOrigins).toContain("https://agent-hq-random-0xplayerone.vercel.app");
     expect(config.trustedOrigins).toContain(
-      "https://agent-hq-web-git-feature-0xplayerone.vercel.app",
+      "https://agent-hq-web-git-feature-0xplayerone.vercel.app"
     );
   });
 });
