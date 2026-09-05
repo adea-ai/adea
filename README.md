@@ -23,6 +23,22 @@ Portless runs the web app at [https://agent-hq.localhost](https://agent-hq.local
 with a stable named route instead of a fixed development port. Portless requires
 Node.js 24 or newer; Bun remains the repository's package manager and test runner.
 
+Workspace bootstrap and temporary guest sessions are persistence-backed. Start the
+local PostgreSQL service and load the example server environment before launching
+the app:
+
+```sh
+cp apps/web/.env.example apps/web/.env.local
+docker compose up -d --wait postgres
+set -a
+. apps/web/.env.local
+set +a
+bun run --cwd packages/db db:migrate
+```
+
+`apps/web/.env.local` is ignored and must never be committed. The `DATABASE_URL`
+value is server-only; do not rename it to a `NEXT_PUBLIC_` or `VITE_` variable.
+
 For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
 - Home: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
@@ -34,8 +50,35 @@ Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 Portless name.
 
 The asset sync step copies the HQ scene foundations and the domain asset
-packages—interior, landscape, pets, and characters—into the ignored Next
-public-assets directory.
+packages—interior, landscape, pets, characters, and reserved room scenes—into
+the ignored Next public-assets directory.
+
+## Plugin marketplace
+
+Agent HQ consumes the authoritative registry through the same-origin server
+proxy. The proxy calls Control Plane; browser and desktop clients never fetch
+GitHub release assets or upstream plugin content directly. The registry's stable
+latest artifact is
+[`catalog-latest.v1.json`](https://github.com/adea-ai/plugins/releases/latest/download/catalog-latest.v1.json),
+and each verified catalog is pinned by its `catalogId` and immutable release
+tag.
+
+The shared marketplace provider verifies the catalog schema, canonical catalog
+digest, `integrity.json`, and byte-identical latest pointer before mapping the
+entries into the workspace UI. It preserves each source-qualified `pluginId`,
+exact `releaseId`, `canonicalContentDigest`, provenance,
+`harnessCompatibility`, `securityClassification`, and connector/credential
+requirements. `metadata-only` entries are visible as unavailable metadata and
+cannot be enabled. A stale last-known-good catalog is labeled stale; a failed
+verification is fail-closed.
+
+Agent HQ is a read-only catalog consumer. Add/Enable submits the exact plugin
+and release pins, requested harness, and workspace/user identity to Control
+Plane. It does not claim local installation state, download upstream content,
+or execute plugin content. Control Plane owns authorization, connector and
+credential resolution, server-side release verification, installation state,
+and execution records. See [`docs/marketplace-consumer.md`](docs/marketplace-consumer.md)
+for the integration contract and required environment variables.
 
 ## Plugin marketplace
 
@@ -78,17 +121,17 @@ decoding through Three.js. The checked-in interior optimization command is
 `bun run assets:optimize:interior` and `bun run assets:optimize:runtime`; they
 preserve authored transforms/material boundaries while applying Meshopt geometry
 compression and WebP base-color textures. Runtime asset validation is included
-in `bun run perf:check` and currently covers all character, pet, and landscape
-GLBs. The packaged `75.glb` normal map is now UASTC/Basis-compressed, while the
-optimizer leaves any future normal-map candidates lossless when the KTX
-encoder is unavailable. The runtime loader and transcoder assets are already
-wired for `KHR_texture_basisu` without changing scene code.
+in `bun run perf:check` and covers the loaded character runtime, pets, and
+landscape GLBs. Complete character exports under `packages/characters/assets/_complete`
+are available as menu examples but remain outside the configurable wearable
+catalog. The optimizer leaves future normal-map candidates
+lossless when the KTX encoder is unavailable. The runtime loader and
+transcoder assets are already wired for `KHR_texture_basisu` without changing
+scene code.
 
-Meshopt remains the geometry default after a representative comparison: Draco
-reduced `Fence_07.glb` from 17.6 KB to 14.6 KB and `Computer_01.glb` from 26.9
-KB to 20.7 KB, but increased the animated Security character from 1.09 MB to
-1.22 MB and would require a separate Draco decoder path. Meshopt therefore
-keeps one decoder path across characters, pets, landscape, and interior assets.
+Meshopt remains the geometry default for loaded runtime models. Authoring
+inputs remain external; checked-in runtime GLBs are the optimized delivery
+artifacts.
 
 ## Verification
 

@@ -28,7 +28,7 @@ function createHqManifest(scene: HqScene): SceneManifest {
     collisionAssetUrl: `/assets/worlds/${sceneId}/floor-collision.glb?v=${floorVersion}`,
     foliageManifestUrl: `/assets/worlds/${sceneId}/foliage.json?v=${foliageVersion}`,
     zones: [],
-    startPosition: { x: 0, y: ROOM_GALLERY_FOUNDATION_TOP_Y + 135, z: 0, yaw: 0, pitch: -0.12 },
+    startPosition: { x: 0, y: ROOM_GALLERY_FOUNDATION_TOP_Y + 135, z: 0, yaw: 0, pitch: -0.2 },
   };
 }
 

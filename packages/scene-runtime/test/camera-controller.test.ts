@@ -13,16 +13,16 @@ describe("perspective camera obstruction framing", () => {
     ).toBeCloseTo(1.7, 5);
   });
 
-  test("stops just in front of an obstructing object", () => {
+  test("stops at the same obstruction distance as Nifty World", () => {
     expect(
       getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 1.2 }),
-    ).toBeCloseTo(1.05, 5);
+    ).toBeCloseTo(1.2, 5);
   });
 
   test("allows the camera to move close enough for a nearby object to stay behind it", () => {
     expect(
       getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 0.18 }),
-    ).toBeCloseTo(0.08, 5);
+    ).toBeCloseTo(0.18, 5);
   });
 });
 
@@ -52,7 +52,7 @@ describe("perspective camera zoom framing", () => {
         zoom: 0.7,
         maxDistance: 2.4,
       }),
-    ).toBeCloseTo(1.05, 5);
+    ).toBeCloseTo(1.2, 5);
     expect(
       getPerspectiveCameraDistance({
         baseDistance: 1.7,
@@ -61,6 +61,24 @@ describe("perspective camera zoom framing", () => {
         maxDistance: 1.9,
       }),
     ).toBeCloseTo(1.9, 5);
+  });
+
+  test("uses a scene-specific perspective follow distance", () => {
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { innerWidth: 1280, innerHeight: 720 },
+    });
+    const controller = new CameraController({
+      canvas: {} as HTMLCanvasElement,
+      enableInput: false,
+      characterScale: 0.75,
+      perspectiveCameraDistance: 4.5,
+    });
+
+    controller.update(new THREE.Vector3(0, 1, 0), 1 / 60);
+
+    expect(controller.baseDistance).toBeCloseTo(4.5, 5);
+    expect(controller.state.cameraDistance).toBeCloseTo(4.5, 5);
   });
 
   test("caps perspective zoom-out at the supplied camera envelope", () => {

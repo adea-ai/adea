@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { fenceAssets, foliageAssets, landscapeAssets } from "../src";
+import {
+  backgroundAssets,
+  fenceAssets,
+  foliageAssets,
+  landscapeAssets,
+  landscapeHorizonBackgrounds,
+} from "../src";
 
 const packageAssets = resolve(import.meta.dir, "../assets");
 
@@ -26,5 +32,18 @@ describe("landscape asset catalog", () => {
 
   test("combines foliage and fences into the landscape runtime catalog", () => {
     expect(landscapeAssets).toHaveLength(foliageAssets.length + fenceAssets.length);
+  });
+
+  test("keeps every downloaded horizon background available", () => {
+    expect(backgroundAssets).toHaveLength(8);
+    for (const asset of backgroundAssets) {
+      expect(existsSync(resolve(packageAssets, "backgrounds", basename(asset.assetUrl)))).toBe(
+        true,
+      );
+    }
+    expect(landscapeHorizonBackgrounds).toEqual({
+      home: "/assets/models/backgrounds/background_seasons_3.jpg",
+      work: "/assets/models/backgrounds/background_urban_4.jpg",
+    });
   });
 });
