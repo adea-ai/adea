@@ -9,10 +9,28 @@ supported). Vercel still works during the transition; nothing here breaks it.
 1. **Worker name.** `wrangler.jsonc` uses `agent-hq-web`. Rename there or in
    the dashboard so they match, otherwise CLI deploys miss the Git-connected
    Worker.
-2. **Dashboard build settings** (Worker → Settings → Build):
-   - Build command: `bun run build:worker` (runs `next build`, then the
-     OpenNext transform into `.open-next/`).
-   - The repo is a Bun monorepo; the build must install from the repo root.
+2. **Dashboard build settings** (Worker → Settings → Build), following the
+   proven pink-binder pattern (see pink-binder `docs/CLOUDFLARE_BUILDS.md`):
+   - Root directory: `apps/web`
+   - Build command: `bun run build:cloudflare` (delegates to the repo-root
+     script: frozen install + OpenNext build; produces `.open-next/`)
+   - Deploy command: `npx wrangler deploy --config wrangler.jsonc`
+   - Watch paths (repo-relative): `apps/web/**`, `packages/db/**`,
+     `packages/auth/**`, `packages/ui/**`, `packages/workspace-ui/**`,
+     `packages/app-core/**`, `packages/state/**`, `packages/types/**`,
+     `packages/scene-runtime/**`, `packages/scene-shell/**`,
+     `packages/hq-scenes/**`, `packages/characters/**`,
+     `packages/interior/**`, `packages/pets/**`, `packages/data/**`,
+     `packages/audio/**`, `packages/asset-manifests/**`,
+     `packages/scene-telemetry/**`, `scenes/hq/**`,
+     `scripts/build-cloudflare-worker.mjs`, `scripts/sync-assets.mjs`,
+     `package.json`, `bun.lock`, `turbo.json`
+   - Preview trigger: same build command (the default versions-upload
+     deploy is valid once `.open-next/worker.js` exists).
+   - Do NOT use the app's plain `bun run build` for a trigger (no Worker
+     entry point), and do NOT add a `build` block to `wrangler.jsonc`.
+   - After changing a trigger, validate with a new commit and confirm the
+     build detail page shows `bun run build:cloudflare`.
 3. **Hyperdrive (Neon pooling).** ✅ Done: `agent-hq-db` (id in
    `wrangler.jsonc`) points at the standalone Neon project (`us-east-2`)
    via its **direct/unpooled** origin as `neondb_owner` — Hyperdrive pools
