@@ -1,9 +1,9 @@
 export interface WorkspaceBrandProps {
-  title: string
-  eyebrow?: string
+  title: string;
+  eyebrow?: string;
 }
 
-export function WorkspaceBrand({ title, eyebrow = 'AGENT OPERATIONS' }: WorkspaceBrandProps) {
+export function WorkspaceBrand({ title, eyebrow = "AGENT OPERATIONS" }: WorkspaceBrandProps) {
   return (
     <div className="workspace-brand">
       <div className="workspace-brand__mark" aria-hidden="true">
@@ -14,5 +14,5 @@ export function WorkspaceBrand({ title, eyebrow = 'AGENT OPERATIONS' }: Workspac
         <h1>{title}</h1>
       </div>
     </div>
-  )
+  );
 }

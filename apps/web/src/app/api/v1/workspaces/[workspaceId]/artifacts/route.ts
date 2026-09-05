@@ -1,36 +1,36 @@
-import type { ApiArtifactResponse } from '@agent-hq/api-client'
-import { createArtifact, listArtifactsForUser } from '@agent-hq/db'
+import type { ApiArtifactResponse } from "@agent-hq/api-client";
+import { createArtifact, listArtifactsForUser } from "@agent-hq/db";
 
 import {
   artifactErrorResponse,
   parseArtifactCreateInput,
-} from '../../../../../../server/artifact-request'
-import { applicationDatabase } from '../../../../../../server/database'
+} from "../../../../../../server/artifact-request";
+import { applicationDatabase } from "../../../../../../server/database";
 import {
   guardDesktopWorkspaceRequest,
   handleDesktopWorkspacePreflight,
-} from '../../../../../../server/desktop-workspace'
-import { authorizeWorkspace } from '../../../../../../server/workspace-authorization'
-import { resolveWorkspacePrincipal } from '../../../../../../server/workspace-principal'
+} from "../../../../../../server/desktop-workspace";
+import { authorizeWorkspace } from "../../../../../../server/workspace-authorization";
+import { resolveWorkspacePrincipal } from "../../../../../../server/workspace-principal";
 import {
   workspaceInvalidRequestResponse,
   workspaceJsonResponse,
   workspaceUnavailableResponse,
-} from '../../../../../../server/workspace-response'
+} from "../../../../../../server/workspace-response";
 
-export const runtime = 'nodejs'
-export const OPTIONS = handleDesktopWorkspacePreflight
-type Context = { params: Promise<{ workspaceId: string }> }
+export const runtime = "nodejs";
+export const OPTIONS = handleDesktopWorkspacePreflight;
+type Context = { params: Promise<{ workspaceId: string }> };
 
 export async function GET(request: Request, { params }: Context) {
-  const rejected = guardDesktopWorkspaceRequest(request)
-  if (rejected) return rejected
-  const { workspaceId } = await params
-  const resolution = await resolveWorkspacePrincipal(request)
-  if (!resolution) return workspaceUnavailableResponse(request, 401)
-  if (!(await authorizeWorkspace(resolution.principal, 'workspace.read', workspaceId)).allowed)
-    return workspaceUnavailableResponse(request)
-  const includeDeleted = new URL(request.url).searchParams.get('includeDeleted') === 'true'
+  const rejected = guardDesktopWorkspaceRequest(request);
+  if (rejected) return rejected;
+  const { workspaceId } = await params;
+  const resolution = await resolveWorkspacePrincipal(request);
+  if (!resolution) return workspaceUnavailableResponse(request, 401);
+  if (!(await authorizeWorkspace(resolution.principal, "workspace.read", workspaceId)).allowed)
+    return workspaceUnavailableResponse(request);
+  const includeDeleted = new URL(request.url).searchParams.get("includeDeleted") === "true";
   try {
     return workspaceJsonResponse(
       await listArtifactsForUser(applicationDatabase(), workspaceId, resolution.principal, {
@@ -38,28 +38,28 @@ export async function GET(request: Request, { params }: Context) {
       }),
       resolution,
       request,
-      { headers: { 'cache-control': 'private, no-store' } }
-    )
+      { headers: { "cache-control": "private, no-store" } }
+    );
   } catch (error) {
-    return artifactErrorResponse(error, resolution, request)
+    return artifactErrorResponse(error, resolution, request);
   }
 }
 
 export async function POST(request: Request, { params }: Context) {
-  const rejected = guardDesktopWorkspaceRequest(request)
-  if (rejected) return rejected
-  const { workspaceId } = await params
-  const resolution = await resolveWorkspacePrincipal(request)
-  if (!resolution) return workspaceUnavailableResponse(request, 401)
-  if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
-    return workspaceUnavailableResponse(request)
-  let input
+  const rejected = guardDesktopWorkspaceRequest(request);
+  if (rejected) return rejected;
+  const { workspaceId } = await params;
+  const resolution = await resolveWorkspacePrincipal(request);
+  if (!resolution) return workspaceUnavailableResponse(request, 401);
+  if (!(await authorizeWorkspace(resolution.principal, "workspace.update", workspaceId)).allowed)
+    return workspaceUnavailableResponse(request);
+  let input;
   try {
-    input = parseArtifactCreateInput(await request.json())
+    input = parseArtifactCreateInput(await request.json());
   } catch {
-    return workspaceInvalidRequestResponse(request)
+    return workspaceInvalidRequestResponse(request);
   }
-  if (!input) return workspaceInvalidRequestResponse(request)
+  if (!input) return workspaceInvalidRequestResponse(request);
   try {
     const payload: ApiArtifactResponse = {
       artifact: await createArtifact(
@@ -68,9 +68,9 @@ export async function POST(request: Request, { params }: Context) {
         resolution.principal,
         input
       ),
-    }
-    return workspaceJsonResponse(payload, resolution, request, { status: 201 })
+    };
+    return workspaceJsonResponse(payload, resolution, request, { status: 201 });
   } catch (error) {
-    return artifactErrorResponse(error, resolution, request)
+    return artifactErrorResponse(error, resolution, request);
   }
 }

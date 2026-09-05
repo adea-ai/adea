@@ -1,40 +1,40 @@
-import eslint from '@eslint/js'
-import globals from 'globals'
-import tseslint from 'typescript-eslint'
+import eslint from "@eslint/js";
+import globals from "globals";
+import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
     ignores: [
-      '**/.next/**',
-      '**/.open-next/**',
-      '**/.wrangler/**',
-      '**/.turbo/**',
-      '**/.kilo/**',
-      '**/.playwright-mcp/**',
-      '**/dist/**',
-      '**/out/**',
-      '**/build/**',
-      '**/node_modules/**',
-      '**/__pycache__/**',
-      '**/public/assets/**',
-      '**/android/app/src/main/assets/**',
-      '**/ios/App/App/public/**',
-      '**/next-env.d.ts',
+      "**/.next/**",
+      "**/.open-next/**",
+      "**/.wrangler/**",
+      "**/.turbo/**",
+      "**/.kilo/**",
+      "**/.playwright-mcp/**",
+      "**/dist/**",
+      "**/out/**",
+      "**/build/**",
+      "**/node_modules/**",
+      "**/__pycache__/**",
+      "**/public/assets/**",
+      "**/android/app/src/main/assets/**",
+      "**/ios/App/App/public/**",
+      "**/next-env.d.ts",
     ],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.{ts,tsx,js,mjs,cjs}'],
+    files: ["**/*.{ts,tsx,js,mjs,cjs}"],
     rules: {
-      '@typescript-eslint/no-unused-vars': [
-        'error',
-        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
     },
   },
   {
-    files: ['**/*.{ts,tsx}'],
+    files: ["**/*.{ts,tsx}"],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -43,9 +43,9 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.{js,mjs,cjs}'],
+    files: ["**/*.{js,mjs,cjs}"],
     languageOptions: {
       globals: globals.node,
     },
   }
-)
+);

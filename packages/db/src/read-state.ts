@@ -2,10 +2,10 @@ import type {
   ChannelReadStateSummary,
   ThreadReadStateSummary,
   UserPrincipalRef,
-} from '@agent-hq/types'
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm'
+} from "@agent-hq/types";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 
-import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
 import {
   channelParticipants,
   channelReadStates,
@@ -14,9 +14,9 @@ import {
   threadReadStates,
   workspaceEvents,
   workspaceMemberships,
-} from './schema'
+} from "./schema";
 
-type Database = AgentHqDatabase | AgentHqTransaction
+type Database = AgentHqDatabase | AgentHqTransaction;
 
 async function requireMembership(
   database: Database,
@@ -32,8 +32,8 @@ async function requireMembership(
         eq(workspaceMemberships.userId, principal.userId)
       )
     )
-    .limit(1)
-  if (!membership) throw new Error('Read state unavailable')
+    .limit(1);
+  if (!membership) throw new Error("Read state unavailable");
 }
 
 export async function listAccessibleChannelIds(
@@ -41,7 +41,7 @@ export async function listAccessibleChannelIds(
   workspaceId: string,
   principal: UserPrincipalRef
 ) {
-  await requireMembership(database, workspaceId, principal)
+  await requireMembership(database, workspaceId, principal);
   return database
     .select({ id: channels.id })
     .from(channels)
@@ -49,18 +49,18 @@ export async function listAccessibleChannelIds(
       channelParticipants,
       and(
         eq(channelParticipants.channelId, channels.id),
-        eq(channelParticipants.principalKind, 'user'),
+        eq(channelParticipants.principalKind, "user"),
         eq(channelParticipants.userId, principal.userId)
       )
     )
     .where(
       and(
         eq(channels.workspaceId, workspaceId),
-        eq(channels.lifecycleState, 'active'),
-        or(eq(channels.visibility, 'workspace'), eq(channelParticipants.userId, principal.userId))
+        eq(channels.lifecycleState, "active"),
+        or(eq(channels.visibility, "workspace"), eq(channelParticipants.userId, principal.userId))
       )
     )
-    .orderBy(asc(channels.id))
+    .orderBy(asc(channels.id));
 }
 
 async function requireChannel(
@@ -69,8 +69,8 @@ async function requireChannel(
   channelId: string,
   principal: UserPrincipalRef
 ) {
-  const allowed = await listAccessibleChannelIds(database, workspaceId, principal)
-  if (!allowed.some(({ id }) => id === channelId)) throw new Error('Read state unavailable')
+  const allowed = await listAccessibleChannelIds(database, workspaceId, principal);
+  if (!allowed.some(({ id }) => id === channelId)) throw new Error("Read state unavailable");
 }
 
 export async function listReadStateForUser(
@@ -78,9 +78,9 @@ export async function listReadStateForUser(
   workspaceId: string,
   principal: UserPrincipalRef
 ): Promise<readonly ChannelReadStateSummary[]> {
-  const allowed = await listAccessibleChannelIds(database, workspaceId, principal)
-  const channelIds = allowed.map(({ id }) => id)
-  if (!channelIds.length) return Object.freeze([])
+  const allowed = await listAccessibleChannelIds(database, workspaceId, principal);
+  const channelIds = allowed.map(({ id }) => id);
+  if (!channelIds.length) return Object.freeze([]);
   const [channelStates, threadStates, messageRows] = await Promise.all([
     database
       .select()
@@ -118,33 +118,35 @@ export async function listReadStateForUser(
         )
       )
       .orderBy(asc(messages.sequence)),
-  ])
-  const channelStateById = new Map(channelStates.map((state) => [state.channelId, state]))
-  const threadStateByRoot = new Map(threadStates.map((state) => [state.threadRootMessageId, state]))
+  ]);
+  const channelStateById = new Map(channelStates.map((state) => [state.channelId, state]));
+  const threadStateByRoot = new Map(
+    threadStates.map((state) => [state.threadRootMessageId, state])
+  );
 
   return Object.freeze(
     channelIds.map((channelId) => {
-      const channelState = channelStateById.get(channelId)
-      const channelMessages = messageRows.filter((message) => message.channelId === channelId)
-      const topLevel = channelMessages.filter((message) => !message.threadRootMessageId)
-      const lastReadSequence = channelState?.lastReadSequence ?? 0
-      const latestTopLevelSequence = topLevel.at(-1)?.sequence ?? 0
+      const channelState = channelStateById.get(channelId);
+      const channelMessages = messageRows.filter((message) => message.channelId === channelId);
+      const topLevel = channelMessages.filter((message) => !message.threadRootMessageId);
+      const lastReadSequence = channelState?.lastReadSequence ?? 0;
+      const latestTopLevelSequence = topLevel.at(-1)?.sequence ?? 0;
       const topLevelUnreadCount = topLevel.filter(
         ({ sequence }) => sequence > lastReadSequence
-      ).length
-      const repliesByRoot = new Map<string, typeof channelMessages>()
+      ).length;
+      const repliesByRoot = new Map<string, typeof channelMessages>();
       for (const message of channelMessages) {
-        if (!message.threadRootMessageId) continue
+        if (!message.threadRootMessageId) continue;
         repliesByRoot.set(message.threadRootMessageId, [
           ...(repliesByRoot.get(message.threadRootMessageId) ?? []),
           message,
-        ])
+        ]);
       }
       const threads: ThreadReadStateSummary[] = [...repliesByRoot.entries()]
         .map(([threadRootMessageId, replies]) => {
-          const threadState = threadStateByRoot.get(threadRootMessageId)
-          const effectiveReadSequence = threadState?.lastReadSequence ?? 0
-          const latestSequence = replies.at(-1)?.sequence ?? 0
+          const threadState = threadStateByRoot.get(threadRootMessageId);
+          const effectiveReadSequence = threadState?.lastReadSequence ?? 0;
+          const latestSequence = replies.at(-1)?.sequence ?? 0;
           return Object.freeze({
             lastReadSequence: threadState?.lastReadSequence ?? 0,
             latestSequence,
@@ -153,18 +155,18 @@ export async function listReadStateForUser(
             threadRootMessageId,
             unreadCount: replies.filter(({ sequence }) => sequence > effectiveReadSequence).length,
             ...(threadState?.updatedAt ? { updatedAt: threadState.updatedAt.toISOString() } : {}),
-          })
+          });
         })
         .sort(
           (left, right) =>
             right.latestSequence - left.latestSequence ||
             left.threadRootMessageId.localeCompare(right.threadRootMessageId)
-        )
+        );
       const threadUnreadCount = threads.reduce(
         (total, thread) => total + thread.unreadCount + (thread.manuallyUnread ? 1 : 0),
         0
-      )
-      const manuallyUnread = channelState?.manuallyUnread ?? false
+      );
+      const manuallyUnread = channelState?.manuallyUnread ?? false;
       return Object.freeze({
         channelId,
         lastReadSequence,
@@ -177,9 +179,9 @@ export async function listReadStateForUser(
         unread: manuallyUnread || topLevelUnreadCount > 0 || threadUnreadCount > 0,
         ...(channelState?.updatedAt ? { updatedAt: channelState.updatedAt.toISOString() } : {}),
         workspaceId,
-      })
+      });
     })
-  )
+  );
 }
 
 async function latestSequence(
@@ -201,8 +203,8 @@ async function latestSequence(
           : isNull(messages.threadRootMessageId)
       )
     )
-    .orderBy(asc(messages.sequence))
-  return rows.at(-1)?.sequence ?? 0
+    .orderBy(asc(messages.sequence));
+  return rows.at(-1)?.sequence ?? 0;
 }
 
 async function writeChannelState(
@@ -222,18 +224,18 @@ async function writeChannelState(
         eq(channelReadStates.channelId, channelId)
       )
     )
-    .limit(1)
+    .limit(1);
   // Watermarks are monotonic: a client reporting a stale sequence (for example
   // from a partially loaded message window) must never rewind the frontier and
   // resurrect notifications. Explicit unread is tracked with the manuallyUnread
   // flag instead.
-  const lastReadSequence = Math.max(existing?.lastReadSequence ?? 0, target.lastReadSequence)
+  const lastReadSequence = Math.max(existing?.lastReadSequence ?? 0, target.lastReadSequence);
   if (
     existing?.lastReadSequence === lastReadSequence &&
     existing.manuallyUnread === target.manuallyUnread
   )
-    return false
-  const now = new Date()
+    return false;
+  const now = new Date();
   await transaction
     .insert(channelReadStates)
     .values({
@@ -257,8 +259,8 @@ async function writeChannelState(
         updatedAt: now,
         version: (existing?.version ?? 0) + 1,
       },
-    })
-  return true
+    });
+  return true;
 }
 
 export async function markChannelReadState(
@@ -266,29 +268,29 @@ export async function markChannelReadState(
   workspaceId: string,
   channelId: string,
   principal: UserPrincipalRef,
-  action: 'read' | 'unread',
+  action: "read" | "unread",
   requestedSequence?: number
 ) {
   await database.transaction(async (transaction) => {
-    await requireChannel(transaction, workspaceId, channelId, principal)
-    const latest = await latestSequence(transaction, workspaceId, channelId)
+    await requireChannel(transaction, workspaceId, channelId, principal);
+    const latest = await latestSequence(transaction, workspaceId, channelId);
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
     )
-      throw new Error('Read state invalid')
+      throw new Error("Read state invalid");
     const changed = await writeChannelState(transaction, workspaceId, channelId, principal.userId, {
-      lastReadSequence: action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest,
-      manuallyUnread: action === 'unread',
-    })
+      lastReadSequence: action === "read" ? Math.min(requestedSequence ?? latest, latest) : latest,
+      manuallyUnread: action === "unread",
+    });
     if (changed)
       await transaction.insert(workspaceEvents).values({
         eventType: `channel.${action}`,
         payload: { actorUserId: principal.userId, channelId },
         workspaceId,
-      })
-  })
-  return listReadStateForUser(database, workspaceId, principal)
+      });
+  });
+  return listReadStateForUser(database, workspaceId, principal);
 }
 
 export async function markThreadReadState(
@@ -297,11 +299,11 @@ export async function markThreadReadState(
   channelId: string,
   threadRootMessageId: string,
   principal: UserPrincipalRef,
-  action: 'read' | 'unread',
+  action: "read" | "unread",
   requestedSequence?: number
 ) {
   await database.transaction(async (transaction) => {
-    await requireChannel(transaction, workspaceId, channelId, principal)
+    await requireChannel(transaction, workspaceId, channelId, principal);
     const [root] = await transaction
       .select({ id: messages.id })
       .from(messages)
@@ -313,14 +315,14 @@ export async function markThreadReadState(
           isNull(messages.threadRootMessageId)
         )
       )
-      .limit(1)
-    if (!root) throw new Error('Read state unavailable')
-    const latest = await latestSequence(transaction, workspaceId, channelId, threadRootMessageId)
+      .limit(1);
+    if (!root) throw new Error("Read state unavailable");
+    const latest = await latestSequence(transaction, workspaceId, channelId, threadRootMessageId);
     if (
       requestedSequence !== undefined &&
       (!Number.isSafeInteger(requestedSequence) || requestedSequence < 0)
     )
-      throw new Error('Read state invalid')
+      throw new Error("Read state invalid");
     const [existing] = await transaction
       .select()
       .from(threadReadStates)
@@ -331,23 +333,23 @@ export async function markThreadReadState(
           eq(threadReadStates.threadRootMessageId, threadRootMessageId)
         )
       )
-      .limit(1)
+      .limit(1);
     // Thread frontiers are monotonic for the same reason as channel frontiers:
     // stale client sequences must not rewind them.
     const lastReadSequence = Math.max(
       existing?.lastReadSequence ?? 0,
-      action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest
-    )
+      action === "read" ? Math.min(requestedSequence ?? latest, latest) : latest
+    );
     const target = {
       lastReadSequence,
-      manuallyUnread: action === 'unread',
-    }
+      manuallyUnread: action === "unread",
+    };
     if (
       existing?.lastReadSequence === target.lastReadSequence &&
       existing.manuallyUnread === target.manuallyUnread
     )
-      return
-    const now = new Date()
+      return;
+    const now = new Date();
     await transaction
       .insert(threadReadStates)
       .values({
@@ -372,14 +374,14 @@ export async function markThreadReadState(
           updatedAt: now,
           version: (existing?.version ?? 0) + 1,
         },
-      })
+      });
     await transaction.insert(workspaceEvents).values({
       eventType: `thread.${action}`,
       payload: { actorUserId: principal.userId, channelId, threadRootMessageId },
       workspaceId,
-    })
-  })
-  return listReadStateForUser(database, workspaceId, principal)
+    });
+  });
+  return listReadStateForUser(database, workspaceId, principal);
 }
 
 export async function markAllChannelsRead(
@@ -388,15 +390,15 @@ export async function markAllChannelsRead(
   principal: UserPrincipalRef
 ) {
   await database.transaction(async (transaction) => {
-    let changed = false
-    const allowed = await listAccessibleChannelIds(transaction, workspaceId, principal)
+    let changed = false;
+    const allowed = await listAccessibleChannelIds(transaction, workspaceId, principal);
     for (const { id: channelId } of allowed) {
-      const latest = await latestSequence(transaction, workspaceId, channelId)
+      const latest = await latestSequence(transaction, workspaceId, channelId);
       changed =
         (await writeChannelState(transaction, workspaceId, channelId, principal.userId, {
           lastReadSequence: latest,
           manuallyUnread: false,
-        })) || changed
+        })) || changed;
       const roots = await transaction
         .selectDistinct({ threadRootMessageId: messages.threadRootMessageId })
         .from(messages)
@@ -406,15 +408,15 @@ export async function markAllChannelsRead(
             eq(messages.channelId, channelId),
             isNull(messages.deletedAt)
           )
-        )
+        );
       for (const { threadRootMessageId } of roots) {
-        if (!threadRootMessageId) continue
+        if (!threadRootMessageId) continue;
         const latestThread = await latestSequence(
           transaction,
           workspaceId,
           channelId,
           threadRootMessageId
-        )
+        );
         const [existing] = await transaction
           .select()
           .from(threadReadStates)
@@ -425,17 +427,17 @@ export async function markAllChannelsRead(
               eq(threadReadStates.threadRootMessageId, threadRootMessageId)
             )
           )
-          .limit(1)
+          .limit(1);
         // Mark-all-read must also respect monotonicity when repairing a
         // previously rewound frontier.
-        const targetThreadSequence = Math.max(existing?.lastReadSequence ?? 0, latestThread)
+        const targetThreadSequence = Math.max(existing?.lastReadSequence ?? 0, latestThread);
         if (
           existing?.lastReadSequence === targetThreadSequence &&
           existing.manuallyUnread === false
         )
-          continue
-        changed = true
-        const now = new Date()
+          continue;
+        changed = true;
+        const now = new Date();
         await transaction
           .insert(threadReadStates)
           .values({
@@ -460,15 +462,15 @@ export async function markAllChannelsRead(
               updatedAt: now,
               version: (existing?.version ?? 0) + 1,
             },
-          })
+          });
       }
     }
     if (changed)
       await transaction.insert(workspaceEvents).values({
-        eventType: 'workspace.read_all',
+        eventType: "workspace.read_all",
         payload: { actorUserId: principal.userId },
         workspaceId,
-      })
-  })
-  return listReadStateForUser(database, workspaceId, principal)
+      });
+  });
+  return listReadStateForUser(database, workspaceId, principal);
 }

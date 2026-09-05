@@ -1,27 +1,27 @@
-import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export type SceneFieldPlacement = {
-  p: [number, number, number]
-  q: [number, number, number, number]
-  s: [number, number, number]
-}
+  p: [number, number, number];
+  q: [number, number, number, number];
+  s: [number, number, number];
+};
 
 export type SceneFieldManifest = {
-  version: number
-  scene: string
-  placements: Record<string, SceneFieldPlacement[]>
-}
+  version: number;
+  scene: string;
+  placements: Record<string, SceneFieldPlacement[]>;
+};
 
 function loadModelWithSignal(loader: GLTFLoader, url: string, signal?: AbortSignal) {
-  if (!signal) return loader.loadAsync(url)
+  if (!signal) return loader.loadAsync(url);
   if (signal.aborted) {
-    throw signal.reason ?? new DOMException('The scene load was aborted', 'AbortError')
+    throw signal.reason ?? new DOMException("The scene load was aborted", "AbortError");
   }
 
-  const abortLoader = () => loader.manager.abortController.abort()
-  signal.addEventListener('abort', abortLoader, { once: true })
-  return loader.loadAsync(url).finally(() => signal.removeEventListener('abort', abortLoader))
+  const abortLoader = () => loader.manager.abortController.abort();
+  signal.addEventListener("abort", abortLoader, { once: true });
+  return loader.loadAsync(url).finally(() => signal.removeEventListener("abort", abortLoader));
 }
 
 export function composeSceneFieldMatrix(
@@ -33,8 +33,8 @@ export function composeSceneFieldMatrix(
     new THREE.Vector3(...placement.p),
     new THREE.Quaternion(...placement.q),
     new THREE.Vector3(...placement.s)
-  )
-  return target.multiply(sourceMatrix)
+  );
+  return target.multiply(sourceMatrix);
 }
 
 /** Build one InstancedMesh per catalog model from a scene-field manifest.
@@ -52,22 +52,22 @@ export async function loadSceneField(
   loader: GLTFLoader,
   manifestUrl: string,
   resolveModelUrl: (modelId: string) => string,
-  groupName = 'scene-field',
+  groupName = "scene-field",
   singlePlacementPlain = false,
   signal?: AbortSignal
 ): Promise<THREE.Group> {
-  const response = await fetch(manifestUrl, { signal })
+  const response = await fetch(manifestUrl, { signal });
   if (!response.ok)
-    throw new Error(`Failed to load scene-field manifest: ${manifestUrl} (${response.status})`)
-  const manifest = (await response.json()) as SceneFieldManifest
+    throw new Error(`Failed to load scene-field manifest: ${manifestUrl} (${response.status})`);
+  const manifest = (await response.json()) as SceneFieldManifest;
 
-  const group = new THREE.Group()
-  group.name = groupName
-  const matrix = new THREE.Matrix4()
+  const group = new THREE.Group();
+  group.name = groupName;
+  const matrix = new THREE.Matrix4();
 
   const placementEntries = Object.entries(manifest.placements).filter(
     (entry): entry is [string, SceneFieldPlacement[]] => entry[1]?.length > 0
-  )
+  );
   // Catalog assets are independent. Start every request together so a field
   // with dozens of distinct props/buildings is bounded by its slowest model,
   // rather than the sum of every network and parse delay.
@@ -77,61 +77,61 @@ export async function loadSceneField(
       placements,
       model: (await loadModelWithSignal(loader, resolveModelUrl(modelId), signal)).scene,
     }))
-  )
+  );
 
   for (const { modelId, placements, model } of loadedModels) {
-    model.updateMatrixWorld(true)
+    model.updateMatrixWorld(true);
     // A model may carry several primitives (e.g. a grass patch on a cliff
     // face, or a palm trunk + fronds). Instance each primitive so every
     // placement renders the full model. A single placement is added as a
     // plain mesh (on-demand load, no instancing overhead) — buildings are
     // mostly unique, so instancing is reserved for genuinely repeated blocks.
-    const sourceMeshes = collectMeshes(model)
-    if (sourceMeshes.length === 0) continue
+    const sourceMeshes = collectMeshes(model);
+    if (sourceMeshes.length === 0) continue;
     for (const sourceMesh of sourceMeshes) {
       // Placements are already in world space. Preserve the mesh's authored
       // local node transform without reapplying the GLTF scene-root matrix.
-      const sourceMatrix = sourceMesh.matrix.clone()
+      const sourceMatrix = sourceMesh.matrix.clone();
       if (singlePlacementPlain && placements.length === 1) {
-        const placed = new THREE.Mesh(sourceMesh.geometry, sourceMesh.material)
-        placed.name = modelId
-        const placement = placements[0]
-        composeSceneFieldMatrix(placement, sourceMatrix, matrix)
-        placed.applyMatrix4(matrix)
-        placed.matrixAutoUpdate = false
-        group.add(placed)
-        continue
+        const placed = new THREE.Mesh(sourceMesh.geometry, sourceMesh.material);
+        placed.name = modelId;
+        const placement = placements[0];
+        composeSceneFieldMatrix(placement, sourceMatrix, matrix);
+        placed.applyMatrix4(matrix);
+        placed.matrixAutoUpdate = false;
+        group.add(placed);
+        continue;
       }
       const instanced = new THREE.InstancedMesh(
         sourceMesh.geometry,
         sourceMesh.material,
         placements.length
-      )
-      instanced.name = modelId
+      );
+      instanced.name = modelId;
       for (let i = 0; i < placements.length; i += 1) {
-        const placement = placements[i]
-        composeSceneFieldMatrix(placement, sourceMatrix, matrix)
-        instanced.setMatrixAt(i, matrix)
+        const placement = placements[i];
+        composeSceneFieldMatrix(placement, sourceMatrix, matrix);
+        instanced.setMatrixAt(i, matrix);
       }
-      instanced.computeBoundingSphere()
-      group.add(instanced)
+      instanced.computeBoundingSphere();
+      group.add(instanced);
     }
   }
-  return group
+  return group;
 }
 
 export function collectMeshes(root: THREE.Object3D): THREE.Mesh[] {
-  const meshes: THREE.Mesh[] = []
+  const meshes: THREE.Mesh[] = [];
   root.traverse((object) => {
-    if (object instanceof THREE.Mesh) meshes.push(object)
-  })
-  return meshes
+    if (object instanceof THREE.Mesh) meshes.push(object);
+  });
+  return meshes;
 }
 
 export type SceneFieldAsset = {
-  id: string
-  assetUrl: string
-}
+  id: string;
+  assetUrl: string;
+};
 
 /** Build one InstancedMesh per catalog model from a scene-field manifest.
  *
@@ -145,20 +145,20 @@ export async function loadSceneFieldFromCatalog(
   loader: GLTFLoader,
   manifestUrl: string,
   catalog: readonly SceneFieldAsset[],
-  groupName = 'scene-field',
+  groupName = "scene-field",
   signal?: AbortSignal
 ): Promise<THREE.Group> {
-  const assetsById = new Map(catalog.map((asset) => [asset.id, asset.assetUrl]))
+  const assetsById = new Map(catalog.map((asset) => [asset.id, asset.assetUrl]));
   return loadSceneField(
     loader,
     manifestUrl,
     (modelId) => {
-      const assetUrl = assetsById.get(modelId)
-      if (!assetUrl) throw new Error(`No catalog asset is registered for ${modelId}`)
-      return assetUrl
+      const assetUrl = assetsById.get(modelId);
+      if (!assetUrl) throw new Error(`No catalog asset is registered for ${modelId}`);
+      return assetUrl;
     },
     groupName,
     true,
     signal
-  )
+  );
 }

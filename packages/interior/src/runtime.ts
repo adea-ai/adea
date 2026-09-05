@@ -1,13 +1,13 @@
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { loadSceneFieldFromCatalog } from '@agent-hq/scene-fields'
-import { propAssets } from './catalog.js'
-import type { LoadedProp, PropId } from './prop-types.js'
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { loadSceneFieldFromCatalog } from "@agent-hq/scene-fields";
+import { propAssets } from "./catalog.js";
+import type { LoadedProp, PropId } from "./prop-types.js";
 
 export async function loadProp(loader: GLTFLoader, id: PropId): Promise<LoadedProp> {
-  const manifest = propAssets.find((candidate) => candidate.id === id)
-  if (!manifest) throw new Error(`No interior prop asset is registered for ${id}`)
-  const { scene } = await loader.loadAsync(manifest.assetUrl)
-  return { id, scene }
+  const manifest = propAssets.find((candidate) => candidate.id === id);
+  if (!manifest) throw new Error(`No interior prop asset is registered for ${id}`);
+  const { scene } = await loader.loadAsync(manifest.assetUrl);
+  return { id, scene };
 }
 
 /** Build one InstancedMesh per prop catalog model from a scene-field manifest.
@@ -21,5 +21,5 @@ export async function loadPropsField(
   manifestUrl: string,
   signal?: AbortSignal
 ) {
-  return loadSceneFieldFromCatalog(loader, manifestUrl, propAssets, 'props-field', signal)
+  return loadSceneFieldFromCatalog(loader, manifestUrl, propAssets, "props-field", signal);
 }

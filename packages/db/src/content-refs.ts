@@ -1,35 +1,35 @@
-import type { ContentRefSummary, UserPrincipalRef } from '@agent-hq/types'
-import { and, eq, isNull, or } from 'drizzle-orm'
+import type { ContentRefSummary, UserPrincipalRef } from "@agent-hq/types";
+import { and, eq, isNull, or } from "drizzle-orm";
 
-import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { contentRefs, workspaceMemberships } from './schema'
+import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
+import { contentRefs, workspaceMemberships } from "./schema";
 
-type Database = AgentHqDatabase | AgentHqTransaction
-type ContentRefRow = typeof contentRefs.$inferSelect
+type Database = AgentHqDatabase | AgentHqTransaction;
+type ContentRefRow = typeof contentRefs.$inferSelect;
 
 export type ContentRefCreateInput = Readonly<{
-  availability: Exclude<ContentRefSummary['availability'], 'deleted'>
-  contentType: ContentRefSummary['contentType']
-  digestSha256: string
-  id: string
-  keyVersion: number
-  messageId?: string
-  schemaVersion: number
-  sensitivity: ContentRefSummary['sensitivity']
-  storagePolicy: ContentRefSummary['storagePolicy']
-  synchronizationPolicy: ContentRefSummary['synchronizationPolicy']
-  taskId?: string
-}>
+  availability: Exclude<ContentRefSummary["availability"], "deleted">;
+  contentType: ContentRefSummary["contentType"];
+  digestSha256: string;
+  id: string;
+  keyVersion: number;
+  messageId?: string;
+  schemaVersion: number;
+  sensitivity: ContentRefSummary["sensitivity"];
+  storagePolicy: ContentRefSummary["storagePolicy"];
+  synchronizationPolicy: ContentRefSummary["synchronizationPolicy"];
+  taskId?: string;
+}>;
 
 export type ContentRefUpdateInput = Readonly<{
-  availability: ContentRefSummary['availability']
-  digestSha256: string
-  expectedRevision: number
-  keyVersion: number
-  revision: number
-}>
+  availability: ContentRefSummary["availability"];
+  digestSha256: string;
+  expectedRevision: number;
+  keyVersion: number;
+  revision: number;
+}>;
 
-const digestPattern = /^[0-9a-f]{64}$/
+const digestPattern = /^[0-9a-f]{64}$/;
 
 async function requireMembership(
   database: Database,
@@ -45,8 +45,8 @@ async function requireMembership(
         eq(workspaceMemberships.userId, principal.userId)
       )
     )
-    .limit(1)
-  if (!membership) throw new Error('Content unavailable')
+    .limit(1);
+  if (!membership) throw new Error("Content unavailable");
 }
 
 function validateCreate(input: ContentRefCreateInput) {
@@ -57,14 +57,14 @@ function validateCreate(input: ContentRefCreateInput) {
     !Number.isInteger(input.keyVersion) ||
     input.keyVersion < 1
   )
-    throw new Error('Content metadata invalid')
-  const taskContent = input.contentType === 'task_objective' || input.contentType === 'task_input'
-  const messageContent = input.contentType === 'message_body'
+    throw new Error("Content metadata invalid");
+  const taskContent = input.contentType === "task_objective" || input.contentType === "task_input";
+  const messageContent = input.contentType === "message_body";
   if (
     (taskContent && input.messageId !== undefined) ||
     (messageContent && input.taskId !== undefined)
   )
-    throw new Error('Content metadata invalid')
+    throw new Error("Content metadata invalid");
 }
 
 function summarize(row: ContentRefRow): ContentRefSummary {
@@ -85,12 +85,12 @@ function summarize(row: ContentRefRow): ContentRefSummary {
     ...(row.taskId ? { taskId: row.taskId } : {}),
     updatedAt: row.updatedAt.toISOString(),
     workspaceId: row.workspaceId,
-  })
+  });
 }
 
 function matchesCreate(row: ContentRefRow, input: ContentRefCreateInput) {
   return (
-    row.availability !== 'deleted' &&
+    row.availability !== "deleted" &&
     row.contentType === input.contentType &&
     row.digestSha256 === input.digestSha256 &&
     row.keyVersion === input.keyVersion &&
@@ -103,7 +103,7 @@ function matchesCreate(row: ContentRefRow, input: ContentRefCreateInput) {
     row.storagePolicy === input.storagePolicy &&
     row.synchronizationPolicy === input.synchronizationPolicy &&
     (input.taskId === undefined || row.taskId === null || row.taskId === input.taskId)
-  )
+  );
 }
 
 async function selectContentRef(database: Database, workspaceId: string, contentId: string) {
@@ -111,8 +111,8 @@ async function selectContentRef(database: Database, workspaceId: string, content
     .select()
     .from(contentRefs)
     .where(and(eq(contentRefs.id, contentId), eq(contentRefs.workspaceId, workspaceId)))
-    .limit(1)
-  return row
+    .limit(1);
+  return row;
 }
 
 export async function createContentRef(
@@ -121,19 +121,19 @@ export async function createContentRef(
   principal: UserPrincipalRef,
   input: ContentRefCreateInput
 ): Promise<ContentRefSummary> {
-  validateCreate(input)
+  validateCreate(input);
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireMembership(transaction, workspaceId, principal);
     const [created] = await transaction
       .insert(contentRefs)
       .values({ ...input, workspaceId })
       .onConflictDoNothing({ target: contentRefs.id })
-      .returning()
-    if (created) return summarize(created)
-    const existing = await selectContentRef(transaction, workspaceId, input.id)
-    if (!existing || !matchesCreate(existing, input)) throw new Error('Content metadata conflict')
-    return summarize(existing)
-  })
+      .returning();
+    if (created) return summarize(created);
+    const existing = await selectContentRef(transaction, workspaceId, input.id);
+    if (!existing || !matchesCreate(existing, input)) throw new Error("Content metadata conflict");
+    return summarize(existing);
+  });
 }
 
 export async function getContentRefForUser(
@@ -153,8 +153,8 @@ export async function getContentRefForUser(
       )
     )
     .where(and(eq(contentRefs.id, contentId), eq(contentRefs.workspaceId, workspaceId)))
-    .limit(1)
-  return row ? summarize(row.contentRef) : null
+    .limit(1);
+  return row ? summarize(row.contentRef) : null;
 }
 
 export async function updateContentRef(
@@ -174,16 +174,16 @@ export async function updateContentRef(
     input.revision < input.expectedRevision ||
     input.revision > input.expectedRevision + 1
   )
-    throw new Error('Content metadata invalid')
+    throw new Error("Content metadata invalid");
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
-    const nextRevision = input.revision
-    const now = new Date()
+    await requireMembership(transaction, workspaceId, principal);
+    const nextRevision = input.revision;
+    const now = new Date();
     const [updated] = await transaction
       .update(contentRefs)
       .set({
         availability: input.availability,
-        deletedAt: input.availability === 'deleted' ? now : null,
+        deletedAt: input.availability === "deleted" ? now : null,
         digestSha256: input.digestSha256,
         keyVersion: input.keyVersion,
         revision: nextRevision,
@@ -196,19 +196,19 @@ export async function updateContentRef(
           eq(contentRefs.revision, input.expectedRevision)
         )
       )
-      .returning()
-    if (updated) return summarize(updated)
-    const existing = await selectContentRef(transaction, workspaceId, contentId)
+      .returning();
+    if (updated) return summarize(updated);
+    const existing = await selectContentRef(transaction, workspaceId, contentId);
     if (
       existing?.revision === nextRevision &&
       existing.availability === input.availability &&
       existing.digestSha256 === input.digestSha256 &&
       existing.keyVersion === input.keyVersion
     )
-      return summarize(existing)
-    if (!existing) throw new Error('Content unavailable')
-    throw new Error('Content metadata version conflict')
-  })
+      return summarize(existing);
+    if (!existing) throw new Error("Content unavailable");
+    throw new Error("Content metadata version conflict");
+  });
 }
 
 async function attach(
@@ -216,7 +216,7 @@ async function attach(
   workspaceId: string,
   contentId: string,
   association: Readonly<{ messageId?: string; taskId?: string }>,
-  expectedType: ContentRefSummary['contentType']
+  expectedType: ContentRefSummary["contentType"]
 ) {
   const [updated] = await transaction
     .update(contentRefs)
@@ -234,8 +234,8 @@ async function attach(
           : [])
       )
     )
-    .returning({ id: contentRefs.id })
-  if (!updated) throw new Error('Content unavailable')
+    .returning({ id: contentRefs.id });
+  if (!updated) throw new Error("Content unavailable");
 }
 
 export const attachTaskContentRef = (
@@ -243,12 +243,12 @@ export const attachTaskContentRef = (
   workspaceId: string,
   contentId: string,
   taskId: string,
-  expectedType: 'task_objective' | 'task_input'
-) => attach(transaction, workspaceId, contentId, { taskId }, expectedType)
+  expectedType: "task_objective" | "task_input"
+) => attach(transaction, workspaceId, contentId, { taskId }, expectedType);
 
 export const attachMessageContentRef = (
   transaction: AgentHqTransaction,
   workspaceId: string,
   contentId: string,
   messageId: string
-) => attach(transaction, workspaceId, contentId, { messageId }, 'message_body')
+) => attach(transaction, workspaceId, contentId, { messageId }, "message_body");

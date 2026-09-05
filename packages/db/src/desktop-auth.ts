@@ -1,34 +1,34 @@
-import { and, eq, gt, isNull } from 'drizzle-orm'
+import { and, eq, gt, isNull } from "drizzle-orm";
 
-import type { AgentHqDatabase } from './connection'
-import { desktopAuthorizationCodes, desktopSessions, users } from './schema'
+import type { AgentHqDatabase } from "./connection";
+import { desktopAuthorizationCodes, desktopSessions, users } from "./schema";
 
 export type StoredDesktopAuthorizationCode = Readonly<{
-  codeChallenge: string
-  codeDigest: string
-  expiresAt: number
-  nonce: string
-  providerExpiresAt: number
-  providerSessionId: string
-  redirectUri: 'agent-hq://auth/callback'
-  userId: string
-}>
+  codeChallenge: string;
+  codeDigest: string;
+  expiresAt: number;
+  nonce: string;
+  providerExpiresAt: number;
+  providerSessionId: string;
+  redirectUri: "agent-hq://auth/callback";
+  userId: string;
+}>;
 
 export type StoredDesktopSession = Readonly<{
-  credentialDigest: string
-  expiresAt: number
-  providerExpiresAt: number
-  providerSessionId: string
-  revokedAt: number | null
-  sessionId: string
-  userId: string
-}>
+  credentialDigest: string;
+  expiresAt: number;
+  providerExpiresAt: number;
+  providerSessionId: string;
+  revokedAt: number | null;
+  sessionId: string;
+  userId: string;
+}>;
 
 function authorizationCodeFromRow(
   row: typeof desktopAuthorizationCodes.$inferSelect
 ): StoredDesktopAuthorizationCode {
-  if (row.redirectUri !== 'agent-hq://auth/callback') {
-    throw new Error('Stored desktop authorization redirect is invalid')
+  if (row.redirectUri !== "agent-hq://auth/callback") {
+    throw new Error("Stored desktop authorization redirect is invalid");
   }
   return Object.freeze({
     codeChallenge: row.codeChallenge,
@@ -39,7 +39,7 @@ function authorizationCodeFromRow(
     providerSessionId: row.providerSessionId,
     redirectUri: row.redirectUri,
     userId: row.userId,
-  })
+  });
 }
 
 function sessionFromRow(row: typeof desktopSessions.$inferSelect): StoredDesktopSession {
@@ -51,7 +51,7 @@ function sessionFromRow(row: typeof desktopSessions.$inferSelect): StoredDesktop
     revokedAt: row.revokedAt?.valueOf() ?? null,
     sessionId: row.sessionId,
     userId: row.userId,
-  })
+  });
 }
 
 export async function saveDesktopAuthorizationCode(
@@ -62,7 +62,7 @@ export async function saveDesktopAuthorizationCode(
     ...record,
     expiresAt: new Date(record.expiresAt),
     providerExpiresAt: new Date(record.providerExpiresAt),
-  })
+  });
 }
 
 export async function consumeDesktopAuthorizationCode(
@@ -72,8 +72,8 @@ export async function consumeDesktopAuthorizationCode(
   const [row] = await database
     .delete(desktopAuthorizationCodes)
     .where(eq(desktopAuthorizationCodes.codeDigest, codeDigest))
-    .returning()
-  return row ? authorizationCodeFromRow(row) : null
+    .returning();
+  return row ? authorizationCodeFromRow(row) : null;
 }
 
 export async function createDesktopSessionRecord(
@@ -88,20 +88,20 @@ export async function createDesktopSessionRecord(
     revokedAt: record.revokedAt === null ? null : new Date(record.revokedAt),
     sessionId: record.sessionId,
     userId: record.userId,
-  })
+  });
 }
 
 export async function rotateDesktopSessionRecord(
   database: AgentHqDatabase,
   input: Readonly<{
-    credentialDigest: string
-    expiresAt: number
-    nextCredentialDigest: string
-    now: number
-    sessionId: string
+    credentialDigest: string;
+    expiresAt: number;
+    nextCredentialDigest: string;
+    now: number;
+    sessionId: string;
   }>
 ): Promise<StoredDesktopSession | null> {
-  const now = new Date(input.now)
+  const now = new Date(input.now);
   const [row] = await database
     .update(desktopSessions)
     .set({
@@ -117,15 +117,15 @@ export async function rotateDesktopSessionRecord(
         gt(desktopSessions.expiresAt, now)
       )
     )
-    .returning()
-  return row ? sessionFromRow(row) : null
+    .returning();
+  return row ? sessionFromRow(row) : null;
 }
 
 export async function resolveDesktopSessionRecord(
   database: AgentHqDatabase,
   input: Readonly<{ credentialDigest: string; now: number; sessionId: string }>
 ): Promise<StoredDesktopSession | null> {
-  const now = new Date(input.now)
+  const now = new Date(input.now);
   const [row] = await database
     .select({ session: desktopSessions })
     .from(desktopSessions)
@@ -140,8 +140,8 @@ export async function resolveDesktopSessionRecord(
         isNull(users.disabledAt)
       )
     )
-    .limit(1)
-  return row ? sessionFromRow(row.session) : null
+    .limit(1);
+  return row ? sessionFromRow(row.session) : null;
 }
 
 export async function revokeDesktopSessionRecord(
@@ -158,6 +158,6 @@ export async function revokeDesktopSessionRecord(
         isNull(desktopSessions.revokedAt)
       )
     )
-    .returning({ sessionId: desktopSessions.sessionId })
-  return Boolean(row)
+    .returning({ sessionId: desktopSessions.sessionId });
+  return Boolean(row);
 }

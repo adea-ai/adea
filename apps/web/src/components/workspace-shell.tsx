@@ -1,40 +1,40 @@
-'use client'
+"use client";
 
-import dynamic from 'next/dynamic'
-import { Profiler, type ProfilerOnRenderCallback, useEffect, useState } from 'react'
-import { createApiClient, type AgentHqApiClient } from '@agent-hq/api-client'
-import type { HqSceneId } from '@agent-hq/app-core'
-import { useWorkspaceStore } from '@agent-hq/state'
-import { hqHomeManifest, hqWorkManifest } from '@agent-hq/hq-scenes'
-import type { SceneStartPosition } from '@agent-hq/asset-manifests'
+import dynamic from "next/dynamic";
+import { Profiler, type ProfilerOnRenderCallback, useEffect, useState } from "react";
+import { createApiClient, type AgentHqApiClient } from "@agent-hq/api-client";
+import type { HqSceneId } from "@agent-hq/app-core";
+import { useWorkspaceStore } from "@agent-hq/state";
+import { hqHomeManifest, hqWorkManifest } from "@agent-hq/hq-scenes";
+import type { SceneStartPosition } from "@agent-hq/asset-manifests";
 import {
   VirtualRoomControls,
   type WorkspacePlatformServices,
   type WorkspaceView,
-} from '@agent-hq/workspace-ui'
+} from "@agent-hq/workspace-ui";
 
 const HqRoomScene = dynamic(
-  () => import('@agent-hq/hq-scenes/runtime').then((module) => module.HqRoomScene),
+  () => import("@agent-hq/hq-scenes/runtime").then((module) => module.HqRoomScene),
   { ssr: false }
-)
+);
 
 const sceneOptions = [
   {
-    id: 'home' as const,
-    label: 'Home',
+    id: "home" as const,
+    label: "Home",
     manifest: hqHomeManifest,
   },
   {
-    id: 'work' as const,
-    label: 'Work',
+    id: "work" as const,
+    label: "Work",
     manifest: hqWorkManifest,
   },
-] as const
+] as const;
 
 const sceneById = Object.fromEntries(sceneOptions.map((option) => [option.id, option])) as Record<
   HqSceneId,
   (typeof sceneOptions)[number]
->
+>;
 
 const recordReactCommit: ProfilerOnRenderCallback = (
   id,
@@ -46,67 +46,67 @@ const recordReactCommit: ProfilerOnRenderCallback = (
 ) => {
   const target = window as Window & {
     __AGENT_HQ_REACT_PROFILE__?: Array<{
-      id: string
-      phase: 'mount' | 'update'
-      actualDurationMs: number
-      baseDurationMs: number
-      startTime: number
-      commitTime: number
-    }>
-  }
-  const entries = target.__AGENT_HQ_REACT_PROFILE__ ?? []
+      id: string;
+      phase: "mount" | "update";
+      actualDurationMs: number;
+      baseDurationMs: number;
+      startTime: number;
+      commitTime: number;
+    }>;
+  };
+  const entries = target.__AGENT_HQ_REACT_PROFILE__ ?? [];
   entries.push({
     id,
-    phase: phase === 'mount' ? 'mount' : 'update',
+    phase: phase === "mount" ? "mount" : "update",
     actualDurationMs: actualDuration,
     baseDurationMs: baseDuration,
     startTime,
     commitTime,
-  })
-  if (entries.length > 100) entries.splice(0, entries.length - 100)
-  target.__AGENT_HQ_REACT_PROFILE__ = entries
-}
+  });
+  if (entries.length > 100) entries.splice(0, entries.length - 100);
+  target.__AGENT_HQ_REACT_PROFILE__ = entries;
+};
 
 export type WorkspaceShellProps = {
-  apiClient?: AgentHqApiClient
-  initialScene: HqSceneId
-  initialCharacter: string
-  startPosition?: SceneStartPosition
-  cameraViewMode?: 'perspective' | 'orthographic'
-  onWorkspaceViewChange?: (view: WorkspaceView) => void
-  onOpenRoomDesigner?: () => void
-  workspaceView?: WorkspaceView
-  services?: WorkspacePlatformServices
-}
+  apiClient?: AgentHqApiClient;
+  initialScene: HqSceneId;
+  initialCharacter: string;
+  startPosition?: SceneStartPosition;
+  cameraViewMode?: "perspective" | "orthographic";
+  onWorkspaceViewChange?: (view: WorkspaceView) => void;
+  onOpenRoomDesigner?: () => void;
+  workspaceView?: WorkspaceView;
+  services?: WorkspacePlatformServices;
+};
 
 export function WorkspaceShell({
   apiClient: providedApiClient,
   initialScene,
   initialCharacter,
   startPosition,
-  cameraViewMode: initialCameraViewMode = 'orthographic',
+  cameraViewMode: initialCameraViewMode = "orthographic",
   onWorkspaceViewChange,
   onOpenRoomDesigner,
 }: WorkspaceShellProps) {
-  const selectedScene = useWorkspaceStore((state) => state.selectedScene)
-  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
-  const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode)
-  const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode)
-  const [storeReady, setStoreReady] = useState(false)
-  const [fallbackApiClient] = useState(() => createApiClient())
-  const apiClient = providedApiClient ?? fallbackApiClient
-  const sceneId = storeReady ? selectedScene : initialScene
-  const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode
-  const scene = sceneById[sceneId]
+  const selectedScene = useWorkspaceStore((state) => state.selectedScene);
+  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene);
+  const cameraViewMode = useWorkspaceStore((state) => state.cameraViewMode);
+  const setCameraViewMode = useWorkspaceStore((state) => state.setCameraViewMode);
+  const [storeReady, setStoreReady] = useState(false);
+  const [fallbackApiClient] = useState(() => createApiClient());
+  const apiClient = providedApiClient ?? fallbackApiClient;
+  const sceneId = storeReady ? selectedScene : initialScene;
+  const activeCameraViewMode = storeReady ? cameraViewMode : initialCameraViewMode;
+  const scene = sceneById[sceneId];
   useEffect(() => {
-    setSelectedScene(initialScene)
-    setCameraViewMode(initialCameraViewMode)
-    setStoreReady(true)
-  }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene])
+    setSelectedScene(initialScene);
+    setCameraViewMode(initialCameraViewMode);
+    setStoreReady(true);
+  }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene]);
 
   useEffect(() => {
-    document.title = `Agent HQ | ${scene.label}`
-  }, [scene.label])
+    document.title = `Agent HQ | ${scene.label}`;
+  }, [scene.label]);
 
   return (
     <main className="workspace-shell">
@@ -131,7 +131,7 @@ export function WorkspaceShell({
         <div className="workspace-ui" aria-label="Agent HQ workspace controls">
           <VirtualRoomControls
             client={apiClient}
-            openChat={() => onWorkspaceViewChange?.('chat')}
+            openChat={() => onWorkspaceViewChange?.("chat")}
           />
 
           <div
@@ -152,5 +152,5 @@ export function WorkspaceShell({
         </div>
       </div>
     </main>
-  )
+  );
 }

@@ -1,24 +1,24 @@
-import 'server-only'
+import "server-only";
 
-import { after } from 'next/server'
+import { after } from "next/server";
 
-import { createDatabase } from '@agent-hq/db'
+import { createDatabase } from "@agent-hq/db";
 
 import {
   resolveDatabaseConnectionString,
   shouldRegisterDatabaseShutdownHooks,
-} from './database-connection'
+} from "./database-connection";
 
-let shutdownRegistered = false
+let shutdownRegistered = false;
 
 function registerDatabaseShutdown() {
-  if (shutdownRegistered || !shouldRegisterDatabaseShutdownHooks()) return
-  shutdownRegistered = true
+  if (shutdownRegistered || !shouldRegisterDatabaseShutdownHooks()) return;
+  shutdownRegistered = true;
 
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
-      process.exit(signal === 'SIGINT' ? 130 : 143)
-    })
+      process.exit(signal === "SIGINT" ? 130 : 143);
+    });
   }
 }
 
@@ -28,14 +28,14 @@ export function applicationDatabase() {
   // sessions go stale across requests, which hangs requests until the
   // runtime kills them. Per-request lifecycle mirrors a plain Worker, where
   // the same driver, options, and Hyperdrive config answer in ~100ms.
-  const connection = createDatabase(resolveDatabaseConnectionString())
-  registerDatabaseShutdown()
+  const connection = createDatabase(resolveDatabaseConnectionString());
+  registerDatabaseShutdown();
   try {
     after(() => {
-      void connection.close().catch(() => undefined)
-    })
+      void connection.close().catch(() => undefined);
+    });
   } catch {
     // Outside request scope (build prerender, scripts): rely on isolate GC.
   }
-  return connection.db
+  return connection.db;
 }

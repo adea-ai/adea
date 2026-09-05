@@ -4,8 +4,8 @@ export {
   hasCharacterDesignerChanges,
   type CharacterDesignerProps,
   type CharacterDesignerValue,
-} from './character-designer'
+} from "./character-designer";
 export {
   CharacterDesignerScene,
   type CharacterDesignerSceneProps,
-} from './character-designer-scene'
+} from "./character-designer-scene";

@@ -252,6 +252,7 @@
         "@agent-hq/interior": "workspace:*",
         "@agent-hq/landscape": "workspace:*",
         "@dimforge/rapier3d-compat": "^0.20.0",
+        "react": "19.2.8",
         "three": "^0.185.1",
         "three-mesh-bvh": "^0.9.14",
       },

@@ -1,43 +1,43 @@
-'use client'
+"use client";
 
-import dynamic from 'next/dynamic'
-import { useRef, useState } from 'react'
-import { Button } from '@agent-hq/ui/components/ui/button'
+import dynamic from "next/dynamic";
+import { useRef, useState } from "react";
+import { Button } from "@agent-hq/ui/components/ui/button";
 
 const RoomDesignerScene = dynamic(
-  () => import('@agent-hq/room-designer-scene').then(({ RoomDesignerScene: Scene }) => Scene),
+  () => import("@agent-hq/room-designer-scene").then(({ RoomDesignerScene: Scene }) => Scene),
   { ssr: false }
-)
+);
 
 export function RoomDesignerEntry({
   initialCharacter,
   initialScene,
   onClose,
 }: Readonly<{
-  initialCharacter: string
-  initialScene: 'home' | 'work'
-  onClose: () => void
+  initialCharacter: string;
+  initialScene: "home" | "work";
+  onClose: () => void;
 }>) {
-  const saveRef = useRef<(() => Promise<boolean>) | null>(null)
-  const [dirty, setDirty] = useState(false)
-  const [pendingClose, setPendingClose] = useState(false)
+  const saveRef = useRef<(() => Promise<boolean>) | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [pendingClose, setPendingClose] = useState(false);
   const requestClose = () => {
     if (dirty) {
-      setPendingClose(true)
-      return
+      setPendingClose(true);
+      return;
     }
-    onClose()
-  }
+    onClose();
+  };
   const discard = () => {
-    setPendingClose(false)
-    onClose()
-  }
+    setPendingClose(false);
+    onClose();
+  };
   const saveAndClose = async () => {
-    const saved = await saveRef.current?.()
-    if (saved === false) return
-    setPendingClose(false)
-    onClose()
-  }
+    const saved = await saveRef.current?.();
+    if (saved === false) return;
+    setPendingClose(false);
+    onClose();
+  };
 
   return (
     <main className="workspace-shell">
@@ -79,5 +79,5 @@ export function RoomDesignerEntry({
         ) : null}
       </div>
     </main>
-  )
+  );
 }

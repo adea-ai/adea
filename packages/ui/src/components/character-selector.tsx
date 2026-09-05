@@ -1,66 +1,66 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { Check, ChevronDown, ChevronUp, UserRound } from 'lucide-react'
-import { cn } from '#lib/utils'
-import { Button } from '#components/ui/button'
+import { useState } from "react";
+import { Check, ChevronDown, ChevronUp, UserRound } from "lucide-react";
+import { cn } from "#lib/utils";
+import { Button } from "#components/ui/button";
 import type {
   CharacterConfiguration,
   CharacterConfigurationSlot,
   CharacterPartOption,
-} from '@agent-hq/characters'
+} from "@agent-hq/characters";
 
 const configurableSlots: readonly CharacterConfigurationSlot[] = [
-  'body',
-  'ears',
-  'face',
-  'hair',
-  'hat',
-  'top',
-  'bottom',
-  'shoes',
-  'socks',
-  'glasses',
-  'gloves',
-  'accessory',
-  'costume',
-]
+  "body",
+  "ears",
+  "face",
+  "hair",
+  "hat",
+  "top",
+  "bottom",
+  "shoes",
+  "socks",
+  "glasses",
+  "gloves",
+  "accessory",
+  "costume",
+];
 
 export type CharacterOption = {
-  id: string
-  label: string
-  iconUrl?: string
-}
+  id: string;
+  label: string;
+  iconUrl?: string;
+};
 
 export type CharacterSelectorProps = {
-  options: readonly CharacterOption[]
-  value: string
-  onValueChange: (value: string) => void
+  options: readonly CharacterOption[];
+  value: string;
+  onValueChange: (value: string) => void;
   /** Number of characters shown before the "show more" toggle. */
-  maxVisible?: number
-}
+  maxVisible?: number;
+};
 
 export type CharacterCustomizerProps = {
-  value: CharacterConfiguration
-  options: readonly CharacterPartOption[]
-  onValueChange: (value: CharacterConfiguration) => void
-}
+  value: CharacterConfiguration;
+  options: readonly CharacterPartOption[];
+  onValueChange: (value: CharacterConfiguration) => void;
+};
 
 const slotLabels: Record<CharacterConfigurationSlot, string> = {
-  body: 'Body',
-  ears: 'Ears',
-  face: 'Face',
-  hair: 'Hair',
-  hat: 'Hat',
-  top: 'Top',
-  bottom: 'Bottom',
-  shoes: 'Shoes',
-  socks: 'Socks',
-  glasses: 'Glasses',
-  gloves: 'Gloves',
-  accessory: 'Accessory',
-  costume: 'Costume',
-}
+  body: "Body",
+  ears: "Ears",
+  face: "Face",
+  hair: "Hair",
+  hat: "Hat",
+  top: "Top",
+  bottom: "Bottom",
+  shoes: "Shoes",
+  socks: "Socks",
+  glasses: "Glasses",
+  gloves: "Gloves",
+  accessory: "Accessory",
+  costume: "Costume",
+};
 
 export function CharacterSelector({
   options,
@@ -72,35 +72,35 @@ export function CharacterSelector({
     () =>
       options.length <= maxVisible ||
       !options.slice(0, maxVisible).some((option) => option.id === value)
-  )
-  const hiddenCount = options.length - maxVisible
-  const visibleOptions = expanded ? options : options.slice(0, maxVisible)
+  );
+  const hiddenCount = options.length - maxVisible;
+  const visibleOptions = expanded ? options : options.slice(0, maxVisible);
 
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Character">
         {visibleOptions.map((option) => {
-          const selected = option.id === value
+          const selected = option.id === value;
           return (
             <Button
               key={option.id}
               type="button"
               role="radio"
               aria-checked={selected}
-              variant={selected ? 'secondary' : 'outline'}
+              variant={selected ? "secondary" : "outline"}
               onClick={() => onValueChange(option.id)}
               className={cn(
-                'flex min-h-16 items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors',
-                'hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50',
+                "flex min-h-16 items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+                "hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
                 selected
-                  ? 'border-primary bg-accent text-accent-foreground'
-                  : 'border-border bg-background'
+                  ? "border-primary bg-accent text-accent-foreground"
+                  : "border-border bg-background"
               )}
             >
               <span
                 className={cn(
-                  'relative flex size-8 items-center justify-center overflow-hidden rounded-lg bg-muted',
-                  selected && 'bg-primary text-primary-foreground'
+                  "relative flex size-8 items-center justify-center overflow-hidden rounded-lg bg-muted",
+                  selected && "bg-primary text-primary-foreground"
                 )}
               >
                 {option.iconUrl ? (
@@ -121,7 +121,7 @@ export function CharacterSelector({
               </span>
               <span className="font-medium">{option.label}</span>
             </Button>
-          )
+          );
         })}
       </div>
       {hiddenCount > 0 && (
@@ -147,7 +147,7 @@ export function CharacterSelector({
         </Button>
       )}
     </div>
-  )
+  );
 }
 
 export function CharacterCustomizer({ value, options, onValueChange }: CharacterCustomizerProps) {
@@ -158,14 +158,14 @@ export function CharacterCustomizer({ value, options, onValueChange }: Character
       </summary>
       <div className="mt-3 grid gap-3">
         {configurableSlots.map((slot) => {
-          const slotOptions = options.filter((option) => option.slot === slot)
-          const selected = value[slot]
+          const slotOptions = options.filter((option) => option.slot === slot);
+          const selected = value[slot];
           return (
             <label key={slot} className="grid gap-1 text-sm">
               <span className="font-medium">{slotLabels[slot]}</span>
               <select
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={selected ?? ''}
+                value={selected ?? ""}
                 onChange={(event) =>
                   onValueChange({
                     ...value,
@@ -173,7 +173,7 @@ export function CharacterCustomizer({ value, options, onValueChange }: Character
                   } as CharacterConfiguration)
                 }
               >
-                {slot !== 'body' ? <option value="">None</option> : null}
+                {slot !== "body" ? <option value="">None</option> : null}
                 {slotOptions.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
@@ -181,9 +181,9 @@ export function CharacterCustomizer({ value, options, onValueChange }: Character
                 ))}
               </select>
             </label>
-          )
+          );
         })}
       </div>
     </details>
-  )
+  );
 }

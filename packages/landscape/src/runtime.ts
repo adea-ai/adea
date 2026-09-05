@@ -1,6 +1,6 @@
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { loadSceneFieldFromCatalog } from '@agent-hq/scene-fields'
-import { landscapeAssets } from './catalog.js'
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { loadSceneFieldFromCatalog } from "@agent-hq/scene-fields";
+import { landscapeAssets } from "./catalog.js";
 
 /** Build one InstancedMesh per landscape catalog model from a scene-field
  *  manifest.
@@ -15,5 +15,5 @@ export async function loadLandscapeField(
   manifestUrl: string,
   signal?: AbortSignal
 ) {
-  return loadSceneFieldFromCatalog(loader, manifestUrl, landscapeAssets, 'landscape-field', signal)
+  return loadSceneFieldFromCatalog(loader, manifestUrl, landscapeAssets, "landscape-field", signal);
 }

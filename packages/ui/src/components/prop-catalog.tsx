@@ -1,4 +1,4 @@
-'use client'
+"use client";
 
 import {
   memo,
@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
-} from 'react'
+} from "react";
 import {
   Archive,
   Armchair,
@@ -30,152 +30,152 @@ import {
   Tv,
   Utensils,
   type LucideIcon,
-} from 'lucide-react'
-import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
-import { Card } from './ui/card'
-import { cn } from '../lib/utils'
+} from "lucide-react";
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { Card } from "./ui/card";
+import { cn } from "../lib/utils";
 
 export type PropCatalogItem = {
-  id: string
-  label: string
-  assetUrl: string
-  category: string
+  id: string;
+  label: string;
+  assetUrl: string;
+  category: string;
   /** Restrict placement to a floor or a wall surface. */
-  placementSurface?: 'floor' | 'wall'
+  placementSurface?: "floor" | "wall";
   /** Authored wall-mount height for wall-only props. */
-  wallMountHeight?: number
+  wallMountHeight?: number;
   /** Render the placement footprint as a circle instead of an AABB. */
-  footprintShape?: 'rectangle' | 'circle'
+  footprintShape?: "rectangle" | "circle";
   /** Small authored lift used to keep floor props off coplanar surfaces. */
-  floorLift?: number
+  floorLift?: number;
   /** Allow other floor props to be placed on this surface. */
-  allowItemsOnTop?: boolean
+  allowItemsOnTop?: boolean;
   /** Allow this floor prop to be placed underneath existing furniture. */
-  canOverlapFurniture?: boolean
+  canOverlapFurniture?: boolean;
   /** Keep rugs from covering this floor decoration. */
-  blocksRugOverlap?: boolean
+  blocksRugOverlap?: boolean;
   /** Top surface height in authored units (tables, counters). */
-  surfaceHeight?: number
+  surfaceHeight?: number;
   /** Small item that stacks on surfaces with surfaceHeight. */
-  placeableOnTop?: boolean
+  placeableOnTop?: boolean;
   /** Yaw that presents the asset's authored front to the viewer. */
-  frontYaw?: number
-}
+  frontYaw?: number;
+};
 
 export type PropCatalogCategory = {
-  id: string
-  label: string
-  icon: LucideIcon
-}
+  id: string;
+  label: string;
+  icon: LucideIcon;
+};
 
 export const defaultPropCatalogCategories: readonly PropCatalogCategory[] = [
-  { id: 'seating', label: 'Seating', icon: Armchair },
-  { id: 'tables', label: 'Tables', icon: PanelTop },
-  { id: 'bedroom', label: 'Bedroom', icon: BedDouble },
-  { id: 'storage', label: 'Storage', icon: Archive },
-  { id: 'lighting', label: 'Lighting', icon: LampDesk },
-  { id: 'electronics', label: 'Electronics', icon: Tv },
-  { id: 'entertainment', label: 'Entertainment', icon: Gamepad2 },
-  { id: 'recreation', label: 'Recreation', icon: Dumbbell },
-  { id: 'kitchen', label: 'Kitchen', icon: ChefHat },
-  { id: 'bathroom', label: 'Bathroom', icon: Bath },
-  { id: 'rugs', label: 'Rugs', icon: SquareDashed },
-  { id: 'retail', label: 'Retail', icon: Store },
-  { id: 'fitness', label: 'Fitness', icon: Dumbbell },
-  { id: 'kids', label: 'Kids', icon: Baby },
-  { id: 'wall-art', label: 'Wall Art', icon: Image },
-  { id: 'plants', label: 'Plants', icon: Sprout },
-  { id: 'food-and-drinks', label: 'Food & Drinks', icon: Utensils },
-  { id: 'other', label: 'Other', icon: PackageOpen },
-]
+  { id: "seating", label: "Seating", icon: Armchair },
+  { id: "tables", label: "Tables", icon: PanelTop },
+  { id: "bedroom", label: "Bedroom", icon: BedDouble },
+  { id: "storage", label: "Storage", icon: Archive },
+  { id: "lighting", label: "Lighting", icon: LampDesk },
+  { id: "electronics", label: "Electronics", icon: Tv },
+  { id: "entertainment", label: "Entertainment", icon: Gamepad2 },
+  { id: "recreation", label: "Recreation", icon: Dumbbell },
+  { id: "kitchen", label: "Kitchen", icon: ChefHat },
+  { id: "bathroom", label: "Bathroom", icon: Bath },
+  { id: "rugs", label: "Rugs", icon: SquareDashed },
+  { id: "retail", label: "Retail", icon: Store },
+  { id: "fitness", label: "Fitness", icon: Dumbbell },
+  { id: "kids", label: "Kids", icon: Baby },
+  { id: "wall-art", label: "Wall Art", icon: Image },
+  { id: "plants", label: "Plants", icon: Sprout },
+  { id: "food-and-drinks", label: "Food & Drinks", icon: Utensils },
+  { id: "other", label: "Other", icon: PackageOpen },
+];
 
 function disposeObject(object: THREE.Object3D): void {
   object.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return
-    child.geometry.dispose()
-    const materials = Array.isArray(child.material) ? child.material : [child.material]
-    for (const material of materials) material.dispose()
-  })
+    if (!(child instanceof THREE.Mesh)) return;
+    child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) material.dispose();
+  });
 }
 
 // --- Thumbnail infrastructure ------------------------------------------------
 
 // Shared singleton renderer + canvas for all thumbnails.
-let thumbnailRenderer: THREE.WebGLRenderer | null = null
-let thumbnailRendererCanvas: HTMLCanvasElement | null = null
+let thumbnailRenderer: THREE.WebGLRenderer | null = null;
+let thumbnailRendererCanvas: HTMLCanvasElement | null = null;
 // Shared singleton GLTFLoader so the browser can reuse connections and
 // the loader can cache parsed resources internally. Exported so the
 // room designer can reuse the same loader instance and avoid duplicate
 // GLB fetches/parse work.
-let sharedLoader: GLTFLoader | null = null
+let sharedLoader: GLTFLoader | null = null;
 export function getSharedLoader(): GLTFLoader {
   if (!sharedLoader) {
-    sharedLoader = new GLTFLoader()
+    sharedLoader = new GLTFLoader();
     // Interior catalog GLBs are Meshopt-compressed. Configure the shared
     // loader before thumbnails or the room designer can request any asset.
-    sharedLoader.setMeshoptDecoder(MeshoptDecoder)
+    sharedLoader.setMeshoptDecoder(MeshoptDecoder);
   }
-  return sharedLoader
+  return sharedLoader;
 }
 
 // Cache of rendered thumbnail data URLs keyed by asset URL + yaw.
 // Survives category switches and drawer re-opens so thumbnails only
 // render once per session.
-const thumbnailDataCache = new Map<string, string>()
+const thumbnailDataCache = new Map<string, string>();
 // Track in-flight load+render promises so concurrent mounts share one.
-const thumbnailPromiseCache = new Map<string, Promise<string | null>>()
+const thumbnailPromiseCache = new Map<string, Promise<string | null>>();
 // Count mounted consumers so category switches can abandon queued thumbnail
 // renders instead of keeping the main thread busy with an invisible catalog.
-const thumbnailConsumerCounts = new Map<string, number>()
+const thumbnailConsumerCounts = new Map<string, number>();
 
 function thumbnailCacheKey(item: PropCatalogItem): string {
-  return `${item.assetUrl}|${item.frontYaw ?? 0}`
+  return `${item.assetUrl}|${item.frontYaw ?? 0}`;
 }
 
 type ThumbnailRenderJob = {
-  item: PropCatalogItem
-  source: THREE.Object3D
-}
+  item: PropCatalogItem;
+  source: THREE.Object3D;
+};
 
 function renderThumbnailToDataURL(job: ThumbnailRenderJob): string {
-  if (!thumbnailRendererCanvas) thumbnailRendererCanvas = document.createElement('canvas')
+  if (!thumbnailRendererCanvas) thumbnailRendererCanvas = document.createElement("canvas");
   if (!thumbnailRenderer) {
     thumbnailRenderer = new THREE.WebGLRenderer({
       canvas: thumbnailRendererCanvas,
       alpha: true,
       antialias: true,
-      powerPreference: 'low-power',
-    })
-    thumbnailRenderer.setPixelRatio(1)
-    thumbnailRenderer.setSize(96, 96, false)
-    thumbnailRenderer.outputColorSpace = THREE.SRGBColorSpace
+      powerPreference: "low-power",
+    });
+    thumbnailRenderer.setPixelRatio(1);
+    thumbnailRenderer.setSize(96, 96, false);
+    thumbnailRenderer.outputColorSpace = THREE.SRGBColorSpace;
   }
-  const scene = new THREE.Scene()
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 2.4))
-  const key = new THREE.DirectionalLight(0xffffff, 2.8)
-  key.position.set(2, 4, 3)
-  scene.add(key)
-  const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100)
-  const model = job.source
-  model.rotation.y = job.item.frontYaw ?? 0
-  model.updateMatrixWorld(true)
-  const bounds = new THREE.Box3().setFromObject(model)
-  const size = bounds.getSize(new THREE.Vector3())
-  const center = bounds.getCenter(new THREE.Vector3())
-  model.position.sub(center)
-  const extent = Math.max(size.x, size.y, size.z, 0.25)
-  camera.position.set(extent * 2.25, extent * 1.55, -extent * 2.25)
-  camera.lookAt(0, Math.max(size.y * 0.12, 0), 0)
-  scene.add(model)
-  thumbnailRenderer.render(scene, camera)
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x223044, 2.4));
+  const key = new THREE.DirectionalLight(0xffffff, 2.8);
+  key.position.set(2, 4, 3);
+  scene.add(key);
+  const camera = new THREE.PerspectiveCamera(28, 1, 0.01, 100);
+  const model = job.source;
+  model.rotation.y = job.item.frontYaw ?? 0;
+  model.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(model);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  model.position.sub(center);
+  const extent = Math.max(size.x, size.y, size.z, 0.25);
+  camera.position.set(extent * 2.25, extent * 1.55, -extent * 2.25);
+  camera.lookAt(0, Math.max(size.y * 0.12, 0), 0);
+  scene.add(model);
+  thumbnailRenderer.render(scene, camera);
   // JPEG is ~5x faster to encode than PNG and produces smaller data URLs,
   // which speeds up both the toDataURL call and the subsequent img.src load.
-  const dataUrl = thumbnailRendererCanvas.toDataURL('image/jpeg', 0.85)
-  scene.remove(model)
-  disposeObject(model)
-  return dataUrl
+  const dataUrl = thumbnailRendererCanvas.toDataURL("image/jpeg", 0.85);
+  scene.remove(model);
+  disposeObject(model);
+  return dataUrl;
 }
 
 /**
@@ -183,21 +183,21 @@ function renderThumbnailToDataURL(job: ThumbnailRenderJob): string {
  * thumbnail renders. Without this, a queue of N renders executes as one
  * synchronous batch (microtask drain) and blocks the main thread.
  */
-const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
 /**
  * Sequential render queue. Each render waits for one animation frame before
  * executing, keeping the UI responsive even when many thumbnails are queued.
  */
-let renderQueue: Promise<unknown> = Promise.resolve()
+let renderQueue: Promise<unknown> = Promise.resolve();
 
 function scheduleRender(render: () => string | null): Promise<string | null> {
   const result = renderQueue.then(async () => {
-    await nextFrame()
-    return render()
-  })
-  renderQueue = result.catch(() => undefined)
-  return result
+    await nextFrame();
+    return render();
+  });
+  renderQueue = result.catch(() => undefined);
+  return result;
 }
 
 /**
@@ -212,156 +212,156 @@ function scheduleRender(render: () => string | null): Promise<string | null> {
  * the async GLB fetches should still be bounded. Four concurrent loads fill
  * the visible catalog quickly without starting dozens of requests at once.
  */
-const MAX_CONCURRENT_THUMBNAIL_LOADS = 4
-let activeThumbnailLoads = 0
-const pendingThumbnailLoads: Array<() => void> = []
+const MAX_CONCURRENT_THUMBNAIL_LOADS = 4;
+let activeThumbnailLoads = 0;
+const pendingThumbnailLoads: Array<() => void> = [];
 
 function dequeueThumbnailLoad(): void {
-  if (activeThumbnailLoads >= MAX_CONCURRENT_THUMBNAIL_LOADS) return
-  const next = pendingThumbnailLoads.shift()
-  if (!next) return
-  activeThumbnailLoads++
-  next()
+  if (activeThumbnailLoads >= MAX_CONCURRENT_THUMBNAIL_LOADS) return;
+  const next = pendingThumbnailLoads.shift();
+  if (!next) return;
+  activeThumbnailLoads++;
+  next();
 }
 
 type ThumbnailHandle = {
-  promise: Promise<string | null>
-  release: () => void
-}
+  promise: Promise<string | null>;
+  release: () => void;
+};
 
 function acquireThumbnail(item: PropCatalogItem): ThumbnailHandle {
-  const key = thumbnailCacheKey(item)
-  const cached = thumbnailDataCache.get(key)
-  if (cached) return { promise: Promise.resolve(cached), release: () => undefined }
+  const key = thumbnailCacheKey(item);
+  const cached = thumbnailDataCache.get(key);
+  if (cached) return { promise: Promise.resolve(cached), release: () => undefined };
 
-  thumbnailConsumerCounts.set(key, (thumbnailConsumerCounts.get(key) ?? 0) + 1)
-  let promise = thumbnailPromiseCache.get(key)
+  thumbnailConsumerCounts.set(key, (thumbnailConsumerCounts.get(key) ?? 0) + 1);
+  let promise = thumbnailPromiseCache.get(key);
   if (!promise) {
     promise = new Promise<string | null>((resolve, reject) => {
       const run = () => {
         if (!thumbnailConsumerCounts.has(key)) {
-          activeThumbnailLoads--
-          dequeueThumbnailLoad()
-          thumbnailPromiseCache.delete(key)
-          resolve(null)
-          return
+          activeThumbnailLoads--;
+          dequeueThumbnailLoad();
+          thumbnailPromiseCache.delete(key);
+          resolve(null);
+          return;
         }
         const finishLoad = () => {
-          activeThumbnailLoads--
-          dequeueThumbnailLoad()
-        }
+          activeThumbnailLoads--;
+          dequeueThumbnailLoad();
+        };
         getSharedLoader()
           .loadAsync(item.assetUrl)
           .then(
             ({ scene: source }) => {
-              finishLoad()
+              finishLoad();
               // The GLB parse is async, but the WebGL render + toDataURL is sync.
               // Schedule the sync part in an animation frame so it doesn't block.
               return scheduleRender(() => {
                 if (!thumbnailConsumerCounts.has(key)) {
-                  thumbnailPromiseCache.delete(key)
-                  disposeObject(source)
-                  return null
+                  thumbnailPromiseCache.delete(key);
+                  disposeObject(source);
+                  return null;
                 }
-                const dataUrl = renderThumbnailToDataURL({ item, source })
-                thumbnailDataCache.set(key, dataUrl)
-                thumbnailPromiseCache.delete(key)
-                return dataUrl
-              })
+                const dataUrl = renderThumbnailToDataURL({ item, source });
+                thumbnailDataCache.set(key, dataUrl);
+                thumbnailPromiseCache.delete(key);
+                return dataUrl;
+              });
             },
             (error) => {
-              finishLoad()
-              throw error
+              finishLoad();
+              throw error;
             }
           )
-          .then(resolve, reject)
-      }
-      pendingThumbnailLoads.push(run)
-      dequeueThumbnailLoad()
-    })
-    thumbnailPromiseCache.set(key, promise)
+          .then(resolve, reject);
+      };
+      pendingThumbnailLoads.push(run);
+      dequeueThumbnailLoad();
+    });
+    thumbnailPromiseCache.set(key, promise);
   }
 
-  let released = false
+  let released = false;
   return {
     promise,
     release: () => {
-      if (released) return
-      released = true
-      const consumers = thumbnailConsumerCounts.get(key) ?? 0
-      if (consumers <= 1) thumbnailConsumerCounts.delete(key)
-      else thumbnailConsumerCounts.set(key, consumers - 1)
+      if (released) return;
+      released = true;
+      const consumers = thumbnailConsumerCounts.get(key) ?? 0;
+      if (consumers <= 1) thumbnailConsumerCounts.delete(key);
+      else thumbnailConsumerCounts.set(key, consumers - 1);
     },
-  }
+  };
 }
 
 export const ModelThumbnail = memo(function ModelThumbnail({
   item,
   deferMs = 0,
 }: {
-  item: PropCatalogItem
+  item: PropCatalogItem;
   /** Delay expensive GLB preview work so nearby controls remain responsive. */
-  deferMs?: number
+  deferMs?: number;
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [visible, setVisible] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    const wrapper = wrapperRef.current
-    if (!wrapper || typeof IntersectionObserver === 'undefined') {
-      setVisible(true)
-      return
+    const wrapper = wrapperRef.current;
+    if (!wrapper || typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
     }
     // Use a rootMargin so items slightly below the fold start loading
     // before the user scrolls to them, making scroll feel instant.
-    const scrollRoot = wrapper.closest('[data-model-thumbnail-root]')
+    const scrollRoot = wrapper.closest("[data-model-thumbnail-root]");
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setVisible(Boolean(entry?.isIntersecting))
+        setVisible(Boolean(entry?.isIntersecting));
       },
-      { root: scrollRoot, rootMargin: '200px' }
-    )
-    observer.observe(wrapper)
-    return () => observer.disconnect()
-  }, [])
+      { root: scrollRoot, rootMargin: "200px" }
+    );
+    observer.observe(wrapper);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
-    if (!visible) return
-    const canvas = canvasRef.current
-    if (!canvas) return
-    let cancelled = false
+    if (!visible) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let cancelled = false;
 
-    let thumbnail: ThumbnailHandle | undefined
+    let thumbnail: ThumbnailHandle | undefined;
     const load = () => {
-      if (cancelled) return
-      thumbnail = acquireThumbnail(item)
+      if (cancelled) return;
+      thumbnail = acquireThumbnail(item);
       void thumbnail.promise
         .then((dataUrl) => {
-          if (cancelled || !dataUrl) return
-          const ctx = canvas.getContext('2d')
-          if (!ctx) return
-          const img = document.createElement('img')
+          if (cancelled || !dataUrl) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const img = document.createElement("img");
           img.onload = () => {
-            if (cancelled) return
-            ctx.clearRect(0, 0, canvas.width, canvas.height)
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-          }
-          img.src = dataUrl
+            if (cancelled) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          };
+          img.src = dataUrl;
         })
         .catch(() => {
-          if (!cancelled) setFailed(true)
-        })
-    }
-    const timer = window.setTimeout(load, deferMs)
+          if (!cancelled) setFailed(true);
+        });
+    };
+    const timer = window.setTimeout(load, deferMs);
 
     return () => {
-      cancelled = true
-      window.clearTimeout(timer)
-      thumbnail?.release()
-    }
-  }, [deferMs, item, visible])
+      cancelled = true;
+      window.clearTimeout(timer);
+      thumbnail?.release();
+    };
+  }, [deferMs, item, visible]);
 
   return (
     <div
@@ -372,7 +372,7 @@ export const ModelThumbnail = memo(function ModelThumbnail({
         ref={canvasRef}
         width={96}
         height={96}
-        className={cn('h-full w-full transition-opacity', failed ? 'opacity-0' : 'opacity-100')}
+        className={cn("h-full w-full transition-opacity", failed ? "opacity-0" : "opacity-100")}
         aria-hidden="true"
       />
       {failed ? <Leaf className="size-7 text-muted-foreground" aria-hidden="true" /> : null}
@@ -380,16 +380,16 @@ export const ModelThumbnail = memo(function ModelThumbnail({
         {item.label}
       </span>
     </div>
-  )
-})
+  );
+});
 
 export type PropCatalogProps = {
-  items: readonly PropCatalogItem[]
-  selectedId?: string | null
-  categories?: readonly PropCatalogCategory[]
-  className?: string
-  onItemPointerDown?: (item: PropCatalogItem, event: ReactPointerEvent<HTMLButtonElement>) => void
-}
+  items: readonly PropCatalogItem[];
+  selectedId?: string | null;
+  categories?: readonly PropCatalogCategory[];
+  className?: string;
+  onItemPointerDown?: (item: PropCatalogItem, event: ReactPointerEvent<HTMLButtonElement>) => void;
+};
 
 export function PropCatalog({
   items,
@@ -398,66 +398,66 @@ export function PropCatalog({
   className,
   onItemPointerDown,
 }: PropCatalogProps) {
-  const [activeCategory, setActiveCategory] = useState(categories[0]?.id ?? 'seating')
-  const [hoveredCategory, setHoveredCategory] = useState<{ id: string; left: number } | null>(null)
-  const [canScrollLeft, setCanScrollLeft] = useState(false)
-  const [canScrollRight, setCanScrollRight] = useState(false)
-  const categoryScrollRef = useRef<HTMLDivElement>(null)
-  const categoryBarRef = useRef<HTMLDivElement>(null)
+  const [activeCategory, setActiveCategory] = useState(categories[0]?.id ?? "seating");
+  const [hoveredCategory, setHoveredCategory] = useState<{ id: string; left: number } | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
+  const categoryBarRef = useRef<HTMLDivElement>(null);
   const visibleItems = useMemo(() => {
-    return items.filter((item) => item.category === activeCategory)
-  }, [activeCategory, items])
+    return items.filter((item) => item.category === activeCategory);
+  }, [activeCategory, items]);
 
   const updateCategoryScroll = () => {
-    const element = categoryScrollRef.current
-    if (!element) return
-    setCanScrollLeft(element.scrollLeft > 1)
-    setCanScrollRight(element.scrollLeft + element.clientWidth < element.scrollWidth - 1)
-    setHoveredCategory(null)
-  }
+    const element = categoryScrollRef.current;
+    if (!element) return;
+    setCanScrollLeft(element.scrollLeft > 1);
+    setCanScrollRight(element.scrollLeft + element.clientWidth < element.scrollWidth - 1);
+    setHoveredCategory(null);
+  };
 
   useEffect(() => {
-    updateCategoryScroll()
-    const element = categoryScrollRef.current
-    if (!element) return
+    updateCategoryScroll();
+    const element = categoryScrollRef.current;
+    if (!element) return;
     const observer =
-      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateCategoryScroll)
-    observer?.observe(element)
-    element.addEventListener('scroll', updateCategoryScroll, { passive: true })
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateCategoryScroll);
+    observer?.observe(element);
+    element.addEventListener("scroll", updateCategoryScroll, { passive: true });
     return () => {
-      observer?.disconnect()
-      element.removeEventListener('scroll', updateCategoryScroll)
-    }
-  }, [categories.length])
+      observer?.disconnect();
+      element.removeEventListener("scroll", updateCategoryScroll);
+    };
+  }, [categories.length]);
 
-  const scrollCategories = (direction: 'left' | 'right') => {
-    const element = categoryScrollRef.current
-    if (!element) return
-    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth)
-    element.scrollTo({ left: direction === 'left' ? 0 : maxScrollLeft, behavior: 'auto' })
+  const scrollCategories = (direction: "left" | "right") => {
+    const element = categoryScrollRef.current;
+    if (!element) return;
+    const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+    element.scrollTo({ left: direction === "left" ? 0 : maxScrollLeft, behavior: "auto" });
     // The left arrow becomes visible after the first rightward scroll, which
     // can reduce the viewport by one button width. Re-read the final extent
     // after that layout update so the last category is never stranded.
-    if (direction === 'right') {
+    if (direction === "right") {
       requestAnimationFrame(() =>
         requestAnimationFrame(() => {
-          const finalMaxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth)
-          element.scrollTo({ left: finalMaxScrollLeft, behavior: 'auto' })
+          const finalMaxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+          element.scrollTo({ left: finalMaxScrollLeft, behavior: "auto" });
         })
-      )
+      );
     }
-  }
+  };
 
   const setCategoryHover = (id: string, target: HTMLElement) => {
-    const bar = categoryBarRef.current
-    if (!bar) return
-    const targetRect = target.getBoundingClientRect()
-    const barRect = bar.getBoundingClientRect()
-    setHoveredCategory({ id, left: targetRect.left + targetRect.width / 2 - barRect.left })
-  }
+    const bar = categoryBarRef.current;
+    if (!bar) return;
+    const targetRect = target.getBoundingClientRect();
+    const barRect = bar.getBoundingClientRect();
+    setHoveredCategory({ id, left: targetRect.left + targetRect.width / 2 - barRect.left });
+  };
 
   return (
-    <div className={cn('flex min-h-0 flex-col gap-3', className)} aria-label="Prop catalog">
+    <div className={cn("flex min-h-0 flex-col gap-3", className)} aria-label="Prop catalog">
       <div
         ref={categoryBarRef}
         className="relative shrink-0 pb-1"
@@ -475,11 +475,11 @@ export function PropCatalog({
           tabIndex={canScrollLeft ? 0 : -1}
           aria-hidden={!canScrollLeft}
           className={cn(
-            'absolute left-0 top-0 z-20 flex size-8 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground',
-            !canScrollLeft ? 'pointer-events-none invisible' : null
+            "absolute left-0 top-0 z-20 flex size-8 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground",
+            !canScrollLeft ? "pointer-events-none invisible" : null
           )}
           aria-label="Scroll categories left"
-          onClick={() => scrollCategories('left')}
+          onClick={() => scrollCategories("left")}
         >
           <ChevronLeft className="size-5" aria-hidden="true" />
         </button>
@@ -496,8 +496,8 @@ export function PropCatalog({
                 aria-label={label}
                 aria-selected={activeCategory === id}
                 className={cn(
-                  'group/category relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background/30 text-muted-foreground transition-colors hover:border-primary/70 hover:bg-accent/70 hover:text-accent-foreground',
-                  activeCategory === id ? 'border-primary bg-accent text-accent-foreground' : null
+                  "group/category relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background/30 text-muted-foreground transition-colors hover:border-primary/70 hover:bg-accent/70 hover:text-accent-foreground",
+                  activeCategory === id ? "border-primary bg-accent text-accent-foreground" : null
                 )}
                 onClick={() => setActiveCategory(id)}
                 onMouseEnter={(event) => setCategoryHover(id, event.currentTarget)}
@@ -521,18 +521,18 @@ export function PropCatalog({
           tabIndex={canScrollRight ? 0 : -1}
           aria-hidden={!canScrollRight}
           className={cn(
-            'absolute right-0 top-0 z-20 flex size-8 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground',
-            !canScrollRight ? 'pointer-events-none invisible' : null
+            "absolute right-0 top-0 z-20 flex size-8 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground",
+            !canScrollRight ? "pointer-events-none invisible" : null
           )}
           aria-label="Scroll categories right"
-          onClick={() => scrollCategories('right')}
+          onClick={() => scrollCategories("right")}
         >
           <ChevronRight className="size-5" aria-hidden="true" />
         </button>
         {hoveredCategory ? (
           <div
             className="pointer-events-none absolute top-full z-20 mt-1 rounded bg-background/90 px-2 py-1 text-[10px] font-medium text-foreground shadow-md backdrop-blur-sm"
-            style={{ left: hoveredCategory.left, transform: 'translateX(-50%)' }}
+            style={{ left: hoveredCategory.left, transform: "translateX(-50%)" }}
           >
             {categories.find((category) => category.id === hoveredCategory.id)?.label}
           </div>
@@ -549,10 +549,10 @@ export function PropCatalog({
               <Card
                 key={item.id}
                 className={cn(
-                  'group overflow-hidden border-border bg-card/60 p-1 transition-colors',
+                  "group overflow-hidden border-border bg-card/60 p-1 transition-colors",
                   selectedId === item.id
-                    ? 'border-primary bg-accent/70'
-                    : 'hover:border-primary/50 hover:bg-accent/40'
+                    ? "border-primary bg-accent/70"
+                    : "hover:border-primary/50 hover:bg-accent/40"
                 )}
               >
                 <button
@@ -560,10 +560,10 @@ export function PropCatalog({
                   aria-label={`Add ${item.label}`}
                   className="block w-full rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onPointerDown={(event) => {
-                    if (event.button !== 0) return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onItemPointerDown?.(item, event)
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onItemPointerDown?.(item, event);
                   }}
                 >
                   <ModelThumbnail item={item} />
@@ -579,5 +579,5 @@ export function PropCatalog({
         </p>
       )}
     </div>
-  )
+  );
 }

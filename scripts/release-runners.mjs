@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from "node:child_process";
 import {
   closeSync,
   existsSync,
@@ -9,384 +9,384 @@ import {
   rmSync,
   unlinkSync,
   writeFileSync,
-} from 'node:fs'
-import { homedir, hostname } from 'node:os'
-import { join, resolve } from 'node:path'
+} from "node:fs";
+import { homedir, hostname } from "node:os";
+import { join, resolve } from "node:path";
 
-const repository = 'adea-ai/agent-hq'
-const runnerVersion = '2.336.0'
-const root = resolve(import.meta.dirname, '..')
+const repository = "adea-ai/agent-hq";
+const runnerVersion = "2.336.0";
+const root = resolve(import.meta.dirname, "..");
 // The Actions runner prepends its bundled tools to PATH without shell-escaping the
 // installation directory. Keep the runner beneath a path with no spaces so every
 // workflow shell can start reliably.
-const stateRoot = join(homedir(), '.local', 'share', 'agent-hq', 'release-runner')
-const macRunnerRoot = join(stateRoot, 'macos-arm64')
-const macRunnerPid = join(stateRoot, 'macos-arm64.pid')
-const macRunnerLog = join(stateRoot, 'macos-arm64.log')
-const macCargoTarget = join(stateRoot, 'macos-cargo-target')
+const stateRoot = join(homedir(), ".local", "share", "agent-hq", "release-runner");
+const macRunnerRoot = join(stateRoot, "macos-arm64");
+const macRunnerPid = join(stateRoot, "macos-arm64.pid");
+const macRunnerLog = join(stateRoot, "macos-arm64.log");
+const macCargoTarget = join(stateRoot, "macos-cargo-target");
 const legacyMacCargoTarget = join(
   macRunnerRoot,
-  '_work',
-  'agent-hq',
-  'agent-hq',
-  'apps',
-  'desktop',
-  'src-tauri',
-  'target'
-)
-const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`
-const linuxBuilder = 'agent-hq-release-builder'
-const linuxContainer = 'agent-hq-release-runner-linux-x64'
-const linuxCargoTargetVolume = 'agent-hq-release-linux-cargo-target'
-const linuxWorkspaceVolume = 'agent-hq-release-linux-workspace'
-const runnerDeletionAttempts = 120
+  "_work",
+  "agent-hq",
+  "agent-hq",
+  "apps",
+  "desktop",
+  "src-tauri",
+  "target"
+);
+const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
+const linuxBuilder = "agent-hq-release-builder";
+const linuxContainer = "agent-hq-release-runner-linux-x64";
+const linuxCargoTargetVolume = "agent-hq-release-linux-cargo-target";
+const linuxWorkspaceVolume = "agent-hq-release-linux-workspace";
+const runnerDeletionAttempts = 120;
 const safeHost = hostname()
   .toLowerCase()
-  .replace(/[^a-z0-9-]+/g, '-')
-const macRunnerName = `agent-hq-release-macos-arm64-${safeHost}`
-const linuxRunnerName = `agent-hq-release-linux-x64-${safeHost}`
+  .replace(/[^a-z0-9-]+/g, "-");
+const macRunnerName = `agent-hq-release-macos-arm64-${safeHost}`;
+const linuxRunnerName = `agent-hq-release-linux-x64-${safeHost}`;
 
 function run(command, args, { capture = false, cwd = root, displayArgs = args } = {}) {
   const result = spawnSync(command, args, {
     cwd,
-    encoding: 'utf8',
-    stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
-  })
-  if (result.error) throw result.error
+    encoding: "utf8",
+    stdio: capture ? ["ignore", "pipe", "pipe"] : "inherit",
+  });
+  if (result.error) throw result.error;
   if (result.status !== 0) {
-    const detail = capture ? (result.stderr || result.stdout).trim() : ''
+    const detail = capture ? (result.stderr || result.stdout).trim() : "";
     throw new Error(
-      `${command} ${displayArgs.join(' ')} failed with exit code ${result.status}${detail ? `: ${detail}` : ''}`
-    )
+      `${command} ${displayArgs.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`
+    );
   }
-  return capture ? result.stdout.trim() : ''
+  return capture ? result.stdout.trim() : "";
 }
 
 function succeeds(command, args) {
-  return spawnSync(command, args, { cwd: root, stdio: 'ignore' }).status === 0
+  return spawnSync(command, args, { cwd: root, stdio: "ignore" }).status === 0;
 }
 
 function runAllowMissing(command, args, missingDetails) {
   const result = spawnSync(command, args, {
     cwd: root,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  if (result.error) throw result.error
-  if (result.status === 0) return
-  const detail = (result.stderr || result.stdout).trim().toLowerCase()
-  if (missingDetails.some((missingDetail) => detail.includes(missingDetail))) return
-  throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}: ${detail}`)
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.error) throw result.error;
+  if (result.status === 0) return;
+  const detail = (result.stderr || result.stdout).trim().toLowerCase();
+  if (missingDetails.some((missingDetail) => detail.includes(missingDetail))) return;
+  throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}: ${detail}`);
 }
 
 function sleep(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
 function registrationToken() {
   return run(
-    'gh',
+    "gh",
     [
-      'api',
-      '--method',
-      'POST',
+      "api",
+      "--method",
+      "POST",
       `repos/${repository}/actions/runners/registration-token`,
-      '--jq',
-      '.token',
+      "--jq",
+      ".token",
     ],
     { capture: true }
-  )
+  );
 }
 
 function runnerStatus(name) {
   return run(
-    'gh',
+    "gh",
     [
-      'api',
+      "api",
       `repos/${repository}/actions/runners`,
-      '--paginate',
-      '--jq',
+      "--paginate",
+      "--jq",
       `.runners[] | select(.name == "${name}") | .status`,
     ],
     { capture: true }
-  )
+  );
 }
 
 function runnerId(name) {
   return run(
-    'gh',
+    "gh",
     [
-      'api',
+      "api",
       `repos/${repository}/actions/runners`,
-      '--paginate',
-      '--jq',
+      "--paginate",
+      "--jq",
       `.runners[] | select(.name == "${name}") | .id`,
     ],
     { capture: true }
-  )
+  );
 }
 
 function deleteRunnerRegistration(name) {
   for (let attempt = 0; attempt < runnerDeletionAttempts; attempt += 1) {
-    const id = runnerId(name)
-    if (!id) return
+    const id = runnerId(name);
+    if (!id) return;
     const result = spawnSync(
-      'gh',
-      ['api', '--method', 'DELETE', `repos/${repository}/actions/runners/${id}`],
-      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
-    )
-    if (result.error) throw result.error
-    if (result.status === 0) return
-    const detail = (result.stderr || result.stdout).trim()
-    if (!detail.includes('currently running a job')) {
-      throw new Error(`Could not delete runner ${name}: ${detail}`)
+      "gh",
+      ["api", "--method", "DELETE", `repos/${repository}/actions/runners/${id}`],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    if (result.error) throw result.error;
+    if (result.status === 0) return;
+    const detail = (result.stderr || result.stdout).trim();
+    if (!detail.includes("currently running a job")) {
+      throw new Error(`Could not delete runner ${name}: ${detail}`);
     }
-    sleep(1_000)
+    sleep(1_000);
   }
-  throw new Error(`Timed out deleting the busy runner registration ${name}.`)
+  throw new Error(`Timed out deleting the busy runner registration ${name}.`);
 }
 
 function waitForRunner(name) {
   for (let attempt = 0; attempt < 90; attempt += 1) {
-    if (runnerStatus(name) === 'online') return
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000)
+    if (runnerStatus(name) === "online") return;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000);
   }
-  throw new Error(`Timed out waiting for ${name} to become online.`)
+  throw new Error(`Timed out waiting for ${name} to become online.`);
 }
 
 function processGroupIsAlive(pid) {
   try {
-    process.kill(-pid, 0)
-    return true
+    process.kill(-pid, 0);
+    return true;
   } catch {
-    return false
+    return false;
   }
 }
 
 function removeStaleMacRunnerConfiguration() {
-  const runnerConfig = join(macRunnerRoot, '.runner')
-  if (!existsSync(runnerConfig) || runnerStatus(macRunnerName) !== '') return
+  const runnerConfig = join(macRunnerRoot, ".runner");
+  if (!existsSync(runnerConfig) || runnerStatus(macRunnerName) !== "") return;
 
-  for (const file of ['.runner', '.credentials', '.credentials_rsaparams']) {
-    const path = join(macRunnerRoot, file)
-    if (existsSync(path)) unlinkSync(path)
+  for (const file of [".runner", ".credentials", ".credentials_rsaparams"]) {
+    const path = join(macRunnerRoot, file);
+    if (existsSync(path)) unlinkSync(path);
   }
-  console.log(`Removed stale local registration for ${macRunnerName}.`)
+  console.log(`Removed stale local registration for ${macRunnerName}.`);
 }
 
 function ensureMacRunner() {
-  mkdirSync(macRunnerRoot, { recursive: true })
-  if (!existsSync(join(macRunnerRoot, 'config.sh'))) {
-    const archive = join(stateRoot, `actions-runner-osx-arm64-${runnerVersion}.tar.gz`)
-    run('curl', [
-      '--fail',
-      '--silent',
-      '--show-error',
-      '--location',
+  mkdirSync(macRunnerRoot, { recursive: true });
+  if (!existsSync(join(macRunnerRoot, "config.sh"))) {
+    const archive = join(stateRoot, `actions-runner-osx-arm64-${runnerVersion}.tar.gz`);
+    run("curl", [
+      "--fail",
+      "--silent",
+      "--show-error",
+      "--location",
       `https://github.com/actions/runner/releases/download/v${runnerVersion}/actions-runner-osx-arm64-${runnerVersion}.tar.gz`,
-      '--output',
+      "--output",
       archive,
-    ])
-    const digest = run('shasum', ['--algorithm', '256', archive], { capture: true }).split(' ')[0]
-    if (digest !== '8e8839c49b7060b6b2154f4931f815df330c27f167d53ef2239ee3dfce28b079') {
-      throw new Error('The downloaded macOS Actions runner archive failed checksum verification.')
+    ]);
+    const digest = run("shasum", ["--algorithm", "256", archive], { capture: true }).split(" ")[0];
+    if (digest !== "8e8839c49b7060b6b2154f4931f815df330c27f167d53ef2239ee3dfce28b079") {
+      throw new Error("The downloaded macOS Actions runner archive failed checksum verification.");
     }
-    run('tar', ['-xzf', archive, '-C', macRunnerRoot])
+    run("tar", ["-xzf", archive, "-C", macRunnerRoot]);
   }
-  removeStaleMacRunnerConfiguration()
-  if (!existsSync(join(macRunnerRoot, '.runner'))) {
+  removeStaleMacRunnerConfiguration();
+  if (!existsSync(join(macRunnerRoot, ".runner"))) {
     run(
-      './config.sh',
+      "./config.sh",
       [
-        '--unattended',
-        '--replace',
-        '--url',
+        "--unattended",
+        "--replace",
+        "--url",
         `https://github.com/${repository}`,
-        '--token',
+        "--token",
         registrationToken(),
-        '--name',
+        "--name",
         macRunnerName,
-        '--labels',
-        'agent-hq-release-macos-arm64',
-        '--work',
-        '_work',
+        "--labels",
+        "agent-hq-release-macos-arm64",
+        "--work",
+        "_work",
       ],
       {
         cwd: macRunnerRoot,
-        displayArgs: ['--unattended', '--replace', '--url', `https://github.com/${repository}`],
+        displayArgs: ["--unattended", "--replace", "--url", `https://github.com/${repository}`],
       }
-    )
+    );
   }
 }
 
 function startMacRunner() {
-  ensureMacRunner()
+  ensureMacRunner();
   if (!existsSync(macCargoTarget) && existsSync(legacyMacCargoTarget)) {
-    renameSync(legacyMacCargoTarget, macCargoTarget)
+    renameSync(legacyMacCargoTarget, macCargoTarget);
   }
-  mkdirSync(macCargoTarget, { recursive: true })
+  mkdirSync(macCargoTarget, { recursive: true });
   if (existsSync(macRunnerPid)) {
-    const pid = Number(readFileSync(macRunnerPid, 'utf8'))
+    const pid = Number(readFileSync(macRunnerPid, "utf8"));
     if (processGroupIsAlive(pid)) {
-      waitForRunner(macRunnerName)
-      return
+      waitForRunner(macRunnerName);
+      return;
     }
   }
-  const log = openSync(macRunnerLog, 'a')
-  const child = spawn(join(macRunnerRoot, 'run.sh'), [], {
+  const log = openSync(macRunnerLog, "a");
+  const child = spawn(join(macRunnerRoot, "run.sh"), [], {
     cwd: macRunnerRoot,
     detached: true,
     env: { ...process.env, CARGO_TARGET_DIR: macCargoTarget },
-    stdio: ['ignore', log, log],
-  })
-  child.unref()
-  closeSync(log)
-  writeFileSync(macRunnerPid, `${child.pid}\n`, { mode: 0o600 })
-  waitForRunner(macRunnerName)
+    stdio: ["ignore", log, log],
+  });
+  child.unref();
+  closeSync(log);
+  writeFileSync(macRunnerPid, `${child.pid}\n`, { mode: 0o600 });
+  waitForRunner(macRunnerName);
 }
 
 function startLinuxRunner() {
-  if (!succeeds('docker', ['buildx', 'inspect', linuxBuilder])) {
-    run('docker', ['buildx', 'create', '--name', linuxBuilder, '--driver', 'docker-container'])
+  if (!succeeds("docker", ["buildx", "inspect", linuxBuilder])) {
+    run("docker", ["buildx", "create", "--name", linuxBuilder, "--driver", "docker-container"]);
   }
-  run('docker', [
-    'buildx',
-    'build',
-    '--builder',
+  run("docker", [
+    "buildx",
+    "build",
+    "--builder",
     linuxBuilder,
-    '--load',
-    '--quiet',
-    '--platform',
-    'linux/amd64',
-    '--tag',
+    "--load",
+    "--quiet",
+    "--platform",
+    "linux/amd64",
+    "--tag",
     linuxImage,
-    join(root, '.github', 'release-runner', 'linux-x64'),
-  ])
-  if (succeeds('docker', ['container', 'inspect', linuxContainer])) {
-    waitForRunner(linuxRunnerName)
-    return
+    join(root, ".github", "release-runner", "linux-x64"),
+  ]);
+  if (succeeds("docker", ["container", "inspect", linuxContainer])) {
+    waitForRunner(linuxRunnerName);
+    return;
   }
-  const token = registrationToken()
+  const token = registrationToken();
   const dockerArgs = [
-    'run',
-    '--detach',
-    '--rm',
-    '--platform',
-    'linux/amd64',
-    '--name',
+    "run",
+    "--detach",
+    "--rm",
+    "--platform",
+    "linux/amd64",
+    "--name",
     linuxContainer,
-    '--mount',
+    "--mount",
     `type=volume,source=${linuxCargoTargetVolume},target=/home/runner/cache/cargo-target`,
-    '--env',
+    "--env",
     `RUNNER_NAME=${linuxRunnerName}`,
-    '--env',
+    "--env",
     `RUNNER_TOKEN=${token}`,
     linuxImage,
-  ]
-  run('docker', dockerArgs, {
+  ];
+  run("docker", dockerArgs, {
     displayArgs: dockerArgs.map((arg) =>
-      arg.startsWith('RUNNER_TOKEN=') ? 'RUNNER_TOKEN=***' : arg
+      arg.startsWith("RUNNER_TOKEN=") ? "RUNNER_TOKEN=***" : arg
     ),
-  })
-  waitForRunner(linuxRunnerName)
+  });
+  waitForRunner(linuxRunnerName);
 }
 
 function start() {
   try {
-    startMacRunner()
-    startLinuxRunner()
-    console.log('Local Agent HQ release runners are online.')
+    startMacRunner();
+    startLinuxRunner();
+    console.log("Local Agent HQ release runners are online.");
   } catch (error) {
     try {
-      stop()
+      stop();
     } catch (cleanupError) {
       console.error(
         `release-runners: cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`
-      )
+      );
     }
-    throw error
+    throw error;
   }
 }
 
 function stop() {
-  let cleanupError
-  if (succeeds('docker', ['container', 'inspect', linuxContainer])) {
-    run('docker', ['stop', '--timeout', '5', linuxContainer])
+  let cleanupError;
+  if (succeeds("docker", ["container", "inspect", linuxContainer])) {
+    run("docker", ["stop", "--timeout", "5", linuxContainer]);
   }
   try {
-    deleteRunnerRegistration(linuxRunnerName)
+    deleteRunnerRegistration(linuxRunnerName);
   } catch (error) {
-    cleanupError = error
+    cleanupError = error;
   }
   if (existsSync(macRunnerPid)) {
-    const pid = Number(readFileSync(macRunnerPid, 'utf8'))
+    const pid = Number(readFileSync(macRunnerPid, "utf8"));
     try {
-      process.kill(-pid, 'SIGTERM')
+      process.kill(-pid, "SIGTERM");
     } catch {
       // The runner process group already stopped.
     }
     for (let attempt = 0; attempt < 30 && processGroupIsAlive(pid); attempt += 1) {
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000)
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_000);
     }
     if (processGroupIsAlive(pid)) {
-      throw new Error(`Timed out stopping the macOS release runner process group ${pid}.`)
+      throw new Error(`Timed out stopping the macOS release runner process group ${pid}.`);
     }
-    unlinkSync(macRunnerPid)
+    unlinkSync(macRunnerPid);
   }
   try {
-    deleteRunnerRegistration(macRunnerName)
+    deleteRunnerRegistration(macRunnerName);
   } catch (error) {
-    cleanupError ??= error
+    cleanupError ??= error;
   }
-  if (cleanupError) throw cleanupError
-  console.log('Local Agent HQ release runners are stopped.')
+  if (cleanupError) throw cleanupError;
+  console.log("Local Agent HQ release runners are stopped.");
 }
 
 function removeDockerVolume(name) {
-  runAllowMissing('docker', ['volume', 'rm', name], ['no such volume'])
+  runAllowMissing("docker", ["volume", "rm", name], ["no such volume"]);
 }
 
 function clean() {
-  stop()
-  if (succeeds('docker', ['info'])) {
-    removeDockerVolume(linuxCargoTargetVolume)
-    removeDockerVolume(linuxWorkspaceVolume)
+  stop();
+  if (succeeds("docker", ["info"])) {
+    removeDockerVolume(linuxCargoTargetVolume);
+    removeDockerVolume(linuxWorkspaceVolume);
     const images = run(
-      'docker',
+      "docker",
       [
-        'image',
-        'ls',
-        '--filter',
-        'reference=agent-hq-release-runner-linux-x64:*',
-        '--format',
-        '{{.Repository}}:{{.Tag}}',
+        "image",
+        "ls",
+        "--filter",
+        "reference=agent-hq-release-runner-linux-x64:*",
+        "--format",
+        "{{.Repository}}:{{.Tag}}",
       ],
       { capture: true }
     )
-      .split('\n')
-      .filter(Boolean)
+      .split("\n")
+      .filter(Boolean);
     if (images.length > 0) {
-      runAllowMissing('docker', ['image', 'rm', '--force', ...images], ['no such image'])
+      runAllowMissing("docker", ["image", "rm", "--force", ...images], ["no such image"]);
     }
-    if (succeeds('docker', ['buildx', 'inspect', linuxBuilder])) {
+    if (succeeds("docker", ["buildx", "inspect", linuxBuilder])) {
       runAllowMissing(
-        'docker',
-        ['buildx', 'rm', '--force', linuxBuilder],
-        ['no builder', 'not found']
-      )
+        "docker",
+        ["buildx", "rm", "--force", linuxBuilder],
+        ["no builder", "not found"]
+      );
     }
   }
-  rmSync(stateRoot, { recursive: true, force: true })
-  rmSync(join(root, 'apps', 'desktop', 'src-tauri', 'target'), {
+  rmSync(stateRoot, { recursive: true, force: true });
+  rmSync(join(root, "apps", "desktop", "src-tauri", "target"), {
     recursive: true,
     force: true,
-  })
-  rmSync(join(root, '.turbo'), { recursive: true, force: true })
-  console.log('Disposable local Agent HQ release state has been removed.')
+  });
+  rmSync(join(root, ".turbo"), { recursive: true, force: true });
+  console.log("Disposable local Agent HQ release state has been removed.");
 }
 
-const command = process.argv[2]
-if (command === 'start') start()
-else if (command === 'stop') stop()
-else if (command === 'clean') clean()
-else throw new Error('Usage: bun scripts/release-runners.mjs <start|stop|clean>')
+const command = process.argv[2];
+if (command === "start") start();
+else if (command === "stop") stop();
+else if (command === "clean") clean();
+else throw new Error("Usage: bun scripts/release-runners.mjs <start|stop|clean>");

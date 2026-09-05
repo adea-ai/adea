@@ -1,8 +1,8 @@
-'use client'
+"use client";
 
-import { useWorkspaceStore } from '@agent-hq/state'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useWorkspaceStore } from "@agent-hq/state";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * Releases every cached query and in-flight request belonging to one workspace.
@@ -12,9 +12,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
  * survive the release.
  */
 export function releaseWorkspaceCache(queryClient: QueryClient, workspaceId: string) {
-  if (!workspaceId) return
-  void queryClient.cancelQueries({ queryKey: ['workspaces', workspaceId] })
-  queryClient.removeQueries({ queryKey: ['workspaces', workspaceId] })
+  if (!workspaceId) return;
+  void queryClient.cancelQueries({ queryKey: ["workspaces", workspaceId] });
+  queryClient.removeQueries({ queryKey: ["workspaces", workspaceId] });
 }
 
 export function AgentHqQueryProvider({ children }: { children: ReactNode }) {
@@ -28,16 +28,16 @@ export function AgentHqQueryProvider({ children }: { children: ReactNode }) {
           },
         },
       })
-  )
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const previousWorkspaceIdRef = useRef<string | null>(null)
+  );
+  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId);
+  const previousWorkspaceIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    const previousWorkspaceId = previousWorkspaceIdRef.current
-    previousWorkspaceIdRef.current = selectedWorkspaceId
+    const previousWorkspaceId = previousWorkspaceIdRef.current;
+    previousWorkspaceIdRef.current = selectedWorkspaceId;
     if (previousWorkspaceId && selectedWorkspaceId && previousWorkspaceId !== selectedWorkspaceId)
-      releaseWorkspaceCache(queryClient, previousWorkspaceId)
-  }, [queryClient, selectedWorkspaceId])
+      releaseWorkspaceCache(queryClient, previousWorkspaceId);
+  }, [queryClient, selectedWorkspaceId]);
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

@@ -1,10 +1,10 @@
-import 'server-only'
+import "server-only";
 
-import { authorizeWorkspaceAction } from '@agent-hq/auth/authorization'
-import { findWorkspaceMembership, recordWorkspaceAuthorizationDecision } from '@agent-hq/db'
-import type { UserPrincipalRef, WorkspacePermission } from '@agent-hq/types'
+import { authorizeWorkspaceAction } from "@agent-hq/auth/authorization";
+import { findWorkspaceMembership, recordWorkspaceAuthorizationDecision } from "@agent-hq/db";
+import type { UserPrincipalRef, WorkspacePermission } from "@agent-hq/types";
 
-import { applicationDatabase } from './database'
+import { applicationDatabase } from "./database";
 
 export async function authorizeWorkspace(
   principal: UserPrincipalRef,
@@ -12,7 +12,7 @@ export async function authorizeWorkspace(
   workspaceId: string | null,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ) {
-  const database = applicationDatabase()
+  const database = applicationDatabase();
   return authorizeWorkspaceAction(
     { permission, principal, workspaceId },
     {
@@ -20,5 +20,5 @@ export async function authorizeWorkspace(
       findMembership: ({ principal: member, workspaceId: id }) =>
         findWorkspaceMembership(database, id, member, options),
     }
-  )
+  );
 }

@@ -1,26 +1,26 @@
-import type { AgentProfileState, AgentSummary, UserPrincipalRef } from '@agent-hq/types'
-import { and, asc, eq } from 'drizzle-orm'
-import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { agents, rooms, workspaceEvents, workspaceMemberships } from './schema'
+import type { AgentProfileState, AgentSummary, UserPrincipalRef } from "@agent-hq/types";
+import { and, asc, eq } from "drizzle-orm";
+import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
+import { agents, rooms, workspaceEvents, workspaceMemberships } from "./schema";
 
 type AgentCreateInput = Readonly<{
-  avatarRef?: string
-  characterRef?: string
-  name: string
-  presentationMetadata?: Readonly<Record<string, string>>
-  profileId: string
-  profileVersion: string
-  roleSummary?: string
-  roomId?: string
-}>
+  avatarRef?: string;
+  characterRef?: string;
+  name: string;
+  presentationMetadata?: Readonly<Record<string, string>>;
+  profileId: string;
+  profileVersion: string;
+  roleSummary?: string;
+  roomId?: string;
+}>;
 
 type AgentPresentationInput = Readonly<{
-  avatarRef?: string | null
-  characterRef?: string | null
-  name?: string
-  presentationMetadata?: Readonly<Record<string, string>>
-  roleSummary?: string | null
-}>
+  avatarRef?: string | null;
+  characterRef?: string | null;
+  name?: string;
+  presentationMetadata?: Readonly<Record<string, string>>;
+  roleSummary?: string | null;
+}>;
 
 function summary(row: typeof agents.$inferSelect): AgentSummary {
   return Object.freeze({
@@ -40,7 +40,7 @@ function summary(row: typeof agents.$inferSelect): AgentSummary {
     ...(row.roomId ? { roomId: row.roomId } : {}),
     updatedAt: row.updatedAt.toISOString(),
     workspaceId: row.workspaceId,
-  })
+  });
 }
 
 async function requireMembership(
@@ -57,8 +57,8 @@ async function requireMembership(
         eq(workspaceMemberships.userId, principal.userId)
       )
     )
-    .limit(1)
-  if (!membership) throw new Error('Agent unavailable')
+    .limit(1);
+  if (!membership) throw new Error("Agent unavailable");
 }
 
 async function requireActiveRoom(
@@ -73,11 +73,11 @@ async function requireActiveRoom(
       and(
         eq(rooms.id, roomId),
         eq(rooms.workspaceId, workspaceId),
-        eq(rooms.lifecycleState, 'active')
+        eq(rooms.lifecycleState, "active")
       )
     )
-    .limit(1)
-  if (!room) throw new Error('Room unavailable')
+    .limit(1);
+  if (!room) throw new Error("Room unavailable");
 }
 
 export async function createAgent(
@@ -87,8 +87,8 @@ export async function createAgent(
   input: AgentCreateInput
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
-    if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId)
+    await requireMembership(transaction, workspaceId, principal);
+    if (input.roomId) await requireActiveRoom(transaction, workspaceId, input.roomId);
     const [created] = await transaction
       .insert(agents)
       .values({
@@ -102,15 +102,15 @@ export async function createAgent(
         roomId: input.roomId ?? null,
         workspaceId,
       })
-      .returning()
-    if (!created) throw new Error('Agent creation failed')
+      .returning();
+    if (!created) throw new Error("Agent creation failed");
     await transaction.insert(workspaceEvents).values({
-      eventType: 'agent.created',
+      eventType: "agent.created",
       payload: { actorUserId: principal.userId, agentId: created.id },
       workspaceId,
-    })
-    return summary(created)
-  })
+    });
+    return summary(created);
+  });
 }
 
 export async function listAgentsForUser(
@@ -119,18 +119,18 @@ export async function listAgentsForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<AgentSummary[]> {
-  await requireMembership(database, workspaceId, principal)
+  await requireMembership(database, workspaceId, principal);
   const rows = await database
     .select()
     .from(agents)
     .where(
       and(
         eq(agents.workspaceId, workspaceId),
-        ...(options.includeArchived ? [] : [eq(agents.lifecycleState, 'active')])
+        ...(options.includeArchived ? [] : [eq(agents.lifecycleState, "active")])
       )
     )
-    .orderBy(asc(agents.name), asc(agents.id))
-  return rows.map(summary)
+    .orderBy(asc(agents.name), asc(agents.id));
+  return rows.map(summary);
 }
 
 export async function getAgentForUser(
@@ -154,11 +154,11 @@ export async function getAgentForUser(
       and(
         eq(agents.id, agentId),
         eq(agents.workspaceId, workspaceId),
-        ...(options.includeArchived ? [] : [eq(agents.lifecycleState, 'active')])
+        ...(options.includeArchived ? [] : [eq(agents.lifecycleState, "active")])
       )
     )
-    .limit(1)
-  return row ? summary(row.agent) : null
+    .limit(1);
+  return row ? summary(row.agent) : null;
 }
 
 export async function assignAgentToRoom(
@@ -169,8 +169,8 @@ export async function assignAgentToRoom(
   roomId: string | null
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
-    if (roomId) await requireActiveRoom(transaction, workspaceId, roomId)
+    await requireMembership(transaction, workspaceId, principal);
+    if (roomId) await requireActiveRoom(transaction, workspaceId, roomId);
     const [updated] = await transaction
       .update(agents)
       .set({ roomId, updatedAt: new Date() })
@@ -178,18 +178,18 @@ export async function assignAgentToRoom(
         and(
           eq(agents.id, agentId),
           eq(agents.workspaceId, workspaceId),
-          eq(agents.lifecycleState, 'active')
+          eq(agents.lifecycleState, "active")
         )
       )
-      .returning()
-    if (!updated) throw new Error('Agent unavailable')
+      .returning();
+    if (!updated) throw new Error("Agent unavailable");
     await transaction.insert(workspaceEvents).values({
-      eventType: 'agent.room_assigned',
+      eventType: "agent.room_assigned",
       payload: { actorUserId: principal.userId, agentId, roomId },
       workspaceId,
-    })
-    return summary(updated)
-  })
+    });
+    return summary(updated);
+  });
 }
 
 export async function updateAgentPresentation(
@@ -200,7 +200,7 @@ export async function updateAgentPresentation(
   input: AgentPresentationInput
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireMembership(transaction, workspaceId, principal);
     const [updated] = await transaction
       .update(agents)
       .set({
@@ -221,18 +221,18 @@ export async function updateAgentPresentation(
         and(
           eq(agents.id, agentId),
           eq(agents.workspaceId, workspaceId),
-          eq(agents.lifecycleState, 'active')
+          eq(agents.lifecycleState, "active")
         )
       )
-      .returning()
-    if (!updated) throw new Error('Agent unavailable')
+      .returning();
+    if (!updated) throw new Error("Agent unavailable");
     await transaction.insert(workspaceEvents).values({
-      eventType: 'agent.presentation_updated',
+      eventType: "agent.presentation_updated",
       payload: { actorUserId: principal.userId, agentId },
       workspaceId,
-    })
-    return summary(updated)
-  })
+    });
+    return summary(updated);
+  });
 }
 
 export async function changeAgentProfile(
@@ -243,12 +243,12 @@ export async function changeAgentProfile(
   input: Readonly<{ profileId: string; profileState?: AgentProfileState; profileVersion: string }>
 ): Promise<AgentSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireMembership(transaction, workspaceId, principal);
     const [updated] = await transaction
       .update(agents)
       .set({
         profileId: input.profileId.trim(),
-        profileState: input.profileState ?? 'available',
+        profileState: input.profileState ?? "available",
         profileVersion: input.profileVersion.trim(),
         updatedAt: new Date(),
       })
@@ -256,13 +256,13 @@ export async function changeAgentProfile(
         and(
           eq(agents.id, agentId),
           eq(agents.workspaceId, workspaceId),
-          eq(agents.lifecycleState, 'active')
+          eq(agents.lifecycleState, "active")
         )
       )
-      .returning()
-    if (!updated) throw new Error('Agent unavailable')
+      .returning();
+    if (!updated) throw new Error("Agent unavailable");
     await transaction.insert(workspaceEvents).values({
-      eventType: 'agent.profile_changed',
+      eventType: "agent.profile_changed",
       payload: {
         actorUserId: principal.userId,
         agentId,
@@ -270,9 +270,9 @@ export async function changeAgentProfile(
         profileVersion: input.profileVersion,
       },
       workspaceId,
-    })
-    return summary(updated)
-  })
+    });
+    return summary(updated);
+  });
 }
 
 export async function archiveAgent(
@@ -282,23 +282,23 @@ export async function archiveAgent(
   principal: UserPrincipalRef
 ): Promise<void> {
   await database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal)
+    await requireMembership(transaction, workspaceId, principal);
     const [updated] = await transaction
       .update(agents)
-      .set({ lifecycleState: 'archived', updatedAt: new Date() })
+      .set({ lifecycleState: "archived", updatedAt: new Date() })
       .where(
         and(
           eq(agents.id, agentId),
           eq(agents.workspaceId, workspaceId),
-          eq(agents.lifecycleState, 'active')
+          eq(agents.lifecycleState, "active")
         )
       )
-      .returning({ id: agents.id })
-    if (!updated) throw new Error('Agent unavailable')
+      .returning({ id: agents.id });
+    if (!updated) throw new Error("Agent unavailable");
     await transaction.insert(workspaceEvents).values({
-      eventType: 'agent.archived',
+      eventType: "agent.archived",
       payload: { actorUserId: principal.userId, agentId },
       workspaceId,
-    })
-  })
+    });
+  });
 }

@@ -1,9 +1,9 @@
-'use client'
+"use client";
 
-import { createPortal } from 'react-dom'
-import { useEffect, useState, type ReactNode } from 'react'
-import { UserRound } from 'lucide-react'
-import { Button } from '#components/ui/button'
+import { createPortal } from "react-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { UserRound } from "lucide-react";
+import { Button } from "#components/ui/button";
 import {
   Drawer,
   DrawerClose,
@@ -12,21 +12,21 @@ import {
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
-} from '#components/ui/drawer'
-import { ThemeToggle } from './theme-toggle'
+} from "#components/ui/drawer";
+import { ThemeToggle } from "./theme-toggle";
 
 export type AccountDrawerProps = {
-  accountLabel?: string
-  authenticated?: boolean
-  busy?: boolean
-  musicControl?: ReactNode
-  triggerTargetId?: string
-  onSignIn?: () => void
-  onSignOut?: () => void
-}
+  accountLabel?: string;
+  authenticated?: boolean;
+  busy?: boolean;
+  musicControl?: ReactNode;
+  triggerTargetId?: string;
+  onSignIn?: () => void;
+  onSignOut?: () => void;
+};
 
 export function AccountDrawer({
-  accountLabel = 'Sign in',
+  accountLabel = "Sign in",
   authenticated = false,
   busy = false,
   musicControl,
@@ -34,11 +34,11 @@ export function AccountDrawer({
   onSignIn,
   onSignOut,
 }: AccountDrawerProps) {
-  const [triggerTarget, setTriggerTarget] = useState<HTMLElement | null>(null)
+  const [triggerTarget, setTriggerTarget] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    setTriggerTarget(triggerTargetId ? document.getElementById(triggerTargetId) : null)
-  }, [triggerTargetId])
+    setTriggerTarget(triggerTargetId ? document.getElementById(triggerTargetId) : null);
+  }, [triggerTargetId]);
 
   const trigger = (
     <DrawerTrigger
@@ -55,7 +55,7 @@ export function AccountDrawer({
       <UserRound aria-hidden="true" />
       <span>{accountLabel}</span>
     </DrawerTrigger>
-  )
+  );
 
   return (
     <Drawer swipeDirection="right">
@@ -75,8 +75,8 @@ export function AccountDrawer({
                 <DrawerTitle className="truncate">{accountLabel}</DrawerTitle>
                 <DrawerDescription>
                   {authenticated
-                    ? 'Signed in · workspace saved'
-                    : 'Guest workspace · sign in anytime'}
+                    ? "Signed in · workspace saved"
+                    : "Guest workspace · sign in anytime"}
                 </DrawerDescription>
               </div>
             </div>
@@ -108,8 +108,8 @@ export function AccountDrawer({
               </h2>
               <p className="text-sm text-muted-foreground">
                 {authenticated
-                  ? 'Sign out on this device without removing your saved workspace.'
-                  : 'Sign in or create an account to keep this workspace across devices.'}
+                  ? "Sign out on this device without removing your saved workspace."
+                  : "Sign in or create an account to keep this workspace across devices."}
               </p>
             </div>
             <DrawerClose
@@ -117,17 +117,17 @@ export function AccountDrawer({
                 <Button
                   type="button"
                   className="shrink-0"
-                  variant={authenticated ? 'outline' : 'default'}
+                  variant={authenticated ? "outline" : "default"}
                   disabled={busy}
                   onClick={authenticated ? onSignOut : onSignIn}
                 />
               }
             >
-              {authenticated ? 'Sign out' : 'Sign in'}
+              {authenticated ? "Sign out" : "Sign in"}
             </DrawerClose>
           </section>
         </div>
       </DrawerContent>
     </Drawer>
-  )
+  );
 }

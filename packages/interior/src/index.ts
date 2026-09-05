@@ -1,4 +1,4 @@
-export * from './prop-types'
-export * from './room-config'
+export * from "./prop-types";
+export * from "./room-config";
 
-export { interiorPropAssets, propAssets } from './catalog'
+export { interiorPropAssets, propAssets } from "./catalog";

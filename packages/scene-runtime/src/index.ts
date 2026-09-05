@@ -14,18 +14,18 @@ export {
   type SceneSpotlightConfig,
   type SceneWaterVolume,
   type StaticColliderConfig,
-} from './SceneHost'
+} from "./SceneHost";
 export {
   CameraController,
   type CameraBounds,
   type CameraControllerOptions,
   type CameraViewMode,
-} from './camera-controller'
+} from "./camera-controller";
 export {
   collectSceneRuntimeStats,
   createScenePerformanceTelemetry,
   type ScenePerformanceReport,
   type ScenePerformanceTelemetry,
   type SceneRuntimeStats,
-} from './performance'
-export { createSceneLoadScope, type SceneLoadScope } from './loading'
+} from "./performance";
+export { createSceneLoadScope, type SceneLoadScope } from "./loading";
