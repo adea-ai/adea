@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,5 +52,21 @@ if (!process.env.DEPLOY_GIT_COMMIT_SHA) {
 }
 if (process.env.DEPLOY_GIT_COMMIT_SHA && !process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA) {
   process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA = process.env.DEPLOY_GIT_COMMIT_SHA;
+}
+
+// Production Worker artifacts must ship real models, never sync stubs: the
+// private asset pack has to resolve here (local AGENT_HQ_ASSETS_DIR,
+// vendor/assets via scripts/fetch-assets.mjs, or ASSETS_READ_TOKEN). Fail
+// fast with setup instructions instead of deploying a model-less worker.
+run(["scripts/fetch-assets.mjs"], repositoryRoot);
+if (
+  !process.env.AGENT_HQ_ASSETS_DIR &&
+  !existsSync(resolve(repositoryRoot, "vendor/assets/packages/interior/assets"))
+) {
+  throw new Error(
+    "Private asset pack is unavailable: set AGENT_HQ_ASSETS_DIR, pre-populate vendor/assets, " +
+      "or provide ASSETS_READ_TOKEN (Cloudflare build variable) so scripts/fetch-assets.mjs can download adea-ai/assets. " +
+      "Refusing to ship a Worker without models."
+  );
 }
 run(["x", "opennextjs-cloudflare", "build"], webRoot);

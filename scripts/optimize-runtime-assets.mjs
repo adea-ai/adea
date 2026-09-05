@@ -1,10 +1,15 @@
 /* global Bun */
 
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const characterAssetRoot = resolve(repoRoot, "packages/characters/assets");
+// Binary art lives in the private adea-ai/assets pack (see
+// scripts/fetch-assets.mjs), not in this repository. Resolve authoring
+// roots through the pack like scripts/sync-assets.mjs does.
+const packRoot = process.env.AGENT_HQ_ASSETS_DIR ?? resolve(repoRoot, "vendor/assets");
+const packPath = (...parts) => resolve(packRoot, ...parts);
+const characterAssetRoot = packPath("packages/characters/assets");
 const requiredCharacterRuntimeVariants = [
   "characters-default.glb",
   "characters-researcher.glb",
@@ -17,17 +22,17 @@ const runtimeAssetSources = [
   // Reference characters are selectable at runtime, so keep their transfer
   // and decode costs in the same compression gate as the shared libraries.
   [characterAssetRoot, "_complete/**/*.glb"],
-  [resolve(repoRoot, "packages/pets/assets"), "**/*.glb"],
-  [resolve(repoRoot, "packages/landscape/assets"), "**/*.glb"],
+  [packPath("packages/pets/assets"), "**/*.glb"],
+  [packPath("packages/landscape/assets"), "**/*.glb"],
 ];
 
-const interiorAssetSources = [[resolve(repoRoot, "packages/interior/assets"), "**/*.glb"]];
+const interiorAssetSources = [[packPath("packages/interior/assets"), "**/*.glb"]];
 const allAssetSources = [
   ...runtimeAssetSources,
   [characterAssetRoot, "**/*.glb"],
-  [resolve(repoRoot, "packages/architecture/assets"), "**/*.glb"],
+  [packPath("packages/architecture/assets"), "**/*.glb"],
   ...interiorAssetSources,
-  [resolve(repoRoot, "packages/rooms/assets"), "**/*.glb"],
+  [packPath("packages/rooms/assets"), "**/*.glb"],
 ];
 
 // This is an authoring/reference map, not a model loaded by the application.
@@ -133,6 +138,17 @@ async function runTransform(args) {
 }
 
 async function checkAssets() {
+  // Packless checkouts (plain CI) have no authoring models to gate; warn
+  // like scripts/sync-assets.mjs instead of failing on a missing directory.
+  try {
+    await access(packPath("packages/interior/assets"));
+  } catch {
+    console.warn(
+      "[Agent HQ] asset pack not found; skipping runtime asset compression check. " +
+        "Run `bun scripts/fetch-assets.mjs` for full models/textures."
+    );
+    return;
+  }
   const failures = [];
   let assets = 0;
   let smallAssetsKeptRaw = 0;
@@ -143,7 +159,9 @@ async function checkAssets() {
       try {
         await stat(join(characterAssetRoot, file));
       } catch {
-        failures.push(`packages/characters/assets/${file} is required by the runtime`);
+        failures.push(
+          `${relative(packRoot, join(characterAssetRoot, file))} is required by the runtime`
+        );
       }
     }
   }
