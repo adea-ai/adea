@@ -77,7 +77,12 @@ try {
 
   run('node', ['scripts/database-health.mjs'], environment)
   run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], environment)
-  run('bun', ['test', ...integrationDirectories], environment)
+  // Remote Neon branches serve 50-150ms roundtrips (vs sub-millisecond local
+  // Postgres) and integration tests issue dozens of queries per case with
+  // parallel transactions sharing one pool. The 5s bun default assumes
+  // localhost and kills healthy-but-slow remote runs, cascading into pool
+  // exhaustion. 30s still fails genuinely hung code fast enough for CI.
+  run('bun', ['test', '--timeout', '30000', ...integrationDirectories], environment)
 } finally {
   if (startedLocalPostgres) {
     run('docker', ['compose', 'stop', 'postgres'], process.env)
