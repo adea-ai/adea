@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.5](https://github.com/adea-ai/agent-hq/compare/v0.10.4...v0.10.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ci:** build workspace dependencies before the OpenNext worker build ([3d726c1](https://github.com/adea-ai/agent-hq/commit/3d726c1c7e8b88258264bd324c4d8cac8d76d784))
+
 ## [0.10.4](https://github.com/adea-ai/agent-hq/compare/v0.10.3...v0.10.4) (2026-09-05)
 
 
