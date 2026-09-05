@@ -137,9 +137,18 @@ jobs:
         # manifests-only desktop builds. (`secrets` is intentionally not
         # tested in `if:` here — that context is unavailable to step
         # conditionals; an empty secret makes the fetch fail loudly.)
+        # Tags predating the pack move (e.g. repair dispatches for old
+        # releases) carry their art in-repo and have no fetch script;
+        # skip there instead of failing.
         env:
           ASSETS_READ_TOKEN: ${{ secrets.ASSETS_READ_TOKEN }}
-        run: bun scripts/fetch-assets.mjs
+        run: |
+          set -euo pipefail
+          if [ -f scripts/fetch-assets.mjs ]; then
+            bun scripts/fetch-assets.mjs
+          else
+            echo 'No fetch script at this tag; using in-repo art.'
+          fi
 
       - name: Load release notes
         id: release_notes
