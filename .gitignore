@@ -37,8 +37,17 @@ out/
 coverage/
 htmlcov/
 .coverage*
-.next/
+.next
 /artifacts/
+.open-next/
+.wrangler/
+.dev.vars
+cloudflare-env.d.ts
+
+# Cloudflare Workers (OpenNext)
+.open-next/
+.wrangler/
+.dev.vars
 cache/
 !.github/actions/cache/
 !.github/actions/cache/action.yml
