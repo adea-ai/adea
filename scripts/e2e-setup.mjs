@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
-const repoRoot = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, "..");
 
 // Local development database shared with scripts/test-integration.mjs.
 // Used only when DATABASE_URL is not already set (CI provides its own).
