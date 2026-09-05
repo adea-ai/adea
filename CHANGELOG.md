@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.3](https://github.com/adea-ai/agent-hq/compare/v0.10.2...v0.10.3) (2026-09-05)
+
+
+### Maintenance
+
+* **ci:** validate Workers Builds after root directory fix ([c9f944a](https://github.com/adea-ai/agent-hq/commit/c9f944a6dbea9a1b1c50af30ac3b186984b15d8b))
+
 ## [0.10.2](https://github.com/adea-ai/agent-hq/compare/v0.10.1...v0.10.2) (2026-09-05)
 
 
