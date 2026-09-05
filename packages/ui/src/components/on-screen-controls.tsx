@@ -1,69 +1,69 @@
-"use client";
+'use client'
 
-import { useCallback, useEffect, useRef } from "react";
-import type { PointerEvent, ReactNode } from "react";
-import { ZoomIn, ZoomOut } from "lucide-react";
-import { Button } from "#components/ui/button";
-import { cn } from "#lib/utils";
+import { useCallback, useEffect, useRef } from 'react'
+import type { PointerEvent, ReactNode } from 'react'
+import { ZoomIn, ZoomOut } from 'lucide-react'
+import { Button } from '#components/ui/button'
+import { cn } from '#lib/utils'
 type ControlButtonProps = {
-  code: string;
-  label: string;
-  children: ReactNode;
-  className?: string;
-};
+  code: string
+  label: string
+  children: ReactNode
+  className?: string
+}
 
-function sendKeyEvent(type: "keydown" | "keyup", code: string): void {
+function sendKeyEvent(type: 'keydown' | 'keyup', code: string): void {
   window.dispatchEvent(
-    new KeyboardEvent(type, { bubbles: true, cancelable: true, code, key: code }),
-  );
+    new KeyboardEvent(type, { bubbles: true, cancelable: true, code, key: code })
+  )
 }
 
 function ControlButton({ code, label, children, className }: ControlButtonProps) {
-  const pressed = useRef(false);
-  const pressedPointer = useRef<number | null>(null);
+  const pressed = useRef(false)
+  const pressedPointer = useRef<number | null>(null)
 
   const release = useCallback(() => {
-    if (!pressed.current) return;
-    pressed.current = false;
-    pressedPointer.current = null;
-    sendKeyEvent("keyup", code);
-  }, [code]);
+    if (!pressed.current) return
+    pressed.current = false
+    pressedPointer.current = null
+    sendKeyEvent('keyup', code)
+  }, [code])
 
   // Self-heal: release the key if the pointerup lands elsewhere (e.g. the
   // scene DOM changes mid-teleport) or the window loses focus. PointerId
   // matching preserves multi-touch.
   useEffect(() => {
     const onWindowPointerUp = (event: globalThis.PointerEvent) => {
-      if (pressedPointer.current === event.pointerId) release();
-    };
-    const onBlur = () => release();
-    window.addEventListener("pointerup", onWindowPointerUp);
-    window.addEventListener("blur", onBlur);
+      if (pressedPointer.current === event.pointerId) release()
+    }
+    const onBlur = () => release()
+    window.addEventListener('pointerup', onWindowPointerUp)
+    window.addEventListener('blur', onBlur)
     return () => {
-      window.removeEventListener("pointerup", onWindowPointerUp);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [release]);
+      window.removeEventListener('pointerup', onWindowPointerUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [release])
 
   const press = useCallback(
     (event: PointerEvent<HTMLButtonElement>) => {
-      event.preventDefault();
-      if (pressed.current) return;
-      pressed.current = true;
-      pressedPointer.current = event.pointerId;
-      event.currentTarget.setPointerCapture(event.pointerId);
-      sendKeyEvent("keydown", code);
+      event.preventDefault()
+      if (pressed.current) return
+      pressed.current = true
+      pressedPointer.current = event.pointerId
+      event.currentTarget.setPointerCapture(event.pointerId)
+      sendKeyEvent('keydown', code)
     },
-    [code],
-  );
+    [code]
+  )
 
   return (
     <button
       type="button"
       aria-label={label}
       className={cn(
-        "flex size-14 touch-none select-none items-center justify-center rounded-2xl border border-white/25 bg-slate-950/65 p-2 text-white shadow-lg backdrop-blur-sm transition active:scale-95 [-webkit-touch-callout:none] [-webkit-user-select:none]",
-        className,
+        'flex size-14 touch-none select-none items-center justify-center rounded-2xl border border-white/25 bg-slate-950/65 p-2 text-white shadow-lg backdrop-blur-sm transition active:scale-95 [-webkit-touch-callout:none] [-webkit-user-select:none]',
+        className
       )}
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={release}
@@ -73,15 +73,15 @@ function ControlButton({ code, label, children, className }: ControlButtonProps)
     >
       {children}
     </button>
-  );
+  )
 }
 
 export type OnScreenControlsProps = {
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
-  showMovementControls?: boolean;
-  showJumpControl?: boolean;
-};
+  onZoomIn?: () => void
+  onZoomOut?: () => void
+  showMovementControls?: boolean
+  showJumpControl?: boolean
+}
 
 export function OnScreenControls({
   onZoomIn,
@@ -89,7 +89,7 @@ export function OnScreenControls({
   showMovementControls = true,
   showJumpControl = true,
 }: OnScreenControlsProps = {}) {
-  const showZoomControls = Boolean(onZoomIn && onZoomOut);
+  const showZoomControls = Boolean(onZoomIn && onZoomOut)
 
   return (
     <div
@@ -152,5 +152,5 @@ export function OnScreenControls({
         ) : null}
       </div>
     </div>
-  );
+  )
 }

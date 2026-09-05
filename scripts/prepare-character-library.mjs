@@ -134,7 +134,8 @@ function compactNodes(document) {
   })
   document.animations?.forEach((animation) =>
     animation.channels?.forEach((channel) => {
-      if (Number.isInteger(channel.target?.node)) channel.target.node = remap.get(channel.target.node)
+      if (Number.isInteger(channel.target?.node))
+        channel.target.node = remap.get(channel.target.node)
     })
   )
 }

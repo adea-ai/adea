@@ -94,7 +94,9 @@ function matchesCreate(row: ContentRefRow, input: ContentRefCreateInput) {
     row.contentType === input.contentType &&
     row.digestSha256 === input.digestSha256 &&
     row.keyVersion === input.keyVersion &&
-    (input.messageId === undefined || row.messageId === null || row.messageId === input.messageId) &&
+    (input.messageId === undefined ||
+      row.messageId === null ||
+      row.messageId === input.messageId) &&
     row.revision === 1 &&
     row.schemaVersion === input.schemaVersion &&
     row.sensitivity === input.sensitivity &&

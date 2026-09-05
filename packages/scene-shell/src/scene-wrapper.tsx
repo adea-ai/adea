@@ -1,6 +1,6 @@
-"use client";
+'use client'
 
-import dynamic from "next/dynamic";
+import dynamic from 'next/dynamic'
 import {
   useCallback,
   useEffect,
@@ -8,12 +8,12 @@ import {
   useState,
   type MutableRefObject,
   type ReactNode,
-} from "react";
-import { Button } from "@agent-hq/ui/components/ui/button";
-import { OnScreenControls } from "@agent-hq/ui/components/on-screen-controls";
-import { SceneSettings } from "@agent-hq/ui/components/scene-settings";
-import { Spinner } from "@agent-hq/ui/components/ui/spinner";
-import type { CharacterOption } from "@agent-hq/ui/components/character-selector";
+} from 'react'
+import { Button } from '@agent-hq/ui/components/ui/button'
+import { OnScreenControls } from '@agent-hq/ui/components/on-screen-controls'
+import { SceneSettings } from '@agent-hq/ui/components/scene-settings'
+import { Spinner } from '@agent-hq/ui/components/ui/spinner'
+import type { CharacterOption } from '@agent-hq/ui/components/character-selector'
 import type {
   CameraBounds,
   CameraViewMode,
@@ -27,30 +27,28 @@ import type {
   SceneVisualUpdate,
   SceneWaterVolume,
   StaticColliderConfig,
-} from "@agent-hq/scene-runtime";
-import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
-import type { CharacterConfiguration } from "@agent-hq/characters/runtime";
-import type { CharacterPartOption } from "@agent-hq/characters/customization";
-import { Portals, type PortalLink } from "./portals";
-import { AssignedPropsRuntime } from "./assigned-props-runtime";
-import { PropColliders } from "./prop-colliders";
+} from '@agent-hq/scene-runtime'
+import type { SceneManifest, SceneStartPosition } from '@agent-hq/asset-manifests'
+import type { CharacterConfiguration } from '@agent-hq/characters/runtime'
+import type { CharacterPartOption } from '@agent-hq/characters/customization'
+import { Portals, type PortalLink } from './portals'
+import { AssignedPropsRuntime } from './assigned-props-runtime'
+import { PropColliders } from './prop-colliders'
 
 const SceneHost = dynamic(
-  () => import("@agent-hq/scene-runtime").then((module) => module.SceneHost),
-  { ssr: false },
-);
+  () => import('@agent-hq/scene-runtime').then((module) => module.SceneHost),
+  { ssr: false }
+)
 
-const SceneEditor = dynamic(() => import("./scene-editor").then((module) => module.SceneEditor), {
+const SceneEditor = dynamic(() => import('./scene-editor').then((module) => module.SceneEditor), {
   ssr: false,
-});
+})
 const CharacterDesignerScene = dynamic(
   () =>
-    import("@agent-hq/character-designer-scene").then(
-      (module) => module.CharacterDesignerScene,
-    ),
-  { ssr: false },
-);
-const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = [];
+    import('@agent-hq/character-designer-scene').then((module) => module.CharacterDesignerScene),
+  { ssr: false }
+)
+const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = []
 
 function DevelopmentSceneEditor({
   manifest,
@@ -60,14 +58,14 @@ function DevelopmentSceneEditor({
   lockedObjectPrefixes,
   enabled,
 }: {
-  manifest: SceneManifest;
-  debugApiRef: MutableRefObject<SceneDebugApi | null>;
-  cameraViewMode: CameraViewMode;
-  selectionMode: "objects" | "zones";
-  lockedObjectPrefixes: readonly string[];
-  enabled: boolean;
+  manifest: SceneManifest
+  debugApiRef: MutableRefObject<SceneDebugApi | null>
+  cameraViewMode: CameraViewMode
+  selectionMode: 'objects' | 'zones'
+  lockedObjectPrefixes: readonly string[]
+  enabled: boolean
 }) {
-  return enabled && cameraViewMode === "perspective" && SceneEditor ? (
+  return enabled && cameraViewMode === 'perspective' && SceneEditor ? (
     <SceneEditor
       manifest={manifest}
       debugApiRef={debugApiRef}
@@ -75,137 +73,137 @@ function DevelopmentSceneEditor({
       selectionMode={selectionMode}
       lockedObjectPrefixes={lockedObjectPrefixes}
     />
-  ) : null;
+  ) : null
 }
 
 export type SceneWrapperProps = {
-  manifest: SceneManifest;
+  manifest: SceneManifest
   /** Size the scene to a containing application shell rather than the full window. */
-  viewportMode?: "window" | "container";
+  viewportMode?: 'window' | 'container'
   /** Optional URL-provided arrival position, overriding the manifest start. */
-  startPosition?: SceneStartPosition;
-  character: string;
-  onCharacterChange: (character: string) => void;
-  characterOptions: readonly CharacterOption[];
-  characterConfiguration?: CharacterConfiguration;
-  onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void;
-  onCharacterConfigurationReset?: () => void;
+  startPosition?: SceneStartPosition
+  character: string
+  onCharacterChange: (character: string) => void
+  characterOptions: readonly CharacterOption[]
+  characterConfiguration?: CharacterConfiguration
+  onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void
+  onCharacterConfigurationReset?: () => void
   onCharacterSave?: (value: {
-    character: string;
-    configuration?: CharacterConfiguration;
-  }) => void | boolean | Promise<void | boolean>;
-  characterPartOptions?: readonly CharacterPartOption[];
-  characterScale?: CharacterScale;
+    character: string
+    configuration?: CharacterConfiguration
+  }) => void | boolean | Promise<void | boolean>
+  characterPartOptions?: readonly CharacterPartOption[]
+  characterScale?: CharacterScale
   /** Uniform authored-world scale applied to visuals, physics, navigation, and camera framing. */
-  sceneScale?: number;
+  sceneScale?: number
   /** Multiplier for keyboard/click movement in the active camera mode. */
-  movementSpeedFactor?: number;
+  movementSpeedFactor?: number
   /** Enable point-and-click movement for scenes with a top-down map. */
-  enableClickNavigation?: boolean;
+  enableClickNavigation?: boolean
   /** Optional walkable map bounds for click navigation, expressed in world units. */
-  clickNavigationBounds?: { xMin: number; xMax: number; zMin: number; zMax: number };
+  clickNavigationBounds?: { xMin: number; xMax: number; zMin: number; zMax: number }
   /** World-space scale for the click destination ring. Defaults to 1. */
-  clickNavigationIndicatorScale?: number;
+  clickNavigationIndicatorScale?: number
   /** Keep the camera inside a scene's authored map envelope. */
-  cameraBounds?: CameraBounds;
+  cameraBounds?: CameraBounds
   /** In orthographic mode, make this scene click-only and hide touch controls. */
-  orthographicClickOnly?: boolean;
+  orthographicClickOnly?: boolean
   /** Capture normal-view wheel and trackpad gestures for camera zoom. */
-  cameraWheelZoomEnabled?: boolean;
+  cameraWheelZoomEnabled?: boolean
   /** Enable the KTX2 transcoder for scenes that reference KTX2 textures. */
-  ktx2Enabled?: boolean;
+  ktx2Enabled?: boolean
   /** Show shared touch and zoom controls for this scene. */
-  showOnScreenControls?: boolean;
+  showOnScreenControls?: boolean
   /** Optional movement multiplier used only by orthographic click navigation. */
-  orthographicMovementSpeedFactor?: number;
+  orthographicMovementSpeedFactor?: number
   /** Scene-specific orthographic framing; defaults preserve existing views. */
-  orthographicHalfHeight?: number;
+  orthographicHalfHeight?: number
   /** Scene-specific orthographic pitch in radians; defaults preserve existing views. */
-  orthographicPitch?: number;
+  orthographicPitch?: number
   /** Initial authored-world pan applied only to the orthographic camera target. */
-  orthographicPan?: { x: number; z: number };
+  orthographicPan?: { x: number; z: number }
   /** Override the perspective camera follow distance for scenes with a
    *  miniature environment scale so the character and room are both visible. */
-  perspectiveCameraDistance?: number;
+  perspectiveCameraDistance?: number
   /** Explicit water volumes for authored pools whose meshes are not flat sheets. */
-  waterVolumes?: readonly SceneWaterVolume[];
-  cameraViewMode?: CameraViewMode;
+  waterVolumes?: readonly SceneWaterVolume[]
+  cameraViewMode?: CameraViewMode
   /** Notify the host shell when the imperative runtime changes camera mode. */
-  onCameraViewModeChange?: (viewMode: CameraViewMode) => void;
+  onCameraViewModeChange?: (viewMode: CameraViewMode) => void
   /** Hide the projection switch for scenes with a fixed camera. */
-  allowCameraViewModeChange?: boolean;
+  allowCameraViewModeChange?: boolean
   /** Explicitly register the scene editor for apps that need it outside the shared dev default. */
-  sceneEditorAvailable?: boolean;
+  sceneEditorAvailable?: boolean
   /** Select whole streamed zones instead of individual meshes in the editor. */
-  sceneEditorSelectionMode?: "objects" | "zones";
+  sceneEditorSelectionMode?: 'objects' | 'zones'
   /** Optional structural object prefixes that remain locked in the editor. */
-  sceneEditorLockedObjectPrefixes?: readonly string[];
+  sceneEditorLockedObjectPrefixes?: readonly string[]
   /** Defer nonessential character animation and facial assets until playable. */
-  deferCharacterDetails?: boolean;
+  deferCharacterDetails?: boolean
   /** Whether deferred character details should be fetched automatically. */
-  loadDeferredCharacterDetails?: boolean;
-  characterGroundOffset?: number;
+  loadDeferredCharacterDetails?: boolean
+  characterGroundOffset?: number
   /** Keep every loaded zone collision active for room-based maps. */
-  keepZoneCollisionsActive?: boolean;
-  staticColliders?: readonly StaticColliderConfig[];
-  collisionIncludePatterns?: readonly RegExp[];
-  staticFieldCollisionPatterns?: readonly RegExp[];
+  keepZoneCollisionsActive?: boolean
+  staticColliders?: readonly StaticColliderConfig[]
+  collisionIncludePatterns?: readonly RegExp[]
+  staticFieldCollisionPatterns?: readonly RegExp[]
   /** Whether additional visual fields should also participate in physics. */
-  collideAdditionalVisualLayers?: boolean;
-  collisionExclusionAreas?: readonly CollisionExclusionArea[];
-  coplanarMaterialMeshNames?: readonly string[];
-  materialOverrides?: readonly SceneMaterialOverride[];
-  playerVisibilityGroups?: readonly PlayerVisibilityGroup[];
-  environment?: SceneEnvironmentConfig;
-  visualSetup?: SceneVisualSetup;
-  visualUpdate?: SceneVisualUpdate;
-  portals?: readonly PortalLink[];
-  enableSceneEditor?: boolean;
+  collideAdditionalVisualLayers?: boolean
+  collisionExclusionAreas?: readonly CollisionExclusionArea[]
+  coplanarMaterialMeshNames?: readonly string[]
+  materialOverrides?: readonly SceneMaterialOverride[]
+  playerVisibilityGroups?: readonly PlayerVisibilityGroup[]
+  environment?: SceneEnvironmentConfig
+  visualSetup?: SceneVisualSetup
+  visualUpdate?: SceneVisualUpdate
+  portals?: readonly PortalLink[]
+  enableSceneEditor?: boolean
   /** DOM target for the account drawer trigger in an app shell toolbar. */
-  accountTargetId?: string;
-  accountLabel?: string;
-  accountAuthenticated?: boolean;
-  accountBusy?: boolean;
-  accountMusicControl?: ReactNode;
-  onAccountSignIn?: () => void;
-  onAccountSignOut?: () => void;
-  showAccountDrawer?: boolean;
+  accountTargetId?: string
+  accountLabel?: string
+  accountAuthenticated?: boolean
+  accountBusy?: boolean
+  accountMusicControl?: ReactNode
+  onAccountSignIn?: () => void
+  onAccountSignOut?: () => void
+  showAccountDrawer?: boolean
   /** DOM target for the compact camera controls in an app shell toolbar. */
-  cameraTargetId?: string;
+  cameraTargetId?: string
   /** DOM target for the shared room designer trigger when an app supplies a shell toolbar. */
-  roomDesignerTargetId?: string;
+  roomDesignerTargetId?: string
   /** Open a scene-specific room designer owned by the surrounding application. */
-  onOpenRoomDesigner?: () => void;
+  onOpenRoomDesigner?: () => void
   /** DOM target for the standalone character designer trigger. */
-  characterDesignerTargetId?: string;
+  characterDesignerTargetId?: string
   /** DOM target for the development scene editor trigger when an app supplies a shell toolbar. */
-  sceneEditorTargetId?: string;
+  sceneEditorTargetId?: string
   /** Register the standalone character designer for apps with character parts. */
-  characterDesignerAvailable?: boolean;
-  enableCharacterDesigner?: boolean;
+  characterDesignerAvailable?: boolean
+  enableCharacterDesigner?: boolean
   /** Render the scene's assigned props from its runtime manifest. */
-  assignedPropsEnabled?: boolean;
-  assignedPropsScale?: number;
-  assignedPropsGroundY?: number;
+  assignedPropsEnabled?: boolean
+  assignedPropsScale?: number
+  assignedPropsGroundY?: number
   /** Enable physics colliders for assigned props. */
-  enablePropColliders?: boolean;
+  enablePropColliders?: boolean
   /** Increments when assigned props change and their colliders must rebuild. */
-  assignedPropsVersion?: number;
+  assignedPropsVersion?: number
   /** Render a scene-owned overlay using the same debug API as SceneHost. */
-  sceneOverlay?: ReactNode;
+  sceneOverlay?: ReactNode
   /** Share the live SceneHost API with a scene-owned overlay. */
-  debugApiRef?: MutableRefObject<SceneDebugApi | null>;
+  debugApiRef?: MutableRefObject<SceneDebugApi | null>
   /** Called when the scene's debug API becomes available (initial mount and
    *  after each scene recreation, e.g. character switch). Lets callers hook
    *  into the physics world for custom collision queries. */
-  onDebugApiReady?: (api: SceneDebugApi) => void;
-};
+  onDebugApiReady?: (api: SceneDebugApi) => void
+}
 
 const DEFAULT_CHARACTER_SCALE: CharacterScale = {
   height: 1.35,
   radius: 0.18,
   modelScale: 0.3,
-};
+}
 
 /**
  * Standard scene shell shared by every 3D scene: SceneHost, on-screen touch
@@ -215,7 +213,7 @@ const DEFAULT_CHARACTER_SCALE: CharacterScale = {
  */
 export function SceneWrapper({
   manifest,
-  viewportMode = "window",
+  viewportMode = 'window',
   startPosition,
   character,
   onCharacterChange,
@@ -242,11 +240,11 @@ export function SceneWrapper({
   orthographicPan,
   perspectiveCameraDistance,
   waterVolumes,
-  cameraViewMode = "perspective",
+  cameraViewMode = 'perspective',
   onCameraViewModeChange: onCameraViewModeChangeProp,
   allowCameraViewModeChange = true,
-  sceneEditorAvailable = process.env.NODE_ENV === "development",
-  sceneEditorSelectionMode = "objects",
+  sceneEditorAvailable = process.env.NODE_ENV === 'development',
+  sceneEditorSelectionMode = 'objects',
   sceneEditorLockedObjectPrefixes = EMPTY_LOCKED_OBJECT_PREFIXES,
   deferCharacterDetails,
   loadDeferredCharacterDetails,
@@ -289,255 +287,254 @@ export function SceneWrapper({
   debugApiRef: externalDebugApiRef,
   onDebugApiReady,
 }: SceneWrapperProps) {
-  const canUseSceneEditor = enableSceneEditor && sceneEditorAvailable;
+  const canUseSceneEditor = enableSceneEditor && sceneEditorAvailable
   const [lazyCharacterPartOptions, setLazyCharacterPartOptions] = useState<
     readonly CharacterPartOption[]
-  >([]);
-  const effectiveCharacterPartOptions = characterPartOptions ?? lazyCharacterPartOptions;
+  >([])
+  const effectiveCharacterPartOptions = characterPartOptions ?? lazyCharacterPartOptions
   const canUseCharacterDesigner =
-    enableCharacterDesigner &&
-    characterDesignerAvailable &&
-    Boolean(onCharacterConfigurationChange);
-  const internalDebugApiRef = useRef<SceneDebugApi | null>(null);
-  const debugApiRef = externalDebugApiRef ?? internalDebugApiRef;
+    enableCharacterDesigner && characterDesignerAvailable && Boolean(onCharacterConfigurationChange)
+  const internalDebugApiRef = useRef<SceneDebugApi | null>(null)
+  const debugApiRef = externalDebugApiRef ?? internalDebugApiRef
   // Allow the camera view mode to be persisted via the `camera` query param
   // so navigating to a scene link or refreshing preserves the user's choice.
   const queryCameraViewMode =
-    typeof window !== "undefined"
-      ? (new URLSearchParams(window.location.search).get("camera") as CameraViewMode | null)
-      : null;
-  const effectiveCameraViewMode: CameraViewMode = queryCameraViewMode ?? cameraViewMode;
-  const cameraViewModeRef = useRef<CameraViewMode>(effectiveCameraViewMode);
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('camera') as CameraViewMode | null)
+      : null
+  const effectiveCameraViewMode: CameraViewMode = queryCameraViewMode ?? cameraViewMode
+  const cameraViewModeRef = useRef<CameraViewMode>(effectiveCameraViewMode)
   const [activeCameraViewMode, setActiveCameraViewMode] =
-    useState<CameraViewMode>(effectiveCameraViewMode);
-  const [sceneReady, setSceneReady] = useState(false);
-  const handleSceneLoadingStart = useCallback(() => setSceneReady(false), []);
-  const handleSceneReady = useCallback(() => setSceneReady(true), []);
+    useState<CameraViewMode>(effectiveCameraViewMode)
+  const [sceneReady, setSceneReady] = useState(false)
+  const handleSceneLoadingStart = useCallback(() => setSceneReady(false), [])
+  const handleSceneReady = useCallback(() => setSceneReady(true), [])
 
   useEffect(() => {
-    setSceneReady(false);
-  }, [manifest.id]);
+    setSceneReady(false)
+  }, [manifest.id])
 
   useEffect(() => {
-    if (queryCameraViewMode || cameraViewModeRef.current === cameraViewMode) return;
-    cameraViewModeRef.current = cameraViewMode;
-    setActiveCameraViewMode(cameraViewMode);
-    debugApiRef.current?.setCameraViewMode(cameraViewMode);
-  }, [cameraViewMode, queryCameraViewMode]);
+    if (queryCameraViewMode || cameraViewModeRef.current === cameraViewMode) return
+    cameraViewModeRef.current = cameraViewMode
+    setActiveCameraViewMode(cameraViewMode)
+    debugApiRef.current?.setCameraViewMode(cameraViewMode)
+  }, [cameraViewMode, queryCameraViewMode])
 
-  const [sceneEditorEnabled, setSceneEditorEnabled] = useState(false);
+  const [sceneEditorEnabled, setSceneEditorEnabled] = useState(false)
   const [characterDesignerEnabled, setCharacterDesignerEnabled] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const value = new URLSearchParams(window.location.search).get("characterDesigner");
-    return value !== null && value !== "0";
-  });
-  const [characterDesignerHasEdits, setCharacterDesignerHasEdits] = useState(false);
+    if (typeof window === 'undefined') return false
+    const value = new URLSearchParams(window.location.search).get('characterDesigner')
+    return value !== null && value !== '0'
+  })
+  const [characterDesignerHasEdits, setCharacterDesignerHasEdits] = useState(false)
   const [pendingCharacterDesignerClose, setPendingCharacterDesignerClose] = useState<{
-    href?: string;
-  } | null>(null);
-  const characterDesignerSaveRef = useRef<(() => Promise<boolean>) | null>(null);
-  const characterDesignerNavigationAllowedRef = useRef(false);
-  const [sceneVersion, setSceneVersion] = useState(0);
+    href?: string
+  } | null>(null)
+  const characterDesignerSaveRef = useRef<(() => Promise<boolean>) | null>(null)
+  const characterDesignerNavigationAllowedRef = useRef(false)
+  const [sceneVersion, setSceneVersion] = useState(0)
   const handleDebugApiReady = useCallback(
     (api: SceneDebugApi) => {
-      onDebugApiReady?.(api);
+      onDebugApiReady?.(api)
       if (enablePropColliders || manifest.assignedPropsManifestUrl) {
-        setSceneVersion((version) => version + 1);
+        setSceneVersion((version) => version + 1)
       }
     },
-    [enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady],
-  );
+    [enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady]
+  )
 
   useEffect(() => {
-    if (!canUseSceneEditor) return;
-    const value = new URLSearchParams(window.location.search).get("sceneEditor");
+    if (!canUseSceneEditor) return
+    const value = new URLSearchParams(window.location.search).get('sceneEditor')
     // The editor is opt-in. A missing query parameter must never cover the
     // scene unless the explicit query parameter opts in.
-    setSceneEditorEnabled(value !== null && value !== "0");
-  }, [canUseSceneEditor]);
+    setSceneEditorEnabled(value !== null && value !== '0')
+  }, [canUseSceneEditor])
 
   useEffect(() => {
-    if (!canUseCharacterDesigner) return;
-    const value = new URLSearchParams(window.location.search).get("characterDesigner");
-    setCharacterDesignerEnabled(value !== null && value !== "0");
-  }, [canUseCharacterDesigner]);
+    if (!canUseCharacterDesigner) return
+    const value = new URLSearchParams(window.location.search).get('characterDesigner')
+    setCharacterDesignerEnabled(value !== null && value !== '0')
+  }, [canUseCharacterDesigner])
 
   useEffect(() => {
-    if (!canUseCharacterDesigner || !characterDesignerEnabled || characterPartOptions) return;
-    let cancelled = false;
-    void import("@agent-hq/characters/customization").then(({ characterPartCatalog }) => {
-      if (!cancelled) setLazyCharacterPartOptions(characterPartCatalog);
-    });
+    if (!canUseCharacterDesigner || !characterDesignerEnabled || characterPartOptions) return
+    let cancelled = false
+    void import('@agent-hq/characters/customization').then(({ characterPartCatalog }) => {
+      if (!cancelled) setLazyCharacterPartOptions(characterPartCatalog)
+    })
     return () => {
-      cancelled = true;
-    };
-  }, [canUseCharacterDesigner, characterDesignerEnabled, characterPartOptions]);
+      cancelled = true
+    }
+  }, [canUseCharacterDesigner, characterDesignerEnabled, characterPartOptions])
 
   const applyCharacterDesignerChange = (enabled: boolean) => {
-    setCharacterDesignerEnabled(enabled);
-    const nextUrl = new URL(window.location.href);
-    if (enabled) nextUrl.searchParams.set("characterDesigner", "");
-    else nextUrl.searchParams.set("characterDesigner", "0");
-    window.history.replaceState(null, "", nextUrl);
-  };
+    setCharacterDesignerEnabled(enabled)
+    const nextUrl = new URL(window.location.href)
+    if (enabled) nextUrl.searchParams.set('characterDesigner', '')
+    else nextUrl.searchParams.set('characterDesigner', '0')
+    window.history.replaceState(null, '', nextUrl)
+  }
 
   const applySceneEditorChange = (enabled: boolean) => {
-    setSceneEditorEnabled(enabled);
-    const nextUrl = new URL(window.location.href);
-    if (enabled) nextUrl.searchParams.set("sceneEditor", "");
-    else nextUrl.searchParams.set("sceneEditor", "0");
-    window.history.replaceState(null, "", nextUrl);
-  };
+    setSceneEditorEnabled(enabled)
+    const nextUrl = new URL(window.location.href)
+    if (enabled) nextUrl.searchParams.set('sceneEditor', '')
+    else nextUrl.searchParams.set('sceneEditor', '0')
+    window.history.replaceState(null, '', nextUrl)
+  }
 
   const requestCharacterDesignerClose = (options: { skipPrompt?: boolean } = {}) => {
     if (!options.skipPrompt && characterDesignerHasEdits) {
-      setPendingCharacterDesignerClose({});
-      return;
+      setPendingCharacterDesignerClose({})
+      return
     }
-    applyCharacterDesignerChange(false);
-  };
+    applyCharacterDesignerChange(false)
+  }
 
   const onCharacterDesignerChange = (enabled: boolean) => {
     if (!enabled) {
-      requestCharacterDesignerClose();
-      return;
+      requestCharacterDesignerClose()
+      return
     }
-    applyCharacterDesignerChange(true);
-  };
+    applyCharacterDesignerChange(true)
+  }
 
   useEffect(() => {
-    if (!pendingCharacterDesignerClose) return;
+    if (!pendingCharacterDesignerClose) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setPendingCharacterDesignerClose(null);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [pendingCharacterDesignerClose]);
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      setPendingCharacterDesignerClose(null)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [pendingCharacterDesignerClose])
 
   useEffect(() => {
-    if (!characterDesignerEnabled || !characterDesignerHasEdits) return;
+    if (!characterDesignerEnabled || !characterDesignerHasEdits) return
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (characterDesignerNavigationAllowedRef.current) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
+      if (characterDesignerNavigationAllowedRef.current) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
     const onDocumentClick = (event: MouseEvent) => {
-      const target = event.target;
+      const target = event.target
       if (
         !(target instanceof Element) ||
         target.closest('[data-character-designer-modal], [aria-label="Character designer"]')
       )
-        return;
-      const link = target.closest("a");
-      if (!link || !link.href || link.target === "_blank" || link.href === window.location.href)
-        return;
-      event.preventDefault();
-      event.stopPropagation();
-      setPendingCharacterDesignerClose({ href: link.href });
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    document.addEventListener("click", onDocumentClick, true);
+        return
+      const link = target.closest('a')
+      if (!link || !link.href || link.target === '_blank' || link.href === window.location.href)
+        return
+      event.preventDefault()
+      event.stopPropagation()
+      setPendingCharacterDesignerClose({ href: link.href })
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    document.addEventListener('click', onDocumentClick, true)
     return () => {
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      document.removeEventListener("click", onDocumentClick, true);
-    };
-  }, [characterDesignerEnabled, characterDesignerHasEdits]);
+      window.removeEventListener('beforeunload', onBeforeUnload)
+      document.removeEventListener('click', onDocumentClick, true)
+    }
+  }, [characterDesignerEnabled, characterDesignerHasEdits])
 
   const onCameraViewModeChange = (nextViewMode: CameraViewMode) => {
-    setActiveCameraViewMode(nextViewMode);
-    cameraViewModeRef.current = nextViewMode;
-    debugApiRef.current?.setCameraViewMode(nextViewMode);
+    setActiveCameraViewMode(nextViewMode)
+    cameraViewModeRef.current = nextViewMode
+    debugApiRef.current?.setCameraViewMode(nextViewMode)
     // Persist the camera view mode in the URL so it survives refresh and
     // scene-to-scene navigation via shared links.
-    const nextUrl = new URL(window.location.href);
-    nextUrl.searchParams.set("camera", nextViewMode);
-    window.history.replaceState(null, "", nextUrl);
-    onCameraViewModeChangeProp?.(nextViewMode);
-  };
+    const nextUrl = new URL(window.location.href)
+    nextUrl.searchParams.set('camera', nextViewMode)
+    window.history.replaceState(null, '', nextUrl)
+    onCameraViewModeChangeProp?.(nextViewMode)
+  }
 
   const zoomIn = useCallback(() => {
-    if (activeCameraViewMode === "perspective") {
-      debugApiRef.current?.adjustPerspectiveZoom(0.15);
+    if (activeCameraViewMode === 'perspective') {
+      debugApiRef.current?.adjustPerspectiveZoom(0.15)
     } else {
-      debugApiRef.current?.adjustOrthographicZoom(0.15);
+      debugApiRef.current?.adjustOrthographicZoom(0.15)
     }
-  }, [activeCameraViewMode]);
+  }, [activeCameraViewMode])
   const zoomOut = useCallback(() => {
-    if (activeCameraViewMode === "perspective") {
-      debugApiRef.current?.adjustPerspectiveZoom(-0.15);
+    if (activeCameraViewMode === 'perspective') {
+      debugApiRef.current?.adjustPerspectiveZoom(-0.15)
     } else {
-      debugApiRef.current?.adjustOrthographicZoom(-0.15);
+      debugApiRef.current?.adjustOrthographicZoom(-0.15)
     }
-  }, [activeCameraViewMode]);
+  }, [activeCameraViewMode])
 
-  const characterDesignerIsActive = canUseCharacterDesigner && characterDesignerEnabled;
-  const showNormalZoomControls = true;
+  const characterDesignerIsActive = canUseCharacterDesigner && characterDesignerEnabled
+  const showNormalZoomControls = true
 
   return (
     <>
       {!characterDesignerIsActive ? (
-      <SceneHost
-        label={manifest.label}
-        viewportMode={viewportMode}
-        characterId={character}
-        characterConfiguration={characterConfiguration}
-        assetUrl={manifest.entryAssetUrl}
-        entryZoneId={manifest.entryZoneId}
-        preserveEntryCollision={manifest.preserveEntryCollision}
-        keepZoneCollisionsActive={keepZoneCollisionsActive}
-        collisionAssetUrl={manifest.collisionAssetUrl}
-        additionalCollisionAssetUrls={manifest.additionalCollisionAssetUrls}
-        additionalAssetUrls={manifest.additionalAssetUrls}
-        zones={manifest.zones}
-        startPosition={startPosition ?? manifest.startPosition}
-        characterScale={characterScale}
-        sceneScale={sceneScale}
-        movementSpeedFactor={movementSpeedFactor}
-        enableClickNavigation={enableClickNavigation}
-        clickNavigationBounds={clickNavigationBounds}
-        clickNavigationIndicatorScale={clickNavigationIndicatorScale}
-        cameraBounds={cameraBounds}
-        orthographicClickOnly={orthographicClickOnly}
-        cameraWheelZoomEnabled={cameraWheelZoomEnabled}
-        ktx2Enabled={ktx2Enabled}
-        orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
-        orthographicHalfHeight={orthographicHalfHeight}
-        orthographicPitch={orthographicPitch}
-        orthographicPan={orthographicPan}
-        perspectiveCameraDistance={perspectiveCameraDistance}
-        waterVolumes={waterVolumes}
-        initialCameraViewMode={effectiveCameraViewMode}
-        cameraViewModeRef={cameraViewModeRef}
-        deferCharacterDetails={deferCharacterDetails}
-        loadDeferredCharacterDetails={loadDeferredCharacterDetails}
-        characterGroundOffset={characterGroundOffset}
-        debugApiRef={debugApiRef}
-        onDebugApiReady={handleDebugApiReady}
-        staticColliders={staticColliders}
-        collisionIncludePatterns={collisionIncludePatterns}
-        staticFieldCollisionPatterns={staticFieldCollisionPatterns}
-        collideAdditionalVisualLayers={collideAdditionalVisualLayers}
-        collisionExclusionAreas={collisionExclusionAreas}
-        coplanarMaterialMeshNames={coplanarMaterialMeshNames}
-        materialOverrides={materialOverrides}
-        playerVisibilityGroups={playerVisibilityGroups}
-        environment={environment}
-        editorOverridesUrl={
-          canUseSceneEditor
-            ? manifest.editorOverridesUrl ?? `/assets/worlds/${manifest.id}/editor-overrides.json`
-            : undefined
-        }
-        visualSetup={visualSetup}
-        visualUpdate={visualUpdate}
-        staticFieldAssetUrls={manifest.staticFieldAssetUrls}
-        staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
-        foliageManifestUrl={manifest.foliageManifestUrl}
-        propsManifestUrl={manifest.propsManifestUrl}
-        onLoadingStart={handleSceneLoadingStart}
-        onReady={handleSceneReady}
-      />
+        <SceneHost
+          label={manifest.label}
+          viewportMode={viewportMode}
+          characterId={character}
+          characterConfiguration={characterConfiguration}
+          assetUrl={manifest.entryAssetUrl}
+          entryZoneId={manifest.entryZoneId}
+          preserveEntryCollision={manifest.preserveEntryCollision}
+          keepZoneCollisionsActive={keepZoneCollisionsActive}
+          collisionAssetUrl={manifest.collisionAssetUrl}
+          additionalCollisionAssetUrls={manifest.additionalCollisionAssetUrls}
+          additionalAssetUrls={manifest.additionalAssetUrls}
+          zones={manifest.zones}
+          startPosition={startPosition ?? manifest.startPosition}
+          characterScale={characterScale}
+          sceneScale={sceneScale}
+          movementSpeedFactor={movementSpeedFactor}
+          enableClickNavigation={enableClickNavigation}
+          clickNavigationBounds={clickNavigationBounds}
+          clickNavigationIndicatorScale={clickNavigationIndicatorScale}
+          cameraBounds={cameraBounds}
+          orthographicClickOnly={orthographicClickOnly}
+          cameraWheelZoomEnabled={cameraWheelZoomEnabled}
+          ktx2Enabled={ktx2Enabled}
+          orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
+          orthographicHalfHeight={orthographicHalfHeight}
+          orthographicPitch={orthographicPitch}
+          orthographicPan={orthographicPan}
+          perspectiveCameraDistance={perspectiveCameraDistance}
+          waterVolumes={waterVolumes}
+          initialCameraViewMode={effectiveCameraViewMode}
+          cameraViewModeRef={cameraViewModeRef}
+          deferCharacterDetails={deferCharacterDetails}
+          loadDeferredCharacterDetails={loadDeferredCharacterDetails}
+          characterGroundOffset={characterGroundOffset}
+          debugApiRef={debugApiRef}
+          onDebugApiReady={handleDebugApiReady}
+          staticColliders={staticColliders}
+          collisionIncludePatterns={collisionIncludePatterns}
+          staticFieldCollisionPatterns={staticFieldCollisionPatterns}
+          collideAdditionalVisualLayers={collideAdditionalVisualLayers}
+          collisionExclusionAreas={collisionExclusionAreas}
+          coplanarMaterialMeshNames={coplanarMaterialMeshNames}
+          materialOverrides={materialOverrides}
+          playerVisibilityGroups={playerVisibilityGroups}
+          environment={environment}
+          editorOverridesUrl={
+            canUseSceneEditor
+              ? (manifest.editorOverridesUrl ??
+                `/assets/worlds/${manifest.id}/editor-overrides.json`)
+              : undefined
+          }
+          visualSetup={visualSetup}
+          visualUpdate={visualUpdate}
+          staticFieldAssetUrls={manifest.staticFieldAssetUrls}
+          staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
+          foliageManifestUrl={manifest.foliageManifestUrl}
+          propsManifestUrl={manifest.propsManifestUrl}
+          onLoadingStart={handleSceneLoadingStart}
+          onReady={handleSceneReady}
+        />
       ) : (
         <CharacterDesignerScene
           character={character}
@@ -571,8 +568,8 @@ export function SceneWrapper({
         <OnScreenControls
           onZoomIn={showNormalZoomControls ? zoomIn : undefined}
           onZoomOut={showNormalZoomControls ? zoomOut : undefined}
-          showMovementControls={!orthographicClickOnly || activeCameraViewMode !== "orthographic"}
-          showJumpControl={!orthographicClickOnly || activeCameraViewMode !== "orthographic"}
+          showMovementControls={!orthographicClickOnly || activeCameraViewMode !== 'orthographic'}
+          showJumpControl={!orthographicClickOnly || activeCameraViewMode !== 'orthographic'}
         />
       ) : null}
       {!characterDesignerIsActive && canUseSceneEditor ? (
@@ -593,7 +590,10 @@ export function SceneWrapper({
           sceneVersion={sceneVersion}
         />
       ) : null}
-      {!characterDesignerIsActive && enablePropColliders && assignedPropsEnabled && manifest.assignedPropsManifestUrl ? (
+      {!characterDesignerIsActive &&
+      enablePropColliders &&
+      assignedPropsEnabled &&
+      manifest.assignedPropsManifestUrl ? (
         <PropColliders
           debugApiRef={debugApiRef}
           manifestUrl={manifest.assignedPropsManifestUrl}
@@ -662,12 +662,12 @@ export function SceneWrapper({
                 type="button"
                 variant="destructive"
                 onClick={() => {
-                  const request = pendingCharacterDesignerClose;
-                  setPendingCharacterDesignerClose(null);
-                  applyCharacterDesignerChange(false);
+                  const request = pendingCharacterDesignerClose
+                  setPendingCharacterDesignerClose(null)
+                  applyCharacterDesignerChange(false)
                   if (request?.href) {
-                    characterDesignerNavigationAllowedRef.current = true;
-                    window.location.assign(request.href);
+                    characterDesignerNavigationAllowedRef.current = true
+                    window.location.assign(request.href)
                   }
                 }}
               >
@@ -677,14 +677,14 @@ export function SceneWrapper({
                 type="button"
                 className="bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-400"
                 onClick={async () => {
-                  const saved = await characterDesignerSaveRef.current?.();
-                  if (saved === false) return;
-                  const request = pendingCharacterDesignerClose;
-                  setPendingCharacterDesignerClose(null);
-                  applyCharacterDesignerChange(false);
+                  const saved = await characterDesignerSaveRef.current?.()
+                  if (saved === false) return
+                  const request = pendingCharacterDesignerClose
+                  setPendingCharacterDesignerClose(null)
+                  applyCharacterDesignerChange(false)
                   if (request?.href) {
-                    characterDesignerNavigationAllowedRef.current = true;
-                    window.location.assign(request.href);
+                    characterDesignerNavigationAllowedRef.current = true
+                    window.location.assign(request.href)
                   }
                 }}
               >
@@ -695,5 +695,5 @@ export function SceneWrapper({
         </div>
       ) : null}
     </>
-  );
+  )
 }

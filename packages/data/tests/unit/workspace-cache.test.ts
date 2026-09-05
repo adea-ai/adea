@@ -20,7 +20,9 @@ test('releaseWorkspaceCache removes every cached entry for the outgoing workspac
   expect(
     queryClient.getQueryData(['workspaces', 'workspace-work', 'rooms', 'list'])
   ).toBeUndefined()
-  expect(queryClient.getQueryData(['workspaces', 'workspace-work', 'agents', 'list'])).toBeUndefined()
+  expect(
+    queryClient.getQueryData(['workspaces', 'workspace-work', 'agents', 'list'])
+  ).toBeUndefined()
   expect(queryClient.getQueryData(['workspaces', 'workspace-home', 'rooms', 'list'])).toBeDefined()
   expect(queryClient.getQueryData(['workspaces', 'bootstrap'])).toBeDefined()
 })
@@ -32,9 +34,7 @@ test('releaseWorkspaceCache leaves no cached entries under the outgoing workspac
   releaseWorkspaceCache(queryClient, 'workspace-work')
 
   expect(
-    queryClient
-      .getQueryCache()
-      .findAll({ queryKey: ['workspaces', 'workspace-work'] })
+    queryClient.getQueryCache().findAll({ queryKey: ['workspaces', 'workspace-work'] })
   ).toEqual([])
 })
 

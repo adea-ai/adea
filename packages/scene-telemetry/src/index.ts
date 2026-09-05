@@ -4,5 +4,5 @@ export {
   parseScenePerformanceReport,
   SCENE_TELEMETRY_LOG_PREFIX,
   type SceneTelemetryEnvelope,
-} from "./report";
-export { recordNavigation, onRouterTransitionStart } from "./client";
+} from './report'
+export { recordNavigation, onRouterTransitionStart } from './client'

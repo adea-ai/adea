@@ -1,5 +1,5 @@
-export * from "./provider";
-export * from "./configuration";
+export * from './provider'
+export * from './configuration'
 
 export {
   characterIds,
@@ -21,7 +21,7 @@ export {
   characterPartIds,
   characterPartAssets,
   type CharacterPartId,
-} from "./catalog";
+} from './catalog'
 
 export {
   characterPartCatalog,
@@ -29,4 +29,4 @@ export {
   characterPartsBySlot,
   type CharacterPartSlot,
   type CharacterPartOption,
-} from "./customization";
+} from './customization'

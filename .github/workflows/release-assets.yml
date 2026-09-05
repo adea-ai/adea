@@ -102,7 +102,7 @@ jobs:
           - runner: windows-latest
             self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
             platform: Windows x64
-            args: ""
+            args: ''
             self_hosted_args: --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
             target: x86_64-pc-windows-msvc
             timeout_minutes: 45

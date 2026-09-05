@@ -1,6 +1,6 @@
-"use client";
+'use client'
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Check,
   Download,
@@ -9,10 +9,10 @@ import {
   LoaderCircle,
   RefreshCw,
   Sparkles,
-} from "lucide-react";
+} from 'lucide-react'
 
-import { formatReleaseDate, plainTextFromMarkdown } from "#lib/version-notes";
-import { Button } from "#components/ui/button";
+import { formatReleaseDate, plainTextFromMarkdown } from '#lib/version-notes'
+import { Button } from '#components/ui/button'
 import {
   Dialog,
   DialogClose,
@@ -22,165 +22,165 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "#components/ui/dialog";
+} from '#components/ui/dialog'
 
 export type SharedDesktopUpdate = Readonly<{
-  available_version: string | null;
-  changelog: string;
-  current_version: string;
-  downloaded_bytes: number;
-  error: string | null;
-  github_url: string;
+  available_version: string | null
+  changelog: string
+  current_version: string
+  downloaded_bytes: number
+  error: string | null
+  github_url: string
   phase:
-    | "idle"
-    | "checking"
-    | "current"
-    | "available"
-    | "downloading"
-    | "installing"
-    | "installed"
-    | "failed";
-  release_date: string | null;
-  release_notes: string | null;
-  restart_required: boolean;
-  total_bytes: number | null;
-}>;
+    | 'idle'
+    | 'checking'
+    | 'current'
+    | 'available'
+    | 'downloading'
+    | 'installing'
+    | 'installed'
+    | 'failed'
+  release_date: string | null
+  release_notes: string | null
+  restart_required: boolean
+  total_bytes: number | null
+}>
 
 export type VersionDialogAdapter = Readonly<{
-  check(): Promise<SharedDesktopUpdate>;
-  getStatus(): Promise<SharedDesktopUpdate>;
-  install(expectedVersion: string): Promise<SharedDesktopUpdate>;
-  isDesktopRuntime(): boolean;
-}>;
+  check(): Promise<SharedDesktopUpdate>
+  getStatus(): Promise<SharedDesktopUpdate>
+  install(expectedVersion: string): Promise<SharedDesktopUpdate>
+  isDesktopRuntime(): boolean
+}>
 
 function errorMessage(caught: unknown, fallback: string): string {
-  if (caught instanceof Error && caught.message) return caught.message;
-  if (typeof caught === "string" && caught) return caught;
-  return fallback;
+  if (caught instanceof Error && caught.message) return caught.message
+  if (typeof caught === 'string' && caught) return caught
+  return fallback
 }
 
 function phaseLabel(update: SharedDesktopUpdate | null, fallbackVersion: string): string {
-  if (!update) return `Agent HQ v${fallbackVersion}`;
-  if (update.phase === "checking") return "Checking for updates…";
-  if (update.phase === "available" && update.available_version) {
-    return `Update v${update.available_version} available`;
+  if (!update) return `Agent HQ v${fallbackVersion}`
+  if (update.phase === 'checking') return 'Checking for updates…'
+  if (update.phase === 'available' && update.available_version) {
+    return `Update v${update.available_version} available`
   }
-  if (update.phase === "downloading" || update.phase === "installing") {
-    return "Installing update…";
+  if (update.phase === 'downloading' || update.phase === 'installing') {
+    return 'Installing update…'
   }
-  if (update.phase === "failed") return `Version ${update.current_version} · Retry`;
-  return `Agent HQ v${update.current_version || fallbackVersion}`;
+  if (update.phase === 'failed') return `Version ${update.current_version} · Retry`
+  return `Agent HQ v${update.current_version || fallbackVersion}`
 }
 
 function isUpdateBusy(update: SharedDesktopUpdate | null): boolean {
   return (
-    update?.phase === "checking" ||
-    update?.phase === "downloading" ||
-    update?.phase === "installing"
-  );
+    update?.phase === 'checking' ||
+    update?.phase === 'downloading' ||
+    update?.phase === 'installing'
+  )
 }
 
 export function VersionDialog({
   adapter,
-  fallbackVersion = "0.1.0",
+  fallbackVersion = '0.1.0',
   onOpenChange,
   open: controlledOpen,
 }: Readonly<{
-  adapter: VersionDialogAdapter;
-  fallbackVersion?: string;
-  onOpenChange?: (open: boolean) => void;
-  open?: boolean;
+  adapter: VersionDialogAdapter
+  fallbackVersion?: string
+  onOpenChange?: (open: boolean) => void
+  open?: boolean
 }>) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const open = controlledOpen ?? uncontrolledOpen;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
+  const open = controlledOpen ?? uncontrolledOpen
   const setOpen = useCallback(
     (nextOpen: boolean) => {
-      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
-      onOpenChange?.(nextOpen);
+      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen)
+      onOpenChange?.(nextOpen)
     },
-    [controlledOpen, onOpenChange],
-  );
-  const [desktopRuntime, setDesktopRuntime] = useState(false);
-  const [update, setUpdate] = useState<SharedDesktopUpdate | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+    [controlledOpen, onOpenChange]
+  )
+  const [desktopRuntime, setDesktopRuntime] = useState(false)
+  const [update, setUpdate] = useState<SharedDesktopUpdate | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  useEffect(() => setDesktopRuntime(adapter.isDesktopRuntime()), [adapter]);
+  useEffect(() => setDesktopRuntime(adapter.isDesktopRuntime()), [adapter])
 
   const loadCurrentStatus = useCallback(async () => {
-    if (!desktopRuntime) return;
+    if (!desktopRuntime) return
     try {
-      setUpdate(await adapter.getStatus());
+      setUpdate(await adapter.getStatus())
     } catch (caught) {
-      setError(errorMessage(caught, "Version status is unavailable"));
+      setError(errorMessage(caught, 'Version status is unavailable'))
     }
-  }, [adapter, desktopRuntime]);
+  }, [adapter, desktopRuntime])
 
   useEffect(() => {
-    if (desktopRuntime) void loadCurrentStatus();
-  }, [desktopRuntime, loadCurrentStatus]);
+    if (desktopRuntime) void loadCurrentStatus()
+  }, [desktopRuntime, loadCurrentStatus])
 
   const checkForUpdates = useCallback(async () => {
     if (!desktopRuntime) {
-      setError("Update checks are available from the desktop app.");
-      return;
+      setError('Update checks are available from the desktop app.')
+      return
     }
-    setBusy(true);
-    setError("");
+    setBusy(true)
+    setError('')
     try {
-      setUpdate(await adapter.check());
+      setUpdate(await adapter.check())
     } catch (caught) {
-      setError(errorMessage(caught, "Could not check for updates"));
-      await loadCurrentStatus();
+      setError(errorMessage(caught, 'Could not check for updates'))
+      await loadCurrentStatus()
     } finally {
-      setBusy(false);
+      setBusy(false)
     }
-  }, [adapter, desktopRuntime, loadCurrentStatus]);
+  }, [adapter, desktopRuntime, loadCurrentStatus])
 
   useEffect(() => {
-    if (!open || !desktopRuntime) return;
-    let active = true;
-    setError("");
-    setBusy(true);
+    if (!open || !desktopRuntime) return
+    let active = true
+    setError('')
+    setBusy(true)
     void (async () => {
       try {
-        const current = await adapter.getStatus();
-        if (!active) return;
-        setUpdate(current);
-        const checked = await adapter.check();
-        if (active) setUpdate(checked);
+        const current = await adapter.getStatus()
+        if (!active) return
+        setUpdate(current)
+        const checked = await adapter.check()
+        if (active) setUpdate(checked)
       } catch (caught) {
-        if (active) setError(errorMessage(caught, "Could not check for updates"));
+        if (active) setError(errorMessage(caught, 'Could not check for updates'))
       } finally {
-        if (active) setBusy(false);
+        if (active) setBusy(false)
       }
-    })();
+    })()
     return () => {
-      active = false;
-    };
-  }, [adapter, desktopRuntime, open]);
+      active = false
+    }
+  }, [adapter, desktopRuntime, open])
 
   const install = async () => {
-    const version = update?.available_version;
-    if (!version) return;
-    setBusy(true);
-    setError("");
+    const version = update?.available_version
+    if (!version) return
+    setBusy(true)
+    setError('')
     try {
-      setUpdate(await adapter.install(version));
+      setUpdate(await adapter.install(version))
     } catch (caught) {
-      setError(errorMessage(caught, "Update installation failed"));
-      await loadCurrentStatus();
+      setError(errorMessage(caught, 'Update installation failed'))
+      await loadCurrentStatus()
     } finally {
-      setBusy(false);
+      setBusy(false)
     }
-  };
+  }
 
   const currentChangelog = useMemo(
-    () => plainTextFromMarkdown(update?.changelog || "Changelog is loading…"),
-    [update?.changelog],
-  );
-  const releaseNotes = update?.release_notes ? plainTextFromMarkdown(update.release_notes) : "";
-  const busyFromSnapshot = isUpdateBusy(update);
+    () => plainTextFromMarkdown(update?.changelog || 'Changelog is loading…'),
+    [update?.changelog]
+  )
+  const releaseNotes = update?.release_notes ? plainTextFromMarkdown(update.release_notes) : ''
+  const busyFromSnapshot = isUpdateBusy(update)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -197,7 +197,7 @@ export function VersionDialog({
             />
           }
         >
-          {update?.phase === "available" ? (
+          {update?.phase === 'available' ? (
             <Sparkles aria-hidden="true" />
           ) : (
             <FileText aria-hidden="true" />
@@ -232,13 +232,13 @@ export function VersionDialog({
                   v{update?.current_version || fallbackVersion}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {update?.phase === "current"
-                    ? "You are running the latest desktop release."
-                    : update?.phase === "available" && update.available_version
+                  {update?.phase === 'current'
+                    ? 'You are running the latest desktop release.'
+                    : update?.phase === 'available' && update.available_version
                       ? `A newer desktop release, v${update.available_version}, is ready.`
                       : desktopRuntime
-                        ? "Check the release channel for the latest signed build."
-                        : "Open this dialog inside the desktop app to check for updates."}
+                        ? 'Check the release channel for the latest signed build.'
+                        : 'Open this dialog inside the desktop app to check for updates.'}
                 </p>
               </div>
               <Button
@@ -258,7 +258,7 @@ export function VersionDialog({
             </div>
           </section>
 
-          {update?.phase === "available" && update.available_version ? (
+          {update?.phase === 'available' && update.available_version ? (
             <section
               className="rounded-xl border border-primary/35 bg-primary/8 p-4"
               aria-label="Available update"
@@ -295,7 +295,7 @@ export function VersionDialog({
             </section>
           ) : null}
 
-          {update?.phase === "current" ? (
+          {update?.phase === 'current' ? (
             <p
               className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"
               role="status"
@@ -350,7 +350,7 @@ export function VersionDialog({
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => window.open(update.github_url, "_blank", "noopener,noreferrer")}
+              onClick={() => window.open(update.github_url, '_blank', 'noopener,noreferrer')}
             >
               <ExternalLink aria-hidden="true" />
               View releases
@@ -362,5 +362,5 @@ export function VersionDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

@@ -17,7 +17,7 @@ export type WorkspaceStatePersister = {
  */
 export function createWorkspaceStatePersister(
   write: (state: WorkspaceState) => void,
-  delayMs = 300,
+  delayMs = 300
 ): WorkspaceStatePersister {
   let pendingState: WorkspaceState | null = null
   let timer: ReturnType<typeof setTimeout> | null = null

@@ -23,7 +23,7 @@ const nextConfig = {
   // the .ts/.tsx sources.
   experimental: {
     extensionAlias: {
-      ".js": [".ts", ".tsx", ".js"],
+      '.js': ['.ts', '.tsx', '.js'],
     },
   },
   // Permit the stable Tailscale MagicDNS hostname to load the dev client and

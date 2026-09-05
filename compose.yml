@@ -9,12 +9,12 @@ services:
       POSTGRES_PASSWORD: agent_hq_local_admin
       POSTGRES_USER: agent_hq_local_admin
     ports:
-      - "127.0.0.1:${AGENT_HQ_POSTGRES_PORT:-55432}:5432"
+      - '127.0.0.1:${AGENT_HQ_POSTGRES_PORT:-55432}:5432'
     volumes:
       - agent-hq-postgres-data:/var/lib/postgresql
       - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U agent_hq_local_admin -d agent_hq"]
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U agent_hq_local_admin -d agent_hq']
       interval: 2s
       timeout: 5s
       retries: 15

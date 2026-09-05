@@ -9,13 +9,7 @@ import type {
 import { and, asc, eq } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import {
-  agents,
-  artifacts,
-  tasks,
-  workspaceEvents,
-  workspaceMemberships,
-} from './schema'
+import { agents, artifacts, tasks, workspaceEvents, workspaceMemberships } from './schema'
 import type { JsonObject } from './schema'
 
 type Database = AgentHqDatabase | AgentHqTransaction
@@ -54,11 +48,15 @@ function stableValue(value: unknown): unknown {
 }
 
 function hashPayload(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(stableValue(value))).digest('hex')
+  return createHash('sha256')
+    .update(JSON.stringify(stableValue(value)))
+    .digest('hex')
 }
 
-const SECRET_KEY = /(?:authorization|cookie|credential|password|private.?key|secret|token|api.?key|access.?key)/i
-const SECRET_VALUE = /(?:authorization|credential|password|secret|token|api[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?)\s*[=:]/i
+const SECRET_KEY =
+  /(?:authorization|cookie|credential|password|private.?key|secret|token|api.?key|access.?key)/i
+const SECRET_VALUE =
+  /(?:authorization|credential|password|secret|token|api[_-]?key|(?:aws[_-]?)?access[_-]?key(?:[_-]?id)?)\s*[=:]/i
 
 function isUnsafeOpaqueReference(value: string): boolean {
   return (
@@ -162,7 +160,11 @@ function summary(row: ArtifactRow): ArtifactSummary {
   })
 }
 
-async function requireMembership(database: Database, workspaceId: string, principal: UserPrincipalRef) {
+async function requireMembership(
+  database: Database,
+  workspaceId: string,
+  principal: UserPrincipalRef
+) {
   const [membership] = await database
     .select({ id: workspaceMemberships.id })
     .from(workspaceMemberships)
@@ -241,11 +243,7 @@ function normalizeLocation(location: ArtifactLocation): Required<Pick<ArtifactLo
   runtimeNodeId?: string
 } {
   const reference = location.reference?.trim() ?? ''
-  if (
-    !reference ||
-    reference.length > 1024 ||
-    isUnsafeOpaqueReference(reference)
-  )
+  if (!reference || reference.length > 1024 || isUnsafeOpaqueReference(reference))
     throw new Error('Artifact location reference invalid')
   const runtimeNodeId = location.runtimeNodeId?.trim()
   const externalHarnessId = location.externalHarnessId?.trim()

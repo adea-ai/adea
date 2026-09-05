@@ -1,3 +1,3 @@
-import { pgSchema } from "drizzle-orm/pg-core";
+import { pgSchema } from 'drizzle-orm/pg-core'
 
-export const appSchema = pgSchema("app");
+export const appSchema = pgSchema('app')

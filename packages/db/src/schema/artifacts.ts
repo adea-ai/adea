@@ -90,7 +90,10 @@ export const artifacts = appSchema.table(
   (table) => [
     unique('artifacts_workspace_source_unique').on(table.workspaceId, table.sourceArtifactRef),
     check('artifacts_owner_principal_nonempty', sql`length(btrim(${table.ownerPrincipalId})) > 0`),
-    check('artifacts_source_principal_nonempty', sql`length(btrim(${table.sourcePrincipalId})) > 0`),
+    check(
+      'artifacts_source_principal_nonempty',
+      sql`length(btrim(${table.sourcePrincipalId})) > 0`
+    ),
     check('artifacts_source_ref_nonempty', sql`length(btrim(${table.sourceArtifactRef})) > 0`),
     check('artifacts_location_ref_nonempty', sql`length(btrim(${table.locationRef})) > 0`),
     check('artifacts_filename_nonempty', sql`length(btrim(${table.filename})) > 0`),

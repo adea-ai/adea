@@ -25,10 +25,7 @@ import { loadCharacter } from '../src/runtime'
 const characterAssets = resolve(import.meta.dir, '../assets')
 
 function previewPart(id: string): THREE.SkinnedMesh {
-  const mesh = new THREE.SkinnedMesh(
-    new THREE.BufferGeometry(),
-    new THREE.MeshBasicMaterial(),
-  )
+  const mesh = new THREE.SkinnedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial())
   mesh.name = characterPartName(id)
   return mesh
 }
@@ -169,8 +166,12 @@ describe('character package catalog', () => {
     expect(characterPartsBySlot('ears')).toHaveLength(16)
     expect(characterPartsBySlot('ears').every((part) => part.file.startsWith('ears/'))).toBe(true)
     expect(characterPartsBySlot('costume')).toHaveLength(51)
-    expect(characterPartsBySlot('costume').every((part) => part.file.startsWith('costume/'))).toBe(true)
-    expect(characterPartsBySlot('accessory').every((part) => !part.file.includes('/Ears_'))).toBe(true)
+    expect(characterPartsBySlot('costume').every((part) => part.file.startsWith('costume/'))).toBe(
+      true
+    )
+    expect(characterPartsBySlot('accessory').every((part) => !part.file.includes('/Ears_'))).toBe(
+      true
+    )
 
     for (const asset of characterPartAssets) {
       expect(existsSync(resolve(characterAssets, asset.assetUrl.split('/models/')[1]))).toBe(true)
@@ -182,7 +183,11 @@ describe('character package catalog', () => {
     expect(getCharacterManifest('default')?.assetUrl).toBe('/assets/models/characters.glb')
     expect(isCustomCharacterId('custom-casual')).toBe(false)
     expect(getCharacterManifest('cashier')).toBeUndefined()
-    expect(referenceCharacterAssets.every((asset) => existsSync(resolve(characterAssets, asset.assetUrl.split('/models/')[1])))).toBe(true)
+    expect(
+      referenceCharacterAssets.every((asset) =>
+        existsSync(resolve(characterAssets, asset.assetUrl.split('/models/')[1]))
+      )
+    ).toBe(true)
 
     const referenceDirectory = resolve(characterAssets, '_complete')
     expect(existsSync(resolve(referenceDirectory, 'f_1.glb'))).toBe(true)
@@ -254,6 +259,8 @@ describe('character package catalog', () => {
       library.nodes[nodeId]?.children?.forEach(visit)
     }
     library.scenes?.[0]?.nodes?.forEach(visit)
-    expect([...visibleNodeIds].filter((nodeId) => library.nodes[nodeId]?.skin != null)).toHaveLength(378)
+    expect(
+      [...visibleNodeIds].filter((nodeId) => library.nodes[nodeId]?.skin != null)
+    ).toHaveLength(378)
   })
 })

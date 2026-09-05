@@ -1,17 +1,14 @@
-import type { PortalLink } from "@agent-hq/scene-shell";
-import {
-  ROOM_GALLERY_BOUNDS,
-  ROOM_GALLERY_RUNTIME_SCALE,
-} from "@agent-hq/interior/room-config";
+import type { PortalLink } from '@agent-hq/scene-shell'
+import { ROOM_GALLERY_BOUNDS, ROOM_GALLERY_RUNTIME_SCALE } from '@agent-hq/interior/room-config'
 
-const GATE_Z = (ROOM_GALLERY_BOUNDS.zMax - 0.2) * ROOM_GALLERY_RUNTIME_SCALE;
+const GATE_Z = (ROOM_GALLERY_BOUNDS.zMax - 0.2) * ROOM_GALLERY_RUNTIME_SCALE
 
 /** The centered north gate is shared by the Home and Office HQ layouts. */
 export const HQ_WORLD_GATE_TRIGGER = {
   x: 0,
   z: GATE_Z,
   radius: 0.9,
-} as const;
+} as const
 
 /** Arrival just inside the HQ gate, on the central-room floor. */
 export const HQ_HOME_GATE_SPAWN = {
@@ -21,12 +18,12 @@ export const HQ_HOME_GATE_SPAWN = {
   yaw: 0,
   pitch: -0.12,
   snapToGround: true,
-} as const;
+} as const
 
-export const HQ_OFFICE_GATE_SPAWN = HQ_HOME_GATE_SPAWN;
+export const HQ_OFFICE_GATE_SPAWN = HQ_HOME_GATE_SPAWN
 
-export function hqWorldPortals(sceneId: "hq-home" | "hq-work"): readonly PortalLink[] {
-  const isHome = sceneId === "hq-home";
+export function hqWorldPortals(sceneId: 'hq-home' | 'hq-work'): readonly PortalLink[] {
+  const isHome = sceneId === 'hq-home'
   return [
     {
       id: `${sceneId}-leave-gate`,
@@ -34,8 +31,8 @@ export function hqWorldPortals(sceneId: "hq-home" | "hq-work"): readonly PortalL
       yMin: 0.1,
       yMax: 3,
       navigation: {
-        app: "world",
-        path: isHome ? "/scenes/isla-azul" : "/scenes/little-tokyo",
+        app: 'world',
+        path: isHome ? '/scenes/isla-azul' : '/scenes/little-tokyo',
         spawn: isHome
           ? {
               x: 43.65,
@@ -54,8 +51,8 @@ export function hqWorldPortals(sceneId: "hq-home" | "hq-work"): readonly PortalL
               snapToGround: false,
             },
       },
-      activation: "interact",
-      label: `leave ${isHome ? "Home" : "Office"}`,
+      activation: 'interact',
+      label: `leave ${isHome ? 'Home' : 'Office'}`,
     },
-  ];
+  ]
 }

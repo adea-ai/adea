@@ -53,7 +53,9 @@ export function parseArtifactCreateInput(value: unknown): ApiArtifactCreateInput
     (input.retentionPolicy !== undefined && !RETENTION.has(String(input.retentionPolicy))) ||
     (input.sensitivity !== undefined && !SENSITIVITY.has(String(input.sensitivity))) ||
     (input.provenance !== undefined &&
-      (!input.provenance || typeof input.provenance !== 'object' || Array.isArray(input.provenance)))
+      (!input.provenance ||
+        typeof input.provenance !== 'object' ||
+        Array.isArray(input.provenance)))
   )
     return null
   if (input.provenance && JSON.stringify(input.provenance).length > 32_768) return null

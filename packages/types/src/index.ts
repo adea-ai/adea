@@ -105,13 +105,7 @@ export type RoomSummary = Readonly<{
 }>
 
 export type TaskLifecycleState =
-  | 'created'
-  | 'queued'
-  | 'in_progress'
-  | 'in_review'
-  | 'completed'
-  | 'cancelled'
-  | 'archived'
+  'created' | 'queued' | 'in_progress' | 'in_review' | 'completed' | 'cancelled' | 'archived'
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent'
 export type TaskKind = 'bug' | 'feature' | 'chore'
 

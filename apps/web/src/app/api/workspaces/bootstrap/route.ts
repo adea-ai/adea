@@ -29,10 +29,7 @@ export async function POST(request: Request) {
   const authorization = await authorizeWorkspace(resolution.principal, 'workspace.create', null)
   if (!authorization.allowed) return workspaceUnavailableResponse(request)
 
-  const workspaces = await ensureBootstrapWorkspaces(
-    applicationDatabase(),
-    resolution.principal,
-  )
+  const workspaces = await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
   const displayName = await getUserDisplayName(applicationDatabase(), resolution.principal)
 
   const payload: ApiWorkspaceBootstrapResponse = {

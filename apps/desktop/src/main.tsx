@@ -171,7 +171,7 @@ function DesktopApp() {
             getWorkspaceId: () => workspaceIdRef.current,
             getUserId: () => userIdRef.current,
             requestedHarness: 'codex',
-          }),
+          })
         )
         .then((value) => {
           loaded = value
@@ -194,51 +194,56 @@ function DesktopApp() {
       .catch(() => undefined)
   }, [])
 
-  const openWorkspace = useCallback(async (activeSession?: DesktopSession) => {
-    const requestIsCurrent = workspaceRequestGuardRef.current.begin()
-    setSession(activeSession)
-    sessionRef.current = activeSession
-    setStatus('loading')
-    setMessage(
-      activeSession ? 'Opening your saved workspace…' : 'Opening a private guest workspace…'
-    )
-    try {
-      let storedTemporaryCredential = temporaryCredentialRef.current
-      if (!storedTemporaryCredential) {
-        storedTemporaryCredential = await loadTemporaryWorkspaceCredential(temporaryVault.load)
-      }
-      const nextWorkspace = await bootstrapDesktopWorkspace({
-        createClient: ({ session: clientSession, temporaryCredential }) =>
-          workspaceClient(clientSession, temporaryCredential),
-        session: activeSession,
-        storedTemporaryCredential,
-        onTemporaryCredentialClaimed: () => {
-          temporaryCredentialRef.current = null
-        },
-        temporaryVault,
-      })
-      if (!requestIsCurrent()) return
-      await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
-      if (!requestIsCurrent()) return
-      switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
-      temporaryCredentialRef.current = nextWorkspace.temporaryCredential
-      workspaceIdRef.current = nextWorkspace.workspace.id
-      userIdRef.current = nextWorkspace.userId
-      setWorkspaceState(nextWorkspace)
-      setStatus(activeSession ? 'authenticated' : 'guest')
+  const openWorkspace = useCallback(
+    async (activeSession?: DesktopSession) => {
+      const requestIsCurrent = workspaceRequestGuardRef.current.begin()
+      setSession(activeSession)
+      sessionRef.current = activeSession
+      setStatus('loading')
       setMessage(
-        activeSession
-          ? 'Your workspace is saved to your Agent HQ account.'
-          : nextWorkspace.temporaryCredentialPersisted
-            ? 'You can use this workspace now. Sign in whenever you want to save it to an account.'
-            : 'You can use this workspace now. Sign in before closing the app to save it to an account.'
+        activeSession ? 'Opening your saved workspace…' : 'Opening a private guest workspace…'
       )
-    } catch {
-      if (!requestIsCurrent()) return
-      setStatus('offline')
-      setMessage('Agent HQ could not reach the workspace service. Your local credentials are safe.')
-    }
-  }, [switchWorkspace])
+      try {
+        let storedTemporaryCredential = temporaryCredentialRef.current
+        if (!storedTemporaryCredential) {
+          storedTemporaryCredential = await loadTemporaryWorkspaceCredential(temporaryVault.load)
+        }
+        const nextWorkspace = await bootstrapDesktopWorkspace({
+          createClient: ({ session: clientSession, temporaryCredential }) =>
+            workspaceClient(clientSession, temporaryCredential),
+          session: activeSession,
+          storedTemporaryCredential,
+          onTemporaryCredentialClaimed: () => {
+            temporaryCredentialRef.current = null
+          },
+          temporaryVault,
+        })
+        if (!requestIsCurrent()) return
+        await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
+        if (!requestIsCurrent()) return
+        switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
+        temporaryCredentialRef.current = nextWorkspace.temporaryCredential
+        workspaceIdRef.current = nextWorkspace.workspace.id
+        userIdRef.current = nextWorkspace.userId
+        setWorkspaceState(nextWorkspace)
+        setStatus(activeSession ? 'authenticated' : 'guest')
+        setMessage(
+          activeSession
+            ? 'Your workspace is saved to your Agent HQ account.'
+            : nextWorkspace.temporaryCredentialPersisted
+              ? 'You can use this workspace now. Sign in whenever you want to save it to an account.'
+              : 'You can use this workspace now. Sign in before closing the app to save it to an account.'
+        )
+      } catch {
+        if (!requestIsCurrent()) return
+        setStatus('offline')
+        setMessage(
+          'Agent HQ could not reach the workspace service. Your local credentials are safe.'
+        )
+      }
+    },
+    [switchWorkspace]
+  )
 
   useEffect(() => {
     let disposed = false
@@ -284,7 +289,8 @@ function DesktopApp() {
   }, [openWorkspace])
 
   const activeWorkspace = workspaceState
-    ? workspaceState.workspaces.find(({ id }) => id === selectedWorkspaceId) ?? workspaceState.workspace
+    ? (workspaceState.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
+      workspaceState.workspace)
     : undefined
 
   useEffect(() => {

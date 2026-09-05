@@ -104,13 +104,11 @@ export async function createAgent(
       })
       .returning()
     if (!created) throw new Error('Agent creation failed')
-    await transaction
-      .insert(workspaceEvents)
-      .values({
-        eventType: 'agent.created',
-        payload: { actorUserId: principal.userId, agentId: created.id },
-        workspaceId,
-      })
+    await transaction.insert(workspaceEvents).values({
+      eventType: 'agent.created',
+      payload: { actorUserId: principal.userId, agentId: created.id },
+      workspaceId,
+    })
     return summary(created)
   })
 }
@@ -185,13 +183,11 @@ export async function assignAgentToRoom(
       )
       .returning()
     if (!updated) throw new Error('Agent unavailable')
-    await transaction
-      .insert(workspaceEvents)
-      .values({
-        eventType: 'agent.room_assigned',
-        payload: { actorUserId: principal.userId, agentId, roomId },
-        workspaceId,
-      })
+    await transaction.insert(workspaceEvents).values({
+      eventType: 'agent.room_assigned',
+      payload: { actorUserId: principal.userId, agentId, roomId },
+      workspaceId,
+    })
     return summary(updated)
   })
 }
@@ -230,13 +226,11 @@ export async function updateAgentPresentation(
       )
       .returning()
     if (!updated) throw new Error('Agent unavailable')
-    await transaction
-      .insert(workspaceEvents)
-      .values({
-        eventType: 'agent.presentation_updated',
-        payload: { actorUserId: principal.userId, agentId },
-        workspaceId,
-      })
+    await transaction.insert(workspaceEvents).values({
+      eventType: 'agent.presentation_updated',
+      payload: { actorUserId: principal.userId, agentId },
+      workspaceId,
+    })
     return summary(updated)
   })
 }
@@ -267,18 +261,16 @@ export async function changeAgentProfile(
       )
       .returning()
     if (!updated) throw new Error('Agent unavailable')
-    await transaction
-      .insert(workspaceEvents)
-      .values({
-        eventType: 'agent.profile_changed',
-        payload: {
-          actorUserId: principal.userId,
-          agentId,
-          profileId: input.profileId,
-          profileVersion: input.profileVersion,
-        },
-        workspaceId,
-      })
+    await transaction.insert(workspaceEvents).values({
+      eventType: 'agent.profile_changed',
+      payload: {
+        actorUserId: principal.userId,
+        agentId,
+        profileId: input.profileId,
+        profileVersion: input.profileVersion,
+      },
+      workspaceId,
+    })
     return summary(updated)
   })
 }
@@ -303,12 +295,10 @@ export async function archiveAgent(
       )
       .returning({ id: agents.id })
     if (!updated) throw new Error('Agent unavailable')
-    await transaction
-      .insert(workspaceEvents)
-      .values({
-        eventType: 'agent.archived',
-        payload: { actorUserId: principal.userId, agentId },
-        workspaceId,
-      })
+    await transaction.insert(workspaceEvents).values({
+      eventType: 'agent.archived',
+      payload: { actorUserId: principal.userId, agentId },
+      workspaceId,
+    })
   })
 }
