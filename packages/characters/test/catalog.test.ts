@@ -22,7 +22,12 @@ import { characterPartOffsets } from "../src/generated-part-offsets";
 import { createDefaultCharacterConfiguration } from "../src/configuration";
 import { loadCharacter } from "../src/runtime";
 
-const characterAssets = resolve(import.meta.dir, "../assets");
+// Binary art lives in the private pack, not the repository. Skip the
+// filesystem assertions (not the catalog contract) when it is absent.
+const packRoot =
+  process.env.AGENT_HQ_ASSETS_DIR ?? resolve(import.meta.dir, "../../../vendor/assets");
+const characterAssets = resolve(packRoot, "packages/characters/assets");
+const assetsPresent = existsSync(characterAssets);
 
 function previewPart(id: string): THREE.SkinnedMesh {
   const mesh = new THREE.SkinnedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial());
@@ -87,8 +92,11 @@ describe("character package catalog", () => {
     expect(isCharacterId("f_1")).toBe(true);
     expect(manifest?.assetUrl).toBe("/assets/models/characters.glb");
     expect(referenceManifest?.assetUrl).toBe("/assets/models/_complete/f_1.glb");
-    expect(existsSync(resolve(characterAssets, "characters.glb"))).toBe(true);
     expect(referenceCharacterAssets).toHaveLength(referenceCharacterIds.length);
+  });
+
+  test.skipIf(!assetsPresent)("ships the configurable character model file", () => {
+    expect(existsSync(resolve(characterAssets, "characters.glb"))).toBe(true);
   });
 
   test("uses compact runtime variants for the built-in character configurations", () => {
@@ -100,6 +108,9 @@ describe("character package catalog", () => {
     expect(getCharacterLibraryAssetUrl("character:v1:unknown")).toBe(
       "/assets/models/characters.glb"
     );
+  });
+
+  test.skipIf(!assetsPresent)("ships compact runtime variant files", () => {
     expect(existsSync(resolve(characterAssets, "characters-default.glb"))).toBe(true);
     expect(existsSync(resolve(characterAssets, "characters-researcher.glb"))).toBe(true);
     expect(existsSync(resolve(characterAssets, "characters-builder.glb"))).toBe(true);
@@ -172,7 +183,9 @@ describe("character package catalog", () => {
     expect(characterPartsBySlot("accessory").every((part) => !part.file.includes("/Ears_"))).toBe(
       true
     );
+  });
 
+  test.skipIf(!assetsPresent)("every wearable part file exists in the pack", () => {
     for (const asset of characterPartAssets) {
       expect(existsSync(resolve(characterAssets, asset.assetUrl.split("/models/")[1]))).toBe(true);
     }
@@ -183,6 +196,14 @@ describe("character package catalog", () => {
     expect(getCharacterManifest("default")?.assetUrl).toBe("/assets/models/characters.glb");
     expect(isCustomCharacterId("custom-casual")).toBe(false);
     expect(getCharacterManifest("cashier")).toBeUndefined();
+    expect(
+      referenceCharacterAssets.every((asset) =>
+        asset.assetUrl.startsWith("/assets/models/_complete/")
+      )
+    ).toBe(true);
+  });
+
+  test.skipIf(!assetsPresent)("ships reference character files", () => {
     expect(
       referenceCharacterAssets.every((asset) =>
         existsSync(resolve(characterAssets, asset.assetUrl.split("/models/")[1]))
@@ -202,7 +223,9 @@ describe("character package catalog", () => {
         assetUrl: "/assets/models/characters.glb",
       },
     ]);
+  });
 
+  test.skipIf(!assetsPresent)("animation library contents", () => {
     const animationDocument = readGlbJson(resolve(characterAssets, "runtime.glb"));
     expect(animationDocument.animations).toHaveLength(29);
     const animationNames = new Set(
@@ -243,7 +266,7 @@ describe("character package catalog", () => {
     );
   });
 
-  test("keeps the runtime library skinned to the shared 44-bone rig", () => {
+  test.skipIf(!assetsPresent)("keeps the runtime library skinned to the shared 44-bone rig", () => {
     const library = readGlbJson(resolve(characterAssets, "characters.glb"));
     expect(library.scenes?.[0]?.nodes?.map((nodeId) => library.nodes[nodeId]?.name)).toEqual([
       "Skeleton_01",
