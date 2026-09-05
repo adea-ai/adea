@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Must match the Worker name in the Cloudflare dashboard (repo is already
+  // connected to GitHub there). Rename here or in the dashboard so they agree.
+  "name": "agent-hq-web",
+  "account_id": "aa2dc82d7e02aff12b77800a8201df3f",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  // Hyperdrive (Neon connection pooling) `agent-hq-db`, pointed at the
+  // production Neon branch (direct/unpooled origin; Hyperdrive pools itself).
+  // See CLOUDFLARE.md.
+  // Local emulation target for `next dev` / `wrangler dev` (see compose.yaml
+  // and .env.example). Non-secret dev default; production uses the origin
+  // connection string from `wrangler hyperdrive create`. Requires
+  // `compose up` (or any Postgres on 127.0.0.1:55432) for DB-backed pages.
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "5faad934a0a14a29bbb4780ca2f53fa6",
+      "localConnectionString": "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable",
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+}

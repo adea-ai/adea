@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
 import { Box, Camera, Focus, Grid3X3, UserRoundPen } from "lucide-react";
+import type { CharacterOption } from "./character-selector";
+import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
 

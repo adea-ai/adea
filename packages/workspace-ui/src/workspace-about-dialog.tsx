@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@agent-hq/ui/components/ui/button'
 import { WorkspaceLogo } from '@agent-hq/ui/components/workspace-logo'
+import { ExternalLink } from 'lucide-react'
 
 import { ModalDialog } from './modal-dialog'
 
@@ -62,6 +63,10 @@ export function WorkspaceAboutDialog({
           <Button type="button" variant="outline" size="sm" onClick={() => void copyVersionInfo()}>
             {copied ? 'Copied' : 'Copy version info'}
           </Button>
+          <a href="https://github.com/adea-ai/agent-hq" target="_blank" rel="noreferrer">
+            <ExternalLink aria-hidden="true" />
+            View source
+          </a>
         </footer>
       </div>
     </ModalDialog>
