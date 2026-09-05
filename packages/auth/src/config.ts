@@ -67,15 +67,8 @@ export function readAuthConfig(environment: AuthEnvironment = process.env): Auth
 
   const rawOrigins = environment.AUTH_TRUSTED_ORIGINS;
   if (!rawOrigins) throw new Error("AUTH_TRUSTED_ORIGINS is required");
-  const deploymentOrigins = [environment.VERCEL_URL, environment.VERCEL_BRANCH_URL]
-    .filter((value): value is string => Boolean(value))
-    .map((value) => (value.includes("://") ? value : `https://${value}`));
   const trustedOrigins = [
-    ...new Set(
-      [...rawOrigins.split(","), ...deploymentOrigins].map((value) =>
-        normalizeTrustedTarget(value.trim())
-      )
-    ),
+    ...new Set(rawOrigins.split(",").map((value) => normalizeTrustedTarget(value.trim()))),
   ];
   if (trustedOrigins.length === 0) throw new Error("AUTH_TRUSTED_ORIGINS must not be empty");
 

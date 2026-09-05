@@ -26,14 +26,15 @@ delete the saved workspaces or unpair a RuntimeNode.
 | Development        | development  | Development `NEON_AUTH_BASE_URL`     |
 | Pull request CI    | preview/pr-* | Neon branch action `auth_url` output |
 
-Vercel stores separate `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, and
-`AUTH_TRUSTED_ORIGINS` records for each target. `VITE_NEON_AUTH_URL` is public by design and is
+Each target keeps separate `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, and
+`AUTH_TRUSTED_ORIGINS` records in the Cloudflare Secret Store. `VITE_NEON_AUTH_URL` is public by design and is
 also branch-specific for the later desktop shell. Never client-prefix the cookie secret.
 
 The Next.js client calls the same-origin `/api/auth/*` proxy. State-changing proxy requests require
-an exact `Origin` match. Production uses only stable HTTPS aliases. Preview deployments add their
-exact `VERCEL_URL` and `VERCEL_BRANCH_URL` at runtime; the matching current deployment and branch
-aliases must also exist in the staging branch's Neon Auth domain list. Wildcards are prohibited.
+an exact `Origin` match. Production uses only stable HTTPS aliases (`adea.dev` and the `workers.dev` URL).
+Preview Worker deployments must list their exact URLs in `AUTH_TRUSTED_ORIGINS`;
+those aliases must also exist in the staging branch's Neon Auth domain list.
+Wildcards are prohibited.
 Development enables Neon's localhost setting.
 
 Neon accepts only HTTP(S) trusted domains. Desktop OAuth therefore returns to the stable HTTPS web

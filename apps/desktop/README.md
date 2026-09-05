@@ -11,7 +11,7 @@ open it in Tauri. `bun run client:build` produces the assets embedded by Tauri.
 The public `VITE_AGENT_HQ_CLOUD_ORIGIN` build setting may select an approved
 Agent HQ deployment; native code reads that same compile-time value when it
 allowlists the authorization origin. Release builds default to
-`https://agent-hq-site.vercel.app`.
+`https://adea.dev`.
 
 First launch opens directly into the bundled Home or Work workspace scene. The cloud workspace service
 creates a temporary canonical user, owner membership, and default Home and Work workspaces without requiring

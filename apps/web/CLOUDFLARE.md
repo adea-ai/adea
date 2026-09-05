@@ -2,7 +2,7 @@
 
 `apps/web` deploys to Cloudflare Workers via
 [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare) (Next 16 is
-supported). Vercel still works during the transition; nothing here breaks it.
+supported). Cloudflare Workers is the deployment target.
 
 ## One-time setup (dashboard + CLI)
 
@@ -42,7 +42,7 @@ supported). Vercel still works during the transition; nothing here breaks it.
    ```
    The app reads `env.HYPERDRIVE.connectionString` at runtime
    (`src/server/database-connection.ts`) and falls back to `DATABASE_URL`
-   anywhere the binding is absent (local dev, Vercel, tests). The existing
+   anywhere the binding is absent (local dev, tests). The existing
    `postgres.js` driver and all Drizzle transactions work unchanged.
 4. **Secrets** (never in `wrangler.jsonc` or git):
    ```bash
@@ -55,17 +55,24 @@ supported). Vercel still works during the transition; nothing here breaks it.
    wrangler secret put CONTROL_PLANE_SERVICE_TOKEN
    wrangler secret put CONTROL_PLANE_SCOPE_WORKSPACE_ID
    ```
-   Source values: `vercel env pull` (`.env.local`, gitignored). Drop
-   `VERCEL_OIDC_TOKEN` (unused in code) and every `POSTGRES_*`/`PG*`
-   duplicate once Hyperdrive is live — they were Vercel-integration copies
-   of the same Neon role.
+   Source values: the Cloudflare Secret Store is the source of truth for hosted
+   values (the `AGENT_HQ_*` records); `.env.local` (gitignored) keeps local
+   Development copies for day-to-day dev. Drop `VERCEL_OIDC_TOKEN` (unused in
+   code) and every `POSTGRES_*`/`PG*` duplicate — they were Vercel-integration
+   copies of the same Neon role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev stays `bun run dev` (plain Node).
 
+## Release attribution (telemetry)
+
+`scripts/build-cloudflare-worker.mjs` stamps `DEPLOY_GIT_COMMIT_SHA` (plus the
+`NEXT_PUBLIC_` twin for the client bundle) from `git rev-parse HEAD`, so scene
+telemetry keeps release labels without a hosting provider. An explicit
+`DEPLOY_GIT_COMMIT_SHA` in the build environment always wins; Workers Builds
+previews therefore report their own commit automatically.
+
 ## Database migrations
 
-- **Vercel:** unchanged (`vercel.json` → `scripts/deployment-migrate.mjs`,
-  Vercel-only by design).
 - **Cloudflare:** `.github/workflows/cloudflare-db-migrate.yml` runs
   `bun run db:verify` (same idempotent verifier) on pushes to `main` that
   touch `packages/db/drizzle/**`. It needs the `DATABASE_MIGRATION_URL`

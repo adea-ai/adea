@@ -41,8 +41,7 @@ import "./styles.css";
 
 const packageVersion = packageJson.version;
 
-const cloudOrigin =
-  import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || "https://agent-hq-site.vercel.app";
+const cloudOrigin = import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || "https://adea.dev";
 
 const SpatialDesktopWorkspace = lazy(() =>
   import("./desktop-workspace").then(({ DesktopWorkspace }) => ({ default: DesktopWorkspace }))
