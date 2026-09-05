@@ -11,7 +11,7 @@ use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 
 const CALLBACK_URI: &str = "agent-hq://auth/callback";
-const DEFAULT_CLOUD_ORIGIN: &str = "https://agent-hq-site.vercel.app";
+const DEFAULT_CLOUD_ORIGIN: &str = "https://adea.dev";
 const AUTHORIZATION_PATH: &str = "/api/auth/desktop/authorize";
 const CALLBACK_EVENT: &str = "desktop-auth-callback-ready";
 const AUTH_ATTEMPT_KEYCHAIN_USER: &str = "desktop-authorization-attempt";

@@ -1,4 +1,4 @@
-const DEFAULT_CLOUD_ORIGIN = "https://agent-hq-site.vercel.app";
+const DEFAULT_CLOUD_ORIGIN = "https://adea.dev";
 
 export function normalizeDesktopCloudOrigin(value = DEFAULT_CLOUD_ORIGIN) {
   const url = new URL(value);

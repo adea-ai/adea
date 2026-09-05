@@ -31,4 +31,25 @@ const workspaceDepFilters = Object.keys({
   .filter((name) => name.startsWith("@agent-hq/"))
   .map((name) => `--filter=${name}`);
 run(["x", "turbo", "run", "build", ...workspaceDepFilters], repositoryRoot);
+
+// Stamp the deployment commit SHA into the bundle so scene telemetry keeps
+// release attribution without a hosting provider (the old platform's
+// commit-SHA variable is gone). Next inlines process.env references at
+// build time, so exporting here stamps both the server envelope default
+// (DEPLOY_GIT_COMMIT_SHA) and the client release marker
+// (NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA) with the exact commit being deployed,
+// including Workers Builds previews. An explicitly provided
+// DEPLOY_GIT_COMMIT_SHA always wins; when git is unavailable the variables
+// stay unset and telemetry simply omits release metadata.
+if (!process.env.DEPLOY_GIT_COMMIT_SHA) {
+  const revision = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  });
+  const sha = revision.error || revision.status !== 0 ? "" : revision.stdout.trim();
+  if (sha) process.env.DEPLOY_GIT_COMMIT_SHA = sha;
+}
+if (process.env.DEPLOY_GIT_COMMIT_SHA && !process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA) {
+  process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA = process.env.DEPLOY_GIT_COMMIT_SHA;
+}
 run(["x", "opennextjs-cloudflare", "build"], webRoot);
