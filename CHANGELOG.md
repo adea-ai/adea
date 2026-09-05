@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.7](https://github.com/adea-ai/agent-hq/compare/v0.10.6...v0.10.7) (2026-09-05)
+
+
+### Tests
+
+* **e2e:** stop pinning the About dialog to a stale app version ([#224](https://github.com/adea-ai/agent-hq/issues/224)) ([1bf8345](https://github.com/adea-ai/agent-hq/commit/1bf834500616a55ad8a2b49d34a21f6556c2138e))
+
+## [0.10.6](https://github.com/adea-ai/agent-hq/compare/v0.10.5...v0.10.6) (2026-09-05)
+
+
+### Maintenance
+
+* remove Vercel deployment target; Workers is canonical ([#222](https://github.com/adea-ai/agent-hq/issues/222)) ([5746fe4](https://github.com/adea-ai/agent-hq/commit/5746fe424fdb961c28abb919a63fb311072ac2c9))
+
 ## [0.10.5](https://github.com/adea-ai/agent-hq/compare/v0.10.4...v0.10.5) (2026-09-05)
 
 

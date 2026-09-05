@@ -1,9 +1,8 @@
 # Applies Neon database migrations for the Cloudflare Worker deployment.
 #
-# Vercel runs migrations during its build (apps/web/vercel.json ->
-# scripts/deployment-migrate.mjs). Cloudflare Workers builds must not run
-# migrations, so this workflow applies them from CI instead, using the same
-# idempotent verifier (bun run db:verify in packages/db).
+# Worker builds must not run migrations, so this workflow applies them from
+# CI instead, using the same idempotent verifier (bun run db:verify in
+# packages/db).
 #
 # Required repository secret:
 #   DATABASE_MIGRATION_URL - unpooled migration-role URL for the production

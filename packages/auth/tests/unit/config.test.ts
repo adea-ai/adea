@@ -20,7 +20,7 @@ describe("auth configuration", () => {
 
   test("requires an exact redirect allowlist without wildcards or credentials", () => {
     expect(() =>
-      readAuthConfig({ ...validEnvironment, AUTH_TRUSTED_ORIGINS: "https://*.vercel.app" })
+      readAuthConfig({ ...validEnvironment, AUTH_TRUSTED_ORIGINS: "https://*.agent-hq.example" })
     ).toThrow("wildcard");
     expect(() =>
       readAuthConfig({
@@ -41,16 +41,17 @@ describe("auth configuration", () => {
     expect(config.sessionDataTtl).toBe(1);
   });
 
-  test("adds exact Vercel deployment and branch origins without a wildcard", () => {
+  test("keeps every exact allowlist entry without adding deployment origins", () => {
     const config = readAuthConfig({
       ...validEnvironment,
-      VERCEL_URL: "agent-hq-random-0xplayerone.vercel.app",
-      VERCEL_BRANCH_URL: "agent-hq-web-git-feature-0xplayerone.vercel.app",
+      AUTH_TRUSTED_ORIGINS:
+        "https://adea.dev,https://agent-hq-web.agent-hq.workers.dev,agent-hq://auth/callback",
     });
 
-    expect(config.trustedOrigins).toContain("https://agent-hq-random-0xplayerone.vercel.app");
-    expect(config.trustedOrigins).toContain(
-      "https://agent-hq-web-git-feature-0xplayerone.vercel.app"
-    );
+    expect(config.trustedOrigins).toEqual([
+      "https://adea.dev",
+      "https://agent-hq-web.agent-hq.workers.dev",
+      "agent-hq://auth/callback",
+    ]);
   });
 });

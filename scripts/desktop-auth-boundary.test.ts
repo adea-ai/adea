@@ -160,6 +160,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(csp).toContain(`connect-src 'self' blob: ipc: http://ipc.localhost ${configured} `);
     expect(csp).not.toContain("connect-src 'self' https:");
     expect(csp).not.toContain("https://agent-hq-site.vercel.app");
+    expect(normalizeDesktopCloudOrigin()).toBe("https://adea.dev");
     expect(normalizeDesktopCloudOrigin("http://127.0.0.1:4305")).toBe("http://127.0.0.1:4305");
     expect(() => normalizeDesktopCloudOrigin("https://evil.example/path")).toThrow(
       "Desktop cloud origin"

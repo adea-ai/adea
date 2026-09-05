@@ -1,6 +1,6 @@
 {
   "name": "@agent-hq/asset-manifests",
-  "version": "0.10.5",
+  "version": "0.10.7",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

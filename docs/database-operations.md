@@ -11,15 +11,15 @@ Agent HQ uses standard PostgreSQL as its application contract. Neon supplies hos
 | Development        | `development`                     | `adea_dev_app`                                                                                | `adea_dev_migration`           |
 | Pull request CI    | `preview/pr-*` from `development` | inherited `adea_dev_app`                                                                      | inherited `adea_dev_migration` |
 
-Vercel stores separate `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL` records for Production, Preview, and Development. Production and Preview values are sensitive. Environment selection is deployment configuration; request data must never select a branch, connection string, or role.
+The Cloudflare Secret Store holds the hosted `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL` records for Production, Preview, and Development (the migration URL doubles as a GitHub secret for the CI migrate workflow). Production and Preview values are sensitive. Environment selection is deployment configuration; request data must never select a branch, connection string, or role.
 
-`DATABASE_URL` uses the pooled Neon endpoint and the application role. `DATABASE_URL_UNPOOLED` uses the same application role for operations that cannot use transaction pooling. `DATABASE_MIGRATION_URL` is unpooled and uses the migration role. Administrative owner credentials are not stored in Vercel.
+`DATABASE_URL` uses the pooled Neon endpoint and the application role. `DATABASE_URL_UNPOOLED` uses the same application role for operations that cannot use transaction pooling. `DATABASE_MIGRATION_URL` is unpooled and uses the migration role. Administrative owner credentials are not stored in the Worker application secrets.
 
 The application roles have data access granted by migrations but cannot create schemas or database objects. Migration roles own the `app` schema and can create database objects, but they are not superusers and cannot create roles, create databases, replicate, or bypass row-level security.
 
 Neon's management API cannot return a password for a role created directly in PostgreSQL. Pull-request CI therefore stores only the rotated development role passwords in the `NEON_CI_APP_PASSWORD` and `NEON_CI_MIGRATION_PASSWORD` GitHub secrets, obtains the isolated branch hostnames from the Neon action, and constructs the URLs inside the masked job environment. It never uses the action's owner URL for database commands.
 
-The current Neon plan does not support protected branches or IP allowlisting. Production therefore cannot yet receive Neon's deletion/reset protection or automatic child-branch password rotation. Compensating controls are separate environment roles/passwords, no owner credential in Vercel, pull-request branches rooted at `development`, TLS-only hosted URLs, and short expiry on temporary branches. Upgrade to a paid Neon plan before treating branch protection as closed.
+The current Neon plan does not support protected branches or IP allowlisting. Production therefore cannot yet receive Neon's deletion/reset protection or automatic child-branch password rotation. Compensating controls are separate environment roles/passwords, no owner credential in the Worker application secrets, pull-request branches rooted at `development`, TLS-only hosted URLs, and short expiry on temporary branches. Upgrade to a paid Neon plan before treating branch protection as closed.
 
 ## Local PostgreSQL
 
@@ -59,7 +59,7 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Review committed SQL before applying it.
 - Run migrations with `DATABASE_MIGRATION_URL`; ordinary requests use `DATABASE_URL`.
 - Apply migrations once per deployment before application traffic depends on them.
-- Vercel applies the committed migration history before every web build and fails the deployment if
+- CI applies the committed migration history before every Worker deployment and fails the deployment if
   the restricted migration credential is absent or a migration is not deterministic.
 - Never edit an applied migration. Add a forward fix.
 - Prefer expand/migrate/contract changes. Roll back application code independently while the expanded schema remains compatible.
@@ -99,7 +99,7 @@ Neon may create the preserved state without an active compute. Attach a temporar
 1. Generate a distinct random password for exactly one environment and role.
 2. Change the PostgreSQL role password through an owner-only administrative connection.
 3. Verify a new connection succeeds and the previous password fails.
-4. Update only the matching Vercel target variable.
+4. Update only the matching Secret Store secret (or the GitHub secret for CI-only values).
 5. Redeploy that target, verify the health probe, then rotate the next role.
 6. Rotate runtime, migration, and owner credentials separately. Never log or commit a password.
 
