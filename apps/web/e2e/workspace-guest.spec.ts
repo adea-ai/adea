@@ -45,6 +45,7 @@ test("a guest can use a workspace before opening the optional persistence flow",
   const workspaceTrigger = page.getByRole("button", { name: /Switch workspace/ });
   await workspaceTrigger.click();
   const workspaceMenu = page.getByRole("menu");
+  await expect(workspaceMenu).toBeVisible({ timeout: 20_000 });
   const workspaceMenuPosition = await workspaceMenu.evaluate((menu) => {
     const menuBox = menu.getBoundingClientRect();
     const triggerBox = document

@@ -500,7 +500,11 @@ test("switching from a reference character to Custom in the character designer w
   });
   const userMenu = page.getByRole("button", { name: /Open user menu|User settings/ });
   await expect(userMenu).toBeVisible();
-  await userMenu.click();
+  await expect(userMenu).toBeEnabled();
+  // Software-rendered CI never settles this animated rail control for
+  // Playwright's actionability checks (verified uncovered via element hit
+  // testing). Visibility and enabled state are asserted above.
+  await userMenu.click({ force: true });
   await expect(page.getByRole("heading", { name: "Character" })).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(userMenu).toHaveAttribute("aria-expanded", "false");
