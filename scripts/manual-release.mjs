@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { delimiter, resolve } from "node:path";
 
 import { createReleasePlan, parseCommitLog } from "./manual-release-core.mjs";
 
@@ -94,9 +94,21 @@ function latestReleaseTag() {
 }
 
 function runReleasePlease(subcommand, token) {
+  // @google-automations/git-file-utils requires the undeclared
+  // @octokit/request-error (upstream bug; only npm flat-hoisting provides
+  // it). Bun's isolated linker leaves it out of scope, so run the pinned
+  // local binary with node and NODE_PATH pointed at release-please's own
+  // scope, which does contain @octokit/request-error.
+  const releasePleaseBin = resolve(
+    root,
+    "node_modules/release-please/build/src/bin/release-please.js"
+  );
+  const releasePleaseScope = resolve(root, "node_modules/release-please", "..");
+  const nodePath = process.env.NODE_PATH
+    ? `${releasePleaseScope}${delimiter}${process.env.NODE_PATH}`
+    : releasePleaseScope;
   const args = [
-    "--bun",
-    "release-please",
+    releasePleaseBin,
     subcommand,
     `--token=${token}`,
     `--repo-url=${repository}`,
@@ -104,8 +116,9 @@ function runReleasePlease(subcommand, token) {
     "--config-file=release-please-config.json",
     "--manifest-file=.release-please-manifest.json",
   ];
-  run("bunx", args, {
+  run("node", args, {
     displayArgs: args.map((arg) => (arg.startsWith("--token=") ? "--token=***" : arg)),
+    env: { ...process.env, NODE_PATH: nodePath },
   });
 }
 
