@@ -131,7 +131,7 @@ export class MarketplaceProxyError extends Error {
 }
 
 function identifier(prefix: 'cmd' | 'req' | 'trc'): string {
-  return `${prefix}_${randomBytes(13).toString('hex')}`
+  return `${prefix}_${randomBytes(13).toString('hex').toUpperCase()}`
 }
 
 function sha256(value: string): string {

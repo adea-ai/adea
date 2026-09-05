@@ -1,4 +1,22 @@
 import type { AgentSummary } from '@agent-hq/types'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components/ui/tooltip'
+
+function StatusChip({
+  detail,
+  label,
+  tone,
+}: Readonly<{ detail: string; label: string; tone: string }>) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<span className={`conventional-status-chip conventional-status-chip--${tone}`} />}
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent>{detail}</TooltipContent>
+    </Tooltip>
+  )
+}
 
 export function agentStatusModel(agent: AgentSummary) {
   const configuration =
@@ -22,6 +40,17 @@ export function agentStatusModel(agent: AgentSummary) {
   })
 }
 
+export function AgentStatusBadge({ agent }: { agent: AgentSummary }) {
+  const status = agentStatusModel(agent)
+  return (
+    <StatusChip
+      detail="Persisted Agent lifecycle and AgentProfile configuration"
+      label={status.configuration.label}
+      tone={status.configuration.tone}
+    />
+  )
+}
+
 export function AgentStatus({
   agent,
   compact = false,
@@ -34,24 +63,21 @@ export function AgentStatus({
     <div
       className={`conventional-agent-status${compact ? ' conventional-agent-status--compact' : ''}`}
     >
-      <span
-        className={`conventional-status-chip conventional-status-chip--${status.configuration.tone}`}
-        title="Persisted Agent lifecycle and AgentProfile configuration"
-      >
-        {status.configuration.label}
-      </span>
-      <span
-        className={`conventional-status-chip conventional-status-chip--${status.runtime.tone}`}
-        title={status.runtime.detail}
-      >
-        {status.runtime.label}
-      </span>
-      <span
-        className={`conventional-status-chip conventional-status-chip--${status.execution.tone}`}
-        title={status.execution.detail}
-      >
-        {status.execution.label}
-      </span>
+      <StatusChip
+        detail="Persisted Agent lifecycle and AgentProfile configuration"
+        label={status.configuration.label}
+        tone={status.configuration.tone}
+      />
+      <StatusChip
+        detail={status.runtime.detail}
+        label={status.runtime.label}
+        tone={status.runtime.tone}
+      />
+      <StatusChip
+        detail={status.execution.detail}
+        label={status.execution.label}
+        tone={status.execution.tone}
+      />
     </div>
   )
 }

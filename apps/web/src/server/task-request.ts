@@ -5,11 +5,14 @@ import {
   archiveTask,
   assignTask,
   cancelTask,
+  completeTask,
   moveTaskToRoom,
   queueTask,
+  reviewTask,
   setTaskArtifactReferences,
   setTaskConversationReferences,
   setTaskDependencies,
+  startTask,
   type TaskCommand,
 } from '@agent-hq/db'
 
@@ -90,7 +93,17 @@ export function taskErrorResponse(
 }
 
 export type TaskAction =
-  'archive' | 'artifacts' | 'assign' | 'cancel' | 'conversation' | 'dependencies' | 'queue' | 'room'
+  | 'archive'
+  | 'artifacts'
+  | 'assign'
+  | 'cancel'
+  | 'complete'
+  | 'conversation'
+  | 'dependencies'
+  | 'queue'
+  | 'review'
+  | 'room'
+  | 'start'
 
 export async function handleTaskAction(
   action: TaskAction,
@@ -134,8 +147,17 @@ export async function handleTaskAction(
       case 'cancel':
         task = await cancelTask(database, workspaceId, taskId, resolution.principal, command)
         break
+      case 'complete':
+        task = await completeTask(database, workspaceId, taskId, resolution.principal, command)
+        break
       case 'queue':
         task = await queueTask(database, workspaceId, taskId, resolution.principal, command)
+        break
+      case 'review':
+        task = await reviewTask(database, workspaceId, taskId, resolution.principal, command)
+        break
+      case 'start':
+        task = await startTask(database, workspaceId, taskId, resolution.principal, command)
         break
       case 'room':
         if (body.roomId !== null && !isUuid(body.roomId))

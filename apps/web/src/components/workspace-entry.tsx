@@ -1,55 +1,16 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useRef, useState } from 'react'
-import { createApiClient } from '@agent-hq/api-client'
-import { useWorkspaceBootstrapQuery } from '@agent-hq/data'
-import { useWorkspaceStore } from '@agent-hq/state'
-import type {
-  WorkspacePlatformServices,
-  WorkspacePluginsProvider,
-} from '@agent-hq/workspace-ui/platform'
-import type { RegistryPluginsProviderOptions } from '@agent-hq/workspace-ui/plugins'
-import { createBrowserSettingsProvider } from '@agent-hq/workspace-ui/preferences'
-import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
-import { parseAsStringLiteral, useQueryState } from 'nuqs'
 import type { WorkspaceShellProps } from './workspace-shell'
-import packageJson from '../../package.json'
 
-const appVersion = packageJson.version
-
-const ConventionalWorkspace = dynamic(
-  () =>
-    import('./conventional-workspace-entry').then(
-      ({ ConventionalWorkspaceEntry }) => ConventionalWorkspaceEntry
-    ),
+const WorkspaceNavigationEntry = dynamic(
+  () => import('./workspace-navigation-entry').then(({ WorkspaceNavigationEntry: Entry }) => Entry),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const SpatialWorkspace = dynamic(
-  () => import('./workspace-shell').then(({ WorkspaceShell }) => WorkspaceShell),
+const CharacterDesignerEntry = dynamic(
+  () => import('./character-designer-entry').then(({ CharacterDesignerEntry: Entry }) => Entry),
   { loading: () => <WorkspaceEntryLoading /> }
-)
-
-const GlobalWorkspaceRail = dynamic(
-  () =>
-    import('@agent-hq/workspace-ui/global-workspace-rail').then(
-      ({ GlobalWorkspaceRail: Rail }) => Rail
-    ),
-  { loading: () => <WorkspaceRailLoading />, ssr: false }
-)
-
-const WorkspaceAboutDialog = dynamic(
-  () =>
-    import('@agent-hq/workspace-ui/workspace-about-dialog').then(
-      ({ WorkspaceAboutDialog: AboutDialog }) => AboutDialog
-    ),
-  { ssr: false }
-)
-
-const PluginsDialog = dynamic(
-  () => import('@agent-hq/workspace-ui/plugins-dialog').then((module) => module.PluginsDialog),
-  { ssr: false }
 )
 
 function WorkspaceEntryLoading() {
@@ -60,158 +21,27 @@ function WorkspaceEntryLoading() {
   )
 }
 
-function WorkspaceRailLoading() {
-  return <nav className="global-rail global-rail--loading" aria-hidden="true" />
-}
-
-function createDeferredPluginsProvider(
-  options: RegistryPluginsProviderOptions
-): WorkspacePluginsProvider {
-  let provider: Promise<WorkspacePluginsProvider> | undefined
-  let loaded: WorkspacePluginsProvider | undefined
-  const load = () => {
-    provider ??= import('@agent-hq/workspace-ui/plugins')
-      .then(({ createRegistryPluginsProvider }) => createRegistryPluginsProvider(options))
-      .then((value) => {
-        loaded = value
-        return value
-      })
-    return provider
-  }
-  return {
-    getState: () => loaded?.getState?.() ?? 'idle',
-    list: () => load().then((value) => value.list()),
-    requestInstall: (pluginId) => load().then((value) => value.requestInstall(pluginId)),
-  }
-}
-
 export function WorkspaceEntry({
-  spatial,
-  spatialProps,
-}: Readonly<{ spatial: boolean; spatialProps: WorkspaceShellProps }>) {
-  const [client] = useState(() => createApiClient())
-  const workspaceIdRef = useRef<string | undefined>(undefined)
-  const userIdRef = useRef<string | undefined>(undefined)
-  const [services] = useState<WorkspacePlatformServices>(() => ({
-    account: {
-      onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
-      onSignOut: async () => {
-        const { createNeonClientAdapter } = await import('@agent-hq/auth/client')
-        await createNeonClientAdapter().signOut()
-        window.location.assign('/')
-      },
-    },
-    app: { name: 'Agent HQ', platform: 'web', version: appVersion },
-    plugins: createDeferredPluginsProvider({
-      client,
-      getWorkspaceId: () => workspaceIdRef.current,
-      getUserId: () => userIdRef.current,
-      requestedHarness: 'codex',
-    }),
-    settings: createBrowserSettingsProvider(),
-  }))
-  const bootstrap = useWorkspaceBootstrapQuery(client)
-  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
-  const setSelectedChannelId = useWorkspaceStore((state) => state.setSelectedChannelId)
-  const setSelectedRoomId = useWorkspaceStore((state) => state.setSelectedRoomId)
-  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
-  const setSelectedWorkspaceId = useWorkspaceStore((state) => state.setSelectedWorkspaceId)
-  const [viewParam, setViewParam] = useQueryState(
-    'view',
-    parseAsStringLiteral(['chat', 'spatial'] as const)
-      .withDefault(spatial ? 'spatial' : 'chat')
-      .withOptions({ clearOnDefault: false, history: 'replace' })
-  )
-  const [scene, setScene] = useQueryState(
-    'scene',
-    parseAsStringLiteral(['home', 'work'] as const)
-      .withDefault(spatialProps.initialScene)
-      .withOptions({ clearOnDefault: false, history: 'replace' })
-  )
-  const view: WorkspaceView = viewParam === 'spatial' ? 'virtual' : 'chat'
-  const activeWorkspace =
-    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
-    bootstrap.data?.activeWorkspace
-  const principal = bootstrap.data?.principal
-  const accountAuthenticated = Boolean(principal && !principal.temporary)
-  const accountLabel = accountAuthenticated
-    ? (principal?.displayName ?? 'Account')
-    : 'Not signed in'
-
-  useEffect(() => {
-    workspaceIdRef.current = activeWorkspace?.id
-    userIdRef.current = principal?.userId
-  }, [activeWorkspace?.id, principal?.userId])
-
-  useEffect(() => setSelectedScene(scene), [scene, setSelectedScene])
-
-  const changeView = (nextView: WorkspaceView) => {
-    void setViewParam(nextView === 'virtual' ? 'spatial' : 'chat')
+  virtual,
+  virtualProps,
+  characterDesigner,
+  roomDesigner,
+}: Readonly<{
+  virtual: boolean
+  virtualProps: WorkspaceShellProps
+  /** Cold-mount the character designer URL without loading the normal workspace shell. */
+  characterDesigner?: boolean
+  /** Mount the dedicated room designer scene beside global workspace navigation. */
+  roomDesigner?: boolean
+}>) {
+  if (characterDesigner) {
+    return <CharacterDesignerEntry initialCharacter={virtualProps.initialCharacter} />
   }
-  const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
-    window.history.replaceState(null, '', `#settings/${section}`)
-    setGlobalPanel('settings')
-    if (view !== 'chat') changeView('chat')
-  }
-  const openSearch = () => {
-    setGlobalPanel('search')
-    if (view !== 'chat') changeView('chat')
-  }
-
   return (
-    <div className={`workspace-frame workspace-frame--${view}`}>
-      <GlobalWorkspaceRail
-        account={{
-          authenticated: accountAuthenticated,
-          label: accountLabel,
-          onSignIn: () => services.account?.onSignIn(),
-          onSignOut: () => void services.account?.onSignOut(),
-        }}
-        onOpenNotifications={() => openSettings('input-notifications')}
-        onOpenAbout={() => setGlobalPanel('about')}
-        onOpenPlugins={() => setGlobalPanel('plugins')}
-        onOpenSearch={openSearch}
-        onOpenSettings={() => openSettings('account')}
-        activeWorkspace={activeWorkspace}
-        onWorkspaceChange={(workspace) => {
-          setSelectedWorkspaceId(workspace.id)
-          setSelectedRoomId(null)
-          setSelectedChannelId(null)
-          setSelectedScene(workspace.scene)
-          void setScene(workspace.scene)
-        }}
-        onViewChange={changeView}
-        view={view}
-        workspaces={bootstrap.data?.workspaces ?? []}
-      />
-      <div className="workspace-frame__surface">
-        {view === 'virtual' ? (
-          <SpatialWorkspace
-            {...spatialProps}
-            apiClient={client}
-            initialScene={scene}
-            onWorkspaceViewChange={changeView}
-            services={services}
-            workspaceView={view}
-          />
-        ) : (
-          <ConventionalWorkspace client={client} onViewChange={changeView} services={services} />
-        )}
-      </div>
-      <PluginsDialog
-        open={globalPanel === 'plugins'}
-        onClose={() => setGlobalPanel(null)}
-        provider={services.plugins}
-      />
-      <WorkspaceAboutDialog
-        appName={services.app?.name}
-        open={globalPanel === 'about'}
-        onClose={() => setGlobalPanel(null)}
-        platform={services.app?.platform}
-        version={services.app?.version}
-      />
-    </div>
+    <WorkspaceNavigationEntry
+      roomDesigner={roomDesigner}
+      virtual={virtual}
+      virtualProps={virtualProps}
+    />
   )
 }

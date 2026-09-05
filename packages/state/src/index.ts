@@ -18,6 +18,7 @@ export type WorkspaceState = {
   setSelectedScene: (scene: WorkspaceSceneId) => void
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
+  switchWorkspace: (workspaceId: string, scene: WorkspaceSceneId) => void
   setSelectedRoomId: (roomId: string | null) => void
   setSelectedChannelId: (channelId: string | null) => void
   setSelectedTaskId: (taskId: string | null) => void
@@ -63,6 +64,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   setSelectedScene: (selectedScene) => set({ selectedScene }),
   setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),
   setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
+  switchWorkspace: (selectedWorkspaceId, selectedScene) =>
+    set({
+      activeSurface: 'conversation',
+      cameraViewMode: 'orthographic',
+      collapsedRoomIds: [],
+      drafts: {},
+      globalPanel: null,
+      mobileSidebarOpen: false,
+      selectedAgentId: null,
+      selectedChannelId: null,
+      selectedRoomId: null,
+      selectedScene,
+      selectedTaskId: null,
+      selectedWorkspaceId,
+      threadRootMessageId: null,
+    }),
   setSelectedRoomId: (selectedRoomId) => set({ selectedRoomId }),
   setSelectedChannelId: (selectedChannelId) =>
     set({ selectedChannelId, threadRootMessageId: null }),

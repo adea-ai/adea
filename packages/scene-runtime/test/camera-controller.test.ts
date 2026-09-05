@@ -26,6 +26,129 @@ describe("perspective camera obstruction framing", () => {
   });
 });
 
+describe("perspective camera input", () => {
+  test("supports drag orbit and pan without enabling pointer lock", () => {
+    const windowTarget = new EventTarget() as EventTarget & {
+      innerWidth: number;
+      innerHeight: number;
+    };
+    windowTarget.innerWidth = 1280;
+    windowTarget.innerHeight = 720;
+    const documentTarget = new EventTarget() as EventTarget & {
+      pointerLockElement: Element | null;
+    };
+    const canvas = new EventTarget() as EventTarget & HTMLCanvasElement;
+    canvas.getBoundingClientRect = () =>
+      ({ left: 0, top: 0, width: 1280, height: 720, right: 1280, bottom: 720 }) as DOMRect;
+    Object.defineProperty(globalThis, "window", { configurable: true, value: windowTarget });
+    Object.defineProperty(globalThis, "document", { configurable: true, value: documentTarget });
+
+    const controller = new CameraController({
+      canvas,
+      enableInput: true,
+      mouseInputEnabled: false,
+      dragInputEnabled: true,
+    });
+    const target = new THREE.Vector3(0, 1, 0);
+    controller.update(target, 1 / 60);
+    const initialYaw = controller.state.cameraYaw;
+
+    canvas.dispatchEvent(
+      Object.assign(new Event("pointerdown"), {
+        pointerId: 1,
+        pointerType: "mouse",
+        button: 0,
+        clientX: 400,
+        clientY: 300,
+      }),
+    );
+    canvas.dispatchEvent(
+      Object.assign(new Event("pointermove"), {
+        pointerId: 1,
+        pointerType: "mouse",
+        clientX: 500,
+        clientY: 340,
+      }),
+    );
+    canvas.dispatchEvent(
+      Object.assign(new Event("pointerup"), {
+        pointerId: 1,
+        pointerType: "mouse",
+      }),
+    );
+
+    expect(controller.state.cameraYaw).not.toBe(initialYaw);
+    expect(controller.state.pitch).not.toBe(-0.2);
+
+    const beforePan = controller.camera.position.clone();
+    canvas.dispatchEvent(
+      Object.assign(new Event("pointerdown"), {
+        pointerId: 2,
+        pointerType: "mouse",
+        button: 2,
+        clientX: 400,
+        clientY: 300,
+      }),
+    );
+    canvas.dispatchEvent(
+      Object.assign(new Event("pointermove"), {
+        pointerId: 2,
+        pointerType: "mouse",
+        clientX: 500,
+        clientY: 350,
+      }),
+    );
+    canvas.dispatchEvent(
+      Object.assign(new Event("pointerup"), {
+        pointerId: 2,
+        pointerType: "mouse",
+      }),
+    );
+    controller.update(target, 1);
+
+    expect(controller.camera.position.distanceTo(beforePan)).toBeGreaterThan(0.1);
+    controller.dispose();
+  });
+
+  test("does not attach pointer-lock mouse input when disabled", () => {
+    const windowTarget = new EventTarget() as EventTarget & {
+      innerWidth: number;
+      innerHeight: number;
+    };
+    windowTarget.innerWidth = 1280;
+    windowTarget.innerHeight = 720;
+    const documentTarget = new EventTarget() as EventTarget & {
+      pointerLockElement: Element | null;
+    };
+    const canvas = new EventTarget() as EventTarget & HTMLCanvasElement;
+    let pointerLockRequests = 0;
+    canvas.requestPointerLock = () => {
+      pointerLockRequests += 1;
+      return Promise.resolve();
+    };
+    Object.defineProperty(documentTarget, "pointerLockElement", {
+      configurable: true,
+      value: canvas,
+    });
+    Object.defineProperty(globalThis, "window", { configurable: true, value: windowTarget });
+    Object.defineProperty(globalThis, "document", { configurable: true, value: documentTarget });
+
+    const controller = new CameraController({
+      canvas,
+      enableInput: true,
+      mouseInputEnabled: false,
+    });
+    documentTarget.dispatchEvent(
+      Object.assign(new Event("mousemove"), { movementX: 100, movementY: 0 }),
+    );
+    canvas.dispatchEvent(Object.assign(new Event("pointerdown"), { pointerType: "mouse" }));
+
+    expect(controller.state.cameraYaw).toBe(0);
+    expect(pointerLockRequests).toBe(0);
+    controller.dispose();
+  });
+});
+
 describe("perspective camera zoom framing", () => {
   test("moves the follow camera closer or farther without changing its target", () => {
     expect(
