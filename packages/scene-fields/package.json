@@ -1,6 +1,6 @@
 {
   "name": "@agent-hq/scene-fields",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
