@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build": "turbo run build && bun run perf:check",
+    "build:cloudflare": "bun scripts/build-cloudflare-worker.mjs",
     "dev": "turbo run dev --filter=@agent-hq/web --env-mode=loose",
     "format:check": "prettier --check .",
     "lint": "turbo run lint",

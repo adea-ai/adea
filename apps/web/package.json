@@ -8,6 +8,7 @@
     "dev": "bun ../../scripts/sync-assets.mjs && sh -c 'next dev --webpack -H 0.0.0.0 -p \"${PORT:-3000}\"'",
     "build": "bun run cf-typegen && bun ../../scripts/sync-assets.mjs && next build --webpack",
     "build:worker": "opennextjs-cloudflare build",
+    "build:cloudflare": "bun run --cwd ../.. build:cloudflare",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
