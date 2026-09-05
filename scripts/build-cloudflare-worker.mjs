@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,8 +13,22 @@ function run(args, cwd) {
 }
 
 // Mirrors the Cloudflare Workers Builds trigger for agent-hq-web (see
-// apps/web/CLOUDFLARE.md): frozen install from the monorepo root, then the
-// OpenNext build inside apps/web (which runs sync-assets, cf-typegen, and
-// next build via the app's `build` script). No post-build patching is needed.
+// apps/web/CLOUDFLARE.md): frozen install from the monorepo root, workspace
+// dependency builds (so dist output exists exactly like a local checkout —
+// turbo's dependsOn does this for every other lane, but the OpenNext build
+// only runs the app's own `build` script), then the OpenNext build inside
+// apps/web (sync-assets, cf-typegen, and next build). No post-build patching
+// is needed.
 run(["install", "--frozen-lockfile"], repositoryRoot);
+
+const webManifest = JSON.parse(
+  readFileSync(resolve(repositoryRoot, "apps/web/package.json"), "utf8")
+);
+const workspaceDepFilters = Object.keys({
+  ...(webManifest.dependencies ?? {}),
+  ...(webManifest.devDependencies ?? {}),
+})
+  .filter((name) => name.startsWith("@agent-hq/"))
+  .map((name) => `--filter=${name}`);
+run(["x", "turbo", "run", "build", ...workspaceDepFilters], repositoryRoot);
 run(["x", "opennextjs-cloudflare", "build"], webRoot);
