@@ -10,9 +10,16 @@ import {
   customCharacterIds,
   isCustomCharacterId,
   getCustomCharacterLabel,
+  characterPartCatalog,
+  configurableCharacterId,
+  getCharacterConfiguration,
+  isCharacterConfigurationId,
+  serializeCharacterConfiguration,
+  type CharacterConfiguration,
 } from "@agent-hq/characters";
 import type { AmbientAnimals } from "@agent-hq/pets";
 import { interiorPropAssets } from "@agent-hq/interior";
+import { landscapeHorizonBackgrounds } from "@agent-hq/landscape";
 import { useSceneMusic } from "@agent-hq/audio";
 import type { SceneManifest, SceneStartPosition } from "@agent-hq/asset-manifests";
 
@@ -57,12 +64,33 @@ const characterOptions = [
   })),
 ];
 
-const galleryEnvironment = {
-  background: 0x131923,
-  hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
-  directionalLights: [
-    { color: 0xfff0d5, intensity: 2.2, position: [18, 24, -22], target: [0, 0, 0] },
-  ],
+const galleryEnvironments = {
+  home: {
+    background: 0x0a0a0a,
+    backgroundTextureUrl: landscapeHorizonBackgrounds.home,
+    // Render the horizon in clip space so it never pans or rotates with the
+    // perspective follow camera.
+    backgroundTextureMapping: "2d",
+    backgroundTextureOffset: [0, -0.04],
+    backgroundTexturePerspectiveOnly: true,
+    hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
+    directionalLights: [
+      { color: 0xfff0d5, intensity: 2.2, position: [18, 24, -22], target: [0, 0, 0] },
+    ],
+  },
+  work: {
+    background: 0x0a0a0a,
+    backgroundTextureUrl: landscapeHorizonBackgrounds.work,
+    // Render the horizon in clip space so it never pans or rotates with the
+    // perspective follow camera.
+    backgroundTextureMapping: "2d",
+    backgroundTextureOffset: [0, -0.04],
+    backgroundTexturePerspectiveOnly: true,
+    hemisphereLight: { skyColor: 0xdde8ff, groundColor: 0x202832, intensity: 1.5 },
+    directionalLights: [
+      { color: 0xfff0d5, intensity: 2.2, position: [18, 24, -22], target: [0, 0, 0] },
+    ],
+  },
 } as const;
 
 // Use the real-world HQ scale for every environment visual, collider,
@@ -70,10 +98,10 @@ const galleryEnvironment = {
 // centimetres (1 authored unit = 1 cm) and rendered at 1:1 scale, so
 // 600 authored units = 6 m — a real room size that matches the models
 // furniture models which are also authored in metres.
-// The character scale uses the actual models model height (~1.75 m)
+// The character scale uses the actual model height (~1.35 m)
 // with modelScale 1.0 — no multipliers or compensations needed.
 const hqRuntimeScale = ROOM_GALLERY_RUNTIME_SCALE;
-const hqCharacterScale = { height: 1.75, radius: 0.24, modelScale: 1.0 } as const;
+export const hqCharacterScale = { height: 1.35, radius: 0.24, modelScale: 1.0 } as const;
 const hqTopDownMovementSpeedFactor = 300 * hqRuntimeScale;
 const hqFenceVisualHeight = 96;
 const hqFenceColliderHeight = 240;
@@ -857,7 +885,14 @@ export function HqRoomScene({
   roomDesignerTargetId?: string;
   sceneEditorTargetId?: string;
 }) {
-  const [character, setCharacter] = useState(initialCharacter);
+  const initialCharacterConfiguration = getCharacterConfiguration(initialCharacter);
+  const initialCharacterId = isCharacterConfigurationId(initialCharacter)
+    ? configurableCharacterId
+    : initialCharacter;
+  const [character, setCharacter] = useState(initialCharacterId);
+  const [characterConfiguration, setCharacterConfiguration] = useState<
+    CharacterConfiguration | undefined
+  >(initialCharacterConfiguration);
   const visualTheme: HqVisualTheme = manifest.id === "hq-work" ? "work" : "home";
   const setupEnvironment = useCallback(
     (visual: THREE.Group) => setupHqEnvironment(visual, visualTheme),
@@ -1019,8 +1054,17 @@ export function HqRoomScene({
   const handleCharacterChange = (nextCharacter: string) => {
     if (!isCharacterId(nextCharacter) && !isCustomCharacterId(nextCharacter)) return;
     setCharacter(nextCharacter);
+    setCharacterConfiguration(getCharacterConfiguration(nextCharacter));
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.set("character", nextCharacter);
+    window.history.replaceState(null, "", nextUrl);
+  };
+
+  const handleCharacterConfigurationChange = (nextConfiguration: CharacterConfiguration) => {
+    setCharacter(configurableCharacterId);
+    setCharacterConfiguration(nextConfiguration);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("character", serializeCharacterConfiguration(nextConfiguration));
     window.history.replaceState(null, "", nextUrl);
   };
 
@@ -1032,6 +1076,9 @@ export function HqRoomScene({
       character={character}
       onCharacterChange={handleCharacterChange}
       characterOptions={characterOptions}
+      characterConfiguration={characterConfiguration}
+      onCharacterConfigurationChange={handleCharacterConfigurationChange}
+      characterPartOptions={characterPartCatalog}
       accountTargetId={accountTargetId}
       accountLabel={accountLabel}
       accountAuthenticated={accountAuthenticated}
@@ -1060,7 +1107,7 @@ export function HqRoomScene({
       orthographicPan={{ x: 0, z: 0 }}
       waterVolumes={waterVolumes}
       deferCharacterDetails={false}
-      environment={galleryEnvironment}
+      environment={galleryEnvironments[visualTheme]}
       enableSceneEditor
       sceneEditorAvailable
       sceneEditorLockedObjectPrefixes={hqSceneEditorLockedObjectPrefixes}
@@ -1086,7 +1133,7 @@ export function HqRoomScene({
       // Design mode gives the catalog panel enough map clearance to place
       // props in the rightmost rooms while placement remains room-only.
       roomDesignerDesignOrthographicHalfHeight={1320}
-      roomDesignerBackdropColor={visualTheme === "home" ? 0x668b59 : 0x778086}
+      roomDesignerBackdropColor={0x171717}
       // Design-only ground extension; gameplay navigation and collision remain
       // locked to the actual property envelope.
       roomDesignerBackdropPadding={hqRoomDesignerBackdropPadding}

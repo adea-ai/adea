@@ -1,13 +1,17 @@
 import { access, cp, mkdir, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const publicAssets = resolve(repoRoot, "apps/web/public/assets");
 
-async function copyAsset(source, destination) {
+async function copyAsset(source, destination, filter) {
   await mkdir(dirname(destination), { recursive: true });
-  await cp(source, destination, { recursive: true, force: true });
+  await cp(source, destination, {
+    recursive: true,
+    force: true,
+    ...(filter ? { filter } : {}),
+  });
 }
 
 async function resolveAsset(...candidates) {
@@ -63,16 +67,23 @@ await copyAsset(
   resolve(publicAssets, "models/fences"),
 );
 await copyAsset(
+  resolve(repoRoot, "packages/landscape/assets/backgrounds"),
+  resolve(publicAssets, "models/backgrounds"),
+);
+await copyAsset(
   resolve(repoRoot, "packages/pets/assets/animals"),
   resolve(publicAssets, "models/animals"),
 );
+const characterAssetRoot = resolve(repoRoot, "packages/characters/assets");
+await copyAsset(characterAssetRoot, resolve(publicAssets, "models"), (sourcePath) => {
+  const path = relative(characterAssetRoot, sourcePath).replaceAll("\\", "/");
+  // Keep authoring/reference files in the package, but do not ship them to
+  // clients because the runtime never loads them.
+  return path !== "assets_map.glb" && !path.startsWith("_complete/original-blend/");
+});
 await copyAsset(
-  resolve(repoRoot, "packages/characters/assets/characters"),
-  resolve(publicAssets, "models/characters"),
-);
-await copyAsset(
-  resolve(repoRoot, "packages/characters/assets/character-parts"),
-  resolve(publicAssets, "models/character-parts"),
+  resolve(repoRoot, "packages/rooms/assets"),
+  resolve(publicAssets, "models"),
 );
 
 console.log(`Synced HQ assets to ${publicAssets}`);

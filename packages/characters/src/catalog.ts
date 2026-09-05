@@ -1,295 +1,374 @@
-// Agent HQ character catalog.
-//
-// The Casino pack ships rigged characters with all animations embedded in a
-// single GLB (22 clips for Adult-rig characters, 14 for the Plus-size rig).
-// The Creative Character pack ships individual body/clothing parts that share
-// the same 44-joint skeleton. This module registers a CharacterProvider that
-// handles both:
-//
-// 1. Pre-built Casino characters (cashier, security, showgirl, gambler,
-//    high-roller) — loaded directly from their GLB with embedded animations.
-// 2. Custom assembled characters (custom-casual, custom-streetwear, etc.) —
-//    built from Creative Character parts and animated with Casino rig clips.
+// Agent HQ character catalog backed by the configurable character pack.
 
-import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { retargetClip } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import {
+  normalizeInPlaceLocomotionClip,
   registerCharacterProvider,
   type CharacterManifest,
   type CharacterProvider,
   type LoadedCharacter,
   type LoadedCharacterAnimations,
-} from "./provider";
+} from './provider'
+import { characterPartAssets, characterPartIds } from './customization'
+import { characterPartOffsets } from './generated-part-offsets'
 import {
-  assembleCharacter,
-  loadCharacterAnimationClips,
-  customCharacterPresets,
-} from "./customization";
+  characterConfigurationPresets,
+  characterPartName,
+  configurableCharacterId,
+  createDefaultCharacterConfiguration,
+  getCharacterConfiguration,
+  getCharacterConfigurationLabel,
+  isConfigurableCharacterId,
+  validateCharacterConfiguration,
+  type CharacterConfiguration,
+} from './configuration'
 
-const assetRoot = "/assets/models/characters";
+const assetRoot = '/assets/models'
+const characterLibraryUrl = `${assetRoot}/characters.glb`
+const characterAnimationUrl = `${assetRoot}/runtime.glb`
 
-// --- Casino characters (pre-built) ------------------------------------------
-export const characterIds = ["cashier", "security", "showgirl", "gambler", "high-roller"] as const;
-export type CharacterId = (typeof characterIds)[number];
+export const referenceCharacterIds = [
+  'f_1',
+  'f_2',
+  'f_3',
+  'f_4',
+  'f_5',
+  'f_6',
+  'f_7',
+  'f_8',
+  'f_9',
+  'f_10',
+  'f_11',
+  'f_12',
+  'm_1',
+  'm_2',
+  'm_3',
+  'm_4',
+  'm_5',
+  'm_6',
+  'm_7',
+  'm_8',
+  'm_9',
+  'm_10',
+  'm_11',
+  'm_12',
+  'm_13',
+] as const
 
-export const characterLabels: Record<CharacterId, string> = {
-  cashier: "Cashier",
-  security: "Security",
-  showgirl: "Showgirl",
-  gambler: "Gambler",
-  "high-roller": "High Roller",
-};
+type ReferenceCharacterId = (typeof referenceCharacterIds)[number]
+export const characterIds = [configurableCharacterId, ...referenceCharacterIds] as const
+export type CharacterId = (typeof characterIds)[number]
 
-// No SVG icons yet; the character selector shows labels without icons when
-// iconUrl is undefined.
-export const characterIconUrls: Partial<Record<CharacterId, string>> = {};
-
-export function isCharacterId(value: string | undefined): value is CharacterId {
-  return value !== undefined && characterIds.includes(value as CharacterId);
+const referenceCharacterLabel = (id: ReferenceCharacterId): string => {
+  const [family, number] = id.split('_')
+  return `Example ${family.toUpperCase()} ${number?.padStart(2, '0') ?? id}`
 }
 
-// --- Custom characters (assembled from parts) -------------------------------
-export const customCharacterIds = Object.keys(customCharacterPresets);
-export type CustomCharacterId = string;
+export const characterLabels = Object.fromEntries([
+  [configurableCharacterId, 'Custom'],
+  ...referenceCharacterIds.map((id) => [id, referenceCharacterLabel(id)]),
+]) as Record<CharacterId, string>
+
+export const characterIconUrls: Partial<Record<CharacterId, string>> = {}
+
+export const referenceCharacterAssets = referenceCharacterIds.map((id) => ({
+  id,
+  label: characterLabels[id],
+  assetUrl: `${assetRoot}/_complete/${id}.glb`,
+}))
+
+/** Complete skinned source library used by the configurable runtime. */
+export const characterLibraryAssets = [
+  {
+    id: 'characters-library',
+    label: 'Characters Library',
+    assetUrl: characterLibraryUrl,
+  },
+] as const
+
+const animationMap: Record<string, string> = {
+  idle: 'Idle_Relaxed',
+  walk: 'Walk_Forward',
+  run: 'Run_Forward',
+  jump: 'Jump_Start',
+  jumpStart: 'Jump_Start',
+  jumpLoop: 'Jump_Loop',
+  jumpEnd: 'Jump_End',
+  doubleJump: 'Jump_Loop',
+  swim: 'Walk_Forward',
+}
+
+export function isCharacterId(value: string | undefined): value is CharacterId {
+  return value !== undefined && characterIds.includes(value as CharacterId)
+}
+
+export const customCharacterIds: readonly string[] = characterConfigurationPresets.map(
+  (preset) => preset.id
+)
+export type CustomCharacterId = string
 
 export function isCustomCharacterId(value: string | undefined): boolean {
-  return value !== undefined && value in customCharacterPresets;
+  return isConfigurableCharacterId(value) && !isCharacterId(value)
 }
 
 export function getCustomCharacterLabel(id: string): string | undefined {
-  return customCharacterPresets[id]?.label;
+  return getCharacterConfigurationLabel(id)
 }
 
-// All character IDs (Casino + custom).
-export const allCharacterIds: readonly string[] = [...characterIds, ...customCharacterIds];
+export const allCharacterIds: readonly string[] = [...characterIds]
 
-// Map standard animation keys (used by SceneHost) to the embedded animation
-// names in the character GLBs. Adult-rig characters share the same animation
-// names; the Plus-size rig uses a "Plus-size" prefix and a smaller clip set.
-// The Casino pack has no jump/doubleJump/swim clips, so those map to the
-// closest available movement animation to avoid a frozen character when the
-// player jumps or enters water.
-const ADULT_ANIMATION_MAP: Record<string, string> = {
-  idle: "Adult_Security_Idle_1",
-  walk: "Adult_Walk",
-  run: "Adult_WalkFast",
-  jump: "Adult_WalkFast",
-  doubleJump: "Adult_WalkFast",
-  swim: "Adult_Walk",
-};
-
-const PLUS_SIZE_ANIMATION_MAP: Record<string, string> = {
-  idle: "Plus-sizeAdult_TalkGestureListen",
-  walk: "Plus-sizeAdult_Walk",
-  run: "Plus-sizeAdult_WalkFast",
-  jump: "Plus-sizeAdult_WalkFast",
-  doubleJump: "Plus-sizeAdult_WalkFast",
-  swim: "Plus-sizeAdult_Walk",
-};
-
-const characterAnimationMaps: Record<CharacterId, Record<string, string>> = {
-  cashier: ADULT_ANIMATION_MAP,
-  security: ADULT_ANIMATION_MAP,
-  showgirl: ADULT_ANIMATION_MAP,
-  gambler: ADULT_ANIMATION_MAP,
-  "high-roller": PLUS_SIZE_ANIMATION_MAP,
-};
-
-const characterFiles: Record<CharacterId, string> = {
-  cashier: "1_Cashier.glb",
-  security: "18_Security.glb",
-  showgirl: "20_Showgirl.glb",
-  gambler: "36.glb",
-  "high-roller": "75.glb",
-};
-
-// Cache embedded clips per character ID so loadCharacterAnimations can return
-// them without re-loading the GLB. Populated by the first loadCharacter call.
-const embeddedClipsCache = new Map<string, readonly THREE.AnimationClip[]>();
-
-// HQ characters are authored at real-world scale (~1.73m tall in GLB
-// units). The HQ scene uses modelScale: 1.0 so the models render at their
-// natural size with no multipliers needed.
+export { characterPartAssets, characterPartIds }
+export type { CharacterPartId } from './customization'
 
 function getManifest(id: string): CharacterManifest | undefined {
-  if (isCharacterId(id)) {
+  if (isConfigurableCharacterId(id)) {
     return {
       id,
-      label: characterLabels[id],
-      assetUrl: `${assetRoot}/${characterFiles[id]}`,
-    };
+      label: getCharacterConfigurationLabel(id) ?? 'Character',
+      assetUrl: characterLibraryUrl,
+    }
   }
-  if (isCustomCharacterId(id)) {
-    const preset = customCharacterPresets[id];
+  if (referenceCharacterIds.includes(id as ReferenceCharacterId)) {
     return {
       id,
-      label: preset.label,
-      // Custom characters are assembled from parts at runtime; there is no
-      // single GLB URL. We use a placeholder that loadCharacter ignores.
-      assetUrl: "",
-    };
+      label: characterLabels[id as ReferenceCharacterId],
+      assetUrl: `${assetRoot}/_complete/${id}.glb`,
+    }
   }
-  return undefined;
+  return undefined
 }
 
-async function loadCatalogCharacter(loader: GLTFLoader, id: string): Promise<LoadedCharacter> {
-  // Custom assembled character from Creative Character parts.
-  if (isCustomCharacterId(id)) {
-    const preset = customCharacterPresets[id];
-    const assembled = await assembleCharacter(loader, preset.config);
-    // Cache the clips so loadCharacterAnimations can find them.
-    embeddedClipsCache.set(id, assembled.clips);
-    return { scene: assembled.scene, clips: assembled.clips };
-  }
-  // Pre-built Casino character.
-  const manifest = getManifest(id);
-  if (!manifest) throw new Error(`Unknown character: ${id}`);
-  const gltf = await loader.loadAsync(manifest.assetUrl);
-  embeddedClipsCache.set(id, gltf.animations);
-  return { scene: gltf.scene, clips: gltf.animations };
+let animationAsset: {
+  scene: THREE.Object3D
+  clips: readonly THREE.AnimationClip[]
+} | undefined
+
+const characterPartIdsByName = new Map(characterPartIds.map((id) => [characterPartName(id), id]))
+
+function configureCharacterLibrary(
+  scene: THREE.Object3D,
+  configuration: CharacterConfiguration
+): THREE.Object3D {
+  const selectedNames = new Set(
+    Object.values(configuration)
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => characterPartName(value))
+  )
+  const discardedObjects: THREE.Object3D[] = []
+  scene.traverse((object) => {
+    if (!(object as THREE.SkinnedMesh).isSkinnedMesh) {
+      if (object instanceof THREE.Mesh) discardedObjects.push(object)
+      return
+    }
+    const mesh = object as THREE.SkinnedMesh
+    const partId = characterPartIdsByName.get(mesh.name)
+    const selected = partId !== undefined && selectedNames.has(mesh.name)
+    if (!selected) {
+      discardedObjects.push(mesh)
+      return
+    }
+    if (partId) {
+      const [x, y, z] = characterPartOffsets[partId] ?? [0, 0, 0]
+      // The checked-in library is an authoring board: its skinned vertices
+      // retain the board's per-part placement. Move each selected mesh back
+      // to the shared rest-pose origin before the mixer evaluates it.
+      mesh.position.set(-x, -y, -z)
+    }
+  })
+  // Do not make SceneHost traverse or upload the unselected wearable
+  // meshes. Detaching them also lets the temporary GLTF object graph reclaim
+  // their geometry while the selected meshes retain shared materials/textures.
+  discardedObjects.forEach((object) => object.removeFromParent())
+  scene.updateMatrixWorld(true)
+  return scene
 }
 
-// The GLTFLoader caches parsed GLBs internally, so re-loading the same URL
-// returns instantly. This ensures loadCharacterAnimations can extract clips
-// even if it races ahead of loadCharacter (SceneHost fires both in parallel).
-async function ensureEmbeddedClips(
+async function loadConfigurableCharacter(
   loader: GLTFLoader,
   id: string,
-): Promise<readonly THREE.AnimationClip[]> {
-  const cached = embeddedClipsCache.get(id);
-  if (cached) return cached;
-  // Custom characters: load clips directly from the Casino rig GLB.
-  // Don't call assembleCharacter here — that would conflict with
-  // the concurrent loadCharacter call that also assembles the character.
-  if (isCustomCharacterId(id)) {
-    const clips = await loadCharacterAnimationClips(loader);
-    embeddedClipsCache.set(id, clips);
-    return clips;
+  requestedConfiguration?: CharacterConfiguration
+): Promise<LoadedCharacter> {
+  const configuration = requestedConfiguration
+    ? validateCharacterConfiguration(requestedConfiguration)
+    : (getCharacterConfiguration(id) ?? createDefaultCharacterConfiguration())
+  const manifest = getManifest(id)
+  if (!manifest) throw new Error(`Unknown character: ${id}`)
+  const gltf = await loader.loadAsync(manifest.assetUrl)
+  return { scene: configureCharacterLibrary(gltf.scene, configuration), clips: [] }
+}
+
+async function loadReferenceCharacter(
+  loader: GLTFLoader,
+  id: string
+): Promise<LoadedCharacter> {
+  const manifest = getManifest(id)
+  if (!manifest || !referenceCharacterIds.includes(id as ReferenceCharacterId))
+    throw new Error(`Unknown reference character: ${id}`)
+  const gltf = await loader.loadAsync(manifest.assetUrl)
+  return { scene: gltf.scene, clips: [] }
+}
+
+async function loadCatalogCharacter(
+  loader: GLTFLoader,
+  id: string,
+  configuration?: CharacterConfiguration
+): Promise<LoadedCharacter> {
+  return isConfigurableCharacterId(id)
+    ? loadConfigurableCharacter(loader, id, configuration)
+    : loadReferenceCharacter(loader, id)
+}
+
+async function loadCharacterAnimationsFromAsset(
+  loader: GLTFLoader
+): Promise<{ scene: THREE.Object3D; clips: readonly THREE.AnimationClip[] }> {
+  // Do not cache an in-flight request. SceneHost aborts its LoadingManager when
+  // a character is switched, so a promise created by the previous scene can
+  // otherwise reject the next character load with its stale AbortError.
+  if (animationAsset) return animationAsset
+  const gltf = await loader.loadAsync(characterAnimationUrl)
+  animationAsset = { scene: gltf.scene, clips: gltf.animations }
+  return animationAsset
+}
+
+// GLTFLoader sanitizes Cartoon node names, so `DEF-spine.001` becomes
+// `DEF-spine001` and side suffixes such as `.R` become `R`.
+const referenceAnimationBoneMap: Record<string, string> = {
+  'DEF-spine': 'Hips',
+  'DEF-spine001': 'Spine',
+  'DEF-spine003': 'Spine1',
+  'DEF-spine005': 'Neck',
+  'DEF-spine006': 'Head',
+  'DEF-shoulderR': 'RightShoulder',
+  'DEF-upper_armR': 'RightArm',
+  'DEF-forearmR': 'RightForeArm',
+  'DEF-handR': 'RightHand',
+  'DEF-f_index01R': 'RightHandIndex1',
+  'DEF-f_index02R': 'RightHandIndex2',
+  'DEF-f_middle01R': 'RightHandMiddle1',
+  'DEF-f_middle02R': 'RightHandMiddle2',
+  'DEF-f_ring01R': 'RightHandRing1',
+  'DEF-f_ring02R': 'RightHandRing2',
+  'DEF-f_pinky01R': 'RightHandPinky1',
+  'DEF-f_pinky02R': 'RightHandPinky2',
+  'DEF-thumb01R': 'RightHandThumb1',
+  'DEF-thumb02R': 'RightHandThumb2',
+  'DEF-shoulderL': 'LeftShoulder',
+  'DEF-upper_armL': 'LeftArm',
+  'DEF-forearmL': 'LeftForeArm',
+  'DEF-handL': 'LeftHand',
+  'DEF-f_index01L': 'LeftHandIndex1',
+  'DEF-f_index02L': 'LeftHandIndex2',
+  'DEF-f_middle01L': 'LeftHandMiddle1',
+  'DEF-f_middle02L': 'LeftHandMiddle2',
+  'DEF-f_ring01L': 'LeftHandRing1',
+  'DEF-f_ring02L': 'LeftHandRing2',
+  'DEF-f_pinky01L': 'LeftHandPinky1',
+  'DEF-f_pinky02L': 'LeftHandPinky2',
+  'DEF-thumb01L': 'LeftHandThumb1',
+  'DEF-thumb02L': 'LeftHandThumb2',
+  'DEF-thighR': 'RightUpLeg',
+  'DEF-shinR': 'RightLeg',
+  'DEF-footR': 'RightFoot',
+  'DEF-toeR': 'RightToeBase',
+  'DEF-thighL': 'LeftUpLeg',
+  'DEF-shinL': 'LeftLeg',
+  'DEF-footL': 'LeftFoot',
+  'DEF-toeL': 'LeftToeBase',
+}
+
+function findSkinnedMesh(root: THREE.Object3D): THREE.SkinnedMesh | undefined {
+  let result: THREE.SkinnedMesh | undefined
+  root.traverse((object) => {
+    if (!result && (object as THREE.SkinnedMesh).isSkinnedMesh)
+      result = object as THREE.SkinnedMesh
+  })
+  return result
+}
+
+function cloneAnimationBone(
+  source: THREE.Object3D,
+  bones: THREE.Bone[]
+): THREE.Bone {
+  const bone = new THREE.Bone()
+  bone.name = source.name
+  bone.position.copy(source.position)
+  bone.quaternion.copy(source.quaternion)
+  bone.scale.copy(source.scale)
+  bones.push(bone)
+  source.children.forEach((child) => bone.add(cloneAnimationBone(child, bones)))
+  return bone
+}
+
+function findAnimationSource(root: THREE.Object3D): THREE.Object3D | THREE.Skeleton | undefined {
+  const sourceRoot = root.getObjectByName('Root')
+  if (sourceRoot) {
+    const bones: THREE.Bone[] = []
+    cloneAnimationBone(sourceRoot, bones)
+    return new THREE.Skeleton(bones)
   }
-  // Casino characters: load from the character's own GLB.
-  const manifest = getManifest(id);
-  if (!manifest) return [];
-  const gltf = await loader.loadAsync(manifest.assetUrl);
-  embeddedClipsCache.set(id, gltf.animations);
-  return gltf.animations;
+  return findSkinnedMesh(root)
+}
+
+function retargetReferenceAnimation(
+  clip: THREE.AnimationClip,
+  sourceRoot: THREE.Object3D,
+  target: THREE.Object3D | undefined
+): THREE.AnimationClip {
+  const source = findAnimationSource(sourceRoot)
+  const targetMesh = target ? findSkinnedMesh(target) : undefined
+  if (!source || !targetMesh) return clip.clone()
+  const retargeted = retargetClip(targetMesh, source, clip, {
+    names: referenceAnimationBoneMap,
+    hip: 'DEF-spine',
+    scale: 1,
+  })
+  // SkeletonUtils emits `.bones[BoneName]` bindings for a SkinnedMesh root,
+  // while SceneHost mixes clips against the loaded GLTF scene root. Rewrite
+  // the paths to the named-bone form used by the shared character clips.
+  for (const track of retargeted.tracks) {
+    const match = /^\.bones\[([^\]]+)\]\.(.+)$/.exec(track.name)
+    if (match) track.name = `${match[1]}.${match[2]}`
+  }
+  return retargeted
 }
 
 async function loadCatalogCharacterAnimations(
   loader: GLTFLoader,
   id: string,
   keys: readonly string[],
+  target?: THREE.Object3D
 ): Promise<LoadedCharacterAnimations> {
-  // Custom characters use the Adult-rig animation map (same skeleton).
-  const animMap = isCustomCharacterId(id)
-    ? ADULT_ANIMATION_MAP
-    : isCharacterId(id)
-      ? characterAnimationMaps[id]
-      : null;
-  if (!animMap) return { clips: [], names: {} };
-  const embedded = await ensureEmbeddedClips(loader, id);
-  if (!embedded.length) return { clips: [], names: {} };
-  const clips: THREE.AnimationClip[] = [];
-  const names: Record<string, string> = {};
+  const reference = referenceCharacterIds.includes(id as ReferenceCharacterId)
+  if (!isConfigurableCharacterId(id) && !reference) return { clips: [], names: {} }
+  const animationAsset = await loadCharacterAnimationsFromAsset(loader)
+  const clips: THREE.AnimationClip[] = []
+  const names: Record<string, string> = {}
   for (const key of keys) {
-    const sourceName = animMap[key];
-    if (!sourceName) continue;
-    const clip = embedded.find((c) => c.name === sourceName);
-    if (!clip) continue;
-    const cloned = clip.clone();
-    cloned.name = key;
-    clips.push(cloned);
-    names[key] = key;
+    const source = animationAsset.clips.find((clip) => clip.name === animationMap[key])
+    if (!source) continue
+    const normalized = ['walk', 'run', 'swim'].includes(key)
+      ? normalizeInPlaceLocomotionClip(source)
+      : source.clone()
+    const clip = reference
+      ? retargetReferenceAnimation(normalized, animationAsset.scene, target)
+      : normalized
+    clip.name = key
+    clips.push(clip)
+    names[key] = key
   }
-  return { clips, names };
+  return { clips, names }
 }
 
 const characterProvider: CharacterProvider = {
   characterIds: allCharacterIds,
+  acceptsCharacterId: isConfigurableCharacterId,
   getManifest,
   loadCharacter: loadCatalogCharacter,
-  loadAnimatedCharacter: loadCatalogCharacter,
+  loadAnimatedCharacter: (loader, id, _animation, configuration) =>
+    loadCatalogCharacter(loader, id, configuration),
   loadCharacterAnimations: loadCatalogCharacterAnimations,
-};
+}
 
-// Register on module import so any scene that imports @agent-hq/characters
-// automatically plugs into the shared character pipeline.
-registerCharacterProvider(characterProvider);
-
-// --- Creative Characters parts catalog --------------------------------------
-// The Creative Characters pack is a customization kit (body parts, clothing,
-// accessories, emotions). The assets are catalogued here for a future character
-// customization UI; the runtime loader above uses the assembled Casino GLBs.
-export const characterPartIds = [
-  "body-010",
-  "clown-nose-001",
-  "costume-10-001",
-  "costume-6-001",
-  "glasses-004",
-  "glasses-006",
-  "gloves-006",
-  "gloves-014",
-  "hairstyle-male-010",
-  "hairstyle-male-012",
-  "hat-010",
-  "hat-049",
-  "hat-057",
-  "headphones-002",
-  "emotion-angry-003",
-  "emotion-happy-002",
-  "emotion-usual-001",
-  "moustache-001",
-  "moustache-002",
-  "outwear-029",
-  "outwear-036",
-  "pacifier-001",
-  "pants-010",
-  "pants-014",
-  "shoe-slippers-002",
-  "shoe-slippers-005",
-  "shoe-sneakers-009",
-  "shorts-003",
-  "socks-008",
-  "t-shirt-009",
-] as const;
-export type CharacterPartId = (typeof characterPartIds)[number];
-
-const characterPartFiles: Record<CharacterPartId, string> = {
-  "body-010": "Body_010.glb",
-  "clown-nose-001": "Clown_nose_001.glb",
-  "costume-10-001": "Costume_10_001.glb",
-  "costume-6-001": "Costume_6_001.glb",
-  "glasses-004": "Glasses_004.glb",
-  "glasses-006": "Glasses_006.glb",
-  "gloves-006": "Gloves_006.glb",
-  "gloves-014": "Gloves_014.glb",
-  "hairstyle-male-010": "Hairstyle_male_010.glb",
-  "hairstyle-male-012": "Hairstyle_male_012.glb",
-  "hat-010": "Hat_010.glb",
-  "hat-049": "Hat_049.glb",
-  "hat-057": "Hat_057.glb",
-  "headphones-002": "Headphones_002.glb",
-  "emotion-angry-003": "Male_emotion_angry_003.glb",
-  "emotion-happy-002": "Male_emotion_happy_002.glb",
-  "emotion-usual-001": "Male_emotion_usual_001.glb",
-  "moustache-001": "Moustache_001.glb",
-  "moustache-002": "Moustache_002.glb",
-  "outwear-029": "Outwear_029.glb",
-  "outwear-036": "Outwear_036.glb",
-  "pacifier-001": "Pacifier_001.glb",
-  "pants-010": "Pants_010.glb",
-  "pants-014": "Pants_014.glb",
-  "shoe-slippers-002": "Shoe_Slippers_002.glb",
-  "shoe-slippers-005": "Shoe_Slippers_005.glb",
-  "shoe-sneakers-009": "Shoe_Sneakers_009.glb",
-  "shorts-003": "Shorts_003.glb",
-  "socks-008": "Socks_008.glb",
-  "t-shirt-009": "T-Shirt_009.glb",
-};
-
-const characterPartRoot = "/assets/models/character-parts";
-
-export const characterPartAssets = characterPartIds.map((id) => ({
-  id,
-  label: id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-  assetUrl: `${characterPartRoot}/${characterPartFiles[id]}`,
-}));
+registerCharacterProvider(characterProvider)

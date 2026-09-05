@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
 import { Box, Camera, Focus, Grid3X3 } from "lucide-react";
 import type { CharacterOption } from "./character-selector";
+import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
 
@@ -11,6 +12,9 @@ export type SceneSettingsProps = {
   characterOptions: readonly CharacterOption[];
   character: string;
   onCharacterChange: (character: string) => void;
+  characterConfiguration?: CharacterConfiguration;
+  onCharacterConfigurationChange?: (configuration: CharacterConfiguration) => void;
+  characterPartOptions?: readonly CharacterPartOption[];
   cameraViewMode: "perspective" | "orthographic";
   onCameraViewModeChange: (value: "perspective" | "orthographic") => void;
   allowCameraViewModeChange?: boolean;
@@ -56,6 +60,9 @@ export function SceneSettings({
   characterOptions,
   character,
   onCharacterChange,
+  characterConfiguration,
+  onCharacterConfigurationChange,
+  characterPartOptions,
   cameraViewMode,
   onCameraViewModeChange,
   allowCameraViewModeChange = true,
@@ -153,6 +160,9 @@ export function SceneSettings({
           characterOptions={characterOptions}
           character={character}
           onCharacterChange={onCharacterChange}
+          characterConfiguration={characterConfiguration}
+          onCharacterConfigurationChange={onCharacterConfigurationChange}
+          characterPartOptions={characterPartOptions}
           triggerTargetId={accountTargetId}
           onSignIn={onAccountSignIn}
           onSignOut={onAccountSignOut}

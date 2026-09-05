@@ -421,13 +421,15 @@ export function createScenePerformanceTelemetry(
   };
 
   return {
-    async track<T>(phase: string, promise: Promise<T>): Promise<T> {
+    track<T>(phase: string, promise: Promise<T>): Promise<T> {
       phaseStarts.set(phase, performance.now());
-      try {
-        return await promise;
-      } finally {
-        mark(phase);
-      }
+      const tracked = promise.finally(() => mark(phase));
+      // Loading promises can outlive a scene when React remounts it after a
+      // character switch. Attach a rejection handler immediately so an
+      // aborted optional request cannot become an unhandled browser error
+      // before the main loader reaches its Promise.all boundary.
+      tracked.catch(() => undefined);
+      return tracked;
     },
     mark,
     markPlayable() {
