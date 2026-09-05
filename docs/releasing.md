@@ -47,9 +47,13 @@ release-PR head commit, and the GitHub token is obtained from authenticated
 When a GitHub Release is published, `.github/workflows/release-assets.yml`
 builds the Tauri desktop shell for macOS ARM64, Linux x64, and Windows x64. The
 workflow aligns the checked-out desktop bundle version with the release tag,
-uploads the bundles to the release, publishes the signed updater files through
-the `desktop-updater-pages` environment, and verifies both the release assets
-and public manifest.
+uploads the bundles to the release, publishes the signed updater files to the
+`agent-hq` R2 bucket served at `https://updates.adea.dev/desktop-updates/`
+(requiring the `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` secrets: R2 S3
+credentials with Object Read & Write on that bucket), and verifies both the
+release assets
+and public manifest. GitHub Pages is intentionally not used: Pages does not
+serve private repositories on the free plan.
 
 With hosted Actions available, all three targets use GitHub-hosted native
 runners and the Windows lane emits both MSI and NSIS installers. While
