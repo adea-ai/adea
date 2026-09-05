@@ -69,19 +69,14 @@ describe("database package boundary", () => {
     expect(source).toContain("process.once(signal");
   });
 
-  test("applies reviewed migrations before every Vercel application build", async () => {
-    const vercel = JSON.parse(await readFile(join(root, "apps/web/vercel.json"), "utf8")) as {
-      buildCommand: string;
-    };
-    const deploymentMigration = await readFile(
-      join(root, "scripts/deployment-migrate.mjs"),
+  test("applies reviewed migrations for every Cloudflare Worker deployment", async () => {
+    const workflow = await readFile(
+      join(root, ".github/workflows/cloudflare-db-migrate.yml"),
       "utf8"
     );
 
-    expect(vercel.buildCommand).toContain("deployment-migrate.mjs");
-    expect(vercel.buildCommand).toContain("turbo run build");
-    expect(deploymentMigration).toContain("DATABASE_MIGRATION_URL");
-    expect(deploymentMigration).toContain("VERCEL");
-    expect(deploymentMigration).toContain("verify-migrations.ts");
+    expect(workflow).toContain("DATABASE_MIGRATION_URL");
+    expect(workflow).toContain("db:verify");
+    expect(workflow).toContain("packages/db/drizzle/**");
   });
 });
