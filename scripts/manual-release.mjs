@@ -241,7 +241,7 @@ function verifyReleaseAssets(tag) {
         "--silent",
         "--show-error",
         "--location",
-        `https://adea-ai.github.io/agent-hq/desktop-updates/latest.json?release=${tag}`,
+        `https://updates.adea.dev/desktop-updates/latest.json?release=${tag}`,
       ],
       { capture: true }
     )
@@ -256,7 +256,7 @@ function verifyReleaseAssets(tag) {
       typeof entry?.signature !== "string" ||
       entry.signature.length === 0 ||
       typeof entry?.url !== "string" ||
-      !entry.url.startsWith("https://adea-ai.github.io/agent-hq/desktop-updates/")
+      !entry.url.startsWith("https://updates.adea.dev/desktop-updates/")
     ) {
       throw new Error(`The public updater manifest is missing a signed ${platform} package.`);
     }
