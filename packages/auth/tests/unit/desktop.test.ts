@@ -74,7 +74,7 @@ describe("desktop authorization boundary", () => {
       redirectUri: "agent-hq://auth/callback",
     });
     expect(() => consumeDesktopAuthorizationCallback(attempt, callbackUrl(attempt), 1_002)).toThrow(
-      "already consumed",
+      "already consumed"
     );
   });
 
@@ -83,19 +83,19 @@ describe("desktop authorization boundary", () => {
     const wrongStateUrl = new URL(callbackUrl(wrongState));
     wrongStateUrl.searchParams.set("state", "attacker-state");
     expect(() =>
-      consumeDesktopAuthorizationCallback(wrongState, wrongStateUrl.toString(), 1_001),
+      consumeDesktopAuthorizationCallback(wrongState, wrongStateUrl.toString(), 1_001)
     ).toThrow("state mismatch");
 
     const wrongNonce = await createDesktopAuthorizationAttempt({ now: 1_000 });
     const wrongNonceUrl = new URL(callbackUrl(wrongNonce));
     wrongNonceUrl.searchParams.set("nonce", "attacker-nonce");
     expect(() =>
-      consumeDesktopAuthorizationCallback(wrongNonce, wrongNonceUrl.toString(), 1_001),
+      consumeDesktopAuthorizationCallback(wrongNonce, wrongNonceUrl.toString(), 1_001)
     ).toThrow("nonce mismatch");
 
     const expired = await createDesktopAuthorizationAttempt({ now: 1_000, ttlMs: 5 });
     expect(() => consumeDesktopAuthorizationCallback(expired, callbackUrl(expired), 1_006)).toThrow(
-      "expired",
+      "expired"
     );
 
     const untrusted = await createDesktopAuthorizationAttempt({ now: 1_000 });
@@ -103,15 +103,15 @@ describe("desktop authorization boundary", () => {
       consumeDesktopAuthorizationCallback(
         untrusted,
         `https://evil.example/callback?code=x&nonce=${untrusted.nonce}&state=${untrusted.state}`,
-        1_001,
-      ),
+        1_001
+      )
     ).toThrow("not trusted");
 
     const credentialBearing = await createDesktopAuthorizationAttempt({ now: 1_000 });
     const credentialUrl = new URL(callbackUrl(credentialBearing));
     credentialUrl.searchParams.set("access_token", "must-not-travel-in-url");
     expect(() =>
-      consumeDesktopAuthorizationCallback(credentialBearing, credentialUrl.toString(), 1_001),
+      consumeDesktopAuthorizationCallback(credentialBearing, credentialUrl.toString(), 1_001)
     ).toThrow("credentials");
   });
 });
@@ -144,7 +144,7 @@ describe("desktop session lifecycle", () => {
         codeVerifier: "v".repeat(43),
         nonce: "n".repeat(16),
         redirectUri: "agent-hq://auth/callback",
-      }),
+      })
     ).resolves.toEqual({ session, status: "authenticated" });
   });
 
@@ -188,10 +188,10 @@ describe("desktop session lifecycle", () => {
     ]);
     expect(requests.every(({ url }) => !url.includes("opaque-session"))).toBe(true);
     expect(new Headers(requests[1]?.input?.headers).get("authorization")).toBe(
-      "Desktop opaque-session-credential-000000001",
+      "Desktop opaque-session-credential-000000001"
     );
     expect(new Headers(requests[1]?.input?.headers).get("x-agent-hq-desktop-session")).toBe(
-      "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1",
+      "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1"
     );
   });
 

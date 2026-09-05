@@ -13,7 +13,7 @@ export const users = appSchema.table(
     disabledAt: timestamp("disabled_at", { mode: "date", withTimezone: true }),
     ...timestampColumns(),
   },
-  (table) => [index("users_active_idx").on(table.disabledAt)],
+  (table) => [index("users_active_idx").on(table.disabledAt)]
 );
 
 export const temporaryUserSessions = appSchema.table(
@@ -35,15 +35,15 @@ export const temporaryUserSessions = appSchema.table(
     unique("temporary_user_sessions_credential_digest_unique").on(table.credentialDigest),
     check(
       "temporary_user_sessions_credential_digest_nonempty",
-      sql`length(btrim(${table.credentialDigest})) > 0`,
+      sql`length(btrim(${table.credentialDigest})) > 0`
     ),
     check(
       "temporary_user_sessions_claim_consistent",
-      sql`(${table.claimedAt} is null) = (${table.claimedByUserId} is null)`,
+      sql`(${table.claimedAt} is null) = (${table.claimedByUserId} is null)`
     ),
     index("temporary_user_sessions_user_idx").on(table.userId, table.claimedAt),
     index("temporary_user_sessions_expiry_idx").on(table.expiresAt, table.claimedAt),
-  ],
+  ]
 );
 
 export const authIdentities = appSchema.table(
@@ -64,5 +64,5 @@ export const authIdentities = appSchema.table(
     check("auth_identities_subject_nonempty", sql`length(btrim(${table.subject})) > 0`),
     index("auth_identities_user_idx").on(table.userId),
     index("auth_identities_resolution_idx").on(table.provider, table.subject, table.revokedAt),
-  ],
+  ]
 );

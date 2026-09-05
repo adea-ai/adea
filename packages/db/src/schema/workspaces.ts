@@ -27,7 +27,7 @@ export const workspaces = appSchema.table(
     check("workspaces_scene_valid", sql`${table.scene} in ('home', 'work')`),
     index("workspaces_owner_idx").on(table.ownerUserId, table.deletedAt),
     index("workspaces_active_idx").on(table.deletedAt),
-  ],
+  ]
 );
 
 export const workspaceMemberships = appSchema.table(
@@ -47,7 +47,7 @@ export const workspaceMemberships = appSchema.table(
     unique("workspace_memberships_workspace_user_unique").on(table.workspaceId, table.userId),
     index("workspace_memberships_user_idx").on(table.userId, table.workspaceId),
     index("workspace_memberships_workspace_role_idx").on(table.workspaceId, table.role),
-  ],
+  ]
 );
 
 export const authorizationAuditRecords = appSchema.table(
@@ -66,5 +66,5 @@ export const authorizationAuditRecords = appSchema.table(
     check("authorization_audit_decision_valid", sql`${table.decision} in ('allowed', 'denied')`),
     index("authorization_audit_workspace_idx").on(table.workspaceId, table.createdAt),
     index("authorization_audit_principal_idx").on(table.principalKind, table.principalId),
-  ],
+  ]
 );

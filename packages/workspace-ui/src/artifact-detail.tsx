@@ -1,14 +1,14 @@
-import type { ArtifactSummary } from '@agent-hq/types'
-import { FileText, X } from 'lucide-react'
+import type { ArtifactSummary } from "@agent-hq/types";
+import { FileText, X } from "lucide-react";
 
 export function ArtifactDetail({
   artifact,
   dismiss,
   openTask,
 }: Readonly<{
-  artifact: ArtifactSummary
-  dismiss: () => void
-  openTask: (taskId: string) => void
+  artifact: ArtifactSummary;
+  dismiss: () => void;
+  openTask: (taskId: string) => void;
 }>) {
   return (
     <section className="conventional-artifact-detail" aria-labelledby="artifact-title">
@@ -33,5 +33,5 @@ export function ArtifactDetail({
         ) : null}
       </div>
     </section>
-  )
+  );
 }

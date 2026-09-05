@@ -27,7 +27,7 @@ export type AuthResult = Readonly<{
 
 export function normalizeNeonSession(
   value: ProviderSessionInput | null | undefined,
-  now = new Date(),
+  now = new Date()
 ): AuthResult | null {
   if (!value) return null;
 

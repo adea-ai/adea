@@ -29,7 +29,7 @@ export function createNeonAuthDriver(sdk: NeonSdk): AuthDriver {
     requireData(
       await sdk.getSession({
         query: { disableCookieCache: true },
-      }),
+      })
     );
 
   return {

@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Badge } from '@agent-hq/ui/components/ui/badge'
-import { Button } from '@agent-hq/ui/components/ui/button'
+import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@agent-hq/ui/components/ui/badge";
+import { Button } from "@agent-hq/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,17 +10,17 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@agent-hq/ui/components/ui/dropdown-menu'
+} from "@agent-hq/ui/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from '@agent-hq/ui/components/ui/empty'
-import { Input } from '@agent-hq/ui/components/ui/input'
-import { Skeleton } from '@agent-hq/ui/components/ui/skeleton'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@agent-hq/ui/components/ui/tabs'
+} from "@agent-hq/ui/components/ui/empty";
+import { Input } from "@agent-hq/ui/components/ui/input";
+import { Skeleton } from "@agent-hq/ui/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@agent-hq/ui/components/ui/tabs";
 import {
   ArrowLeft,
   Blocks,
@@ -31,43 +31,43 @@ import {
   Filter,
   Search,
   ShieldCheck,
-} from 'lucide-react'
+} from "lucide-react";
 
-import { ModalDialog } from './modal-dialog'
-import { PluginLogo } from './plugin-logo'
-import type { WorkspacePlugin, WorkspacePluginsProvider } from './platform'
+import { ModalDialog } from "./modal-dialog";
+import { PluginLogo } from "./plugin-logo";
+import type { WorkspacePlugin, WorkspacePluginsProvider } from "./platform";
 import {
   defaultPluginFilter,
   filterWorkspacePlugins,
   getPopularWorkspacePlugins,
   groupWorkspacePlugins,
   type WorkspacePluginFilter,
-} from './plugins'
+} from "./plugins";
 
-type PluginTab = 'marketplace' | 'yours'
+type PluginTab = "marketplace" | "yours";
 
 const typeOptions = [
-  ['all', 'All types'],
-  ['connectors', 'Connectors'],
-  ['skills', 'Skills'],
-] as const
+  ["all", "All types"],
+  ["connectors", "Connectors"],
+  ["skills", "Skills"],
+] as const;
 
 const ownershipOptions = [
-  ['all', 'All'],
-  ['team', 'Team'],
-  ['public', 'Public'],
-] as const
+  ["all", "All"],
+  ["team", "Team"],
+  ["public", "Public"],
+] as const;
 
 function PluginFilterMenu({
   filter,
   onChange,
   onOpenChange,
 }: Readonly<{
-  filter: WorkspacePluginFilter
-  onChange: (filter: WorkspacePluginFilter) => void
-  onOpenChange: (open: boolean) => void
+  filter: WorkspacePluginFilter;
+  onChange: (filter: WorkspacePluginFilter) => void;
+  onOpenChange: (open: boolean) => void;
 }>) {
-  const active = filter.type !== 'all' || filter.ownership !== 'all'
+  const active = filter.type !== "all" || filter.ownership !== "all";
   return (
     <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
@@ -85,7 +85,7 @@ function PluginFilterMenu({
           <DropdownMenuRadioGroup
             value={filter.type}
             onValueChange={(type) =>
-              onChange({ ...filter, type: type as WorkspacePluginFilter['type'] })
+              onChange({ ...filter, type: type as WorkspacePluginFilter["type"] })
             }
           >
             {typeOptions.map(([value, label]) => (
@@ -103,7 +103,7 @@ function PluginFilterMenu({
             onValueChange={(ownership) =>
               onChange({
                 ...filter,
-                ownership: ownership as WorkspacePluginFilter['ownership'],
+                ownership: ownership as WorkspacePluginFilter["ownership"],
               })
             }
           >
@@ -116,7 +116,7 @@ function PluginFilterMenu({
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }
 
 function PluginBrowserRow({
@@ -139,7 +139,7 @@ function PluginBrowserRow({
       </span>
       <ChevronRight aria-hidden="true" />
     </button>
-  )
+  );
 }
 
 function PluginBrowserGroup({
@@ -150,18 +150,18 @@ function PluginBrowserGroup({
   onToggle,
   plugins,
 }: Readonly<{
-  disabled: boolean
-  expanded: boolean
-  name: string
-  onSelect: (pluginId: string) => void
-  onToggle: () => void
-  plugins: readonly WorkspacePlugin[]
+  disabled: boolean;
+  expanded: boolean;
+  name: string;
+  onSelect: (pluginId: string) => void;
+  onToggle: () => void;
+  plugins: readonly WorkspacePlugin[];
 }>) {
-  const id = `plugins-category-${name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-')}`
-  const preview = expanded ? plugins : plugins.slice(0, 6)
-  const hidden = plugins.slice(6)
-  const nextNames = hidden.slice(0, 2).map((plugin) => plugin.name)
-  const expandLabel = `See ${nextNames.join(', ')}${hidden.length > 2 ? ' and more' : ''}`
+  const id = `plugins-category-${name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const preview = expanded ? plugins : plugins.slice(0, 6);
+  const hidden = plugins.slice(6);
+  const nextNames = hidden.slice(0, 2).map((plugin) => plugin.name);
+  const expandLabel = `See ${nextNames.join(", ")}${hidden.length > 2 ? " and more" : ""}`;
 
   return (
     <section className="plugins-browser__group" aria-labelledby={id}>
@@ -200,17 +200,17 @@ function PluginBrowserGroup({
         </Button>
       ) : null}
     </section>
-  )
+  );
 }
 
 function PluginListState({
   catalogState,
   status,
 }: Readonly<{
-  catalogState: 'stale' | 'unavailable' | 'verification-failure'
-  status: 'error' | 'loading'
+  catalogState: "stale" | "unavailable" | "verification-failure";
+  status: "error" | "loading";
 }>) {
-  if (status === 'error') {
+  if (status === "error") {
     return (
       <Empty role="alert">
         <EmptyHeader>
@@ -218,18 +218,18 @@ function PluginListState({
             <Blocks aria-hidden="true" />
           </EmptyMedia>
           <EmptyTitle>
-            {catalogState === 'verification-failure'
-              ? 'Plugin catalog could not be verified'
-              : 'Plugin catalog unavailable'}
+            {catalogState === "verification-failure"
+              ? "Plugin catalog could not be verified"
+              : "Plugin catalog unavailable"}
           </EmptyTitle>
           <EmptyDescription>
-            {catalogState === 'verification-failure'
-              ? 'The catalog was rejected because its signed metadata did not verify.'
-              : 'Close Plugins and open it again to retry.'}
+            {catalogState === "verification-failure"
+              ? "The catalog was rejected because its signed metadata did not verify."
+              : "Close Plugins and open it again to retry."}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
-    )
+    );
   }
   return (
     <div className="plugins-browser__skeleton" aria-label="Loading plugins" aria-busy="true">
@@ -243,7 +243,7 @@ function PluginListState({
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 function PluginsEmpty({ query, tab }: Readonly<{ query: string; tab: PluginTab }>) {
@@ -253,17 +253,17 @@ function PluginsEmpty({ query, tab }: Readonly<{ query: string; tab: PluginTab }
         <EmptyMedia variant="icon">
           <Blocks aria-hidden="true" />
         </EmptyMedia>
-        <EmptyTitle>{tab === 'yours' ? 'No plugins added yet' : 'No matching plugins'}</EmptyTitle>
+        <EmptyTitle>{tab === "yours" ? "No plugins added yet" : "No matching plugins"}</EmptyTitle>
         <EmptyDescription>
-          {tab === 'yours'
-            ? 'Add a provider or skill from Marketplace and it will appear here.'
+          {tab === "yours"
+            ? "Add a provider or skill from Marketplace and it will appear here."
             : query.trim()
               ? `No plugins match “${query.trim()}”.`
-              : 'No plugins match the current filters.'}
+              : "No plugins match the current filters."}
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
-  )
+  );
 }
 
 function PluginDetail({
@@ -272,10 +272,10 @@ function PluginDetail({
   plugin,
   saving,
 }: Readonly<{
-  onBack: () => void
-  onUpdate: () => void
-  plugin: WorkspacePlugin
-  saving: boolean
+  onBack: () => void;
+  onUpdate: () => void;
+  plugin: WorkspacePlugin;
+  saving: boolean;
 }>) {
   return (
     <article className="plugins-detail">
@@ -287,7 +287,7 @@ function PluginDetail({
         <PluginLogo iconUrl={plugin.iconUrl} name={plugin.name} />
         <div>
           <div className="plugins-detail__eyebrow">
-            <Badge variant="outline">{plugin.kind === 'connector' ? 'Connector' : 'Skill'}</Badge>
+            <Badge variant="outline">{plugin.kind === "connector" ? "Connector" : "Skill"}</Badge>
             <Badge variant="secondary">{plugin.sourceId ?? plugin.source}</Badge>
             <span>{plugin.category}</span>
           </div>
@@ -299,23 +299,23 @@ function PluginDetail({
       <div className="plugins-detail__actions">
         <Button
           type="button"
-          variant={plugin.installed ? 'outline' : 'default'}
-          disabled={saving || plugin.installationStatus !== 'available'}
+          variant={plugin.installed ? "outline" : "default"}
+          disabled={saving || plugin.installationStatus !== "available"}
           onClick={onUpdate}
         >
           {saving
-            ? 'Requesting…'
-            : plugin.installationStatus === 'installed'
-              ? 'Installed'
-              : plugin.installationStatus === 'pending-authorization'
-                ? 'Authorization pending'
-                : plugin.installationStatus === 'rejected-by-policy'
-                  ? 'Rejected by policy'
-                  : plugin.installationStatus === 'superseded'
-                    ? 'Superseded'
-                    : plugin.installationStatus === 'unavailable'
-                      ? 'Unavailable'
-                      : 'Add'}
+            ? "Requesting…"
+            : plugin.installationStatus === "installed"
+              ? "Installed"
+              : plugin.installationStatus === "pending-authorization"
+                ? "Authorization pending"
+                : plugin.installationStatus === "rejected-by-policy"
+                  ? "Rejected by policy"
+                  : plugin.installationStatus === "superseded"
+                    ? "Superseded"
+                    : plugin.installationStatus === "unavailable"
+                      ? "Unavailable"
+                      : "Add"}
         </Button>
         {plugin.installed ? (
           <span role="status">
@@ -337,11 +337,11 @@ function PluginDetail({
         <h4 id="plugin-connection-heading">Connection</h4>
         <p>
           <ShieldCheck aria-hidden="true" />
-          {plugin.auth === 'oauth'
-            ? 'OAuth provider'
-            : plugin.auth === 'api-key'
-              ? 'API credential provider'
-              : 'Managed by this workspace'}
+          {plugin.auth === "oauth"
+            ? "OAuth provider"
+            : plugin.auth === "api-key"
+              ? "API credential provider"
+              : "Managed by this workspace"}
         </p>
         <small>
           Adding enables this provider in Agent HQ. Account authorization and runtime execution stay
@@ -350,18 +350,18 @@ function PluginDetail({
       </section>
       <section className="plugins-detail__section" aria-labelledby="plugin-source-heading">
         <h4 id="plugin-source-heading">Bundle</h4>
-        <p>{plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(' · ')}</p>
+        <p>{plugin.surfaces.map((surface) => surface.toLocaleUpperCase()).join(" · ")}</p>
         <small>
           {plugin.sourceUrl
             ? `Source: ${plugin.sourceUrl}.`
             : `Source: ${plugin.sourceId ?? plugin.source}.`}
-          {plugin.sourceRevision ? ` Commit: ${plugin.sourceRevision}.` : ''}
-          {plugin.license ? ` License: ${plugin.license}.` : ''}
-          {plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
+          {plugin.sourceRevision ? ` Commit: ${plugin.sourceRevision}.` : ""}
+          {plugin.license ? ` License: ${plugin.license}.` : ""}
+          {plugin.contentResolution === "metadata-only" ? " Content is metadata-only." : ""}
         </small>
       </section>
     </article>
-  )
+  );
 }
 
 export function PluginsDialog({
@@ -369,87 +369,87 @@ export function PluginsDialog({
   open,
   provider,
 }: Readonly<{
-  onClose: () => void
-  open: boolean
-  provider?: WorkspacePluginsProvider
+  onClose: () => void;
+  open: boolean;
+  provider?: WorkspacePluginsProvider;
 }>) {
-  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set())
-  const [plugins, setPlugins] = useState<readonly WorkspacePlugin[]>([])
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [query, setQuery] = useState('')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [status, setStatus] = useState<'error' | 'idle' | 'loading' | 'saving'>('idle')
+  const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  const [plugins, setPlugins] = useState<readonly WorkspacePlugin[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [status, setStatus] = useState<"error" | "idle" | "loading" | "saving">("idle");
   const [catalogState, setCatalogState] = useState<
-    'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
-  >('idle')
-  const [tab, setTab] = useState<PluginTab>('marketplace')
+    "idle" | "loading" | "ready" | "stale" | "verification-failure" | "unavailable"
+  >("idle");
+  const [tab, setTab] = useState<PluginTab>("marketplace");
   const [filters, setFilters] = useState<Record<PluginTab, WorkspacePluginFilter>>({
     marketplace: defaultPluginFilter,
     yours: defaultPluginFilter,
-  })
-  const activeFilter = filters[tab]
-  const selected = plugins.find(({ id }) => id === selectedId)
+  });
+  const activeFilter = filters[tab];
+  const selected = plugins.find(({ id }) => id === selectedId);
   const visible = useMemo(
     () => filterWorkspacePlugins(plugins, tab, query, activeFilter),
     [activeFilter, plugins, query, tab]
-  )
-  const grouped = useMemo(() => groupWorkspacePlugins(visible), [visible])
+  );
+  const grouped = useMemo(() => groupWorkspacePlugins(visible), [visible]);
   const groups = useMemo(() => {
     const showPopular =
-      tab === 'marketplace' &&
+      tab === "marketplace" &&
       query.trim().length === 0 &&
-      activeFilter.type === 'all' &&
-      activeFilter.ownership === 'all'
+      activeFilter.type === "all" &&
+      activeFilter.ownership === "all";
     return showPopular
-      ? [{ category: 'Popular', plugins: getPopularWorkspacePlugins(visible) }, ...grouped]
-      : grouped
-  }, [activeFilter, grouped, query, tab, visible])
+      ? [{ category: "Popular", plugins: getPopularWorkspacePlugins(visible) }, ...grouped]
+      : grouped;
+  }, [activeFilter, grouped, query, tab, visible]);
 
   useEffect(() => {
-    if (!open) return
-    setStatus('loading')
-    setCatalogState('loading')
-    let active = true
+    if (!open) return;
+    setStatus("loading");
+    setCatalogState("loading");
+    let active = true;
     void provider
       ?.list()
       .then((items) => {
-        if (!active) return
-        setPlugins(items)
-        setStatus('idle')
-        setCatalogState(provider?.getState?.() ?? 'ready')
+        if (!active) return;
+        setPlugins(items);
+        setStatus("idle");
+        setCatalogState(provider?.getState?.() ?? "ready");
       })
       .catch(() => {
-        if (!active) return
-        setCatalogState(provider?.getState?.() ?? 'unavailable')
-        setStatus('error')
-      })
+        if (!active) return;
+        setCatalogState(provider?.getState?.() ?? "unavailable");
+        setStatus("error");
+      });
     if (!provider) {
-      setCatalogState('unavailable')
-      setStatus('error')
+      setCatalogState("unavailable");
+      setStatus("error");
     }
     return () => {
-      active = false
-    }
-  }, [open, provider])
+      active = false;
+    };
+  }, [open, provider]);
 
   const close = () => {
-    setExpandedGroups(new Set())
-    setFilterOpen(false)
-    setSelectedId(null)
-    onClose()
-  }
+    setExpandedGroups(new Set());
+    setFilterOpen(false);
+    setSelectedId(null);
+    onClose();
+  };
   const update = async (plugin: WorkspacePlugin) => {
-    if (!provider || status === 'saving') return
-    setStatus('saving')
+    if (!provider || status === "saving") return;
+    setStatus("saving");
     try {
-      setPlugins(await provider.requestInstall(plugin.id))
-      setStatus('idle')
-      setCatalogState(provider.getState?.() ?? 'ready')
+      setPlugins(await provider.requestInstall(plugin.id));
+      setStatus("idle");
+      setCatalogState(provider.getState?.() ?? "ready");
     } catch {
-      setCatalogState(provider.getState?.() ?? 'unavailable')
-      setStatus('error')
+      setCatalogState(provider.getState?.() ?? "unavailable");
+      setStatus("error");
     }
-  }
+  };
 
   return (
     <ModalDialog
@@ -464,7 +464,7 @@ export function PluginsDialog({
           onBack={() => setSelectedId(null)}
           onUpdate={() => void update(selected)}
           plugin={selected}
-          saving={status === 'saving'}
+          saving={status === "saving"}
         />
       ) : (
         <Tabs
@@ -494,18 +494,18 @@ export function PluginsDialog({
               />
             </label>
             <span className="plugins-browser__count" aria-live="polite">
-              {visible.length} {visible.length === 1 ? 'plugin' : 'plugins'}
+              {visible.length} {visible.length === 1 ? "plugin" : "plugins"}
             </span>
           </div>
           <TabsContent value={tab} className="plugins-browser__list">
-            {status === 'loading' || status === 'error' ? (
+            {status === "loading" || status === "error" ? (
               <PluginListState
                 catalogState={
-                  catalogState === 'verification-failure'
-                    ? 'verification-failure'
-                    : catalogState === 'stale'
-                      ? 'stale'
-                      : 'unavailable'
+                  catalogState === "verification-failure"
+                    ? "verification-failure"
+                    : catalogState === "stale"
+                      ? "stale"
+                      : "unavailable"
                 }
                 status={status}
               />
@@ -521,10 +521,10 @@ export function PluginsDialog({
                   onSelect={setSelectedId}
                   onToggle={() =>
                     setExpandedGroups((current) => {
-                      const next = new Set(current)
-                      if (next.has(group.category)) next.delete(group.category)
-                      else next.add(group.category)
-                      return next
+                      const next = new Set(current);
+                      if (next.has(group.category)) next.delete(group.category);
+                      else next.add(group.category);
+                      return next;
                     })
                   }
                   plugins={group.plugins}
@@ -532,12 +532,12 @@ export function PluginsDialog({
               ))
             )}
           </TabsContent>
-          {catalogState === 'stale' && status === 'idle' ? (
+          {catalogState === "stale" && status === "idle" ? (
             <p className="plugins-browser__notice" role="status">
               Showing the last-known-good catalog while the registry is unavailable.
             </p>
           ) : null}
-          {catalogState === 'verification-failure' && status === 'idle' ? (
+          {catalogState === "verification-failure" && status === "idle" ? (
             <p className="plugins-browser__notice" role="alert">
               The latest catalog failed integrity verification and was not accepted.
             </p>
@@ -545,5 +545,5 @@ export function PluginsDialog({
         </Tabs>
       )}
     </ModalDialog>
-  )
+  );
 }

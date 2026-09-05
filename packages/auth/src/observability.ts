@@ -5,7 +5,7 @@ export type AuthEventName =
 
 export function createAuthEvent(
   name: AuthEventName,
-  metadata: Record<string, unknown>,
+  metadata: Record<string, unknown>
 ): Readonly<Record<string, unknown>> {
   const event: Record<string, unknown> = { event: `auth.${name}` };
   for (const [key, value] of Object.entries(metadata)) {

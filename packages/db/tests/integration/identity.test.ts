@@ -38,14 +38,14 @@ describe.skipIf(!connectionUrl)("identity mapping integration", () => {
 
     expect(await findUserPrincipalsByAuthIdentity(connection.db, identity)).toEqual([principal]);
     expect(
-      await connection.db.select().from(users).where(eq(users.id, principal.userId)),
+      await connection.db.select().from(users).where(eq(users.id, principal.userId))
     ).toHaveLength(1);
 
     await expect(
       createUserWithAuthIdentity(connection.db, {
         identity,
         profile: { displayName: "Duplicate" },
-      }),
+      })
     ).rejects.toThrow();
     expect(await findUserPrincipalsByAuthIdentity(connection.db, identity)).toEqual([principal]);
     const [{ value: afterDuplicateCount }] = await connection.db

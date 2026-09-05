@@ -53,7 +53,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
     });
 
     expect(await resolveTemporaryUserSession(connection.db, credentialDigest)).toEqual(
-      temporary.principal,
+      temporary.principal
     );
 
     const first = await createWorkspaceWithOwner(connection.db, {
@@ -71,7 +71,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
     expect(first.created).toBe(true);
     expect(retry.created).toBe(false);
     expect(
-      await findWorkspaceMembership(connection.db, first.workspace.id, temporary.principal),
+      await findWorkspaceMembership(connection.db, first.workspace.id, temporary.principal)
     ).toEqual({
       role: "owner",
       userId: temporary.principal.userId,
@@ -83,17 +83,17 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
 
     await archiveWorkspace(connection.db, first.workspace.id, temporary.principal);
     expect(
-      await getWorkspaceForUser(connection.db, first.workspace.id, temporary.principal),
+      await getWorkspaceForUser(connection.db, first.workspace.id, temporary.principal)
     ).toBeNull();
     const reopened = await reopenWorkspace(connection.db, first.workspace.id, temporary.principal);
     const reopenRetry = await reopenWorkspace(
       connection.db,
       first.workspace.id,
-      temporary.principal,
+      temporary.principal
     );
     expect(reopenRetry).toEqual(reopened);
     expect(
-      await getWorkspaceForUser(connection.db, first.workspace.id, temporary.principal),
+      await getWorkspaceForUser(connection.db, first.workspace.id, temporary.principal)
     ).toEqual(reopened);
     const reopenEvents = await connection.db
       .select({ id: workspaceEvents.id })
@@ -101,8 +101,8 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
       .where(
         and(
           eq(workspaceEvents.workspaceId, first.workspace.id),
-          eq(workspaceEvents.eventType, "workspace.reopened"),
-        ),
+          eq(workspaceEvents.eventType, "workspace.reopened")
+        )
       );
     expect(reopenEvents).toHaveLength(1);
     await connection.db
@@ -129,7 +129,9 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
     const bootstrapped = await ensureBootstrapWorkspaces(connection.db, temporary.principal);
 
     expect(bootstrapped.map(({ name }) => name).sort()).toEqual(["Home", "Work"]);
-    expect(await getWorkspaceForUser(connection.db, legacy.workspace.id, temporary.principal)).toMatchObject({
+    expect(
+      await getWorkspaceForUser(connection.db, legacy.workspace.id, temporary.principal)
+    ).toMatchObject({
       id: legacy.workspace.id,
       name: "Home",
       scene: "home",
@@ -160,8 +162,8 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
           idempotencyKey: "concurrent-create",
           name: `Concurrent HQ ${index}`,
           owner: temporary.principal,
-        }),
-      ),
+        })
+      )
     );
     expect(new Set(attempts.map(({ workspace }) => workspace.id)).size).toBe(1);
     expect(attempts.filter(({ created }) => created)).toHaveLength(1);
@@ -189,13 +191,13 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
         idempotencyKey: "rollback",
         name: "Must not persist",
         owner: { kind: "user", userId: missingUserId },
-      }),
+      })
     ).rejects.toThrow();
     expect(
       await connection.db
         .select({ id: workspaces.id })
         .from(workspaces)
-        .where(eq(workspaces.ownerUserId, missingUserId)),
+        .where(eq(workspaces.ownerUserId, missingUserId))
     ).toHaveLength(0);
   });
 
@@ -216,7 +218,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
 
     expect(await getWorkspaceForUser(connection.db, workspace.id, outsider.principal)).toBeNull();
     await expect(archiveWorkspace(connection.db, workspace.id, outsider.principal)).rejects.toThrow(
-      "Workspace unavailable",
+      "Workspace unavailable"
     );
 
     await archiveWorkspace(connection.db, workspace.id, owner.principal);
@@ -251,10 +253,10 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
 
     await addWorkspaceMembership(connection.db, workspace.id, member.principal, "member");
     await expect(
-      addWorkspaceMembership(connection.db, workspace.id, member.principal, "admin"),
+      addWorkspaceMembership(connection.db, workspace.id, member.principal, "admin")
     ).rejects.toThrow();
     await expect(
-      removeWorkspaceMembership(connection.db, workspace.id, owner.principal),
+      removeWorkspaceMembership(connection.db, workspace.id, owner.principal)
     ).rejects.toThrow("Workspace owner membership cannot be removed");
 
     await recordWorkspaceAuthorizationDecision(connection.db, {
@@ -275,7 +277,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
       await connection.db
         .select({ decision: authorizationAuditRecords.decision })
         .from(authorizationAuditRecords)
-        .where(eq(authorizationAuditRecords.workspaceId, workspace.id)),
+        .where(eq(authorizationAuditRecords.workspaceId, workspace.id))
     ).toEqual(expect.arrayContaining([{ decision: "allowed" }, { decision: "denied" }]));
 
     await connection.db
@@ -318,7 +320,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
       temporary.principal,
     ]);
     expect(
-      await getWorkspaceForUser(connection.db, workspace.id, temporary.principal),
+      await getWorkspaceForUser(connection.db, workspace.id, temporary.principal)
     ).not.toBeNull();
 
     await connection.db
@@ -346,10 +348,10 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
     });
 
     expect(await claimTemporaryUserSession(connection.db, { credentialDigest, identity })).toEqual(
-      registered,
+      registered
     );
     expect(await claimTemporaryUserSession(connection.db, { credentialDigest, identity })).toEqual(
-      registered,
+      registered
     );
     expect(await getWorkspaceForUser(connection.db, workspace.id, temporary.principal)).toBeNull();
     expect(await getWorkspaceForUser(connection.db, workspace.id, registered)).not.toBeNull();
@@ -384,7 +386,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
           owner: temporary.principal,
         });
         return { credentialDigest, temporary, workspace };
-      }),
+      })
     );
 
     await expect(
@@ -393,20 +395,20 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
           claimTemporaryUserSessionForUser(connection.db, {
             credentialDigest,
             target: registered,
-          }),
-        ),
-      ),
+          })
+        )
+      )
     ).resolves.toEqual([registered, registered]);
     await expect(
       claimTemporaryUserSessionForUser(connection.db, {
         credentialDigest: guests[0]!.credentialDigest,
         target: registered,
-      }),
+      })
     ).resolves.toEqual(registered);
     expect(await listWorkspacesForUser(connection.db, registered)).toEqual(
       expect.arrayContaining(
-        guests.map(({ workspace }) => expect.objectContaining({ id: workspace.id })),
-      ),
+        guests.map(({ workspace }) => expect.objectContaining({ id: workspace.id }))
+      )
     );
 
     for (const { temporary, workspace } of guests) {

@@ -12,7 +12,7 @@ export function workspaceJsonResponse<T>(
   payload: T,
   resolution: WorkspacePrincipalResolution,
   request: Request,
-  init?: ResponseInit,
+  init?: ResponseInit
 ) {
   const response = NextResponse.json(payload, init);
   const desktopRequest = trustedDesktopWorkspaceRequest(request, desktopTrustedOrigins());
@@ -34,15 +34,15 @@ export function workspaceUnavailableResponse(request: Request, status = 404) {
   return withDesktopWorkspaceCors(
     NextResponse.json(
       { code: "workspace_unavailable", message: "Workspace unavailable" },
-      { status },
+      { status }
     ),
-    request,
+    request
   );
 }
 
 export function workspaceInvalidRequestResponse(request: Request) {
   return withDesktopWorkspaceCors(
     NextResponse.json({ code: "invalid_request", message: "Invalid request" }, { status: 400 }),
-    request,
+    request
   );
 }

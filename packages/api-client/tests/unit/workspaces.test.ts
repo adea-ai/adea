@@ -74,12 +74,12 @@ describe("workspace API client", () => {
       fetchImpl: async () =>
         Response.json(
           { code: "workspace_unavailable", message: "Workspace unavailable" },
-          { status: 404 },
+          { status: 404 }
         ),
     });
 
     await expect(client.getWorkspace("private")).rejects.toEqual(
-      new ApiClientError("Workspace unavailable", 404, "workspace_unavailable"),
+      new ApiClientError("Workspace unavailable", 404, "workspace_unavailable")
     );
   });
 
@@ -96,7 +96,7 @@ describe("workspace API client", () => {
       });
 
       await expect(client.listWorkspaces()).rejects.toEqual(
-        new ApiClientError(message, status, code),
+        new ApiClientError(message, status, code)
       );
     }
   });
@@ -122,7 +122,7 @@ describe("workspace API client", () => {
     expect(request?.method).toBe("POST");
     expect(request?.headers.get("authorization")).toBe("Desktop desktop-secret");
     expect(request?.headers.get("x-agent-hq-desktop-session")).toBe(
-      "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1",
+      "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1"
     );
     expect(request?.headers.get("x-agent-hq-temporary-session")).toBe("ahq_tmp_guest-secret");
   });

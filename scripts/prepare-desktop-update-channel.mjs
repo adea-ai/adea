@@ -43,7 +43,7 @@ export function prepareUpdateManifest(manifestValue, assetValues, channelValue) 
         throw new Error("release asset must contain a numeric id and non-empty name");
       }
       return [asset.id, asset];
-    }),
+    })
   );
   const channel = publicChannelUrl(channelValue);
   const assetNames = new Set();
@@ -74,7 +74,7 @@ async function main() {
     process.argv.slice(2);
   if (!outputAssetsPath) {
     throw new Error(
-      "usage: prepare-desktop-update-channel.mjs <latest.json> <assets.json> <channel-url> <output-latest.json> <output-assets.json>",
+      "usage: prepare-desktop-update-channel.mjs <latest.json> <assets.json> <channel-url> <output-latest.json> <output-assets.json>"
     );
   }
 

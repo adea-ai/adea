@@ -27,7 +27,7 @@ export function AgentHqQueryProvider({ children }: { children: ReactNode }) {
             refetchOnWindowFocus: false,
           },
         },
-      }),
+      })
   );
   const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId);
   const previousWorkspaceIdRef = useRef<string | null>(null);

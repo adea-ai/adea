@@ -11,7 +11,7 @@ export type DatabaseEnvironment = Record<string, string | undefined>;
 
 export function readDatabaseUrl(
   environment: DatabaseEnvironment = process.env,
-  key = "DATABASE_URL",
+  key = "DATABASE_URL"
 ): string {
   for (const clientKey of CLIENT_DATABASE_KEYS) {
     if (environment[clientKey]) {

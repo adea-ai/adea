@@ -94,7 +94,7 @@ export async function createDesktopAuthorizationAttempt({
 
 export function createDesktopAuthorizationUrl(
   cloudOrigin: string,
-  attempt: DesktopAuthorizationAttempt,
+  attempt: DesktopAuthorizationAttempt
 ) {
   const url = new URL("/api/auth/desktop/authorize", assertCloudOrigin(cloudOrigin));
   url.searchParams.set("client", "desktop");
@@ -110,7 +110,7 @@ export function createDesktopAuthorizationUrl(
 export function consumeDesktopAuthorizationCallback(
   attempt: DesktopAuthorizationAttempt,
   rawCallbackUrl: string,
-  now = Date.now(),
+  now = Date.now()
 ): DesktopAuthorizationExchange {
   if (attempt.used) throw new Error("Desktop authorization was already consumed");
   if (attempt.expiresAt <= now) throw new Error("Desktop authorization expired");
@@ -310,7 +310,7 @@ export function createDesktopSessionManager({
     const result = pending.then(operation, operation);
     pending = result.then(
       () => undefined,
-      () => undefined,
+      () => undefined
     );
     return result;
   }

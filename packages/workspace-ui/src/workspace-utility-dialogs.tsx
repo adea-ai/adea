@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentHqApiClient } from '@agent-hq/api-client'
-import { useWorkspaceSearchQuery } from '@agent-hq/data'
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { AgentHqApiClient } from "@agent-hq/api-client";
+import { useWorkspaceSearchQuery } from "@agent-hq/data";
 import type {
   AgentSummary,
   ArtifactSummary,
@@ -8,7 +8,7 @@ import type {
   RoomSummary,
   TaskSummary,
   WorkspaceSearchResult,
-} from '@agent-hq/types'
+} from "@agent-hq/types";
 import {
   Bot,
   CheckCheck,
@@ -19,13 +19,13 @@ import {
   MessageSquare,
   Search,
   Settings,
-} from 'lucide-react'
+} from "lucide-react";
 
-import { ModalDialog } from './modal-dialog'
-import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
-import type { PrivateContentResolver } from './platform'
+import { ModalDialog } from "./modal-dialog";
+import { fuzzySearchMatch, searchKeyboardSelection } from "./workspace-model";
+import type { PrivateContentResolver } from "./platform";
 
-type SearchResult = WorkspaceSearchResult
+type SearchResult = WorkspaceSearchResult;
 
 export function WorkspaceSearchDialog({
   agents,
@@ -42,41 +42,41 @@ export function WorkspaceSearchDialog({
   tasks,
   workspaceId,
 }: Readonly<{
-  agents: readonly AgentSummary[]
-  artifacts: readonly ArtifactSummary[]
-  channels: readonly ChannelSummary[]
-  client: AgentHqApiClient
-  onClose: () => void
-  online: boolean
-  onSelect: (result: SearchResult) => void
-  open: boolean
-  privateContent?: PrivateContentResolver
-  rooms: readonly RoomSummary[]
-  scopeChannelId?: string
-  tasks: readonly TaskSummary[]
-  workspaceId: string
+  agents: readonly AgentSummary[];
+  artifacts: readonly ArtifactSummary[];
+  channels: readonly ChannelSummary[];
+  client: AgentHqApiClient;
+  onClose: () => void;
+  online: boolean;
+  onSelect: (result: SearchResult) => void;
+  open: boolean;
+  privateContent?: PrivateContentResolver;
+  rooms: readonly RoomSummary[];
+  scopeChannelId?: string;
+  tasks: readonly TaskSummary[];
+  workspaceId: string;
 }>) {
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selectedIndex, setSelectedIndex] = useState(0)
-  const [localResults, setLocalResults] = useState<readonly SearchResult[]>([])
-  const [localSearching, setLocalSearching] = useState(false)
-  const selectedRef = useRef<HTMLButtonElement>(null)
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [localResults, setLocalResults] = useState<readonly SearchResult[]>([]);
+  const [localSearching, setLocalSearching] = useState(false);
+  const selectedRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 180)
-    return () => window.clearTimeout(timeout)
-  }, [query])
-  const remote = useWorkspaceSearchQuery(client, workspaceId, debouncedQuery, scopeChannelId)
+    const timeout = window.setTimeout(() => setDebouncedQuery(query.trim()), 180);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
+  const remote = useWorkspaceSearchQuery(client, workspaceId, debouncedQuery, scopeChannelId);
   useEffect(() => {
-    let active = true
+    let active = true;
     if (!privateContent?.search || debouncedQuery.length < 2) {
-      setLocalResults([])
-      setLocalSearching(false)
+      setLocalResults([]);
+      setLocalSearching(false);
       return () => {
-        active = false
-      }
+        active = false;
+      };
     }
-    setLocalSearching(true)
+    setLocalSearching(true);
     void privateContent
       .search({ limit: 20, query: debouncedQuery, workspaceId })
       .then(async (matches) => {
@@ -84,120 +84,120 @@ export function WorkspaceSearchDialog({
           matches.map(async (match): Promise<SearchResult | null> => {
             if (match.messageId) {
               try {
-                const { message } = await client.getMessage(workspaceId, match.messageId)
-                if (scopeChannelId && message.channelId !== scopeChannelId) return null
+                const { message } = await client.getMessage(workspaceId, match.messageId);
+                if (scopeChannelId && message.channelId !== scopeChannelId) return null;
                 return {
                   channelId: message.channelId,
                   id: match.contentId,
-                  kind: 'message',
+                  kind: "message",
                   label: match.snippet,
                   messageId: message.id,
-                  secondary: 'Private message · this device only',
+                  secondary: "Private message · this device only",
                   ...(message.taskId ? { taskId: message.taskId } : {}),
                   ...(message.threadRootMessageId
                     ? { threadRootMessageId: message.threadRootMessageId }
                     : {}),
                   workspaceId,
-                }
+                };
               } catch {
-                return null
+                return null;
               }
             }
             if (match.taskId) {
-              const task = tasks.find(({ id }) => id === match.taskId)
+              const task = tasks.find(({ id }) => id === match.taskId);
               return task
                 ? {
                     id: task.id,
-                    kind: 'task',
+                    kind: "task",
                     label: task.title,
                     secondary: `${match.snippet} · private task content on this device`,
                     taskId: task.id,
                     workspaceId,
                   }
-                : null
+                : null;
             }
-            return null
+            return null;
           })
-        )
+        );
         if (active)
-          setLocalResults(resolved.filter((result): result is SearchResult => Boolean(result)))
+          setLocalResults(resolved.filter((result): result is SearchResult => Boolean(result)));
       })
       .catch(() => active && setLocalResults([]))
-      .finally(() => active && setLocalSearching(false))
+      .finally(() => active && setLocalSearching(false));
     return () => {
-      active = false
-    }
-  }, [client, debouncedQuery, privateContent, scopeChannelId, tasks, workspaceId])
+      active = false;
+    };
+  }, [client, debouncedQuery, privateContent, scopeChannelId, tasks, workspaceId]);
   const quickResults = useMemo(() => {
     const all: SearchResult[] = [
       ...rooms.map((room) => ({
         id: room.id,
-        kind: 'room' as const,
+        kind: "room" as const,
         label: room.name,
-        secondary: 'Room',
+        secondary: "Room",
         workspaceId,
       })),
       ...channels.map((channel) => ({
         id: channel.id,
-        kind: 'channel' as const,
+        kind: "channel" as const,
         label: channel.title,
         secondary:
-          channel.kind === 'room'
-            ? 'Room conversation'
-            : channel.kind === 'direct_agent'
-              ? 'Direct Agent conversation'
-              : 'Group conversation',
+          channel.kind === "room"
+            ? "Room conversation"
+            : channel.kind === "direct_agent"
+              ? "Direct Agent conversation"
+              : "Group conversation",
         workspaceId,
       })),
       ...agents.map((agent) => ({
         id: agent.id,
-        kind: 'agent' as const,
+        kind: "agent" as const,
         label: agent.name,
-        secondary: agent.roleSummary ?? 'Agent',
+        secondary: agent.roleSummary ?? "Agent",
         workspaceId,
       })),
       ...tasks.map((task) => ({
         id: task.id,
-        kind: 'task' as const,
+        kind: "task" as const,
         label: task.title,
         secondary:
           task.objective ??
           (task.objectiveContentRefId
-            ? 'Private objective unavailable on this device'
-            : 'Objective unavailable'),
+            ? "Private objective unavailable on this device"
+            : "Objective unavailable"),
         workspaceId,
       })),
       ...artifacts.map((artifact) => ({
         id: artifact.id,
-        kind: 'artifact' as const,
+        kind: "artifact" as const,
         label: artifact.filename,
         secondary: artifact.mediaType,
         taskId: artifact.taskId,
         workspaceId,
       })),
       {
-        id: 'mark-all-read',
-        kind: 'action' as const,
-        label: 'Mark all conversations read',
-        secondary: 'Read-state action · Mod+Shift+A',
+        id: "mark-all-read",
+        kind: "action" as const,
+        label: "Mark all conversations read",
+        secondary: "Read-state action · Mod+Shift+A",
         workspaceId,
       },
       {
-        id: 'workspace-settings',
-        kind: 'settings' as const,
-        label: 'Workspace settings',
-        secondary: 'Account, appearance, input, privacy, and capabilities',
+        id: "workspace-settings",
+        kind: "settings" as const,
+        label: "Workspace settings",
+        secondary: "Account, appearance, input, privacy, and capabilities",
         workspaceId,
       },
-    ]
-    return all.slice(0, 30)
-  }, [agents, artifacts, channels, rooms, tasks, workspaceId])
+    ];
+    return all.slice(0, 30);
+  }, [agents, artifacts, channels, rooms, tasks, workspaceId]);
   const paletteMatches = quickResults.filter(
     (result) =>
       !scopeChannelId &&
-      ['action', 'settings'].includes(result.kind) &&
+      ["action", "settings"].includes(result.kind) &&
       fuzzySearchMatch(`${result.label} ${result.secondary}`, debouncedQuery)
-  )
+  );
   const results =
     debouncedQuery.length >= 2
       ? [...paletteMatches, ...localResults, ...(remote.data?.results ?? [])]
@@ -207,40 +207,40 @@ export function WorkspaceSearchDialog({
           ? quickResults.filter((result) =>
               fuzzySearchMatch(`${result.label} ${result.secondary}`, debouncedQuery)
             )
-          : quickResults
+          : quickResults;
   useEffect(() => {
-    setSelectedIndex(0)
-  }, [debouncedQuery, scopeChannelId])
+    setSelectedIndex(0);
+  }, [debouncedQuery, scopeChannelId]);
   useEffect(() => {
-    selectedRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [selectedIndex])
+    selectedRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selectedIndex]);
   const select = (result: SearchResult) => {
-    onSelect(result)
-    onClose()
-  }
-  const icon = (kind: SearchResult['kind']) =>
-    kind === 'agent' ? (
+    onSelect(result);
+    onClose();
+  };
+  const icon = (kind: SearchResult["kind"]) =>
+    kind === "agent" ? (
       <Bot aria-hidden="true" />
-    ) : kind === 'room' ? (
+    ) : kind === "room" ? (
       <DoorOpen aria-hidden="true" />
-    ) : kind === 'task' ? (
+    ) : kind === "task" ? (
       <ListTodo aria-hidden="true" />
-    ) : kind === 'artifact' ? (
+    ) : kind === "artifact" ? (
       <FileText aria-hidden="true" />
-    ) : kind === 'message' ? (
+    ) : kind === "message" ? (
       <MessageSquare aria-hidden="true" />
-    ) : kind === 'action' ? (
+    ) : kind === "action" ? (
       <CheckCheck aria-hidden="true" />
-    ) : kind === 'settings' ? (
+    ) : kind === "settings" ? (
       <Settings aria-hidden="true" />
     ) : (
       <Hash aria-hidden="true" />
-    )
+    );
   return (
     <ModalDialog
       open={open}
       onClose={onClose}
-      title={scopeChannelId ? 'Search this conversation' : 'Search workspace'}
+      title={scopeChannelId ? "Search this conversation" : "Search workspace"}
       description="Search Rooms, conversations, Agents, Tasks, Artifacts, and cloud-safe message text."
     >
       <label className="conventional-search-field">
@@ -256,13 +256,13 @@ export function WorkspaceSearchDialog({
             results[selectedIndex] ? `search-result-${selectedIndex}` : undefined
           }
           onKeyDown={(event) => {
-            const keyboard = searchKeyboardSelection(event.key, selectedIndex, results.length)
-            if (keyboard.action === 'move') {
-              event.preventDefault()
-              setSelectedIndex(keyboard.index)
-            } else if (keyboard.action === 'open' && results[keyboard.index]) {
-              event.preventDefault()
-              select(results[keyboard.index])
+            const keyboard = searchKeyboardSelection(event.key, selectedIndex, results.length);
+            if (keyboard.action === "move") {
+              event.preventDefault();
+              setSelectedIndex(keyboard.index);
+            } else if (keyboard.action === "open" && results[keyboard.index]) {
+              event.preventDefault();
+              select(results[keyboard.index]);
             }
           }}
         />
@@ -302,8 +302,8 @@ export function WorkspaceSearchDialog({
       {remote.data?.privateResultsUnavailable ? (
         <p className="conventional-dialog-empty" role="status">
           {privateContent?.search
-            ? 'Cloud results exclude private bodies; this authorized device was searched separately.'
-            : 'Private local content can only be searched on its trusted desktop device.'}
+            ? "Cloud results exclude private bodies; this authorized device was searched separately."
+            : "Private local content can only be searched on its trusted desktop device."}
         </p>
       ) : null}
       {!online && debouncedQuery.length >= 2 ? (
@@ -320,7 +320,7 @@ export function WorkspaceSearchDialog({
       ) : null}
       <p className="conventional-search-hint">↑↓ move · Enter open · Esc close</p>
     </ModalDialog>
-  )
+  );
 }
 
-export type { SearchResult }
+export type { SearchResult };

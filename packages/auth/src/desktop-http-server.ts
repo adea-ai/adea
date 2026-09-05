@@ -65,7 +65,7 @@ export function parseDesktopAuthorizationRequest(request: Request) {
 
 export async function parseDesktopExchangeRequest(
   request: Request,
-  trustedOrigins: readonly string[],
+  trustedOrigins: readonly string[]
 ): Promise<DesktopSessionExchangeInput> {
   assertTrustedOrigin(request, trustedOrigins);
   if (request.headers.get("content-type")?.split(";", 1)[0]?.trim() !== "application/json") {
@@ -109,7 +109,7 @@ export async function parseDesktopExchangeRequest(
 
 export function parseDesktopSessionRequest(
   request: Request,
-  trustedOrigins: readonly string[],
+  trustedOrigins: readonly string[]
 ): DesktopSessionCredential {
   assertTrustedOrigin(request, trustedOrigins);
   const authorization = request.headers.get("authorization") ?? "";

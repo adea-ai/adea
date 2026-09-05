@@ -41,7 +41,7 @@ type WorkspaceCreationInput = Readonly<{
 
 async function createWorkspaceWithOwnerInTransaction(
   transaction: AgentHqTransaction,
-  input: WorkspaceCreationInput,
+  input: WorkspaceCreationInput
 ): Promise<Readonly<{ created: boolean; workspace: WorkspaceSummary }>> {
   const [createdWorkspace] = await transaction
     .insert(workspaces)
@@ -61,8 +61,8 @@ async function createWorkspaceWithOwnerInTransaction(
       .where(
         and(
           eq(workspaces.ownerUserId, input.owner.userId),
-          eq(workspaces.idempotencyKey, input.idempotencyKey),
-        ),
+          eq(workspaces.idempotencyKey, input.idempotencyKey)
+        )
       )
       .limit(1);
     if (!existingWorkspace) throw new Error("Workspace creation conflict");
@@ -85,10 +85,10 @@ async function createWorkspaceWithOwnerInTransaction(
 
 export async function createWorkspaceWithOwner(
   database: AgentHqDatabase,
-  input: WorkspaceCreationInput,
+  input: WorkspaceCreationInput
 ): Promise<Readonly<{ created: boolean; workspace: WorkspaceSummary }>> {
   return database.transaction((transaction) =>
-    createWorkspaceWithOwnerInTransaction(transaction, input),
+    createWorkspaceWithOwnerInTransaction(transaction, input)
   );
 }
 
@@ -97,10 +97,7 @@ const bootstrapWorkspaceInputs = [
   { idempotencyKey: "default-work", name: "Work", scene: "work" as const },
 ] as const;
 
-async function workspacesForUser(
-  transaction: AgentHqTransaction,
-  owner: UserPrincipalRef,
-) {
+async function workspacesForUser(transaction: AgentHqTransaction, owner: UserPrincipalRef) {
   return transaction
     .select({ workspace: workspaces })
     .from(workspaceMemberships)
@@ -115,12 +112,12 @@ async function workspacesForUser(
  */
 export async function ensureBootstrapWorkspaces(
   database: AgentHqDatabase,
-  owner: UserPrincipalRef,
+  owner: UserPrincipalRef
 ): Promise<WorkspaceSummary[]> {
   return database.transaction(async (transaction) => {
     let rows = await workspacesForUser(transaction, owner);
     const hasBootstrapWorkspace = rows.some(({ workspace }) =>
-      ["default", "default-home", "default-work"].includes(workspace.idempotencyKey),
+      ["default", "default-home", "default-work"].includes(workspace.idempotencyKey)
     );
 
     if (rows.length === 0 || hasBootstrapWorkspace) {
@@ -150,7 +147,7 @@ export async function findWorkspaceMembership(
   database: AgentHqDatabase,
   workspaceId: string,
   principal: UserPrincipalRef,
-  options: Readonly<{ includeArchived?: boolean }> = {},
+  options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<WorkspaceMembershipRecord | null> {
   const [membership] = await database
     .select({
@@ -164,8 +161,8 @@ export async function findWorkspaceMembership(
       and(
         eq(workspaceMemberships.workspaceId, workspaceId),
         eq(workspaceMemberships.userId, principal.userId),
-        ...(options.includeArchived ? [] : [isNull(workspaces.deletedAt)]),
-      ),
+        ...(options.includeArchived ? [] : [isNull(workspaces.deletedAt)])
+      )
     )
     .limit(1);
   return membership ? Object.freeze(membership) : null;
@@ -175,7 +172,7 @@ export async function addWorkspaceMembership(
   database: AgentHqDatabase,
   workspaceId: string,
   principal: UserPrincipalRef,
-  role: Exclude<WorkspaceRole, "owner">,
+  role: Exclude<WorkspaceRole, "owner">
 ): Promise<WorkspaceMembershipRecord> {
   const [membership] = await database
     .insert(workspaceMemberships)
@@ -192,7 +189,7 @@ export async function addWorkspaceMembership(
 export async function removeWorkspaceMembership(
   database: AgentHqDatabase,
   workspaceId: string,
-  principal: UserPrincipalRef,
+  principal: UserPrincipalRef
 ): Promise<boolean> {
   return database.transaction(async (transaction) => {
     const [workspace] = await transaction
@@ -209,8 +206,8 @@ export async function removeWorkspaceMembership(
       .where(
         and(
           eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, principal.userId),
-        ),
+          eq(workspaceMemberships.userId, principal.userId)
+        )
       )
       .returning({ id: workspaceMemberships.id });
     return removed.length === 1;
@@ -219,7 +216,7 @@ export async function removeWorkspaceMembership(
 
 export async function listWorkspacesForUser(
   database: AgentHqDatabase,
-  principal: UserPrincipalRef,
+  principal: UserPrincipalRef
 ): Promise<WorkspaceSummary[]> {
   const rows = await database
     .select({ workspace: workspaces })
@@ -233,7 +230,7 @@ export async function listWorkspacesForUser(
 export async function getWorkspaceForUser(
   database: AgentHqDatabase,
   workspaceId: string,
-  principal: UserPrincipalRef,
+  principal: UserPrincipalRef
 ): Promise<WorkspaceSummary | null> {
   const [row] = await database
     .select({ workspace: workspaces })
@@ -243,8 +240,8 @@ export async function getWorkspaceForUser(
       and(
         eq(workspaceMemberships.workspaceId, workspaceId),
         eq(workspaceMemberships.userId, principal.userId),
-        isNull(workspaces.deletedAt),
-      ),
+        isNull(workspaces.deletedAt)
+      )
     )
     .limit(1);
   return row ? workspaceSummary(row.workspace) : null;
@@ -253,7 +250,7 @@ export async function getWorkspaceForUser(
 export async function archiveWorkspace(
   database: AgentHqDatabase,
   workspaceId: string,
-  principal: UserPrincipalRef,
+  principal: UserPrincipalRef
 ): Promise<void> {
   await database.transaction(async (transaction) => {
     const [workspace] = await transaction
@@ -263,8 +260,8 @@ export async function archiveWorkspace(
         and(
           eq(workspaces.id, workspaceId),
           eq(workspaces.ownerUserId, principal.userId),
-          isNull(workspaces.deletedAt),
-        ),
+          isNull(workspaces.deletedAt)
+        )
       )
       .limit(1);
     if (!workspace) throw new Error("Workspace unavailable");
@@ -285,7 +282,7 @@ export async function archiveWorkspace(
 export async function reopenWorkspace(
   database: AgentHqDatabase,
   workspaceId: string,
-  principal: UserPrincipalRef,
+  principal: UserPrincipalRef
 ): Promise<WorkspaceSummary> {
   return database.transaction(async (transaction) => {
     const [existing] = await transaction
@@ -303,8 +300,8 @@ export async function reopenWorkspace(
         and(
           eq(workspaces.id, workspaceId),
           eq(workspaces.ownerUserId, principal.userId),
-          isNotNull(workspaces.deletedAt),
-        ),
+          isNotNull(workspaces.deletedAt)
+        )
       )
       .returning();
     if (!workspace) {
@@ -350,7 +347,7 @@ export async function recordWorkspaceAuthorizationDecision(
     principal: PrincipalRef;
     reason: string;
     workspaceId: string;
-  }>,
+  }>
 ): Promise<void> {
   await database.insert(authorizationAuditRecords).values({
     decision: record.decision,

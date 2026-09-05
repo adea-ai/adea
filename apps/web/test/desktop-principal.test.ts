@@ -62,7 +62,7 @@ describe("desktop stable identity provisioning", () => {
         async setDisplayNameIfMissing(input) {
           profileUpdate = input;
         },
-      },
+      }
     );
 
     expect(principal).toEqual({ kind: "user", userId: "user-1" });
@@ -79,7 +79,7 @@ describe("desktop stable identity provisioning", () => {
         async setDisplayNameIfMissing() {
           throw new Error("profile update unavailable");
         },
-      }),
+      })
     ).resolves.toEqual({ kind: "user", userId: "user-1" });
   });
 

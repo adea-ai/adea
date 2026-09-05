@@ -145,7 +145,7 @@ export class SoundController {
     element: HTMLAudioElement,
     target: number,
     durationMs: number,
-    onDone?: () => void,
+    onDone?: () => void
   ): void {
     const start = element.volume;
     const startTime = performance.now();

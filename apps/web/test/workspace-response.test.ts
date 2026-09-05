@@ -16,7 +16,7 @@ describe("workspace response credentials", () => {
     const browser = workspaceJsonResponse(
       { ok: true },
       resolution,
-      new Request("http://localhost/api/workspaces/bootstrap", { method: "POST" }),
+      new Request("http://localhost/api/workspaces/bootstrap", { method: "POST" })
     );
     expect(browser.headers.get("set-cookie")).toContain("agent_hq_temporary_session=ahq_tmp_");
     expect(browser.headers.get("set-cookie")).toContain("HttpOnly");
@@ -30,7 +30,7 @@ describe("workspace response credentials", () => {
           "x-agent-hq-client": "desktop",
         },
         method: "POST",
-      }),
+      })
     );
     expect(desktop.headers.get("set-cookie")).toBeNull();
     expect(desktop.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:1420");

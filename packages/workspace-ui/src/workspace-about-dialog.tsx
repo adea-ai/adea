@@ -1,46 +1,46 @@
-'use client'
+"use client";
 
-import { useEffect, useState } from 'react'
-import { Button } from '@agent-hq/ui/components/ui/button'
-import { WorkspaceLogo } from '@agent-hq/ui/components/workspace-logo'
-import { ExternalLink } from 'lucide-react'
+import { useEffect, useState } from "react";
+import { Button } from "@agent-hq/ui/components/ui/button";
+import { WorkspaceLogo } from "@agent-hq/ui/components/workspace-logo";
+import { ExternalLink } from "lucide-react";
 
-import { ModalDialog } from './modal-dialog'
+import { ModalDialog } from "./modal-dialog";
 
 export function WorkspaceAboutDialog({
-  appName = 'Agent HQ',
+  appName = "Agent HQ",
   onClose,
   open,
-  platform = 'web',
+  platform = "web",
   version,
 }: Readonly<{
-  appName?: string
-  onClose: () => void
-  open: boolean
-  platform?: 'desktop' | 'web'
-  version?: string
+  appName?: string;
+  onClose: () => void;
+  open: boolean;
+  platform?: "desktop" | "web";
+  version?: string;
 }>) {
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (!copied) return
-    const timeout = window.setTimeout(() => setCopied(false), 1400)
-    return () => window.clearTimeout(timeout)
-  }, [copied])
+    if (!copied) return;
+    const timeout = window.setTimeout(() => setCopied(false), 1400);
+    return () => window.clearTimeout(timeout);
+  }, [copied]);
 
   const copyVersionInfo = async () => {
     const info = [
       appName,
-      version ? `Version ${version}` : 'Version unavailable',
+      version ? `Version ${version}` : "Version unavailable",
       `Platform: ${platform}`,
-    ].join('\n')
+    ].join("\n");
     try {
-      await navigator.clipboard.writeText(info)
-      setCopied(true)
+      await navigator.clipboard.writeText(info);
+      setCopied(true);
     } catch {
       // Clipboard access is optional; leave the dialog usable when unavailable.
     }
-  }
+  };
 
   return (
     <ModalDialog
@@ -56,12 +56,12 @@ export function WorkspaceAboutDialog({
             <WorkspaceLogo aria-hidden="true" role="presentation" />
           </div>
           <h3>{appName}</h3>
-          <p>{version ? `Version ${version}` : 'Version unavailable'}</p>
+          <p>{version ? `Version ${version}` : "Version unavailable"}</p>
           <small>Copyright © 2026 0xPlayerOne</small>
         </div>
         <footer className="conventional-about-dialog__footer">
           <Button type="button" variant="outline" size="sm" onClick={() => void copyVersionInfo()}>
-            {copied ? 'Copied' : 'Copy version info'}
+            {copied ? "Copied" : "Copy version info"}
           </Button>
           <a href="https://github.com/adea-ai/agent-hq" target="_blank" rel="noreferrer">
             <ExternalLink aria-hidden="true" />
@@ -70,5 +70,5 @@ export function WorkspaceAboutDialog({
         </footer>
       </div>
     </ModalDialog>
-  )
+  );
 }

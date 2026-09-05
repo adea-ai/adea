@@ -28,12 +28,12 @@ export const desktopAuthorizationCodes = appSchema.table(
     check("desktop_authorization_codes_digest_nonempty", sql`length(${table.codeDigest}) > 0`),
     check(
       "desktop_authorization_codes_challenge_nonempty",
-      sql`length(${table.codeChallenge}) > 0`,
+      sql`length(${table.codeChallenge}) > 0`
     ),
     index("desktop_authorization_codes_expiry_idx").on(table.expiresAt),
     index("desktop_authorization_codes_user_idx").on(table.userId),
     unique("desktop_authorization_codes_code_digest_unique").on(table.codeDigest),
-  ],
+  ]
 );
 
 export const desktopSessions = appSchema.table(
@@ -57,13 +57,13 @@ export const desktopSessions = appSchema.table(
     unique("desktop_sessions_credential_digest_unique").on(table.credentialDigest),
     check(
       "desktop_sessions_credential_digest_nonempty",
-      sql`length(${table.credentialDigest}) > 0`,
+      sql`length(${table.credentialDigest}) > 0`
     ),
     check(
       "desktop_sessions_provider_session_nonempty",
-      sql`length(${table.providerSessionId}) > 0`,
+      sql`length(${table.providerSessionId}) > 0`
     ),
     index("desktop_sessions_user_idx").on(table.userId),
     index("desktop_sessions_active_idx").on(table.sessionId, table.revokedAt, table.expiresAt),
-  ],
+  ]
 );

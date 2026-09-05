@@ -6,7 +6,7 @@
   "scripts": {
     "lint": "eslint .",
     "dev": "bun ../../scripts/sync-assets.mjs && sh -c 'next dev --webpack -H 0.0.0.0 -p \"${PORT:-3000}\"'",
-    "build": "bun ../../scripts/sync-assets.mjs && next build --webpack",
+    "build": "bun run cf-typegen && bun ../../scripts/sync-assets.mjs && next build --webpack",
     "build:worker": "opennextjs-cloudflare build",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
