@@ -132,9 +132,11 @@ jobs:
           no-cache: true
 
       - name: Fetch private asset pack
-        # The pack secret does not exist until the adea-ai/assets PAT is
-        # provisioned; until then desktop builds ship manifests-only.
-        if: ${{ secrets.ASSETS_READ_TOKEN != '' }}
+        # Release artifacts must ship real models: without ASSETS_READ_TOKEN
+        # this step (and the release) fails fast instead of shipping
+        # manifests-only desktop builds. (`secrets` is intentionally not
+        # tested in `if:` here — that context is unavailable to step
+        # conditionals; an empty secret makes the fetch fail loudly.)
         env:
           ASSETS_READ_TOKEN: ${{ secrets.ASSETS_READ_TOKEN }}
         run: bun scripts/fetch-assets.mjs
