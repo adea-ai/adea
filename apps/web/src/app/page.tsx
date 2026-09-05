@@ -48,7 +48,7 @@ export default async function HomePage({
       roomDesigner={roomDesigner !== undefined && roomDesigner !== '0'}
       virtualProps={{
         initialScene: hqSceneFromSearchParams(params),
-        initialCharacter: isValidCharacter ? requestedCharacter! : 'cashier',
+        initialCharacter: isValidCharacter ? requestedCharacter! : configurableCharacterId,
         startPosition: readSceneStartPosition(params.spawn),
         cameraViewMode:
           cameraParam === 'perspective' || cameraParam === 'orthographic' ? cameraParam : undefined,
