@@ -120,6 +120,20 @@
   line-height: 1.4;
 }
 
+/* Room Designer owns the viewport while it is open. Keep the global rail
+ * available for workspace, scene, and plugin navigation, but remove controls
+ * that would compete with the editor canvas. */
+.workspace-scene-viewport:has([data-room-designer-active='true'])
+  .workspace-ui
+  :is(
+    .virtual-room-panel,
+    .workspace-scene-tools,
+    .workspace-view-switcher,
+    .workspace-scene-caption
+  ) {
+  display: none;
+}
+
 @media (max-width: 640px) {
   .virtual-room-panel {
     top: auto;

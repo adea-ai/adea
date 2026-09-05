@@ -11,14 +11,17 @@ import {
   archiveTask,
   assignTask,
   cancelTask,
+  completeTask,
   createTask,
   getTaskForUser,
   listTasksForUser,
   moveTaskToRoom,
   queueTask,
+  reviewTask,
   setTaskArtifactReferences,
   setTaskConversationReferences,
   setTaskDependencies,
+  startTask,
   updateTask,
 } from '../../src/tasks'
 import {
@@ -218,6 +221,71 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
       command('archive', 3)
     )
     expect(archived.lifecycleState).toBe('archived')
+    const completable = await createTask(
+      connection.db,
+      workspace.id,
+      owner.principal,
+      { objective: 'Finish the work', priority: 'normal', title: 'Completable' },
+      command('completable-create')
+    )
+    const completableQueued = await queueTask(
+      connection.db,
+      workspace.id,
+      completable.id,
+      owner.principal,
+      command('completable-queue', 1)
+    )
+    expect(completableQueued.lifecycleState).toBe('queued')
+    const started = await startTask(
+      connection.db,
+      workspace.id,
+      completable.id,
+      owner.principal,
+      command('start', 2)
+    )
+    expect(started).toMatchObject({ lifecycleState: 'in_progress', version: 3 })
+    const submitted = await reviewTask(
+      connection.db,
+      workspace.id,
+      completable.id,
+      owner.principal,
+      command('review', 3)
+    )
+    expect(submitted).toMatchObject({ lifecycleState: 'in_review', version: 4 })
+    await expect(
+      queueTask(
+        connection.db,
+        workspace.id,
+        completable.id,
+        owner.principal,
+        command('queue-from-review', 4)
+      )
+    ).rejects.toThrow('Invalid Task lifecycle transition')
+    const completed = await completeTask(
+      connection.db,
+      workspace.id,
+      completable.id,
+      owner.principal,
+      command('complete', 4)
+    )
+    expect(completed).toMatchObject({ lifecycleState: 'completed', version: 5 })
+    await expect(
+      cancelTask(
+        connection.db,
+        workspace.id,
+        completable.id,
+        owner.principal,
+        command('cancel-completed', 5)
+      )
+    ).rejects.toThrow('Invalid Task lifecycle transition')
+    const completedArchived = await archiveTask(
+      connection.db,
+      workspace.id,
+      completable.id,
+      owner.principal,
+      command('archive-completed', 5)
+    )
+    expect(completedArchived.lifecycleState).toBe('archived')
     const raced = await createTask(
       connection.db,
       workspace.id,
@@ -246,6 +314,139 @@ describe.skipIf(!connectionUrl)('durable product Tasks', () => {
     expect(race.filter(({ status }) => status === 'fulfilled')).toHaveLength(1)
     expect(race.filter(({ status }) => status === 'rejected')).toHaveLength(1)
     expect(await listTasksForUser(connection.db, workspace.id, owner.principal)).toHaveLength(1)
+
+    await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
+    await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, workspace.id))
+    await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id))
+    await connection.db
+      .delete(temporaryUserSessions)
+      .where(eq(temporaryUserSessions.userId, owner.principal.userId))
+    await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
+  })
+
+  test('reopens in_review Tasks when their linked conversation receives a message', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `task-reopen-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `task-reopen-${crypto.randomUUID()}`,
+      name: 'Reopen HQ',
+      owner: owner.principal,
+    })
+    let task = await createTask(
+      connection.db,
+      workspace.id,
+      owner.principal,
+      { objective: 'Review then comment', priority: 'normal', title: 'Reopenable' },
+      command('reopen-create')
+    )
+    task = await queueTask(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      command('reopen-queue', task.version)
+    )
+    task = await startTask(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      command('reopen-start', task.version)
+    )
+    task = await reviewTask(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      command('reopen-review', task.version)
+    )
+    expect(task.lifecycleState).toBe('in_review')
+    const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+      idempotencyKey: 'reopen-channel',
+      title: 'Task thread',
+    })
+    const otherChannel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+      idempotencyKey: 'reopen-other-channel',
+      title: 'Unrelated thread',
+    })
+    task = await setTaskConversationReferences(
+      connection.db,
+      workspace.id,
+      task.id,
+      owner.principal,
+      { channelId: channel.id },
+      command('reopen-conversation', task.version)
+    )
+    await createMessage(connection.db, workspace.id, otherChannel.id, owner.principal, {
+      bodyText: 'Unrelated comment',
+      idempotencyKey: 'reopen-unrelated-message',
+      sender: owner.principal,
+    })
+    expect(
+      (await getTaskForUser(connection.db, workspace.id, task.id, owner.principal))?.lifecycleState
+    ).toBe('in_review')
+    await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+      bodyText: 'Needs another change',
+      idempotencyKey: 'reopen-linked-message',
+      sender: owner.principal,
+    })
+    const reopened = await getTaskForUser(connection.db, workspace.id, task.id, owner.principal)
+    expect(reopened).toMatchObject({ lifecycleState: 'in_progress', version: task.version + 1 })
+
+    await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
+    await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
+    await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, workspace.id))
+    await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id))
+    await connection.db
+      .delete(temporaryUserSessions)
+      .where(eq(temporaryUserSessions.userId, owner.principal.userId))
+    await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
+  })
+
+  test('defaults Task kind to feature and allows bug/chore updates', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `task-kind-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `task-kind-${crypto.randomUUID()}`,
+      name: 'Kind HQ',
+      owner: owner.principal,
+    })
+    const defaulted = await createTask(
+      connection.db,
+      workspace.id,
+      owner.principal,
+      { objective: 'Default kind', title: 'Defaulted' },
+      command('kind-default')
+    )
+    expect(defaulted.kind).toBe('feature')
+    const bug = await createTask(
+      connection.db,
+      workspace.id,
+      owner.principal,
+      { kind: 'bug', objective: 'Explicit kind', title: 'Bugged' },
+      command('kind-bug')
+    )
+    expect(bug.kind).toBe('bug')
+    const chore = await updateTask(
+      connection.db,
+      workspace.id,
+      bug.id,
+      owner.principal,
+      { kind: 'chore' },
+      command('kind-chore', bug.version)
+    )
+    expect(chore).toMatchObject({ kind: 'chore', version: bug.version + 1 })
 
     await connection.db.delete(taskMutations).where(eq(taskMutations.workspaceId, workspace.id))
     await connection.db.delete(tasks).where(eq(tasks.workspaceId, workspace.id))

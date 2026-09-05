@@ -1,6 +1,7 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import type {
+  TaskKind,
   TaskLifecycleState,
   TaskPriority,
   TaskSummary,
@@ -41,6 +42,7 @@ export type TaskCreateInput = Readonly<{
     threadRootMessageId?: string
   }>
   dependencyIds?: readonly string[]
+  kind?: TaskKind
   objective?: string
   objectiveContentRefId?: string
   priority?: TaskPriority
@@ -51,6 +53,7 @@ export type TaskCreateInput = Readonly<{
 export type TaskUpdateInput = Readonly<{
   controlPlaneExecutionRef?: string | null
   controlPlaneWorkflowRef?: string | null
+  kind?: TaskKind
   objective?: string
   objectiveContentRefId?: string
   priority?: TaskPriority
@@ -152,6 +155,7 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
     creator: Object.freeze({ kind: 'user' as const, userId: row.creatorUserId }),
     dependencyIds: Object.freeze(dependencies.map(({ id }) => id)),
     id: row.id,
+    kind: row.kind,
     lifecycleState: row.lifecycleState,
     ...(row.objective ? { objective: row.objective } : {}),
     ...(row.objectiveContentRefId ? { objectiveContentRefId: row.objectiveContentRefId } : {}),
@@ -322,6 +326,7 @@ export async function createTask(
             controlPlaneExecutionRef: input.controlPlaneExecutionRef?.trim() || null,
             controlPlaneWorkflowRef: input.controlPlaneWorkflowRef?.trim() || null,
             creatorUserId: principal.userId,
+            kind: input.kind ?? 'feature',
             messageId: input.conversation?.messageId ?? null,
             objective: input.objective?.trim() || null,
             objectiveContentRefId: input.objectiveContentRefId ?? null,
@@ -471,6 +476,7 @@ export async function updateTask(
           ...(input.objectiveContentRefId !== undefined
             ? { objective: null, objectiveContentRefId: input.objectiveContentRefId }
             : {}),
+          ...(input.kind !== undefined ? { kind: input.kind } : {}),
           ...(input.priority !== undefined ? { priority: input.priority } : {}),
           ...(input.title !== undefined ? { title: input.title.trim() } : {}),
           updatedAt: new Date(),
@@ -589,8 +595,11 @@ async function transitionTask(
       const valid: Record<TaskLifecycleState, readonly TaskLifecycleState[]> = {
         archived: [],
         cancelled: ['archived'],
-        created: ['queued', 'cancelled', 'archived'],
-        queued: ['cancelled', 'archived'],
+        completed: ['archived'],
+        created: ['queued', 'in_progress', 'completed', 'cancelled', 'archived'],
+        in_progress: ['in_review', 'completed', 'cancelled', 'archived'],
+        in_review: ['in_progress', 'completed', 'cancelled', 'archived'],
+        queued: ['in_progress', 'completed', 'cancelled', 'archived'],
       }
       if (!valid[row.lifecycleState].includes(target))
         throw new Error('Invalid Task lifecycle transition')
@@ -624,6 +633,27 @@ export const cancelTask = (
   principal: UserPrincipalRef,
   command: TaskCommand
 ) => transitionTask(database, workspaceId, taskId, principal, 'cancelled', command)
+export const startTask = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef,
+  command: TaskCommand
+) => transitionTask(database, workspaceId, taskId, principal, 'in_progress', command)
+export const completeTask = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef,
+  command: TaskCommand
+) => transitionTask(database, workspaceId, taskId, principal, 'completed', command)
+export const reviewTask = (
+  database: AgentHqDatabase,
+  workspaceId: string,
+  taskId: string,
+  principal: UserPrincipalRef,
+  command: TaskCommand
+) => transitionTask(database, workspaceId, taskId, principal, 'in_review', command)
 export const archiveTask = (
   database: AgentHqDatabase,
   workspaceId: string,
@@ -631,6 +661,65 @@ export const archiveTask = (
   principal: UserPrincipalRef,
   command: TaskCommand
 ) => transitionTask(database, workspaceId, taskId, principal, 'archived', command)
+
+export async function reopenTasksForChannelMessage(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  channelId: string,
+  messageId: string,
+  principal: UserPrincipalRef
+) {
+  const candidates = await transaction
+    .select({ id: tasks.id, version: tasks.version })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.workspaceId, workspaceId),
+        eq(tasks.channelId, channelId),
+        eq(tasks.lifecycleState, 'in_review')
+      )
+    )
+  for (const candidate of candidates) {
+    try {
+      await runMutation(
+        transaction,
+        workspaceId,
+        principal,
+        'task.in_progress',
+        'task.in_progress',
+        { expectedVersion: candidate.version, target: 'in_progress', taskId: candidate.id },
+        {
+          idempotencyKey: `reopen-on-comment:${candidate.id}:${messageId}`,
+          requestId: randomUUID(),
+        },
+        async () => {
+          const row = await requireTask(transaction, workspaceId, candidate.id)
+          if (row.lifecycleState !== 'in_review' || row.version !== candidate.version)
+            throw new Error('Task version conflict')
+          const [updated] = await transaction
+            .update(tasks)
+            .set({
+              lifecycleState: 'in_progress',
+              updatedAt: new Date(),
+              version: row.version + 1,
+            })
+            .where(
+              and(
+                eq(tasks.id, candidate.id),
+                eq(tasks.workspaceId, workspaceId),
+                eq(tasks.version, row.version)
+              )
+            )
+            .returning()
+          return summarize(transaction, requireUpdated(updated))
+        }
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Task version conflict') continue
+      throw error
+    }
+  }
+}
 
 export async function setTaskDependencies(
   database: AgentHqDatabase,

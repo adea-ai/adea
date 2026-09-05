@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentSummary, WorkspaceSummary } from '@agent-hq/types'
 import { MusicToggle } from '@agent-hq/audio'
+import { WorkspaceLogo } from '@agent-hq/ui/components/workspace-logo'
 import { ThemeToggle } from '@agent-hq/ui/components/theme-toggle'
 import { Switch } from '@agent-hq/ui/components/ui/switch'
 import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-react'
@@ -142,6 +143,13 @@ export function WorkspaceSettingsDialog({
       className="conventional-settings-dialog"
       open={open}
       onClose={close}
+      headerLeading={
+        <WorkspaceLogo
+          aria-hidden="true"
+          className="conventional-settings-logo"
+          role="presentation"
+        />
+      }
       title="Settings"
       description="Product preferences and boundaries for this Agent HQ workspace."
     >
@@ -221,10 +229,10 @@ export function WorkspaceSettingsDialog({
                 detail={`${services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${services?.app?.version ? ` · v${services.app.version}` : ''}`}
               />
               <SettingsRow
-                title="Spatial preview"
+                title="Virtual preview"
                 detail="The Three.js representation is retained for M4 and does not define conventional workspace state."
               >
-                <a href="/?view=spatial">Open preview</a>
+                <a href="/?view=virtual">Open preview</a>
               </SettingsRow>
             </>
           ) : section === 'appearance' ? (
@@ -260,7 +268,7 @@ export function WorkspaceSettingsDialog({
               </header>
               <SettingsRow
                 title={workspace.name}
-                detail={`${workspace.scene === 'work' ? 'Work' : 'Home'} template · Rooms remain the primary navigation.`}
+                detail={`${workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
               />
               <SettingsRow
                 title="Room defaults"

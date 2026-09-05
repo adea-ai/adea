@@ -45,6 +45,9 @@ export function conversationErrorResponse(
       status: 409,
     })
   if (message.endsWith('unavailable')) return workspaceUnavailableResponse(request)
+  // Log the underlying failure: the client only receives a generic message, so
+  // the server terminal is the only place the real cause is visible.
+  console.error('[conversation] unmapped error response', message || error)
   return workspaceJsonResponse(
     { code: 'invalid_request', message: 'Invalid request' },
     resolution,

@@ -154,6 +154,34 @@ describe.skipIf(!connectionUrl)('canonical conversations', () => {
     expect(direct).toMatchObject({ agentId: agent.id, kind: 'direct_agent' })
     expect(direct).not.toHaveProperty('roomId')
 
+    // Archiving then reopening moves the live conversation to a suffixed
+    // idempotency key. Opening again must return that live row instead of
+    // attempting a fresh insert that violates the active direct-channel
+    // uniqueness (previously surfaced as a generic invalid request).
+    const archived = await archiveChannel(
+      connection.db,
+      workspace.id,
+      direct.id,
+      owner.principal,
+      direct.version
+    )
+    expect(archived.lifecycleState).toBe('archived')
+    const reopened = await createDirectAgentChannel(
+      connection.db,
+      workspace.id,
+      agent.id,
+      owner.principal
+    )
+    expect(reopened.lifecycleState).toBe('active')
+    expect(reopened.id).not.toBe(direct.id)
+    const reopenedAgain = await createDirectAgentChannel(
+      connection.db,
+      workspace.id,
+      agent.id,
+      owner.principal
+    )
+    expect(reopenedAgain.id).toBe(reopened.id)
+
     const group = await createGroupChannel(connection.db, workspace.id, owner.principal, {
       idempotencyKey: 'group-1',
       title: 'Launch group',

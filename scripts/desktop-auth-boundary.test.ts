@@ -43,19 +43,22 @@ describe('desktop packaging and privilege boundary', () => {
     expect(client).toContain('Try again')
   })
 
-  test('keeps desktop scene controls inside the canvas group and restores the workspace chrome', async () => {
+  test('keeps desktop scene controls inside the canvas group without a status bar', async () => {
     const workspace = await readFile(join(root, 'apps/desktop/src/desktop-workspace.tsx'), 'utf8')
     const styles = await readFile(join(root, 'apps/desktop/src/styles.css'), 'utf8')
 
     expect(workspace).toContain('className="workspace-view-switcher"')
-    expect(workspace).toContain('<VersionDialog')
-    expect(workspace.indexOf('<footer')).toBeLessThan(workspace.indexOf('</div>\n    </main>'))
+    expect(workspace).not.toContain('workspace-statusbar')
+    expect(workspace).not.toContain('<VersionDialog')
     expect(styles).toContain('.workspace-scene-viewport [data-agent-hq-on-screen-controls]')
     expect(styles).toContain('left: 50%')
     expect(styles).toContain('transform: translateX(-50%)')
-    expect(styles).toContain('--workspace-statusbar-height')
+    expect(styles).not.toContain('--workspace-statusbar-height')
     expect(styles).toContain('.workspace-scene-tools button')
-    expect(styles).toContain('.workspace-status__dot')
+    expect(styles).toContain('width: 100%')
+    expect(styles).toContain('max-width: calc(100% - 2.5rem)')
+    expect(styles).not.toContain('width: 100vw')
+    expect(styles).not.toContain('.workspace-status__dot')
   })
 
   test('puts optional authentication and identity settings behind the global rail', async () => {
@@ -103,6 +106,10 @@ describe('desktop packaging and privilege boundary', () => {
       join(root, 'apps/web/src/components/workspace-shell.tsx'),
       'utf8'
     )
+    const webNavigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation-entry.tsx'),
+      'utf8'
+    )
     const webLayout = await readFile(join(root, 'apps/web/src/app/layout.tsx'), 'utf8')
     const webStyles = await readFile(join(root, 'apps/web/src/app/globals.css'), 'utf8')
     const globalRail = await readFile(
@@ -116,15 +123,20 @@ describe('desktop packaging and privilege boundary', () => {
 
     expect(desktopMain).toContain('<SoundProvider>')
     expect(desktopMain).toContain('<ThemeProvider>')
-    expect(webWorkspace).toContain('accountLabel=')
+    expect(webNavigation).toContain('accountLabel=')
     expect(globalRail).toContain('aria-label="Global navigation"')
     expect(globalRail).toContain('label="Virtual view"')
     expect(globalRail).toContain('label="Chat view"')
     expect(globalRail).toContain('label="Plugins"')
     expect(accountMenu).toContain('aria-label="User settings"')
+    expect(accountMenu).toContain('Updates')
+    expect(desktopMain).toContain('onOpenUpdates: () => setUpdatesOpen(true)')
+    expect(webWorkspace).not.toContain('workspace-statusbar')
     expect(desktopStyles).toContain('- 0.45rem')
     expect(desktopStyles).toContain('env(safe-area-inset-top)')
     expect(webStyles).toContain('env(safe-area-inset-top)')
+    expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
+    expect(webStyles).not.toContain('max-width: calc(100vw - 2.5rem)')
     expect(webLayout).toContain('themeColor:')
     expect(webWorkspace).toContain('showAccountDrawer={false}')
   })

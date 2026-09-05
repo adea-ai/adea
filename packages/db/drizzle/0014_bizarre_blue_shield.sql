@@ -1,0 +1,1 @@
+ALTER TYPE "app"."task_lifecycle_state" ADD VALUE 'completed' BEFORE 'cancelled';

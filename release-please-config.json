@@ -178,7 +178,17 @@
     },
     {
       "type": "json",
+      "path": "scenes/character-designer/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "scenes/hq/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "scenes/room-designer/package.json",
       "jsonpath": "$.version"
     },
     {

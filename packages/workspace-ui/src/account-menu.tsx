@@ -6,6 +6,7 @@ import {
   LogIn,
   LogOut,
   Megaphone,
+  RefreshCw,
   Settings2,
   Smartphone,
   UserRound,
@@ -22,16 +23,17 @@ import {
   DropdownMenuTrigger,
 } from '@agent-hq/ui/components/ui/dropdown-menu'
 
-import { accountMenuItems, accountSessionItem } from './account-menu-model'
+import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
 
 type AccountMenuProps = Readonly<{
   authenticated: boolean
   busy?: boolean
-  label: string
+  onOpenUpdates?: () => void
   onOpenAbout: () => void
   onOpenSettings: () => void
   onSignIn: () => void
   onSignOut: () => void
+  platform: 'desktop' | 'web'
 }>
 
 const icons = {
@@ -40,21 +42,24 @@ const icons = {
   about: Info,
   help: CircleHelp,
   feedback: Megaphone,
+  updates: RefreshCw,
 } as const
 
 export function AccountMenu({
   authenticated,
   busy = false,
-  label,
+  onOpenUpdates,
   onOpenAbout,
   onOpenSettings,
   onSignIn,
   onSignOut,
+  platform,
 }: AccountMenuProps) {
   const sessionItem = accountSessionItem(authenticated)
+  const visibleMenuItems = accountMenuItemsForPlatform(platform)
 
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger
         render={
           <Button
@@ -63,7 +68,6 @@ export function AccountMenu({
             variant="ghost"
             size="icon-lg"
             aria-label="User settings"
-            title={authenticated ? `Account: ${label}` : 'Account: Not signed in'}
           />
         }
       >
@@ -71,14 +75,16 @@ export function AccountMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent className="global-account-menu" side="top" align="start" sideOffset={0}>
         <DropdownMenuGroup>
-          {accountMenuItems.map((item) => {
+          {visibleMenuItems.map((item) => {
             const Icon = icons[item.id]
             const onSelect =
               item.id === 'settings'
                 ? onOpenSettings
                 : item.id === 'about'
                   ? onOpenAbout
-                  : undefined
+                  : item.id === 'updates'
+                    ? onOpenUpdates
+                    : undefined
             return (
               <DropdownMenuItem key={item.id} disabled={item.disabled} onClick={onSelect}>
                 <Icon aria-hidden="true" />
