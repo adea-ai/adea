@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
@@ -109,7 +109,25 @@ run(
   repoRoot
 );
 run("mobile TypeScript smoke", bun, ["run", "typecheck"], mobileRoot);
+// Capacitor sync regenerates android/capacitor.settings.gradle with paths
+// from the local bun store layout, which varies by machine. That file is
+// tracked, so restore the pre-sync content afterwards: local install-layout
+// differences must never leak into the worktree (and must not trip release
+// preflight's clean-tree guard).
+const capacitorSettings = resolve(mobileRoot, "android/capacitor.settings.gradle");
+const capacitorSettingsBefore = existsSync(capacitorSettings)
+  ? readFileSync(capacitorSettings, "utf8")
+  : null;
 run("mobile Capacitor sync smoke", bun, ["run", "sync"], mobileRoot);
+if (
+  capacitorSettingsBefore !== null &&
+  readFileSync(capacitorSettings, "utf8") !== capacitorSettingsBefore
+) {
+  console.log(
+    "[native-smoke] restoring tracked Capacitor settings (machine-specific generated output)"
+  );
+  writeFileSync(capacitorSettings, capacitorSettingsBefore);
+}
 
 const strictNativeSmoke = process.env.NATIVE_SMOKE_STRICT === "1";
 const androidRoot = resolve(mobileRoot, "android");
