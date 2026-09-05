@@ -12,6 +12,7 @@ CHANGELOG.md
 vendor/glib-0.18.5/README.md
 .next
 dist
+cloudflare-env.d.ts
 **/build
 node_modules
 .bun-cache-release

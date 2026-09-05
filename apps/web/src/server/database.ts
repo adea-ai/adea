@@ -1,33 +1,41 @@
 import "server-only";
 
-import { createDatabase, type DatabaseConnection } from "@agent-hq/db";
+import { after } from "next/server";
 
-let connection: DatabaseConnection | undefined;
+import { createDatabase } from "@agent-hq/db";
+
+import {
+  resolveDatabaseConnectionString,
+  shouldRegisterDatabaseShutdownHooks,
+} from "./database-connection";
+
 let shutdownRegistered = false;
 
-export async function closeApplicationDatabase() {
-  const connectionToClose = connection;
-  connection = undefined;
-  await connectionToClose?.close();
-}
-
 function registerDatabaseShutdown() {
-  if (shutdownRegistered) return;
+  if (shutdownRegistered || !shouldRegisterDatabaseShutdownHooks()) return;
   shutdownRegistered = true;
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
-      void closeApplicationDatabase().finally(() => {
-        process.exit(signal === "SIGINT" ? 130 : 143);
-      });
+      process.exit(signal === "SIGINT" ? 130 : 143);
     });
   }
 }
 
 export function applicationDatabase() {
-  if (!connection) {
-    connection = createDatabase();
-    registerDatabaseShutdown();
+  // Short-lived client per call, closed after the response. Hyperdrive pools
+  // at the origin, so worker-side reuse buys nothing — and reused pooled
+  // sessions go stale across requests, which hangs requests until the
+  // runtime kills them. Per-request lifecycle mirrors a plain Worker, where
+  // the same driver, options, and Hyperdrive config answer in ~100ms.
+  const connection = createDatabase(resolveDatabaseConnectionString());
+  registerDatabaseShutdown();
+  try {
+    after(() => {
+      void connection.close().catch(() => undefined);
+    });
+  } catch {
+    // Outside request scope (build prerender, scripts): rely on isolate GC.
   }
   return connection.db;
 }

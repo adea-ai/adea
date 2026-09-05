@@ -19,9 +19,7 @@ export {
   DrawerTrigger,
 } from './components/ui/drawer'
 export {
-  CharacterCustomizer,
   CharacterSelector,
-  type CharacterCustomizerProps,
   type CharacterOption,
   type CharacterSelectorProps,
 } from './components/character-selector'
