@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.7](https://github.com/adea-ai/agent-hq/compare/v0.10.6...v0.10.7) (2026-09-05)
+
+
+### Tests
+
+* **e2e:** stop pinning the About dialog to a stale app version ([#224](https://github.com/adea-ai/agent-hq/issues/224)) ([1bf8345](https://github.com/adea-ai/agent-hq/commit/1bf834500616a55ad8a2b49d34a21f6556c2138e))
+
 ## [0.10.6](https://github.com/adea-ai/agent-hq/compare/v0.10.5...v0.10.6) (2026-09-05)
 
 
