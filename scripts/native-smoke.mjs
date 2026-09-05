@@ -83,12 +83,27 @@ const desktopRoot = resolve(repoRoot, "apps/desktop");
 const desktopRustRoot = resolve(desktopRoot, "src-tauri");
 const mobileRoot = resolve(repoRoot, "apps/mobile");
 
+// Typechecks resolve workspace packages through their built dist output, so
+// build each app's dependency closure first. A fresh checkout (like CI) has
+// no dist output yet, and raw tsc would fail to resolve @agent-hq/* imports.
+run(
+  "desktop workspace builds",
+  bun,
+  ["x", "turbo", "run", "build", "--filter=@agent-hq/desktop..."],
+  repoRoot,
+);
 run("desktop TypeScript smoke", bun, ["run", "typecheck"], desktopRoot);
 ensureLinuxDesktopDependencies();
 run(
   "desktop Tauri/Rust smoke",
   "cargo",
   ["check", "--locked", "--manifest-path", resolve(desktopRustRoot, "Cargo.toml")],
+  repoRoot,
+);
+run(
+  "mobile workspace builds",
+  bun,
+  ["x", "turbo", "run", "build", "--filter=@agent-hq/mobile..."],
   repoRoot,
 );
 run("mobile TypeScript smoke", bun, ["run", "typecheck"], mobileRoot);
