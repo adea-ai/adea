@@ -51,6 +51,9 @@ cloudflare-env.d.ts
 
 # Generated web assets (rebuilt by scripts/sync-assets.mjs)
 apps/*/public/assets/
+# Transient swap backups from scripts/sync-assets.mjs (removed on success,
+# orphaned only if a run is interrupted); never commit.
+apps/*/public/assets.backup-*/
 cache/
 !.github/actions/cache/
 !.github/actions/cache/action.yml
