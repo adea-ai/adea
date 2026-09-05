@@ -11,6 +11,10 @@
 # Deploy ordering caveat: the dashboard deploys the Worker on every push to
 # main in parallel with this workflow. Keep migrations backward-compatible
 # (additive first, code second) so a deploy that wins the race still works.
+#
+# Billing-pause routing: while CI_BILLING_PAUSED is true there are no hosted
+# minutes, so run on the repo's self-hosted macOS runner like
+# release-assets.yml does (bun is ambient there; setup-bun covers hosted).
 name: Cloudflare DB Migrate
 
 on:
@@ -32,7 +36,7 @@ concurrency:
 jobs:
   migrate:
     name: Migrate production database
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
