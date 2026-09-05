@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/adea-ai/agent-hq/compare/v0.10.0...v0.10.1) (2026-09-05)
+
+
+### Maintenance
+
+* **ci:** validate Workers Builds trigger configuration ([af42d3c](https://github.com/adea-ai/agent-hq/commit/af42d3c35807fdba015f315c081a41cc757fcd28))
+
 ## [0.10.0](https://github.com/adea-ai/agent-hq/compare/v0.9.0...v0.10.0) (2026-09-05)
 
 
