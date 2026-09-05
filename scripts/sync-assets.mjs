@@ -1,15 +1,26 @@
-import { access, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const publicAssets = resolve(repoRoot, "apps/web/public/assets");
-// Build into a staging directory and swap it over the live tree atomically.
-// The desktop vite build copies apps/web/public while the web build syncs it;
-// swapping complete trees (instead of wiping public/assets first) means
-// concurrent readers only ever see a complete old or complete new tree.
-const stagingAssets = `${publicAssets}.staging-${process.pid}`;
-const backupAssets = `${publicAssets}.backup-${process.pid}`;
+const webRoot = resolve(repoRoot, "apps/web");
+// Build into a staging directory and swap it over the live tree with one
+// rename(2). Staging MUST live outside apps/web/public: the desktop vite
+// build sets publicDir to ../web/public and walks it recursively while the
+// web build syncs, so a staging sibling inside public/ gets enumerated and
+// then renamed away mid-copy (ENOENT). A same-directory rename is atomic,
+// so concurrent readers only ever resolve public/assets to a complete old
+// or complete new tree and never observe the staging names at all.
+const stagingAssets = resolve(webRoot, `.assets.staging-${process.pid}`);
+const backupAssets = resolve(webRoot, `.assets.backup-${process.pid}`);
+
+// Reap staging/backup droppings orphaned by previously interrupted runs.
+for (const entry of await readdir(webRoot).catch(() => [])) {
+  if (/^\.assets\.(staging|backup)-\d+$/.test(entry)) {
+    await rm(resolve(webRoot, entry), { recursive: true, force: true });
+  }
+}
 
 // Binary art lives in the private adea-ai/assets pack (see
 // scripts/fetch-assets.mjs), not in this repository. Developers point
