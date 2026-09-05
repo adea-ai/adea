@@ -1,5 +1,93 @@
 # Changelog
 
+## [0.9.0](https://github.com/adea-ai/agent-hq/compare/v0.8.3...v0.9.0) (2026-09-05)
+
+
+### Features
+
+* **agents:** complete M2.2 persistent Agent domain and APIs ([#13](https://github.com/adea-ai/agent-hq/issues/13)) ([db02f4b](https://github.com/adea-ai/agent-hq/commit/db02f4b15b00b4e9392950272be81f30b041e229))
+* **artifacts:** complete M2.5 metadata and reference model ([#84](https://github.com/adea-ai/agent-hq/issues/84)) ([f471f85](https://github.com/adea-ai/agent-hq/commit/f471f8557de3150e216b34b3f5389fcc978733eb))
+* **assets:** flatten character asset layout ([59b839a](https://github.com/adea-ai/agent-hq/commit/59b839a3ec61e5da9fab8801372d4c9d1e490d45))
+* **assets:** merge new character and interior libraries ([61b45a1](https://github.com/adea-ai/agent-hq/commit/61b45a17635a0573f34394bd6d80475937402edb))
+* **assets:** separate architecture assets ([18a7266](https://github.com/adea-ai/agent-hq/commit/18a72661b1275d56f523e5aa20f7ffa8838e1192))
+* **characters:** integrate modular character library ([04919f1](https://github.com/adea-ai/agent-hq/commit/04919f12ac383edf99f9075644211edd4c67433e))
+* connect workspace rail and plugin marketplace ([8e914fc](https://github.com/adea-ai/agent-hq/commit/8e914fcc6aebf9ca45867a6d34c403ed42ec69f0))
+* **conversations:** complete M2.4 canonical conversation APIs ([#15](https://github.com/adea-ai/agent-hq/issues/15)) ([0176a18](https://github.com/adea-ai/agent-hq/commit/0176a18ebef15f5f9ffb907213b7d25a9ecb0387))
+* **desktop:** add encrypted local content authority ([#184](https://github.com/adea-ai/agent-hq/issues/184)) ([99b4c16](https://github.com/adea-ai/agent-hq/commit/99b4c169b93eade10ba29c15e3c2464c2227fce7))
+* **interior:** organize props into functional categories ([8cb4c62](https://github.com/adea-ai/agent-hq/commit/8cb4c62a34f9c4e0475cced4da08dd09d980d061))
+* **interior:** split broad prop categories ([17eb428](https://github.com/adea-ai/agent-hq/commit/17eb428e2334610f01761f0d3e47cda29fe27737))
+* **marketplace:** consume verified registry through control plane ([91eede7](https://github.com/adea-ai/agent-hq/commit/91eede73a4c5c21ad05cee20d179e067e3a61ea5))
+* **marketplace:** consume verified registry through control plane ([3eb7d38](https://github.com/adea-ai/agent-hq/commit/3eb7d381dccdc7c4833b6828fae734f9e782ee5e))
+* **rooms:** complete M2.1 room domain and APIs ([#12](https://github.com/adea-ai/agent-hq/issues/12)) ([4aea862](https://github.com/adea-ai/agent-hq/commit/4aea8622d0129031152627a327fda99e932ad61e))
+* **rooms:** import latest standalone room assets ([7069d79](https://github.com/adea-ai/agent-hq/commit/7069d79a97b48bdc850cee5e9ab3cf94d872b2cc))
+* **scene-shell:** add standalone character designer ([00506ba](https://github.com/adea-ai/agent-hq/commit/00506ba74efe5d51cc37ce6c760a138f3c6079eb))
+* synchronize Codex plugin marketplace ([e68623a](https://github.com/adea-ai/agent-hq/commit/e68623ad2c8347cca3a915be9d2d0c5f7110cce3))
+* **tasks:** complete M2.3 durable Task domain and APIs ([#14](https://github.com/adea-ai/agent-hq/issues/14)) ([d2d6979](https://github.com/adea-ai/agent-hq/commit/d2d697992de8ddff06795b881551660e8f6009ec))
+* **web:** build conventional workspace shell ([#16](https://github.com/adea-ai/agent-hq/issues/16)) ([bc96c6b](https://github.com/adea-ai/agent-hq/commit/bc96c6befaffae56c8a319734050fb7e2daa755d))
+* **web:** Hyperdrive-first DB resolution with per-request clients ([fee8da3](https://github.com/adea-ai/agent-hq/commit/fee8da325f7edec4e04965310bff92e3dd4f6177))
+* **web:** OpenNext Cloudflare Workers scaffolding ([f0c2535](https://github.com/adea-ai/agent-hq/commit/f0c253582c7d49a13b9c71ab6a57860b1ac8a475))
+* **web:** Workers-safe scene editor route and Cloudflare runbook ([d6d5faa](https://github.com/adea-ai/agent-hq/commit/d6d5faaf9d0b78113adb973ded2d35e88cf67e55))
+* **workspace-ui:** add account menu and grouped settings ([27028b0](https://github.com/adea-ai/agent-hq/commit/27028b038ffa5369afbddbc45e81821327e2ba72))
+* **workspace-ui:** refine agent hq about menu ([f46e85e](https://github.com/adea-ai/agent-hq/commit/f46e85ebddbd116e03e420c0a7261bbc05e387b4))
+* **workspace:** add search and read state ([#195](https://github.com/adea-ai/agent-hq/issues/195)) ([a856974](https://github.com/adea-ai/agent-hq/commit/a856974590f490360e164af76aacec25659b7446))
+* **workspace:** complete M2 product polish ([#196](https://github.com/adea-ai/agent-hq/issues/196)) ([c3c2c67](https://github.com/adea-ai/agent-hq/commit/c3c2c67f9ef0ab92d414be2ed8839c86cf592098))
+
+
+### Bug Fixes
+
+* **desktop:** declare characters workspace dependency ([9e0701a](https://github.com/adea-ai/agent-hq/commit/9e0701afbec8b4e116b8f3dd2c280d383516d9c5))
+* **desktop:** declare characters workspace dependency ([b6895c2](https://github.com/adea-ai/agent-hq/commit/b6895c290c19300927f9aa9c9c55b09940d7d959))
+* **marketplace:** harden registry consumer contract ([47f6484](https://github.com/adea-ai/agent-hq/commit/47f6484e1f2b77b4e92b910ec485e46a94311384))
+* **release:** install rpm tooling in linux runner ([#190](https://github.com/adea-ai/agent-hq/issues/190)) ([fd0f27c](https://github.com/adea-ai/agent-hq/commit/fd0f27c52f86c7c6584c04df1692f0f85ba0d6fa))
+* **release:** limit local cargo parallelism ([#181](https://github.com/adea-ai/agent-hq/issues/181)) ([9a7f235](https://github.com/adea-ai/agent-hq/commit/9a7f2350f62809a9cc26631cd1eda80d57970a6d))
+* **release:** serialize cargo in emulated linux fallback ([#183](https://github.com/adea-ai/agent-hq/issues/183)) ([ce5c40d](https://github.com/adea-ai/agent-hq/commit/ce5c40de20dedfaac56eba571d78cdbe8a881cbf))
+* **release:** serialize local desktop builds ([#182](https://github.com/adea-ai/agent-hq/issues/182)) ([36a09fe](https://github.com/adea-ai/agent-hq/commit/36a09fec0796ff3e7193806414913dc28e3c3991))
+* **release:** skip flaky Linux RPM bundle ([#191](https://github.com/adea-ai/agent-hq/issues/191)) ([ddd1b75](https://github.com/adea-ai/agent-hq/commit/ddd1b756db0861b503a7b02ea3e461537032238c))
+* **ui:** align shared workspace surfaces ([9ee6ffd](https://github.com/adea-ai/agent-hq/commit/9ee6ffdc6835c68bd5100cfcdecf0dd6060b420f))
+* **ui:** align shared workspace surfaces ([fed8864](https://github.com/adea-ai/agent-hq/commit/fed886400a8d9e3bc006b6388ef11584726c8dbe))
+* **web:** defer auth client outside secure contexts ([94de419](https://github.com/adea-ai/agent-hq/commit/94de4190e09739db0be2501bc6ed15d6a7e5fbc6)), closes [#16](https://github.com/adea-ai/agent-hq/issues/16)
+* **web:** generate Cloudflare types before build ([#212](https://github.com/adea-ai/agent-hq/issues/212)) ([bd049ab](https://github.com/adea-ai/agent-hq/commit/bd049ab293a90ff0757d1a180a69c5e8c37e3eb7))
+* **workspace-ui:** align menus and expose app versions ([f670967](https://github.com/adea-ai/agent-hq/commit/f6709674f83ee48d6698885f9f15bffe8cb6de7b))
+* **workspace:** connect chat and virtual room flows ([b166239](https://github.com/adea-ai/agent-hq/commit/b1662396823a69cd5d8bddfa6e56fde7c3c8b07a)), closes [#16](https://github.com/adea-ai/agent-hq/issues/16) [#196](https://github.com/adea-ai/agent-hq/issues/196)
+
+
+### Performance
+
+* **assets:** compress imported model libraries ([dfbf1cd](https://github.com/adea-ai/agent-hq/commit/dfbf1cdba6e0ea1a18d7671a5989e98b1b339014))
+* **characters:** add compact runtime variants and preview studio ([#202](https://github.com/adea-ai/agent-hq/issues/202)) ([d17bdd4](https://github.com/adea-ai/agent-hq/commit/d17bdd44358edba3aba6e8c66544277da19ae89d))
+* **characters:** compress reference assets and lazy-load tools ([7d71925](https://github.com/adea-ai/agent-hq/commit/7d71925852d407e3ddfe4a661ebf8a5d85fd24e4))
+
+
+### Documentation
+
+* reconcile Agent HQ architecture diagrams with canonical source ([2f84a80](https://github.com/adea-ai/agent-hq/commit/2f84a80cf4a7f1ce057568a705c4a032a74f0cce))
+
+
+### Tests
+
+* complete M1 integration suite coverage ([de95c06](https://github.com/adea-ai/agent-hq/commit/de95c06eb602da94a38094325232a2634f47c41c))
+* **marketplace:** assert authenticated install payload ([94aeac7](https://github.com/adea-ai/agent-hq/commit/94aeac713b37a0e9fc58028d0c267b364efb209a))
+
+
+### CI
+
+* **db:** production migrate workflow for Cloudflare, adea dev roles ([28df828](https://github.com/adea-ai/agent-hq/commit/28df8289c481a015253939e7543ddfc1113e404e))
+
+
+### Maintenance
+
+* **assets:** add character source references ([d5b5bbf](https://github.com/adea-ai/agent-hq/commit/d5b5bbff32a6f8f019e8f49865f5ad31f6b46cc7))
+* **ci:** upgrade Code Foundry to v0.39.0 ([#194](https://github.com/adea-ai/agent-hq/issues/194)) ([adbedcb](https://github.com/adea-ai/agent-hq/commit/adbedcb2ad2474528da64f0e9657dc9240733eb1))
+* **deps:** bump the cargo-dependencies group ([#205](https://github.com/adea-ai/agent-hq/issues/205)) ([6776a5d](https://github.com/adea-ai/agent-hq/commit/6776a5d194beb8d44406fb2fa017baa0b9c0078c))
+* **deps:** bump the github-actions group with 6 updates ([#204](https://github.com/adea-ai/agent-hq/issues/204)) ([bedaf6d](https://github.com/adea-ai/agent-hq/commit/bedaf6d525647f02da178f90a9ec79f2aca3627a))
+* **deps:** bump the npm-dependencies group with 3 updates ([#206](https://github.com/adea-ai/agent-hq/issues/206)) ([c583a32](https://github.com/adea-ai/agent-hq/commit/c583a323be01e4ace69e57bc62f13761bf5ca760))
+* standardize interior assets naming ([549257e](https://github.com/adea-ai/agent-hq/commit/549257e34259a4aa68cc80ce5f440c149a2e989f))
+* **tooling:** update turbo to 2.10.12 ([8d5df3e](https://github.com/adea-ai/agent-hq/commit/8d5df3e5562dd25a4c85ec9e8767a0f61fca946a))
+* update repository references from 0xPlayerOne to adea-ai ([1f77aea](https://github.com/adea-ai/agent-hq/commit/1f77aeafab3800a1acb60494aa114954d3fd0bb9))
+* update repository references from 0xPlayerOne to adea-ai ([b553c32](https://github.com/adea-ai/agent-hq/commit/b553c32e82886ca17e6a7bfd38a12466e370cb92))
+* update repository references from 0xPlayerOne to adea-ai ([5f3fe1c](https://github.com/adea-ai/agent-hq/commit/5f3fe1c8455053ca28ce1b32432894efaf987152))
+* update repository references from 0xPlayerOne to adea-ai ([#207](https://github.com/adea-ai/agent-hq/issues/207)) ([5d23708](https://github.com/adea-ai/agent-hq/commit/5d23708169d3afdff2e09d75e6174650c091e5c2))
+
 ## [0.8.3](https://github.com/0xPlayerOne/agent-hq/compare/v0.8.2...v0.8.3) (2026-08-28)
 
 
