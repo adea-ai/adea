@@ -43,7 +43,7 @@ describe("desktop update channel", () => {
     const result = prepareUpdateManifest(
       releaseManifest(),
       releaseAssets,
-      "https://adea-ai.github.io/agent-hq/desktop-updates/"
+      "https://updates.adea.dev/desktop-updates/"
     );
 
     expect(result.assetNames).toEqual([
@@ -52,13 +52,13 @@ describe("desktop update channel", () => {
     ]);
     expect(result.manifest.platforms["darwin-aarch64"]).toEqual({
       signature,
-      url: "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_aarch64.app.tar.gz",
+      url: "https://updates.adea.dev/desktop-updates/Agent.HQ_0.3.4_aarch64.app.tar.gz",
     });
     expect(result.manifest.platforms["darwin-aarch64-app"]).toEqual(
       result.manifest.platforms["darwin-aarch64"]
     );
     expect(result.manifest.platforms["windows-x86_64"].url).toBe(
-      "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_x64-setup.exe"
+      "https://updates.adea.dev/desktop-updates/Agent.HQ_0.3.4_x64-setup.exe"
     );
   });
 
