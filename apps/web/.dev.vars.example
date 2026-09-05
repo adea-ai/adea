@@ -1,0 +1,11 @@
+# Local-only Worker env for `bun run preview` (this file is gitignored).
+# Copy to `.dev.vars` and fill in values. Never commit real secrets.
+# Production values live as Cloudflare Worker secrets/vars — see CLOUDFLARE.md.
+NEXTJS_ENV=development
+DATABASE_URL=postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable
+NEON_AUTH_BASE_URL=https://replace-with-development-branch.neonauth.example/neondb/auth
+NEON_AUTH_COOKIE_SECRET=replace-with-at-least-32-random-characters
+AUTH_TRUSTED_ORIGINS=http://localhost:3000
+CONTROL_PLANE_ORIGIN=https://control-plane.example
+CONTROL_PLANE_SERVICE_TOKEN=replace-with-service-token
+CONTROL_PLANE_SCOPE_WORKSPACE_ID=replace-with-workspace-id
