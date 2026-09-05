@@ -111,7 +111,10 @@ test("a guest can use a workspace before opening the optional persistence flow",
   const about = page.getByRole("dialog", { name: "About Agent HQ" });
   await expect(about).toBeVisible();
   await expect(about.getByText("Copyright © 2026 0xPlayerOne")).toBeVisible();
-  await expect(about.getByText("Version 0.8.3")).toBeVisible();
+  // The dialog renders the app package version, which release automation bumps.
+  // Match any semver so this gate survives releases (it must still be a real
+  // version, never the "Version unavailable" fallback).
+  await expect(about.getByText(/^Version \d+\.\d+\.\d+$/)).toBeVisible();
   await expect(about.getByRole("button", { name: "Copy version info" })).toBeVisible();
   await expect(about.getByRole("button", { name: "Close dialog" })).toBeVisible();
   await expect(about.locator(".conventional-about-dialog__brand svg")).toBeVisible();
