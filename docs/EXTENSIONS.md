@@ -8,7 +8,7 @@ The standard workflows, hooks, governance documents, language configuration, and
 
 ## Custom workflows
 
-Any workflow not named by the baseline is preserved automatically. This is the supported place for project-specific workflows such as Slither, search indexing, deployment, Docker publishing, or Vercel tasks.
+Any workflow not named by the baseline is preserved automatically. This is the supported place for project-specific workflows such as Slither, search indexing, deployment, or Docker publishing.
 
 Set `custom_workflows: preserve` in `.github/code-foundry.yml` (the default). Code Foundry intentionally has no prune mode for custom workflows; remove those files explicitly when they are no longer needed.
 

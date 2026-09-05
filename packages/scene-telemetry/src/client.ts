@@ -33,7 +33,7 @@ try {
     process.env.NEXT_PUBLIC_SCENE_TELEMETRY_ENDPOINT ||
     (process.env.NODE_ENV === "production" ? "/api/telemetry/scene-performance" : undefined);
   if (endpoint) window.__AGENT_HQ_SCENE_TELEMETRY_ENDPOINT__ = endpoint;
-  const release = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA;
+  const release = process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA;
   if (release) window.__AGENT_HQ_RELEASE__ = release;
 } catch {
   // Telemetry must never interfere with page initialization.
