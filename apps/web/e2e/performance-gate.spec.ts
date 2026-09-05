@@ -363,6 +363,26 @@ test("character designer keeps feet visible and supports drag orbit and pan", as
   ).toBeGreaterThan(0.1);
 });
 
+async function gotoDesignerWithoutScene(page: Page) {
+  // Without an explicit scene the app redirects to its default scene on
+  // first load. When that redirect wins the race, Chromium aborts the
+  // initial navigation (net::ERR_ABORTED) before any app code is measured,
+  // so retry once and measure the app instead of the race. HTTP error
+  // statuses are still surfaced to the caller (only a thrown navigation
+  // error retries).
+  try {
+    return await page.goto(
+      "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable",
+      { waitUntil: "domcontentloaded" }
+    );
+  } catch {
+    return await page.goto(
+      "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable",
+      { waitUntil: "domcontentloaded" }
+    );
+  }
+}
+
 test("character designer starts slot thumbnails without a long delay", async ({ page }) => {
   const startedAt = Date.now();
   const firstSlotAsset = page.waitForRequest(
@@ -370,10 +390,7 @@ test("character designer starts slot thumbnails without a long delay", async ({ 
     { timeout: 12_000 }
   );
 
-  const response = await page.goto(
-    "/?view=virtual&characterDesigner=1&camera=perspective&character=configurable",
-    { waitUntil: "domcontentloaded" }
-  );
+  const response = await gotoDesignerWithoutScene(page);
   expect(response?.ok()).toBe(true);
   await expect(page.locator('[aria-label="Character designer"]')).toBeVisible({
     timeout: 30_000,
