@@ -98,7 +98,9 @@ run(
   "desktop Tauri/Rust smoke",
   "cargo",
   ["check", "--locked", "--manifest-path", resolve(desktopRustRoot, "Cargo.toml")],
-  repoRoot
+  repoRoot,
+  // Cold runners download the toolchain and compile crates from scratch.
+  600_000
 );
 run(
   "mobile workspace builds",
