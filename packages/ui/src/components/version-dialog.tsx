@@ -83,8 +83,23 @@ function isUpdateBusy(update: SharedDesktopUpdate | null): boolean {
 export function VersionDialog({
   adapter,
   fallbackVersion = "0.1.0",
-}: Readonly<{ adapter: VersionDialogAdapter; fallbackVersion?: string }>) {
-  const [open, setOpen] = useState(false);
+  onOpenChange,
+  open: controlledOpen,
+}: Readonly<{
+  adapter: VersionDialogAdapter;
+  fallbackVersion?: string;
+  onOpenChange?: (open: boolean) => void;
+  open?: boolean;
+}>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = useCallback(
+    (nextOpen: boolean) => {
+      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [controlledOpen, onOpenChange],
+  );
   const [desktopRuntime, setDesktopRuntime] = useState(false);
   const [update, setUpdate] = useState<SharedDesktopUpdate | null>(null);
   const [busy, setBusy] = useState(false);
@@ -169,26 +184,27 @@ export function VersionDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="workspace-statusbar__version"
-            aria-label="Open version and updates dialog"
-            aria-haspopup="dialog"
-            onClick={() => setOpen(true)}
-          />
-        }
-      >
-        {update?.phase === "available" ? (
-          <Sparkles aria-hidden="true" />
-        ) : (
-          <FileText aria-hidden="true" />
-        )}
-        {phaseLabel(update, fallbackVersion)}
-      </DialogTrigger>
+      {controlledOpen === undefined ? (
+        <DialogTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label="Open version and updates dialog"
+              aria-haspopup="dialog"
+              onClick={() => setOpen(true)}
+            />
+          }
+        >
+          {update?.phase === "available" ? (
+            <Sparkles aria-hidden="true" />
+          ) : (
+            <FileText aria-hidden="true" />
+          )}
+          {phaseLabel(update, fallbackVersion)}
+        </DialogTrigger>
+      ) : null}
 
       <DialogContent className="max-w-3xl">
         <DialogHeader>

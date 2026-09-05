@@ -78,6 +78,11 @@
     },
     {
       "type": "json",
+      "path": "packages/architecture/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "packages/asset-manifests/package.json",
       "jsonpath": "$.version"
     },
@@ -124,6 +129,11 @@
     {
       "type": "json",
       "path": "packages/pets/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
+      "path": "packages/rooms/package.json",
       "jsonpath": "$.version"
     },
     {
