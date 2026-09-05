@@ -307,7 +307,7 @@ export type RoomGalleryWallSegment = Readonly<{
 }>;
 
 function mergeWallIntervals(
-  intervals: readonly (readonly [number, number])[],
+  intervals: readonly (readonly [number, number])[]
 ): readonly (readonly [number, number])[] {
   const merged: [number, number][] = [];
   for (const [start, end] of [...intervals].sort(([a], [b]) => a - b)) {
@@ -337,7 +337,7 @@ function buildRoomGalleryWallSegments(): readonly RoomGalleryWallSegment[] {
     map: Map<number, [number, number][]>,
     coordinate: number,
     start: number,
-    end: number,
+    end: number
   ) => {
     const intervals = map.get(coordinate) ?? [];
     intervals.push([start, end]);
@@ -404,7 +404,7 @@ function buildRoomGalleryWallSegments(): readonly RoomGalleryWallSegment[] {
       const boundaries = [start, courtyardXMin, courtyardXMax, end]
         .filter(
           (value, index, values) =>
-            value >= start && value <= end && values.indexOf(value) === index,
+            value >= start && value <= end && values.indexOf(value) === index
         )
         .sort((left, right) => left - right);
       return boundaries.slice(0, -1).map((left, index) => {
@@ -506,7 +506,7 @@ function buildRoomGalleryWallSegments(): readonly RoomGalleryWallSegment[] {
     segment: RoomGalleryWallSegment,
     start: number,
     end: number,
-    index: number,
+    index: number
   ): RoomGalleryWallSegment =>
     segment.orientation === "horizontal"
       ? { ...segment, id: `${segment.id}-part-${index}`, x: (start + end) / 2, length: end - start }
@@ -531,21 +531,21 @@ function buildRoomGalleryWallSegments(): readonly RoomGalleryWallSegment[] {
         doorway.orientation === segment.orientation &&
         Math.abs(
           (segment.orientation === "horizontal" ? doorway.z : doorway.x) -
-            (segment.orientation === "horizontal" ? segment.z : segment.x),
-        ) < 0.001,
+            (segment.orientation === "horizontal" ? segment.z : segment.x)
+        ) < 0.001
     )
       .map(
         (doorway) =>
           [
             Math.max(
               spanStart,
-              (segment.orientation === "horizontal" ? doorway.x : doorway.z) - doorway.width / 2,
+              (segment.orientation === "horizontal" ? doorway.x : doorway.z) - doorway.width / 2
             ),
             Math.min(
               spanEnd,
-              (segment.orientation === "horizontal" ? doorway.x : doorway.z) + doorway.width / 2,
+              (segment.orientation === "horizontal" ? doorway.x : doorway.z) + doorway.width / 2
             ),
-          ] as const,
+          ] as const
       )
       .filter(([start, end]) => end > start)
       .sort(([a], [b]) => a - b);

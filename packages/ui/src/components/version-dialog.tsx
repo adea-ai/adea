@@ -98,7 +98,7 @@ export function VersionDialog({
       if (controlledOpen === undefined) setUncontrolledOpen(nextOpen);
       onOpenChange?.(nextOpen);
     },
-    [controlledOpen, onOpenChange],
+    [controlledOpen, onOpenChange]
   );
   const [desktopRuntime, setDesktopRuntime] = useState(false);
   const [update, setUpdate] = useState<SharedDesktopUpdate | null>(null);
@@ -177,7 +177,7 @@ export function VersionDialog({
 
   const currentChangelog = useMemo(
     () => plainTextFromMarkdown(update?.changelog || "Changelog is loading…"),
-    [update?.changelog],
+    [update?.changelog]
   );
   const releaseNotes = update?.release_notes ? plainTextFromMarkdown(update.release_notes) : "";
   const busyFromSnapshot = isUpdateBusy(update);

@@ -41,7 +41,7 @@ try {
 
 export function onRouterTransitionStart(
   url: string,
-  navigationType: "push" | "replace" | "traverse",
+  navigationType: "push" | "replace" | "traverse"
 ): void {
   try {
     recordNavigation(new URL(url, window.location.href).href, navigationType, performance.now());

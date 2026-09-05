@@ -94,7 +94,7 @@ function hitsWall(
   x: number,
   z: number,
   walls: readonly AmbientAnimalWall[],
-  margin: number,
+  margin: number
 ): boolean {
   for (const w of walls) {
     if (x > w.xMin - margin && x < w.xMax + margin && z > w.zMin - margin && z < w.zMax + margin) {
@@ -106,7 +106,7 @@ function hitsWall(
 
 export async function createAmbientAnimals(
   parent: THREE.Object3D,
-  configs: readonly AmbientAnimalConfig[],
+  configs: readonly AmbientAnimalConfig[]
 ): Promise<AmbientAnimals> {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
@@ -305,7 +305,7 @@ export async function createAmbientAnimals(
           animal.root.position.x = THREE.MathUtils.clamp(
             px,
             centerX - halfWidth,
-            centerX + halfWidth,
+            centerX + halfWidth
           );
           animal.stuckFrames = 0;
         }
@@ -314,7 +314,7 @@ export async function createAmbientAnimals(
           animal.root.position.z = THREE.MathUtils.clamp(
             pz,
             centerZ - halfDepth,
-            centerZ + halfDepth,
+            centerZ + halfDepth
           );
           animal.stuckFrames = 0;
         }

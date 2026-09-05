@@ -19,7 +19,7 @@ const result = spawnSync(
     cwd: root,
     env: process.env,
     stdio: "inherit",
-  },
+  }
 );
 if (result.error) throw result.error;
 if (result.status !== 0) {

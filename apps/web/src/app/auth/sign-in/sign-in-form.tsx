@@ -34,7 +34,7 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
       setError(
         mode === "sign-up"
           ? "Agent HQ could not create that account. Check the details or sign in instead."
-          : "Agent HQ could not sign you in. Check your email and password, then try again.",
+          : "Agent HQ could not sign you in. Check your email and password, then try again."
       );
       setPending(false);
     }

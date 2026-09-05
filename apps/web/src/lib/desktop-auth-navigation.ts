@@ -9,7 +9,7 @@ export function createDesktopCompletionUrl(authorizationUrl: URL, callback: stri
 
 export function parseDesktopCallbackFragment(fragment: string) {
   const fragmentParams = new URLSearchParams(
-    fragment.startsWith("#") ? fragment.slice(1) : fragment,
+    fragment.startsWith("#") ? fragment.slice(1) : fragment
   );
   const fragmentKeys = [...fragmentParams.keys()];
   if (

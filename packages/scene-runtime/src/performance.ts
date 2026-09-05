@@ -238,7 +238,7 @@ function networkSnapshot(startTime: number): ScenePerformanceReport["network"] {
 
 function deviceSnapshot(
   renderer: THREE.WebGLRenderer,
-  tier: "high" | "standard" | "low",
+  tier: "high" | "standard" | "low"
 ): ScenePerformanceReport["device"] {
   const gl = renderer.getContext();
   const debugInfo = gl.getExtension("WEBGL_debug_renderer_info") as {
@@ -278,7 +278,7 @@ function publish(report: ScenePerformanceReport): void {
   if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
   target.__AGENT_HQ_SCENE_PERF__ = history;
   window.dispatchEvent(
-    new CustomEvent<ScenePerformanceReport>("agent-hq:scene-performance", { detail: report }),
+    new CustomEvent<ScenePerformanceReport>("agent-hq:scene-performance", { detail: report })
   );
   if (new URLSearchParams(window.location.search).has("debug")) {
     console.info(`[Agent HQ] scene performance ${JSON.stringify(report)}`);
@@ -311,7 +311,7 @@ export function createScenePerformanceTelemetry(
   scene: string,
   renderer: THREE.WebGLRenderer,
   tier: "high" | "standard" | "low",
-  root: THREE.Object3D,
+  root: THREE.Object3D
 ): ScenePerformanceTelemetry {
   const navigation = currentNavigationStart();
   const startedAt = navigation.startTime;
@@ -352,7 +352,7 @@ export function createScenePerformanceTelemetry(
 
   const report = (
     event: ScenePerformanceReport["event"],
-    error?: string,
+    error?: string
   ): ScenePerformanceReport => {
     const now = performance.now();
     const sortedFrames = [...frameDurations].sort((a, b) => a - b);
@@ -361,7 +361,7 @@ export function createScenePerformanceTelemetry(
     const reactProfile = reactProfileSnapshot(startedAt);
     const sampleWindowMs = Math.max(
       0,
-      now - (runtimeSampleStartedAt ?? firstRenderedFrameAt ?? createdAt),
+      now - (runtimeSampleStartedAt ?? firstRenderedFrameAt ?? createdAt)
     );
     const info = renderer.info;
     return {
@@ -373,7 +373,7 @@ export function createScenePerformanceTelemetry(
       navigation: { id: navigation.id, type: navigation.type, startTime: navigation.startTime },
       milestones: {
         firstRenderedFrameMs: round(
-          firstRenderedFrameAt == null ? undefined : firstRenderedFrameAt - startedAt,
+          firstRenderedFrameAt == null ? undefined : firstRenderedFrameAt - startedAt
         ),
         playableCharacterMs: round(playableAt == null ? undefined : playableAt - startedAt),
         phasesMs: { ...phasesMs },

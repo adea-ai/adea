@@ -57,7 +57,7 @@ const TAP_MOVE_THRESHOLD_PX = 12;
 const ARRIVAL_SUPPRESS_MS = 1500;
 
 function areaZones(
-  link: PortalLink,
+  link: PortalLink
 ): readonly { xMin: number; xMax: number; zMin: number; zMax: number }[] {
   return link.areas ?? (link.area ? [link.area] : []);
 }
@@ -82,7 +82,7 @@ function inZone(link: PortalLink, x: number, y: number, z: number): boolean {
   const areas = areaZones(link);
   if (areas.length) {
     return areas.some(
-      (area) => x >= area.xMin && x <= area.xMax && z >= area.zMin && z <= area.zMax,
+      (area) => x >= area.xMin && x <= area.xMax && z >= area.zMin && z <= area.zMax
     );
   }
   return false;
@@ -161,12 +161,12 @@ export function Portals({ debugApiRef, links }: PortalsProps) {
         link.destinationY,
         link.destinationYaw,
         link.destinationBodyYaw,
-        link.destinationSnapToGround,
+        link.destinationSnapToGround
       );
       transitionRef.current = false;
       setTransitioning(false);
     },
-    [api],
+    [api]
   );
 
   useEffect(() => {

@@ -24,7 +24,7 @@ describe("authenticated principal resolution", () => {
     const principal = { kind: "user", userId: "stable-user-id" } as const;
 
     expect(await resolveAuthenticatedPrincipal(authenticated, mapping([principal]))).toEqual(
-      principal,
+      principal
     );
   });
 
@@ -35,7 +35,7 @@ describe("authenticated principal resolution", () => {
 
     expect(await resolveAuthenticatedPrincipal(authenticated, mapping([]))).toBeNull();
     expect(
-      await resolveAuthenticatedPrincipal(authenticated, mapping([user, otherUser])),
+      await resolveAuthenticatedPrincipal(authenticated, mapping([user, otherUser]))
     ).toBeNull();
     expect(await resolveAuthenticatedPrincipal(authenticated, mapping([service]))).toBeNull();
     expect(
@@ -43,7 +43,7 @@ describe("authenticated principal resolution", () => {
         async findUserPrincipals() {
           throw new Error("provider details must not escape");
         },
-      }),
+      })
     ).toBeNull();
   });
 });

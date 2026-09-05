@@ -1,19 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from '@agent-hq/types'
-import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from "@agent-hq/types";
+import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from "lucide-react";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components/ui/tooltip'
-import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
-import { mergeTranscription } from './transcription'
-import { createClientRequestId } from './request-id'
-import { composerKeyboardAction, parseAgentMentions } from './workspace-model'
+import { Tooltip, TooltipContent, TooltipTrigger } from "@agent-hq/ui/components/ui/tooltip";
+import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from "./platform";
+import { mergeTranscription } from "./transcription";
+import { createClientRequestId } from "./request-id";
+import { composerKeyboardAction, parseAgentMentions } from "./workspace-model";
 
 export type ComposerSubmission = Readonly<{
-  artifactIds: readonly string[]
-  bodyText: string
-  idempotencyKey: string
-  mentions: readonly ConversationParticipantRef[]
-}>
+  artifactIds: readonly string[];
+  bodyText: string;
+  idempotencyKey: string;
+  mentions: readonly ConversationParticipantRef[];
+}>;
 
 export function MessageComposer({
   agents,
@@ -26,114 +26,114 @@ export function MessageComposer({
   replyLabel,
   transcription,
 }: Readonly<{
-  agents: readonly AgentSummary[]
-  artifacts: readonly ArtifactSummary[]
-  channelId: string
-  disabled?: boolean
-  draft: string
-  onDraftChange: (value: string) => void
-  onSubmit: (submission: ComposerSubmission) => Promise<void>
-  replyLabel?: string
-  transcription?: TranscriptionProvider
+  agents: readonly AgentSummary[];
+  artifacts: readonly ArtifactSummary[];
+  channelId: string;
+  disabled?: boolean;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onSubmit: (submission: ComposerSubmission) => Promise<void>;
+  replyLabel?: string;
+  transcription?: TranscriptionProvider;
 }>) {
-  const [attachmentIds, setAttachmentIds] = useState<readonly string[]>([])
-  const [attachmentsOpen, setAttachmentsOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
-  const [transcriptionError, setTranscriptionError] = useState<string | null>(null)
+  const [attachmentIds, setAttachmentIds] = useState<readonly string[]>([]);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [transcriptionState, setTranscriptionState] = useState<TranscriptionState>(
-    transcription ? 'idle' : 'unavailable'
-  )
-  const transcriptionSessionRef = useRef<TranscriptionSession | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+    transcription ? "idle" : "unavailable"
+  );
+  const transcriptionSessionRef = useRef<TranscriptionSession | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(
     () => () => {
-      transcriptionSessionRef.current?.cancel()
+      transcriptionSessionRef.current?.cancel();
     },
     []
-  )
+  );
   const mentionSuggestions = useMemo(() => {
-    const match = draft.match(/(?:^|\s)@([^\n]*)$/)
-    if (!match) return []
-    const query = match[1]?.toLocaleLowerCase() ?? ''
-    return agents.filter(({ name }) => name.toLocaleLowerCase().includes(query)).slice(0, 5)
-  }, [agents, draft])
+    const match = draft.match(/(?:^|\s)@([^\n]*)$/);
+    if (!match) return [];
+    const query = match[1]?.toLocaleLowerCase() ?? "";
+    return agents.filter(({ name }) => name.toLocaleLowerCase().includes(query)).slice(0, 5);
+  }, [agents, draft]);
 
   const send = async () => {
-    const bodyText = draft.trim()
-    if (!bodyText || disabled || sending) return
-    setSending(true)
-    setError(null)
+    const bodyText = draft.trim();
+    if (!bodyText || disabled || sending) return;
+    setSending(true);
+    setError(null);
     try {
       await onSubmit({
         artifactIds: attachmentIds,
         bodyText,
         idempotencyKey: createClientRequestId(),
         mentions: parseAgentMentions(bodyText, agents),
-      })
-      onDraftChange('')
-      setAttachmentIds([])
+      });
+      onDraftChange("");
+      setAttachmentIds([]);
     } catch {
-      setError('Message not sent. Your draft is still here; retry when the connection recovers.')
+      setError("Message not sent. Your draft is still here; retry when the connection recovers.");
     } finally {
-      setSending(false)
+      setSending(false);
     }
-  }
+  };
 
   const insertMention = (agent: AgentSummary) => {
-    onDraftChange(draft.replace(/@[^\n]*$/, `@${agent.name} `))
-    requestAnimationFrame(() => textareaRef.current?.focus())
-  }
+    onDraftChange(draft.replace(/@[^\n]*$/, `@${agent.name} `));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
 
   const dictate = async () => {
-    if (!transcription) return
-    if (transcriptionState === 'listening' || transcriptionState === 'processing') {
-      transcriptionSessionRef.current?.cancel()
-      transcriptionSessionRef.current = null
-      setTranscriptionState('cancelled')
-      requestAnimationFrame(() => textareaRef.current?.focus())
-      return
+    if (!transcription) return;
+    if (transcriptionState === "listening" || transcriptionState === "processing") {
+      transcriptionSessionRef.current?.cancel();
+      transcriptionSessionRef.current = null;
+      setTranscriptionState("cancelled");
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
     }
-    setTranscriptionError(null)
-    let activeSession: TranscriptionSession | null = null
+    setTranscriptionError(null);
+    let activeSession: TranscriptionSession | null = null;
     try {
-      const permission = await transcription.requestPermission()
-      if (permission !== 'granted') {
-        setTranscriptionState(permission === 'unavailable' ? 'unavailable' : 'error')
+      const permission = await transcription.requestPermission();
+      if (permission !== "granted") {
+        setTranscriptionState(permission === "unavailable" ? "unavailable" : "error");
         setTranscriptionError(
-          permission === 'denied'
-            ? 'Microphone access is off. Enable it in system privacy settings, then retry.'
-            : 'Dictation is unavailable on this device.'
-        )
-        return
+          permission === "denied"
+            ? "Microphone access is off. Enable it in system privacy settings, then retry."
+            : "Dictation is unavailable on this device."
+        );
+        return;
       }
-      const session = await transcription.start()
-      activeSession = session
-      transcriptionSessionRef.current = session
-      setTranscriptionState('listening')
-      const result = await session.completion
-      if (transcriptionSessionRef.current !== session) return
-      setTranscriptionState('processing')
-      onDraftChange(mergeTranscription(draft, result.text))
-      transcriptionSessionRef.current = null
-      setTranscriptionState('idle')
-      requestAnimationFrame(() => textareaRef.current?.focus())
+      const session = await transcription.start();
+      activeSession = session;
+      transcriptionSessionRef.current = session;
+      setTranscriptionState("listening");
+      const result = await session.completion;
+      if (transcriptionSessionRef.current !== session) return;
+      setTranscriptionState("processing");
+      onDraftChange(mergeTranscription(draft, result.text));
+      transcriptionSessionRef.current = null;
+      setTranscriptionState("idle");
+      requestAnimationFrame(() => textareaRef.current?.focus());
     } catch (error) {
-      if (activeSession && transcriptionSessionRef.current !== activeSession) return
-      transcriptionSessionRef.current = null
-      setTranscriptionState('error')
+      if (activeSession && transcriptionSessionRef.current !== activeSession) return;
+      transcriptionSessionRef.current = null;
+      setTranscriptionState("error");
       setTranscriptionError(
-        error instanceof DOMException && error.name === 'NotAllowedError'
-          ? 'Microphone access is off. Enable it in system privacy settings, then retry.'
-          : 'Dictation stopped unexpectedly. Your existing draft is unchanged.'
-      )
+        error instanceof DOMException && error.name === "NotAllowedError"
+          ? "Microphone access is off. Enable it in system privacy settings, then retry."
+          : "Dictation stopped unexpectedly. Your existing draft is unchanged."
+      );
     }
-  }
+  };
 
   return (
     <section
       className="conventional-composer"
-      aria-label={replyLabel ? `Reply to ${replyLabel}` : 'Message composer'}
+      aria-label={replyLabel ? `Reply to ${replyLabel}` : "Message composer"}
     >
       {replyLabel ? (
         <div className="conventional-composer__context">
@@ -143,19 +143,19 @@ export function MessageComposer({
       {attachmentIds.length ? (
         <div className="conventional-composer__attachments" aria-label="Selected attachments">
           {attachmentIds.map((artifactId) => {
-            const artifact = artifacts.find(({ id }) => id === artifactId)
+            const artifact = artifacts.find(({ id }) => id === artifactId);
             return (
               <span key={artifactId}>
-                {artifact?.filename ?? 'Artifact'}
+                {artifact?.filename ?? "Artifact"}
                 <button
                   type="button"
-                  aria-label={`Remove ${artifact?.filename ?? 'Artifact'}`}
+                  aria-label={`Remove ${artifact?.filename ?? "Artifact"}`}
                   onClick={() => setAttachmentIds((ids) => ids.filter((id) => id !== artifactId))}
                 >
                   <X aria-hidden="true" />
                 </button>
               </span>
-            )
+            );
           })}
         </div>
       ) : null}
@@ -169,7 +169,7 @@ export function MessageComposer({
           value={draft}
           rows={3}
           disabled={disabled || sending}
-          placeholder={disabled ? 'Messaging is unavailable' : 'Type something...'}
+          placeholder={disabled ? "Messaging is unavailable" : "Type something..."}
           aria-describedby={`composer-help-${channelId}`}
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
@@ -177,10 +177,10 @@ export function MessageComposer({
               isComposing: event.nativeEvent.isComposing,
               key: event.key,
               shiftKey: event.shiftKey,
-            })
-            if (action === 'send') {
-              event.preventDefault()
-              void send()
+            });
+            if (action === "send") {
+              event.preventDefault();
+              void send();
             }
           }}
         />
@@ -214,7 +214,7 @@ export function MessageComposer({
                   <input
                     type="checkbox"
                     checked={attachmentIds.includes(artifact.id)}
-                    disabled={artifact.availability !== 'available'}
+                    disabled={artifact.availability !== "available"}
                     onChange={(event) =>
                       setAttachmentIds((ids) =>
                         event.target.checked
@@ -240,19 +240,19 @@ export function MessageComposer({
                 <button
                   type="button"
                   aria-label={
-                    transcriptionState === 'listening' || transcriptionState === 'processing'
-                      ? 'Cancel dictation'
-                      : 'Start dictation'
+                    transcriptionState === "listening" || transcriptionState === "processing"
+                      ? "Cancel dictation"
+                      : "Start dictation"
                   }
-                  aria-pressed={transcriptionState === 'listening' || undefined}
-                  disabled={disabled || sending || transcriptionState === 'unavailable'}
+                  aria-pressed={transcriptionState === "listening" || undefined}
+                  disabled={disabled || sending || transcriptionState === "unavailable"}
                   onClick={() => void dictate()}
                 />
               }
             >
-              {transcriptionState === 'processing' ? (
+              {transcriptionState === "processing" ? (
                 <LoaderCircle aria-hidden="true" className="conventional-spin" />
-              ) : transcriptionState === 'listening' ? (
+              ) : transcriptionState === "listening" ? (
                 <MicOff aria-hidden="true" />
               ) : (
                 <Mic aria-hidden="true" />
@@ -261,19 +261,19 @@ export function MessageComposer({
             <TooltipContent>
               {transcription
                 ? `Dictate with ${transcription.label}`
-                : 'Dictation is available in Agent HQ Desktop'}
+                : "Dictation is available in Agent HQ Desktop"}
             </TooltipContent>
           </Tooltip>
         </div>
         <button
           type="button"
           className="conventional-send-button"
-          aria-label={sending ? 'Sending message' : 'Send message'}
+          aria-label={sending ? "Sending message" : "Send message"}
           disabled={disabled || sending || !draft.trim()}
           onClick={() => void send()}
         >
           <Send aria-hidden="true" />
-          <span className="visually-hidden">{sending ? 'Sending' : 'Send'}</span>
+          <span className="visually-hidden">{sending ? "Sending" : "Send"}</span>
         </button>
       </div>
       <div className="conventional-composer__status" aria-live="polite">
@@ -283,14 +283,14 @@ export function MessageComposer({
           <p role="alert">{transcriptionError}</p>
         ) : sending ? (
           <p className="conventional-composer__status--muted">Sending message…</p>
-        ) : transcriptionState === 'listening' ? (
+        ) : transcriptionState === "listening" ? (
           <p>Listening… Select the microphone again to cancel.</p>
-        ) : transcriptionState === 'processing' ? (
+        ) : transcriptionState === "processing" ? (
           <p>Preparing editable transcript…</p>
-        ) : transcriptionState === 'cancelled' ? (
+        ) : transcriptionState === "cancelled" ? (
           <p>Dictation cancelled. Your draft was preserved.</p>
         ) : null}
       </div>
     </section>
-  )
+  );
 }

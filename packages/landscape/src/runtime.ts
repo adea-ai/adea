@@ -13,7 +13,7 @@ import { landscapeAssets } from "./catalog.js";
 export async function loadLandscapeField(
   loader: GLTFLoader,
   manifestUrl: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return loadSceneFieldFromCatalog(loader, manifestUrl, landscapeAssets, "landscape-field", signal);
 }

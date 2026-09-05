@@ -117,7 +117,7 @@ function applySnapshot(object: THREE.Object3D, value: TransformSnapshot): void {
 function snapshotsEqual(left: TransformSnapshot, right: TransformSnapshot): boolean {
   return [...left.position, ...left.quaternion, ...left.scale].every(
     (value, index) =>
-      Math.abs(value - [...right.position, ...right.quaternion, ...right.scale][index]) < 1e-7,
+      Math.abs(value - [...right.position, ...right.quaternion, ...right.scale][index]) < 1e-7
   );
 }
 
@@ -155,11 +155,11 @@ function findFieldHit(object: THREE.Object3D, scene: THREE.Scene): FieldHit | nu
         candidate.name.startsWith(`${category}:`) ||
         (candidate.name.startsWith(category) &&
           candidate.name !== category &&
-          candidate.name.endsWith("all")),
+          candidate.name.endsWith("all"))
     );
     if (!bakedNode) continue;
     const root = ancestors.find(
-      (candidate) => candidate.name === category || candidate.name === `${category}-field`,
+      (candidate) => candidate.name === category || candidate.name === `${category}-field`
     );
     if (root) return { root, category, bakedNodeName: bakedNode.name };
   }
@@ -215,7 +215,7 @@ function isLockedObject(object: THREE.Object3D, lockedObjectPrefixes: readonly s
   while (current) {
     if (
       lockedObjectPrefixes.some(
-        (prefix) => current?.name === prefix || current?.name.startsWith(prefix),
+        (prefix) => current?.name === prefix || current?.name.startsWith(prefix)
       )
     )
       return true;
@@ -252,13 +252,13 @@ function placementIndicesForChunk(placements: Placement[], chunkKey: string): nu
   return placements.flatMap((placement, index) =>
     Math.floor(placement.p[0] / 128) === chunkX && Math.floor(placement.p[2] / 128) === chunkZ
       ? [index]
-      : [],
+      : []
   );
 }
 
 function resolveBakedFieldIdentity(
   field: FieldHit,
-  source: PlacementManifest,
+  source: PlacementManifest
 ): { modelId: string; chunkKey: string } | null {
   if (field.modelId && field.chunkKey) return { modelId: field.modelId, chunkKey: field.chunkKey };
   const nodeName = field.bakedNodeName;
@@ -267,7 +267,7 @@ function resolveBakedFieldIdentity(
     .filter(
       (candidate) =>
         nodeName.startsWith(`${field.category}${candidate}`) ||
-        nodeName.startsWith(`${field.category}:${candidate}:`),
+        nodeName.startsWith(`${field.category}:${candidate}:`)
     )
     .sort((left, right) => right.length - left.length)[0];
   if (!modelId) return null;
@@ -278,7 +278,7 @@ function resolveBakedFieldIdentity(
 function fieldRootForSelection(
   field: FieldHit,
   object: THREE.Object3D,
-  scene: THREE.Scene,
+  scene: THREE.Scene
 ): THREE.Object3D {
   if (field.modelId && field.chunkKey) {
     let root = object;
@@ -366,7 +366,7 @@ export function SceneEditor({
   const [status, setStatus] = useState(
     selectionMode === "zones"
       ? "Click a room in the scene to move the whole room."
-      : "Click an object in the scene to edit it.",
+      : "Click an object in the scene to edit it."
   );
   const [saving, setSaving] = useState(false);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -414,10 +414,10 @@ export function SceneEditor({
       setStatus(
         deleted
           ? "Object deleted. Save source to persist it."
-          : "Object restored. Save source to persist it.",
+          : "Object restored. Save source to persist it."
       );
     },
-    [selectionMode],
+    [selectionMode]
   );
 
   useEffect(() => {
@@ -467,7 +467,7 @@ export function SceneEditor({
           matrix.decompose(
             sibling.object.position,
             sibling.object.quaternion,
-            sibling.object.scale,
+            sibling.object.scale
           );
           sibling.object.updateMatrix();
           sibling.object.updateMatrixWorld(true);
@@ -545,7 +545,7 @@ export function SceneEditor({
       const rect = canvas.getBoundingClientRect();
       return new THREE.Vector2(
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
       );
     };
 
@@ -565,7 +565,7 @@ export function SceneEditor({
       object: THREE.Mesh | THREE.InstancedMesh,
       instanceIndex: number,
       field: FieldHit,
-      requestId: number,
+      requestId: number
     ) => {
       const { category } = field;
       const fieldRoot = fieldRootForSelection(field, object, scene);
@@ -593,7 +593,7 @@ export function SceneEditor({
         const placementMatrix = new THREE.Matrix4().compose(
           new THREE.Vector3(...current.position),
           new THREE.Quaternion(...current.quaternion),
-          new THREE.Vector3(...current.scale),
+          new THREE.Vector3(...current.scale)
         );
         const inversePlacement = placementMatrix.clone().invert();
         const siblings: PlacementSelection["siblings"] = [];
@@ -721,7 +721,7 @@ export function SceneEditor({
           ? selectionMode === "zones"
             ? "Whole room selected. Drag the gizmo or edit its transform, then save the scene override."
             : "GLB object selected. Copy its transform to update the source asset."
-          : "Embedded GLB instance selected. Inspect only; no placement manifest is available for this instance.",
+          : "Embedded GLB instance selected. Inspect only; no placement manifest is available for this instance."
       );
       return true;
     };
@@ -761,7 +761,7 @@ export function SceneEditor({
         setStatus(
           selectionMode === "zones"
             ? "Click a room in the scene to move the whole room."
-            : "Click an object in the scene to edit it.",
+            : "Click an object in the scene to edit it."
         );
         return;
       }
@@ -850,7 +850,7 @@ export function SceneEditor({
         setStatus(
           selectionMode === "zones"
             ? "Click a room in the scene to move the whole room."
-            : "Click an object in the scene to edit it.",
+            : "Click an object in the scene to edit it."
         );
       }
     };
@@ -890,7 +890,7 @@ export function SceneEditor({
   };
 
   const selectionEditable = Boolean(
-    selection && (selection.kind === "placement" || selection.editable),
+    selection && (selection.kind === "placement" || selection.editable)
   );
 
   const updateVectorComponent = (kind: "position" | "scale", index: number, value: number) => {
@@ -913,7 +913,7 @@ export function SceneEditor({
     const next = snapshot(selection.target);
     const euler = new THREE.Euler().setFromQuaternion(
       new THREE.Quaternion(...next.quaternion),
-      selection.target.rotation.order,
+      selection.target.rotation.order
     );
     if (index === 0) euler.x = THREE.MathUtils.degToRad(degrees);
     if (index === 1) euler.y = THREE.MathUtils.degToRad(degrees);
@@ -1019,7 +1019,7 @@ export function SceneEditor({
     if (!selection || !exportData || !selectionEditable || saving) return;
     setSaving(true);
     setStatus(
-      selection.kind === "placement" ? "Saving source placement..." : "Saving scene override...",
+      selection.kind === "placement" ? "Saving source placement..." : "Saving scene override..."
     );
     try {
       const response = await fetch("/api/scene-editor", {
@@ -1053,7 +1053,7 @@ export function SceneEditor({
     transform && selection
       ? new THREE.Euler().setFromQuaternion(
           new THREE.Quaternion(...transform.quaternion),
-          selection.target.rotation.order,
+          selection.target.rotation.order
         )
       : null;
   const rotationDegrees = rotation

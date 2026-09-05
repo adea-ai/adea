@@ -13,7 +13,7 @@ describe("scene-field loading", () => {
       manager.abortController.signal.addEventListener(
         "abort",
         () => reject(new DOMException("The scene load was aborted", "AbortError")),
-        { once: true },
+        { once: true }
       );
     });
     const loader = {
@@ -25,7 +25,7 @@ describe("scene-field loading", () => {
     } as unknown as GLTFLoader;
     const sceneAbortController = new AbortController();
     const manifestUrl = `data:application/json,${encodeURIComponent(
-      JSON.stringify({ version: 1, scene: "test", placements: { prop: [{}] } }),
+      JSON.stringify({ version: 1, scene: "test", placements: { prop: [{}] } })
     )}`;
 
     const load = loadSceneField(
@@ -34,7 +34,7 @@ describe("scene-field loading", () => {
       () => "prop.glb",
       "test-field",
       false,
-      sceneAbortController.signal,
+      sceneAbortController.signal
     );
     await loaderStarted;
     sceneAbortController.abort();
@@ -42,7 +42,7 @@ describe("scene-field loading", () => {
     const settled = await Promise.race([
       load.then(
         () => true,
-        () => true,
+        () => true
       ),
       new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 100)),
     ]);

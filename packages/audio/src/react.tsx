@@ -54,7 +54,7 @@ export function SoundProvider({ children }: { children: ReactNode }) {
       toggleMusicMute: () => setMusicMuted(soundController.toggleMusicMute()),
       playMusic: (id, options) => soundController.playMusic(id, options),
     }),
-    [musicMuted, ready],
+    [musicMuted, ready]
   );
 
   return <SoundContext.Provider value={value}>{children}</SoundContext.Provider>;

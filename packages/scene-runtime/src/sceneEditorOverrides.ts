@@ -41,17 +41,17 @@ function pathsMatch(savedPath: string, currentPath: string): boolean {
 
 export function applySceneEditorOverrides(
   root: THREE.Object3D,
-  overrides: SceneEditorOverrides,
+  overrides: SceneEditorOverrides
 ): void {
   const entries = Object.entries(overrides.objects ?? {}).filter(
-    ([savedPath]) => !savedPath.split(" / ").some((part) => part.startsWith("scene-editor-")),
+    ([savedPath]) => !savedPath.split(" / ").some((part) => part.startsWith("scene-editor-"))
   );
   root.traverse((object) => {
     const currentPath = objectPath(root, object);
     const pathMatch = entries.find(([savedPath]) => pathsMatch(savedPath, currentPath));
     const nameMatch = entries.find(
       ([, override]) =>
-        override.name && normalizedPath(override.name) === normalizedPath(object.name),
+        override.name && normalizedPath(override.name) === normalizedPath(object.name)
     );
     const override = pathMatch?.[1] ?? nameMatch?.[1];
     if (!override) return;

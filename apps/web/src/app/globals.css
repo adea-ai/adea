@@ -1,10 +1,10 @@
-@import '@agent-hq/scene-shell/globals.css';
-@import '@agent-hq/character-designer-scene/globals.css';
-@import '@agent-hq/room-designer-scene/globals.css';
-@import '@agent-hq/ui/theme.css';
-@import '@agent-hq/ui/auth-shell.css';
-@import '@agent-hq/ui/workspace-shell.css';
-@import '@agent-hq/ui/conventional-workspace.css';
+@import "@agent-hq/scene-shell/globals.css";
+@import "@agent-hq/character-designer-scene/globals.css";
+@import "@agent-hq/room-designer-scene/globals.css";
+@import "@agent-hq/ui/theme.css";
+@import "@agent-hq/ui/auth-shell.css";
+@import "@agent-hq/ui/workspace-shell.css";
+@import "@agent-hq/ui/conventional-workspace.css";
 
 .browser-auth-mode {
   display: grid;
@@ -31,7 +31,7 @@
   color: var(--auth-muted-strong);
 }
 
-.browser-auth-mode button[aria-pressed='true'] {
+.browser-auth-mode button[aria-pressed="true"] {
   background: var(--auth-surface);
   color: var(--auth-foreground);
 }
@@ -230,7 +230,7 @@
 .workspace-eyebrow {
   margin: 0 0 0.25rem;
   color: var(--hq-shell-muted);
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.61rem;
   letter-spacing: 0.12em;
   line-height: 1.35;
@@ -378,7 +378,7 @@
   left: 1.25rem;
   gap: 0.45rem;
   color: color-mix(in srgb, var(--hq-shell-foreground) 68%, transparent);
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.58rem;
   letter-spacing: 0.03em;
 }

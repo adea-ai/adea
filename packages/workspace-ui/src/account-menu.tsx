@@ -1,4 +1,4 @@
-'use client'
+"use client";
 
 import {
   CircleHelp,
@@ -10,9 +10,9 @@ import {
   Settings2,
   Smartphone,
   UserRound,
-} from 'lucide-react'
+} from "lucide-react";
 
-import { Button } from '@agent-hq/ui/components/ui/button'
+import { Button } from "@agent-hq/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,20 +21,20 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from '@agent-hq/ui/components/ui/dropdown-menu'
+} from "@agent-hq/ui/components/ui/dropdown-menu";
 
-import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
+import { accountMenuItemsForPlatform, accountSessionItem } from "./account-menu-model";
 
 type AccountMenuProps = Readonly<{
-  authenticated: boolean
-  busy?: boolean
-  onOpenUpdates?: () => void
-  onOpenAbout: () => void
-  onOpenSettings: () => void
-  onSignIn: () => void
-  onSignOut: () => void
-  platform: 'desktop' | 'web'
-}>
+  authenticated: boolean;
+  busy?: boolean;
+  onOpenUpdates?: () => void;
+  onOpenAbout: () => void;
+  onOpenSettings: () => void;
+  onSignIn: () => void;
+  onSignOut: () => void;
+  platform: "desktop" | "web";
+}>;
 
 const icons = {
   mobile: Smartphone,
@@ -43,7 +43,7 @@ const icons = {
   help: CircleHelp,
   feedback: Megaphone,
   updates: RefreshCw,
-} as const
+} as const;
 
 export function AccountMenu({
   authenticated,
@@ -55,8 +55,8 @@ export function AccountMenu({
   onSignOut,
   platform,
 }: AccountMenuProps) {
-  const sessionItem = accountSessionItem(authenticated)
-  const visibleMenuItems = accountMenuItemsForPlatform(platform)
+  const sessionItem = accountSessionItem(authenticated);
+  const visibleMenuItems = accountMenuItemsForPlatform(platform);
 
   return (
     <DropdownMenu modal={false}>
@@ -76,24 +76,24 @@ export function AccountMenu({
       <DropdownMenuContent className="global-account-menu" side="top" align="start" sideOffset={0}>
         <DropdownMenuGroup>
           {visibleMenuItems.map((item) => {
-            const Icon = icons[item.id]
+            const Icon = icons[item.id];
             const onSelect =
-              item.id === 'settings'
+              item.id === "settings"
                 ? onOpenSettings
-                : item.id === 'about'
+                : item.id === "about"
                   ? onOpenAbout
-                  : item.id === 'updates'
+                  : item.id === "updates"
                     ? onOpenUpdates
-                    : undefined
+                    : undefined;
             return (
               <DropdownMenuItem key={item.id} disabled={item.disabled} onClick={onSelect}>
                 <Icon aria-hidden="true" />
                 <span>{item.label}</span>
-                {item.id === 'settings' ? (
+                {item.id === "settings" ? (
                   <DropdownMenuShortcut aria-hidden="true">⌘,</DropdownMenuShortcut>
                 ) : null}
               </DropdownMenuItem>
-            )
+            );
           })}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
@@ -105,5 +105,5 @@ export function AccountMenu({
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

@@ -18,15 +18,15 @@ describe("workspace authorization", () => {
 
   test("classifies every shared workspace permission in each initial role bundle", () => {
     const rolePermission = new Set(
-      Object.values(workspaceRolePermissions).flatMap((permissions) => permissions),
+      Object.values(workspaceRolePermissions).flatMap((permissions) => permissions)
     );
     expect(
-      [...workspacePermissions].filter((permission) => permission !== "workspace.create"),
+      [...workspacePermissions].filter((permission) => permission !== "workspace.create")
     ).toEqual(expect.arrayContaining([...rolePermission]));
     expect([...rolePermission]).toEqual(
       expect.arrayContaining(
-        [...workspacePermissions].filter((permission) => permission !== "workspace.create"),
-      ),
+        [...workspacePermissions].filter((permission) => permission !== "workspace.create")
+      )
     );
     expect(workspaceRolePermissions.admin).toEqual([
       "workspace.read",
@@ -54,14 +54,14 @@ describe("workspace authorization", () => {
     expect(
       await authorizeWorkspaceAction(
         { permission: "workspace.read", principal, workspaceId: "workspace-a" },
-        dependencies,
-      ),
+        dependencies
+      )
     ).toEqual({ allowed: true });
     expect(
       await authorizeWorkspaceAction(
         { permission: "workspace.update", principal, workspaceId: "workspace-a" },
-        dependencies,
-      ),
+        dependencies
+      )
     ).toEqual({ allowed: false, reason: "workspace_unavailable" });
     expect(audited).toEqual([
       {
@@ -82,8 +82,8 @@ describe("workspace authorization", () => {
       expect(
         await authorizeWorkspaceAction(
           { permission: "workspace.read", principal, workspaceId: "workspace-a" },
-          { findMembership: async () => ({ role: "owner" }) },
-        ),
+          { findMembership: async () => ({ role: "owner" }) }
+        )
       ).toEqual({ allowed: false, reason: "workspace_unavailable" });
     }
   });
@@ -96,8 +96,8 @@ describe("workspace authorization", () => {
           principal: { kind: "user", userId: "temporary-user" },
           workspaceId: null,
         },
-        { findMembership: async () => null },
-      ),
+        { findMembership: async () => null }
+      )
     ).toEqual({ allowed: true });
   });
 });

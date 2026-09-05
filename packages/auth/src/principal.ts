@@ -8,7 +8,7 @@ export interface AuthIdentityMapping {
 
 export async function resolveAuthenticatedPrincipal(
   authentication: AuthResult | null,
-  mapping: AuthIdentityMapping,
+  mapping: AuthIdentityMapping
 ): Promise<UserPrincipalRef | null> {
   if (!authentication) return null;
 

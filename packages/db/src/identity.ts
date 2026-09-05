@@ -22,7 +22,7 @@ export type NewUserIdentity = Readonly<{
 
 export async function getUserDisplayName(
   database: AgentHqDatabase,
-  principal: UserPrincipalRef,
+  principal: UserPrincipalRef
 ): Promise<string | null> {
   const [user] = await database
     .select({ displayName: users.displayName })
@@ -34,7 +34,7 @@ export async function getUserDisplayName(
 
 export async function setUserDisplayNameIfMissing(
   database: AgentHqDatabase,
-  input: Readonly<{ displayName: string; userId: string }>,
+  input: Readonly<{ displayName: string; userId: string }>
 ): Promise<void> {
   await database
     .update(users)
@@ -44,7 +44,7 @@ export async function setUserDisplayNameIfMissing(
 
 export async function createUserWithAuthIdentity(
   database: AgentHqDatabase,
-  input: NewUserIdentity,
+  input: NewUserIdentity
 ): Promise<UserPrincipalRef> {
   return database.transaction(async (transaction) => {
     const [user] = await transaction
@@ -77,7 +77,7 @@ export type TemporaryUserSessionRecord = Readonly<{
 
 export async function createTemporaryUserSession(
   database: AgentHqDatabase,
-  input: TemporaryUserSessionInput,
+  input: TemporaryUserSessionInput
 ): Promise<TemporaryUserSessionRecord> {
   return database.transaction(async (transaction) => {
     const [user] = await transaction
@@ -107,7 +107,7 @@ export async function createTemporaryUserSession(
 export async function resolveTemporaryUserSession(
   database: AgentHqDatabase,
   credentialDigest: string,
-  now = new Date(),
+  now = new Date()
 ): Promise<UserPrincipalRef | null> {
   const [match] = await database
     .select({ userId: users.id })
@@ -119,8 +119,8 @@ export async function resolveTemporaryUserSession(
         gt(temporaryUserSessions.expiresAt, now),
         isNull(temporaryUserSessions.claimedAt),
         eq(users.isTemporary, true),
-        isNull(users.disabledAt),
-      ),
+        isNull(users.disabledAt)
+      )
     )
     .limit(1);
 
@@ -133,11 +133,11 @@ export async function claimTemporaryUserSession(
     credentialDigest: string;
     identity: AuthIdentityKey;
     profile?: Readonly<{ displayName?: string }>;
-  }>,
+  }>
 ): Promise<UserPrincipalRef> {
   return database.transaction(async (transaction) => {
     await transaction.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${`${input.identity.provider}:${input.identity.subject}`}))`,
+      sql`select pg_advisory_xact_lock(hashtext(${`${input.identity.provider}:${input.identity.subject}`}))`
     );
     const [existingIdentity] = await transaction
       .select({ userId: authIdentities.userId })
@@ -148,8 +148,8 @@ export async function claimTemporaryUserSession(
           eq(authIdentities.provider, input.identity.provider),
           eq(authIdentities.subject, input.identity.subject),
           isNull(authIdentities.revokedAt),
-          isNull(users.disabledAt),
-        ),
+          isNull(users.disabledAt)
+        )
       )
       .limit(1);
 
@@ -163,8 +163,8 @@ export async function claimTemporaryUserSession(
       .where(
         and(
           eq(temporaryUserSessions.credentialDigest, input.credentialDigest),
-          gt(temporaryUserSessions.expiresAt, new Date()),
-        ),
+          gt(temporaryUserSessions.expiresAt, new Date())
+        )
       )
       .limit(1)
       .for("update");
@@ -183,8 +183,8 @@ export async function claimTemporaryUserSession(
         and(
           eq(users.id, temporarySession.userId),
           eq(users.isTemporary, true),
-          isNull(users.disabledAt),
-        ),
+          isNull(users.disabledAt)
+        )
       )
       .limit(1);
     if (!temporary) throw new Error("Temporary workspace unavailable");
@@ -228,8 +228,8 @@ export async function claimTemporaryUserSession(
         .where(
           and(
             eq(workspaceMemberships.workspaceId, membership.workspaceId),
-            eq(workspaceMemberships.userId, targetUserId),
-          ),
+            eq(workspaceMemberships.userId, targetUserId)
+          )
         )
         .limit(1);
 
@@ -261,8 +261,8 @@ export async function claimTemporaryUserSession(
         .where(
           and(
             eq(workspaceMemberships.workspaceId, membership.workspaceId),
-            eq(workspaceMemberships.userId, temporary.userId),
-          ),
+            eq(workspaceMemberships.userId, temporary.userId)
+          )
         );
     }
 
@@ -280,7 +280,7 @@ export async function claimTemporaryUserSession(
 
 export async function claimTemporaryUserSessionForUser(
   database: AgentHqDatabase,
-  input: Readonly<{ credentialDigest: string; target: UserPrincipalRef }>,
+  input: Readonly<{ credentialDigest: string; target: UserPrincipalRef }>
 ): Promise<UserPrincipalRef> {
   return database.transaction(async (transaction) => {
     const [target] = await transaction
@@ -290,8 +290,8 @@ export async function claimTemporaryUserSessionForUser(
         and(
           eq(users.id, input.target.userId),
           eq(users.isTemporary, false),
-          isNull(users.disabledAt),
-        ),
+          isNull(users.disabledAt)
+        )
       )
       .limit(1)
       .for("update");
@@ -307,8 +307,8 @@ export async function claimTemporaryUserSessionForUser(
       .where(
         and(
           eq(temporaryUserSessions.credentialDigest, input.credentialDigest),
-          gt(temporaryUserSessions.expiresAt, new Date()),
-        ),
+          gt(temporaryUserSessions.expiresAt, new Date())
+        )
       )
       .limit(1)
       .for("update");
@@ -327,8 +327,8 @@ export async function claimTemporaryUserSessionForUser(
         and(
           eq(users.id, temporarySession.userId),
           eq(users.isTemporary, true),
-          isNull(users.disabledAt),
-        ),
+          isNull(users.disabledAt)
+        )
       )
       .limit(1);
     if (!temporary) throw new Error("Temporary workspace unavailable");
@@ -354,8 +354,8 @@ export async function claimTemporaryUserSessionForUser(
         .where(
           and(
             eq(workspaceMemberships.workspaceId, membership.workspaceId),
-            eq(workspaceMemberships.userId, target.userId),
-          ),
+            eq(workspaceMemberships.userId, target.userId)
+          )
         )
         .limit(1);
 
@@ -387,8 +387,8 @@ export async function claimTemporaryUserSessionForUser(
         .where(
           and(
             eq(workspaceMemberships.workspaceId, membership.workspaceId),
-            eq(workspaceMemberships.userId, temporary.userId),
-          ),
+            eq(workspaceMemberships.userId, temporary.userId)
+          )
         );
     }
 
@@ -406,7 +406,7 @@ export async function claimTemporaryUserSessionForUser(
 
 export async function findUserPrincipalsByAuthIdentity(
   database: AgentHqDatabase,
-  identity: AuthIdentityKey,
+  identity: AuthIdentityKey
 ): Promise<UserPrincipalRef[]> {
   const matches = await database
     .select({ userId: users.id })
@@ -417,8 +417,8 @@ export async function findUserPrincipalsByAuthIdentity(
         eq(authIdentities.provider, identity.provider),
         eq(authIdentities.subject, identity.subject),
         isNull(authIdentities.revokedAt),
-        isNull(users.disabledAt),
-      ),
+        isNull(users.disabledAt)
+      )
     )
     .limit(2);
 
@@ -427,7 +427,7 @@ export async function findUserPrincipalsByAuthIdentity(
 
 export async function revokeAuthIdentity(
   database: AgentHqDatabase,
-  identity: AuthIdentityKey,
+  identity: AuthIdentityKey
 ): Promise<boolean> {
   const revoked = await database
     .update(authIdentities)
@@ -436,8 +436,8 @@ export async function revokeAuthIdentity(
       and(
         eq(authIdentities.provider, identity.provider),
         eq(authIdentities.subject, identity.subject),
-        isNull(authIdentities.revokedAt),
-      ),
+        isNull(authIdentities.revokedAt)
+      )
     )
     .returning({ id: authIdentities.id });
   return revoked.length === 1;

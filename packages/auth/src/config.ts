@@ -73,8 +73,8 @@ export function readAuthConfig(environment: AuthEnvironment = process.env): Auth
   const trustedOrigins = [
     ...new Set(
       [...rawOrigins.split(","), ...deploymentOrigins].map((value) =>
-        normalizeTrustedTarget(value.trim()),
-      ),
+        normalizeTrustedTarget(value.trim())
+      )
     ),
   ];
   if (trustedOrigins.length === 0) throw new Error("AUTH_TRUSTED_ORIGINS must not be empty");

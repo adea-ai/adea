@@ -17,7 +17,7 @@ const workspace = {
 
 function bootstrap(
   temporary: boolean,
-  temporaryCredential?: string,
+  temporaryCredential?: string
 ): ApiWorkspaceBootstrapResponse {
   return {
     activeWorkspace: workspace,
@@ -39,7 +39,7 @@ describe("desktop workspace session", () => {
 
   test("does not block guest startup when the temporary credential vault does not answer", async () => {
     await expect(
-      loadTemporaryWorkspaceCredential(() => new Promise<string | null>(() => undefined), 5),
+      loadTemporaryWorkspaceCredential(() => new Promise<string | null>(() => undefined), 5)
     ).resolves.toBeNull();
   });
 
@@ -175,7 +175,7 @@ describe("desktop workspace session", () => {
           clear: async () => undefined,
           save: async () => undefined,
         },
-      }),
+      })
     ).rejects.toThrow("workspace service unavailable");
 
     expect(claimed).toBeTrue();

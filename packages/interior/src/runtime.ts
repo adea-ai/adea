@@ -19,7 +19,7 @@ export async function loadProp(loader: GLTFLoader, id: PropId): Promise<LoadedPr
 export async function loadPropsField(
   loader: GLTFLoader,
   manifestUrl: string,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   return loadSceneFieldFromCatalog(loader, manifestUrl, propAssets, "props-field", signal);
 }

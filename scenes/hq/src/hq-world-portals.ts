@@ -1,8 +1,5 @@
 import type { PortalLink } from "@agent-hq/scene-shell";
-import {
-  ROOM_GALLERY_BOUNDS,
-  ROOM_GALLERY_RUNTIME_SCALE,
-} from "@agent-hq/interior/room-config";
+import { ROOM_GALLERY_BOUNDS, ROOM_GALLERY_RUNTIME_SCALE } from "@agent-hq/interior/room-config";
 
 const GATE_Z = (ROOM_GALLERY_BOUNDS.zMax - 0.2) * ROOM_GALLERY_RUNTIME_SCALE;
 

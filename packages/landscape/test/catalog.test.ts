@@ -17,7 +17,7 @@ describe("landscape asset catalog", () => {
 
     for (const asset of foliageAssets) {
       expect(
-        existsSync(resolve(packageAssets, "foliage", asset.assetUrl.split("/foliage/")[1])),
+        existsSync(resolve(packageAssets, "foliage", asset.assetUrl.split("/foliage/")[1]))
       ).toBe(true);
     }
   });
@@ -38,7 +38,7 @@ describe("landscape asset catalog", () => {
     expect(backgroundAssets).toHaveLength(8);
     for (const asset of backgroundAssets) {
       expect(existsSync(resolve(packageAssets, "backgrounds", basename(asset.assetUrl)))).toBe(
-        true,
+        true
       );
     }
     expect(landscapeHorizonBackgrounds).toEqual({

@@ -31,7 +31,7 @@ export type WorkspacePrincipalResolution = Readonly<{
 
 export async function resolveWorkspacePrincipal(
   request: Request,
-  options: Readonly<{ createTemporary?: boolean }> = {},
+  options: Readonly<{ createTemporary?: boolean }> = {}
 ): Promise<WorkspacePrincipalResolution | null> {
   const database = applicationDatabase();
   if (request.headers.get("authorization")?.startsWith("Desktop ")) {
@@ -80,7 +80,7 @@ export async function resolveWorkspacePrincipal(
 
     const principal = await resolveOrProvisionDesktopPrincipal(
       authentication,
-      desktopPrincipalMapping(),
+      desktopPrincipalMapping()
     );
     return principal
       ? Object.freeze({
@@ -95,7 +95,7 @@ export async function resolveWorkspacePrincipal(
   if (credential) {
     const principal = await resolveTemporaryUserSession(
       database,
-      await digestTemporaryCredential(credential),
+      await digestTemporaryCredential(credential)
     );
     if (principal) {
       return Object.freeze({

@@ -28,7 +28,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
       data-slot="dialog-overlay"
       className={cn(
         "fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-[2px] transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
-        className,
+        className
       )}
       {...props}
     />
@@ -52,7 +52,7 @@ function DialogContent({
           data-slot="dialog-content"
           className={cn(
             "relative grid max-h-[min(44rem,calc(100dvh-2rem))] w-full max-w-2xl gap-0 overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl outline-none transition-[opacity,transform] duration-200 data-ending-style:scale-[0.98] data-ending-style:opacity-0 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
-            className,
+            className
           )}
           {...props}
         >
@@ -88,7 +88,7 @@ function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="dialog-footer"
       className={cn(
         "flex flex-col-reverse gap-2 border-t px-6 py-4 sm:flex-row sm:justify-end",
-        className,
+        className
       )}
       {...props}
     />

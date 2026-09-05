@@ -1,7 +1,7 @@
-import { createApiClient } from '@agent-hq/api-client'
-import { SoundProvider } from '@agent-hq/audio'
-import { useAgentListQuery } from '@agent-hq/data'
-import { AgentHqQueryProvider } from '@agent-hq/data/provider'
+import { createApiClient } from "@agent-hq/api-client";
+import { SoundProvider } from "@agent-hq/audio";
+import { useAgentListQuery } from "@agent-hq/data";
+import { AgentHqQueryProvider } from "@agent-hq/data/provider";
 import {
   createDesktopAuthorizationManager,
   createDesktopAuthorizationUrl,
@@ -10,60 +10,61 @@ import {
   type DesktopAuthorizationAttempt,
   type DesktopSession,
   type DesktopSessionVault,
-} from '@agent-hq/auth/desktop'
-import { invoke } from '@tauri-apps/api/core'
-import { getVersion } from '@tauri-apps/api/app'
-import { listen } from '@tauri-apps/api/event'
-import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { createRoot } from 'react-dom/client'
-import { useWorkspaceStore } from '@agent-hq/state'
-import { ThemeProvider } from '@agent-hq/ui/components/theme-provider'
-import { ConventionalWorkspaceShell } from '@agent-hq/workspace-ui/conventional-workspace-shell'
-import { GlobalWorkspaceRail } from '@agent-hq/workspace-ui/global-workspace-rail'
+} from "@agent-hq/auth/desktop";
+import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
+import { listen } from "@tauri-apps/api/event";
+import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { useWorkspaceStore } from "@agent-hq/state";
+import { ThemeProvider } from "@agent-hq/ui/components/theme-provider";
+import { ConventionalWorkspaceShell } from "@agent-hq/workspace-ui/conventional-workspace-shell";
+import { GlobalWorkspaceRail } from "@agent-hq/workspace-ui/global-workspace-rail";
 import type {
   WorkspacePlatformServices,
   WorkspacePluginsProvider,
-} from '@agent-hq/workspace-ui/platform'
-import type { WorkspaceView } from '@agent-hq/workspace-ui/workspace-view-toggle'
+} from "@agent-hq/workspace-ui/platform";
+import type { WorkspaceView } from "@agent-hq/workspace-ui/workspace-view-toggle";
 
-import { localContentAuthority } from './local-content'
-import packageJson from '../package.json'
-import { desktopSettingsProvider } from './preferences'
-import { systemTranscriptionProvider } from './transcription'
-import { VersionDialog } from './version-dialog'
+import { localContentAuthority } from "./local-content";
+import packageJson from "../package.json";
+import { desktopSettingsProvider } from "./preferences";
+import { systemTranscriptionProvider } from "./transcription";
+import { VersionDialog } from "./version-dialog";
 import {
   bootstrapDesktopWorkspace,
   createWorkspaceRequestGuard,
   loadTemporaryWorkspaceCredential,
   type DesktopWorkspaceBootstrap,
-} from './workspace-session'
-import './styles.css'
+} from "./workspace-session";
+import "./styles.css";
 
-const packageVersion = packageJson.version
+const packageVersion = packageJson.version;
 
-const cloudOrigin = import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || 'https://agent-hq-site.vercel.app'
+const cloudOrigin =
+  import.meta.env.VITE_AGENT_HQ_CLOUD_ORIGIN || "https://agent-hq-site.vercel.app";
 
 const SpatialDesktopWorkspace = lazy(() =>
-  import('./desktop-workspace').then(({ DesktopWorkspace }) => ({ default: DesktopWorkspace }))
-)
+  import("./desktop-workspace").then(({ DesktopWorkspace }) => ({ default: DesktopWorkspace }))
+);
 
 // Dialogs are infrequent overlays, so their code stays out of the startup
 // chunk and loads the first time each one mounts.
 const PluginsDialog = lazy(() =>
-  import('@agent-hq/workspace-ui/plugins-dialog').then(({ PluginsDialog }) => ({
+  import("@agent-hq/workspace-ui/plugins-dialog").then(({ PluginsDialog }) => ({
     default: PluginsDialog,
   }))
-)
+);
 const WorkspaceAboutDialog = lazy(() =>
-  import('@agent-hq/workspace-ui/workspace-about-dialog').then(({ WorkspaceAboutDialog }) => ({
+  import("@agent-hq/workspace-ui/workspace-about-dialog").then(({ WorkspaceAboutDialog }) => ({
     default: WorkspaceAboutDialog,
   }))
-)
+);
 const WorkspaceSettingsDialog = lazy(() =>
-  import('@agent-hq/workspace-ui/workspace-settings').then(({ WorkspaceSettingsDialog }) => ({
+  import("@agent-hq/workspace-ui/workspace-settings").then(({ WorkspaceSettingsDialog }) => ({
     default: WorkspaceSettingsDialog,
   }))
-)
+);
 
 function DesktopSettingsOverlay({
   client,
@@ -73,19 +74,19 @@ function DesktopSettingsOverlay({
   services,
   workspace,
 }: Readonly<{
-  client: ReturnType<typeof workspaceClient>
-  onClose: () => void
-  onOpenAgents: () => void
-  open: boolean
-  services: WorkspacePlatformServices
-  workspace: DesktopWorkspaceBootstrap['workspace']
+  client: ReturnType<typeof workspaceClient>;
+  onClose: () => void;
+  onOpenAgents: () => void;
+  open: boolean;
+  services: WorkspacePlatformServices;
+  workspace: DesktopWorkspaceBootstrap["workspace"];
 }>) {
-  const agentsQuery = useAgentListQuery(client, workspace.id)
+  const agentsQuery = useAgentListQuery(client, workspace.id);
   return (
     <Suspense fallback={null}>
       <WorkspaceSettingsDialog
         accountAuthenticated={Boolean(services.account?.authenticated)}
-        accountLabel={services.account?.label ?? 'Account'}
+        accountLabel={services.account?.label ?? "Account"}
         agents={agentsQuery.data ?? []}
         busy={services.account?.busy ?? false}
         onClose={onClose}
@@ -97,295 +98,303 @@ function DesktopSettingsOverlay({
         workspace={workspace}
       />
     </Suspense>
-  )
+  );
 }
 
 type AppStatus =
-  'authenticated' | 'failed' | 'guest' | 'loading' | 'offline' | 'opening' | 'waiting'
+  "authenticated" | "failed" | "guest" | "loading" | "offline" | "opening" | "waiting";
 
 const sessionVault: DesktopSessionVault = {
-  clear: () => invoke('desktop_user_session_clear'),
-  load: () => invoke<DesktopSession | null>('desktop_user_session_load'),
-  save: (session) => invoke('desktop_user_session_save', { session }),
-}
+  clear: () => invoke("desktop_user_session_clear"),
+  load: () => invoke<DesktopSession | null>("desktop_user_session_load"),
+  save: (session) => invoke("desktop_user_session_save", { session }),
+};
 const temporaryVault = {
-  clear: () => invoke<void>('desktop_temporary_workspace_clear'),
-  load: () => invoke<string | null>('desktop_temporary_workspace_load'),
-  save: (credential: string) => invoke<void>('desktop_temporary_workspace_save', { credential }),
-}
+  clear: () => invoke<void>("desktop_temporary_workspace_clear"),
+  load: () => invoke<string | null>("desktop_temporary_workspace_load"),
+  save: (credential: string) => invoke<void>("desktop_temporary_workspace_save", { credential }),
+};
 const authorizationManager = createDesktopAuthorizationManager({
   vault: {
-    clear: () => invoke('desktop_auth_attempt_clear'),
-    load: () => invoke<DesktopAuthorizationAttempt | null>('desktop_auth_attempt_load'),
+    clear: () => invoke("desktop_auth_attempt_clear"),
+    load: () => invoke<DesktopAuthorizationAttempt | null>("desktop_auth_attempt_load"),
     save: (authorizationAttempt) =>
-      invoke('desktop_auth_attempt_save', { attempt: authorizationAttempt }),
+      invoke("desktop_auth_attempt_save", { attempt: authorizationAttempt }),
   },
-})
+});
 const sessionManager = createDesktopSessionManager({
   broker: createDesktopHttpSessionBroker({ cloudOrigin }),
   vault: sessionVault,
-})
+});
 
 function workspaceClient(session?: DesktopSession, temporaryCredential?: string) {
   return createApiClient({
     baseUrl: `${cloudOrigin}/api`,
-    client: 'desktop',
+    client: "desktop",
     getDesktopSession: session
       ? () => ({ credential: session.credential, sessionId: session.sessionId })
       : undefined,
     getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
-  })
+  });
 }
 
 function DesktopApp() {
-  const [status, setStatus] = useState<AppStatus>('loading')
-  const [message, setMessage] = useState('Opening your workspace…')
-  const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
-  const [session, setSession] = useState<DesktopSession | undefined>()
-  const [appVersion, setAppVersion] = useState<string>(packageVersion)
-  const [updatesOpen, setUpdatesOpen] = useState(false)
+  const [status, setStatus] = useState<AppStatus>("loading");
+  const [message, setMessage] = useState("Opening your workspace…");
+  const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null);
+  const [session, setSession] = useState<DesktopSession | undefined>();
+  const [appVersion, setAppVersion] = useState<string>(packageVersion);
+  const [updatesOpen, setUpdatesOpen] = useState(false);
   const [view, setView] = useState<WorkspaceView>(() =>
-    new URLSearchParams(window.location.search).get('view') === 'virtual' ? 'virtual' : 'chat'
-  )
-  const selectedScene = useWorkspaceStore((state) => state.selectedScene)
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
-  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
-  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
-  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace)
-  const temporaryCredentialRef = useRef<string | null>(null)
-  const sessionRef = useRef<DesktopSession | undefined>(undefined)
-  const workspaceIdRef = useRef<string | undefined>(undefined)
-  const userIdRef = useRef<string | undefined>(undefined)
+    new URLSearchParams(window.location.search).get("view") === "virtual" ? "virtual" : "chat"
+  );
+  const selectedScene = useWorkspaceStore((state) => state.selectedScene);
+  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId);
+  const globalPanel = useWorkspaceStore((state) => state.globalPanel);
+  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel);
+  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene);
+  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace);
+  const temporaryCredentialRef = useRef<string | null>(null);
+  const sessionRef = useRef<DesktopSession | undefined>(undefined);
+  const workspaceIdRef = useRef<string | undefined>(undefined);
+  const userIdRef = useRef<string | undefined>(undefined);
   const [plugins] = useState<WorkspacePluginsProvider>(() => {
     // The registry provider pulls in the marketplace catalog and its artifact
     // verification, so it loads the first time plugins are actually used.
-    let provider: Promise<WorkspacePluginsProvider> | undefined
-    let loaded: WorkspacePluginsProvider | undefined
+    let provider: Promise<WorkspacePluginsProvider> | undefined;
+    let loaded: WorkspacePluginsProvider | undefined;
     const load = () => {
-      provider ??= import('@agent-hq/workspace-ui/plugins')
+      provider ??= import("@agent-hq/workspace-ui/plugins")
         .then(({ createRegistryPluginsProvider }) =>
           createRegistryPluginsProvider({
             client: () =>
               workspaceClient(sessionRef.current, temporaryCredentialRef.current ?? undefined),
             getWorkspaceId: () => workspaceIdRef.current,
             getUserId: () => userIdRef.current,
-            requestedHarness: 'codex',
-          }),
+            requestedHarness: "codex",
+          })
         )
         .then((value) => {
-          loaded = value
-          return value
-        })
-      return provider
-    }
+          loaded = value;
+          return value;
+        });
+      return provider;
+    };
     return {
-      getState: () => loaded?.getState?.() ?? 'idle',
+      getState: () => loaded?.getState?.() ?? "idle",
       list: () => load().then((value) => value.list()),
       requestInstall: (pluginId) => load().then((value) => value.requestInstall(pluginId)),
-    }
-  })
-  const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
-  const authCallbackObservedRef = useRef(false)
+    };
+  });
+  const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard());
+  const authCallbackObservedRef = useRef(false);
 
   useEffect(() => {
     void getVersion()
       .then(setAppVersion)
-      .catch(() => undefined)
-  }, [])
+      .catch(() => undefined);
+  }, []);
 
-  const openWorkspace = useCallback(async (activeSession?: DesktopSession) => {
-    const requestIsCurrent = workspaceRequestGuardRef.current.begin()
-    setSession(activeSession)
-    sessionRef.current = activeSession
-    setStatus('loading')
-    setMessage(
-      activeSession ? 'Opening your saved workspace…' : 'Opening a private guest workspace…'
-    )
-    try {
-      let storedTemporaryCredential = temporaryCredentialRef.current
-      if (!storedTemporaryCredential) {
-        storedTemporaryCredential = await loadTemporaryWorkspaceCredential(temporaryVault.load)
-      }
-      const nextWorkspace = await bootstrapDesktopWorkspace({
-        createClient: ({ session: clientSession, temporaryCredential }) =>
-          workspaceClient(clientSession, temporaryCredential),
-        session: activeSession,
-        storedTemporaryCredential,
-        onTemporaryCredentialClaimed: () => {
-          temporaryCredentialRef.current = null
-        },
-        temporaryVault,
-      })
-      if (!requestIsCurrent()) return
-      await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
-      if (!requestIsCurrent()) return
-      switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
-      temporaryCredentialRef.current = nextWorkspace.temporaryCredential
-      workspaceIdRef.current = nextWorkspace.workspace.id
-      userIdRef.current = nextWorkspace.userId
-      setWorkspaceState(nextWorkspace)
-      setStatus(activeSession ? 'authenticated' : 'guest')
+  const openWorkspace = useCallback(
+    async (activeSession?: DesktopSession) => {
+      const requestIsCurrent = workspaceRequestGuardRef.current.begin();
+      setSession(activeSession);
+      sessionRef.current = activeSession;
+      setStatus("loading");
       setMessage(
-        activeSession
-          ? 'Your workspace is saved to your Agent HQ account.'
-          : nextWorkspace.temporaryCredentialPersisted
-            ? 'You can use this workspace now. Sign in whenever you want to save it to an account.'
-            : 'You can use this workspace now. Sign in before closing the app to save it to an account.'
-      )
-    } catch {
-      if (!requestIsCurrent()) return
-      setStatus('offline')
-      setMessage('Agent HQ could not reach the workspace service. Your local credentials are safe.')
-    }
-  }, [switchWorkspace])
+        activeSession ? "Opening your saved workspace…" : "Opening a private guest workspace…"
+      );
+      try {
+        let storedTemporaryCredential = temporaryCredentialRef.current;
+        if (!storedTemporaryCredential) {
+          storedTemporaryCredential = await loadTemporaryWorkspaceCredential(temporaryVault.load);
+        }
+        const nextWorkspace = await bootstrapDesktopWorkspace({
+          createClient: ({ session: clientSession, temporaryCredential }) =>
+            workspaceClient(clientSession, temporaryCredential),
+          session: activeSession,
+          storedTemporaryCredential,
+          onTemporaryCredentialClaimed: () => {
+            temporaryCredentialRef.current = null;
+          },
+          temporaryVault,
+        });
+        if (!requestIsCurrent()) return;
+        await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id);
+        if (!requestIsCurrent()) return;
+        switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene);
+        temporaryCredentialRef.current = nextWorkspace.temporaryCredential;
+        workspaceIdRef.current = nextWorkspace.workspace.id;
+        userIdRef.current = nextWorkspace.userId;
+        setWorkspaceState(nextWorkspace);
+        setStatus(activeSession ? "authenticated" : "guest");
+        setMessage(
+          activeSession
+            ? "Your workspace is saved to your Agent HQ account."
+            : nextWorkspace.temporaryCredentialPersisted
+              ? "You can use this workspace now. Sign in whenever you want to save it to an account."
+              : "You can use this workspace now. Sign in before closing the app to save it to an account."
+        );
+      } catch {
+        if (!requestIsCurrent()) return;
+        setStatus("offline");
+        setMessage(
+          "Agent HQ could not reach the workspace service. Your local credentials are safe."
+        );
+      }
+    },
+    [switchWorkspace]
+  );
 
   useEffect(() => {
-    let disposed = false
-    let unlisten: (() => void) | undefined
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
 
     void sessionManager.restore().then((sessionState) => {
-      if (disposed || authCallbackObservedRef.current) return
-      void openWorkspace(sessionState.status === 'authenticated' ? sessionState.session : undefined)
-    })
+      if (disposed || authCallbackObservedRef.current) return;
+      void openWorkspace(
+        sessionState.status === "authenticated" ? sessionState.session : undefined
+      );
+    });
 
     async function receiveCallback() {
-      let callbackUrl: string | null
+      let callbackUrl: string | null;
       try {
-        callbackUrl = await invoke<string | null>('desktop_auth_take_callback')
+        callbackUrl = await invoke<string | null>("desktop_auth_take_callback");
       } catch {
-        return
+        return;
       }
-      if (!callbackUrl || disposed) return
-      authCallbackObservedRef.current = true
-      workspaceRequestGuardRef.current.invalidate()
+      if (!callbackUrl || disposed) return;
+      authCallbackObservedRef.current = true;
+      workspaceRequestGuardRef.current.invalidate();
       try {
-        const exchange = await authorizationManager.consume(callbackUrl)
-        const sessionState = await sessionManager.completeSignIn(exchange)
-        if (sessionState.status !== 'authenticated') throw new Error('Authentication failed')
-        await openWorkspace(sessionState.session)
+        const exchange = await authorizationManager.consume(callbackUrl);
+        const sessionState = await sessionManager.completeSignIn(exchange);
+        if (sessionState.status !== "authenticated") throw new Error("Authentication failed");
+        await openWorkspace(sessionState.session);
       } catch {
-        setStatus('failed')
+        setStatus("failed");
         setMessage(
-          'The sign-in callback was invalid or expired. Your guest workspace is unchanged.'
-        )
+          "The sign-in callback was invalid or expired. Your guest workspace is unchanged."
+        );
       }
     }
 
-    void listen('desktop-auth-callback-ready', () => void receiveCallback()).then((dispose) => {
-      if (disposed) return dispose()
-      unlisten = dispose
-      void receiveCallback()
-    })
+    void listen("desktop-auth-callback-ready", () => void receiveCallback()).then((dispose) => {
+      if (disposed) return dispose();
+      unlisten = dispose;
+      void receiveCallback();
+    });
     return () => {
-      disposed = true
-      unlisten?.()
-    }
-  }, [openWorkspace])
+      disposed = true;
+      unlisten?.();
+    };
+  }, [openWorkspace]);
 
   const activeWorkspace = workspaceState
-    ? workspaceState.workspaces.find(({ id }) => id === selectedWorkspaceId) ?? workspaceState.workspace
-    : undefined
+    ? (workspaceState.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
+      workspaceState.workspace)
+    : undefined;
 
   useEffect(() => {
-    if (!activeWorkspace) return
-    workspaceIdRef.current = activeWorkspace.id
-    setSelectedScene(activeWorkspace.scene)
-  }, [activeWorkspace?.id, activeWorkspace?.scene, setSelectedScene])
+    if (!activeWorkspace) return;
+    workspaceIdRef.current = activeWorkspace.id;
+    setSelectedScene(activeWorkspace.scene);
+  }, [activeWorkspace?.id, activeWorkspace?.scene, setSelectedScene]);
 
   async function beginSignIn() {
-    setStatus('opening')
-    setMessage('Opening your system browser…')
+    setStatus("opening");
+    setMessage("Opening your system browser…");
     try {
-      const nextAttempt = await authorizationManager.begin()
-      await invoke('desktop_auth_start', {
+      const nextAttempt = await authorizationManager.begin();
+      await invoke("desktop_auth_start", {
         authorizationUrl: createDesktopAuthorizationUrl(cloudOrigin, nextAttempt),
-      })
-      setStatus('waiting')
+      });
+      setStatus("waiting");
       setMessage(
-        'Finish signing in in your browser, then return here. This app will reopen automatically.'
-      )
+        "Finish signing in in your browser, then return here. This app will reopen automatically."
+      );
     } catch {
-      await authorizationManager.cancel().catch(() => undefined)
-      setStatus(workspaceState?.temporary ? 'guest' : 'failed')
-      setMessage('Agent HQ could not open the trusted sign-in page. Your workspace is unchanged.')
+      await authorizationManager.cancel().catch(() => undefined);
+      setStatus(workspaceState?.temporary ? "guest" : "failed");
+      setMessage("Agent HQ could not open the trusted sign-in page. Your workspace is unchanged.");
     }
   }
 
   async function signOut() {
-    setUpdatesOpen(false)
-    await sessionManager.signOut().catch(() => undefined)
-    setSession(undefined)
-    setWorkspaceState(null)
-    await openWorkspace()
+    setUpdatesOpen(false);
+    await sessionManager.signOut().catch(() => undefined);
+    setSession(undefined);
+    setWorkspaceState(null);
+    await openWorkspace();
   }
 
-  const busy = status === 'loading' || status === 'opening' || status === 'waiting'
+  const busy = status === "loading" || status === "opening" || status === "waiting";
   const changeView = (nextView: WorkspaceView) => {
-    setView(nextView)
-    const nextUrl = new URL(window.location.href)
-    nextUrl.searchParams.set('view', nextView)
-    window.history.replaceState(null, '', nextUrl)
-  }
+    setView(nextView);
+    const nextUrl = new URL(window.location.href);
+    nextUrl.searchParams.set("view", nextView);
+    window.history.replaceState(null, "", nextUrl);
+  };
 
   if (workspaceState) {
-    const client = workspaceClient(session, workspaceState.temporaryCredential ?? undefined)
+    const client = workspaceClient(session, workspaceState.temporaryCredential ?? undefined);
     const services = {
       account: {
         authenticated: Boolean(session),
         busy,
-        label: session ? (workspaceState.accountLabel ?? 'Account') : 'Sign in',
+        label: session ? (workspaceState.accountLabel ?? "Account") : "Sign in",
         onSignIn: () => void beginSignIn(),
         onSignOut: () => signOut(),
       },
-      app: { name: 'Agent HQ', platform: 'desktop' as const, version: appVersion },
+      app: { name: "Agent HQ", platform: "desktop" as const, version: appVersion },
       client,
       privateContent: localContentAuthority,
       plugins,
       settings: desktopSettingsProvider,
       transcription: systemTranscriptionProvider,
-    }
-    const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
-      window.history.replaceState(null, '', `#settings/${section}`)
+    };
+    const openSettings = (section: "account" | "input-notifications" | "integrations") => {
+      window.history.replaceState(null, "", `#settings/${section}`);
       // Settings is a global overlay. Do not unmount the current surface before
       // the dialog can consume the panel state.
-      setGlobalPanel('settings')
-    }
+      setGlobalPanel("settings");
+    };
     const openSearch = () => {
-      setGlobalPanel('search')
-      if (view !== 'chat') changeView('chat')
-    }
+      setGlobalPanel("search");
+      if (view !== "chat") changeView("chat");
+    };
     return (
       <div className={`workspace-frame workspace-frame--${view}`}>
         <GlobalWorkspaceRail
           account={{
             authenticated: Boolean(session),
             busy,
-            label: session ? (workspaceState.accountLabel ?? 'Account') : 'Not signed in',
+            label: session ? (workspaceState.accountLabel ?? "Account") : "Not signed in",
             onSignIn: () => void beginSignIn(),
             onSignOut: () => void signOut(),
             onOpenUpdates: () => setUpdatesOpen(true),
-            platform: 'desktop',
+            platform: "desktop",
           }}
           activeWorkspace={activeWorkspace}
-          onOpenNotifications={() => openSettings('input-notifications')}
-          onOpenAbout={() => setGlobalPanel('about')}
-          onOpenPlugins={() => setGlobalPanel('plugins')}
+          onOpenNotifications={() => openSettings("input-notifications")}
+          onOpenAbout={() => setGlobalPanel("about")}
+          onOpenPlugins={() => setGlobalPanel("plugins")}
           onOpenSearch={openSearch}
-          onOpenSettings={() => openSettings('account')}
+          onOpenSettings={() => openSettings("account")}
           onWorkspaceChange={(workspace) => {
-            if (workspace.id === activeWorkspace?.id) return
+            if (workspace.id === activeWorkspace?.id) return;
             void localContentAuthority
               .authorizeWorkspace(workspace.id)
               .then(() => switchWorkspace(workspace.id, workspace.scene))
-              .catch(() => undefined)
+              .catch(() => undefined);
           }}
           onViewChange={changeView}
           view={view}
           workspaces={workspaceState.workspaces}
         />
         <div className="workspace-frame__surface">
-          {view === 'chat' ? (
+          {view === "chat" ? (
             <ConventionalWorkspaceShell
               manageSettings={false}
               onViewChange={changeView}
@@ -409,13 +418,13 @@ function DesktopApp() {
             </Suspense>
           )}
         </div>
-        {globalPanel === 'settings' ? (
+        {globalPanel === "settings" ? (
           <DesktopSettingsOverlay
             client={client}
             onClose={() => setGlobalPanel(null)}
             onOpenAgents={() => {
-              setGlobalPanel(null)
-              changeView('chat')
+              setGlobalPanel(null);
+              changeView("chat");
             }}
             open
             services={services}
@@ -424,13 +433,13 @@ function DesktopApp() {
         ) : null}
         <Suspense fallback={null}>
           <PluginsDialog
-            open={globalPanel === 'plugins' && Boolean(workspaceState.workspace)}
+            open={globalPanel === "plugins" && Boolean(workspaceState.workspace)}
             onClose={() => setGlobalPanel(null)}
             provider={plugins}
           />
           <WorkspaceAboutDialog
             appName="Agent HQ"
-            open={globalPanel === 'about'}
+            open={globalPanel === "about"}
             onClose={() => setGlobalPanel(null)}
             platform="desktop"
             version={appVersion}
@@ -438,7 +447,7 @@ function DesktopApp() {
         </Suspense>
         <VersionDialog open={updatesOpen} onOpenChange={setUpdatesOpen} />
       </div>
-    )
+    );
   }
 
   return (
@@ -462,7 +471,7 @@ function DesktopApp() {
         </div>
 
         <div className="workspace-actions">
-          {(status === 'offline' || status === 'failed') && (
+          {(status === "offline" || status === "failed") && (
             <button
               type="button"
               className="button-secondary"
@@ -479,11 +488,11 @@ function DesktopApp() {
         </p>
       </section>
     </main>
-  )
+  );
 }
 
-const root = document.getElementById('root')
-if (!root) throw new Error('Desktop application root is unavailable')
+const root = document.getElementById("root");
+if (!root) throw new Error("Desktop application root is unavailable");
 createRoot(root).render(
   <StrictMode>
     <ThemeProvider>
@@ -494,4 +503,4 @@ createRoot(root).render(
       </AgentHqQueryProvider>
     </ThemeProvider>
   </StrictMode>
-)
+);

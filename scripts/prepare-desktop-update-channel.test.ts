@@ -43,7 +43,7 @@ describe("desktop update channel", () => {
     const result = prepareUpdateManifest(
       releaseManifest(),
       releaseAssets,
-      "https://adea-ai.github.io/agent-hq/desktop-updates/",
+      "https://adea-ai.github.io/agent-hq/desktop-updates/"
     );
 
     expect(result.assetNames).toEqual([
@@ -55,28 +55,28 @@ describe("desktop update channel", () => {
       url: "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_aarch64.app.tar.gz",
     });
     expect(result.manifest.platforms["darwin-aarch64-app"]).toEqual(
-      result.manifest.platforms["darwin-aarch64"],
+      result.manifest.platforms["darwin-aarch64"]
     );
     expect(result.manifest.platforms["windows-x86_64"].url).toBe(
-      "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_x64-setup.exe",
+      "https://adea-ai.github.io/agent-hq/desktop-updates/Agent.HQ_0.3.4_x64-setup.exe"
     );
   });
 
   test("rejects an update package missing from the release asset inventory", () => {
     expect(() =>
-      prepareUpdateManifest(releaseManifest(), releaseAssets.slice(0, 1), "https://example.com/"),
+      prepareUpdateManifest(releaseManifest(), releaseAssets.slice(0, 1), "https://example.com/")
     ).toThrow("release asset 202");
   });
 
   test("rejects unsafe channel URLs and unsigned platform entries", () => {
     expect(() =>
-      prepareUpdateManifest(releaseManifest(), releaseAssets, "http://example.com/updates"),
+      prepareUpdateManifest(releaseManifest(), releaseAssets, "http://example.com/updates")
     ).toThrow("HTTPS");
 
     const manifest = releaseManifest();
     manifest.platforms["darwin-aarch64"].signature = "";
     expect(() => prepareUpdateManifest(manifest, releaseAssets, "https://example.com/")).toThrow(
-      "signature",
+      "signature"
     );
   });
 });
