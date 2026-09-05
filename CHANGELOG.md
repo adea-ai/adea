@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/adea-ai/agent-hq/compare/v0.9.0...v0.10.0) (2026-09-05)
+
+
+### Features
+
+* **ci:** pink-binder-style Workers Builds trigger for agent-hq-web ([400a473](https://github.com/adea-ai/agent-hq/commit/400a473572cce12c1c01ae7e19e8fb8ec35c4286))
+
 ## [0.9.0](https://github.com/adea-ai/agent-hq/compare/v0.8.3...v0.9.0) (2026-09-05)
 
 
