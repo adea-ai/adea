@@ -223,8 +223,13 @@ async function writeChannelState(
       )
     )
     .limit(1)
+  // Watermarks are monotonic: a client reporting a stale sequence (for example
+  // from a partially loaded message window) must never rewind the frontier and
+  // resurrect notifications. Explicit unread is tracked with the manuallyUnread
+  // flag instead.
+  const lastReadSequence = Math.max(existing?.lastReadSequence ?? 0, target.lastReadSequence)
   if (
-    existing?.lastReadSequence === target.lastReadSequence &&
+    existing?.lastReadSequence === lastReadSequence &&
     existing.manuallyUnread === target.manuallyUnread
   )
     return false
@@ -233,7 +238,7 @@ async function writeChannelState(
     .insert(channelReadStates)
     .values({
       channelId,
-      lastReadSequence: target.lastReadSequence,
+      lastReadSequence,
       manuallyUnread: target.manuallyUnread,
       readAt: target.manuallyUnread ? existing?.readAt : now,
       userId,
@@ -246,7 +251,7 @@ async function writeChannelState(
         channelReadStates.channelId,
       ],
       set: {
-        lastReadSequence: target.lastReadSequence,
+        lastReadSequence,
         manuallyUnread: target.manuallyUnread,
         readAt: target.manuallyUnread ? existing?.readAt : now,
         updatedAt: now,
@@ -327,8 +332,14 @@ export async function markThreadReadState(
         )
       )
       .limit(1)
+    // Thread frontiers are monotonic for the same reason as channel frontiers:
+    // stale client sequences must not rewind them.
+    const lastReadSequence = Math.max(
+      existing?.lastReadSequence ?? 0,
+      action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest
+    )
     const target = {
-      lastReadSequence: action === 'read' ? Math.min(requestedSequence ?? latest, latest) : latest,
+      lastReadSequence,
       manuallyUnread: action === 'unread',
     }
     if (
@@ -415,7 +426,13 @@ export async function markAllChannelsRead(
             )
           )
           .limit(1)
-        if (existing?.lastReadSequence === latestThread && existing.manuallyUnread === false)
+        // Mark-all-read must also respect monotonicity when repairing a
+        // previously rewound frontier.
+        const targetThreadSequence = Math.max(existing?.lastReadSequence ?? 0, latestThread)
+        if (
+          existing?.lastReadSequence === targetThreadSequence &&
+          existing.manuallyUnread === false
+        )
           continue
         changed = true
         const now = new Date()
@@ -423,7 +440,7 @@ export async function markAllChannelsRead(
           .insert(threadReadStates)
           .values({
             channelId,
-            lastReadSequence: latestThread,
+            lastReadSequence: targetThreadSequence,
             manuallyUnread: false,
             readAt: now,
             threadRootMessageId,
@@ -437,7 +454,7 @@ export async function markAllChannelsRead(
               threadReadStates.threadRootMessageId,
             ],
             set: {
-              lastReadSequence: latestThread,
+              lastReadSequence: targetThreadSequence,
               manuallyUnread: false,
               readAt: now,
               updatedAt: now,

@@ -60,6 +60,7 @@ export async function PATCH(request: Request, { params }: Context) {
   }
   const input = body as ApiTaskUpdateInput
   const priorities = ['low', 'normal', 'high', 'urgent']
+  const kinds = ['bug', 'feature', 'chore']
   if (
     !command ||
     !input ||
@@ -73,6 +74,7 @@ export async function PATCH(request: Request, { params }: Context) {
     (input.objectiveContentRefId !== undefined && !isUuid(input.objectiveContentRefId)) ||
     (input.objective !== undefined && input.objectiveContentRefId !== undefined) ||
     (input.priority !== undefined && !priorities.includes(input.priority)) ||
+    (input.kind !== undefined && !kinds.includes(input.kind)) ||
     (input.controlPlaneExecutionRef !== undefined &&
       input.controlPlaneExecutionRef !== null &&
       (typeof input.controlPlaneExecutionRef !== 'string' ||

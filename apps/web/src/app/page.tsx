@@ -1,6 +1,10 @@
 import type { Metadata } from 'next'
 import { hqSceneFromSearchParams } from '@agent-hq/app-core'
-import { isCharacterId, isCustomCharacterId } from '@agent-hq/characters'
+import {
+  configurableCharacterId,
+  isCharacterId,
+  isCustomCharacterId,
+} from '@agent-hq/characters/runtime'
 import { readSceneStartPosition } from '@agent-hq/scene-shell/scene-spawn'
 import { WorkspaceEntry } from '../components/workspace-entry'
 
@@ -18,6 +22,8 @@ export default async function HomePage({
     scene?: string | string[]
     spawn?: string | string[]
     view?: string | string[]
+    characterDesigner?: string | string[]
+    roomDesigner?: string | string[]
   }>
 }) {
   const params = await searchParams
@@ -28,11 +34,19 @@ export default async function HomePage({
     isCharacterId(requestedCharacter) || isCustomCharacterId(requestedCharacter)
   const cameraParam = Array.isArray(params.camera) ? params.camera[0] : params.camera
   const view = Array.isArray(params.view) ? params.view[0] : params.view
+  const characterDesigner = Array.isArray(params.characterDesigner)
+    ? params.characterDesigner[0]
+    : params.characterDesigner
+  const roomDesigner = Array.isArray(params.roomDesigner)
+    ? params.roomDesigner[0]
+    : params.roomDesigner
 
   return (
     <WorkspaceEntry
-      spatial={view === 'spatial'}
-      spatialProps={{
+      virtual={view === 'virtual' || (roomDesigner !== undefined && roomDesigner !== '0')}
+      characterDesigner={characterDesigner !== undefined && characterDesigner !== '0'}
+      roomDesigner={roomDesigner !== undefined && roomDesigner !== '0'}
+      virtualProps={{
         initialScene: hqSceneFromSearchParams(params),
         initialCharacter: isValidCharacter ? requestedCharacter! : 'cashier',
         startPosition: readSceneStartPosition(params.spawn),

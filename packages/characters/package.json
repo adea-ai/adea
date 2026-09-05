@@ -8,16 +8,34 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./customization": {
+      "types": "./dist/customization.d.ts",
+      "development": "./src/customization.ts",
+      "import": "./dist/customization.js"
+    },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "development": "./src/preview.ts",
+      "import": "./dist/preview.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "development": "./src/runtime.ts",
+      "import": "./dist/runtime.js"
     },
     "./schemas": {
       "types": "./dist/schemas.d.ts",
+      "development": "./src/schemas.ts",
       "import": "./dist/schemas.js"
     }
   },
   "scripts": {
     "lint": "eslint .",
     "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test test/*.test.ts"
   },

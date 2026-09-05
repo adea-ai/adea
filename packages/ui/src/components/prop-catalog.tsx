@@ -125,7 +125,10 @@ export function getSharedLoader(): GLTFLoader {
 // render once per session.
 const thumbnailDataCache = new Map<string, string>();
 // Track in-flight load+render promises so concurrent mounts share one.
-const thumbnailPromiseCache = new Map<string, Promise<string>>();
+const thumbnailPromiseCache = new Map<string, Promise<string | null>>();
+// Count mounted consumers so category switches can abandon queued thumbnail
+// renders instead of keeping the main thread busy with an invisible catalog.
+const thumbnailConsumerCounts = new Map<string, number>();
 
 function thumbnailCacheKey(item: PropCatalogItem): string {
   return `${item.assetUrl}|${item.frontYaw ?? 0}`;
@@ -188,12 +191,12 @@ const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() 
  */
 let renderQueue: Promise<unknown> = Promise.resolve();
 
-function scheduleRender(render: () => string): Promise<string> {
+function scheduleRender(render: () => string | null): Promise<string | null> {
   const result = renderQueue.then(async () => {
     await nextFrame();
     return render();
   });
-  renderQueue = result;
+  renderQueue = result.catch(() => undefined);
   return result;
 }
 
@@ -206,9 +209,10 @@ function scheduleRender(render: () => string): Promise<string> {
  * GLB loads are concurrency-limited to avoid firing 50+ simultaneous HTTP
  * requests when a category with many items becomes visible. The render
  * queue (scheduleRender) already serializes the sync WebGL renders, but
- * the async GLB fetches were all fired at once.
+ * the async GLB fetches should still be bounded. Four concurrent loads fill
+ * the visible catalog quickly without starting dozens of requests at once.
  */
-const MAX_CONCURRENT_THUMBNAIL_LOADS = 6;
+const MAX_CONCURRENT_THUMBNAIL_LOADS = 4;
 let activeThumbnailLoads = 0;
 const pendingThumbnailLoads: Array<() => void> = [];
 
@@ -220,43 +224,85 @@ function dequeueThumbnailLoad(): void {
   next();
 }
 
-function getThumbnail(item: PropCatalogItem): Promise<string> {
+type ThumbnailHandle = {
+  promise: Promise<string | null>;
+  release: () => void;
+};
+
+function acquireThumbnail(item: PropCatalogItem): ThumbnailHandle {
   const key = thumbnailCacheKey(item);
   const cached = thumbnailDataCache.get(key);
-  if (cached) return Promise.resolve(cached);
-  const existing = thumbnailPromiseCache.get(key);
-  if (existing) return existing;
-  const promise = new Promise<string>((resolve, reject) => {
-    const run = () => {
-      getSharedLoader()
-        .loadAsync(item.assetUrl)
-        .then(({ scene: source }) => {
+  if (cached) return { promise: Promise.resolve(cached), release: () => undefined };
+
+  thumbnailConsumerCounts.set(key, (thumbnailConsumerCounts.get(key) ?? 0) + 1);
+  let promise = thumbnailPromiseCache.get(key);
+  if (!promise) {
+    promise = new Promise<string | null>((resolve, reject) => {
+      const run = () => {
+        if (!thumbnailConsumerCounts.has(key)) {
           activeThumbnailLoads--;
           dequeueThumbnailLoad();
-          // The GLB parse is async, but the WebGL render + toDataURL is sync.
-          // Schedule the sync part in an animation frame so it doesn't block.
-          return scheduleRender(() => {
-            const dataUrl = renderThumbnailToDataURL({ item, source });
-            thumbnailDataCache.set(key, dataUrl);
-            thumbnailPromiseCache.delete(key);
-            return dataUrl;
-          });
-        })
-        .then(resolve)
-        .catch((error) => {
+          thumbnailPromiseCache.delete(key);
+          resolve(null);
+          return;
+        }
+        const finishLoad = () => {
           activeThumbnailLoads--;
           dequeueThumbnailLoad();
-          reject(error);
-        });
-    };
-    pendingThumbnailLoads.push(run);
-    dequeueThumbnailLoad();
-  });
-  thumbnailPromiseCache.set(key, promise);
-  return promise;
+        };
+        getSharedLoader()
+          .loadAsync(item.assetUrl)
+          .then(
+            ({ scene: source }) => {
+              finishLoad();
+              // The GLB parse is async, but the WebGL render + toDataURL is sync.
+              // Schedule the sync part in an animation frame so it doesn't block.
+              return scheduleRender(() => {
+                if (!thumbnailConsumerCounts.has(key)) {
+                  thumbnailPromiseCache.delete(key);
+                  disposeObject(source);
+                  return null;
+                }
+                const dataUrl = renderThumbnailToDataURL({ item, source });
+                thumbnailDataCache.set(key, dataUrl);
+                thumbnailPromiseCache.delete(key);
+                return dataUrl;
+              });
+            },
+            (error) => {
+              finishLoad();
+              throw error;
+            },
+          )
+          .then(resolve, reject);
+      };
+      pendingThumbnailLoads.push(run);
+      dequeueThumbnailLoad();
+    });
+    thumbnailPromiseCache.set(key, promise);
+  }
+
+  let released = false;
+  return {
+    promise,
+    release: () => {
+      if (released) return;
+      released = true;
+      const consumers = thumbnailConsumerCounts.get(key) ?? 0;
+      if (consumers <= 1) thumbnailConsumerCounts.delete(key);
+      else thumbnailConsumerCounts.set(key, consumers - 1);
+    },
+  };
 }
 
-const ModelThumbnail = memo(function ModelThumbnail({ item }: { item: PropCatalogItem }) {
+export const ModelThumbnail = memo(function ModelThumbnail({
+  item,
+  deferMs = 0,
+}: {
+  item: PropCatalogItem;
+  /** Delay expensive GLB preview work so nearby controls remain responsive. */
+  deferMs?: number;
+}) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
@@ -270,11 +316,12 @@ const ModelThumbnail = memo(function ModelThumbnail({ item }: { item: PropCatalo
     }
     // Use a rootMargin so items slightly below the fold start loading
     // before the user scrolls to them, making scroll feel instant.
+    const scrollRoot = wrapper.closest("[data-model-thumbnail-root]");
     const observer = new IntersectionObserver(
       ([entry]) => {
         setVisible(Boolean(entry?.isIntersecting));
       },
-      { rootMargin: "200px" },
+      { root: scrollRoot, rootMargin: "200px" },
     );
     observer.observe(wrapper);
     return () => observer.disconnect();
@@ -286,27 +333,35 @@ const ModelThumbnail = memo(function ModelThumbnail({ item }: { item: PropCatalo
     if (!canvas) return;
     let cancelled = false;
 
-    void getThumbnail(item)
-      .then((dataUrl) => {
-        if (cancelled) return;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return;
-        const img = document.createElement("img");
-        img.onload = () => {
-          if (cancelled) return;
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
-        img.src = dataUrl;
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
+    let thumbnail: ThumbnailHandle | undefined;
+    const load = () => {
+      if (cancelled) return;
+      thumbnail = acquireThumbnail(item);
+      void thumbnail.promise
+        .then((dataUrl) => {
+          if (cancelled || !dataUrl) return;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const img = document.createElement("img");
+          img.onload = () => {
+            if (cancelled) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          };
+          img.src = dataUrl;
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        });
+    };
+    const timer = window.setTimeout(load, deferMs);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
+      thumbnail?.release();
     };
-  }, [item, visible]);
+  }, [deferMs, item, visible]);
 
   return (
     <div
@@ -484,7 +539,11 @@ export function PropCatalog({
         ) : null}
       </div>
       {visibleItems.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1" role="tabpanel">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto pr-1"
+          role="tabpanel"
+          data-model-thumbnail-root
+        >
           <div className="grid grid-cols-3 gap-2">
             {visibleItems.map((item) => (
               <Card

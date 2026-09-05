@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ROOM_GALLERY_BOUNDS } from "@agent-hq/interior";
+import { ROOM_GALLERY_BOUNDS } from "@agent-hq/interior/room-config";
 import { hqBoundaryColliders, hqCharacterScale } from "@agent-hq/hq-scenes/runtime";
 
 describe("HQ perimeter collision", () => {
