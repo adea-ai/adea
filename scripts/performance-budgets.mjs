@@ -5,10 +5,7 @@ import { resolve } from 'node:path'
 
 export const DEFAULT_PERFORMANCE_BUDGETS = {
   routeFirstLoadJsBytes: { '/': 700_000 },
-  // The asset library includes the complete character wearable and interior
-  // collections requested by the product. Runtime transfer remains bounded by
-  // scene-specific loading; this gate covers the checked-in public library.
-  publicAssetBytes: 700_000_000,
+  publicAssetBytes: 160_000_000,
   sceneLoadMs: 10_000,
   sceneTransferBytes: 35_000_000,
   runtimeP95FrameMs: 30,

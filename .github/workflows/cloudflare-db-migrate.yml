@@ -1,0 +1,56 @@
+# Applies Neon database migrations for the Cloudflare Worker deployment.
+#
+# Vercel runs migrations during its build (apps/web/vercel.json ->
+# scripts/deployment-migrate.mjs). Cloudflare Workers builds must not run
+# migrations, so this workflow applies them from CI instead, using the same
+# idempotent verifier (bun run db:verify in packages/db).
+#
+# Required repository secret:
+#   DATABASE_MIGRATION_URL - unpooled migration-role URL for the production
+#   Neon branch that backs the Worker (sslmode=require).
+#
+# Deploy ordering caveat: the dashboard deploys the Worker on every push to
+# main in parallel with this workflow. Keep migrations backward-compatible
+# (additive first, code second) so a deploy that wins the race still works.
+name: Cloudflare DB Migrate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/db/drizzle/**'
+      - 'packages/db/src/verify-migrations.ts'
+      - '.github/workflows/cloudflare-db-migrate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-db-migrate
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate production database
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply and verify migrations
+        working-directory: packages/db
+        env:
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+        run: bun run db:verify

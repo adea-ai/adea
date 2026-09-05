@@ -1088,6 +1088,7 @@ export function HqRoomScene({
       showOnScreenControls={showOnScreenControls}
       sceneOverlay={sceneOverlay}
       debugApiRef={debugApiRef}
+
       keepZoneCollisionsActive
       staticColliders={hqBoundaryColliders}
       collideAdditionalVisualLayers={false}
