@@ -12,7 +12,7 @@
   "app": {
     "withGlobalTauri": false,
     "security": {
-      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' blob: ipc: http://ipc.localhost https://agent-hq-site.vercel.app ws://127.0.0.1:1420; img-src 'self' asset: data: blob: https://raw.githubusercontent.com; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'",
+      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' blob: ipc: http://ipc.localhost https://adea.dev ws://127.0.0.1:1420; img-src 'self' asset: data: blob: https://raw.githubusercontent.com; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'",
       "freezePrototype": true
     }
   },

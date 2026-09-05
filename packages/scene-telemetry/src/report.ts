@@ -60,7 +60,7 @@ export function parseScenePerformanceReport(value: unknown): ScenePerformanceRep
 export function createSceneTelemetryEnvelope(
   report: ScenePerformanceReport,
   receivedAt = new Date(),
-  deployment = process.env.VERCEL_GIT_COMMIT_SHA
+  deployment = process.env.DEPLOY_GIT_COMMIT_SHA
 ): SceneTelemetryEnvelope {
   return {
     receivedAt: receivedAt.toISOString(),
