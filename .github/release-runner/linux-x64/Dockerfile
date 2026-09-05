@@ -31,8 +31,8 @@ RUN mkdir -p /home/runner/.cache/tauri \
     https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage \
     --output /tmp/linuxdeploy-plugin-appimage-source.AppImage \
   && echo "$LINUXDEPLOY_SHA256  /tmp/linuxdeploy-source.AppImage" | sha256sum --check \
-  && echo "$LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256  /tmp/linuxdeploy-plugin-appimage-source.AppImage" | sha256sum --check \
-  && extract_appimage() { \
+  && echo "$LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256  /tmp/linuxdeploy-plugin-appimage-source.AppImage" | sha256sum --check; \
+  extract_appimage() { \
     source="$1"; \
     destination="$2"; \
     offset=""; \
@@ -45,8 +45,7 @@ RUN mkdir -p /home/runner/.cache/tauri \
     test -n "$offset"; \
     unsquashfs -q -o "$offset" -d "$destination" "$source"; \
     test -x "$destination/AppRun"; \
-  }; \
-  extract_appimage /tmp/linuxdeploy-source.AppImage \
+  }; extract_appimage /tmp/linuxdeploy-source.AppImage \
     /home/runner/.cache/tauri/linuxdeploy-x86_64.AppImage.extracted \
   && extract_appimage /tmp/linuxdeploy-plugin-appimage-source.AppImage \
     /home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage.extracted \
