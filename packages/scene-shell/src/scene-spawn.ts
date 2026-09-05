@@ -33,7 +33,7 @@ export function encodeSceneStartPosition(position: SceneStartPosition): string {
 
 /** Parse a validated scene start position from a route's `spawn` query. */
 export function readSceneStartPosition(
-  value: string | string[] | undefined,
+  value: string | string[] | undefined
 ): SceneStartPosition | undefined {
   const parts = firstValue(value)?.split(",");
   if (!parts || parts.length < 3 || parts.length > 6) return undefined;
@@ -83,7 +83,7 @@ export function appRouteHref(app: SceneApp, path: string, currentHref?: string):
   const isPortlessHost = current.hostname.endsWith(".localhost");
   const target = new URL(
     path,
-    configuredBase ?? (isPortlessHost ? APP_PORTLESS_URLS[app] : current.origin),
+    configuredBase ?? (isPortlessHost ? APP_PORTLESS_URLS[app] : current.origin)
   );
   if (!configuredBase && !isPortlessHost && isDevelopmentHost(current.hostname)) {
     target.port = APP_DEV_PORTS[app];

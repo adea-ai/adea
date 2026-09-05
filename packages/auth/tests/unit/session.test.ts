@@ -9,7 +9,7 @@ describe("session normalization", () => {
         session: { expiresAt: new Date("2030-01-01T00:00:00.000Z"), id: "session-1" },
         user: { id: "provider-subject", email: "operator@example.com", name: "Operator" },
       },
-      new Date("2029-01-01T00:00:00.000Z"),
+      new Date("2029-01-01T00:00:00.000Z")
     );
 
     expect(result).toEqual({
@@ -26,7 +26,7 @@ describe("session normalization", () => {
       normalizeNeonSession({
         session: { expiresAt: new Date("2020-01-01T00:00:00.000Z"), id: "expired" },
         user: { id: "provider-subject" },
-      }),
+      })
     ).toThrow("expired");
     expect(() => normalizeNeonSession({ session: {}, user: {} })).toThrow("malformed");
   });

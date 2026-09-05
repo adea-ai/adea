@@ -1,33 +1,33 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentSummary,
   ArtifactSummary,
   ChannelSummary,
   MessageSummary,
   TaskSummary,
-} from '@agent-hq/types'
-import type { AgentHqApiClient } from '@agent-hq/api-client'
-import { useCreateMessageMutation, useMessageListQuery } from '@agent-hq/data'
-import { Info, MailOpen, MessagesSquare, Search } from 'lucide-react'
+} from "@agent-hq/types";
+import type { AgentHqApiClient } from "@agent-hq/api-client";
+import { useCreateMessageMutation, useMessageListQuery } from "@agent-hq/data";
+import { Info, MailOpen, MessagesSquare, Search } from "lucide-react";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from '@agent-hq/ui/components/ui/tooltip'
-import { MessageComposer, type ComposerSubmission } from './message-composer'
-import { MessageRow } from './message-row'
-import { ThreadPanel } from './thread-panel'
-import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from './workspace-states'
-import type { PrivateContentResolver, TranscriptionProvider } from './platform'
-import { AgentStatusBadge } from './agent-status'
-import { ConversationAvatar } from './conversation-avatar'
+import { Tooltip, TooltipContent, TooltipTrigger } from "@agent-hq/ui/components/ui/tooltip";
+import { MessageComposer, type ComposerSubmission } from "./message-composer";
+import { MessageRow } from "./message-row";
+import { ThreadPanel } from "./thread-panel";
+import { WorkspaceEmpty, WorkspaceError, WorkspaceSkeleton } from "./workspace-states";
+import type { PrivateContentResolver, TranscriptionProvider } from "./platform";
+import { AgentStatusBadge } from "./agent-status";
+import { ConversationAvatar } from "./conversation-avatar";
 
-const scrollPositions = new Map<string, number>()
+const scrollPositions = new Map<string, number>();
 
 type ConversationPerson = Readonly<{
-  active: boolean
-  id: string
-  label: string
-  kind: 'agent' | 'user'
-  avatarRef?: string
-}>
+  active: boolean;
+  id: string;
+  label: string;
+  kind: "agent" | "user";
+  avatarRef?: string;
+}>;
 
 function peopleForConversation(
   channel: ChannelSummary,
@@ -37,36 +37,36 @@ function peopleForConversation(
   const participantIds = new Set(
     channel.participants
       .filter(
-        (participant): participant is { kind: 'agent'; agentId: string } =>
-          participant.kind === 'agent'
+        (participant): participant is { kind: "agent"; agentId: string } =>
+          participant.kind === "agent"
       )
       .map(({ agentId }) => agentId)
-  )
-  if (directAgent) participantIds.add(directAgent.id)
-  if (channel.kind === 'room' && participantIds.size === 0) {
-    for (const agent of agents) if (agent.roomId === channel.roomId) participantIds.add(agent.id)
+  );
+  if (directAgent) participantIds.add(directAgent.id);
+  if (channel.kind === "room" && participantIds.size === 0) {
+    for (const agent of agents) if (agent.roomId === channel.roomId) participantIds.add(agent.id);
   }
-  const activeAgentId = directAgent?.id ?? participantIds.values().next().value
+  const activeAgentId = directAgent?.id ?? participantIds.values().next().value;
   const people: ConversationPerson[] = [
-    { active: false, id: 'current-user', kind: 'user', label: 'You' },
-  ]
+    { active: false, id: "current-user", kind: "user", label: "You" },
+  ];
   for (const agent of agents) {
-    if (!participantIds.has(agent.id)) continue
+    if (!participantIds.has(agent.id)) continue;
     people.push({
       active: activeAgentId === agent.id,
       id: agent.id,
-      kind: 'agent',
+      kind: "agent",
       label: agent.name,
       ...(agent.avatarRef ? { avatarRef: agent.avatarRef } : {}),
-    })
+    });
   }
-  return people
+  return people;
 }
 
 function formatMessageDay(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' }).format(
+  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long" }).format(
     new Date(value)
-  )
+  );
 }
 
 export function ConversationSurface({
@@ -93,127 +93,129 @@ export function ConversationSurface({
   transcription,
   workspaceId,
 }: Readonly<{
-  agents: readonly AgentSummary[]
-  artifacts: readonly ArtifactSummary[]
-  channel?: ChannelSummary
-  client: AgentHqApiClient
-  draft: string
-  onDraftChange: (value: string) => void
-  onOpenDetails: () => void
-  onOpenSearch: () => void
-  onOpenTask: (taskId: string) => void
-  onMarkRead: (lastReadSequence: number) => Promise<void>
-  onMarkThreadRead: (rootId: string, lastReadSequence: number) => Promise<void>
-  onMarkThreadUnread: (rootId: string) => Promise<void>
-  onMarkUnread: () => Promise<void>
-  onThreadDraftChange: (value: string) => void
-  onThreadChange: (messageId: string | null) => void
-  privateContent?: PrivateContentResolver
-  searchTargetMessageId: string | null
-  tasks: readonly TaskSummary[]
-  threadDraft: string
-  threadRootMessageId: string | null
-  transcription?: TranscriptionProvider
-  workspaceId: string
+  agents: readonly AgentSummary[];
+  artifacts: readonly ArtifactSummary[];
+  channel?: ChannelSummary;
+  client: AgentHqApiClient;
+  draft: string;
+  onDraftChange: (value: string) => void;
+  onOpenDetails: () => void;
+  onOpenSearch: () => void;
+  onOpenTask: (taskId: string) => void;
+  onMarkRead: (lastReadSequence: number) => Promise<void>;
+  onMarkThreadRead: (rootId: string, lastReadSequence: number) => Promise<void>;
+  onMarkThreadUnread: (rootId: string) => Promise<void>;
+  onMarkUnread: () => Promise<void>;
+  onThreadDraftChange: (value: string) => void;
+  onThreadChange: (messageId: string | null) => void;
+  privateContent?: PrivateContentResolver;
+  searchTargetMessageId: string | null;
+  tasks: readonly TaskSummary[];
+  threadDraft: string;
+  threadRootMessageId: string | null;
+  transcription?: TranscriptionProvider;
+  workspaceId: string;
 }>) {
-  const [cursor, setCursor] = useState<number | undefined>()
-  const [messages, setMessages] = useState<readonly MessageSummary[]>([])
-  const [optimisticMessage, setOptimisticMessage] = useState<MessageSummary | null>(null)
-  const transcriptRef = useRef<HTMLDivElement>(null)
-  const lastMarkedReadRef = useRef('')
+  const [cursor, setCursor] = useState<number | undefined>();
+  const [messages, setMessages] = useState<readonly MessageSummary[]>([]);
+  const [optimisticMessage, setOptimisticMessage] = useState<MessageSummary | null>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const lastMarkedReadRef = useRef("");
   const messageQuery = useMessageListQuery(client, workspaceId, channel?.id, {
     ...(cursor !== undefined ? { afterSequence: cursor } : {}),
     limit: 100,
-  })
-  const createMessage = useCreateMessageMutation(client, workspaceId, channel?.id ?? '')
+  });
+  const createMessage = useCreateMessageMutation(client, workspaceId, channel?.id ?? "");
 
   useEffect(() => {
-    setCursor(undefined)
-    setMessages([])
-    setOptimisticMessage(null)
+    setCursor(undefined);
+    setMessages([]);
+    setOptimisticMessage(null);
     requestAnimationFrame(() => {
       if (transcriptRef.current && channel)
-        transcriptRef.current.scrollTop = scrollPositions.get(channel.id) ?? 0
-    })
-  }, [channel])
+        transcriptRef.current.scrollTop = scrollPositions.get(channel.id) ?? 0;
+    });
+  }, [channel]);
 
   useEffect(() => {
-    if (!channel || !messageQuery.data) return
-    const page = messageQuery.data.messages.filter((message) => message.channelId === channel.id)
+    if (!channel || !messageQuery.data) return;
+    const page = messageQuery.data.messages.filter((message) => message.channelId === channel.id);
     setMessages((current) => {
-      const merged = new Map(current.map((message) => [message.id, message]))
-      for (const message of page) merged.set(message.id, message)
-      return [...merged.values()].sort((left, right) => left.sequence - right.sequence)
-    })
-  }, [channel, messageQuery.data])
+      const merged = new Map(current.map((message) => [message.id, message]));
+      for (const message of page) merged.set(message.id, message);
+      return [...merged.values()].sort((left, right) => left.sequence - right.sequence);
+    });
+  }, [channel, messageQuery.data]);
 
   useEffect(() => {
-    if (!searchTargetMessageId) return
+    if (!searchTargetMessageId) return;
     requestAnimationFrame(() =>
       transcriptRef.current
         ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(searchTargetMessageId)}"]`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    )
-  }, [messages, searchTargetMessageId, threadRootMessageId])
+        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+    );
+  }, [messages, searchTargetMessageId, threadRootMessageId]);
 
   const rootMessages = useMemo(
     () => messages.filter(({ threadRootMessageId }) => !threadRootMessageId),
     [messages]
-  )
+  );
   useEffect(() => {
-    if (!channel || messageQuery.isPending || !rootMessages.length) return
-    const lastReadSequence = Math.max(...rootMessages.map(({ sequence }) => sequence))
+    if (!channel || messageQuery.isPending || !rootMessages.length) return;
+    const lastReadSequence = Math.max(...rootMessages.map(({ sequence }) => sequence));
     const markVisible = () => {
-      const key = `${channel.id}:${lastReadSequence}`
+      const key = `${channel.id}:${lastReadSequence}`;
       if (
-        document.visibilityState !== 'visible' ||
+        document.visibilityState !== "visible" ||
         !document.hasFocus() ||
         lastMarkedReadRef.current === key
       )
-        return
-      lastMarkedReadRef.current = key
+        return;
+      lastMarkedReadRef.current = key;
       void onMarkRead(lastReadSequence).catch(() => {
-        if (lastMarkedReadRef.current === key) lastMarkedReadRef.current = ''
-      })
-    }
-    markVisible()
-    window.addEventListener('focus', markVisible)
-    document.addEventListener('visibilitychange', markVisible)
+        if (lastMarkedReadRef.current === key) lastMarkedReadRef.current = "";
+      });
+    };
+    markVisible();
+    window.addEventListener("focus", markVisible);
+    document.addEventListener("visibilitychange", markVisible);
     return () => {
-      window.removeEventListener('focus', markVisible)
-      document.removeEventListener('visibilitychange', markVisible)
-    }
-  }, [channel, messageQuery.isPending, onMarkRead, rootMessages])
+      window.removeEventListener("focus", markVisible);
+      document.removeEventListener("visibilitychange", markVisible);
+    };
+  }, [channel, messageQuery.isPending, onMarkRead, rootMessages]);
   const root = threadRootMessageId
     ? rootMessages.find(({ id }) => id === threadRootMessageId)
-    : undefined
-  const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]))
-  const taskById = new Map(tasks.map((task) => [task.id, task]))
-  const directAgent = channel?.agentId ? agents.find(({ id }) => id === channel.agentId) : undefined
-  const conversationPeople = channel ? peopleForConversation(channel, agents, directAgent) : []
+    : undefined;
+  const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]));
+  const taskById = new Map(tasks.map((task) => [task.id, task]));
+  const directAgent = channel?.agentId
+    ? agents.find(({ id }) => id === channel.agentId)
+    : undefined;
+  const conversationPeople = channel ? peopleForConversation(channel, agents, directAgent) : [];
 
   const submit = async (submission: ComposerSubmission) => {
-    const createdAt = new Date().toISOString()
+    const createdAt = new Date().toISOString();
     setOptimisticMessage({
       artifactIds: submission.artifactIds,
       bodyText: submission.bodyText,
-      channelId: channel?.id ?? '',
+      channelId: channel?.id ?? "",
       createdAt,
       deleted: false,
-      id: 'optimistic-message',
+      id: "optimistic-message",
       mentions: submission.mentions,
-      sender: { kind: 'user', userId: 'current-user' },
+      sender: { kind: "user", userId: "current-user" },
       sequence: Number.MAX_SAFE_INTEGER,
       updatedAt: createdAt,
       version: 0,
       workspaceId,
-    })
+    });
     try {
-      await createMessage.mutateAsync(submission)
+      await createMessage.mutateAsync(submission);
     } finally {
-      setOptimisticMessage(null)
+      setOptimisticMessage(null);
     }
-  }
+  };
 
   if (!channel)
     return (
@@ -221,21 +223,21 @@ export function ConversationSurface({
         title="Choose a Room or conversation"
         detail="Rooms keep durable work, Agents, Tasks, and conversation history together."
       />
-    )
+    );
 
   return (
     <section
-      className={`conventional-conversation${root ? ' conventional-conversation--thread-open' : ''}`}
+      className={`conventional-conversation${root ? " conventional-conversation--thread-open" : ""}`}
     >
       <header className="conventional-conversation__header">
         <div className="conventional-conversation__header-top">
           <div className="conventional-conversation__identity">
             <span>
-              {channel.kind === 'room'
-                ? 'Room conversation'
-                : channel.kind === 'direct_agent'
-                  ? 'Direct Conversation'
-                  : 'Group conversation'}
+              {channel.kind === "room"
+                ? "Room conversation"
+                : channel.kind === "direct_agent"
+                  ? "Direct Conversation"
+                  : "Group conversation"}
             </span>
             <h1>{directAgent ? directAgent.name : channel.title}</h1>
           </div>
@@ -290,7 +292,7 @@ export function ConversationSurface({
             {conversationPeople.map((person) => (
               <li
                 key={person.id}
-                className={person.active ? 'conventional-conversation__person--active' : undefined}
+                className={person.active ? "conventional-conversation__person--active" : undefined}
                 aria-label={person.label}
                 title={person.label}
               >
@@ -330,10 +332,10 @@ export function ConversationSurface({
           />
         ) : null}
         {rootMessages.map((message, index) => {
-          const previousMessage = rootMessages[index - 1]
+          const previousMessage = rootMessages[index - 1];
           const showDayDivider =
             previousMessage &&
-            formatMessageDay(previousMessage.createdAt) !== formatMessageDay(message.createdAt)
+            formatMessageDay(previousMessage.createdAt) !== formatMessageDay(message.createdAt);
           return (
             <Fragment key={message.id}>
               {showDayDivider ? (
@@ -352,7 +354,7 @@ export function ConversationSurface({
                 task={message.taskId ? taskById.get(message.taskId) : undefined}
               />
             </Fragment>
-          )
+          );
         })}
         {optimisticMessage ? (
           <MessageRow
@@ -372,7 +374,7 @@ export function ConversationSurface({
             disabled={messageQuery.isFetching}
             onClick={() => setCursor(messageQuery.data?.nextAfterSequence)}
           >
-            {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
+            {messageQuery.isFetching ? "Loading…" : "Load newer messages"}
           </button>
         ) : null}
       </div>
@@ -414,5 +416,5 @@ export function ConversationSurface({
         </aside>
       ) : null}
     </section>
-  )
+  );
 }

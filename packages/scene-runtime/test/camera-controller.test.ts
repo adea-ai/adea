@@ -9,19 +9,19 @@ import { CameraController } from "../src/camera-controller";
 describe("perspective camera obstruction framing", () => {
   test("keeps the authored distance when nothing blocks the character", () => {
     expect(
-      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: Infinity }),
+      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: Infinity })
     ).toBeCloseTo(1.7, 5);
   });
 
   test("stops at the same obstruction distance as Nifty World", () => {
     expect(
-      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 1.2 }),
+      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 1.2 })
     ).toBeCloseTo(1.2, 5);
   });
 
   test("allows the camera to move close enough for a nearby object to stay behind it", () => {
     expect(
-      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 0.18 }),
+      getPerspectiveCameraDistance({ baseDistance: 1.7, obstructionDistance: 0.18 })
     ).toBeCloseTo(0.18, 5);
   });
 });
@@ -60,7 +60,7 @@ describe("perspective camera input", () => {
         button: 0,
         clientX: 400,
         clientY: 300,
-      }),
+      })
     );
     canvas.dispatchEvent(
       Object.assign(new Event("pointermove"), {
@@ -68,13 +68,13 @@ describe("perspective camera input", () => {
         pointerType: "mouse",
         clientX: 500,
         clientY: 340,
-      }),
+      })
     );
     canvas.dispatchEvent(
       Object.assign(new Event("pointerup"), {
         pointerId: 1,
         pointerType: "mouse",
-      }),
+      })
     );
 
     expect(controller.state.cameraYaw).not.toBe(initialYaw);
@@ -88,7 +88,7 @@ describe("perspective camera input", () => {
         button: 2,
         clientX: 400,
         clientY: 300,
-      }),
+      })
     );
     canvas.dispatchEvent(
       Object.assign(new Event("pointermove"), {
@@ -96,13 +96,13 @@ describe("perspective camera input", () => {
         pointerType: "mouse",
         clientX: 500,
         clientY: 350,
-      }),
+      })
     );
     canvas.dispatchEvent(
       Object.assign(new Event("pointerup"), {
         pointerId: 2,
         pointerType: "mouse",
-      }),
+      })
     );
     controller.update(target, 1);
 
@@ -139,7 +139,7 @@ describe("perspective camera input", () => {
       mouseInputEnabled: false,
     });
     documentTarget.dispatchEvent(
-      Object.assign(new Event("mousemove"), { movementX: 100, movementY: 0 }),
+      Object.assign(new Event("mousemove"), { movementX: 100, movementY: 0 })
     );
     canvas.dispatchEvent(Object.assign(new Event("pointerdown"), { pointerType: "mouse" }));
 
@@ -156,14 +156,14 @@ describe("perspective camera zoom framing", () => {
         baseDistance: 1.7,
         obstructionDistance: Infinity,
         zoom: 1.6,
-      }),
+      })
     ).toBeCloseTo(1.0625, 5);
     expect(
       getPerspectiveCameraDistance({
         baseDistance: 1.7,
         obstructionDistance: Infinity,
         zoom: 0.7,
-      }),
+      })
     ).toBeCloseTo(2.42857, 4);
   });
 
@@ -174,7 +174,7 @@ describe("perspective camera zoom framing", () => {
         obstructionDistance: 1.2,
         zoom: 0.7,
         maxDistance: 2.4,
-      }),
+      })
     ).toBeCloseTo(1.2, 5);
     expect(
       getPerspectiveCameraDistance({
@@ -182,7 +182,7 @@ describe("perspective camera zoom framing", () => {
         obstructionDistance: Infinity,
         zoom: 0.7,
         maxDistance: 1.9,
-      }),
+      })
     ).toBeCloseTo(1.9, 5);
   });
 

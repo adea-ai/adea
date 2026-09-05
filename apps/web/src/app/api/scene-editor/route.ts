@@ -73,7 +73,7 @@ function isSameOrigin(request: Request, requestUrl: URL): boolean {
 }
 
 function isRoomDesignerDocument(
-  value: unknown,
+  value: unknown
 ): value is { placements: Record<string, Placement[]> } {
   if (!value || typeof value !== "object") return false;
   const document = value as { placements?: unknown };
@@ -190,7 +190,7 @@ export async function POST(request: Request) {
               placements: body.roomDesigner?.placements,
             },
             null,
-            1,
+            1
           )}\n`;
         } else if (isPlacement) {
           const placements = manifest.placements?.[body.modelId as string];
@@ -219,7 +219,7 @@ export async function POST(request: Request) {
             ? "props.json"
             : isPlacement
               ? `${body.category}.json`
-              : "editor-overrides.json",
+              : "editor-overrides.json"
         );
         const assignedPropsManifestPath = path.join(
           repoRoot,
@@ -229,12 +229,12 @@ export async function POST(request: Request) {
           "assets",
           "worlds",
           body.scene as string,
-          "props-runtime.json",
+          "props-runtime.json"
         );
         const previousPublicBytes = await fs.readFile(publicManifestPath, "utf8").catch(() => null);
-        const previousAssignedPropsBytes = await fs.readFile(assignedPropsManifestPath, "utf8").catch(
-          () => null,
-        );
+        const previousAssignedPropsBytes = await fs
+          .readFile(assignedPropsManifestPath, "utf8")
+          .catch(() => null);
         try {
           await atomicWrite(publicManifestPath, nextBytes);
           await atomicWrite(sourcePath, nextBytes);
@@ -247,7 +247,7 @@ export async function POST(request: Request) {
             ).placements;
             await atomicWrite(
               assignedPropsManifestPath,
-              `${JSON.stringify(assignedPropsManifest, null, 2)}\n`,
+              `${JSON.stringify(assignedPropsManifest, null, 2)}\n`
             );
           }
         } catch (error) {
@@ -264,12 +264,12 @@ export async function POST(request: Request) {
     if (error instanceof PlacementNotFoundError) {
       return NextResponse.json(
         { error: "Placement was not found in the HQ scene manifest." },
-        { status: 404 },
+        { status: 404 }
       );
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Could not save HQ scene placement." },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
@@ -289,7 +289,7 @@ async function findRepoRoot(start: string): Promise<string> {
   while (true) {
     try {
       const packageJson = JSON.parse(
-        await fs.readFile(path.join(current, "package.json"), "utf8"),
+        await fs.readFile(path.join(current, "package.json"), "utf8")
       ) as { name?: string };
       if (packageJson.name === "agent-hq") return current;
     } catch {

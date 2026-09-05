@@ -57,7 +57,7 @@ export type RoomDesignerPlacement = {
 
 export function hasPlacementResetTarget(
   placement: RoomDesignerPlacement,
-  savedPlacements: readonly RoomDesignerPlacement[],
+  savedPlacements: readonly RoomDesignerPlacement[]
 ): boolean {
   const saved = savedPlacements.find((candidate) => candidate.id === placement.id);
   if (!saved) return false;
@@ -156,7 +156,7 @@ function vectorOr<T extends number[]>(value: unknown, length: number, fallback: 
 function placementsFromDocument(
   document: RoomDesignerDocument,
   catalogById: ReadonlyMap<string, RoomDesignerAsset>,
-  groundY: number,
+  groundY: number
 ): RoomDesignerPlacement[] {
   const raw = Object.entries(document.placements ?? {}).flatMap(([modelId, entries]) =>
     entries.map((entry, index) => {
@@ -170,7 +170,7 @@ function placementsFromDocument(
       const footprint = vectorOr(
         entry.footprint,
         2,
-        asset?.footprint ? ([...asset.footprint] as [number, number]) : DEFAULT_FOOTPRINT,
+        asset?.footprint ? ([...asset.footprint] as [number, number]) : DEFAULT_FOOTPRINT
       );
       return {
         id: typeof entry.id === "string" && entry.id ? entry.id : `${modelId}-${index}`,
@@ -180,7 +180,7 @@ function placementsFromDocument(
         s,
         footprint,
       };
-    }),
+    })
   );
   const emptyMeasured = new Map<string, MeasuredFootprint>();
   // Recompute Y values from the current catalog so saved placements pick up
@@ -202,7 +202,7 @@ function placementsFromDocument(
         return footprintsIntersect(
           itemFootprint,
           footprintGeometryFor(other, surfaceAsset, emptyMeasured),
-          0,
+          0
         );
       });
       const surfaceAsset = surface ? catalogById.get(surface.modelId) : undefined;
@@ -220,7 +220,7 @@ function placementsFromDocument(
 }
 
 function placementsByModel(
-  placements: readonly RoomDesignerPlacement[],
+  placements: readonly RoomDesignerPlacement[]
 ): Record<string, RoomDesignerPlacement[]> {
   return placements.reduce<Record<string, RoomDesignerPlacement[]>>((result, placement) => {
     const entries = result[placement.modelId] ?? [];
@@ -243,7 +243,7 @@ function quaternionForYaw(yaw: number): [number, number, number, number] {
 function footprintFor(
   placement: RoomDesignerPlacement,
   asset: RoomDesignerAsset | undefined,
-  measured: ReadonlyMap<string, MeasuredFootprint>,
+  measured: ReadonlyMap<string, MeasuredFootprint>
 ): [number, number] {
   // Catalog footprint takes priority over measured — the catalog value is
   // the authoritative placement size. Measured footprints are only a fallback
@@ -260,7 +260,7 @@ function footprintFor(
 function offsetFor(
   placement: RoomDesignerPlacement,
   asset: RoomDesignerAsset | undefined,
-  measured: ReadonlyMap<string, MeasuredFootprint>,
+  measured: ReadonlyMap<string, MeasuredFootprint>
 ): [number, number] {
   // Only use measured offset when there's no explicit catalog footprint —
   // the catalog footprint is centered on the origin by definition.
@@ -276,7 +276,7 @@ function offsetFor(
 
 function rotatedFootprint(
   footprint: readonly [number, number],
-  quaternion: readonly [number, number, number, number],
+  quaternion: readonly [number, number, number, number]
 ): [number, number] {
   const yaw = yawFromQuaternion(quaternion);
   const cos = Math.abs(Math.cos(yaw));
@@ -298,7 +298,7 @@ function rectIntersects(a: RoomDesignerRect, b: RoomDesignerRect, padding = 0): 
 
 function rotateOffset(
   offset: readonly [number, number],
-  quaternion: readonly [number, number, number, number],
+  quaternion: readonly [number, number, number, number]
 ): [number, number] {
   const yaw = yawFromQuaternion(quaternion);
   const cos = Math.cos(yaw);
@@ -309,7 +309,7 @@ function rotateOffset(
 function footprintGeometryFor(
   placement: RoomDesignerPlacement,
   asset: RoomDesignerAsset | undefined,
-  measured: ReadonlyMap<string, MeasuredFootprint>,
+  measured: ReadonlyMap<string, MeasuredFootprint>
 ): PlacementFootprint {
   const [width, depth] = rotatedFootprint(footprintFor(placement, asset, measured), placement.q);
   const [offsetX, offsetZ] = rotateOffset(offsetFor(placement, asset, measured), placement.q);
@@ -328,7 +328,7 @@ function footprintGeometryFor(
 function circleIntersectsRect(
   circle: PlacementFootprint,
   rect: RoomDesignerRect,
-  padding = 0,
+  padding = 0
 ): boolean {
   const radius = (circle.radius ?? Math.max(circle.width, circle.depth) / 2) + padding / 2;
   const closestX = Math.max(rect.x - rect.width / 2, Math.min(circle.x, rect.x + rect.width / 2));
@@ -339,7 +339,7 @@ function circleIntersectsRect(
 function footprintsIntersect(
   a: PlacementFootprint,
   b: RoomDesignerRect | PlacementFootprint,
-  padding = 0,
+  padding = 0
 ): boolean {
   if (a.shape === "circle" && "shape" in b && b.shape === "circle") {
     return (
@@ -355,7 +355,7 @@ function footprintsIntersect(
 function footprintInsideRegion(
   footprint: PlacementFootprint,
   region: RoomDesignerRect,
-  padding = 0,
+  padding = 0
 ): boolean {
   if (footprint.shape === "circle") {
     const radius = (footprint.radius ?? footprint.width / 2) + padding;
@@ -375,7 +375,7 @@ function footprintInsideRegion(
 function placementRect(
   placement: RoomDesignerPlacement,
   asset: RoomDesignerAsset | undefined,
-  measured: ReadonlyMap<string, MeasuredFootprint>,
+  measured: ReadonlyMap<string, MeasuredFootprint>
 ): RoomDesignerRect {
   const {
     shape: _shape,
@@ -390,7 +390,7 @@ function makePlacement(
   asset: RoomDesignerAsset,
   x: number,
   z: number,
-  groundY: number,
+  groundY: number
 ): RoomDesignerPlacement {
   const y = groundY + (asset.placementSurface === "wall" ? (asset.wallMountHeight ?? 96) : 0);
   return {
@@ -439,7 +439,7 @@ function createOutline(sceneScale: number): THREE.Group {
   const addEdge = (name: string) => {
     const edge = new THREE.Mesh(
       new THREE.BoxGeometry(1, OUTLINE_HEIGHT, OUTLINE_THICKNESS),
-      material,
+      material
     );
     edge.name = name;
     edge.scale.set(1, sceneScale, sceneScale);
@@ -452,7 +452,7 @@ function createOutline(sceneScale: number): THREE.Group {
   const addSide = (name: string) => {
     const edge = new THREE.Mesh(
       new THREE.BoxGeometry(OUTLINE_THICKNESS, OUTLINE_HEIGHT, 1),
-      sideMaterial,
+      sideMaterial
     );
     edge.name = name;
     edge.scale.set(sceneScale, sceneScale, 1);
@@ -483,7 +483,7 @@ function updateOutline(
   measured: ReadonlyMap<string, MeasuredFootprint>,
   sceneScale: number,
   groundY: number,
-  valid: boolean,
+  valid: boolean
 ): void {
   const [width, depth] = footprintFor(placement, asset, measured);
   const worldWidth = width * sceneScale;
@@ -493,7 +493,7 @@ function updateOutline(
   outline.position.set(
     (placement.p[0] + offsetX) * sceneScale,
     (placement.p[1] + 2) * sceneScale,
-    (placement.p[2] + offsetZ) * sceneScale,
+    (placement.p[2] + offsetZ) * sceneScale
   );
   outline.quaternion.set(...placement.q);
   outline.visible = true;
@@ -559,7 +559,7 @@ function updateOutline(
 function createFloorplanGrid(
   bounds: RoomDesignerRect,
   sceneScale: number,
-  gridSize: number,
+  gridSize: number
 ): THREE.Group {
   const grid = new THREE.Group();
   const positions: number[] = [];
@@ -676,7 +676,7 @@ export function RoomDesigner({
           p.s[2] !== s.s[2]
         );
       }),
-    [placements, savedPlacements],
+    [placements, savedPlacements]
   );
   const selectedPlacement = selectedId
     ? placements.find((placement) => placement.id === selectedId)
@@ -713,7 +713,7 @@ export function RoomDesigner({
   };
 
   const measureAssetFootprint = async (
-    asset: RoomDesignerAsset,
+    asset: RoomDesignerAsset
   ): Promise<MeasuredFootprint | null> => {
     try {
       const source = await modelFor(asset);
@@ -741,13 +741,13 @@ export function RoomDesigner({
     const rect = api.renderer.domElement.getBoundingClientRect();
     const pointer = new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
     );
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(pointer, api.camera);
     return raycaster.ray.intersectPlane(
       new THREE.Plane(new THREE.Vector3(0, 1, 0), -groundY * sceneScale),
-      new THREE.Vector3(),
+      new THREE.Vector3()
     );
   };
 
@@ -775,7 +775,7 @@ export function RoomDesigner({
 
   const screenAnchorBelowPlacement = (
     placement: RoomDesignerPlacement,
-    asset: RoomDesignerAsset | undefined,
+    asset: RoomDesignerAsset | undefined
   ): { x: number; y: number } | null => {
     const api = debugApiRef.current;
     if (!api) return null;
@@ -804,7 +804,7 @@ export function RoomDesigner({
 
   const candidateFor = (
     position: [number, number],
-    drag: DragState,
+    drag: DragState
   ): RoomDesignerPlacement | null => {
     const source = drag.existing
       ? placementsRef.current.find((placement) => placement.id === drag.id)
@@ -834,7 +834,7 @@ export function RoomDesigner({
         return footprintsIntersect(
           candidateFootprint,
           footprintGeometryFor(placement, surfaceAsset, measuredFootprintsRef.current),
-          gridSize * 0.1,
+          gridSize * 0.1
         );
       });
       if (!surface) return null;
@@ -903,7 +903,7 @@ export function RoomDesigner({
         return !footprintsIntersect(
           footprint,
           footprintGeometryFor(placement, existingAsset, measuredFootprintsRef.current),
-          0,
+          0
         );
       });
   };
@@ -922,7 +922,7 @@ export function RoomDesigner({
       measuredFootprintsRef.current,
       sceneScale,
       groundY,
-      valid,
+      valid
     );
     if (drag.existing) {
       const object = groupRef.current?.getObjectByName(`room-prop:${candidate.id}`);
@@ -934,7 +934,7 @@ export function RoomDesigner({
         object.position.set(
           candidate.p[0] * sceneScale,
           candidate.p[1] * sceneScale + floorOffset,
-          candidate.p[2] * sceneScale,
+          candidate.p[2] * sceneScale
         );
       }
     }
@@ -982,13 +982,13 @@ export function RoomDesigner({
       const backdrop = new THREE.Mesh(
         new THREE.PlaneGeometry(
           (mapBounds.width + designBackdropPadding * 2) * sceneScale,
-          (mapBounds.depth + designBackdropPadding * 2) * sceneScale,
+          (mapBounds.depth + designBackdropPadding * 2) * sceneScale
         ),
         new THREE.MeshBasicMaterial({
           color: designBackdropColor,
           depthWrite: false,
           side: THREE.DoubleSide,
-        }),
+        })
       );
       backdrop.name = "room-designer-backdrop";
       backdrop.rotation.x = -Math.PI / 2;
@@ -1017,7 +1017,7 @@ export function RoomDesigner({
         setPlacements(loadedPlacements);
         setSavedPlacements(loadedPlacements.map(clonePlacement));
         setStatus(
-          loadedPlacements.length ? "Loaded saved room props." : "Drag a prop onto a room.",
+          loadedPlacements.length ? "Loaded saved room props." : "Drag a prop onto a room."
         );
       } catch {
         setStatus("No saved room layout yet. Drag a prop onto a room.");
@@ -1070,7 +1070,7 @@ export function RoomDesigner({
         setMeasuredFootprintVersion((version) => version + 1);
       }
     },
-    [sceneScale],
+    [sceneScale]
   );
 
   // Measure footprints for currently placed items so existing placements
@@ -1080,7 +1080,7 @@ export function RoomDesigner({
     let cancelled = false;
     const modelIds = new Set(placements.map((p) => p.modelId));
     const toMeasure = catalog.filter(
-      (asset) => modelIds.has(asset.id) && !measuredFootprintsRef.current.has(asset.id),
+      (asset) => modelIds.has(asset.id) && !measuredFootprintsRef.current.has(asset.id)
     );
     if (toMeasure.length === 0) return;
     void Promise.all(toMeasure.map((asset) => measureAssetFootprint(asset))).then((results) => {
@@ -1099,7 +1099,7 @@ export function RoomDesigner({
     const api = debugApiRef.current;
     if (!apiReady || !api) return;
     api.setOrthographicHalfHeight(
-      (enabled ? designOrthographicHalfHeight : normalOrthographicHalfHeight) * sceneScale,
+      (enabled ? designOrthographicHalfHeight : normalOrthographicHalfHeight) * sceneScale
     );
     api.setOrthographicBoundsPadding((enabled ? designBackdropPadding : 0) * sceneScale);
     if (backdropRef.current) backdropRef.current.visible = enabled;
@@ -1131,7 +1131,7 @@ export function RoomDesigner({
     }
     api.setOrthographicPan(
       designerPanRef.current[0] * sceneScale,
-      designerPanRef.current[1] * sceneScale,
+      designerPanRef.current[1] * sceneScale
     );
     api.setOrthographicZoomImmediate(designerZoomRef.current);
     if (playerPosition && !previousPlayerPositionRef.current) {
@@ -1221,7 +1221,7 @@ export function RoomDesigner({
       measuredFootprintsRef.current,
       sceneScale,
       groundY,
-      true,
+      true
     );
   }, [
     catalogById,
@@ -1248,7 +1248,7 @@ export function RoomDesigner({
           ? screenAnchorBelow(object)
           : screenAnchorBelowPlacement(
               selectedPlacement,
-              catalogById.get(selectedPlacement.modelId),
+              catalogById.get(selectedPlacement.modelId)
             );
         if (anchor) setActionAnchor(anchor);
       }
@@ -1271,7 +1271,7 @@ export function RoomDesigner({
       const rect = api.renderer.domElement.getBoundingClientRect();
       pointer.set(
         ((clientX - rect.left) / rect.width) * 2 - 1,
-        -((clientY - rect.top) / rect.height) * 2 + 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1
       );
       raycaster.setFromCamera(pointer, api.camera);
       let current: THREE.Object3D | null =
@@ -1300,7 +1300,7 @@ export function RoomDesigner({
       background.lastPoint.copy(point);
       debugApiRef.current?.setOrthographicPan(
         designerPanRef.current[0] * sceneScale,
-        designerPanRef.current[1] * sceneScale,
+        designerPanRef.current[1] * sceneScale
       );
       event.preventDefault();
       return true;
@@ -1324,7 +1324,7 @@ export function RoomDesigner({
       object.position.set(
         drag.origin.p[0] * sceneScale,
         drag.origin.p[1] * sceneScale + floorOffset,
-        drag.origin.p[2] * sceneScale,
+        drag.origin.p[2] * sceneScale
       );
     };
     const clearDragState = (cancelled = false) => {
@@ -1415,7 +1415,7 @@ export function RoomDesigner({
       if (candidate && valid && drag.moved) {
         const next = drag.existing
           ? placementsRef.current.map((placement) =>
-              placement.id === candidate.id ? candidate : placement,
+              placement.id === candidate.id ? candidate : placement
             )
           : [...placementsRef.current, candidate];
         commitSnapshot({ placements: next }, drag.existing ? "Prop moved." : "Prop added.");
@@ -1431,7 +1431,7 @@ export function RoomDesigner({
             : (screenAnchorBelowPlacement(candidate, catalogById.get(candidate.modelId)) ?? {
                 x: event.clientX,
                 y: event.clientY,
-              }),
+              })
         );
       } else if (drag.existing && drag.origin) {
         restoreDraggedObject(drag);
@@ -1471,7 +1471,7 @@ export function RoomDesigner({
         asset,
         snapAuthored(point.x / sceneScale),
         snapAuthored(point.z / sceneScale),
-        groundY,
+        groundY
       );
       if (!validateCandidate(candidate)) {
         setStatus("Drop blocked. Keep the prop inside a room and away from walls or other props.");
@@ -1485,7 +1485,7 @@ export function RoomDesigner({
       const nextZoom = THREE.MathUtils.clamp(
         designerZoomRef.current * Math.exp(event.deltaY * 0.001),
         0.85,
-        1.8,
+        1.8
       );
       designerZoomRef.current = nextZoom;
       debugApiRef.current?.setOrthographicZoomImmediate(nextZoom);
@@ -1535,7 +1535,7 @@ export function RoomDesigner({
     setActionAnchor(
       object
         ? screenAnchorBelow(object)
-        : screenAnchorBelowPlacement(placement, catalogById.get(placement.modelId)),
+        : screenAnchorBelowPlacement(placement, catalogById.get(placement.modelId))
     );
     // Pan and zoom the camera to center on the selected prop so it stays
     // in focus and the tooltip menu remains accessible without other items
@@ -1561,10 +1561,10 @@ export function RoomDesigner({
     commitSnapshot(
       {
         placements: placementsRef.current.map((placement) =>
-          placement.id === id ? next : placement,
+          placement.id === id ? next : placement
         ),
       },
-      "Prop rotated.",
+      "Prop rotated."
     );
     selectPlacement(id);
   };
@@ -1614,17 +1614,17 @@ export function RoomDesigner({
         if (event.key === "ArrowRight") next.p[0] -= delta;
         if (!validateCandidate(next)) {
           setStatus(
-            "Move blocked. Keep the prop inside a room and away from walls, doorways, and other props.",
+            "Move blocked. Keep the prop inside a room and away from walls, doorways, and other props."
           );
           return;
         }
         commitSnapshot(
           {
             placements: placementsRef.current.map((placement) =>
-              placement.id === selectedId ? next : placement,
+              placement.id === selectedId ? next : placement
             ),
           },
-          "Prop moved.",
+          "Prop moved."
         );
         selectPlacement(selectedId);
         return;
@@ -1634,7 +1634,7 @@ export function RoomDesigner({
       event.preventDefault();
       commitSnapshot(
         { placements: placementsRef.current.filter((placement) => placement.id !== selectedId) },
-        "Prop removed.",
+        "Prop removed."
       );
       selectedIdRef.current = null;
       setSelectedId(null);
@@ -1659,7 +1659,7 @@ export function RoomDesigner({
       if (!response.ok)
         throw new Error(
           ((await response.json()) as { error?: string }).error ??
-            `Save failed (${response.status})`,
+            `Save failed (${response.status})`
         );
       const nextPlacements = placementsRef.current.map(clonePlacement);
       invalidateRoomDesignerDocument(manifest.id);
@@ -1688,7 +1688,7 @@ export function RoomDesigner({
     if (!saved) {
       commitSnapshot(
         { placements: placementsRef.current.filter((placement) => placement.id !== id) },
-        "New prop reset.",
+        "New prop reset."
       );
       setSelectedId((current) => (current === id ? null : current));
       setSelectedModelId((current) => {
@@ -1702,10 +1702,10 @@ export function RoomDesigner({
     commitSnapshot(
       {
         placements: placementsRef.current.map((placement) =>
-          placement.id === id ? clonePlacement(saved) : placement,
+          placement.id === id ? clonePlacement(saved) : placement
         ),
       },
-      "Prop reset.",
+      "Prop reset."
     );
   };
 
@@ -1737,7 +1737,7 @@ export function RoomDesigner({
   const removePlacement = (id: string) => {
     commitSnapshot(
       { placements: placementsRef.current.filter((placement) => placement.id !== id) },
-      "Prop removed.",
+      "Prop removed."
     );
     setSelectedId((current) => (current === id ? null : current));
     setSelectedModelId((current) => {
@@ -1749,7 +1749,7 @@ export function RoomDesigner({
 
   const onCatalogPointerDown = (
     asset: PropCatalogItem,
-    event: ReactPointerEvent<HTMLButtonElement>,
+    event: ReactPointerEvent<HTMLButtonElement>
   ) => {
     const roomAsset = catalogById.get(asset.id);
     if (!roomAsset) return;

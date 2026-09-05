@@ -10,7 +10,7 @@ import {
 describe("desktop browser authentication navigation", () => {
   test("sends an unauthenticated authorization request through sign-in", () => {
     const request = new URL(
-      "https://agent-hq.example/api/auth/desktop/authorize?state=state&nonce=nonce&code_challenge=challenge&code_challenge_method=S256&redirect_uri=agent-hq%3A%2F%2Fauth%2Fcallback",
+      "https://agent-hq.example/api/auth/desktop/authorize?state=state&nonce=nonce&code_challenge=challenge&code_challenge_method=S256&redirect_uri=agent-hq%3A%2F%2Fauth%2Fcallback"
     );
 
     const signIn = createDesktopSignInUrl(request);
@@ -22,7 +22,7 @@ describe("desktop browser authentication navigation", () => {
 
   test("accepts safe app and desktop authorization return targets", () => {
     expect(
-      normalizeDesktopAuthorizationReturnTo("/api/auth/desktop/authorize?state=state&nonce=nonce"),
+      normalizeDesktopAuthorizationReturnTo("/api/auth/desktop/authorize?state=state&nonce=nonce")
     ).toBe("/api/auth/desktop/authorize?state=state&nonce=nonce");
     expect(normalizeDesktopAuthorizationReturnTo("/?scene=work")).toBe("/?scene=work");
     expect(normalizeDesktopAuthorizationReturnTo("https://evil.example/steal")).toBeNull();
@@ -44,8 +44,8 @@ describe("desktop browser authentication navigation", () => {
     expect(parseDesktopCallbackFragment("#callback=https%3A%2F%2Fevil.example")).toBeNull();
     expect(
       parseDesktopCallbackFragment(
-        "#callback=agent-hq%3A%2F%2Fauth%2Fcallback%3Fcode%3Done-time-code%26nonce%3Dnonce-value-12345%26state%3Dstate-value-12345&callback=duplicate",
-      ),
+        "#callback=agent-hq%3A%2F%2Fauth%2Fcallback%3Fcode%3Done-time-code%26nonce%3Dnonce-value-12345%26state%3Dstate-value-12345&callback=duplicate"
+      )
     ).toBeNull();
   });
 });

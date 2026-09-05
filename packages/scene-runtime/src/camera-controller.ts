@@ -94,7 +94,7 @@ export function getPerspectiveCameraDistance({
   if (Number.isFinite(obstructionDistance)) {
     distance = Math.min(
       distance,
-      Math.max(CAMERA_MIN_DISTANCE, obstructionDistance - CAMERA_OCCLUSION_PADDING),
+      Math.max(CAMERA_MIN_DISTANCE, obstructionDistance - CAMERA_OCCLUSION_PADDING)
     );
   }
   if (Number.isFinite(maxDistance)) {
@@ -171,7 +171,7 @@ export class CameraController {
     this.dragInputEnabled = dragInputEnabled;
     this.perspectiveBaseDistance = Math.max(
       perspectiveCameraDistance ?? CAMERA_DISTANCE * characterScale,
-      CAMERA_MIN_DISTANCE,
+      CAMERA_MIN_DISTANCE
     );
     this.cameraDistance = this.perspectiveBaseDistance;
     this.cameraBounds = cameraBounds;
@@ -188,7 +188,7 @@ export class CameraController {
       PERSPECTIVE_FOV,
       1,
       CAMERA_NEAR,
-      CAMERA_FAR,
+      CAMERA_FAR
     );
     this.orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, CAMERA_NEAR, CAMERA_FAR);
     // Orthographic scenes can use a larger authored coordinate system than
@@ -289,7 +289,7 @@ export class CameraController {
     this.perspectiveTargetZoom = THREE.MathUtils.clamp(
       zoom,
       PERSPECTIVE_MIN_ZOOM,
-      PERSPECTIVE_MAX_ZOOM,
+      PERSPECTIVE_MAX_ZOOM
     );
   }
 
@@ -351,7 +351,7 @@ export class CameraController {
     result.set(
       Math.sin(view.yaw) * Math.cos(view.pitch),
       Math.sin(view.pitch),
-      Math.cos(view.yaw) * Math.cos(view.pitch),
+      Math.cos(view.yaw) * Math.cos(view.pitch)
     );
     return result.normalize();
   }
@@ -383,7 +383,7 @@ export class CameraController {
     this.viewDirection.set(
       Math.sin(view.yaw) * Math.cos(view.pitch),
       Math.sin(view.pitch),
-      Math.cos(view.yaw) * Math.cos(view.pitch),
+      Math.cos(view.yaw) * Math.cos(view.pitch)
     );
     this.cameraTarget.copy(target);
     if (this.activeViewMode === "perspective") {
@@ -400,7 +400,7 @@ export class CameraController {
       this.perspectiveZoom = THREE.MathUtils.lerp(
         this.perspectiveZoom,
         this.perspectiveTargetZoom,
-        smoothing,
+        smoothing
       );
     }
     const targetDistance =
@@ -435,7 +435,7 @@ export class CameraController {
       this.orthographicZoom = THREE.MathUtils.lerp(
         this.orthographicZoom,
         this.orthographicTargetZoom,
-        smoothing,
+        smoothing
       );
       this.orthographicCamera.zoom = this.orthographicZoom;
       this.orthographicCamera.updateProjectionMatrix();
@@ -475,15 +475,15 @@ export class CameraController {
         target.x,
         this.cameraBounds.xMin - boundsPadding,
         this.cameraBounds.xMax + boundsPadding,
-        halfWidth,
+        halfWidth
       ),
       target.y,
       clampCenter(
         target.z,
         this.cameraBounds.zMin - boundsPadding,
         this.cameraBounds.zMax + boundsPadding,
-        halfDepth,
-      ),
+        halfDepth
+      )
     );
     return this.cameraTarget;
   }
@@ -503,14 +503,14 @@ export class CameraController {
         this.cameraTarget.x,
         this.viewDirection.x,
         this.cameraBounds.xMin,
-        this.cameraBounds.xMax,
+        this.cameraBounds.xMax
       ),
       axisDistance(
         this.cameraTarget.z,
         this.viewDirection.z,
         this.cameraBounds.zMin,
-        this.cameraBounds.zMax,
-      ),
+        this.cameraBounds.zMax
+      )
     );
   }
 
@@ -529,7 +529,7 @@ export class CameraController {
     view.pitch = THREE.MathUtils.clamp(
       view.pitch - pitchInput * CAMERA_PITCH_SPEED * delta,
       -Math.PI / 2 + 0.05,
-      Math.PI / 2 - 0.05,
+      Math.PI / 2 - 0.05
     );
   }
 
@@ -550,14 +550,18 @@ export class CameraController {
   };
 
   private readonly onMouseMove = (event: MouseEvent) => {
-    if (!this.mouseInputEnabled || !this.inputEnabled || document.pointerLockElement !== this.canvas)
+    if (
+      !this.mouseInputEnabled ||
+      !this.inputEnabled ||
+      document.pointerLockElement !== this.canvas
+    )
       return;
     const view = this.views[this.activeViewMode];
     view.yaw -= event.movementX * CAMERA_MOUSE_SENSITIVITY;
     view.pitch = THREE.MathUtils.clamp(
       view.pitch - event.movementY * CAMERA_MOUSE_SENSITIVITY,
       -Math.PI / 2 + 0.05,
-      Math.PI / 2 - 0.05,
+      Math.PI / 2 - 0.05
     );
   };
 
@@ -602,7 +606,7 @@ export class CameraController {
       view.pitch = THREE.MathUtils.clamp(
         view.pitch - deltaY * CAMERA_MOUSE_SENSITIVITY,
         -Math.PI / 2 + 0.05,
-        Math.PI / 2 - 0.05,
+        Math.PI / 2 - 0.05
       );
     } else if (this.activeViewMode === "perspective") {
       this.panPerspective(deltaX, deltaY);
@@ -664,7 +668,7 @@ export class CameraController {
       view.pitch = THREE.MathUtils.clamp(
         view.pitch - (touch.clientY - this.touchState.y) * CAMERA_MOUSE_SENSITIVITY,
         -Math.PI / 2 + 0.05,
-        Math.PI / 2 - 0.05,
+        Math.PI / 2 - 0.05
       );
       this.touchState.x = touch.clientX;
       this.touchState.y = touch.clientY;

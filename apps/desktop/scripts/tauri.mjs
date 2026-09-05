@@ -8,7 +8,7 @@ if (command !== "build" && command !== "dev") {
 }
 
 const cloudOrigin = normalizeDesktopCloudOrigin(
-  process.env.VITE_AGENT_HQ_CLOUD_ORIGIN ?? process.env.AGENT_HQ_CLOUD_ORIGIN,
+  process.env.VITE_AGENT_HQ_CLOUD_ORIGIN ?? process.env.AGENT_HQ_CLOUD_ORIGIN
 );
 const environment = {
   ...process.env,
@@ -25,7 +25,7 @@ const result = spawnSync(
     "--config",
     JSON.stringify(createTauriCloudConfig(cloudOrigin)),
   ],
-  { env: environment, stdio: "inherit" },
+  { env: environment, stdio: "inherit" }
 );
 
 if (result.error) throw result.error;

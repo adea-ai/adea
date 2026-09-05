@@ -27,12 +27,12 @@ function loadModelWithSignal(loader: GLTFLoader, url: string, signal?: AbortSign
 export function composeSceneFieldMatrix(
   placement: SceneFieldPlacement,
   sourceMatrix: THREE.Matrix4,
-  target = new THREE.Matrix4(),
+  target = new THREE.Matrix4()
 ): THREE.Matrix4 {
   target.compose(
     new THREE.Vector3(...placement.p),
     new THREE.Quaternion(...placement.q),
-    new THREE.Vector3(...placement.s),
+    new THREE.Vector3(...placement.s)
   );
   return target.multiply(sourceMatrix);
 }
@@ -54,7 +54,7 @@ export async function loadSceneField(
   resolveModelUrl: (modelId: string) => string,
   groupName = "scene-field",
   singlePlacementPlain = false,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<THREE.Group> {
   const response = await fetch(manifestUrl, { signal });
   if (!response.ok)
@@ -66,7 +66,7 @@ export async function loadSceneField(
   const matrix = new THREE.Matrix4();
 
   const placementEntries = Object.entries(manifest.placements).filter(
-    (entry): entry is [string, SceneFieldPlacement[]] => entry[1]?.length > 0,
+    (entry): entry is [string, SceneFieldPlacement[]] => entry[1]?.length > 0
   );
   // Catalog assets are independent. Start every request together so a field
   // with dozens of distinct props/buildings is bounded by its slowest model,
@@ -76,7 +76,7 @@ export async function loadSceneField(
       modelId,
       placements,
       model: (await loadModelWithSignal(loader, resolveModelUrl(modelId), signal)).scene,
-    })),
+    }))
   );
 
   for (const { modelId, placements, model } of loadedModels) {
@@ -105,7 +105,7 @@ export async function loadSceneField(
       const instanced = new THREE.InstancedMesh(
         sourceMesh.geometry,
         sourceMesh.material,
-        placements.length,
+        placements.length
       );
       instanced.name = modelId;
       for (let i = 0; i < placements.length; i += 1) {
@@ -146,7 +146,7 @@ export async function loadSceneFieldFromCatalog(
   manifestUrl: string,
   catalog: readonly SceneFieldAsset[],
   groupName = "scene-field",
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<THREE.Group> {
   const assetsById = new Map(catalog.map((asset) => [asset.id, asset.assetUrl]));
   return loadSceneField(
@@ -159,6 +159,6 @@ export async function loadSceneFieldFromCatalog(
     },
     groupName,
     true,
-    signal,
+    signal
   );
 }

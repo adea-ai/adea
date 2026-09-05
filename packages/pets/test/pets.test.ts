@@ -16,7 +16,7 @@ describe("pets package catalog", () => {
 
   test("includes the animated pets used by the Home scene", () => {
     expect(petAssetCatalog.map((asset) => asset.id)).toEqual(
-      expect.arrayContaining(["dog", "cat"]),
+      expect.arrayContaining(["dog", "cat"])
     );
   });
 });

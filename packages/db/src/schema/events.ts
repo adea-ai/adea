@@ -34,7 +34,7 @@ export const workspaceEvents = appSchema.table(
     uniqueIndex("workspace_events_sequence_uidx").on(table.sequence),
     index("workspace_events_replay_idx").on(table.workspaceId, table.sequence),
     index("workspace_events_type_idx").on(table.workspaceId, table.eventType),
-  ],
+  ]
 );
 
 export const outboxStatus = appSchema.enum("outbox_status", [
@@ -68,7 +68,7 @@ export const commandOutbox = appSchema.table(
     check("command_outbox_attempts_nonnegative", sql`${table.attempts} >= 0`),
     index("command_outbox_delivery_idx").on(table.status, table.availableAt),
     index("command_outbox_workspace_idx").on(table.workspaceId, table.createdAt),
-  ],
+  ]
 );
 
 export const eventInbox = appSchema.table(
@@ -86,5 +86,5 @@ export const eventInbox = appSchema.table(
   (table) => [
     unique("event_inbox_source_event_unique").on(table.source, table.sourceEventId),
     index("event_inbox_unprocessed_idx").on(table.processedAt, table.receivedAt),
-  ],
+  ]
 );

@@ -98,14 +98,14 @@ export async function desktopExchangeResponse(request: Request) {
   } catch {
     return Response.json(
       { error: "Desktop authorization exchange failed" },
-      { headers: desktopCorsHeaders(origin, trustedOrigins), status: 400 },
+      { headers: desktopCorsHeaders(origin, trustedOrigins), status: 400 }
     );
   }
 }
 
 export async function desktopSessionResponse(
   request: Request,
-  action: "logout" | "refresh" | "revoke",
+  action: "logout" | "refresh" | "revoke"
 ) {
   const origin = request.headers.get("origin") ?? "";
   const trustedOrigins = desktopTrustedOrigins();
@@ -124,7 +124,7 @@ export async function desktopSessionResponse(
   } catch {
     return Response.json(
       { error: "Desktop session is unavailable" },
-      { headers: desktopCorsHeaders(origin, trustedOrigins), status: 401 },
+      { headers: desktopCorsHeaders(origin, trustedOrigins), status: 401 }
     );
   }
 }

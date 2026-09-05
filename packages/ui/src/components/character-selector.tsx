@@ -71,7 +71,7 @@ export function CharacterSelector({
   const [expanded, setExpanded] = useState(
     () =>
       options.length <= maxVisible ||
-      !options.slice(0, maxVisible).some((option) => option.id === value),
+      !options.slice(0, maxVisible).some((option) => option.id === value)
   );
   const hiddenCount = options.length - maxVisible;
   const visibleOptions = expanded ? options : options.slice(0, maxVisible);
@@ -94,13 +94,13 @@ export function CharacterSelector({
                 "hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
                 selected
                   ? "border-primary bg-accent text-accent-foreground"
-                  : "border-border bg-background",
+                  : "border-border bg-background"
               )}
             >
               <span
                 className={cn(
                   "relative flex size-8 items-center justify-center overflow-hidden rounded-lg bg-muted",
-                  selected && "bg-primary text-primary-foreground",
+                  selected && "bg-primary text-primary-foreground"
                 )}
               >
                 {option.iconUrl ? (

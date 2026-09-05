@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@agent-hq/types'
+import { useEffect, useState } from "react";
+import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from "@agent-hq/types";
 import {
   CheckCheck,
   File,
@@ -8,97 +8,101 @@ import {
   Pencil,
   RotateCcw,
   Trash2,
-} from 'lucide-react'
+} from "lucide-react";
 
-import type { PrivateContentResolver } from './platform'
-import { ConversationAvatar } from './conversation-avatar'
+import type { PrivateContentResolver } from "./platform";
+import { ConversationAvatar } from "./conversation-avatar";
 
 function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
-  if (message.sender.kind === 'user') return 'You'
-  if (message.sender.kind === 'system') return 'Agent HQ'
-  const agentId = message.sender.agentId
-  return agents.find(({ id }) => id === agentId)?.name ?? 'Agent'
+  if (message.sender.kind === "user") return "You";
+  if (message.sender.kind === "system") return "Agent HQ";
+  const agentId = message.sender.agentId;
+  return agents.find(({ id }) => id === agentId)?.name ?? "Agent";
 }
 
 function MessageBody({
   message,
   privateContent,
 }: {
-  message: MessageSummary
-  privateContent?: PrivateContentResolver
+  message: MessageSummary;
+  privateContent?: PrivateContentResolver;
 }) {
-  const [resolvedBody, setResolvedBody] = useState<string | null>(null)
-  const [resolutionState, setResolutionState] = useState<'idle' | 'loading' | 'unavailable'>('idle')
+  const [resolvedBody, setResolvedBody] = useState<string | null>(null);
+  const [resolutionState, setResolutionState] = useState<"idle" | "loading" | "unavailable">(
+    "idle"
+  );
   useEffect(() => {
-    let active = true
-    setResolvedBody(null)
+    let active = true;
+    setResolvedBody(null);
     if (!message.bodyContentRefId || message.bodyText || !privateContent) {
-      setResolutionState('idle')
+      setResolutionState("idle");
       return () => {
-        active = false
-      }
+        active = false;
+      };
     }
-    setResolutionState('loading')
+    setResolutionState("loading");
     void privateContent
       .read({ contentId: message.bodyContentRefId, workspaceId: message.workspaceId })
       .then(({ plaintext }) => {
-        if (!active) return
-        setResolvedBody(plaintext)
-        setResolutionState('idle')
+        if (!active) return;
+        setResolvedBody(plaintext);
+        setResolutionState("idle");
       })
       .catch(() => {
-        if (active) setResolutionState('unavailable')
-      })
+        if (active) setResolutionState("unavailable");
+      });
     return () => {
-      active = false
-    }
-  }, [message.bodyContentRefId, message.bodyText, message.workspaceId, privateContent])
-  if (message.deleted) return <p className="conventional-message__deleted">Message deleted</p>
+      active = false;
+    };
+  }, [message.bodyContentRefId, message.bodyText, message.workspaceId, privateContent]);
+  if (message.deleted) return <p className="conventional-message__deleted">Message deleted</p>;
   if (message.bodyContentRefId && !message.bodyText && !resolvedBody)
     return (
       <div
         className="conventional-private-content"
-        role={resolutionState === 'unavailable' ? 'alert' : 'status'}
+        role={resolutionState === "unavailable" ? "alert" : "status"}
       >
         <LockKeyhole aria-hidden="true" />
         <div>
           <strong>
-            {resolutionState === 'loading'
-              ? 'Opening private content…'
-              : 'Private content unavailable'}
+            {resolutionState === "loading"
+              ? "Opening private content…"
+              : "Private content unavailable"}
           </strong>
           <span>
             {privateContent
-              ? 'This device is not currently authorized for this content.'
-              : 'Open this conversation on its authorized desktop device.'}
+              ? "This device is not currently authorized for this content."
+              : "Open this conversation on its authorized desktop device."}
           </span>
         </div>
       </div>
-    )
-  const blocks = (message.bodyText ?? resolvedBody ?? '').split(/(```[\s\S]*?```)/g).filter(Boolean)
+    );
+  const blocks = (message.bodyText ?? resolvedBody ?? "")
+    .split(/(```[\s\S]*?```)/g)
+    .filter(Boolean);
   return (
     <div className="conventional-message__body">
       {blocks.map((block, index) =>
-        block.startsWith('```') && block.endsWith('```') ? (
+        block.startsWith("```") && block.endsWith("```") ? (
           <pre key={index} tabIndex={0} aria-label="Code block">
-            <code>{block.slice(3, -3).replace(/^\w+\n/, '')}</code>
+            <code>{block.slice(3, -3).replace(/^\w+\n/, "")}</code>
           </pre>
         ) : (
           <p key={index}>{block}</p>
         )
       )}
     </div>
-  )
+  );
 }
 
 function ArtifactCard({
   artifactId,
   artifact,
 }: {
-  artifact?: ArtifactSummary
-  artifactId: string
+  artifact?: ArtifactSummary;
+  artifactId: string;
 }) {
-  const unavailable = !artifact || artifact.availability !== 'available'
+  const unavailable = !artifact || artifact.availability !== "available";
   return (
     <article
       className="conventional-artifact-card"
@@ -106,17 +110,17 @@ function ArtifactCard({
     >
       <File aria-hidden="true" />
       <div>
-        <strong>{artifact?.filename ?? 'Unavailable Artifact'}</strong>
+        <strong>{artifact?.filename ?? "Unavailable Artifact"}</strong>
         <span>
-          {artifact?.deletionState === 'deleted'
-            ? 'Deleted'
+          {artifact?.deletionState === "deleted"
+            ? "Deleted"
             : unavailable
-              ? 'Unavailable'
+              ? "Unavailable"
               : `${artifact.mediaType} · ${artifact.sizeBytes.toLocaleString()} bytes`}
         </span>
       </div>
     </article>
-  )
+  );
 }
 
 export function MessageRow({
@@ -133,25 +137,25 @@ export function MessageRow({
   retry,
   task,
 }: Readonly<{
-  agents: readonly AgentSummary[]
-  artifacts: ReadonlyMap<string, ArtifactSummary>
-  highlighted?: boolean
-  message: MessageSummary
-  onDelete?: () => void
-  onEdit?: () => void
-  onOpenTask?: (taskId: string) => void
-  onOpenThread?: (messageId: string) => void
-  privateContent?: PrivateContentResolver
-  pending?: boolean
-  retry?: () => void
-  task?: TaskSummary
+  agents: readonly AgentSummary[];
+  artifacts: ReadonlyMap<string, ArtifactSummary>;
+  highlighted?: boolean;
+  message: MessageSummary;
+  onDelete?: () => void;
+  onEdit?: () => void;
+  onOpenTask?: (taskId: string) => void;
+  onOpenThread?: (messageId: string) => void;
+  privateContent?: PrivateContentResolver;
+  pending?: boolean;
+  retry?: () => void;
+  task?: TaskSummary;
 }>) {
-  const label = senderLabel(message, agents)
-  const senderAgentId = message.sender.kind === 'agent' ? message.sender.agentId : undefined
-  const senderAgent = senderAgentId ? agents.find(({ id }) => id === senderAgentId) : undefined
+  const label = senderLabel(message, agents);
+  const senderAgentId = message.sender.kind === "agent" ? message.sender.agentId : undefined;
+  const senderAgent = senderAgentId ? agents.find(({ id }) => id === senderAgentId) : undefined;
   return (
     <article
-      className={`conventional-message conventional-message--${message.sender.kind}${highlighted ? ' conventional-message--highlighted' : ''}`}
+      className={`conventional-message conventional-message--${message.sender.kind}${highlighted ? " conventional-message--highlighted" : ""}`}
       data-message-id={message.id}
       tabIndex={highlighted ? -1 : undefined}
       aria-busy={pending || undefined}
@@ -185,13 +189,13 @@ export function MessageRow({
           ) : null}
           <div className="conventional-message__meta">
             <time dateTime={message.createdAt}>
-              {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
+              {new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
                 new Date(message.createdAt)
               )}
             </time>
             {message.editedAt ? <span>edited</span> : null}
             {pending ? <span role="status">sending…</span> : null}
-            {message.sender.kind === 'user' ? (
+            {message.sender.kind === "user" ? (
               <span className="conventional-message__receipt" aria-label="Delivered">
                 <CheckCheck aria-hidden="true" />
               </span>
@@ -226,5 +230,5 @@ export function MessageRow({
         </footer>
       </div>
     </article>
-  )
+  );
 }

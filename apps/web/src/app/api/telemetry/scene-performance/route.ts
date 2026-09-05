@@ -38,7 +38,7 @@ export async function POST(request: Request): Promise<Response> {
   const report = parseScenePerformanceReport(value);
   if (!report) return NextResponse.json({ error: "invalid_report" }, { status: 422 });
   console.info(
-    `${SCENE_TELEMETRY_LOG_PREFIX}${JSON.stringify(createSceneTelemetryEnvelope(report))}`,
+    `${SCENE_TELEMETRY_LOG_PREFIX}${JSON.stringify(createSceneTelemetryEnvelope(report))}`
   );
   return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
 }

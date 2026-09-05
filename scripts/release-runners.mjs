@@ -32,7 +32,7 @@ const legacyMacCargoTarget = join(
   "apps",
   "desktop",
   "src-tauri",
-  "target",
+  "target"
 );
 const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
 const linuxBuilder = "agent-hq-release-builder";
@@ -56,7 +56,7 @@ function run(command, args, { capture = false, cwd = root, displayArgs = args } 
   if (result.status !== 0) {
     const detail = capture ? (result.stderr || result.stdout).trim() : "";
     throw new Error(
-      `${command} ${displayArgs.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`,
+      `${command} ${displayArgs.join(" ")} failed with exit code ${result.status}${detail ? `: ${detail}` : ""}`
     );
   }
   return capture ? result.stdout.trim() : "";
@@ -94,7 +94,7 @@ function registrationToken() {
       "--jq",
       ".token",
     ],
-    { capture: true },
+    { capture: true }
   );
 }
 
@@ -108,7 +108,7 @@ function runnerStatus(name) {
       "--jq",
       `.runners[] | select(.name == "${name}") | .status`,
     ],
-    { capture: true },
+    { capture: true }
   );
 }
 
@@ -122,7 +122,7 @@ function runnerId(name) {
       "--jq",
       `.runners[] | select(.name == "${name}") | .id`,
     ],
-    { capture: true },
+    { capture: true }
   );
 }
 
@@ -133,7 +133,7 @@ function deleteRunnerRegistration(name) {
     const result = spawnSync(
       "gh",
       ["api", "--method", "DELETE", `repos/${repository}/actions/runners/${id}`],
-      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
     );
     if (result.error) throw result.error;
     if (result.status === 0) return;
@@ -214,7 +214,7 @@ function ensureMacRunner() {
       {
         cwd: macRunnerRoot,
         displayArgs: ["--unattended", "--replace", "--url", `https://github.com/${repository}`],
-      },
+      }
     );
   }
 }
@@ -285,7 +285,7 @@ function startLinuxRunner() {
   ];
   run("docker", dockerArgs, {
     displayArgs: dockerArgs.map((arg) =>
-      arg.startsWith("RUNNER_TOKEN=") ? "RUNNER_TOKEN=***" : arg,
+      arg.startsWith("RUNNER_TOKEN=") ? "RUNNER_TOKEN=***" : arg
     ),
   });
   waitForRunner(linuxRunnerName);
@@ -301,7 +301,7 @@ function start() {
       stop();
     } catch (cleanupError) {
       console.error(
-        `release-runners: cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        `release-runners: cleanup also failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`
       );
     }
     throw error;
@@ -361,7 +361,7 @@ function clean() {
         "--format",
         "{{.Repository}}:{{.Tag}}",
       ],
-      { capture: true },
+      { capture: true }
     )
       .split("\n")
       .filter(Boolean);
@@ -372,7 +372,7 @@ function clean() {
       runAllowMissing(
         "docker",
         ["buildx", "rm", "--force", linuxBuilder],
-        ["no builder", "not found"],
+        ["no builder", "not found"]
       );
     }
   }

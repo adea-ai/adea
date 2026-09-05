@@ -65,7 +65,7 @@ function ensureLinuxDesktopDependencies() {
   if (missingPackages.length === 0) return;
   if (!commandAvailable("sudo", ["-n", "true"])) {
     throw new Error(
-      `Linux desktop dependencies are missing (${missingPackages.join(", ")}) and passwordless sudo is unavailable`,
+      `Linux desktop dependencies are missing (${missingPackages.join(", ")}) and passwordless sudo is unavailable`
     );
   }
 
@@ -75,7 +75,7 @@ function ensureLinuxDesktopDependencies() {
     "sudo",
     ["apt-get", "install", "-y", ...missingPackages, "libayatana-appindicator3-dev", "patchelf"],
     repoRoot,
-    300_000,
+    300_000
   );
 }
 
@@ -83,6 +83,15 @@ const desktopRoot = resolve(repoRoot, "apps/desktop");
 const desktopRustRoot = resolve(desktopRoot, "src-tauri");
 const mobileRoot = resolve(repoRoot, "apps/mobile");
 
+// Typechecks resolve workspace packages through their built dist output, so
+// build each app's dependency closure first. A fresh checkout (like CI) has
+// no dist output yet, and raw tsc would fail to resolve @agent-hq/* imports.
+run(
+  "desktop workspace builds",
+  bun,
+  ["x", "turbo", "run", "build", "--filter=@agent-hq/desktop..."],
+  repoRoot
+);
 run("desktop TypeScript smoke", bun, ["run", "typecheck"], desktopRoot);
 ensureLinuxDesktopDependencies();
 run(
@@ -90,6 +99,14 @@ run(
   "cargo",
   ["check", "--locked", "--manifest-path", resolve(desktopRustRoot, "Cargo.toml")],
   repoRoot,
+  // Cold runners download the toolchain and compile crates from scratch.
+  600_000
+);
+run(
+  "mobile workspace builds",
+  bun,
+  ["x", "turbo", "run", "build", "--filter=@agent-hq/mobile..."],
+  repoRoot
 );
 run("mobile TypeScript smoke", bun, ["run", "typecheck"], mobileRoot);
 run("mobile Capacitor sync smoke", bun, ["run", "sync"], mobileRoot);
@@ -134,7 +151,7 @@ if (platformChecks[0].available && platformChecks[0].toolchainAvailable) {
     ["--no-daemon", "assembleDebug"],
     androidRoot,
     600_000,
-    androidEnvironment(),
+    androidEnvironment()
   );
 }
 
@@ -159,7 +176,7 @@ if (platformChecks[1].available && platformChecks[1].toolchainAvailable) {
       resolve(tmpdir(), "agent-hq-ios-derived-data"),
     ],
     repoRoot,
-    300_000,
+    300_000
   );
 }
 

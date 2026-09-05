@@ -21,7 +21,7 @@ describe("database connection resolution", () => {
       resolveDatabaseConnectionString({
         DATABASE_URL: VALID_URL,
         NEXT_PUBLIC_DATABASE_URL: VALID_URL,
-      }),
+      })
     ).toThrow("must never be client-exposed");
   });
 

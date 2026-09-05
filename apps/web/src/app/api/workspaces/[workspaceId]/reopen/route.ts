@@ -20,7 +20,7 @@ export function OPTIONS(request: Request) {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ workspaceId: string }> },
+  { params }: { params: Promise<{ workspaceId: string }> }
 ) {
   const rejected = guardDesktopWorkspaceRequest(request);
   if (rejected) return rejected;
@@ -31,14 +31,14 @@ export async function POST(
     resolution.principal,
     "workspace.update",
     workspaceId,
-    { includeArchived: true },
+    { includeArchived: true }
   );
   if (!authorization.allowed) return workspaceUnavailableResponse(request);
   try {
     const workspace = await reopenWorkspace(
       applicationDatabase(),
       workspaceId,
-      resolution.principal,
+      resolution.principal
     );
     return workspaceJsonResponse({ workspace }, resolution, request);
   } catch {

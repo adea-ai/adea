@@ -40,7 +40,7 @@ export async function handleNeonAuthRequest(
   method: RouteMethod,
   request: Request,
   context: RouteContext,
-  environment: AuthEnvironment = process.env,
+  environment: AuthEnvironment = process.env
 ): Promise<Response> {
   const { auth, config } = server(environment);
   const origin = request.headers.get("origin") ?? undefined;

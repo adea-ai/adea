@@ -18,11 +18,7 @@ import {
 import { createScenePerformanceTelemetry } from "./performance";
 import { createSceneLoadScope } from "./loading";
 import type { SceneZone, StaticFieldAssetUrls } from "@agent-hq/asset-manifests";
-import type {
-  Collider,
-  KinematicCharacterController,
-  World,
-} from "@dimforge/rapier3d-compat";
+import type { Collider, KinematicCharacterController, World } from "@dimforge/rapier3d-compat";
 
 type RapierModule = typeof import("@dimforge/rapier3d-compat").default;
 let RAPIER: RapierModule;
@@ -343,7 +339,7 @@ export type SceneDebugApi = {
     y?: number,
     yaw?: number,
     bodyYaw?: number,
-    snapToGround?: boolean,
+    snapToGround?: boolean
   ) => void;
   /** Return whether a player capsule can occupy the given center position. */
   isSpawnSafe: (x: number, y: number, z: number) => boolean;
@@ -374,7 +370,7 @@ export type SceneDebugApi = {
    *  can be passed to removePropCollider. */
   addBoxCollider: (
     halfExtents: readonly [number, number, number],
-    translation: readonly [number, number, number],
+    translation: readonly [number, number, number]
   ) => unknown | null;
   /** Create a static trimesh collider from a BufferGeometry (vertices and
    *  indices in world space, already scaled by the caller). */
@@ -606,7 +602,7 @@ function createStaticCollider(
   world: World,
   mesh: THREE.Mesh,
   exclusionAreas: readonly CollisionExclusionArea[] = EMPTY_COLLISION_EXCLUSION_AREAS,
-  instanceMatrix?: THREE.Matrix4,
+  instanceMatrix?: THREE.Matrix4
 ): Collider | null {
   const position = mesh.geometry.getAttribute("position");
   if (!position || position.count < 3) return null;
@@ -686,7 +682,7 @@ function shouldSkipCollisionMesh(
   mesh: THREE.Mesh,
   allowCollisionLayer: boolean,
   collisionIncludePatterns: readonly RegExp[] = EMPTY_COLLISION_INCLUDE_PATTERNS,
-  trustedGeneratedLayer = false,
+  trustedGeneratedLayer = false
 ): boolean {
   if (!mesh.visible) return true;
 
@@ -733,7 +729,7 @@ function addSceneColliders(
   meshFilter: (mesh: THREE.Mesh) => boolean = () => true,
   collisionIncludePatterns: readonly RegExp[] = EMPTY_COLLISION_INCLUDE_PATTERNS,
   createdColliders?: Collider[],
-  trustedGeneratedLayer = false,
+  trustedGeneratedLayer = false
 ): number {
   let created = 0;
   let consecutiveFailures = 0;
@@ -746,7 +742,7 @@ function addSceneColliders(
         object,
         allowCollisionLayer,
         collisionIncludePatterns,
-        trustedGeneratedLayer,
+        trustedGeneratedLayer
       )
     )
       return;
@@ -757,7 +753,7 @@ function addSceneColliders(
       // whole scene load: the remaining meshes simply have no physics.
       halted = true;
       console.warn(
-        `[Agent HQ] collider creation failed ${consecutiveFailures} times in a row; skipping remaining collision meshes in ${root.name || "layer"}`,
+        `[Agent HQ] collider creation failed ${consecutiveFailures} times in a row; skipping remaining collision meshes in ${root.name || "layer"}`
       );
       return;
     }
@@ -793,7 +789,7 @@ function createFallbackFloorCollider(
   world: World,
   bounds: THREE.Box3,
   playerPosition: THREE.Vector3,
-  playerHeight: number,
+  playerHeight: number
 ): Collider | null {
   const floorY = playerPosition.y - playerHeight / 2;
   const centerX = (bounds.min.x + bounds.max.x) / 2;
@@ -847,7 +843,7 @@ function collectWaterZones(root: THREE.Object3D): WaterZone[] {
 function findWaterZone(
   zones: readonly WaterZone[],
   position: THREE.Vector3,
-  playerHeight: number,
+  playerHeight: number
 ): WaterZone | null {
   const feetY = position.y - playerHeight / 2;
   // A scene can carry overlapping thin water sheets (an ocean floor plane
@@ -1045,7 +1041,7 @@ function getIndexedComponentData(geometry: THREE.BufferGeometry): IndexedCompone
     trianglesByComponent[component].push(
       indices[triangle * 3],
       indices[triangle * 3 + 1],
-      indices[triangle * 3 + 2],
+      indices[triangle * 3 + 2]
     );
   }
   return { triangleComponents, trianglesByComponent };
@@ -1053,7 +1049,7 @@ function getIndexedComponentData(geometry: THREE.BufferGeometry): IndexedCompone
 
 function cloneGeometryWithIndices(
   source: THREE.BufferGeometry,
-  indices: readonly number[],
+  indices: readonly number[]
 ): THREE.BufferGeometry {
   const geometry = source.clone();
   geometry.clearGroups();
@@ -1068,7 +1064,7 @@ function cloneGeometryWithIndices(
 
 function applySceneMaterialOverrides(
   root: THREE.Object3D,
-  overrides: readonly SceneMaterialOverride[],
+  overrides: readonly SceneMaterialOverride[]
 ): void {
   if (overrides.length === 0) return;
   root.traverse((object) => {
@@ -1080,11 +1076,11 @@ function applySceneMaterialOverrides(
       const componentData = getIndexedComponentData(object.geometry);
       const componentIndices = componentData
         ? componentOverride.components.flatMap(
-            (component) => componentData.trianglesByComponent[component - 1] ?? [],
+            (component) => componentData.trianglesByComponent[component - 1] ?? []
           )
         : [];
       const selectedComponents = new Set(
-        componentOverride.components.map((component) => component - 1),
+        componentOverride.components.map((component) => component - 1)
       );
       if (componentData && componentIndices.length > 0) {
         const originalIndex = object.geometry.index.array;
@@ -1094,7 +1090,7 @@ function applySceneMaterialOverrides(
           remainingIndices.push(
             originalIndex[triangle * 3],
             originalIndex[triangle * 3 + 1],
-            originalIndex[triangle * 3 + 2],
+            originalIndex[triangle * 3 + 2]
           );
         }
         const componentMesh = object.clone();
@@ -1305,7 +1301,7 @@ export function SceneHost({
     const loadingStartedAt = performance.now();
 
     const scaleBounds = <T extends { xMin: number; xMax: number; zMin: number; zMax: number }>(
-      bounds: T,
+      bounds: T
     ): T => ({
       ...bounds,
       xMin: bounds.xMin * sceneScale,
@@ -1344,7 +1340,7 @@ export function SceneHost({
             zMin: volume.zMin * sceneScale,
             zMax: volume.zMax * sceneScale,
             surfaceY: volume.surfaceY * sceneScale,
-          },
+          }
     );
 
     let disposed = false;
@@ -1352,7 +1348,7 @@ export function SceneHost({
     const editorOverridesRequest: Promise<SceneEditorOverrides> = editorOverridesUrl
       ? fetch(editorOverridesUrl, { cache: "no-store", signal: loadScope.signal })
           .then((response) =>
-            response.ok ? (response.json() as Promise<SceneEditorOverrides>) : { objects: {} },
+            response.ok ? (response.json() as Promise<SceneEditorOverrides>) : { objects: {} }
           )
           .catch(() => ({ objects: {} }))
       : Promise.resolve({ objects: {} });
@@ -1391,7 +1387,7 @@ export function SceneHost({
             ? HIGH_END_PIXEL_RATIO
             : qualityTier === "standard"
               ? STANDARD_PIXEL_RATIO
-              : LOW_END_PIXEL_RATIO,
+              : LOW_END_PIXEL_RATIO
         );
         candidate = new THREE.WebGLRenderer({
           canvas,
@@ -1447,7 +1443,7 @@ export function SceneHost({
     });
     const screenBackgroundMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(2, 2),
-      screenBackgroundMaterial,
+      screenBackgroundMaterial
     );
     screenBackgroundMesh.frustumCulled = false;
     screenBackgroundMesh.visible = false;
@@ -1459,7 +1455,7 @@ export function SceneHost({
           ? new THREE.Fog(
               environment.fog.color,
               environment.fog.near ?? 1,
-              environment.fog.far ?? 500,
+              environment.fog.far ?? 500
             )
           : new THREE.FogExp2(environment.fog.color, environment.fog.density ?? 0.002);
     } else {
@@ -1495,7 +1491,7 @@ export function SceneHost({
     const playerPosition = new THREE.Vector3(
       startPosition.x * sceneScale,
       startPosition.y * sceneScale,
-      startPosition.z * sceneScale,
+      startPosition.z * sceneScale
     );
     const clickNavigationTarget = new THREE.Vector3();
     const clickNavigationDirection = new THREE.Vector3();
@@ -1513,7 +1509,7 @@ export function SceneHost({
         opacity: 0.9,
         side: THREE.DoubleSide,
         transparent: true,
-      }),
+      })
     );
     navigationIndicator.scale.setScalar(runtimeClickNavigationIndicatorScale);
     navigationIndicator.name = "scene-editor-click-navigation-indicator";
@@ -1593,11 +1589,7 @@ export function SceneHost({
         intensity: 2.2,
       };
       scene.add(
-        new THREE.HemisphereLight(
-          hemisphere.skyColor,
-          hemisphere.groundColor,
-          hemisphere.intensity,
-        ),
+        new THREE.HemisphereLight(hemisphere.skyColor, hemisphere.groundColor, hemisphere.intensity)
       );
     }
     const directionalLights = environment?.directionalLights ?? [
@@ -1630,7 +1622,7 @@ export function SceneHost({
           config.distance ?? 50,
           config.angle ?? Math.PI / 6,
           config.penumbra ?? 0.7,
-          config.decay ?? 1.5,
+          config.decay ?? 1.5
         );
         spotlight.position.copy(position);
         spotlight.target.position.copy(target);
@@ -1652,7 +1644,7 @@ export function SceneHost({
               blending: THREE.AdditiveBlending,
               transparent: true,
               toneMapped: false,
-            }),
+            })
           );
           beam.name = "Scene spotlight beam";
           beam.position.copy(position).addScaledVector(direction, 0.5);
@@ -1710,7 +1702,7 @@ export function SceneHost({
       const rect = activeRenderer.domElement.getBoundingClientRect();
       navigationPointer.set(
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1
       );
       navigationRaycaster.setFromCamera(navigationPointer, camera);
       // The visual floor is allowed to have gaps, room overrides, or meshes
@@ -1726,11 +1718,11 @@ export function SceneHost({
       if (runtimeClickNavigationBounds) {
         point.x = Math.max(
           runtimeClickNavigationBounds.xMin,
-          Math.min(runtimeClickNavigationBounds.xMax, point.x),
+          Math.min(runtimeClickNavigationBounds.xMax, point.x)
         );
         point.z = Math.max(
           runtimeClickNavigationBounds.zMin,
-          Math.min(runtimeClickNavigationBounds.zMax, point.z),
+          Math.min(runtimeClickNavigationBounds.zMax, point.z)
         );
       }
       return point;
@@ -1752,7 +1744,7 @@ export function SceneHost({
       // for normal-scale scenes.
       const defaultGridStep = Math.min(
         64 * sceneScale,
-        Math.max(24 * sceneScale, playerRadius * 0.75),
+        Math.max(24 * sceneScale, playerRadius * 0.75)
       );
       const hqGridStep = Math.min(64 * sceneScale, Math.max(6 * sceneScale, playerRadius * 0.25));
       const gridStep = sceneScale < 0.1 ? hqGridStep : defaultGridStep;
@@ -1813,7 +1805,7 @@ export function SceneHost({
             navigationCollider.shape,
             undefined,
             undefined,
-            navigationCollider,
+            navigationCollider
           ) == null;
         clickNavigationSafeCache.set(key, safe);
         return safe;
@@ -1826,7 +1818,7 @@ export function SceneHost({
           navigationCollider.shape,
           undefined,
           undefined,
-          navigationCollider,
+          navigationCollider
         ) == null;
 
       let goal = requestedGoal;
@@ -1955,11 +1947,11 @@ export function SceneHost({
           .slice(0, 4)
           .map(
             ([offsetX, offsetZ]) =>
-              `${offsetX},${offsetZ}:${isSafe({ x: start.x + offsetX, z: start.z + offsetZ })}`,
+              `${offsetX},${offsetZ}:${isSafe({ x: start.x + offsetX, z: start.z + offsetZ })}`
           )
           .join(" ");
         debugLog(
-          `[Agent HQ] ${label} click navigation failed visited=${visited} start=${start.x},${start.z} goal=${goal.x},${goal.z} goalSafe=${isSafe(goal)} nearby=${nearby}`,
+          `[Agent HQ] ${label} click navigation failed visited=${visited} start=${start.x},${start.z} goal=${goal.x},${goal.z} goalSafe=${isSafe(goal)} nearby=${nearby}`
         );
         return [];
       }
@@ -2034,7 +2026,7 @@ export function SceneHost({
       clickNavigationPath.push(...buildClickNavigationPath(hit.x, hit.z));
       clickNavigationPathIndex = 0;
       debugLog(
-        `[Agent HQ] ${label} click navigation target=${hit.x.toFixed(1)},${hit.z.toFixed(1)} path=${clickNavigationPath.length}`,
+        `[Agent HQ] ${label} click navigation target=${hit.x.toFixed(1)},${hit.z.toFixed(1)} path=${clickNavigationPath.length}`
       );
       // A missing path means the target is blocked or outside the walkable
       // map. Do not fall back to steering directly into a wall.
@@ -2097,14 +2089,12 @@ export function SceneHost({
           if (!backgroundTextureUrl) return Promise.resolve<THREE.Texture | null>(null);
           pendingBackground ??= telemetry.track(
             "background",
-            new THREE.TextureLoader(manager)
-              .loadAsync(backgroundTextureUrl)
-              .catch((cause) => {
-                const message =
-                  cause instanceof Error ? cause.message : "unknown background texture error";
-                console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
-                return null;
-              }),
+            new THREE.TextureLoader(manager).loadAsync(backgroundTextureUrl).catch((cause) => {
+              const message =
+                cause instanceof Error ? cause.message : "unknown background texture error";
+              console.warn(`[Agent HQ] ${label} background unavailable: ${message}`);
+              return null;
+            })
           );
           return pendingBackground;
         };
@@ -2142,7 +2132,7 @@ export function SceneHost({
         const activateZoneCollision = (
           id: string,
           collisionScene: THREE.Object3D | null,
-          generatedCollisionScenes: readonly THREE.Object3D[] = EMPTY_OBJECTS,
+          generatedCollisionScenes: readonly THREE.Object3D[] = EMPTY_OBJECTS
         ) => {
           if (!world) return 0;
           if (
@@ -2162,7 +2152,7 @@ export function SceneHost({
                 runtimeCollisionExclusionAreas,
                 undefined,
                 collisionIncludePatterns,
-                colliders,
+                colliders
               )
             : 0;
           for (const generatedScene of generatedCollisionScenes) {
@@ -2174,7 +2164,7 @@ export function SceneHost({
               undefined,
               collisionIncludePatterns,
               colliders,
-              true,
+              true
             );
           }
           zoneCollisionColliders.set(id, colliders);
@@ -2204,7 +2194,7 @@ export function SceneHost({
                 ...zoneAssetUrls.map((url) => loader.loadAsync(url)),
                 ...(zone.collisionAssetUrl ? [loader.loadAsync(zone.collisionAssetUrl)] : []),
                 ...(zone.collisionAssetUrls ?? []).map((url) => loader.loadAsync(url)),
-              ]),
+              ])
             )
             .then(async (loadedAssets) => {
               const zoneAssets = loadedAssets.slice(0, zoneAssetUrls.length);
@@ -2212,7 +2202,7 @@ export function SceneHost({
                 ? loadedAssets[zoneAssetUrls.length]
                 : null;
               const collisionAssets = loadedAssets.slice(
-                zoneAssetUrls.length + (zone.collisionAssetUrl ? 1 : 0),
+                zoneAssetUrls.length + (zone.collisionAssetUrl ? 1 : 0)
               );
               if (disposed) {
                 loadedAssets.forEach(({ scene: zoneScene }) => disposeObjectTree(zoneScene));
@@ -2249,7 +2239,7 @@ export function SceneHost({
                   ({ scene: collisionScene }) => {
                     applyZoneTransform(collisionScene, appliedZoneTransform);
                     return collisionScene;
-                  },
+                  }
                 );
                 activateZoneCollision(id, transformedCollisionScene, transformedCollisionAssets);
               }
@@ -2276,7 +2266,7 @@ export function SceneHost({
             if (!preloadDistance || !position) continue;
             const distance = Math.hypot(
               playerPosition.x - position[0] * sceneScale,
-              playerPosition.z - position[2] * sceneScale,
+              playerPosition.z - position[2] * sceneScale
             );
             if (distance <= preloadDistance) {
               if (!zoneRoots.has(zone.id) && !zonePromises.has(zone.id)) scheduleZoneLoad(zone.id);
@@ -2297,7 +2287,7 @@ export function SceneHost({
           window.dispatchEvent(
             new CustomEvent("agent-hq:scene-zone-unloading", {
               detail: { id, root: zoneRoot },
-            }),
+            })
           );
           zoneRoots.delete(id);
           unregisterZoneVisibility(zoneRoot);
@@ -2317,12 +2307,12 @@ export function SceneHost({
                 ? [telemetry.track("physics.asset", loader.loadAsync(collisionAssetUrl))]
                 : []),
               ...additionalCollisionAssetUrls.map((url, index) =>
-                telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url)),
+                telemetry.track(`physics.asset.${index + 2}`, loader.loadAsync(url))
               ),
             ]
           : [];
         const pendingAdditional = additionalAssetUrls.map((url) =>
-          guardPendingRejection(loader.loadAsync(url)),
+          guardPendingRejection(loader.loadAsync(url))
         );
         const requestedCharacterId = characterIdRef.current;
         const requestedCharacterConfiguration = characterConfigurationRef.current;
@@ -2338,11 +2328,11 @@ export function SceneHost({
                     loadCharacterPreview(
                       loader,
                       requestedCharacterId,
-                      requestedCharacterConfiguration,
-                    ),
+                      requestedCharacterConfiguration
+                    )
                   )
-                : loadCharacter(loader, requestedCharacterId, requestedCharacterConfiguration),
-            ),
+                : loadCharacter(loader, requestedCharacterId, requestedCharacterConfiguration)
+            )
           );
         // Runtime-generated catalog fields are independent of the base scene
         // and of one another. Begin their manifest/model requests during the
@@ -2357,18 +2347,18 @@ export function SceneHost({
             ? loader.loadAsync(staticFieldAssetUrls.foliage).then(({ scene }) => scene)
             : foliageManifestUrl
               ? import("@agent-hq/landscape/runtime").then(({ loadLandscapeField }) =>
-                  loadLandscapeField(loader, foliageManifestUrl, loadScope.signal),
+                  loadLandscapeField(loader, foliageManifestUrl, loadScope.signal)
                 )
               : null,
           staticFieldAssetUrls?.props
             ? loader.loadAsync(staticFieldAssetUrls.props).then(({ scene }) => scene)
             : propsManifestUrl
               ? import("@agent-hq/interior/runtime").then(({ loadPropsField }) =>
-                  loadPropsField(loader, propsManifestUrl, loadScope.signal),
+                  loadPropsField(loader, propsManifestUrl, loadScope.signal)
                 )
               : null,
         ].map((pending, index) =>
-          pending ? telemetry.track(`field.${fieldNames[index]}`, pending) : null,
+          pending ? telemetry.track(`field.${fieldNames[index]}`, pending) : null
         );
         const collisionFieldSources = [
           staticFieldCollisionAssetUrls?.foliage,
@@ -2388,9 +2378,9 @@ export function SceneHost({
                         return null;
                       }
                       return collisionScene;
-                    }),
+                    })
                   )
-                : null,
+                : null
             )
           : [];
         const applyLoadedBackground = (loadedBackground: THREE.Texture) => {
@@ -2442,7 +2432,7 @@ export function SceneHost({
           prepareLavaTextures(visual.scene);
         }
         const coplanarMaterialMeshes = new Set(
-          coplanarMaterialMeshNames.map((name) => THREE.PropertyBinding.sanitizeNodeName(name)),
+          coplanarMaterialMeshNames.map((name) => THREE.PropertyBinding.sanitizeNodeName(name))
         );
         if (coplanarMaterialMeshes.size > 0) {
           visual.scene.traverse((object) => {
@@ -2482,7 +2472,7 @@ export function SceneHost({
           Promise.allSettled(pendingCollisionFields),
         ]);
         const rejectedField = [...fieldResults, ...collisionFieldResults].find(
-          (result) => result.status === "rejected",
+          (result) => result.status === "rejected"
         );
         if (rejectedField?.status === "rejected") {
           [...fieldResults, ...collisionFieldResults].forEach((result) => {
@@ -2491,10 +2481,10 @@ export function SceneHost({
           throw rejectedField.reason;
         }
         const [foliage, props] = fieldResults.map((result) =>
-          result.status === "fulfilled" ? result.value : null,
+          result.status === "fulfilled" ? result.value : null
         );
         const collisionFields = collisionFieldResults.map((result) =>
-          result.status === "fulfilled" ? result.value : null,
+          result.status === "fulfilled" ? result.value : null
         );
         collisionFields.forEach((root) => {
           if (root) detachedCollisionRoots.add(root);
@@ -2538,10 +2528,10 @@ export function SceneHost({
           visible: boolean | null;
         }> = playerVisibilityGroups.map((group) => {
           const names = new Set(
-            (group.names ?? []).map((name) => THREE.PropertyBinding.sanitizeNodeName(name)),
+            (group.names ?? []).map((name) => THREE.PropertyBinding.sanitizeNodeName(name))
           );
           const prefixes = (group.namePrefixes ?? []).map((prefix) =>
-            THREE.PropertyBinding.sanitizeNodeName(prefix),
+            THREE.PropertyBinding.sanitizeNodeName(prefix)
           );
           const objects: THREE.Object3D[] = [];
           const addRoot = (root: THREE.Object3D | null) => {
@@ -2559,10 +2549,10 @@ export function SceneHost({
         const addVisibilityRoot = (root: THREE.Object3D) => {
           for (const state of visibilityStates) {
             const names = new Set(
-              (state.group.names ?? []).map((name) => THREE.PropertyBinding.sanitizeNodeName(name)),
+              (state.group.names ?? []).map((name) => THREE.PropertyBinding.sanitizeNodeName(name))
             );
             const prefixes = (state.group.namePrefixes ?? []).map((prefix) =>
-              THREE.PropertyBinding.sanitizeNodeName(prefix),
+              THREE.PropertyBinding.sanitizeNodeName(prefix)
             );
             root.traverse((object) => {
               if (
@@ -2589,7 +2579,7 @@ export function SceneHost({
           registerZoneVisibility(entryRoot);
         }
         debugLog(
-          `[Agent HQ] ${label} player visibility groups=${visibilityStates.map(({ objects }) => objects.length).join(",") || "none"}`,
+          `[Agent HQ] ${label} player visibility groups=${visibilityStates.map(({ objects }) => objects.length).join(",") || "none"}`
         );
         const updatePlayerVisibility = () => {
           for (const state of visibilityStates) {
@@ -2605,7 +2595,7 @@ export function SceneHost({
               object.visible = visible;
             });
             debugLog(
-              `[Agent HQ] ${label} player visibility visible=${visible} objects=${state.objects.length}`,
+              `[Agent HQ] ${label} player visibility visible=${visible} objects=${state.objects.length}`
             );
           }
         };
@@ -2625,12 +2615,12 @@ export function SceneHost({
             if (volume.zoneId && !zoneRoot) return [];
             const bounds = new THREE.Box3(
               new THREE.Vector3(volume.xMin, volume.surfaceY - 0.05, volume.zMin),
-              new THREE.Vector3(volume.xMax, volume.surfaceY, volume.zMax),
+              new THREE.Vector3(volume.xMax, volume.surfaceY, volume.zMax)
             );
             const surfacePoint = new THREE.Vector3(
               (volume.xMin + volume.xMax) / 2,
               volume.surfaceY,
-              (volume.zMin + volume.zMax) / 2,
+              (volume.zMin + volume.zMax) / 2
             );
             if (zoneRoot) {
               zoneRoot.updateMatrixWorld(true);
@@ -2646,7 +2636,7 @@ export function SceneHost({
         };
         refreshWaterZones();
         debugLog(
-          `[Agent HQ] ${label} water zones=${waterZones.length} surfaces=${waterZones.map(({ surfaceY }) => surfaceY.toFixed(3)).join(",") || "none"}`,
+          `[Agent HQ] ${label} water zones=${waterZones.length} surfaces=${waterZones.map(({ surfaceY }) => surfaceY.toFixed(3)).join(",") || "none"}`
         );
         let meshCount = 0;
         let invisibleMeshes = 0;
@@ -2664,10 +2654,10 @@ export function SceneHost({
         });
         const bounds = new THREE.Box3().setFromObject(visual.scene);
         debugLog(
-          `[Agent HQ] ${label} loaded meshes=${meshCount} invisibleMeshes=${invisibleMeshes} rootChildren=${visual.scene.children.length} transparentMaterials=${transparentMaterials} zeroOpacityMaterials=${zeroOpacityMaterials}`,
+          `[Agent HQ] ${label} loaded meshes=${meshCount} invisibleMeshes=${invisibleMeshes} rootChildren=${visual.scene.children.length} transparentMaterials=${transparentMaterials} zeroOpacityMaterials=${zeroOpacityMaterials}`
         );
         debugLog(
-          `[Agent HQ] ${label} bounds min=${bounds.min.toArray().join(",")} max=${bounds.max.toArray().join(",")} start=${playerPosition.toArray().join(",")}`,
+          `[Agent HQ] ${label} bounds min=${bounds.min.toArray().join(",")} max=${bounds.max.toArray().join(",")} start=${playerPosition.toArray().join(",")}`
         );
 
         let collisionRoot: THREE.Object3D | null = null;
@@ -2714,7 +2704,7 @@ export function SceneHost({
                 runtimeCollisionExclusionAreas,
                 undefined,
                 collisionIncludePatterns,
-                initialCollisionColliders,
+                initialCollisionColliders
               )
             : 0;
           if (separateCollisionRoot) {
@@ -2727,7 +2717,7 @@ export function SceneHost({
                 runtimeCollisionExclusionAreas,
                 undefined,
                 collisionIncludePatterns,
-                initialCollisionColliders,
+                initialCollisionColliders
               );
             }
           }
@@ -2739,7 +2729,7 @@ export function SceneHost({
               runtimeCollisionExclusionAreas,
               undefined,
               collisionIncludePatterns,
-              initialCollisionColliders,
+              initialCollisionColliders
             );
           });
           for (const field of collisionFields) {
@@ -2752,7 +2742,7 @@ export function SceneHost({
                 undefined,
                 collisionIncludePatterns,
                 initialCollisionColliders,
-                true,
+                true
               );
             }
           }
@@ -2781,7 +2771,7 @@ export function SceneHost({
                   fieldMeshFilter,
                   collisionIncludePatterns,
                   initialCollisionColliders,
-                  true,
+                  true
                 );
               }
             }
@@ -2790,12 +2780,12 @@ export function SceneHost({
             const descriptor = RAPIER.ColliderDesc.cuboid(
               collider.halfExtents[0] * sceneScale,
               collider.halfExtents[1] * sceneScale,
-              collider.halfExtents[2] * sceneScale,
+              collider.halfExtents[2] * sceneScale
             )
               .setTranslation(
                 collider.x * sceneScale,
                 collider.y * sceneScale,
-                collider.z * sceneScale,
+                collider.z * sceneScale
               )
               .setFriction(0.9);
             if (collider.rotation) {
@@ -2813,7 +2803,7 @@ export function SceneHost({
             } catch (cause) {
               console.warn(
                 `[Agent HQ] static collider at ${collider.x},${collider.z} unavailable`,
-                cause,
+                cause
               );
             }
           }
@@ -2822,7 +2812,7 @@ export function SceneHost({
               physicsWorld,
               colliderBounds,
               playerPosition,
-              playerHeight,
+              playerHeight
             )
               ? 1
               : 0;
@@ -2848,7 +2838,7 @@ export function SceneHost({
             try {
               const spawnRay = new RAPIER.Ray(
                 { x: playerPosition.x, y: playerPosition.y + 4, z: playerPosition.z },
-                { x: 0, y: -1, z: 0 },
+                { x: 0, y: -1, z: 0 }
               );
               const surface = physicsWorld.castRay(spawnRay, 20, true);
               if (surface) {
@@ -2861,13 +2851,13 @@ export function SceneHost({
                 const fallbackRaycaster = new THREE.Raycaster();
                 fallbackRaycaster.set(
                   new THREE.Vector3(playerPosition.x, playerPosition.y + 4, playerPosition.z),
-                  new THREE.Vector3(0, -1, 0),
+                  new THREE.Vector3(0, -1, 0)
                 );
                 const visualHits = fallbackRaycaster.intersectObjects(scene.children, true);
                 if (visualHits.length > 0) {
                   playerPosition.y = visualHits[0].point.y + playerHeight / 2;
                   console.info(
-                    `[Agent HQ] ${label} snapped spawn to visible ground y=${playerPosition.y}`,
+                    `[Agent HQ] ${label} snapped spawn to visible ground y=${playerPosition.y}`
                   );
                 }
               }
@@ -2883,7 +2873,7 @@ export function SceneHost({
           telemetry.mark("physics.ready");
         }
         debugLog(
-          `[Agent HQ] ${label} physics ready colliders=${colliderCount} player=${playerPosition.toArray().join(",")}`,
+          `[Agent HQ] ${label} physics ready colliders=${colliderCount} player=${playerPosition.toArray().join(",")}`
         );
 
         const coreAnimationKeys = [
@@ -2906,23 +2896,22 @@ export function SceneHost({
         // nothing else, so they load the reduced animation library immediately
         // instead of waiting for the deferred full set; the deferred load below
         // still tops up the remaining clips for a later camera switch.
-        const topDownAtLoad =
-          orthographicClickOnly && cameraController.viewMode === "orthographic";
+        const topDownAtLoad = orthographicClickOnly && cameraController.viewMode === "orthographic";
         // Reference characters use their own 352-bone deformation rig. Pass
         // the loaded target scene so the shared runtime clips can be retargeted
         // to its compatible deformation bones before the mixer is created.
         const pendingCoreAnimations =
           deferCharacterDetails && !topDownAtLoad
-          ? Promise.resolve({ clips: [], names: {} })
-          : telemetry.track(
-              "character.animations",
-              loadCharacterAnimations(
-            loader,
-            requestedCharacterId,
-            topDownAtLoad ? ["idle", "run"] : coreAnimationKeys,
-            loadedCharacter.scene,
-          ),
-            );
+            ? Promise.resolve({ clips: [], names: {} })
+            : telemetry.track(
+                "character.animations",
+                loadCharacterAnimations(
+                  loader,
+                  requestedCharacterId,
+                  topDownAtLoad ? ["idle", "run"] : coreAnimationKeys,
+                  loadedCharacter.scene
+                )
+              );
         let coreAnimations: Awaited<ReturnType<typeof loadCharacterAnimations>> = {
           clips: [],
           names: {},
@@ -2932,7 +2921,7 @@ export function SceneHost({
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : "unknown core animation error";
           console.warn(
-            `[Agent HQ] ${requestedCharacterId} core animation catalog partially unavailable: ${message}`,
+            `[Agent HQ] ${requestedCharacterId} core animation catalog partially unavailable: ${message}`
           );
         }
         const character = loadedCharacter.scene;
@@ -2985,13 +2974,14 @@ export function SceneHost({
         if (characterPreview && pendingPreviewApi) {
           const { updateCharacterConfiguration } = await pendingPreviewApi;
           characterPreviewUpdateRef.current = (id, configuration) => {
-            if (id !== configurableCharacterId || !configuration || characterRoot !== character) return;
+            if (id !== configurableCharacterId || !configuration || characterRoot !== character)
+              return;
             updateCharacterConfiguration(character, configuration);
             recalculateCharacterFraming();
           };
           characterPreviewUpdateRef.current(
             characterIdRef.current,
-            characterConfigurationRef.current,
+            characterConfigurationRef.current
           );
         }
         let runName = coreAnimations.names.run ?? loadedCharacter.clips[0]?.name;
@@ -3009,7 +2999,7 @@ export function SceneHost({
         jumpEndAction = jumpEndName ? controller.actions.get(jumpEndName) : undefined;
         swimmingAction = swimmingName ? controller.actions.get(swimmingName) : undefined;
         [locomotionAction, idleAction, jumpLoopAction, swimmingAction].forEach((action) =>
-          action?.setLoop(THREE.LoopRepeat, Infinity),
+          action?.setLoop(THREE.LoopRepeat, Infinity)
         );
         [jumpStartAction, jumpEndAction].forEach((action) => action?.setLoop(THREE.LoopOnce, 1));
         if (idleName) controller.play(idleName);
@@ -3024,7 +3014,7 @@ export function SceneHost({
         // of speculatively downloading the full library.
         let extendedAnimationsRequested = topDownAtLoad ? false : true;
         debugLog(
-          `[Agent HQ] ${requestedCharacterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`,
+          `[Agent HQ] ${requestedCharacterId} character ready clips=${characterClips.length} idle=${idleName ?? "fallback"} run=${runName ?? "fallback"} jump=${jumpName ?? "fallback"} swim=${swimmingName ?? "fallback"} bounds=${characterBounds.min.toArray().join(",")}..${characterBounds.max.toArray().join(",")}`
         );
 
         let activeAutostepHeight = 0.6;
@@ -3045,7 +3035,7 @@ export function SceneHost({
               loader,
               requestedCharacterId,
               coreAnimationKeys,
-              character,
+              character
             );
             if (disposed || !animationController) return;
             animationController.addClips(animations.clips);
@@ -3088,7 +3078,7 @@ export function SceneHost({
             const message =
               cause instanceof Error ? cause.message : "unknown deferred character detail error";
             console.warn(
-              `[Agent HQ] ${requestedCharacterId} deferred character details unavailable: ${message}`,
+              `[Agent HQ] ${requestedCharacterId} deferred character details unavailable: ${message}`
             );
           }
         };
@@ -3143,7 +3133,7 @@ export function SceneHost({
         const debugComponentForHit = (
           source: THREE.Mesh,
           faceIndex?: number,
-          point?: THREE.Vector3,
+          point?: THREE.Vector3
         ): THREE.Mesh => {
           if (source instanceof THREE.SkinnedMesh) return source;
           let data = debugComponentData.get(source.geometry);
@@ -3163,7 +3153,7 @@ export function SceneHost({
                 const centroid = new THREE.Vector3();
                 for (let corner = 0; corner < 3; corner += 1)
                   centroid.add(
-                    new THREE.Vector3().fromBufferAttribute(position, index[triangle * 3 + corner]),
+                    new THREE.Vector3().fromBufferAttribute(position, index[triangle * 3 + corner])
                   );
                 const nextDistance = centroid.multiplyScalar(1 / 3).distanceToSquared(local);
                 if (nextDistance < distance) {
@@ -3185,7 +3175,7 @@ export function SceneHost({
           proxy.name = `${source.name} component ${component + 1}`;
           proxy.geometry = cloneGeometryWithIndices(
             source.geometry,
-            data.trianglesByComponent[component],
+            data.trianglesByComponent[component]
           );
           proxy.material = Array.isArray(source.material)
             ? source.material[0].clone()
@@ -3220,7 +3210,7 @@ export function SceneHost({
             kept.push(
               index.array[triangle * 3],
               index.array[triangle * 3 + 1],
-              index.array[triangle * 3 + 2],
+              index.array[triangle * 3 + 2]
             );
           }
           source.geometry = cloneGeometryWithIndices(source.geometry, kept);
@@ -3340,13 +3330,13 @@ export function SceneHost({
                     undefined,
                     undefined,
                     undefined,
-                    (collider) => collider !== playerCollider,
+                    (collider) => collider !== playerCollider
                   );
                   if (floorCandidates.length > 0) {
                     floorY = floorCandidates.reduce((closest, candidate) =>
                       Math.abs(candidate - seededFloorY) < Math.abs(closest - seededFloorY)
                         ? candidate
-                        : closest,
+                        : closest
                     );
                   }
                 }
@@ -3359,7 +3349,7 @@ export function SceneHost({
                     undefined,
                     undefined,
                     undefined,
-                    (collider) => collider !== playerCollider,
+                    (collider) => collider !== playerCollider
                   );
                   if (surface) floorY = probeOriginY - surface.timeOfImpact;
                 }
@@ -3385,7 +3375,7 @@ export function SceneHost({
                   playerCollider.shape,
                   undefined,
                   undefined,
-                  playerCollider,
+                  playerCollider
                 ) == null
               );
             } catch {
@@ -3405,7 +3395,7 @@ export function SceneHost({
                   shape,
                   undefined,
                   undefined,
-                  playerCollider ?? undefined,
+                  playerCollider ?? undefined
                 ) == null;
               world.removeCollider(collider, true);
               return free;
@@ -3442,7 +3432,7 @@ export function SceneHost({
                 color: (material as THREE.Material & { color?: THREE.Color }).color?.getHexString(),
                 hasMap: Boolean((material as THREE.Material & { map?: THREE.Texture }).map),
                 mapComplete: Boolean(
-                  (material as THREE.Material & { map?: THREE.Texture }).map?.image,
+                  (material as THREE.Material & { map?: THREE.Texture }).map?.image
                 ),
               }));
               const instancedMeshes: THREE.InstancedMesh[] = [];
@@ -3513,7 +3503,7 @@ export function SceneHost({
               undefined,
               undefined,
               undefined,
-              (collider) => collider !== playerCollider,
+              (collider) => collider !== playerCollider
             );
             return hit ? 150 - hit.timeOfImpact : null;
           },
@@ -3534,7 +3524,7 @@ export function SceneHost({
               undefined,
               playerCollider ?? undefined,
               undefined,
-              (collider) => collider !== playerCollider,
+              (collider) => collider !== playerCollider
             );
             return surfaces.length > 0 ? Math.min(...surfaces) : null;
           },
@@ -3542,7 +3532,7 @@ export function SceneHost({
             const rect = activeRenderer.domElement.getBoundingClientRect();
             const pointer = new THREE.Vector2(
               ((clientX - rect.left) / rect.width) * 2 - 1,
-              -((clientY - rect.top) / rect.height) * 2 + 1,
+              -((clientY - rect.top) / rect.height) * 2 + 1
             );
             debugRaycaster.setFromCamera(pointer, camera);
             const hits = debugRaycaster
@@ -3601,7 +3591,7 @@ export function SceneHost({
               targetMesh && hitIndexOffset != null
                 ? targetMesh.geometry.groups.findIndex(
                     (group: { start: number; count: number; materialIndex: number }) =>
-                      hitIndexOffset >= group.start && hitIndexOffset < group.start + group.count,
+                      hitIndexOffset >= group.start && hitIndexOffset < group.start + group.count
                   )
                 : -1;
             const hitGroup =
@@ -3670,7 +3660,7 @@ export function SceneHost({
                           material: Array.isArray(target.material)
                             ? (target.material[group.materialIndex]?.name ?? null)
                             : target.material.name,
-                        }),
+                        })
                       ),
                     }
                   : null,
@@ -3687,7 +3677,7 @@ export function SceneHost({
                   debugHighlightOriginals.set(standard, standard.emissive.getHex());
                 }
                 standard.emissive.setHex(
-                  on ? 0x442200 : (debugHighlightOriginals.get(standard) ?? 0),
+                  on ? 0x442200 : (debugHighlightOriginals.get(standard) ?? 0)
                 );
                 standard.needsUpdate = true;
               }
@@ -3707,7 +3697,7 @@ export function SceneHost({
               const descriptor = RAPIER.ColliderDesc.cuboid(
                 halfExtents[0],
                 halfExtents[1],
-                halfExtents[2],
+                halfExtents[2]
               )
                 .setTranslation(translation[0], translation[1], translation[2])
                 .setFriction(0.9);
@@ -3766,14 +3756,14 @@ export function SceneHost({
               characterRoot.position.set(
                 playerPosition.x,
                 playerPosition.y - playerHeight / 2 - characterBottom + characterGroundOffset,
-                playerPosition.z,
+                playerPosition.z
               );
               characterRoot.rotation.set(0, characterYaw, 0);
             }
             characterTarget.set(
               playerPosition.x,
               playerPosition.y - playerHeight / 2 + cameraTargetOffset,
-              playerPosition.z,
+              playerPosition.z
             );
             cameraController.update(characterTarget, delta, Infinity);
             camera = cameraController.camera;
@@ -3785,7 +3775,7 @@ export function SceneHost({
             activeRenderer.render(scene, camera);
             telemetry.recordFrame(
               performance.now() - frameStartedAt,
-              activeRenderer.info.render.calls,
+              activeRenderer.info.render.calls
             );
             return;
           }
@@ -3926,7 +3916,7 @@ export function SceneHost({
               .multiplyScalar((inputZ / inputLength) * movementSpeed * delta)
               .addScaledVector(
                 right,
-                (inputX / inputLength) * movementSpeed * STRAFE_SPEED_FACTOR * delta,
+                (inputX / inputLength) * movementSpeed * STRAFE_SPEED_FACTOR * delta
               );
           }
 
@@ -4002,7 +3992,7 @@ export function SceneHost({
               `[Agent HQ] ${label} swimming=${isSwimming} surface=${waterAfterMovement?.surfaceY.toFixed(3) ?? "none"} position=${playerPosition
                 .toArray()
                 .map((value) => value.toFixed(2))
-                .join(",")}`,
+                .join(",")}`
             );
             setStatus(isSwimming ? `${readyStatus} · swimming` : readyStatus);
           }
@@ -4044,7 +4034,7 @@ export function SceneHost({
                 true,
                 undefined,
                 undefined,
-                probeCollider,
+                probeCollider
               );
               return hit
                 ? referenceWater.surfaceY + SWIM_FLOOR_PROBE_ORIGIN - hit.timeOfImpact
@@ -4096,7 +4086,7 @@ export function SceneHost({
                   true,
                   undefined,
                   undefined,
-                  playerCollider,
+                  playerCollider
                 );
                 if (climbHit) {
                   const bankX = playerPosition.x + climbDir.x * climbHit.timeOfImpact;
@@ -4111,7 +4101,7 @@ export function SceneHost({
                     true,
                     undefined,
                     undefined,
-                    playerCollider,
+                    playerCollider
                   );
                   const bankY = bankHit ? floorRay!.origin.y - bankHit.timeOfImpact : -Infinity;
                   if (
@@ -4122,7 +4112,7 @@ export function SceneHost({
                     climbTarget.set(
                       bankX + climbDir.x * CLIMB_EDGE_PAST,
                       bankY + playerHeight / 2,
-                      bankZ + climbDir.z * CLIMB_EDGE_PAST,
+                      bankZ + climbDir.z * CLIMB_EDGE_PAST
                     );
                     climbFrames = CLIMB_FRAMES;
                     isSwimming = false;
@@ -4184,7 +4174,7 @@ export function SceneHost({
               if (clickNavigationBlockedFrames >= 8) {
                 const replannedPath = buildClickNavigationPath(
                   clickNavigationTarget.x,
-                  clickNavigationTarget.z,
+                  clickNavigationTarget.z
                 );
                 clickNavigationPath.length = 0;
                 clickNavigationPath.push(...replannedPath);
@@ -4214,7 +4204,7 @@ export function SceneHost({
             characterRoot.position.set(
               playerPosition.x,
               playerPosition.y - playerHeight / 2 - characterBottom + characterGroundOffset,
-              playerPosition.z,
+              playerPosition.z
             );
             const facingMovement =
               topDownClickOnlyActive && clickNavigationSteering
@@ -4230,7 +4220,7 @@ export function SceneHost({
               const targetYaw = travelYaw;
               const angleDelta = Math.atan2(
                 Math.sin(targetYaw - characterYaw),
-                Math.cos(targetYaw - characterYaw),
+                Math.cos(targetYaw - characterYaw)
               );
               characterYaw += angleDelta * Math.min(1, delta * 12);
             }
@@ -4298,7 +4288,7 @@ export function SceneHost({
           characterTarget.set(
             playerPosition.x,
             playerPosition.y - playerHeight / 2 + cameraTargetOffset,
-            playerPosition.z,
+            playerPosition.z
           );
           let obstructionDistance = cameraController.baseDistance;
           if (cameraController.isPerspective) {
@@ -4316,7 +4306,7 @@ export function SceneHost({
                 true,
                 undefined,
                 undefined,
-                playerCollider,
+                playerCollider
               );
               cameraDistance = obstruction?.timeOfImpact ?? cameraController.perspectiveDistance;
 
@@ -4369,13 +4359,13 @@ export function SceneHost({
           activeRenderer.render(scene, camera);
           telemetry.recordFrame(
             performance.now() - frameStartedAt,
-            activeRenderer.info.render.calls,
+            activeRenderer.info.render.calls
           );
           // Refresh the on-screen coordinate readout a few times per second
           // without re-rendering the whole overlay every frame.
           if (positionFrame++ % 6 === 0) {
             setPosition(
-              `${playerPosition.x.toFixed(2)}, ${playerPosition.y.toFixed(2)}, ${playerPosition.z.toFixed(2)}`,
+              `${playerPosition.x.toFixed(2)}, ${playerPosition.y.toFixed(2)}, ${playerPosition.z.toFixed(2)}`
             );
           }
         };
@@ -4385,7 +4375,7 @@ export function SceneHost({
         characterTarget.set(
           playerPosition.x,
           playerPosition.y - playerHeight / 2 + cameraTargetOffset,
-          playerPosition.z,
+          playerPosition.z
         );
         cameraController.update(characterTarget, 1 / 60, Infinity);
         camera = cameraController.camera;

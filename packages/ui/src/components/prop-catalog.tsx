@@ -272,7 +272,7 @@ function acquireThumbnail(item: PropCatalogItem): ThumbnailHandle {
             (error) => {
               finishLoad();
               throw error;
-            },
+            }
           )
           .then(resolve, reject);
       };
@@ -321,7 +321,7 @@ export const ModelThumbnail = memo(function ModelThumbnail({
       ([entry]) => {
         setVisible(Boolean(entry?.isIntersecting));
       },
-      { root: scrollRoot, rootMargin: "200px" },
+      { root: scrollRoot, rootMargin: "200px" }
     );
     observer.observe(wrapper);
     return () => observer.disconnect();
@@ -443,7 +443,7 @@ export function PropCatalog({
         requestAnimationFrame(() => {
           const finalMaxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
           element.scrollTo({ left: finalMaxScrollLeft, behavior: "auto" });
-        }),
+        })
       );
     }
   };
@@ -476,7 +476,7 @@ export function PropCatalog({
           aria-hidden={!canScrollLeft}
           className={cn(
             "absolute left-0 top-0 z-20 flex size-8 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground",
-            !canScrollLeft ? "pointer-events-none invisible" : null,
+            !canScrollLeft ? "pointer-events-none invisible" : null
           )}
           aria-label="Scroll categories left"
           onClick={() => scrollCategories("left")}
@@ -497,7 +497,7 @@ export function PropCatalog({
                 aria-selected={activeCategory === id}
                 className={cn(
                   "group/category relative flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-background/30 text-muted-foreground transition-colors hover:border-primary/70 hover:bg-accent/70 hover:text-accent-foreground",
-                  activeCategory === id ? "border-primary bg-accent text-accent-foreground" : null,
+                  activeCategory === id ? "border-primary bg-accent text-accent-foreground" : null
                 )}
                 onClick={() => setActiveCategory(id)}
                 onMouseEnter={(event) => setCategoryHover(id, event.currentTarget)}
@@ -522,7 +522,7 @@ export function PropCatalog({
           aria-hidden={!canScrollRight}
           className={cn(
             "absolute right-0 top-0 z-20 flex size-8 items-center justify-center rounded-md bg-background text-muted-foreground shadow-sm hover:bg-muted hover:text-foreground",
-            !canScrollRight ? "pointer-events-none invisible" : null,
+            !canScrollRight ? "pointer-events-none invisible" : null
           )}
           aria-label="Scroll categories right"
           onClick={() => scrollCategories("right")}
@@ -552,7 +552,7 @@ export function PropCatalog({
                   "group overflow-hidden border-border bg-card/60 p-1 transition-colors",
                   selectedId === item.id
                     ? "border-primary bg-accent/70"
-                    : "hover:border-primary/50 hover:bg-accent/40",
+                    : "hover:border-primary/50 hover:bg-accent/40"
                 )}
               >
                 <button

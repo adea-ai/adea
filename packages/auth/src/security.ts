@@ -24,7 +24,7 @@ function matches(left: string, right: string) {
 
 export function assertTrustedOrigin(
   candidate: string | undefined,
-  trustedOrigins: readonly string[],
+  trustedOrigins: readonly string[]
 ): string {
   if (!candidate) throw new Error("Auth request origin is required");
   const normalized = normalizeTrustedTarget(candidate);
@@ -58,7 +58,7 @@ export async function createAuthorizationState({
 
 export async function verifyAuthorizationState(
   transaction: AuthorizationTransaction,
-  callback: { nonce: string; redirectUri: string; state: string },
+  callback: { nonce: string; redirectUri: string; state: string }
 ): Promise<true> {
   if (transaction.used) throw new Error("Authorization state was already consumed");
   if (transaction.expiresAt <= Date.now()) throw new Error("Authorization state expired");

@@ -55,6 +55,9 @@ supported). Vercel still works during the transition; nothing here breaks it.
 - Keep migrations backward-compatible: the Worker deploys from the same
   push in parallel with the migrate job, so additive schema first, code
   that depends on it second.
+- Migrations run ONLY as the migration role (owner first-runs poison object
+  ownership and break later migrator runs on `ALTER`). New branches need
+  `GRANT CREATE ON DATABASE` for their migration role.
 
 ## Deliberate gaps / follow-ups
 

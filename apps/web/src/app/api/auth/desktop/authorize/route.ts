@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     }
     const principal = await resolveOrProvisionDesktopPrincipal(
       authentication,
-      desktopPrincipalMapping(),
+      desktopPrincipalMapping()
     );
     if (!principal) return Response.json({ error: "Forbidden" }, { status: 403 });
 

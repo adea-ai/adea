@@ -62,10 +62,10 @@ describe.skipIf(!connectionUrl)("PostgreSQL integration", () => {
     });
 
     expect(
-      await connection.db.select().from(workspaceEvents).where(eq(workspaceEvents.id, eventId)),
+      await connection.db.select().from(workspaceEvents).where(eq(workspaceEvents.id, eventId))
     ).toHaveLength(1);
     expect(
-      await connection.db.select().from(commandOutbox).where(eq(commandOutbox.id, outboxId)),
+      await connection.db.select().from(commandOutbox).where(eq(commandOutbox.id, outboxId))
     ).toHaveLength(1);
 
     await connection.db
@@ -96,17 +96,17 @@ describe.skipIf(!connectionUrl)("PostgreSQL integration", () => {
           payload: { workspaceId },
         });
         throw new Error("rollback marker");
-      }),
+      })
     ).rejects.toThrow("rollback marker");
 
     expect(
-      await connection.db.select().from(workspaces).where(eq(workspaces.id, workspaceId)),
+      await connection.db.select().from(workspaces).where(eq(workspaces.id, workspaceId))
     ).toHaveLength(0);
     expect(
-      await connection.db.select().from(workspaceEvents).where(eq(workspaceEvents.id, eventId)),
+      await connection.db.select().from(workspaceEvents).where(eq(workspaceEvents.id, eventId))
     ).toHaveLength(0);
     expect(await connection.db.select().from(users).where(eq(users.id, ownerUserId))).toHaveLength(
-      0,
+      0
     );
   });
 });

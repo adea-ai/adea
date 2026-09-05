@@ -51,7 +51,7 @@ export type WorkspaceAuthorizationDependencies = Readonly<{
     input: Readonly<{
       principal: Extract<PrincipalRef, { kind: "user" }>;
       workspaceId: string;
-    }>,
+    }>
   ): Promise<Readonly<{ role: WorkspaceRole }> | null>;
 }>;
 
@@ -64,7 +64,7 @@ const privilegedPermissions = new Set<WorkspacePermission>([
 
 export async function authorizeWorkspaceAction(
   request: WorkspaceAuthorizationRequest,
-  dependencies: WorkspaceAuthorizationDependencies,
+  dependencies: WorkspaceAuthorizationDependencies
 ): Promise<WorkspaceAuthorizationResult> {
   if (!isUserPrincipalRef(request.principal)) {
     return Object.freeze({ allowed: false, reason: "workspace_unavailable" });
@@ -83,7 +83,7 @@ export async function authorizeWorkspaceAction(
   });
   const allowed = Boolean(
     membership &&
-    new Set<WorkspacePermission>(workspaceRolePermissions[membership.role]).has(request.permission),
+    new Set<WorkspacePermission>(workspaceRolePermissions[membership.role]).has(request.permission)
   );
 
   if (dependencies.audit && (!allowed || privilegedPermissions.has(request.permission))) {

@@ -1,1 +1,1 @@
-export { loadCharacterPreview, updateCharacterConfiguration } from './catalog'
+export { loadCharacterPreview, updateCharacterConfiguration } from "./catalog";

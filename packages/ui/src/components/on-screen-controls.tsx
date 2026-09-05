@@ -14,7 +14,7 @@ type ControlButtonProps = {
 
 function sendKeyEvent(type: "keydown" | "keyup", code: string): void {
   window.dispatchEvent(
-    new KeyboardEvent(type, { bubbles: true, cancelable: true, code, key: code }),
+    new KeyboardEvent(type, { bubbles: true, cancelable: true, code, key: code })
   );
 }
 
@@ -54,7 +54,7 @@ function ControlButton({ code, label, children, className }: ControlButtonProps)
       event.currentTarget.setPointerCapture(event.pointerId);
       sendKeyEvent("keydown", code);
     },
-    [code],
+    [code]
   );
 
   return (
@@ -63,7 +63,7 @@ function ControlButton({ code, label, children, className }: ControlButtonProps)
       aria-label={label}
       className={cn(
         "flex size-14 touch-none select-none items-center justify-center rounded-2xl border border-white/25 bg-slate-950/65 p-2 text-white shadow-lg backdrop-blur-sm transition active:scale-95 [-webkit-touch-callout:none] [-webkit-user-select:none]",
-        className,
+        className
       )}
       onContextMenu={(event) => event.preventDefault()}
       onPointerCancel={release}

@@ -23,7 +23,7 @@ function prop(
   footprint: readonly [number, number],
   frontYaw: number,
   extra?: Partial<InteriorPropConfig>,
-  assetFolder?: string,
+  assetFolder?: string
 ): InteriorPropAsset {
   return {
     id,
@@ -53,7 +53,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "seating",
     1.25,
     [135, 105],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop(
     "models-armchair-18",
@@ -62,7 +62,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "seating",
     1.25,
     [135, 120],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop("models-chair-17", "Chair", "chair_17.glb", "seating", 1.25, [60, 60], FACING_YAW),
   prop(
@@ -72,7 +72,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "seating",
     1.25,
     [105, 105],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop("models-couch-08", "Couch", "couch_08.glb", "seating", 1.25, [285, 105], FACING_YAW),
   prop(
@@ -82,7 +82,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "seating",
     1.25,
     [210, 105],
-    FACING_YAW,
+    FACING_YAW
   ),
 
   // Tables (surfaceHeight enables placeableOnTop items to stack on them)
@@ -94,7 +94,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [105, 105],
     0,
-    { surfaceHeight: 53 },
+    { surfaceHeight: 53 }
   ),
   prop(
     "models-kitchen-table-09",
@@ -104,7 +104,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [210, 105],
     0,
-    { surfaceHeight: 94 },
+    { surfaceHeight: 94 }
   ),
   prop("models-work-table-06", "Work Table", "work_table_06.glb", "tables", 1.25, [165, 105], 0, {
     surfaceHeight: 95,
@@ -117,7 +117,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [120, 90],
     FACING_YAW,
-    { surfaceHeight: 106 },
+    { surfaceHeight: 106 }
   ),
   prop(
     "models-kitchen-d-06",
@@ -127,7 +127,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [120, 120],
     FACING_YAW,
-    { surfaceHeight: 94 },
+    { surfaceHeight: 94 }
   ),
   prop(
     "models-kitchen-d-08",
@@ -137,7 +137,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [90, 45],
     FACING_YAW,
-    { placementSurface: "wall", wallMountHeight: 130 },
+    { placementSurface: "wall", wallMountHeight: 130 }
   ),
   prop(
     "models-kitchen-d-09",
@@ -147,7 +147,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [120, 45],
     FACING_YAW,
-    { placementSurface: "wall", wallMountHeight: 130 },
+    { placementSurface: "wall", wallMountHeight: 130 }
   ),
   prop(
     "models-kitchen-d-10",
@@ -157,7 +157,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [120, 45],
     FACING_YAW,
-    { placementSurface: "wall", wallMountHeight: 130 },
+    { placementSurface: "wall", wallMountHeight: 130 }
   ),
 
   // Storage
@@ -169,7 +169,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "storage",
     1.25,
     [105, 60],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop("models-nightstand-02", "Nightstand", "nightstand_02.glb", "storage", 1.25, [75, 90], 0, {
     surfaceHeight: 72,
@@ -202,7 +202,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [90, 15],
     FACING_YAW,
-    { placementSurface: "wall", wallMountHeight: 120 },
+    { placementSurface: "wall", wallMountHeight: 120 }
   ),
   prop(
     "models-picture-21",
@@ -212,7 +212,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [90, 15],
     FACING_YAW,
-    { placementSurface: "wall", wallMountHeight: 120 },
+    { placementSurface: "wall", wallMountHeight: 120 }
   ),
 
   // Electronics (small items that can sit on tables/counters)
@@ -224,7 +224,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [90, 30],
     FACING_YAW,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   prop(
     "models-game-console-01",
@@ -234,7 +234,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [30, 30],
     FACING_YAW,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   // Kitchen appliances
   prop(
@@ -245,7 +245,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [75, 45],
     FACING_YAW,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   prop("models-mixer-08", "Mixer", "mixer_08.glb", "kitchen", 1.25, [30, 45], FACING_YAW, {
     placeableOnTop: true,
@@ -274,7 +274,7 @@ const furnitureProps: InteriorPropAsset[] = [
     1.25,
     [45, 60],
     0,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   // Other
   prop("models-book-03", "Book", "book_03.glb", "other", 1.25, [90, 30], 0, {
@@ -311,7 +311,7 @@ const furnitureProps: InteriorPropAsset[] = [
     "fitness",
     1.25,
     [120, 75],
-    FACING_YAW,
+    FACING_YAW
   ),
 ];
 
@@ -393,8 +393,8 @@ const foodProps: InteriorPropAsset[] = [
       {
         placeableOnTop: true,
       },
-      "drinks",
-    ),
+      "drinks"
+    )
   ),
   // Food
   ...foodFiles.map((f) =>
@@ -409,8 +409,8 @@ const foodProps: InteriorPropAsset[] = [
       {
         placeableOnTop: true,
       },
-      "food",
-    ),
+      "food"
+    )
   ),
 ];
 
@@ -428,7 +428,7 @@ const casinoProps: InteriorPropAsset[] = [
     1.0,
     [276, 156],
     0,
-    { surfaceHeight: 80 },
+    { surfaceHeight: 80 }
   ),
   prop(
     "models-casino-tablecloth-01",
@@ -437,7 +437,7 @@ const casinoProps: InteriorPropAsset[] = [
     "tables",
     1.0,
     [108, 108],
-    0,
+    0
   ),
 
   // Slot machines
@@ -448,7 +448,7 @@ const casinoProps: InteriorPropAsset[] = [
     "electronics",
     1.0,
     [96, 96],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop(
     "models-slot-machine-02",
@@ -457,7 +457,7 @@ const casinoProps: InteriorPropAsset[] = [
     "electronics",
     1.0,
     [96, 96],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop(
     "models-slot-machine-aquarium",
@@ -466,7 +466,7 @@ const casinoProps: InteriorPropAsset[] = [
     "electronics",
     1.0,
     [96, 96],
-    FACING_YAW,
+    FACING_YAW
   ),
 
   // Seating
@@ -477,7 +477,7 @@ const casinoProps: InteriorPropAsset[] = [
     "seating",
     1.0,
     [108, 96],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop(
     "models-casino-chair-06",
@@ -486,7 +486,7 @@ const casinoProps: InteriorPropAsset[] = [
     "seating",
     1.0,
     [72, 84],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop(
     "models-casino-chair-office",
@@ -495,7 +495,7 @@ const casinoProps: InteriorPropAsset[] = [
     "seating",
     1.0,
     [72, 72],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop(
     "models-casino-couch-05",
@@ -504,7 +504,7 @@ const casinoProps: InteriorPropAsset[] = [
     "seating",
     1.0,
     [180, 96],
-    FACING_YAW,
+    FACING_YAW
   ),
 
   // ATMs & cash machines
@@ -517,9 +517,17 @@ const casinoProps: InteriorPropAsset[] = [
     "storage",
     1.0,
     [48, 48],
-    0,
+    0
   ),
-  prop("models-casino-safebox", "Safe Box", "safe_box_01.glb", "storage", 1.0, [96, 96], FACING_YAW),
+  prop(
+    "models-casino-safebox",
+    "Safe Box",
+    "safe_box_01.glb",
+    "storage",
+    1.0,
+    [96, 96],
+    FACING_YAW
+  ),
 
   // Money & valuables
   prop("models-casino-cash-01", "Cash Stack", "cash_01.glb", "other", 1.0, [12, 36], 0, {
@@ -539,7 +547,7 @@ const casinoProps: InteriorPropAsset[] = [
     1.0,
     [24, 36],
     0,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   prop("models-casino-cash-11", "Cash Stack (Thick)", "cash_11.glb", "other", 1.0, [12, 12], 0, {
     placeableOnTop: true,
@@ -552,7 +560,7 @@ const casinoProps: InteriorPropAsset[] = [
     1.0,
     [24, 48],
     0,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   prop(
     "models-casino-gold-ingot-02",
@@ -562,7 +570,7 @@ const casinoProps: InteriorPropAsset[] = [
     1.0,
     [12, 24],
     0,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
 
   // Playing cards
@@ -580,7 +588,7 @@ const casinoProps: InteriorPropAsset[] = [
     1.0,
     [12, 24],
     0,
-    { placeableOnTop: true },
+    { placeableOnTop: true }
   ),
   prop("models-casino-card-53", "Playing Card (Spade)", "card_53.glb", "other", 1.0, [12, 24], 0, {
     placeableOnTop: true,
@@ -599,7 +607,7 @@ const casinoProps: InteriorPropAsset[] = [
     [48, 48],
     0,
     { placeableOnTop: true },
-    "food",
+    "food"
   ),
   prop("models-casino-lamp-05", "Casino Floor Lamp", "lamp_05.glb", "lighting", 1.0, [84, 84], 0),
   prop(
@@ -610,7 +618,7 @@ const casinoProps: InteriorPropAsset[] = [
     1.0,
     [96, 12],
     FACING_YAW,
-    { placementSurface: "wall", wallMountHeight: 96 },
+    { placementSurface: "wall", wallMountHeight: 96 }
   ),
   prop(
     "models-casino-screens",
@@ -619,7 +627,7 @@ const casinoProps: InteriorPropAsset[] = [
     "electronics",
     1.0,
     [408, 408],
-    FACING_YAW,
+    FACING_YAW
   ),
   prop("models-casino-book-01", "Casino Book", "book_01.glb", "other", 1.0, [36, 48], 0, {
     placeableOnTop: true,

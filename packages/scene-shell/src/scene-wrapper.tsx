@@ -37,7 +37,7 @@ import { PropColliders } from "./prop-colliders";
 
 const SceneHost = dynamic(
   () => import("@agent-hq/scene-runtime").then((module) => module.SceneHost),
-  { ssr: false },
+  { ssr: false }
 );
 
 const SceneEditor = dynamic(() => import("./scene-editor").then((module) => module.SceneEditor), {
@@ -45,10 +45,8 @@ const SceneEditor = dynamic(() => import("./scene-editor").then((module) => modu
 });
 const CharacterDesignerScene = dynamic(
   () =>
-    import("@agent-hq/character-designer-scene").then(
-      (module) => module.CharacterDesignerScene,
-    ),
-  { ssr: false },
+    import("@agent-hq/character-designer-scene").then((module) => module.CharacterDesignerScene),
+  { ssr: false }
 );
 const EMPTY_LOCKED_OBJECT_PREFIXES: readonly string[] = [];
 
@@ -345,7 +343,7 @@ export function SceneWrapper({
         setSceneVersion((version) => version + 1);
       }
     },
-    [enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady],
+    [enablePropColliders, manifest.assignedPropsManifestUrl, onDebugApiReady]
   );
 
   useEffect(() => {
@@ -478,66 +476,67 @@ export function SceneWrapper({
   return (
     <>
       {!characterDesignerIsActive ? (
-      <SceneHost
-        label={manifest.label}
-        viewportMode={viewportMode}
-        characterId={character}
-        characterConfiguration={characterConfiguration}
-        assetUrl={manifest.entryAssetUrl}
-        entryZoneId={manifest.entryZoneId}
-        preserveEntryCollision={manifest.preserveEntryCollision}
-        keepZoneCollisionsActive={keepZoneCollisionsActive}
-        collisionAssetUrl={manifest.collisionAssetUrl}
-        additionalCollisionAssetUrls={manifest.additionalCollisionAssetUrls}
-        additionalAssetUrls={manifest.additionalAssetUrls}
-        zones={manifest.zones}
-        startPosition={startPosition ?? manifest.startPosition}
-        characterScale={characterScale}
-        sceneScale={sceneScale}
-        movementSpeedFactor={movementSpeedFactor}
-        enableClickNavigation={enableClickNavigation}
-        clickNavigationBounds={clickNavigationBounds}
-        clickNavigationIndicatorScale={clickNavigationIndicatorScale}
-        cameraBounds={cameraBounds}
-        orthographicClickOnly={orthographicClickOnly}
-        cameraWheelZoomEnabled={cameraWheelZoomEnabled}
-        ktx2Enabled={ktx2Enabled}
-        orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
-        orthographicHalfHeight={orthographicHalfHeight}
-        orthographicPitch={orthographicPitch}
-        orthographicPan={orthographicPan}
-        perspectiveCameraDistance={perspectiveCameraDistance}
-        waterVolumes={waterVolumes}
-        initialCameraViewMode={effectiveCameraViewMode}
-        cameraViewModeRef={cameraViewModeRef}
-        deferCharacterDetails={deferCharacterDetails}
-        loadDeferredCharacterDetails={loadDeferredCharacterDetails}
-        characterGroundOffset={characterGroundOffset}
-        debugApiRef={debugApiRef}
-        onDebugApiReady={handleDebugApiReady}
-        staticColliders={staticColliders}
-        collisionIncludePatterns={collisionIncludePatterns}
-        staticFieldCollisionPatterns={staticFieldCollisionPatterns}
-        collideAdditionalVisualLayers={collideAdditionalVisualLayers}
-        collisionExclusionAreas={collisionExclusionAreas}
-        coplanarMaterialMeshNames={coplanarMaterialMeshNames}
-        materialOverrides={materialOverrides}
-        playerVisibilityGroups={playerVisibilityGroups}
-        environment={environment}
-        editorOverridesUrl={
-          canUseSceneEditor
-            ? manifest.editorOverridesUrl ?? `/assets/worlds/${manifest.id}/editor-overrides.json`
-            : undefined
-        }
-        visualSetup={visualSetup}
-        visualUpdate={visualUpdate}
-        staticFieldAssetUrls={manifest.staticFieldAssetUrls}
-        staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
-        foliageManifestUrl={manifest.foliageManifestUrl}
-        propsManifestUrl={manifest.propsManifestUrl}
-        onLoadingStart={handleSceneLoadingStart}
-        onReady={handleSceneReady}
-      />
+        <SceneHost
+          label={manifest.label}
+          viewportMode={viewportMode}
+          characterId={character}
+          characterConfiguration={characterConfiguration}
+          assetUrl={manifest.entryAssetUrl}
+          entryZoneId={manifest.entryZoneId}
+          preserveEntryCollision={manifest.preserveEntryCollision}
+          keepZoneCollisionsActive={keepZoneCollisionsActive}
+          collisionAssetUrl={manifest.collisionAssetUrl}
+          additionalCollisionAssetUrls={manifest.additionalCollisionAssetUrls}
+          additionalAssetUrls={manifest.additionalAssetUrls}
+          zones={manifest.zones}
+          startPosition={startPosition ?? manifest.startPosition}
+          characterScale={characterScale}
+          sceneScale={sceneScale}
+          movementSpeedFactor={movementSpeedFactor}
+          enableClickNavigation={enableClickNavigation}
+          clickNavigationBounds={clickNavigationBounds}
+          clickNavigationIndicatorScale={clickNavigationIndicatorScale}
+          cameraBounds={cameraBounds}
+          orthographicClickOnly={orthographicClickOnly}
+          cameraWheelZoomEnabled={cameraWheelZoomEnabled}
+          ktx2Enabled={ktx2Enabled}
+          orthographicMovementSpeedFactor={orthographicMovementSpeedFactor}
+          orthographicHalfHeight={orthographicHalfHeight}
+          orthographicPitch={orthographicPitch}
+          orthographicPan={orthographicPan}
+          perspectiveCameraDistance={perspectiveCameraDistance}
+          waterVolumes={waterVolumes}
+          initialCameraViewMode={effectiveCameraViewMode}
+          cameraViewModeRef={cameraViewModeRef}
+          deferCharacterDetails={deferCharacterDetails}
+          loadDeferredCharacterDetails={loadDeferredCharacterDetails}
+          characterGroundOffset={characterGroundOffset}
+          debugApiRef={debugApiRef}
+          onDebugApiReady={handleDebugApiReady}
+          staticColliders={staticColliders}
+          collisionIncludePatterns={collisionIncludePatterns}
+          staticFieldCollisionPatterns={staticFieldCollisionPatterns}
+          collideAdditionalVisualLayers={collideAdditionalVisualLayers}
+          collisionExclusionAreas={collisionExclusionAreas}
+          coplanarMaterialMeshNames={coplanarMaterialMeshNames}
+          materialOverrides={materialOverrides}
+          playerVisibilityGroups={playerVisibilityGroups}
+          environment={environment}
+          editorOverridesUrl={
+            canUseSceneEditor
+              ? (manifest.editorOverridesUrl ??
+                `/assets/worlds/${manifest.id}/editor-overrides.json`)
+              : undefined
+          }
+          visualSetup={visualSetup}
+          visualUpdate={visualUpdate}
+          staticFieldAssetUrls={manifest.staticFieldAssetUrls}
+          staticFieldCollisionAssetUrls={manifest.staticFieldCollisionAssetUrls}
+          foliageManifestUrl={manifest.foliageManifestUrl}
+          propsManifestUrl={manifest.propsManifestUrl}
+          onLoadingStart={handleSceneLoadingStart}
+          onReady={handleSceneReady}
+        />
       ) : (
         <CharacterDesignerScene
           character={character}
@@ -593,7 +592,10 @@ export function SceneWrapper({
           sceneVersion={sceneVersion}
         />
       ) : null}
-      {!characterDesignerIsActive && enablePropColliders && assignedPropsEnabled && manifest.assignedPropsManifestUrl ? (
+      {!characterDesignerIsActive &&
+      enablePropColliders &&
+      assignedPropsEnabled &&
+      manifest.assignedPropsManifestUrl ? (
         <PropColliders
           debugApiRef={debugApiRef}
           manifestUrl={manifest.assignedPropsManifestUrl}

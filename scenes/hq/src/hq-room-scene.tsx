@@ -162,7 +162,7 @@ const hqFrontRoadWidth =
   ROOM_GALLERY_BOUNDS.width + (hqCameraTopPadding + hqGroundVisualPadding) * 2;
 const hqEggshellWallColor = 0xe9e2d7;
 const hqExteriorWallPrefixes = ROOM_GALLERY_WALL_SEGMENTS.filter(
-  ({ wallKind }) => wallKind === "exterior",
+  ({ wallKind }) => wallKind === "exterior"
 ).map(({ id }) => `HQFoundationWall-${id}`);
 const hqPoolWaterVolumes = (sceneId: string): readonly SceneWaterVolume[] => [
   {
@@ -251,7 +251,7 @@ function createHqMaterialTexture(
   url: string,
   repeatX: number,
   repeatY: number,
-  colorTexture: boolean,
+  colorTexture: boolean
 ): THREE.Texture {
   const texture = new THREE.TextureLoader().load(url);
   texture.wrapS = THREE.RepeatWrapping;
@@ -265,7 +265,7 @@ function createHqMaterial(
   theme: HqVisualTheme,
   role: HqMaterialRole,
   repeatX: number,
-  repeatY: number,
+  repeatY: number
 ): THREE.MeshStandardMaterial {
   const materialTheme = theme;
   // Keep each scene's exterior texture aligned with its visual theme: Home
@@ -306,7 +306,7 @@ function createHqMaterial(
       `${root}/${stem}-color.${materialExtension}`,
       repeatX,
       repeatY,
-      true,
+      true
     ),
     ...(hasPbrMaps
       ? {
@@ -314,13 +314,13 @@ function createHqMaterial(
             `${root}/${stem}-normal.${materialExtension}`,
             repeatX,
             repeatY,
-            false,
+            false
           ),
           roughnessMap: createHqMaterialTexture(
             `${root}/${stem}-roughness.${materialExtension}`,
             repeatX,
             repeatY,
-            false,
+            false
           ),
         }
       : {}),
@@ -356,7 +356,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   const exteriorWidth = Math.max(
     width + hqExteriorVisualPadding * 2,
     hqFrontRoadWidth,
-    width + hqGroundVisualPadding * 2,
+    width + hqGroundVisualPadding * 2
   );
   const exteriorDepth = exteriorMaxZ - exteriorMinZ;
   const isWork = theme === "work";
@@ -374,7 +374,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
 
   const exteriorSurface = new THREE.Mesh(
     new THREE.PlaneGeometry(exteriorWidth, exteriorDepth),
-    getMaterial("exterior", exteriorWidth / 96, exteriorDepth / 96),
+    getMaterial("exterior", exteriorWidth / 96, exteriorDepth / 96)
   );
   exteriorSurface.name = isWork ? "hq-work-dirt-map-plane" : "hq-grass-map-plane";
   configureEnvironmentPlane(exteriorSurface);
@@ -398,7 +398,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   };
   const frontSidewalk = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
-    createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth),
+    createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth)
   );
   frontSidewalk.name = "hq-front-sidewalk";
   configureEnvironmentPlane(frontSidewalk);
@@ -411,11 +411,11 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     sidewalkWidth: number,
     sidewalkDepth: number,
     x: number,
-    z: number,
+    z: number
   ) => {
     const sidewalk = new THREE.Mesh(
       new THREE.PlaneGeometry(sidewalkWidth, sidewalkDepth),
-      createSidewalkMaterial(sidewalkWidth, sidewalkDepth),
+      createSidewalkMaterial(sidewalkWidth, sidewalkDepth)
     );
     sidewalk.name = `hq-perimeter-sidewalk-${name}`;
     configureEnvironmentPlane(sidewalk);
@@ -428,33 +428,33 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     ROOM_GALLERY_PERIMETER_BOUNDS.width,
     hqBackSidewalkDepth,
     0,
-    ROOM_GALLERY_BOUNDS.zMin - hqBackSidewalkDepth / 2,
+    ROOM_GALLERY_BOUNDS.zMin - hqBackSidewalkDepth / 2
   );
   addPerimeterSidewalk(
     "left",
     hqFrontSidewalkDepth,
     ROOM_GALLERY_BOUNDS.depth,
     ROOM_GALLERY_BOUNDS.xMin - hqFrontSidewalkDepth / 2,
-    0,
+    0
   );
   addPerimeterSidewalk(
     "right",
     hqFrontSidewalkDepth,
     ROOM_GALLERY_BOUNDS.depth,
     ROOM_GALLERY_BOUNDS.xMax + hqFrontSidewalkDepth / 2,
-    0,
+    0
   );
 
   const roadway = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontRoadDepth),
-    new THREE.MeshStandardMaterial({ color: 0x171a1d, roughness: 0.94, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ color: 0x171a1d, roughness: 0.94, metalness: 0 })
   );
   roadway.name = "hq-front-roadway";
   configureEnvironmentPlane(roadway);
   roadway.position.set(
     0,
     -0.44,
-    ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth / 2,
+    ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth / 2
   );
   const roadwayMaterial = roadway.material as THREE.MeshStandardMaterial;
   roadwayMaterial.polygonOffset = true;
@@ -465,14 +465,14 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
 
   const farSidewalk = new THREE.Mesh(
     new THREE.PlaneGeometry(hqFrontRoadWidth, hqFrontSidewalkDepth),
-    createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth),
+    createSidewalkMaterial(hqFrontRoadWidth, hqFrontSidewalkDepth)
   );
   farSidewalk.name = "hq-front-sidewalk-far";
   configureEnvironmentPlane(farSidewalk);
   farSidewalk.position.set(
     0,
     -0.46,
-    ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth + hqFrontSidewalkDepth / 2,
+    ROOM_GALLERY_BOUNDS.zMax + hqFrontSidewalkDepth + hqFrontRoadDepth + hqFrontSidewalkDepth / 2
   );
   farSidewalk.receiveShadow = true;
   visual.add(farSidewalk);
@@ -488,7 +488,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
   for (const offset of [-14, 14]) {
     const marking = new THREE.Mesh(
       new THREE.PlaneGeometry(hqFrontRoadWidth - 96, 6),
-      roadMarkingMaterial,
+      roadMarkingMaterial
     );
     marking.name = "hq-front-road-marking-center";
     configureEnvironmentPlane(marking);
@@ -503,8 +503,8 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       getMaterial(
         "ground",
         (width + hqWorkFenceDirtOverlap) / 96,
-        (depth + hqWorkFenceDirtOverlap) / 96,
-      ),
+        (depth + hqWorkFenceDirtOverlap) / 96
+      )
     );
     dirtSurface.name = "hq-work-interior-dirt";
     configureEnvironmentPlane(dirtSurface);
@@ -530,7 +530,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
         if (railLength <= 0) return;
         const rail = new THREE.Mesh(
           horizontal ? new THREE.BoxGeometry(railLength, 5.6, 5.6) : railGeometry,
-          material,
+          material
         );
         rail.name = "hq-map-edge-fence-rail";
         rail.position.set(horizontal ? railCenter : coordinate, y, horizontal ? coordinate : 0);
@@ -540,11 +540,11 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
         const gateHalfWidth = gateWidth / 2;
         addRail(
           width / 2 - gateHalfWidth,
-          ROOM_GALLERY_BOUNDS.xMin + (width / 2 - gateHalfWidth) / 2,
+          ROOM_GALLERY_BOUNDS.xMin + (width / 2 - gateHalfWidth) / 2
         );
         addRail(
           width / 2 - gateHalfWidth,
-          ROOM_GALLERY_BOUNDS.xMax - (width / 2 - gateHalfWidth) / 2,
+          ROOM_GALLERY_BOUNDS.xMax - (width / 2 - gateHalfWidth) / 2
         );
       } else {
         addRail(length, horizontal ? 0 : coordinate);
@@ -560,7 +560,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
       post.position.set(
         horizontal ? postX : coordinate,
         hqFenceVisualHeight / 2,
-        horizontal ? coordinate : ROOM_GALLERY_BOUNDS.zMin + 0.2 + progress * (depth - 0.4),
+        horizontal ? coordinate : ROOM_GALLERY_BOUNDS.zMin + 0.2 + progress * (depth - 0.4)
       );
       fence.add(post);
     }
@@ -590,13 +590,13 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     new THREE.BoxGeometry(
       hqFrontWalkwayWidth,
       0.25,
-      ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge,
+      ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge
     ),
     getMaterial(
       isWork ? "sidewalk" : "path",
       hqFrontWalkwayWidth / 48,
-      (ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge) / 96,
-    ),
+      (ROOM_GALLERY_BOUNDS.zMax - hqFrontDoorInnerEdge) / 96
+    )
   );
   walkway.name = "hq-front-door-walkway";
   // Keep the walkway's lower face above the dirt layer so perspective depth
@@ -618,7 +618,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     object.material = getMaterial(
       "floor",
       Math.max(1, (size.x * object.scale.x) / 96),
-      Math.max(1, (size.z * object.scale.z) / 96),
+      Math.max(1, (size.z * object.scale.z) / 96)
     );
   });
   const eggshellMaterial = new THREE.MeshStandardMaterial({
@@ -659,7 +659,7 @@ function setupHqEnvironment(visual: THREE.Group, theme: HqVisualTheme): void {
     const halfThickness = (horizontal ? depth : width) / 2;
     const panel = new THREE.Mesh(
       new THREE.PlaneGeometry(horizontal ? width : depth, height),
-      eggshellMaterial,
+      eggshellMaterial
     );
     panel.name = `hq-eggshell-interior-${object.name}`;
     panel.position.copy(object.position);
@@ -817,7 +817,7 @@ export function HqRoomScene({
   const visualTheme: HqVisualTheme = manifest.id === "hq-work" ? "work" : "home";
   const setupEnvironment = useCallback(
     (visual: THREE.Group) => setupHqEnvironment(visual, visualTheme),
-    [visualTheme],
+    [visualTheme]
   );
   useSceneMusic(manifest.id);
 
@@ -833,7 +833,7 @@ export function HqRoomScene({
   // available; applied to the animals once they finish loading. Stored in a
   // ref so the async animal load callback can access the latest value.
   const animalCollisionCheckRef = useRef<((x: number, y: number, z: number) => boolean) | null>(
-    null,
+    null
   );
   const ambientAnimalsForHome = enableAmbientAnimals && visualTheme === "home";
   const setupAmbientAnimals = useCallback(
@@ -881,7 +881,7 @@ export function HqRoomScene({
               wanderBounds: { centerX: 0, centerZ: 0, halfWidth, halfDepth },
               walls: animalWallAabb,
             },
-          ]),
+          ])
         )
         .then((animals) => {
           if (!ambientAnimalsMountedRef.current) {
@@ -895,44 +895,47 @@ export function HqRoomScene({
         })
         .catch((cause) => {
           console.warn(
-            `[Agent HQ] ambient animals unavailable: ${cause instanceof Error ? cause.message : cause}`,
+            `[Agent HQ] ambient animals unavailable: ${cause instanceof Error ? cause.message : cause}`
           );
         })
         .finally(() => {
           ambientAnimalsLoadingRef.current = false;
         });
     },
-    [ambientAnimalsForHome],
+    [ambientAnimalsForHome]
   );
   const setupVisual = useCallback(
     (visual: THREE.Group) => {
       setupEnvironment(visual);
     },
-    [setupEnvironment],
+    [setupEnvironment]
   );
-  const updateAmbientAnimals = useCallback<SceneVisualUpdate>((scene, delta) => {
-    if (
-      ambientAnimalsForHome &&
-      !ambientAnimalsRef.current &&
-      !ambientAnimalsLoadingRef.current &&
-      ambientAnimalsStartTimerRef.current === null
-    ) {
-      // Let SceneHost paint the first frame before starting optional module and
-      // model work. Subsequent frames continue advancing the handle normally.
-      ambientAnimalsStartTimerRef.current = window.setTimeout(() => {
-        ambientAnimalsStartTimerRef.current = null;
-        setupAmbientAnimals(scene);
-      }, 0);
-    }
-    ambientAnimalsRef.current?.update(delta);
-  }, [ambientAnimalsForHome, setupAmbientAnimals]);
+  const updateAmbientAnimals = useCallback<SceneVisualUpdate>(
+    (scene, delta) => {
+      if (
+        ambientAnimalsForHome &&
+        !ambientAnimalsRef.current &&
+        !ambientAnimalsLoadingRef.current &&
+        ambientAnimalsStartTimerRef.current === null
+      ) {
+        // Let SceneHost paint the first frame before starting optional module and
+        // model work. Subsequent frames continue advancing the handle normally.
+        ambientAnimalsStartTimerRef.current = window.setTimeout(() => {
+          ambientAnimalsStartTimerRef.current = null;
+          setupAmbientAnimals(scene);
+        }, 0);
+      }
+      ambientAnimalsRef.current?.update(delta);
+    },
+    [ambientAnimalsForHome, setupAmbientAnimals]
+  );
 
   // Keep these scene-runtime inputs stable while the shell updates transient
   // UI state such as the active camera. Changing their identities would make
   // SceneHost tear down and reload the entire Three.js scene on every toggle.
   const waterVolumes = useMemo(
     () => (manifest.zones?.length ? hqPoolWaterVolumes(manifest.id) : undefined),
-    [manifest.id, manifest.zones?.length],
+    [manifest.id, manifest.zones?.length]
   );
   const materialOverrides = useMemo(
     () =>
@@ -948,11 +951,11 @@ export function HqRoomScene({
             },
           ]
         : undefined,
-    [manifest.zones?.length],
+    [manifest.zones?.length]
   );
   const portals = useMemo(
     () => hqWorldPortals(visualTheme === "home" ? "hq-home" : "hq-work"),
-    [visualTheme],
+    [visualTheme]
   );
 
   useEffect(() => {
@@ -992,7 +995,7 @@ export function HqRoomScene({
       animalCollisionCheckRef.current = check;
       ambientAnimalsRef.current?.setCollisionCheck(check);
     },
-    [ambientAnimalsForHome],
+    [ambientAnimalsForHome]
   );
 
   const handleCharacterChange = (nextCharacter: string) => {
@@ -1024,7 +1027,7 @@ export function HqRoomScene({
       "character",
       savedCharacter === configurableCharacterId && configuration
         ? serializeCharacterConfiguration(configuration)
-        : savedCharacter,
+        : savedCharacter
     );
     window.history.replaceState(null, "", nextUrl);
   };

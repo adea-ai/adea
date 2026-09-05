@@ -943,7 +943,7 @@ fn timestamp() -> String {
 }
 
 fn digest(plaintext: &str) -> String {
-    format!("{:x}", Sha256::digest(plaintext.as_bytes()))
+    hex::encode(Sha256::digest(plaintext.as_bytes()))
 }
 
 fn aad(
@@ -1147,7 +1147,7 @@ fn verify_rotated(
             &row.nonce,
             &row.ciphertext,
         )?;
-        if format!("{:x}", Sha256::digest(&plaintext)) != row.content_ref.digest_sha256 {
+        if hex::encode(Sha256::digest(&plaintext)) != row.content_ref.digest_sha256 {
             return Err(LocalContentError::Corrupt);
         }
     }

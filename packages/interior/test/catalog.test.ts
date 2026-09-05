@@ -25,23 +25,23 @@ describe("room-designer model boundary", () => {
       expect(interiorPropAssets.find((asset) => asset.id === id)?.assetUrl).toBe(assetUrl);
     }
 
-    expect(interiorPropAssets.find((asset) => asset.id === "models-exercise-bike-01")?.category).toBe(
-      "fitness",
-    );
+    expect(
+      interiorPropAssets.find((asset) => asset.id === "models-exercise-bike-01")?.category
+    ).toBe("fitness");
     expect(interiorPropAssets.find((asset) => asset.id === "models-fridge-01")?.category).toBe(
-      "kitchen",
+      "kitchen"
     );
     expect(interiorPropAssets.find((asset) => asset.id === "models-microwave-01")?.category).toBe(
-      "kitchen",
+      "kitchen"
     );
     expect(interiorPropAssets.find((asset) => asset.id === "models-mixer-08")?.category).toBe(
-      "kitchen",
+      "kitchen"
     );
 
     expect(interiorPropAssets.some((asset) => asset.category === "wall-decor")).toBe(false);
-    expect(interiorPropAssets.every((asset) => asset.assetUrl === asset.assetUrl.toLowerCase())).toBe(
-      true,
-    );
+    expect(
+      interiorPropAssets.every((asset) => asset.assetUrl === asset.assetUrl.toLowerCase())
+    ).toBe(true);
   });
 
   test("keeps every packaged interior asset filename lowercase", () => {
@@ -70,7 +70,7 @@ describe("room-designer model boundary", () => {
     visit(assetsRoot);
 
     const catalogFiles = interiorPropAssets.map((asset) =>
-      asset.assetUrl.replace("/assets/models/", ""),
+      asset.assetUrl.replace("/assets/models/", "")
     );
 
     expect(files.sort()).toEqual([...catalogFiles].sort());
@@ -81,15 +81,15 @@ describe("room-designer model boundary", () => {
           return folder === "food" || folder === "drinks";
         }
         return folder === asset.category;
-      }),
+      })
     ).toBe(true);
 
     expect(
       new Set(
         interiorPropAssets
           .filter((asset) => asset.category === "food-and-drinks")
-          .map((asset) => asset.assetUrl.split("/").at(-2)),
-      ),
+          .map((asset) => asset.assetUrl.split("/").at(-2))
+      )
     ).toEqual(new Set(["food", "drinks"]));
   });
 
@@ -100,7 +100,7 @@ describe("room-designer model boundary", () => {
         "models-plants-15",
         "models-plants-19",
         "models-casino-flower-03",
-      ]),
+      ])
     );
     expect(interiorPlantIds.filter((id) => id.startsWith("expanded-")).length).toBe(37);
   });
@@ -121,29 +121,29 @@ describe("room-designer model boundary", () => {
     }
 
     expect(
-      interiorPropAssets.find((asset) => asset.id === "expanded-electronics-001")?.category,
+      interiorPropAssets.find((asset) => asset.id === "expanded-electronics-001")?.category
     ).toBe("electronics");
     expect(
-      interiorPropAssets.find((asset) => asset.id === "expanded-entertainment-001")?.category,
+      interiorPropAssets.find((asset) => asset.id === "expanded-entertainment-001")?.category
     ).toBe("entertainment");
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-tv-wall-001")?.category).toBe(
-      "electronics",
+      "electronics"
     );
 
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-carpet-001")?.category).toBe(
-      "rugs",
+      "rugs"
     );
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-shop-001")?.category).toBe(
-      "retail",
+      "retail"
     );
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-picture-001")?.category).toBe(
-      "wall-art",
+      "wall-art"
     );
     expect(
-      interiorPropAssets.find((asset) => asset.id === "expanded-training-item-001")?.category,
+      interiorPropAssets.find((asset) => asset.id === "expanded-training-item-001")?.category
     ).toBe("fitness");
     expect(interiorPropAssets.find((asset) => asset.id === "expanded-for-kids-001")?.category).toBe(
-      "kids",
+      "kids"
     );
   });
 
@@ -158,19 +158,21 @@ describe("room-designer model boundary", () => {
 
     for (const [family, category] of Object.entries(migratedFamilies)) {
       const familyAssets = interiorPropAssets.filter((asset) =>
-        asset.id.startsWith(`expanded-${family.replaceAll("_", "-")}-`),
+        asset.id.startsWith(`expanded-${family.replaceAll("_", "-")}-`)
       );
       expect(familyAssets.length).toBeGreaterThan(0);
       expect(familyAssets.every((asset) => asset.category === category)).toBe(true);
       expect(familyAssets.every((asset) => asset.assetUrl.includes(`/models/${category}/`))).toBe(
-        true,
+        true
       );
     }
   });
 
   test("does not expose architecture or curtain assets to the room designer", () => {
     expect(interiorPropAssets.some((asset) => asset.category === "architecture")).toBe(false);
-    expect(interiorPropAssets.some((asset) => asset.assetUrl.includes("/architecture/"))).toBe(false);
+    expect(interiorPropAssets.some((asset) => asset.assetUrl.includes("/architecture/"))).toBe(
+      false
+    );
     expect(interiorPropAssets.some((asset) => asset.assetUrl.includes("/curtains/"))).toBe(false);
   });
 

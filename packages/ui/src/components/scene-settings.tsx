@@ -3,8 +3,6 @@
 import { createPortal } from "react-dom";
 import { useEffect, useState, type ReactNode } from "react";
 import { Box, Camera, Focus, Grid3X3, UserRoundPen } from "lucide-react";
-import type { CharacterOption } from "./character-selector";
-import type { CharacterConfiguration, CharacterPartOption } from "@agent-hq/characters";
 import { AccountDrawer } from "./account-drawer";
 import { Button } from "#components/ui/button";
 
@@ -182,11 +180,13 @@ export function SceneSettings({
           <div className="fixed right-4 top-16 z-40">{characterDesignerControl}</div>
         )
       ) : null}
-      {onOpenRoomDesigner && cameraViewMode === "orthographic"
-        ? roomDesignerTarget
-          ? createPortal(roomDesignerControl, roomDesignerTarget)
-          : <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
-        : null}
+      {onOpenRoomDesigner && cameraViewMode === "orthographic" ? (
+        roomDesignerTarget ? (
+          createPortal(roomDesignerControl, roomDesignerTarget)
+        ) : (
+          <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
+        )
+      ) : null}
       {sceneEditorEnabled != null &&
       !sceneEditorEnabled &&
       onSceneEditorChange &&

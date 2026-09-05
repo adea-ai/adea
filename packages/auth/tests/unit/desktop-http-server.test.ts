@@ -50,7 +50,7 @@ describe("desktop HTTP boundary", () => {
       method: "POST",
     });
     await expect(parseDesktopExchangeRequest(untrusted, trustedOrigins)).rejects.toThrow(
-      "not trusted",
+      "not trusted"
     );
   });
 
@@ -74,7 +74,7 @@ describe("desktop HTTP boundary", () => {
       "access-control-allow-origin": "tauri://localhost",
     });
     expect(desktopCorsHeaders("https://evil.example", trustedOrigins)).not.toHaveProperty(
-      "access-control-allow-origin",
+      "access-control-allow-origin"
     );
   });
 });

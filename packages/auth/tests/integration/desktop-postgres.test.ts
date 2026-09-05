@@ -61,7 +61,7 @@ describe.skipIf(!connectionUrl)("desktop authorization with PostgreSQL", () => {
         redirectUri: attempt.redirectUri,
         state: attempt.state,
         userId: principal.userId,
-      }),
+      })
     );
     const exchange = {
       code: callback.searchParams.get("code")!,

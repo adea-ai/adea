@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
+    "react": "19.2.8",
     "@agent-hq/asset-manifests": "workspace:*",
     "@agent-hq/characters": "workspace:*",
     "@agent-hq/landscape": "workspace:*",

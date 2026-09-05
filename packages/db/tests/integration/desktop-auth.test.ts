@@ -63,7 +63,7 @@ describe.skipIf(!connectionUrl)("desktop auth persistence", () => {
         nextCredentialDigest: nextDigest,
         now,
         sessionId: session.sessionId,
-      }),
+      })
     ).toMatchObject({ credentialDigest: nextDigest, sessionId: session.sessionId });
     expect(
       await rotateDesktopSessionRecord(connection.db, {
@@ -72,13 +72,13 @@ describe.skipIf(!connectionUrl)("desktop auth persistence", () => {
         nextCredentialDigest: crypto.randomUUID(),
         now,
         sessionId: session.sessionId,
-      }),
+      })
     ).toBeNull();
     expect(
       await revokeDesktopSessionRecord(connection.db, {
         credentialDigest: nextDigest,
         sessionId: session.sessionId,
-      }),
+      })
     ).toBe(true);
     expect(
       await rotateDesktopSessionRecord(connection.db, {
@@ -87,7 +87,7 @@ describe.skipIf(!connectionUrl)("desktop auth persistence", () => {
         nextCredentialDigest: crypto.randomUUID(),
         now,
         sessionId: session.sessionId,
-      }),
+      })
     ).toBeNull();
 
     await connection.db.delete(users).where(eq(users.id, principal.userId));
