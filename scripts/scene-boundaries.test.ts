@@ -42,8 +42,8 @@ describe("scene package boundaries", () => {
     expect(sceneShell).toContain('import("@agent-hq/characters/customization")');
 
     const roomScene = read("scenes/room-designer/src/room-designer-scene.tsx");
-    expect(roomScene).toContain("from '@agent-hq/interior'");
-    expect(roomScene).toContain("from '@agent-hq/hq-scenes'");
+    expect(roomScene).toContain('from "@agent-hq/interior"');
+    expect(roomScene).toContain('from "@agent-hq/hq-scenes"');
     expect(roomScene).toContain("assignedPropsEnabled={false}");
   });
 
@@ -53,14 +53,14 @@ describe("scene package boundaries", () => {
     const desktop = read("apps/desktop/src/desktop-workspace.tsx");
     expect(page).toContain("characterDesigner=");
     expect(page).toContain("roomDesigner=");
-    expect(entry).toContain("import('./character-designer-entry')");
+    expect(entry).toContain('import("./character-designer-entry")');
     expect(entry).toContain("if (characterDesigner)");
     const navigation = read("apps/web/src/components/workspace-navigation-entry.tsx");
     expect(navigation).toContain("RoomDesignerWorkspace");
     expect(navigation).toContain("roomDesignerEnabled");
     expect(entry).toContain("roomDesigner?: boolean");
     expect(entry).not.toContain("import('./workspace-shell')");
-    expect(desktop).toContain("import('./desktop-character-designer')");
+    expect(desktop).toContain('import("./desktop-character-designer")');
     expect(desktop).toContain("if (characterDesigner)");
     expect(desktop).not.toContain("import { HqRoomScene }");
   });
@@ -78,7 +78,7 @@ describe("scene package boundaries", () => {
     const runtimeSource = "packages/characters/src/runtime.ts";
     const runtimePath = "packages/characters/dist/runtime.js";
     expect(read(runtimeSource)).not.toContain("from 'three/examples/jsm/utils/SkeletonUtils.js'");
-    expect(read(runtimeSource)).toContain("import('three/examples/jsm/utils/SkeletonUtils.js')");
+    expect(read(runtimeSource)).toContain('import("three/examples/jsm/utils/SkeletonUtils.js")');
     const authoringSources = [
       "packages/characters/src/catalog.ts",
       "packages/characters/src/configuration.ts",

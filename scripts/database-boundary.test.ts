@@ -20,7 +20,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
 describe("database package boundary", () => {
   test("does not expose database subpaths", async () => {
     const manifest = JSON.parse(await readFile(join(root, "packages/db/package.json"), "utf8"));
-    expect(Object.keys(manifest.exports)).toEqual(["."]);
+    expect(Object.keys(manifest.exports)).toEqual([".", "./config"]);
   });
 
   test("keeps database imports out of mobile and desktop bundles", async () => {
@@ -57,10 +57,14 @@ describe("database package boundary", () => {
     }
   });
 
-  test("retains and closes the process database connection", async () => {
+  test("closes per-request database connections and keeps shutdown hooks", async () => {
     const source = await readFile(join(root, "apps/web/src/server/database.ts"), "utf8");
 
-    expect(source).toContain("connectionToClose?.close()");
+    // Worker-side pooled sessions go stale across requests, so each call opens
+    // a short-lived client that is closed after the response. The ./config
+    // subpath above stays validation-only: no client, pool, or server-only.
+    expect(source).toContain("after(");
+    expect(source).toContain(".close()");
     expect(source).toContain('["SIGINT", "SIGTERM"]');
     expect(source).toContain("process.once(signal");
   });
