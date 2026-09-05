@@ -29,6 +29,8 @@ __pycache__/
 
 # Rust
 target/
+# Tauri generates capability/ACL schemas here on dev/build; never commit.
+apps/desktop/src-tauri/gen/
 
 # Build and test output
 dist/
