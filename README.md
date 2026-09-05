@@ -1,6 +1,7 @@
 # Agent HQ
 
-Agent HQ is a browser-based spatial workspace with Home and Work scenes,
+Agent HQ is a browser-based spatial workspace with Home and Work workspaces,
+each backed by its own spatial scene,
 character and interior asset packages, a vanilla Three.js scene runtime, and an
 orthographic room designer.
 
@@ -41,9 +42,9 @@ value is server-only; do not rename it to a `NEXT_PUBLIC_` or `VITE_` variable.
 
 For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
-- Home: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
-- Work: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
-- Room designer: append `&roomDesigner=1` to the selected scene URL
+- Home workspace: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
+- Work workspace: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
+- Room designer: append `&roomDesigner=1` to the selected scene URL; it opens a dedicated scene with its own camera state
 
 Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 `NEXT_PUBLIC_AGENT_HQ_WORLD_URL` when the sibling World app uses a different
@@ -52,33 +53,6 @@ Portless name.
 The asset sync step copies the HQ scene foundations and the domain asset
 packages—interior, landscape, pets, characters, and reserved room scenes—into
 the ignored Next public-assets directory.
-
-## Plugin marketplace
-
-Agent HQ consumes the authoritative registry through the same-origin server
-proxy. The proxy calls Control Plane; browser and desktop clients never fetch
-GitHub release assets or upstream plugin content directly. The registry's stable
-latest artifact is
-[`catalog-latest.v1.json`](https://github.com/adea-ai/plugins/releases/latest/download/catalog-latest.v1.json),
-and each verified catalog is pinned by its `catalogId` and immutable release
-tag.
-
-The shared marketplace provider verifies the catalog schema, canonical catalog
-digest, `integrity.json`, and byte-identical latest pointer before mapping the
-entries into the workspace UI. It preserves each source-qualified `pluginId`,
-exact `releaseId`, `canonicalContentDigest`, provenance,
-`harnessCompatibility`, `securityClassification`, and connector/credential
-requirements. `metadata-only` entries are visible as unavailable metadata and
-cannot be enabled. A stale last-known-good catalog is labeled stale; a failed
-verification is fail-closed.
-
-Agent HQ is a read-only catalog consumer. Add/Enable submits the exact plugin
-and release pins, requested harness, and workspace/user identity to Control
-Plane. It does not claim local installation state, download upstream content,
-or execute plugin content. Control Plane owns authorization, connector and
-credential resolution, server-side release verification, installation state,
-and execution records. See [`docs/marketplace-consumer.md`](docs/marketplace-consumer.md)
-for the integration contract and required environment variables.
 
 ## Plugin marketplace
 

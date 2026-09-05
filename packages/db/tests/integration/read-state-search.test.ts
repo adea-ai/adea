@@ -203,6 +203,35 @@ describe.skipIf(!connectionUrl)('read state and workspace search', () => {
       ).length
     ).toBe(eventCount)
 
+    // A stale client sequence (for example from a partially loaded message
+    // window) must never rewind a read frontier and resurrect notifications.
+    const staleChannel = await markChannelReadState(
+      connection.db,
+      workspace.id,
+      channel.id,
+      owner.principal,
+      'read',
+      root.sequence
+    )
+    expect(staleChannel.find(({ channelId }) => channelId === channel.id)).toMatchObject({
+      lastReadSequence: privateMessage.sequence,
+      topLevelUnreadCount: 0,
+      unread: false,
+    })
+    const staleThread = await markThreadReadState(
+      connection.db,
+      workspace.id,
+      channel.id,
+      root.id,
+      owner.principal,
+      'read',
+      0
+    )
+    expect(staleThread.find(({ channelId }) => channelId === channel.id)).toMatchObject({
+      threadUnreadCount: 0,
+      unread: false,
+    })
+
     const global = await searchWorkspaceForUser(
       connection.db,
       workspace.id,

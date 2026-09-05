@@ -1,0 +1,1 @@
+ALTER TYPE "app"."task_lifecycle_state" ADD VALUE 'in_review' BEFORE 'completed';

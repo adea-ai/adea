@@ -6,16 +6,16 @@ provider subject, non-authoritative profile hints, and session metadata. The pro
 an `AuthIdentity` input; it is never an Agent HQ `User.id` and never grants workspace access.
 
 Authentication is optional for using Agent HQ. A first web or desktop launch provisions a
-temporary canonical `User`, owner membership, and default workspace transactionally. The browser
+temporary canonical `User`, owner membership, and default Home and Work workspaces transactionally. The browser
 stores its opaque temporary credential in an HTTP-only cookie; the desktop app stores a distinct
 credential in the operating-system keychain. Temporary credentials expire after 30 days and are
 stored in PostgreSQL only as SHA-256 digests.
 
-Signing in or creating an account claims the temporary workspace. A new account promotes the
+Signing in or creating an account claims the temporary workspaces. A new account promotes the
 temporary user in place; an existing account transfers memberships and ownership without exposing
 provider IDs. Claim retries are idempotent for the same account and fail closed for another
 account. Signing out affects only the account session and opens a new guest workspace; it does not
-delete the saved workspace or unpair a RuntimeNode.
+delete the saved workspaces or unpair a RuntimeNode.
 
 ## Environment topology
 
