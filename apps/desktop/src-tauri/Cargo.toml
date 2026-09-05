@@ -1,6 +1,6 @@
 [package]
 name = "agent-hq-desktop"
-version = "0.10.2"
+version = "0.10.3"
 description = "Thin native desktop shell for Agent HQ"
 authors = ["Agent HQ"]
 edition = "2021"
