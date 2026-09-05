@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { delimiter, resolve } from "node:path";
+import { realpathSync } from "node:fs";
+import { delimiter, dirname, resolve } from "node:path";
 
 import { createReleasePlan, parseCommitLog } from "./manual-release-core.mjs";
 
@@ -103,7 +104,9 @@ function runReleasePlease(subcommand, token) {
     root,
     "node_modules/release-please/build/src/bin/release-please.js"
   );
-  const releasePleaseScope = resolve(root, "node_modules/release-please", "..");
+  // resolve() collapses ".." lexically through the node_modules symlink,
+  // so follow it to the real scope directory first.
+  const releasePleaseScope = dirname(realpathSync(resolve(root, "node_modules/release-please")));
   const nodePath = process.env.NODE_PATH
     ? `${releasePleaseScope}${delimiter}${process.env.NODE_PATH}`
     : releasePleaseScope;
