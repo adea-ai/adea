@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.8](https://github.com/adea-ai/agent-hq/compare/v0.10.7...v0.10.8) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ci:** define extract_appimage outside the AND-list in runner Dockerfile ([#227](https://github.com/adea-ai/agent-hq/issues/227)) ([f91e5c3](https://github.com/adea-ai/agent-hq/commit/f91e5c3cbe77b3d53bb5e87d9cd60676ba1afcc0))
+* **ci:** keep native smoke from dirtying the worktree ([#228](https://github.com/adea-ai/agent-hq/issues/228)) ([e79cb03](https://github.com/adea-ai/agent-hq/commit/e79cb03685ff214f13617422c8930785d29584e7))
+* **ci:** resolve release-please scope through the symlink ([#230](https://github.com/adea-ai/agent-hq/issues/230)) ([2b63777](https://github.com/adea-ai/agent-hq/commit/2b63777c6c8da17d19be1546fe578616556a2fd9))
+* **ci:** run pinned release-please with node plus NODE_PATH locally ([#229](https://github.com/adea-ai/agent-hq/issues/229)) ([f76d0d9](https://github.com/adea-ai/agent-hq/commit/f76d0d95684e8c855e587a57f948bd46c505ceb2))
+
+
+### Maintenance
+
+* **ci:** unblock local billing-pause workflow ([#226](https://github.com/adea-ai/agent-hq/issues/226)) ([3b50955](https://github.com/adea-ai/agent-hq/commit/3b50955a4587a3ea4eb0fa9cf47a65fb3dda1259))
+* enforce owner-exempt review policy via required check ([#213](https://github.com/adea-ai/agent-hq/issues/213)) ([9f954d6](https://github.com/adea-ai/agent-hq/commit/9f954d698e65a241422dedde081b6969db8a6407))
+* stage branch ruleset definitions for future activation ([#214](https://github.com/adea-ai/agent-hq/issues/214)) ([a0f95aa](https://github.com/adea-ai/agent-hq/commit/a0f95aa2e6ed6b6d48083845032f5b2f9a9d037a))
+
 ## [0.10.7](https://github.com/adea-ai/agent-hq/compare/v0.10.6...v0.10.7) (2026-09-05)
 
 
