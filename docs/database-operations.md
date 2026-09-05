@@ -6,10 +6,10 @@ Agent HQ uses standard PostgreSQL as its application contract. Neon supplies hos
 
 | Application target | Neon branch                       | Runtime role                 | Migration role                     |
 | ------------------ | --------------------------------- | ---------------------------- | ---------------------------------- |
-| Production         | `main`                            | `agent_hq_prod_app`          | `agent_hq_prod_migration`          |
+| Production         | production                        | `neondb_owner` (Cloudflare Worker via Hyperdrive; dedicated `agent_hq_prod_app` role removed) | `adea_prod_migration`          |
 | Preview/staging    | `staging`                         | `agent_hq_staging_app`       | `agent_hq_staging_migration`       |
-| Development        | `development`                     | `agent_hq_dev_app`           | `agent_hq_dev_migration`           |
-| Pull request CI    | `preview/pr-*` from `development` | inherited `agent_hq_dev_app` | inherited `agent_hq_dev_migration` |
+| Development        | `development`                     | `adea_dev_app`           | `adea_dev_migration`           |
+| Pull request CI    | `preview/pr-*` from `development` | inherited `adea_dev_app` | inherited `adea_dev_migration` |
 
 Vercel stores separate `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL` records for Production, Preview, and Development. Production and Preview values are sensitive. Environment selection is deployment configuration; request data must never select a branch, connection string, or role.
 
