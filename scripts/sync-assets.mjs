@@ -1,15 +1,44 @@
-import { access, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const publicAssets = resolve(repoRoot, "apps/web/public/assets");
-// Build into a staging directory and swap it over the live tree atomically.
-// The desktop vite build copies apps/web/public while the web build syncs it;
-// swapping complete trees (instead of wiping public/assets first) means
-// concurrent readers only ever see a complete old or complete new tree.
-const stagingAssets = `${publicAssets}.staging-${process.pid}`;
-const backupAssets = `${publicAssets}.backup-${process.pid}`;
+const webRoot = resolve(repoRoot, "apps/web");
+// Build into a staging directory and swap it over the live tree with one
+// rename(2). Staging MUST live outside apps/web/public: the desktop vite
+// build sets publicDir to ../web/public and walks it recursively while the
+// web build syncs, so a staging sibling inside public/ gets enumerated and
+// then renamed away mid-copy (ENOENT). A same-directory rename is atomic,
+// so concurrent readers only ever resolve public/assets to a complete old
+// or complete new tree and never observe the staging names at all.
+const stagingAssets = resolve(webRoot, `.assets.staging-${process.pid}`);
+const backupAssets = resolve(webRoot, `.assets.backup-${process.pid}`);
+
+// Reap staging/backup droppings orphaned by previously interrupted runs.
+for (const entry of await readdir(webRoot).catch(() => [])) {
+  if (/^\.assets\.(staging|backup)-\d+$/.test(entry)) {
+    await rm(resolve(webRoot, entry), { recursive: true, force: true });
+  }
+}
+
+// Binary art lives in the private adea-ai/assets pack (see
+// scripts/fetch-assets.mjs), not in this repository. Developers point
+// AGENT_HQ_ASSETS_DIR at a checkout; machines fetch vendor/assets. When the
+// pack is absent (plain CI checkouts), sync still emits manifests and warns
+// loudly instead of failing: DOM-level tests stay green, only real pixels
+// and real bytes are missing.
+const packRoot = process.env.AGENT_HQ_ASSETS_DIR ?? resolve(repoRoot, "vendor/assets");
+let packPresent = false;
+try {
+  await access(resolve(packRoot, "packages/interior/assets"));
+  packPresent = true;
+} catch {
+  console.warn(
+    "[Agent HQ] asset pack not found; syncing manifests only. " +
+      "Run `bun scripts/fetch-assets.mjs` for full models/textures."
+  );
+}
 
 async function copyAsset(source, destination, filter) {
   await mkdir(dirname(destination), { recursive: true });
@@ -100,6 +129,14 @@ for (const [scene, assetDirectory] of [
   ["hq-home", "home"],
   ["hq-work", "work"],
 ]) {
+  if (packPresent) {
+    await copyAsset(
+      resolve(packRoot, "scenes", "hq", "assets", assetDirectory),
+      resolve(stagingAssets, "worlds", scene)
+    );
+  }
+  // Scene manifests (props/foliage/editor-overrides) stay tracked in this
+  // repository and always ship, with or without the binary pack.
   await copyAsset(
     resolve(repoRoot, "scenes", "hq", "assets", assetDirectory),
     resolve(stagingAssets, "worlds", scene)
@@ -107,31 +144,35 @@ for (const [scene, assetDirectory] of [
   await writeAssignedPropsManifest(scene, assetDirectory, stagingAssets);
 }
 
-await copyAsset(resolve(repoRoot, "packages/interior/assets"), resolve(stagingAssets, "models"));
-await copyAsset(
-  resolve(repoRoot, "packages/landscape/assets/foliage"),
-  resolve(stagingAssets, "models/foliage")
-);
-await copyAsset(
-  resolve(repoRoot, "packages/landscape/assets/fences"),
-  resolve(stagingAssets, "models/fences")
-);
-await copyAsset(
-  resolve(repoRoot, "packages/landscape/assets/backgrounds"),
-  resolve(stagingAssets, "models/backgrounds")
-);
-await copyAsset(
-  resolve(repoRoot, "packages/pets/assets/animals"),
-  resolve(stagingAssets, "models/animals")
-);
-const characterAssetRoot = resolve(repoRoot, "packages/characters/assets");
-await copyAsset(characterAssetRoot, resolve(stagingAssets, "models"), (sourcePath) => {
-  const path = relative(characterAssetRoot, sourcePath).replaceAll("\\", "/");
-  // Keep authoring/reference files in the package, but do not ship them to
-  // clients because the runtime never loads them.
-  return path !== "assets_map.glb" && !path.startsWith("_complete/original-blend/");
-});
-await copyAsset(resolve(repoRoot, "packages/rooms/assets"), resolve(stagingAssets, "models"));
+if (packPresent) {
+  await copyAsset(resolve(packRoot, "packages/interior/assets"), resolve(stagingAssets, "models"));
+  await copyAsset(
+    resolve(packRoot, "packages/landscape/assets/foliage"),
+    resolve(stagingAssets, "models/foliage")
+  );
+  await copyAsset(
+    resolve(packRoot, "packages/landscape/assets/fences"),
+    resolve(stagingAssets, "models/fences")
+  );
+  await copyAsset(
+    resolve(packRoot, "packages/landscape/assets/backgrounds"),
+    resolve(stagingAssets, "models/backgrounds")
+  );
+  await copyAsset(
+    resolve(packRoot, "packages/pets/assets/animals"),
+    resolve(stagingAssets, "models/animals")
+  );
+}
+const characterAssetRoot = resolve(packRoot, "packages/characters/assets");
+if (packPresent) {
+  await copyAsset(characterAssetRoot, resolve(stagingAssets, "models"), (sourcePath) => {
+    const path = relative(characterAssetRoot, sourcePath).replaceAll("\\", "/");
+    // Keep authoring/reference files in the pack, but do not ship them to
+    // clients because the runtime never loads them.
+    return path !== "assets_map.glb" && !path.startsWith("_complete/original-blend/");
+  });
+  await copyAsset(resolve(packRoot, "packages/rooms/assets"), resolve(stagingAssets, "models"));
+}
 
 // Swap the complete staging tree over the live one. Readers concurrent with
 // the sync only ever observe a complete tree (old or new).

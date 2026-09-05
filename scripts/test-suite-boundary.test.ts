@@ -83,11 +83,14 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("continue-on-error: true");
     expect(workflow).toContain("steps.desktop_bundle.outcome == 'failure'");
     expect(workflow).toContain("Retry desktop bundle upload");
-    expect(workflow).toContain("name: desktop-updater-pages");
+    expect(workflow).toContain("Upload updater channel to R2");
+    expect(workflow).toContain("updates.adea.dev/desktop-updates/");
+    expect(workflow).toContain("r2.cloudflarestorage.com");
+    expect(workflow).not.toContain("name: desktop-updater-pages");
+    expect(workflow).not.toContain("deploy-pages");
     expect(workflow).not.toContain("name: github-pages");
-    expect(workflow).toContain("Install GNU tar for Pages upload");
-    expect(workflow).toContain("command -v gtar");
-    expect(workflow).toContain("brew install gnu-tar");
+    expect(workflow).toContain("Install AWS CLI for R2 upload");
+    expect(workflow).toContain("brew install awscli");
     expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
     expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');

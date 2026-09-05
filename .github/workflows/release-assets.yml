@@ -131,6 +131,14 @@ jobs:
           bun-version: 1.4.0
           no-cache: true
 
+      - name: Fetch private asset pack
+        # The pack secret does not exist until the adea-ai/assets PAT is
+        # provisioned; until then desktop builds ship manifests-only.
+        if: ${{ secrets.ASSETS_READ_TOKEN != '' }}
+        env:
+          ASSETS_READ_TOKEN: ${{ secrets.ASSETS_READ_TOKEN }}
+        run: bun scripts/fetch-assets.mjs
+
       - name: Load release notes
         id: release_notes
         env:
