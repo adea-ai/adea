@@ -1,4 +1,3 @@
-import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
 
@@ -33,6 +32,16 @@ type SaveRequest = {
 };
 
 let saveQueue = Promise.resolve();
+
+let fsPromises: typeof import("node:fs/promises") | undefined;
+
+async function filesystem(): Promise<typeof import("node:fs/promises")> {
+  // Imported lazily (never statically) so this dev-only route never pulls
+  // node:fs into the Cloudflare Workers bundle, where it does not exist.
+  // Production callers are rejected with 404 before this is reached.
+  fsPromises ??= await import("node:fs/promises");
+  return fsPromises;
+}
 
 function validVector(value: unknown, length: number): value is number[] {
   return (
@@ -136,6 +145,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid HQ scene placement payload." }, { status: 400 });
   }
 
+  const fs = await filesystem();
   const sourceDirectory = HQ_SOURCE_DIRECTORIES[body.scene as keyof typeof HQ_SOURCE_DIRECTORIES];
   const relativePath = isRoomDesigner
     ? path.join("scenes", "hq", "assets", sourceDirectory, "props.json")
@@ -152,7 +162,7 @@ export async function POST(request: Request) {
     saveQueue = saveQueue
       .catch(() => undefined)
       .then(async () => {
-        const sourceBytes = await readFile(sourcePath, "utf8").catch((error) => {
+        const sourceBytes = await fs.readFile(sourcePath, "utf8").catch((error) => {
           if (
             isRoomDesigner &&
             error instanceof Error &&
@@ -221,8 +231,8 @@ export async function POST(request: Request) {
           body.scene as string,
           "props-runtime.json",
         );
-        const previousPublicBytes = await readFile(publicManifestPath, "utf8").catch(() => null);
-        const previousAssignedPropsBytes = await readFile(assignedPropsManifestPath, "utf8").catch(
+        const previousPublicBytes = await fs.readFile(publicManifestPath, "utf8").catch(() => null);
+        const previousAssignedPropsBytes = await fs.readFile(assignedPropsManifestPath, "utf8").catch(
           () => null,
         );
         try {
@@ -267,17 +277,19 @@ export async function POST(request: Request) {
 class PlacementNotFoundError extends Error {}
 
 async function atomicWrite(destination: string, contents: string): Promise<void> {
+  const fs = await filesystem();
   const temporaryPath = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await writeFile(temporaryPath, contents);
-  await rename(temporaryPath, destination);
+  await fs.writeFile(temporaryPath, contents);
+  await fs.rename(temporaryPath, destination);
 }
 
 async function findRepoRoot(start: string): Promise<string> {
+  const fs = await filesystem();
   let current = path.resolve(start);
   while (true) {
     try {
       const packageJson = JSON.parse(
-        await readFile(path.join(current, "package.json"), "utf8"),
+        await fs.readFile(path.join(current, "package.json"), "utf8"),
       ) as { name?: string };
       if (packageJson.name === "agent-hq") return current;
     } catch {

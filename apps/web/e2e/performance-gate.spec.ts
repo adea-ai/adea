@@ -1,14 +1,14 @@
-import { expect, test, type Page } from "@playwright/test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { expect, test, type Page } from '@playwright/test'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 
 type BrowserSceneReport = {
-  event: "load" | "runtime" | "dispose" | "error";
-  scene: string;
-  error?: string;
-  milestones?: { playableCharacterMs?: number };
-  network?: { transferBytes?: number };
-  runtime?: { p95FrameMs?: number };
-};
+  event: 'load' | 'runtime' | 'dispose' | 'error'
+  scene: string
+  error?: string
+  milestones?: { playableCharacterMs?: number }
+  network?: { transferBytes?: number }
+  runtime?: { p95FrameMs?: number }
+}
 
 // Cold WebGL initialization can exceed Playwright's default 30-second action
 // timeout in headless Chromium. This only allows the scene to report; the
@@ -73,60 +73,60 @@ async function runScenePerformanceGate(page: Page, scene: "home" | "work") {
   await page.waitForFunction(
     () =>
       Array.isArray(
-        (window as Window & { __AGENT_HQ_SCENE_PERF__?: unknown }).__AGENT_HQ_SCENE_PERF__,
+        (window as Window & { __AGENT_HQ_SCENE_PERF__?: unknown }).__AGENT_HQ_SCENE_PERF__
       ) &&
       (
         (window as Window & { __AGENT_HQ_SCENE_PERF__?: BrowserSceneReport[] })
           .__AGENT_HQ_SCENE_PERF__ ?? []
-      ).some((report) => report.event === "load" || report.event === "error"),
+      ).some((report) => report.event === 'load' || report.event === 'error'),
     undefined,
-    { timeout: 30_000 },
-  );
+    { timeout: 30_000 }
+  )
 
   await page.waitForFunction(
     () =>
       (
         (window as Window & { __AGENT_HQ_SCENE_PERF__?: BrowserSceneReport[] })
           .__AGENT_HQ_SCENE_PERF__ ?? []
-      ).some((report) => report.event === "runtime" || report.event === "error"),
+      ).some((report) => report.event === 'runtime' || report.event === 'error'),
     undefined,
-    { timeout: 30_000 },
-  );
+    { timeout: 30_000 }
+  )
 
   const reports = await page.evaluate(
     () =>
       ((window as Window & { __AGENT_HQ_SCENE_PERF__?: BrowserSceneReport[] })
-        .__AGENT_HQ_SCENE_PERF__ ?? []) as BrowserSceneReport[],
-  );
-  await mkdir(".artifacts", { recursive: true });
-  let existingReports: BrowserSceneReport[] = [];
-  if (scene === "work") {
+        .__AGENT_HQ_SCENE_PERF__ ?? []) as BrowserSceneReport[]
+  )
+  await mkdir('.artifacts', { recursive: true })
+  let existingReports: BrowserSceneReport[] = []
+  if (scene === 'work') {
     try {
       existingReports = JSON.parse(
-        await readFile(".artifacts/scene-performance.json", "utf8"),
-      ) as BrowserSceneReport[];
+        await readFile('.artifacts/scene-performance.json', 'utf8')
+      ) as BrowserSceneReport[]
     } catch {
       // The work gate can still run independently when no Home artifact exists.
     }
   }
   await writeFile(
-    ".artifacts/scene-performance.json",
-    JSON.stringify([...existingReports, ...reports], null, 2),
-  );
+    '.artifacts/scene-performance.json',
+    JSON.stringify([...existingReports, ...reports], null, 2)
+  )
 
-  expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
-  expect(reports.some((report) => report.event === "load")).toBe(true);
-  expect(reports.some((report) => report.event === "error")).toBe(false);
+  expect(pageErrors).toEqual([])
+  expect(consoleErrors).toEqual([])
+  expect(reports.some((report) => report.event === 'load')).toBe(true)
+  expect(reports.some((report) => report.event === 'error')).toBe(false)
 }
 
-test("home scene meets runtime performance gates", async ({ page }) => {
-  await runScenePerformanceGate(page, "home");
-});
+test('home scene meets runtime performance gates', async ({ page }) => {
+  await runScenePerformanceGate(page, 'home')
+})
 
-test("work scene meets runtime performance gates", async ({ page }) => {
-  await runScenePerformanceGate(page, "work");
-});
+test('work scene meets runtime performance gates', async ({ page }) => {
+  await runScenePerformanceGate(page, 'work')
+})
 
 test("HQ defers perspective-only backgrounds in top-down view", async ({ page }) => {
   const backgroundRequests: string[] = [];
@@ -512,12 +512,12 @@ test("room designer loads compressed interior props", async ({ page }) => {
   page.on("pageerror", (error) => pageErrors.push(error.message));
   page.on("console", (message) => {
     if (
-      message.type() === "warning" &&
-      message.text().includes("[HQ room designer] Could not load")
+      message.type() === 'warning' &&
+      message.text().includes('[HQ room designer] Could not load')
     ) {
-      catalogWarnings.push(message.text());
+      catalogWarnings.push(message.text())
     }
-  });
+  })
 
   const response = await page.goto(
     "/?view=virtual&scene=home&roomDesigner=1&camera=orthographic&debug=1",
@@ -533,9 +533,9 @@ test("room designer loads compressed interior props", async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Open character designer' })).toHaveCount(0);
   await expect(page.locator('[aria-label^="Add "]').first()).toBeVisible({ timeout: 30_000 });
 
-  expect(pageErrors).toEqual([]);
-  expect(catalogWarnings).toEqual([]);
-});
+  expect(pageErrors).toEqual([])
+  expect(catalogWarnings).toEqual([])
+})
 
 test("room designer camera state does not leak into HQ", async ({ page }) => {
   const pageErrors: string[] = [];
@@ -583,37 +583,37 @@ test("web layout does not reserve space for the desktop status bar", async ({ pa
   await expect(page.locator("canvas")).toBeVisible({ timeout: sceneCanvasTimeout });
   await expect(page.locator('[data-agent-hq-on-screen-controls="true"]')).toBeVisible({
     timeout: 30_000,
-  });
+  })
 
-  await expect(page.locator(".workspace-statusbar")).toHaveCount(0);
+  await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
   const bottomOffsets = await page.evaluate(() => ({
     caption: Number.parseFloat(
-      getComputedStyle(document.querySelector<HTMLElement>(".workspace-scene-caption")!).bottom,
+      getComputedStyle(document.querySelector<HTMLElement>('.workspace-scene-caption')!).bottom
     ),
     controls: Number.parseFloat(
       getComputedStyle(
-        document.querySelector<HTMLElement>('[data-agent-hq-on-screen-controls="true"]')!,
-      ).bottom,
+        document.querySelector<HTMLElement>('[data-agent-hq-on-screen-controls="true"]')!
+      ).bottom
     ),
     viewSwitcher: Number.parseFloat(
-      getComputedStyle(document.querySelector<HTMLElement>(".workspace-view-switcher")!).bottom,
+      getComputedStyle(document.querySelector<HTMLElement>('.workspace-view-switcher')!).bottom
     ),
     verticalCenterDelta: (() => {
       const camera = document
-        .querySelector<HTMLElement>(".workspace-view-switcher")!
-        .getBoundingClientRect();
+        .querySelector<HTMLElement>('.workspace-view-switcher')!
+        .getBoundingClientRect()
       const zoom = document
         .querySelector<HTMLElement>('[aria-label="Camera zoom"]')!
-        .getBoundingClientRect();
-      return Math.abs(camera.top + camera.height / 2 - (zoom.top + zoom.height / 2));
+        .getBoundingClientRect()
+      return Math.abs(camera.top + camera.height / 2 - (zoom.top + zoom.height / 2))
     })(),
-  }));
+  }))
 
-  expect(bottomOffsets.caption).toBeLessThanOrEqual(24);
-  expect(bottomOffsets.controls).toBeLessThanOrEqual(32);
-  expect(bottomOffsets.viewSwitcher).toBeLessThanOrEqual(24);
-  expect(bottomOffsets.verticalCenterDelta).toBeLessThanOrEqual(2);
-});
+  expect(bottomOffsets.caption).toBeLessThanOrEqual(24)
+  expect(bottomOffsets.controls).toBeLessThanOrEqual(32)
+  expect(bottomOffsets.viewSwitcher).toBeLessThanOrEqual(24)
+  expect(bottomOffsets.verticalCenterDelta).toBeLessThanOrEqual(2)
+})
 
 test("desktop runtime keeps the shared scene layout without a status bar", async ({ page }) => {
   await page.addInitScript(() => {
@@ -635,8 +635,8 @@ test("desktop runtime keeps the shared scene layout without a status bar", async
     const viewportRect = viewport.getBoundingClientRect();
     const canvasRect = canvas.getBoundingClientRect();
     const camera = document
-      .querySelector<HTMLElement>(".workspace-view-switcher")!
-      .getBoundingClientRect();
+      .querySelector<HTMLElement>('.workspace-view-switcher')!
+      .getBoundingClientRect()
     const zoom = document
       .querySelector<HTMLElement>('[aria-label="Camera zoom"]')!
       .getBoundingClientRect();
@@ -654,8 +654,8 @@ test("desktop runtime keeps the shared scene layout without a status bar", async
       sceneToolsRight: sceneTools.getBoundingClientRect().right,
       loadingBackground: loading ? getComputedStyle(loading).backgroundColor : '',
       verticalCenterDelta: Math.abs(camera.top + camera.height / 2 - (zoom.top + zoom.height / 2)),
-    };
-  });
+    }
+  })
 
   expect(layout.controlsBottom).toBeLessThanOrEqual(layout.viewportBottom);
   expect(layout.controlsRight).toBeLessThanOrEqual(layout.viewportRight + 1);
