@@ -1,10 +1,22 @@
 # Generated release metadata is intentionally managed by Release Please.
 CHANGELOG.md
 
-# Runtime files are checked out under .github during CI.
+# Runtime files are checked out under .github during CI. Composite actions
+# are copied to .github/actions for the workflow run and must not be policed
+# by consumer formatters (their style follows the runtime baseline, not the
+# consumer .prettierrc).
 .github/.code-foundry
+.github/actions/
 
 # Repository-specific rules
+# Synced Code Foundry callers follow the runtime baseline style, not the
+# consumer .prettierrc; policing them would fight every `code-foundry sync`.
+.github/workflows/validation.yml
+.github/workflows/release.yml
+.github/workflows/opencode-security.yml
+.github/ISSUE_TEMPLATE/bug_report.yml
+.github/ISSUE_TEMPLATE/feature_request.yml
+# Runtime files are checked out under .github during CI.
 # Code Foundry copies its runtime actions here for each validation job.
 .github/actions
 # Project-scoped skills are vendored guidance and retain their upstream format.
