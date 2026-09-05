@@ -9,10 +9,13 @@ import {
   landscapeHorizonBackgrounds,
 } from "../src";
 
-const packageAssets = resolve(import.meta.dir, "../assets");
+const packRoot =
+  process.env.AGENT_HQ_ASSETS_DIR ?? resolve(import.meta.dir, "../../../vendor/assets");
+const packageAssets = resolve(packRoot, "packages/landscape/assets");
+const assetsPresent = existsSync(packageAssets);
 
 describe("landscape asset catalog", () => {
-  test("contains every exterior foliage model", () => {
+  test.skipIf(!assetsPresent)("contains every exterior foliage model", () => {
     expect(foliageAssets).toHaveLength(9);
 
     for (const asset of foliageAssets) {
@@ -22,19 +25,22 @@ describe("landscape asset catalog", () => {
     }
   });
 
-  test("contains reusable fence models outside the room-designer package", () => {
-    expect(fenceAssets).toHaveLength(3);
+  test.skipIf(!assetsPresent)(
+    "contains reusable fence models outside the room-designer package",
+    () => {
+      expect(fenceAssets).toHaveLength(3);
 
-    for (const asset of fenceAssets) {
-      expect(existsSync(resolve(packageAssets, "fences", basename(asset.assetUrl)))).toBe(true);
+      for (const asset of fenceAssets) {
+        expect(existsSync(resolve(packageAssets, "fences", basename(asset.assetUrl)))).toBe(true);
+      }
     }
-  });
+  );
 
   test("combines foliage and fences into the landscape runtime catalog", () => {
     expect(landscapeAssets).toHaveLength(foliageAssets.length + fenceAssets.length);
   });
 
-  test("keeps every downloaded horizon background available", () => {
+  test.skipIf(!assetsPresent)("keeps every downloaded horizon background available", () => {
     expect(backgroundAssets).toHaveLength(8);
     for (const asset of backgroundAssets) {
       expect(existsSync(resolve(packageAssets, "backgrounds", basename(asset.assetUrl)))).toBe(

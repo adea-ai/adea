@@ -1,7 +1,14 @@
-import { readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { interiorPropAssets } from "../src";
+
+// Binary art lives in the private pack, not the repository. Skip the
+// filesystem assertions (not the catalog contract) when it is absent.
+const packRoot =
+  process.env.AGENT_HQ_ASSETS_DIR ?? resolve(import.meta.dir, "../../../vendor/assets");
+const assetsRoot = resolve(packRoot, "packages/interior/assets");
+const assetsPresent = existsSync(assetsRoot);
 
 const interiorPlantIds = interiorPropAssets
   .filter((asset) => asset.category === "plants")
@@ -44,8 +51,7 @@ describe("room-designer model boundary", () => {
     ).toBe(true);
   });
 
-  test("keeps every packaged interior asset filename lowercase", () => {
-    const assetsRoot = join(import.meta.dir, "../assets");
+  test.skipIf(!assetsPresent)("keeps every packaged interior asset filename lowercase", () => {
     const visit = (directory: string) => {
       for (const entry of readdirSync(directory, { withFileTypes: true })) {
         const path = join(directory, entry.name);
@@ -57,41 +63,43 @@ describe("room-designer model boundary", () => {
     visit(assetsRoot);
   });
 
-  test("stores every catalog asset in its configured room-designer folder", () => {
-    const assetsRoot = join(import.meta.dir, "../assets");
-    const files: string[] = [];
-    const visit = (directory: string) => {
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const path = join(directory, entry.name);
-        if (entry.isDirectory()) visit(path);
-        else if (entry.name.endsWith(".glb")) files.push(relative(assetsRoot, path));
-      }
-    };
-    visit(assetsRoot);
-
-    const catalogFiles = interiorPropAssets.map((asset) =>
-      asset.assetUrl.replace("/assets/models/", "")
-    );
-
-    expect(files.sort()).toEqual([...catalogFiles].sort());
-    expect(
-      interiorPropAssets.every((asset) => {
-        const folder = asset.assetUrl.split("/").at(-2);
-        if (asset.category === "food-and-drinks") {
-          return folder === "food" || folder === "drinks";
+  test.skipIf(!assetsPresent)(
+    "stores every catalog asset in its configured room-designer folder",
+    () => {
+      const files: string[] = [];
+      const visit = (directory: string) => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+          const path = join(directory, entry.name);
+          if (entry.isDirectory()) visit(path);
+          else if (entry.name.endsWith(".glb")) files.push(relative(assetsRoot, path));
         }
-        return folder === asset.category;
-      })
-    ).toBe(true);
+      };
+      visit(assetsRoot);
 
-    expect(
-      new Set(
-        interiorPropAssets
-          .filter((asset) => asset.category === "food-and-drinks")
-          .map((asset) => asset.assetUrl.split("/").at(-2))
-      )
-    ).toEqual(new Set(["food", "drinks"]));
-  });
+      const catalogFiles = interiorPropAssets.map((asset) =>
+        asset.assetUrl.replace("/assets/models/", "")
+      );
+
+      expect(files.sort()).toEqual([...catalogFiles].sort());
+      expect(
+        interiorPropAssets.every((asset) => {
+          const folder = asset.assetUrl.split("/").at(-2);
+          if (asset.category === "food-and-drinks") {
+            return folder === "food" || folder === "drinks";
+          }
+          return folder === asset.category;
+        })
+      ).toBe(true);
+
+      expect(
+        new Set(
+          interiorPropAssets
+            .filter((asset) => asset.category === "food-and-drinks")
+            .map((asset) => asset.assetUrl.split("/").at(-2))
+        )
+      ).toEqual(new Set(["food", "drinks"]));
+    }
+  );
 
   test("keeps only interior pots and plants in the plants category", () => {
     expect(interiorPlantIds).toEqual(

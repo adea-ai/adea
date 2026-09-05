@@ -1,8 +1,13 @@
-import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-const assetsDirectory = join(import.meta.dir, "../assets");
+// Binary art lives in the private pack, not the repository. Skip the
+// filesystem assertions (not the catalog contract) when it is absent.
+const packRoot =
+  process.env.AGENT_HQ_ASSETS_DIR ?? resolve(import.meta.dir, "../../../vendor/assets");
+const assetsDirectory = resolve(packRoot, "packages/architecture/assets");
+const assetsPresent = existsSync(assetsDirectory);
 const categoryFileCounts = {
   columns: 1,
   curtains: 29,
@@ -15,7 +20,7 @@ const categoryFileCounts = {
 } as const;
 
 describe("architecture asset package", () => {
-  test("keeps each architecture family in its own category folder", () => {
+  test.skipIf(!assetsPresent)("keeps each architecture family in its own category folder", () => {
     expect(readdirSync(assetsDirectory).sort()).toEqual(Object.keys(categoryFileCounts).sort());
 
     for (const [category, expectedCount] of Object.entries(categoryFileCounts)) {
