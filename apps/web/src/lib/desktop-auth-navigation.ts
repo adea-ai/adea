@@ -2,7 +2,7 @@ const DESKTOP_AUTHORIZATION_PATH = "/api/auth/desktop/authorize";
 const DESKTOP_CALLBACK_TARGET = "agent-hq://auth/callback";
 
 export function createDesktopCompletionUrl(authorizationUrl: URL, callback: string) {
-  const completionUrl = new URL("@adea/auth/desktop/complete", authorizationUrl.origin);
+  const completionUrl = new URL("@adea-ai/auth/desktop/complete", authorizationUrl.origin);
   completionUrl.hash = new URLSearchParams({ callback }).toString();
   return completionUrl;
 }
@@ -56,7 +56,7 @@ export function parseDesktopCallbackFragment(fragment: string) {
 }
 
 export function createDesktopSignInUrl(authorizationUrl: URL) {
-  const signInUrl = new URL("@adea/auth/sign-in", authorizationUrl.origin);
+  const signInUrl = new URL("@adea-ai/auth/sign-in", authorizationUrl.origin);
   signInUrl.searchParams.set("returnTo", `${authorizationUrl.pathname}${authorizationUrl.search}`);
   return signInUrl;
 }

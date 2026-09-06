@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageSquareText, PanelsTopLeft } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@adea/ui/components/ui/toggle-group";
+import { ToggleGroup, ToggleGroupItem } from "@adea-ai/ui/components/ui/toggle-group";
 
 export type WorkspaceView = "chat" | "virtual";
 

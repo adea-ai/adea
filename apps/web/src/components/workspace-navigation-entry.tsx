@@ -2,17 +2,17 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
-import { createApiClient, type AgentHqApiClient } from "@adea/api-client";
-import { useAgentListQuery, useWorkspaceBootstrapQuery } from "@adea/data";
-import { useWorkspaceStore } from "@adea/state";
-import type { WorkspaceSummary } from "@adea/types";
+import { createApiClient, type AgentHqApiClient } from "@adea-ai/api-client";
+import { useAgentListQuery, useWorkspaceBootstrapQuery } from "@adea-ai/data";
+import { useWorkspaceStore } from "@adea-ai/state";
+import type { WorkspaceSummary } from "@adea-ai/types";
 import type {
   WorkspacePlatformServices,
   WorkspacePluginsProvider,
-} from "@adea/workspace-ui/platform";
-import type { RegistryPluginsProviderOptions } from "@adea/workspace-ui/plugins";
-import { createBrowserSettingsProvider } from "@adea/workspace-ui/preferences";
-import type { WorkspaceView } from "@adea/workspace-ui/workspace-view-toggle";
+} from "@adea-ai/workspace-ui/platform";
+import type { RegistryPluginsProviderOptions } from "@adea-ai/workspace-ui/plugins";
+import { createBrowserSettingsProvider } from "@adea-ai/workspace-ui/preferences";
+import type { WorkspaceView } from "@adea-ai/workspace-ui/workspace-view-toggle";
 import { parseAsStringLiteral, useQueryState } from "nuqs";
 import type { WorkspaceShellProps } from "./workspace-shell";
 import packageJson from "../../package.json";
@@ -39,7 +39,7 @@ const RoomDesignerWorkspace = dynamic(
 
 const GlobalWorkspaceRail = dynamic(
   () =>
-    import("@adea/workspace-ui/global-workspace-rail").then(
+    import("@adea-ai/workspace-ui/global-workspace-rail").then(
       ({ GlobalWorkspaceRail: Rail }) => Rail
     ),
   { loading: () => <WorkspaceRailLoading />, ssr: false }
@@ -47,20 +47,20 @@ const GlobalWorkspaceRail = dynamic(
 
 const WorkspaceAboutDialog = dynamic(
   () =>
-    import("@adea/workspace-ui/workspace-about-dialog").then(
+    import("@adea-ai/workspace-ui/workspace-about-dialog").then(
       ({ WorkspaceAboutDialog: AboutDialog }) => AboutDialog
     ),
   { ssr: false }
 );
 
 const PluginsDialog = dynamic(
-  () => import("@adea/workspace-ui/plugins-dialog").then((module) => module.PluginsDialog),
+  () => import("@adea-ai/workspace-ui/plugins-dialog").then((module) => module.PluginsDialog),
   { ssr: false }
 );
 
 const WorkspaceSettingsDialog = dynamic(
   () =>
-    import("@adea/workspace-ui/workspace-settings").then(
+    import("@adea-ai/workspace-ui/workspace-settings").then(
       ({ WorkspaceSettingsDialog: SettingsDialog }) => SettingsDialog
     ),
   { ssr: false }
@@ -127,7 +127,7 @@ function createDeferredPluginsProvider(
   let provider: Promise<WorkspacePluginsProvider> | undefined;
   let loaded: WorkspacePluginsProvider | undefined;
   const load = () => {
-    provider ??= import("@adea/workspace-ui/plugins")
+    provider ??= import("@adea-ai/workspace-ui/plugins")
       .then(({ createRegistryPluginsProvider }) => createRegistryPluginsProvider(options))
       .then((value) => {
         loaded = value;
@@ -157,9 +157,9 @@ export function WorkspaceNavigationEntry({
   const userIdRef = useRef<string | undefined>(undefined);
   const [services] = useState<WorkspacePlatformServices>(() => ({
     account: {
-      onSignIn: () => window.location.assign("@adea/auth/sign-in?returnTo=%2F"),
+      onSignIn: () => window.location.assign("@adea-ai/auth/sign-in?returnTo=%2F"),
       onSignOut: async () => {
-        const { createNeonClientAdapter } = await import("@adea/auth/client");
+        const { createNeonClientAdapter } = await import("@adea-ai/auth/client");
         await createNeonClientAdapter().signOut();
         window.location.assign("/");
       },

@@ -1,5 +1,5 @@
-import type { AgentSummary } from "@adea/types";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@adea/ui/components/ui/tooltip";
+import type { AgentSummary } from "@adea-ai/types";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@adea-ai/ui/components/ui/tooltip";
 
 function StatusChip({
   detail,

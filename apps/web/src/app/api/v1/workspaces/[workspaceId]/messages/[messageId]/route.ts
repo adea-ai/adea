@@ -1,5 +1,5 @@
-import type { ApiMessageResponse } from "@adea/api-client";
-import { deleteMessage, editMessage, getMessageForUser } from "@adea/db";
+import type { ApiMessageResponse } from "@adea-ai/api-client";
+import { deleteMessage, editMessage, getMessageForUser } from "@adea-ai/db";
 
 import {
   conversationErrorResponse,

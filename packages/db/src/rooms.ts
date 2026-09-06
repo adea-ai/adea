@@ -1,4 +1,4 @@
-import type { RoomSummary, UserPrincipalRef } from "@adea/types";
+import type { RoomSummary, UserPrincipalRef } from "@adea-ai/types";
 import { and, asc, eq, inArray, max } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

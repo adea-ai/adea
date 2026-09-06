@@ -18,7 +18,7 @@
   "scripts": {
     "build": "turbo run build",
     "build:cloudflare": "bun scripts/build-cloudflare-worker.mjs",
-    "dev": "turbo run dev --filter=@adea/web --env-mode=loose",
+    "dev": "turbo run dev --filter=@adea-ai/web --env-mode=loose",
     "format:check": "prettier --check .",
     "lint": "turbo run lint",
     "test": "bun run test:unit",
@@ -27,7 +27,7 @@
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
-    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts",
+    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts",
     "test:smoke": "bun run native:smoke",
     "native:smoke": "bun scripts/native-smoke.mjs",
     "release": "bun scripts/manual-release.mjs"

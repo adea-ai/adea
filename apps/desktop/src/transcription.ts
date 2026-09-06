@@ -1,4 +1,4 @@
-import type { TranscriptionProvider, TranscriptionSession } from "@adea/workspace-ui";
+import type { TranscriptionProvider, TranscriptionSession } from "@adea-ai/workspace-ui";
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 import { desktopSettingsProvider } from "./preferences";

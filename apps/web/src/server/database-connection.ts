@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import { readDatabaseUrl, type DatabaseEnvironment } from "@adea/db/config";
+import { readDatabaseUrl, type DatabaseEnvironment } from "@adea-ai/db/config";
 
 function isCloudflareWorkers(): boolean {
   return globalThis.navigator?.userAgent === "Cloudflare-Workers";

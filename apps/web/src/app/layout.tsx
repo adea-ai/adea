@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { SoundProvider } from "@adea/audio";
-import { AgentHqQueryProvider } from "@adea/data/provider";
-import { ThemeProvider } from "@adea/ui/components/theme-provider";
+import { SoundProvider } from "@adea-ai/audio";
+import { AgentHqQueryProvider } from "@adea-ai/data/provider";
+import { ThemeProvider } from "@adea-ai/ui/components/theme-provider";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "./globals.css";
 

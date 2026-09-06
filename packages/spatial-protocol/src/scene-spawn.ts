@@ -1,4 +1,4 @@
-import type { SceneStartPosition } from "@adea/asset-manifests";
+import type { SceneStartPosition } from "@adea-ai/asset-manifests";
 
 export type SceneApp = "world" | "hq";
 

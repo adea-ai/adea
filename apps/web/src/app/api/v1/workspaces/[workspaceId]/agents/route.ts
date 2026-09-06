@@ -1,5 +1,5 @@
-import type { ApiAgentCreateInput, ApiAgentResponse } from "@adea/api-client";
-import { createAgent, listAgentsForUser } from "@adea/db";
+import type { ApiAgentCreateInput, ApiAgentResponse } from "@adea-ai/api-client";
+import { createAgent, listAgentsForUser } from "@adea-ai/db";
 import { applicationDatabase } from "../../../../../../server/database";
 import {
   guardDesktopWorkspaceRequest,

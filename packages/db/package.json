@@ -1,5 +1,5 @@
 {
-  "name": "@adea/db",
+  "name": "@adea-ai/db",
   "version": "0.10.8",
   "private": true,
   "type": "module",
@@ -29,7 +29,7 @@
     "db:verify": "bun src/verify-migrations.ts"
   },
   "dependencies": {
-    "@adea/types": "workspace:*",
+    "@adea-ai/types": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.7",
     "server-only": "^0.0.1"

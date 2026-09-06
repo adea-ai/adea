@@ -1,4 +1,4 @@
-import type { AgentHqApiClient } from "@adea/api-client";
+import type { AgentHqApiClient } from "@adea-ai/api-client";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from "./provider";

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AgentSummary, WorkspaceSummary } from "@adea/types";
-import { MusicToggle } from "@adea/audio";
-import { WorkspaceLogo } from "@adea/ui/components/workspace-logo";
-import { ThemeToggle } from "@adea/ui/components/theme-toggle";
-import { Switch } from "@adea/ui/components/ui/switch";
+import type { AgentSummary, WorkspaceSummary } from "@adea-ai/types";
+import { MusicToggle } from "@adea-ai/audio";
+import { WorkspaceLogo } from "@adea-ai/ui/components/workspace-logo";
+import { ThemeToggle } from "@adea-ai/ui/components/theme-toggle";
+import { Switch } from "@adea-ai/ui/components/ui/switch";
 import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from "lucide-react";
 
 import { ModalDialog } from "./modal-dialog";

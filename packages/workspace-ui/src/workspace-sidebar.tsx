@@ -3,7 +3,7 @@ import type {
   ChannelReadStateSummary,
   ChannelSummary,
   RoomSummary,
-} from "@adea/types";
+} from "@adea-ai/types";
 import {
   Bot,
   ChevronDown,
@@ -21,14 +21,14 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Button } from "@adea/ui/components/ui/button";
+import { Button } from "@adea-ai/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@adea/ui/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@adea/ui/components/ui/tooltip";
+} from "@adea-ai/ui/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@adea-ai/ui/components/ui/tooltip";
 
 import type { WorkspaceNavigation } from "./workspace-model";
 import { EditRoomDialog, RenameConversationDialog } from "./create-workspace-dialogs";

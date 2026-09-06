@@ -1,5 +1,5 @@
 import { useRef, useState, type CSSProperties } from "react";
-import type { AgentSummary, RoomSummary, TaskSummary } from "@adea/types";
+import type { AgentSummary, RoomSummary, TaskSummary } from "@adea-ai/types";
 import {
   Archive,
   ArrowDown,
@@ -20,14 +20,14 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { Button } from "@adea/ui/components/ui/button";
-import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from "@adea/ui/components/ui/drawer";
+import { Button } from "@adea-ai/ui/components/ui/button";
+import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from "@adea-ai/ui/components/ui/drawer";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@adea/ui/components/ui/dropdown-menu";
+} from "@adea-ai/ui/components/ui/dropdown-menu";
 
 import type { PrivateContentResolver } from "./platform";
 import { RoomIcon } from "./room-icon";

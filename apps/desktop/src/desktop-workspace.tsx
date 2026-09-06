@@ -1,5 +1,5 @@
-import type { AgentHqApiClient } from "@adea/api-client";
-import { VirtualRoomControls, VirtualUnavailable, type WorkspaceView } from "@adea/workspace-ui";
+import type { AgentHqApiClient } from "@adea-ai/api-client";
+import { VirtualRoomControls, VirtualUnavailable, type WorkspaceView } from "@adea-ai/workspace-ui";
 import { Suspense } from "react";
 
 function SceneLoading() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { VirtualUnavailable } from "@adea/workspace-ui";
+import { VirtualUnavailable } from "@adea-ai/workspace-ui";
 
 export function RoomDesignerEntry({
   initialCharacter: _initialCharacter,

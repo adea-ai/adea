@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { type PrincipalRef, type WorkspacePermission, workspacePermissions } from "@adea/types";
+import { type PrincipalRef, type WorkspacePermission, workspacePermissions } from "@adea-ai/types";
 
 import { authorizeWorkspaceAction, workspaceRolePermissions } from "../../src/authorization";
 
