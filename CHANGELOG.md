@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.10](https://github.com/adea-ai/adea/compare/v0.10.9...v0.10.10) (2026-09-06)
+
+
+### Maintenance
+
+* **deps:** pin typescript below 7.x in dependabot ([#272](https://github.com/adea-ai/adea/issues/272)) ([5c24b5f](https://github.com/adea-ai/adea/commit/5c24b5f6fe721c4b6178a6c8b0ddd56064d3aa33))
+
 ## [0.10.9](https://github.com/adea-ai/adea/compare/v0.10.8...v0.10.9) (2026-09-06)
 
 
