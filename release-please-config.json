@@ -134,7 +134,7 @@
     {
       "type": "toml",
       "path": "apps/desktop/src-tauri/Cargo.lock",
-      "jsonpath": "$.package[?(@.name.value=='agent-hq-desktop')].version"
+      "jsonpath": "$.package[?(@.name.value=='adea-desktop')].version"
     },
     {
       "type": "json",

@@ -6,7 +6,7 @@ const SPAWN_QUERY_KEY = "spawn";
 const APP_DEV_PORTS: Record<SceneApp, string> = { world: "3000", hq: "3004" };
 const APP_PORTLESS_URLS: Record<SceneApp, string> = {
   world: "https://world.localhost",
-  hq: "https://agent-hq.localhost",
+  hq: "https://adea.localhost",
 };
 
 function firstValue(value: string | string[] | undefined): string | undefined {

@@ -10,7 +10,7 @@ export type StoredDesktopAuthorizationCode = Readonly<{
   nonce: string;
   providerExpiresAt: number;
   providerSessionId: string;
-  redirectUri: "agent-hq://auth/callback";
+  redirectUri: "adea://auth/callback";
   userId: string;
 }>;
 
@@ -27,7 +27,7 @@ export type StoredDesktopSession = Readonly<{
 function authorizationCodeFromRow(
   row: typeof desktopAuthorizationCodes.$inferSelect
 ): StoredDesktopAuthorizationCode {
-  if (row.redirectUri !== "agent-hq://auth/callback") {
+  if (row.redirectUri !== "adea://auth/callback") {
     throw new Error("Stored desktop authorization redirect is invalid");
   }
   return Object.freeze({

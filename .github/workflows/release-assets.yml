@@ -257,7 +257,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
         run: |
           set -euo pipefail
-          staging="$RUNNER_TEMP/agent-hq-update-channel"
+          staging="$RUNNER_TEMP/adea-update-channel"
           channel="https://updates.adea.dev/desktop-updates/"
           mkdir -p "$staging/site/desktop-updates"
           gh release download "$RELEASE_TAG" \
@@ -296,7 +296,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: "true"
         run: |
           set -euo pipefail
-          site="$RUNNER_TEMP/agent-hq-update-channel/site/desktop-updates"
+          site="$RUNNER_TEMP/adea-update-channel/site/desktop-updates"
           endpoint="https://aa2dc82d7e02aff12b77800a8201df3f.r2.cloudflarestorage.com"
           # AWS CLI (not wrangler: wrangler caps single uploads at 300 MiB
           # and bundles exceed that) multipart-uploads each channel file.

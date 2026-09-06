@@ -5,7 +5,7 @@ import { useWorkspaceStore, type WorkspaceState } from "@adea-ai/state";
 
 import { createWorkspaceStatePersister } from "./workspace-state-persister";
 
-const STORAGE_KEY = "agent-hq:conventional-workspace:v2";
+const STORAGE_KEY = "adea:conventional-workspace:v2";
 type PersistedState = Pick<
   WorkspaceState,
   | "activeSurface"

@@ -38,7 +38,7 @@ describe.skipIf(!connectionUrl)("desktop auth persistence", () => {
       nonce: "nonce",
       providerExpiresAt: now + 3_600_000,
       providerSessionId: "provider-session",
-      redirectUri: "agent-hq://auth/callback" as const,
+      redirectUri: "adea://auth/callback" as const,
       userId: principal.userId,
     };
     await saveDesktopAuthorizationCode(connection.db, code);
