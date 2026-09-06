@@ -11,7 +11,7 @@ set -euo pipefail
   --url https://github.com/adea-ai/adea \
   --token "$RUNNER_TOKEN" \
   --name "$RUNNER_NAME" \
-  --labels agent-hq-release-linux-x64 \
+  --labels adea-release-linux-x64 \
   --work _work
 
 unset RUNNER_TOKEN

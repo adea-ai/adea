@@ -314,9 +314,9 @@ export function VersionDialog({
           ) : null}
 
           {releaseNotes ? (
-            <section className="space-y-2" aria-labelledby="agent-hq-release-notes">
+            <section className="space-y-2" aria-labelledby="adea-release-notes">
               <div>
-                <h2 id="agent-hq-release-notes" className="text-sm font-semibold">
+                <h2 id="adea-release-notes" className="text-sm font-semibold">
                   What changed in this release
                 </h2>
                 <p className="text-xs text-muted-foreground">
