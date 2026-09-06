@@ -69,7 +69,6 @@ pnpm-debug.log*
 .kluster/
 .direnv/
 .envrc
-.vercel/
 mise.local.toml
 .mise.local.toml
 mise.local.lock
@@ -177,7 +176,6 @@ pnpm-debug.log*
 .kluster/
 .direnv/
 .envrc
-.vercel/
 mise.local.toml
 .mise.local.toml
 mise.local.lock

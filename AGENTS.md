@@ -132,7 +132,7 @@ If a check cannot run, state the exact reason. A skipped check is not a passing 
 - Use least-privilege permissions and pin action versions consistently with the template.
 - Keep CI, Test, Security, CodeQL, Draft PR, Release PR, and Release concerns separated.
 - Security and CodeQL may skip when repository visibility or GitHub plan support does not permit them. Do not make an unavailable check required.
-- Optional Turborepo Remote Caching uses `TURBO_TOKEN` and `TURBO_TEAM`; do not add Vercel deployment behavior just to enable caching.
+- Optional Turborepo Remote Caching uses `TURBO_TOKEN` and `TURBO_TEAM`.
 - Update branch protection when adding or renaming required job checks; verify the actual GitHub status context.
 
 ## Documentation and generated files
