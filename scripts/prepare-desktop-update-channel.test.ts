@@ -11,15 +11,15 @@ function releaseManifest() {
     platforms: {
       "darwin-aarch64": {
         signature,
-        url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/101",
+        url: "https://api.github.com/repos/adea-ai/adea/releases/assets/101",
       },
       "darwin-aarch64-app": {
         signature,
-        url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/101",
+        url: "https://api.github.com/repos/adea-ai/adea/releases/assets/101",
       },
       "windows-x86_64": {
         signature,
-        url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/202",
+        url: "https://api.github.com/repos/adea-ai/adea/releases/assets/202",
       },
     },
   };
@@ -29,12 +29,12 @@ const releaseAssets = [
   {
     id: 101,
     name: "Agent.HQ_0.3.4_aarch64.app.tar.gz",
-    url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/101",
+    url: "https://api.github.com/repos/adea-ai/adea/releases/assets/101",
   },
   {
     id: 202,
     name: "Agent.HQ_0.3.4_x64-setup.exe",
-    url: "https://api.github.com/repos/adea-ai/agent-hq/releases/assets/202",
+    url: "https://api.github.com/repos/adea-ai/adea/releases/assets/202",
   },
 ];
 

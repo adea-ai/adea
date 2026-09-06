@@ -63,7 +63,7 @@ export function WorkspaceAboutDialog({
           <Button type="button" variant="outline" size="sm" onClick={() => void copyVersionInfo()}>
             {copied ? "Copied" : "Copy version info"}
           </Button>
-          <a href="https://github.com/adea-ai/agent-hq" target="_blank" rel="noreferrer">
+          <a href="https://github.com/adea-ai/adea" target="_blank" rel="noreferrer">
             <ExternalLink aria-hidden="true" />
             View source
           </a>

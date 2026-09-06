@@ -30,13 +30,13 @@ local validation (`bun run format:check`, `lint`, `typecheck`, `test`, `build`)
 plus `bun release --dry-run` for release readiness until billing resumes.
 
 ```bash
-gh api -X POST repos/adea-ai/agent-hq/rulesets \
+gh api -X POST repos/adea-ai/adea/rulesets \
   --input .github/rulesets/code-foundry-main.json
 ```
 
 Verify with:
 
 ```bash
-gh api repos/adea-ai/agent-hq/rulesets \
+gh api repos/adea-ai/adea/rulesets \
   --jq '.[] | {id, name, enforcement}'
 ```
