@@ -11,7 +11,7 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS",
   },
-  // Hyperdrive (Neon connection pooling) `agent-hq-db`, pointed at the
+  // Hyperdrive (Neon connection pooling) `adea-db`, pointed at the
   // production Neon branch (direct/unpooled origin; Hyperdrive pools itself).
   // See CLOUDFLARE.md.
   // Local emulation target for `next dev` / `wrangler dev` (see compose.yaml

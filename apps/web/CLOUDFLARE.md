@@ -28,13 +28,13 @@ supported). Cloudflare Workers is the deployment target.
      entry point), and do NOT add a `build` block to `wrangler.jsonc`.
    - After changing a trigger, validate with a new commit and confirm the
      build detail page shows `bun run build:cloudflare`.
-3. **Hyperdrive (Neon pooling).** ✅ Done: `agent-hq-db` (id in
+3. **Hyperdrive (Neon pooling).** ✅ Done: `adea-db` (id in
    `wrangler.jsonc`) points at the standalone Neon project (`us-east-2`)
    via its **direct/unpooled** origin as `neondb_owner` — Hyperdrive pools
    itself, so never use the `-pooler` host here. There is no hosted-integration shortcut; if you
    ever need to recreate it:
    ```bash
-   wrangler hyperdrive create agent-hq-db \
+   wrangler hyperdrive create adea-db \
      --connection-string="$DATABASE_URL_UNPOOLED"
    ```
    The app reads `env.HYPERDRIVE.connectionString` at runtime
