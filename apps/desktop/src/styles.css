@@ -1,3 +1,5 @@
+@import "tailwindcss";
+@import "shadcn/tailwind.css";
 @import "@adea-ai/ui/auth-shell.css";
 @import "@adea-ai/ui/workspace-shell.css";
 @import "@adea-ai/ui/conventional-workspace.css";

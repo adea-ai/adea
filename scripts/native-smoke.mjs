@@ -119,14 +119,16 @@ const capacitorSettingsBefore = existsSync(capacitorSettings)
   ? readFileSync(capacitorSettings, "utf8")
   : null;
 run("mobile Capacitor sync smoke", bun, ["run", "sync"], mobileRoot);
-if (
-  capacitorSettingsBefore !== null &&
-  readFileSync(capacitorSettings, "utf8") !== capacitorSettingsBefore
-) {
-  console.log(
-    "[native-smoke] restoring tracked Capacitor settings (machine-specific generated output)"
-  );
-  writeFileSync(capacitorSettings, capacitorSettingsBefore);
+function restoreCapacitorSettings() {
+  if (
+    capacitorSettingsBefore !== null &&
+    readFileSync(capacitorSettings, "utf8") !== capacitorSettingsBefore
+  ) {
+    console.log(
+      "[native-smoke] restoring tracked Capacitor settings (machine-specific generated output)"
+    );
+    writeFileSync(capacitorSettings, capacitorSettingsBefore);
+  }
 }
 
 const strictNativeSmoke = process.env.NATIVE_SMOKE_STRICT === "1";
@@ -162,40 +164,44 @@ for (const platform of platformChecks) {
   }
 }
 
-if (platformChecks[0].available && platformChecks[0].toolchainAvailable) {
-  run(
-    "mobile Android compiler smoke",
-    process.platform === "win32" ? "gradlew.bat" : "./gradlew",
-    ["--no-daemon", "assembleDebug"],
-    androidRoot,
-    600_000,
-    androidEnvironment()
-  );
-}
+try {
+  if (platformChecks[0].available && platformChecks[0].toolchainAvailable) {
+    run(
+      "mobile Android compiler smoke",
+      process.platform === "win32" ? "gradlew.bat" : "./gradlew",
+      ["--no-daemon", "assembleDebug"],
+      androidRoot,
+      600_000,
+      androidEnvironment()
+    );
+  }
 
-if (platformChecks[1].available && platformChecks[1].toolchainAvailable) {
-  run(
-    "mobile iOS compiler smoke",
-    "xcodebuild",
-    [
-      "-project",
-      resolve(iosRoot, "App/App.xcodeproj"),
-      "-scheme",
-      "App",
-      "-sdk",
-      "iphoneos",
-      "-destination",
-      "generic/platform=iOS",
-      "-configuration",
-      "Debug",
-      "CODE_SIGNING_ALLOWED=NO",
-      "CODE_SIGNING_REQUIRED=NO",
-      "-derivedDataPath",
-      resolve(tmpdir(), "agent-hq-ios-derived-data"),
-    ],
-    repoRoot,
-    300_000
-  );
-}
+  if (platformChecks[1].available && platformChecks[1].toolchainAvailable) {
+    run(
+      "mobile iOS compiler smoke",
+      "xcodebuild",
+      [
+        "-project",
+        resolve(iosRoot, "App/App.xcodeproj"),
+        "-scheme",
+        "App",
+        "-sdk",
+        "iphoneos",
+        "-destination",
+        "generic/platform=iOS",
+        "-configuration",
+        "Debug",
+        "CODE_SIGNING_ALLOWED=NO",
+        "CODE_SIGNING_REQUIRED=NO",
+        "-derivedDataPath",
+        resolve(tmpdir(), "agent-hq-ios-derived-data"),
+      ],
+      repoRoot,
+      300_000
+    );
+  }
 
-console.log("[native-smoke] passed");
+  console.log("[native-smoke] passed");
+} finally {
+  restoreCapacitorSettings();
+}
