@@ -93,7 +93,7 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("brew install awscli");
     expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
-    expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
+    expect(runnerScript).toContain('join(homedir(), ".local", "share", "adea"');
     expect(runnerScript).not.toContain('"Application Support"');
     expect(runnerScript).toContain("adea-release-linux-cargo-target");
     expect(runnerScript).toContain('const macCargoTarget = join(stateRoot, "macos-cargo-target")');
