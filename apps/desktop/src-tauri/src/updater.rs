@@ -5,7 +5,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::sync::Mutex as AsyncMutex;
 
-const GITHUB_URL: &str = "https://github.com/adea-ai/agent-hq";
+const GITHUB_URL: &str = "https://github.com/adea-ai/adea";
 const MAX_RELEASE_NOTES_CHARS: usize = 32_000;
 const UPDATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 const CHANGELOG: &str = include_str!("../../../../CHANGELOG.md");

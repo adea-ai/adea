@@ -43,8 +43,7 @@ malformed sessions are cleared. Sign-out and user-session revocation do not dele
 separate RuntimeNode device credential.
 
 Signed desktop updates are published separately from the private source
-repository at
-`https://adea-ai.github.io/agent-hq/desktop-updates/latest.json`. The
+repository at `https://updates.adea.dev/desktop-updates/latest.json`. The
 release-assets workflow rewrites Tauri's generated private GitHub asset URLs
-to that public channel, then deploys only the signed updater packages and
-manifest to GitHub Pages.
+to that public channel, then uploads only the signed updater packages and
+manifest to R2.

@@ -5,7 +5,7 @@ import { delimiter, dirname, resolve } from "node:path";
 import { createReleasePlan, parseCommitLog } from "./manual-release-core.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const repository = "adea-ai/agent-hq";
+const repository = "adea-ai/adea";
 const releaseHeadPrefix = "release-please--branches--main";
 // The emulated Linux fallback may run for up to 120 minutes. Keep the local
 // orchestrator alive beyond that workflow deadline so it never tears down a
