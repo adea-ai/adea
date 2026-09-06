@@ -121,7 +121,7 @@ describe("workspace API client", () => {
     });
     expect(request?.method).toBe("POST");
     expect(request?.headers.get("authorization")).toBe("Desktop desktop-secret");
-    expect(request?.headers.get("x-agent-hq-desktop-session")).toBe(
+    expect(request?.headers.get("x-adea-desktop-session")).toBe(
       "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1"
     );
     expect(request?.headers.get("x-agent-hq-temporary-session")).toBe("ahq_tmp_guest-secret");

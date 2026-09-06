@@ -10,12 +10,12 @@ use url::Url;
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 
-const CALLBACK_URI: &str = "agent-hq://auth/callback";
+const CALLBACK_URI: &str = "adea://auth/callback";
 const DEFAULT_CLOUD_ORIGIN: &str = "https://adea.dev";
 const AUTHORIZATION_PATH: &str = "/api/auth/desktop/authorize";
 const CALLBACK_EVENT: &str = "desktop-auth-callback-ready";
 const AUTH_ATTEMPT_KEYCHAIN_USER: &str = "desktop-authorization-attempt";
-const SESSION_KEYCHAIN_SERVICE: &str = "com.agenthq.desktop";
+const SESSION_KEYCHAIN_SERVICE: &str = "com.adea.desktop";
 const SESSION_KEYCHAIN_USER: &str = "desktop-user-session";
 const TEMPORARY_WORKSPACE_KEYCHAIN_USER: &str = "temporary-workspace-session";
 const FORBIDDEN_PARAMETERS: [&str; 5] = [
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn pending_callback_is_taken_exactly_once() {
         let state = DesktopAuthState::default();
-        state.replace("agent-hq://auth/callback?code=one-time-code".into());
+        state.replace("adea://auth/callback?code=one-time-code".into());
         assert!(state.take().is_some());
         assert!(state.take().is_none());
     }

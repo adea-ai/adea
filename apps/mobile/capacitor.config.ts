@@ -3,7 +3,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const webUrl = process.env.ADEA_WEB_URL?.trim();
 
 const config: CapacitorConfig = {
-  appId: "com.agenthq.mobile",
+  appId: "com.adea.mobile",
   appName: "Adea",
   webDir: "www",
   ...(webUrl

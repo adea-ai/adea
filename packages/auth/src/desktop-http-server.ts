@@ -114,7 +114,7 @@ export function parseDesktopSessionRequest(
   assertTrustedOrigin(request, trustedOrigins);
   const authorization = request.headers.get("authorization") ?? "";
   const [scheme, credential, extra] = authorization.split(" ");
-  const sessionId = request.headers.get("x-agent-hq-desktop-session") ?? "";
+  const sessionId = request.headers.get("x-adea-desktop-session") ?? "";
   if (
     scheme !== "Desktop" ||
     extra !== undefined ||

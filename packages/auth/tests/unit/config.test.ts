@@ -5,7 +5,7 @@ import { readAuthConfig } from "../../src/config";
 const validEnvironment = {
   NEON_AUTH_BASE_URL: "https://example.neonauth.us-east-1.aws.neon.tech/neondb/auth",
   NEON_AUTH_COOKIE_SECRET: "a-secure-cookie-secret-that-is-long-enough",
-  AUTH_TRUSTED_ORIGINS: "https://agent-hq.example,agent-hq://auth/callback",
+  AUTH_TRUSTED_ORIGINS: "https://agent-hq.example,adea://auth/callback",
 };
 
 describe("auth configuration", () => {
@@ -34,10 +34,10 @@ describe("auth configuration", () => {
     const config = readAuthConfig({
       ...validEnvironment,
       NEON_AUTH_BASE_URL: "http://127.0.0.1:8787/auth",
-      AUTH_TRUSTED_ORIGINS: "http://localhost:3000,agent-hq://auth/callback",
+      AUTH_TRUSTED_ORIGINS: "http://localhost:3000,adea://auth/callback",
     });
 
-    expect(config.trustedOrigins).toEqual(["http://localhost:3000", "agent-hq://auth/callback"]);
+    expect(config.trustedOrigins).toEqual(["http://localhost:3000", "adea://auth/callback"]);
     expect(config.sessionDataTtl).toBe(1);
   });
 
@@ -45,13 +45,13 @@ describe("auth configuration", () => {
     const config = readAuthConfig({
       ...validEnvironment,
       AUTH_TRUSTED_ORIGINS:
-        "https://adea.dev,https://adea-web.adea-ai.workers.dev,agent-hq://auth/callback",
+        "https://adea.dev,https://adea-web.adea-ai.workers.dev,adea://auth/callback",
     });
 
     expect(config.trustedOrigins).toEqual([
       "https://adea.dev",
       "https://adea-web.adea-ai.workers.dev",
-      "agent-hq://auth/callback",
+      "adea://auth/callback",
     ]);
   });
 });

@@ -183,7 +183,7 @@ describe("test suite boundaries", () => {
     expect(cargoLockUpdater).toEqual({
       type: "toml",
       path: "apps/desktop/src-tauri/Cargo.lock",
-      jsonpath: "$.package[?(@.name.value=='agent-hq-desktop')].version",
+      jsonpath: "$.package[?(@.name.value=='adea-desktop')].version",
     });
 
     for (const workspaceGroup of ["apps", "packages"]) {

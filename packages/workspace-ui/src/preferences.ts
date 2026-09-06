@@ -25,7 +25,7 @@ export function normalizeWorkspacePreferences(value: unknown): WorkspacePreferen
 export function createBrowserSettingsProvider(
   storage?: Pick<Storage, "getItem" | "setItem">
 ): WorkspaceSettingsProvider {
-  const key = "agent-hq:workspace-preferences:v1";
+  const key = "adea:workspace-preferences:v1";
   const resolveStorage = () => storage ?? window.localStorage;
   return Object.freeze({
     async load() {

@@ -33,7 +33,7 @@ describe("desktop browser authentication navigation", () => {
   test("keeps the one-time desktop callback in a validated completion-page fragment", () => {
     const request = new URL("https://agent-hq.example/api/auth/desktop/authorize");
     const callback =
-      "agent-hq://auth/callback?code=one-time-code&nonce=nonce-value-12345&state=state-value-12345";
+      "adea://auth/callback?code=one-time-code&nonce=nonce-value-12345&state=state-value-12345";
 
     const completion = createDesktopCompletionUrl(request, callback);
 

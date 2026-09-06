@@ -16,7 +16,7 @@ const cloudOrigin = "https://agent-hq.example";
 const sessionId = "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1";
 
 function callbackUrl(attempt: Awaited<ReturnType<typeof createDesktopAuthorizationAttempt>>) {
-  const url = new URL("agent-hq://auth/callback");
+  const url = new URL("adea://auth/callback");
   url.searchParams.set("code", "one-time-code");
   url.searchParams.set("nonce", attempt.nonce);
   url.searchParams.set("state", attempt.state);
@@ -43,7 +43,7 @@ describe("desktop authorization boundary", () => {
       code: "one-time-code",
       codeVerifier: attempt.codeVerifier,
       nonce: attempt.nonce,
-      redirectUri: "agent-hq://auth/callback",
+      redirectUri: "adea://auth/callback",
     });
     expect(stored).toBeNull();
   });
@@ -71,7 +71,7 @@ describe("desktop authorization boundary", () => {
       code: "one-time-code",
       codeVerifier: attempt.codeVerifier,
       nonce: attempt.nonce,
-      redirectUri: "agent-hq://auth/callback",
+      redirectUri: "adea://auth/callback",
     });
     expect(() => consumeDesktopAuthorizationCallback(attempt, callbackUrl(attempt), 1_002)).toThrow(
       "already consumed"
@@ -143,7 +143,7 @@ describe("desktop session lifecycle", () => {
         code: "one-time-code",
         codeVerifier: "v".repeat(43),
         nonce: "n".repeat(16),
-        redirectUri: "agent-hq://auth/callback",
+        redirectUri: "adea://auth/callback",
       })
     ).resolves.toEqual({ session, status: "authenticated" });
   });
@@ -190,7 +190,7 @@ describe("desktop session lifecycle", () => {
     expect(new Headers(requests[1]?.input?.headers).get("authorization")).toBe(
       "Desktop opaque-session-credential-000000001"
     );
-    expect(new Headers(requests[1]?.input?.headers).get("x-agent-hq-desktop-session")).toBe(
+    expect(new Headers(requests[1]?.input?.headers).get("x-adea-desktop-session")).toBe(
       "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1"
     );
   });
@@ -356,7 +356,7 @@ describe("desktop session lifecycle", () => {
       code: "one-time-code",
       codeVerifier: "v".repeat(64),
       nonce: "n".repeat(32),
-      redirectUri: "agent-hq://auth/callback",
+      redirectUri: "adea://auth/callback",
     });
     releaseRefresh?.();
     await Promise.all([restoring, signingIn]);

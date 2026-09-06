@@ -34,7 +34,7 @@ import type { WorkspaceNavigation } from "./workspace-model";
 import { EditRoomDialog, RenameConversationDialog } from "./create-workspace-dialogs";
 import { RoomIcon } from "./room-icon";
 
-const SIDEBAR_WIDTH_STORAGE_KEY = "agent-hq:workspace-sidebar-width";
+const SIDEBAR_WIDTH_STORAGE_KEY = "adea:workspace-sidebar-width";
 const SIDEBAR_MIN_WIDTH = 208;
 const SIDEBAR_MAX_WIDTH = 448;
 const SIDEBAR_DEFAULT_WIDTH = 272;
