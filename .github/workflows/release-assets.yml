@@ -273,18 +273,22 @@ jobs:
             aws --region auto --endpoint-url "$endpoint" s3 cp "$asset" "s3://adea/desktop-updates/${name}"
           done
 
-      - name: Verify public updater manifest
+      - name: Verify published updater channel
         env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_EC2_METADATA_DISABLED: "true"
           RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
         run: |
           set -euo pipefail
-          manifest="$RUNNER_TEMP/public-latest.json"
-          curl --fail --silent --show-error \
-            --retry 12 \
-            --retry-all-errors \
-            --retry-delay 5 \
-            "https://updates.adea.dev/desktop-updates/latest.json" \
-            --output "$manifest"
+          endpoint="https://aa2dc82d7e02aff12b77800a8201df3f.r2.cloudflarestorage.com"
+          manifest="$RUNNER_TEMP/latest.json"
+          # Verify the channel at the R2 source of truth. The public
+          # updates.adea.dev edge sits behind Cloudflare, which blocks
+          # datacenter IPs (GitHub runners) with 403, so a public curl from
+          # this job is not a reliable check.
+          aws --region auto --endpoint-url "$endpoint" s3 cp \
+            "s3://adea/desktop-updates/latest.json" "$manifest"
           jq -e --arg version "$RELEASE_VERSION" \
             '. as $manifest |
               .version == $version and
@@ -294,6 +298,12 @@ jobs:
                 ($manifest.platforms[$platform].url | startswith("https://updates.adea.dev/desktop-updates/"))
               ))' \
             "$manifest" >/dev/null
+          # The public edge is what user devices poll; probe it without
+          # failing the release on Cloudflare WAF artifacts.
+          if ! curl --fail --silent --max-time 15 \
+            "https://updates.adea.dev/desktop-updates/latest.json" --output /dev/null; then
+            echo "::warning::updates.adea.dev did not serve latest.json from this runner (Cloudflare blocks datacenter IPs). Spot-check the public channel from a trusted network."
+          fi
 
   verify-assets:
     name: Verify desktop assets
