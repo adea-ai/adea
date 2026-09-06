@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.17](https://github.com/adea-ai/adea/compare/v0.10.16...v0.10.17) (2026-09-06)
+
+
+### Documentation
+
+* **desktop:** update the update-channel reference to GitHub Releases ([#286](https://github.com/adea-ai/adea/issues/286)) ([c27ed94](https://github.com/adea-ai/adea/commit/c27ed94226f49285f4f544cbf565fbfa4d140b07))
+
 ## [0.10.16](https://github.com/adea-ai/adea/compare/v0.10.15...v0.10.16) (2026-09-06)
 
 
