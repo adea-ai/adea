@@ -9,3 +9,6 @@ AUTH_TRUSTED_ORIGINS=http://localhost:3000
 CONTROL_PLANE_ORIGIN=https://control-plane.example
 CONTROL_PLANE_SERVICE_TOKEN=replace-with-service-token
 CONTROL_PLANE_SCOPE_WORKSPACE_ID=replace-with-workspace-id
+# Optional account allowlist (comma-separated). When set, only these emails may
+# hold a workspace principal and guest sessions are disabled. Unset = open.
+ADEA_ALLOWED_EMAILS=you@example.com

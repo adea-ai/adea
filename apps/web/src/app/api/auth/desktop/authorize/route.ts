@@ -1,5 +1,6 @@
 import { createNeonServerAdapter, parseDesktopAuthorizationRequest } from "@adea-ai/auth/server";
 
+import { isAllowedEmail } from "../../../../../server/allowed-emails";
 import {
   desktopAuthorizationBroker,
   desktopPrincipalMapping,
@@ -26,6 +27,14 @@ export async function GET(request: Request) {
           location: `${signIn.pathname}${signIn.search}`,
         },
       });
+    }
+    // Account allowlist: when configured, only listed emails may start a
+    // desktop session.
+    if (!isAllowedEmail(authentication.profile.email)) {
+      return Response.json(
+        { error: "This account is not authorized to use Adea." },
+        { status: 403 }
+      );
     }
     const principal = await resolveOrProvisionDesktopPrincipal(
       authentication,
