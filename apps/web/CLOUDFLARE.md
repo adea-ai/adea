@@ -53,7 +53,7 @@ supported). Cloudflare Workers is the deployment target.
    wrangler secret put CONTROL_PLANE_SCOPE_WORKSPACE_ID
    ```
    Source values: the Cloudflare Secret Store is the source of truth for hosted
-   values (the `AGENT_HQ_*` records); `.env.local` (gitignored) keeps local
+   values (the `ADEA_*` records); `.env.local` (gitignored) keeps local
    Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev stays `bun run dev` (plain Node).

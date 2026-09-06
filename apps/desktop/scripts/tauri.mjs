@@ -8,12 +8,12 @@ if (command !== "build" && command !== "dev") {
 }
 
 const cloudOrigin = normalizeDesktopCloudOrigin(
-  process.env.VITE_AGENT_HQ_CLOUD_ORIGIN ?? process.env.AGENT_HQ_CLOUD_ORIGIN
+  process.env.VITE_ADEA_CLOUD_ORIGIN ?? process.env.ADEA_CLOUD_ORIGIN
 );
 const environment = {
   ...process.env,
-  AGENT_HQ_CLOUD_ORIGIN: cloudOrigin,
-  VITE_AGENT_HQ_CLOUD_ORIGIN: cloudOrigin,
+  ADEA_CLOUD_ORIGIN: cloudOrigin,
+  VITE_ADEA_CLOUD_ORIGIN: cloudOrigin,
 };
 const result = spawnSync(
   process.execPath,

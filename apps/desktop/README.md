@@ -8,7 +8,7 @@ and other server-only modules stay out of the bundle.
 
 Run `bun run shell:dev` from this directory to start the local Vite client and
 open it in Tauri. `bun run client:build` produces the assets embedded by Tauri.
-The public `VITE_AGENT_HQ_CLOUD_ORIGIN` build setting may select an approved
+The public `VITE_ADEA_CLOUD_ORIGIN` build setting may select an approved
 Agent HQ deployment; native code reads that same compile-time value when it
 allowlists the authorization origin. Release builds default to
 `https://adea.dev`.

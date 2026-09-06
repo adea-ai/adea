@@ -34,7 +34,7 @@ set +a
 node scripts/database-health.mjs
 ```
 
-The service binds only to `127.0.0.1:55432`. Override the host port with `AGENT_HQ_POSTGRES_PORT`. The credentials in `.env.example` are intentionally local-only defaults, not hosted secrets.
+The service binds only to `127.0.0.1:55432`. Override the host port with `ADEA_POSTGRES_PORT`. The credentials in `.env.example` are intentionally local-only defaults, not hosted secrets.
 
 `bun run test:integration` uses this local service automatically when no
 `DATABASE_URL` is exported. It starts PostgreSQL when necessary, verifies the
