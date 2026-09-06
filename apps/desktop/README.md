@@ -42,8 +42,7 @@ state without treating stale credentials as authorization for cloud work. Expire
 malformed sessions are cleared. Sign-out and user-session revocation do not delete or revoke the
 separate RuntimeNode device credential.
 
-Signed desktop updates are published separately from the private source
-repository at `https://updates.adea.dev/desktop-updates/latest.json`. The
-release-assets workflow rewrites Tauri's generated private GitHub asset URLs
-to that public channel, then uploads only the signed updater packages and
-manifest to R2.
+Signed desktop updates are published to the repository's GitHub Releases.
+The Tauri updater polls the release channel directly at
+`https://github.com/adea-ai/adea/releases/latest/download/latest.json` and
+verifies packages against the baked-in public key.
