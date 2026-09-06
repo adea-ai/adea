@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
   const resolution = await resolveWorkspacePrincipal(request);
   if (!resolution || resolution.temporary) return workspaceUnavailableResponse(request, 401);
-  const credential = parseTemporaryCredential(request.headers.get("x-agent-hq-temporary-session"));
+  const credential = parseTemporaryCredential(request.headers.get("x-adea-temporary-session"));
   if (!credential) return workspaceUnavailableResponse(request);
 
   try {

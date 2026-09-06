@@ -91,7 +91,7 @@ fn validate_user_session(session: &DesktopUserSession) -> Result<(), &'static st
 }
 
 fn validate_temporary_workspace_credential(credential: &str) -> Result<(), &'static str> {
-    let Some(secret) = credential.strip_prefix("ahq_tmp_") else {
+    let Some(secret) = credential.strip_prefix("adea_tmp_") else {
         return Err("invalid temporary workspace credential");
     };
     if !base64url(secret, 43, 43) {
@@ -432,14 +432,14 @@ mod tests {
 
     #[test]
     fn temporary_workspace_vault_accepts_only_opaque_guest_credentials() {
-        let valid = format!("ahq_tmp_{}", "a".repeat(43));
+        let valid = format!("adea_tmp_{}", "a".repeat(43));
         assert!(validate_temporary_workspace_credential(&valid).is_ok());
         assert_eq!(
-            validate_temporary_workspace_credential("ahq_tmp_short"),
+            validate_temporary_workspace_credential("adea_tmp_short"),
             Err("invalid temporary workspace credential")
         );
         assert_eq!(
-            validate_temporary_workspace_credential(&format!("ahq_tmp_{}", "!".repeat(43))),
+            validate_temporary_workspace_credential(&format!("adea_tmp_{}", "!".repeat(43))),
             Err("invalid temporary workspace credential")
         );
     }

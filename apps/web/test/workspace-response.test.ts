@@ -4,7 +4,7 @@ import { workspaceJsonResponse } from "../src/server/workspace-response";
 
 const resolution = {
   clearTemporaryCredential: false,
-  createdCredential: `ahq_tmp_${"a".repeat(43)}`,
+  createdCredential: `adea_tmp_${"a".repeat(43)}`,
   expiresAt: new Date("2030-01-01T00:00:00.000Z"),
   principal: { kind: "user" as const, userId: "temporary-user" },
   sessionRotated: false,
@@ -18,7 +18,7 @@ describe("workspace response credentials", () => {
       resolution,
       new Request("http://localhost/api/workspaces/bootstrap", { method: "POST" })
     );
-    expect(browser.headers.get("set-cookie")).toContain("agent_hq_temporary_session=ahq_tmp_");
+    expect(browser.headers.get("set-cookie")).toContain("agent_hq_temporary_session=adea_tmp_");
     expect(browser.headers.get("set-cookie")).toContain("HttpOnly");
 
     const desktop = workspaceJsonResponse(
@@ -27,7 +27,7 @@ describe("workspace response credentials", () => {
       new Request("http://localhost/api/workspaces/bootstrap", {
         headers: {
           origin: "http://127.0.0.1:1420",
-          "x-agent-hq-client": "desktop",
+          "x-adea-client": "desktop",
         },
         method: "POST",
       })

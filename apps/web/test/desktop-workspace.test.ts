@@ -12,7 +12,7 @@ const trustedOrigins = ["tauri://localhost", "http://127.0.0.1:1420"];
 
 function request(origin: string, client = "desktop") {
   return new Request("https://hq.example/api/workspaces/bootstrap", {
-    headers: { origin, "x-agent-hq-client": client },
+    headers: { origin, "x-adea-client": client },
     method: "POST",
   });
 }
@@ -59,7 +59,7 @@ describe("desktop workspace HTTP boundary", () => {
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe("tauri://localhost");
     expect(preflight.headers.get("access-control-allow-headers")).toContain(
-      "X-Agent-HQ-Temporary-Session"
+      "X-Adea-Temporary-Session"
     );
 
     const response = applyDesktopWorkspaceCors(

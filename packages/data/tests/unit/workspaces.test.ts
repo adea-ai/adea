@@ -79,10 +79,10 @@ describe("workspace mutation contracts", () => {
     const queryClient = new QueryClient();
 
     const claim = workspaceMutationOptions.claim(api, queryClient);
-    await claim.onSuccess(await claim.mutationFn("ahq_tmp_example"));
+    await claim.onSuccess(await claim.mutationFn("adea_tmp_example"));
     const reopen = workspaceMutationOptions.reopen(api, queryClient);
     await reopen.onSuccess(await reopen.mutationFn(workspace.id));
 
-    expect(calls).toEqual(["claim:ahq_tmp_example", `reopen:${workspace.id}`]);
+    expect(calls).toEqual(["claim:adea_tmp_example", `reopen:${workspace.id}`]);
   });
 });
