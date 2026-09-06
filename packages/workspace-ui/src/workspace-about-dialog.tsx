@@ -8,7 +8,7 @@ import { ExternalLink } from "lucide-react";
 import { ModalDialog } from "./modal-dialog";
 
 export function WorkspaceAboutDialog({
-  appName = "Agent HQ",
+  appName = "Adea",
   onClose,
   open,
   platform = "web",
@@ -47,12 +47,12 @@ export function WorkspaceAboutDialog({
       className="conventional-about-dialog"
       open={open}
       onClose={onClose}
-      title="About Agent HQ"
+      title="About Adea"
       description="A calm, connected home for your agents, rooms, and conversations."
     >
       <div className="conventional-about-dialog__body">
         <div className="conventional-about-dialog__identity">
-          <div className="conventional-about-dialog__brand" aria-label="Agent HQ" role="img">
+          <div className="conventional-about-dialog__brand" aria-label="Adea" role="img">
             <WorkspaceLogo aria-hidden="true" role="presentation" />
           </div>
           <h3>{appName}</h3>

@@ -7,8 +7,8 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Agent HQ",
-  description: "Agent HQ room headquarters",
+  title: "Adea",
+  description: "Adea room headquarters",
 };
 
 export const viewport: Viewport = {

@@ -5,7 +5,7 @@ import { readSceneStartPosition } from "@adea-ai/spatial-protocol";
 import { WorkspaceEntry } from "../components/workspace-entry";
 
 export const metadata: Metadata = {
-  title: "Agent HQ",
+  title: "Adea",
   description: "A durable workspace for Rooms, Agents, Tasks, and conversations",
 };
 

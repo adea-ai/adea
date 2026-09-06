@@ -4,7 +4,7 @@ const webUrl = process.env.ADEA_WEB_URL?.trim();
 
 const config: CapacitorConfig = {
   appId: "com.agenthq.mobile",
-  appName: "Agent HQ",
+  appName: "Adea",
   webDir: "www",
   ...(webUrl
     ? {

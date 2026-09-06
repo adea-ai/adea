@@ -45,7 +45,7 @@ describe.skipIf(!connectionUrl)("persistent Agent identity", () => {
     });
     const { workspace } = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: "agents",
-      name: "Agent HQ",
+      name: "Adea",
       owner: owner.principal,
     });
     const room = await createRoom(connection.db, workspace.id, owner.principal, {

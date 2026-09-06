@@ -4,7 +4,7 @@ import { ApiClientError, createApiClient } from "../../src";
 
 const workspace = {
   id: "workspace-1",
-  name: "My Agent HQ",
+  name: "My Adea",
   scene: "home" as const,
   updatedAt: "2026-08-25T00:00:00.000Z",
 };
@@ -63,10 +63,10 @@ describe("workspace API client", () => {
       getTemporaryCredential: () => "temporary-secret",
     });
 
-    await client.createWorkspace({ idempotencyKey: "retry-1", name: "My Agent HQ", scene: "home" });
+    await client.createWorkspace({ idempotencyKey: "retry-1", name: "My Adea", scene: "home" });
     expect(request?.headers.get("authorization")).toBe("Temporary temporary-secret");
     expect(request?.headers.get("idempotency-key")).toBe("retry-1");
-    expect(await request?.json()).toEqual({ name: "My Agent HQ", scene: "home" });
+    expect(await request?.json()).toEqual({ name: "My Adea", scene: "home" });
   });
 
   test("normalizes opaque API failures", async () => {

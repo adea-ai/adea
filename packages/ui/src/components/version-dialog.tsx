@@ -60,7 +60,7 @@ function errorMessage(caught: unknown, fallback: string): string {
 }
 
 function phaseLabel(update: SharedDesktopUpdate | null, fallbackVersion: string): string {
-  if (!update) return `Agent HQ v${fallbackVersion}`;
+  if (!update) return `Adea v${fallbackVersion}`;
   if (update.phase === "checking") return "Checking for updates…";
   if (update.phase === "available" && update.available_version) {
     return `Update v${update.available_version} available`;
@@ -69,7 +69,7 @@ function phaseLabel(update: SharedDesktopUpdate | null, fallbackVersion: string)
     return "Installing update…";
   }
   if (update.phase === "failed") return `Version ${update.current_version} · Retry`;
-  return `Agent HQ v${update.current_version || fallbackVersion}`;
+  return `Adea v${update.current_version || fallbackVersion}`;
 }
 
 function isUpdateBusy(update: SharedDesktopUpdate | null): boolean {
@@ -215,7 +215,7 @@ export function VersionDialog({
             <div>
               <DialogTitle>Version & updates</DialogTitle>
               <DialogDescription>
-                Keep Agent HQ current and review what changed in each release.
+                Keep Adea current and review what changed in each release.
               </DialogDescription>
             </div>
           </div>
@@ -270,7 +270,7 @@ export function VersionDialog({
                     Version {update.available_version} is ready
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    The signed installer will be verified before Agent HQ restarts.
+                    The signed installer will be verified before Adea restarts.
                   </p>
                   {formatReleaseDate(update.release_date) ? (
                     <p className="text-xs text-muted-foreground">
@@ -301,7 +301,7 @@ export function VersionDialog({
               role="status"
             >
               <Check className="size-4" aria-hidden="true" />
-              Agent HQ is up to date.
+              Adea is up to date.
             </p>
           ) : null}
           {error ? (

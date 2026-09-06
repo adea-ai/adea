@@ -1,4 +1,4 @@
-// Optional soundtrack hooks for Agent HQ.
+// Optional soundtrack hooks for Adea.
 
 export { AUDIO_BASE_URL, MUSIC_FILES, type MusicId } from "./config";
 export { SoundController, soundController, type MusicOptions } from "./controller";

@@ -1,6 +1,6 @@
 # Marketplace consumer contract
 
-Agent HQ uses the plugin registry maintained in
+Adea uses the plugin registry maintained in
 [`adea-ai/plugins`](https://github.com/adea-ai/plugins). Discovery is
 server-side through Control Plane:
 
@@ -12,7 +12,7 @@ server-side through Control Plane:
   `https://github.com/adea-ai/plugins/releases/download/catalog/<catalogId-suffix>/catalog.v1.json`
 - Immutable tag: `catalog/<catalogId-suffix>` for `catalog:<64 lowercase hex>`.
 
-Agent HQ does not request those GitHub URLs from a browser or desktop client.
+Adea does not request those GitHub URLs from a browser or desktop client.
 The same-origin `/api/marketplace/catalog` route calls the authenticated
 Control Plane catalog proxy. Control Plane fetches the registry and returns
 sanitized artifact metadata only. The Plugins action remains unavailable until
@@ -45,11 +45,11 @@ The following values are opaque and must be preserved exactly:
 
 The Add/Enable request to Control Plane includes `pluginId`, exact `releaseId`,
 exact `canonicalContentDigest`, requested harness, and workspace/user identity.
-It is idempotent. Agent HQ may display states returned by Control Plane such as
+It is idempotent. Adea may display states returned by Control Plane such as
 `pending-authorization`, `unavailable`, `rejected-by-policy`, `installed`, and
 `superseded`, but it must not mark an item installed from local storage.
 
-Agent HQ never downloads or executes upstream plugin content. Control Plane
+Adea never downloads or executes upstream plugin content. Control Plane
 must fetch immutable releases server-side, re-verify content digests, enforce
 revocation/supersession and workspace policy, resolve connectors and
 credentials, and persist exact release pins in installation and execution

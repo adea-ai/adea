@@ -157,14 +157,14 @@ export function WorkspaceNavigationEntry({
   const userIdRef = useRef<string | undefined>(undefined);
   const [services] = useState<WorkspacePlatformServices>(() => ({
     account: {
-      onSignIn: () => window.location.assign("@adea-ai/auth/sign-in?returnTo=%2F"),
+      onSignIn: () => window.location.assign("/auth/sign-in?returnTo=%2F"),
       onSignOut: async () => {
         const { createNeonClientAdapter } = await import("@adea-ai/auth/client");
         await createNeonClientAdapter().signOut();
         window.location.assign("/");
       },
     },
-    app: { name: "Agent HQ", platform: "web", version: appVersion },
+    app: { name: "Adea", platform: "web", version: appVersion },
     plugins: createDeferredPluginsProvider({
       client,
       getWorkspaceId: () => workspaceIdRef.current,
