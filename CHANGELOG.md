@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.14](https://github.com/adea-ai/adea/compare/v0.10.13...v0.10.14) (2026-09-06)
+
+
+### Maintenance
+
+* **ci:** run the release pipeline on GitHub-hosted runners ([#280](https://github.com/adea-ai/adea/issues/280)) ([d0e457f](https://github.com/adea-ai/adea/commit/d0e457fee00dd7a371da4e194f372d570cb51fac))
+
 ## [0.10.13](https://github.com/adea-ai/adea/compare/v0.10.12...v0.10.13) (2026-09-06)
 
 
