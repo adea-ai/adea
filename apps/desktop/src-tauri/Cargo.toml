@@ -1,6 +1,6 @@
 [package]
 name = "adea-desktop"
-version = "0.10.17"
+version = "0.11.0"
 description = "Thin native desktop shell for Adea"
 authors = ["Adea"]
 edition = "2021"
