@@ -32,7 +32,9 @@ concurrency:
 jobs:
   publish:
     name: Publish
-    runs-on: ubuntu-latest
+    # Mirrors release-assets.yml: hosted minutes are paused, so paid-plan
+    # jobs run on the local macOS host; keep the stock runner otherwise.
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 10
     steps:
       - name: Checkout
