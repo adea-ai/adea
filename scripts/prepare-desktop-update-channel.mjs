@@ -22,7 +22,7 @@ function publicChannelUrl(value) {
 function releaseAssetId(value, platform) {
   const url = new URL(value);
   const match = url.hostname === "api.github.com" && url.pathname.match(RELEASE_ASSET_PATH);
-  if (!match) throw new Error(`${platform} does not reference an Agent HQ GitHub release asset`);
+  if (!match) throw new Error(`${platform} does not reference an Adea GitHub release asset`);
   return Number(match[1]);
 }
 

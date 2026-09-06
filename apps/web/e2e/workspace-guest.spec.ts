@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
 
 const workspace = {
   id: "workspace-guest-e2e",
-  name: "My Agent HQ",
+  name: "My Adea",
   scene: "home",
   updatedAt: "2026-08-25T00:00:00.000Z",
 };
@@ -102,13 +102,13 @@ test("a guest can use a workspace before opening the optional persistence flow",
   expect(
     Math.abs(accountMenuPosition.menuBottom - accountMenuPosition.triggerTop)
   ).toBeLessThanOrEqual(1);
-  await expect(accountMenu.getByRole("menuitem", { name: "Get Agent HQ mobile" })).toBeDisabled();
+  await expect(accountMenu.getByRole("menuitem", { name: "Get Adea mobile" })).toBeDisabled();
   await expect(accountMenu.getByRole("menuitem", { name: "Help Center" })).toBeDisabled();
   await expect(accountMenu.getByRole("menuitem", { name: "Send Feedback" })).toBeDisabled();
   await expect(accountMenu.getByRole("menuitem", { name: "Updates" })).toHaveCount(0);
   await expect(accountMenu.getByRole("menuitem", { name: "Settings" })).toContainText("⌘,");
   await accountMenu.getByRole("menuitem", { name: "About" }).click();
-  const about = page.getByRole("dialog", { name: "About Agent HQ" });
+  const about = page.getByRole("dialog", { name: "About Adea" });
   await expect(about).toBeVisible();
   await expect(about.getByText("Copyright © 2026 0xPlayerOne")).toBeVisible();
   // The dialog renders the app package version, which release automation bumps.
@@ -184,6 +184,6 @@ test("desktop authentication ends on a clear browser success page", async ({ pag
 
   await expect(page.getByRole("heading", { name: "You’re all set" })).toBeVisible();
   await expect(page.getByText("You can close this tab")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open Agent HQ" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Adea" })).toBeVisible();
   await expect(page).toHaveURL(/\/auth\/desktop\/complete$/);
 });

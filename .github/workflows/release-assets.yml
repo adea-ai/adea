@@ -343,8 +343,8 @@ jobs:
           set -euo pipefail
           count="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("agent"; "i"))] | length')"
           if [ "$count" -lt 3 ]; then
-            echo "Expected at least one Agent HQ desktop asset per target; found $count." >&2
+            echo "Expected at least one Adea desktop asset per target; found $count." >&2
             gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' >&2
             exit 1
           fi
-          echo "Verified $count Agent HQ desktop release asset(s)."
+          echo "Verified $count Adea desktop release asset(s)."

@@ -296,7 +296,7 @@ async function findRepoRoot(start: string): Promise<string> {
       // Continue upward until the repository root is found.
     }
     const parent = path.dirname(current);
-    if (parent === current) throw new Error("Could not locate the Agent HQ repository root.");
+    if (parent === current) throw new Error("Could not locate the Adea repository root.");
     current = parent;
   }
 }

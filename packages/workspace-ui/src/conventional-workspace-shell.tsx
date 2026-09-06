@@ -201,8 +201,8 @@ export function ConventionalWorkspaceShell({
 
   useEffect(() => {
     document.title = controller.activeWorkspace
-      ? `${controller.activeWorkspace.name} | Agent HQ`
-      : "Agent HQ";
+      ? `${controller.activeWorkspace.name} | Adea`
+      : "Adea";
   }, [controller.activeWorkspace]);
 
   useEffect(() => {
@@ -530,7 +530,7 @@ export function ConventionalWorkspaceShell({
           open={dialog === "details"}
           onClose={() => setDialog(null)}
           title="Conversation details"
-          description="Canonical Agent HQ identity and scope."
+          description="Canonical Adea identity and scope."
         >
           <div className="conventional-conversation-details">
             <p>

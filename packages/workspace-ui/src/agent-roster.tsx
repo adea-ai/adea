@@ -264,8 +264,8 @@ function AgentCustomizationForm({
         </label>
       </div>
       <p className="conventional-settings-note">
-        Profile changes are explicit and create auditable Agent HQ events. Model, runtime, tool
-        policy, and credentials remain Control Plane-owned.
+        Profile changes are explicit and create auditable Adea events. Model, runtime, tool policy,
+        and credentials remain Control Plane-owned.
       </p>
       {error ? <p role="alert">{error}</p> : null}
       <div className="conventional-agent-customization__actions">

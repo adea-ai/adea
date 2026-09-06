@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Agent HQ uses the microphone only while you dictate editable message text.</string>
+  <string>Adea uses the microphone only while you dictate editable message text.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Agent HQ uses macOS speech recognition to turn dictation into an editable draft.</string>
+  <string>Adea uses macOS speech recognition to turn dictation into an editable draft.</string>
 </dict>
 </plist>

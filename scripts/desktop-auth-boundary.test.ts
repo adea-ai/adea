@@ -40,7 +40,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(client).toContain("setSession(activeSession)");
     expect(client).toContain("<GlobalWorkspaceRail");
     expect(workspace).toContain("<VirtualUnavailable");
-    expect(workspace).toContain('aria-label="Agent HQ workspace controls"');
+    expect(workspace).toContain('aria-label="Adea workspace controls"');
     expect(client).toContain("Try again");
   });
 

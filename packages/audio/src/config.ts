@@ -1,4 +1,4 @@
-/** Optional soundtrack hooks for Agent HQ. */
+/** Optional soundtrack hooks for Adea. */
 export const AUDIO_BASE_URL = "/assets/audio";
 export const MUSIC_DIR = `${AUDIO_BASE_URL}/sounds/music`;
 

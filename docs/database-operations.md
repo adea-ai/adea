@@ -1,6 +1,6 @@
 # Database environments and operations
 
-Agent HQ uses standard PostgreSQL as its application contract. Neon supplies hosted PostgreSQL, but application and migration code must not depend on Neon management APIs.
+Adea uses standard PostgreSQL as its application contract. Neon supplies hosted PostgreSQL, but application and migration code must not depend on Neon management APIs.
 
 ## Environment topology
 

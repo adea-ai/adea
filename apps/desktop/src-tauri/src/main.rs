@@ -101,12 +101,12 @@ fn main() {
             });
 
             WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Agent HQ")
+                .title("Adea")
                 .inner_size(1440.0, 960.0)
                 .min_inner_size(960.0, 640.0)
                 .build()?;
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Agent HQ desktop shell");
+        .expect("error while running Adea desktop shell");
 }
