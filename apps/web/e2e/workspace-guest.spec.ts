@@ -35,9 +35,12 @@ test("a guest can use a workspace before opening the optional persistence flow",
   const userMenu = page.getByRole("button", { name: "User settings" });
   await expect(userMenu).toBeVisible({ timeout: 20_000 });
   await expect(userMenu.locator("svg.lucide-user-round")).toHaveCount(1);
-  const characterButton = page.getByRole("button", { name: "Open character designer" });
-  await expect(characterButton).toBeVisible({ timeout: 20_000 });
-  await expect(characterButton.locator("svg.lucide-user-round-pen")).toHaveCount(1);
+  // The virtual view renders the engine-unavailable fallback in builds
+  // without Agent Sim; the designer entry points it used to host are gone.
+  await expect(page.getByRole("status", { name: "Virtual view unavailable" })).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByRole("button", { name: "Open character designer" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open user menu for Sign in" })).toHaveCount(0);
   await expect(page.locator(".workspace-statusbar")).toHaveCount(0);
   await expect(page.locator(".workspace-topbar")).toHaveCount(0);
@@ -120,6 +123,12 @@ test("a guest can use a workspace before opening the optional persistence flow",
   await expect(about.locator(".conventional-about-dialog__brand svg")).toBeVisible();
   await expect(about.locator(".conventional-about-dialog__brand span")).toHaveCount(0);
   await page.getByRole("button", { name: "Close dialog" }).click();
+  // Let the dialog (and its inert overlay) fully detach before opening the
+  // next one; without the scene's render load this races close animations.
+  await expect(about).toBeHidden({ timeout: 20_000 });
+  // Dismiss any lingering menu layer so its inert overlay cannot intercept
+  // the next dialog's controls.
+  await page.keyboard.press("Escape");
 
   await page.evaluate(() => {
     window.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: ",", metaKey: true }));

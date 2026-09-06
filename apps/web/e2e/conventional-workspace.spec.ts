@@ -467,7 +467,7 @@ async function mockWorkspace(page: Page, empty = false) {
         json: { privateResultsUnavailable: true, results },
       });
     }
-    if (url.pathname.endsWith("@adea-ai/rooms"))
+    if (url.pathname.endsWith("/rooms"))
       return route.fulfill({ contentType: "application/json", json: empty ? [] : rooms });
     if (url.pathname.endsWith("/agents"))
       return route.fulfill({ contentType: "application/json", json: empty ? [] : agents });
@@ -525,7 +525,7 @@ async function mockConnectedWorkspace(page: Page) {
   await page.route("**/api/v1/workspaces/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (request.method() === "POST" && url.pathname.endsWith("@adea-ai/rooms")) {
+    if (request.method() === "POST" && url.pathname.endsWith("/rooms")) {
       const body = request.postDataJSON() as { functionKey: string; name: string };
       const createdRoom = {
         createdAt: timestamp,
@@ -596,7 +596,7 @@ async function mockConnectedWorkspace(page: Page) {
       return route.fulfill({ contentType: "application/json", json: {} });
     if (url.pathname.includes("/read-state"))
       return route.fulfill({ contentType: "application/json", json: { readState } });
-    if (url.pathname.endsWith("@adea-ai/rooms"))
+    if (url.pathname.endsWith("/rooms"))
       return route.fulfill({ contentType: "application/json", json: mutableRooms });
     if (url.pathname.endsWith("/channels"))
       return route.fulfill({ contentType: "application/json", json: mutableChannels });

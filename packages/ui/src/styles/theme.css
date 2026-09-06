@@ -80,6 +80,13 @@
     border-color: var(--border);
   }
 
+  /* Product expectation (see cursor-check.spec.ts): every enabled button
+     shows the pointer cursor regardless of Tailwind preflight defaults. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+
   html,
   body {
     min-height: 100%;

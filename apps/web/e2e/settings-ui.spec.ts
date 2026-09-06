@@ -1,5 +1,15 @@
 import { expect, test } from "@playwright/test";
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.addEventListener("DOMContentLoaded", () => {
+      const style = document.createElement("style");
+      style.textContent = "nextjs-portal { display: none !important; }";
+      document.head.append(style);
+    });
+  });
+});
+
 test("settings dialog controls carry the pointer cursor and intended layout", async ({ page }) => {
   await page.goto("/#settings/appearance");
   const settings = page.getByRole("dialog", { name: "Settings" });
