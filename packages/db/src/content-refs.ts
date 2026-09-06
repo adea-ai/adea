@@ -1,4 +1,4 @@
-import type { ContentRefSummary, UserPrincipalRef } from "@adea/types";
+import type { ContentRefSummary, UserPrincipalRef } from "@adea-ai/types";
 import { and, eq, isNull, or } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

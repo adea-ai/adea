@@ -85,11 +85,11 @@ const mobileRoot = resolve(repoRoot, "apps/mobile");
 
 // Typechecks resolve workspace packages through their built dist output, so
 // build each app's dependency closure first. A fresh checkout (like CI) has
-// no dist output yet, and raw tsc would fail to resolve @adea/* imports.
+// no dist output yet, and raw tsc would fail to resolve @adea-ai/* imports.
 run(
   "desktop workspace builds",
   bun,
-  ["x", "turbo", "run", "build", "--filter=@adea/desktop..."],
+  ["x", "turbo", "run", "build", "--filter=@adea-ai/desktop..."],
   repoRoot
 );
 run("desktop TypeScript smoke", bun, ["run", "typecheck"], desktopRoot);
@@ -105,7 +105,7 @@ run(
 run(
   "mobile workspace builds",
   bun,
-  ["x", "turbo", "run", "build", "--filter=@adea/mobile..."],
+  ["x", "turbo", "run", "build", "--filter=@adea-ai/mobile..."],
   repoRoot
 );
 run("mobile TypeScript smoke", bun, ["run", "typecheck"], mobileRoot);

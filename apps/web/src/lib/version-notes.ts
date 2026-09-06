@@ -1,1 +1,1 @@
-export { formatReleaseDate, plainTextFromMarkdown } from "@adea/ui/lib/version-notes";
+export { formatReleaseDate, plainTextFromMarkdown } from "@adea-ai/ui/lib/version-notes";

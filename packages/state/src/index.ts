@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WorkspaceSceneId, WorkspaceViewMode } from "@adea/types";
+import type { WorkspaceSceneId, WorkspaceViewMode } from "@adea-ai/types";
 
 export type WorkspaceState = {
   selectedScene: WorkspaceSceneId;

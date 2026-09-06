@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { WorkspaceSceneId } from "@adea/types";
-import { Button } from "@adea/ui/components/ui/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@adea/ui/components/ui/field";
-import { Input } from "@adea/ui/components/ui/input";
+import type { WorkspaceSceneId } from "@adea-ai/types";
+import { Button } from "@adea-ai/ui/components/ui/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@adea-ai/ui/components/ui/field";
+import { Input } from "@adea-ai/ui/components/ui/input";
 
 import { ModalDialog } from "./modal-dialog";
 import { RoomIcon } from "./room-icon";

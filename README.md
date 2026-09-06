@@ -51,7 +51,7 @@ Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 Portless name.
 
 The asset sync step stages the tracked scene manifests from
-`@adea/spatial-protocol` into the ignored Next public-assets directory. The
+`@adea-ai/spatial-protocol` into the ignored Next public-assets directory. The
 spatial engine itself lives in the private Agent Sim repo and is delivered
 through the entitlement-gated engine remote.
 

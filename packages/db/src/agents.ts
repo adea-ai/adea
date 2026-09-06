@@ -1,4 +1,4 @@
-import type { AgentProfileState, AgentSummary, UserPrincipalRef } from "@adea/types";
+import type { AgentProfileState, AgentSummary, UserPrincipalRef } from "@adea-ai/types";
 import { and, asc, eq } from "drizzle-orm";
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
 import { agents, rooms, workspaceEvents, workspaceMemberships } from "./schema";

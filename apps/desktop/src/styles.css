@@ -1,6 +1,6 @@
-@import "@adea/ui/auth-shell.css";
-@import "@adea/ui/workspace-shell.css";
-@import "@adea/ui/conventional-workspace.css";
+@import "@adea-ai/ui/auth-shell.css";
+@import "@adea-ai/ui/workspace-shell.css";
+@import "@adea-ai/ui/conventional-workspace.css";
 
 :root {
   color: var(--hq-shell-foreground);

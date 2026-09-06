@@ -1,4 +1,4 @@
-export type { SceneManifest, SceneStartPosition, SceneZone } from "@adea/asset-manifests";
+export type { SceneManifest, SceneStartPosition, SceneZone } from "@adea-ai/asset-manifests";
 export { hqHomeManifest, hqWorkManifest } from "./manifests";
 export {
   appRouteHref,

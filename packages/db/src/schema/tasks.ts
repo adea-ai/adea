@@ -1,4 +1,4 @@
-import type { TaskSummary } from "@adea/types";
+import type { TaskSummary } from "@adea-ai/types";
 import { sql } from "drizzle-orm";
 import { check, index, integer, jsonb, text, unique, uuid } from "drizzle-orm/pg-core";
 

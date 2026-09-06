@@ -16,7 +16,7 @@ describe("desktop browser authentication navigation", () => {
     const signIn = createDesktopSignInUrl(request);
 
     expect(signIn.origin).toBe(request.origin);
-    expect(signIn.pathname).toBe("@adea/auth/sign-in");
+    expect(signIn.pathname).toBe("@adea-ai/auth/sign-in");
     expect(signIn.searchParams.get("returnTo")).toBe(`${request.pathname}${request.search}`);
   });
 
@@ -38,7 +38,7 @@ describe("desktop browser authentication navigation", () => {
     const completion = createDesktopCompletionUrl(request, callback);
 
     expect(completion.origin).toBe(request.origin);
-    expect(completion.pathname).toBe("@adea/auth/desktop/complete");
+    expect(completion.pathname).toBe("@adea-ai/auth/desktop/complete");
     expect(completion.search).toBe("");
     expect(parseDesktopCallbackFragment(completion.hash)).toBe(callback);
     expect(parseDesktopCallbackFragment("#callback=https%3A%2F%2Fevil.example")).toBeNull();

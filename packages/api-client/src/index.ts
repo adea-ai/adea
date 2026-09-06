@@ -13,7 +13,7 @@ import type {
   TaskSummary,
   WorkspaceSummary,
   WorkspaceSearchPage,
-} from "@adea/types";
+} from "@adea-ai/types";
 
 export type ApiAgentCreateInput = Readonly<{
   avatarRef?: string;

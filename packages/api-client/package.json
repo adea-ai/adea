@@ -1,5 +1,5 @@
 {
-  "name": "@adea/api-client",
+  "name": "@adea-ai/api-client",
   "version": "0.10.8",
   "private": true,
   "type": "module",
@@ -20,6 +20,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea/types": "workspace:*"
+    "@adea-ai/types": "workspace:*"
   }
 }

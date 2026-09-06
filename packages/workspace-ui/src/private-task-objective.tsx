@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { TaskSummary } from "@adea/types";
+import type { TaskSummary } from "@adea-ai/types";
 
 import type { PrivateContentResolver } from "./platform";
 

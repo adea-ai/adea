@@ -1,4 +1,4 @@
-import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } from "@adea/types";
+import type { UserPrincipalRef, WorkspaceSearchPage, WorkspaceSearchResult } from "@adea-ai/types";
 import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from "drizzle-orm";
 
 import type { AgentHqDatabase } from "./connection";

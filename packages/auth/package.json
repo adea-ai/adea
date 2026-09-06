@@ -1,5 +1,5 @@
 {
-  "name": "@adea/auth",
+  "name": "@adea-ai/auth",
   "version": "0.10.8",
   "private": true,
   "type": "module",
@@ -41,7 +41,7 @@
     "test:integration": "bun test tests/integration"
   },
   "dependencies": {
-    "@adea/types": "workspace:*",
+    "@adea-ai/types": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
     "server-only": "^0.0.1"
   }

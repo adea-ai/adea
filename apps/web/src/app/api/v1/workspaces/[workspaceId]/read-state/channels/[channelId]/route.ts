@@ -1,5 +1,5 @@
-import type { ApiReadStateResponse } from "@adea/api-client";
-import { markChannelReadState } from "@adea/db";
+import type { ApiReadStateResponse } from "@adea-ai/api-client";
+import { markChannelReadState } from "@adea-ai/db";
 
 import { applicationDatabase } from "../../../../../../../../server/database";
 import {

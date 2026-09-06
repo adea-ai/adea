@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@adea/ui/components/ui/badge";
-import { Button } from "@adea/ui/components/ui/button";
+import { Badge } from "@adea-ai/ui/components/ui/badge";
+import { Button } from "@adea-ai/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,17 +10,17 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@adea/ui/components/ui/dropdown-menu";
+} from "@adea-ai/ui/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@adea/ui/components/ui/empty";
-import { Input } from "@adea/ui/components/ui/input";
-import { Skeleton } from "@adea/ui/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@adea/ui/components/ui/tabs";
+} from "@adea-ai/ui/components/ui/empty";
+import { Input } from "@adea-ai/ui/components/ui/input";
+import { Skeleton } from "@adea-ai/ui/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@adea-ai/ui/components/ui/tabs";
 import {
   ArrowLeft,
   Blocks,

@@ -4,7 +4,7 @@ import type {
   WorkspacePermission,
   WorkspaceSceneId,
   WorkspaceSummary,
-} from "@adea/types";
+} from "@adea-ai/types";
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

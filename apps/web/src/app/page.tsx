@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { hqSceneFromSearchParams } from "@adea/app-core";
-import { configurableCharacterId, isPlausibleCharacterId } from "@adea/spatial-protocol";
-import { readSceneStartPosition } from "@adea/spatial-protocol";
+import { hqSceneFromSearchParams } from "@adea-ai/app-core";
+import { configurableCharacterId, isPlausibleCharacterId } from "@adea-ai/spatial-protocol";
+import { readSceneStartPosition } from "@adea-ai/spatial-protocol";
 import { WorkspaceEntry } from "../components/workspace-entry";
 
 export const metadata: Metadata = {

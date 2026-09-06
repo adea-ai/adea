@@ -1,5 +1,5 @@
 {
-  "name": "@adea/spatial-protocol",
+  "name": "@adea-ai/spatial-protocol",
   "version": "0.10.8",
   "private": true,
   "type": "module",
@@ -20,6 +20,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea/asset-manifests": "workspace:*"
+    "@adea-ai/asset-manifests": "workspace:*"
   }
 }
