@@ -6,9 +6,9 @@ supported). Cloudflare Workers is the deployment target.
 
 ## One-time setup (dashboard + CLI)
 
-1. **Worker name.** `wrangler.jsonc` uses `agent-hq-web`. Rename there or in
-   the dashboard so they match, otherwise CLI deploys miss the Git-connected
-   Worker.
+1. **Worker name.** `wrangler.jsonc` uses `adea-web` (renamed from
+   `agent-hq-web`). Keep dashboard and config in agreement, otherwise CLI
+   deploys miss the Git-connected Worker.
 2. **Dashboard build settings** (Worker → Settings → Build), following the
    proven pink-binder pattern (see pink-binder `docs/CLOUDFLARE_BUILDS.md`):
    - Root directory: `apps/web`
@@ -18,11 +18,8 @@ supported). Cloudflare Workers is the deployment target.
    - Watch paths (repo-relative): `apps/web/**`, `packages/db/**`,
      `packages/auth/**`, `packages/ui/**`, `packages/workspace-ui/**`,
      `packages/app-core/**`, `packages/state/**`, `packages/types/**`,
-     `packages/scene-runtime/**`, `packages/scene-shell/**`,
-     `packages/hq-scenes/**`, `packages/characters/**`,
-     `packages/interior/**`, `packages/pets/**`, `packages/data/**`,
+     `packages/spatial-protocol/**`, `packages/data/**`,
      `packages/audio/**`, `packages/asset-manifests/**`,
-     `packages/scene-telemetry/**`, `scenes/hq/**`,
      `scripts/build-cloudflare-worker.mjs`, `scripts/sync-assets.mjs`,
      `package.json`, `bun.lock`, `turbo.json`
    - Preview trigger: same build command (the default versions-upload
