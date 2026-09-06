@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentSummary, RoomSummary } from "@agent-hq/types";
+import type { AgentSummary, RoomSummary } from "@adea/types";
 import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from "lucide-react";
 
 import { AgentStatus } from "./agent-status";

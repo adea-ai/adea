@@ -1,7 +1,7 @@
 import {
   VersionDialog as SharedVersionDialog,
   type VersionDialogAdapter,
-} from "@agent-hq/ui/components/version-dialog";
+} from "@adea/ui/components/version-dialog";
 
 import { checkDesktopUpdate, getDesktopUpdateStatus, installDesktopUpdate } from "./desktop-update";
 import packageJson from "../package.json";

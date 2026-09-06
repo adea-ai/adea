@@ -1,8 +1,18 @@
-import { access, cp, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+// Stages the public scene manifests (tracked in
+// packages/spatial-protocol/data, mirrored from the private agent-sim
+// engine) into the ignored Next public-assets directory.
+//
+// The engine (models, textures, audio, runtime catalogs) lives in the
+// private agent-sim repo and is never synced here: this step emits manifests
+// only, so plain checkouts, CI lanes, and public builds stay green without
+// credentials. The entitlement-gated engine remote resolves these same-origin
+// manifest URLs at runtime (see @adea/spatial-protocol manifests).
+
+const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const publicAssets = resolve(repoRoot, "apps/web/public/assets");
 const webRoot = resolve(repoRoot, "apps/web");
 // Build into a staging directory and swap it over the live tree with one
@@ -22,156 +32,19 @@ for (const entry of await readdir(webRoot).catch(() => [])) {
   }
 }
 
-// Binary art lives in the private adea-ai/assets pack (see
-// scripts/fetch-assets.mjs), not in this repository. Developers point
-// AGENT_HQ_ASSETS_DIR at a checkout; machines fetch vendor/assets. When the
-// pack is absent (plain CI checkouts), sync still emits manifests and warns
-// loudly instead of failing: DOM-level tests stay green, only real pixels
-// and real bytes are missing.
-const packRoot = process.env.AGENT_HQ_ASSETS_DIR ?? resolve(repoRoot, "vendor/assets");
-let packPresent = false;
-try {
-  await access(resolve(packRoot, "packages/interior/assets"));
-  packPresent = true;
-} catch {
-  console.warn(
-    "[Agent HQ] asset pack not found; syncing manifests only. " +
-      "Run `bun scripts/fetch-assets.mjs` for full models/textures."
-  );
-}
-
-async function copyAsset(source, destination, filter) {
-  await mkdir(dirname(destination), { recursive: true });
-  await cp(source, destination, {
-    recursive: true,
-    force: true,
-    ...(filter ? { filter } : {}),
-  });
-}
-
-async function resolveAsset(...candidates) {
-  for (const candidate of candidates) {
-    try {
-      await access(candidate);
-      return candidate;
-    } catch {
-      // Workspace installs may expose Three.js through the hoisted root link.
-    }
-  }
-  throw new Error(`Could not find runtime asset in any of: ${candidates.join(", ")}`);
-}
-
-async function writeAssignedPropsManifest(scene, assetDirectory, assetsRoot) {
-  // Bun can load the TypeScript catalog directly. Keeping this transform in
-  // the asset sync step means the HQ bundle only needs the placed assets and
-  // never imports the authoring catalog.
-  const { interiorPropAssets } = await import(
-    pathToFileURL(resolve(repoRoot, "packages/interior/src/catalog.ts")).href
-  );
-  const catalogById = new Map(interiorPropAssets.map((asset) => [asset.id, asset]));
-  const propsPath = resolve(repoRoot, "scenes/hq/assets", assetDirectory, "props.json");
-  const document = JSON.parse(await readFile(propsPath, "utf8"));
-  const placements = document.placements ?? {};
-  const assets = Object.fromEntries(
-    Object.keys(placements).flatMap((modelId) => {
-      const asset = catalogById.get(modelId);
-      if (!asset) {
-        console.warn(`[Agent HQ] Missing interior catalog entry for assigned prop ${modelId}.`);
-        return [];
-      }
-      return [
-        [
-          modelId,
-          {
-            assetUrl: asset.assetUrl,
-            defaultScale: asset.defaultScale,
-            footprint: asset.footprint,
-            placementSurface: asset.placementSurface,
-            wallMountHeight: asset.wallMountHeight,
-            floorLift: asset.floorLift,
-            placeableOnTop: asset.placeableOnTop,
-          },
-        ],
-      ];
-    })
-  );
-  const destination = resolve(assetsRoot, "worlds", scene, "props-runtime.json");
-  const temporaryDestination = `${destination}.tmp-${process.pid}`;
-  await writeFile(
-    temporaryDestination,
-    `${JSON.stringify({ version: 1, scene, assets, placements }, null, 2)}\n`
-  );
-  await rename(temporaryDestination, destination);
-}
+const protocolData = resolve(repoRoot, "packages/spatial-protocol/data");
 
 await rm(stagingAssets, { recursive: true, force: true });
 await mkdir(stagingAssets, { recursive: true });
-
-const basisTranscoder = await resolveAsset(
-  resolve(
-    repoRoot,
-    "packages/scene-runtime/node_modules/three/examples/jsm/libs/basis/basis_transcoder.js"
-  ),
-  resolve(repoRoot, "node_modules/three/examples/jsm/libs/basis/basis_transcoder.js")
-);
-const basisTranscoderWasm = await resolveAsset(
-  resolve(
-    repoRoot,
-    "packages/scene-runtime/node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm"
-  ),
-  resolve(repoRoot, "node_modules/three/examples/jsm/libs/basis/basis_transcoder.wasm")
-);
-
-await copyAsset(basisTranscoder, resolve(stagingAssets, "basis/basis_transcoder.js"));
-await copyAsset(basisTranscoderWasm, resolve(stagingAssets, "basis/basis_transcoder.wasm"));
 
 for (const [scene, assetDirectory] of [
   ["hq-home", "home"],
   ["hq-work", "work"],
 ]) {
-  if (packPresent) {
-    await copyAsset(
-      resolve(packRoot, "scenes", "hq", "assets", assetDirectory),
-      resolve(stagingAssets, "worlds", scene)
-    );
-  }
-  // Scene manifests (props/foliage/editor-overrides) stay tracked in this
-  // repository and always ship, with or without the binary pack.
-  await copyAsset(
-    resolve(repoRoot, "scenes", "hq", "assets", assetDirectory),
-    resolve(stagingAssets, "worlds", scene)
-  );
-  await writeAssignedPropsManifest(scene, assetDirectory, stagingAssets);
-}
-
-if (packPresent) {
-  await copyAsset(resolve(packRoot, "packages/interior/assets"), resolve(stagingAssets, "models"));
-  await copyAsset(
-    resolve(packRoot, "packages/landscape/assets/foliage"),
-    resolve(stagingAssets, "models/foliage")
-  );
-  await copyAsset(
-    resolve(packRoot, "packages/landscape/assets/fences"),
-    resolve(stagingAssets, "models/fences")
-  );
-  await copyAsset(
-    resolve(packRoot, "packages/landscape/assets/backgrounds"),
-    resolve(stagingAssets, "models/backgrounds")
-  );
-  await copyAsset(
-    resolve(packRoot, "packages/pets/assets/animals"),
-    resolve(stagingAssets, "models/animals")
-  );
-}
-const characterAssetRoot = resolve(packRoot, "packages/characters/assets");
-if (packPresent) {
-  await copyAsset(characterAssetRoot, resolve(stagingAssets, "models"), (sourcePath) => {
-    const path = relative(characterAssetRoot, sourcePath).replaceAll("\\", "/");
-    // Keep authoring/reference files in the pack, but do not ship them to
-    // clients because the runtime never loads them.
-    return path !== "assets_map.glb" && !path.startsWith("_complete/original-blend/");
+  await cp(resolve(protocolData, assetDirectory), resolve(stagingAssets, "worlds", scene), {
+    recursive: true,
+    force: true,
   });
-  await copyAsset(resolve(packRoot, "packages/rooms/assets"), resolve(stagingAssets, "models"));
 }
 
 // Swap the complete staging tree over the live one. Readers concurrent with
@@ -185,4 +58,4 @@ try {
 await rename(stagingAssets, publicAssets);
 await rm(backupAssets, { recursive: true, force: true });
 
-console.log(`Synced HQ assets to ${publicAssets}`);
+console.log(`Synced HQ scene manifests to ${publicAssets}`);

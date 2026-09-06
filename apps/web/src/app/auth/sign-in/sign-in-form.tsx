@@ -18,7 +18,7 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
     const password = String(data.get("password") ?? "");
 
     try {
-      const { createNeonClientAdapter } = await import("@agent-hq/auth/client");
+      const { createNeonClientAdapter } = await import("@adea/auth/client");
       const authentication = createNeonClientAdapter();
       if (mode === "sign-up") {
         await authentication.signUp({

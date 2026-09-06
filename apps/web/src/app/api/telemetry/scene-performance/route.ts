@@ -4,7 +4,7 @@ import {
   MAX_SCENE_TELEMETRY_BYTES,
   parseScenePerformanceReport,
   SCENE_TELEMETRY_LOG_PREFIX,
-} from "@agent-hq/scene-telemetry";
+} from "@adea/spatial-protocol";
 
 export const runtime = "nodejs";
 

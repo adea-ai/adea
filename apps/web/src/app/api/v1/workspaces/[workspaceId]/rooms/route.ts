@@ -1,5 +1,5 @@
-import type { ApiRoomCreateInput, ApiRoomResponse } from "@agent-hq/api-client";
-import { createRoom, listRoomsForUser } from "@agent-hq/db";
+import type { ApiRoomCreateInput, ApiRoomResponse } from "@adea/api-client";
+import { createRoom, listRoomsForUser } from "@adea/db";
 
 import { applicationDatabase } from "../../../../../../server/database";
 import {

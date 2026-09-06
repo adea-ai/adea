@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { WorkspaceSceneId, WorkspaceViewMode } from "@agent-hq/types";
+import type { WorkspaceSceneId, WorkspaceViewMode } from "@adea/types";
 
 export type WorkspaceState = {
   selectedScene: WorkspaceSceneId;

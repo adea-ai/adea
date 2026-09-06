@@ -1,4 +1,4 @@
-import type { WorkspaceState } from "@agent-hq/state";
+import type { WorkspaceState } from "@adea/state";
 
 export type WorkspaceStatePersister = {
   /** Coalesces bursts of store changes into one trailing write. */

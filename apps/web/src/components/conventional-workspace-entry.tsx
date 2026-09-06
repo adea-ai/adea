@@ -1,10 +1,10 @@
 "use client";
 
-import { TooltipProvider } from "@agent-hq/ui/components/ui/tooltip";
-import { ConventionalWorkspaceShell } from "@agent-hq/workspace-ui/conventional-workspace-shell";
-import type { WorkspacePlatformServices } from "@agent-hq/workspace-ui/platform";
-import type { WorkspaceView } from "@agent-hq/workspace-ui/workspace-view-toggle";
-import type { AgentHqApiClient } from "@agent-hq/api-client";
+import { TooltipProvider } from "@adea/ui/components/ui/tooltip";
+import { ConventionalWorkspaceShell } from "@adea/workspace-ui/conventional-workspace-shell";
+import type { WorkspacePlatformServices } from "@adea/workspace-ui/platform";
+import type { WorkspaceView } from "@adea/workspace-ui/workspace-view-toggle";
+import type { AgentHqApiClient } from "@adea/api-client";
 
 export function ConventionalWorkspaceEntry({
   client,

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { WorkspacePreferences, WorkspaceSettingsProvider } from "@agent-hq/workspace-ui";
+import type { WorkspacePreferences, WorkspaceSettingsProvider } from "@adea/workspace-ui";
 
 export const desktopSettingsProvider: WorkspaceSettingsProvider = Object.freeze({
   load() {

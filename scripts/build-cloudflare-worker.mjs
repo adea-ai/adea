@@ -1,5 +1,4 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,13 +12,18 @@ function run(args, cwd) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-// Mirrors the Cloudflare Workers Builds trigger for agent-hq-web (see
+// Mirrors the Cloudflare Workers Builds trigger for the web app (see
 // apps/web/CLOUDFLARE.md): frozen install from the monorepo root, workspace
 // dependency builds (so dist output exists exactly like a local checkout —
 // turbo's dependsOn does this for every other lane, but the OpenNext build
 // only runs the app's own `build` script), then the OpenNext build inside
 // apps/web (sync-assets, cf-typegen, and next build). No post-build patching
 // is needed.
+//
+// This repository ships manifests only. The spatial engine (models,
+// textures, audio) lives in the private agent-sim repo and is delivered
+// through the entitlement-gated engine remote, so adea lanes never fetch
+// the private asset pack and need no asset credentials.
 run(["install", "--frozen-lockfile"], repositoryRoot);
 
 const webManifest = JSON.parse(
@@ -29,7 +33,7 @@ const workspaceDepFilters = Object.keys({
   ...(webManifest.dependencies ?? {}),
   ...(webManifest.devDependencies ?? {}),
 })
-  .filter((name) => name.startsWith("@agent-hq/"))
+  .filter((name) => name.startsWith("@adea/"))
   .map((name) => `--filter=${name}`);
 run(["x", "turbo", "run", "build", ...workspaceDepFilters], repositoryRoot);
 
@@ -53,20 +57,5 @@ if (!process.env.DEPLOY_GIT_COMMIT_SHA) {
 if (process.env.DEPLOY_GIT_COMMIT_SHA && !process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA) {
   process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA = process.env.DEPLOY_GIT_COMMIT_SHA;
 }
-
-// Production Worker artifacts must ship real models, never sync stubs: the
-// private asset pack has to resolve here (local AGENT_HQ_ASSETS_DIR,
-// vendor/assets via scripts/fetch-assets.mjs, or ASSETS_READ_TOKEN). Fail
-// fast with setup instructions instead of deploying a model-less worker.
-run(["scripts/fetch-assets.mjs"], repositoryRoot);
-if (
-  !process.env.AGENT_HQ_ASSETS_DIR &&
-  !existsSync(resolve(repositoryRoot, "vendor/assets/packages/interior/assets"))
-) {
-  throw new Error(
-    "Private asset pack is unavailable: set AGENT_HQ_ASSETS_DIR, pre-populate vendor/assets, " +
-      "or provide ASSETS_READ_TOKEN (Cloudflare build variable) so scripts/fetch-assets.mjs can download adea-ai/assets. " +
-      "Refusing to ship a Worker without models."
-  );
-}
+run(["scripts/sync-assets.mjs"], repositoryRoot);
 run(["x", "opennextjs-cloudflare", "build"], webRoot);

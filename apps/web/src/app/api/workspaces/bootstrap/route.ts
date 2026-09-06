@@ -1,5 +1,5 @@
-import type { ApiWorkspaceBootstrapResponse } from "@agent-hq/api-client";
-import { ensureBootstrapWorkspaces, getUserDisplayName } from "@agent-hq/db";
+import type { ApiWorkspaceBootstrapResponse } from "@adea/api-client";
+import { ensureBootstrapWorkspaces, getUserDisplayName } from "@adea/db";
 
 import { applicationDatabase } from "../../../../server/database";
 import {

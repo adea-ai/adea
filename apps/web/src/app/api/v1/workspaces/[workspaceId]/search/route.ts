@@ -1,4 +1,4 @@
-import { searchWorkspaceForUser } from "@agent-hq/db";
+import { searchWorkspaceForUser } from "@adea/db";
 
 import { applicationDatabase } from "../../../../../../server/database";
 import {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ApiTaskResponse } from "@agent-hq/api-client";
+import type { ApiTaskResponse } from "@adea/api-client";
 import {
   archiveTask,
   assignTask,
@@ -14,7 +14,7 @@ import {
   setTaskDependencies,
   startTask,
   type TaskCommand,
-} from "@agent-hq/db";
+} from "@adea/db";
 
 import { applicationDatabase } from "./database";
 import { guardDesktopWorkspaceRequest } from "./desktop-workspace";
