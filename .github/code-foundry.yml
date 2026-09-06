@@ -2,10 +2,10 @@ version: 1
 profile: monorepo
 languages: typescript
 features: validation,release
-# This is a private repository; do not assume GitHub Advanced Security or
-# public-repository Dependency Review support.
-codeql: false
-dependency_review: false
+# Public repository: Advanced Security features (CodeQL, Dependency Review)
+# are expected to be available; lanes degrade gracefully where they are not.
+codeql: auto
+dependency_review: auto
 package_manager: bun
 codeql_rust_shards: '["all"]'
 codeql_rust_threads: 1

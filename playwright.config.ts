@@ -21,7 +21,8 @@ const headless = process.env.PLAYWRIGHT_HEADLESS
 export default defineConfig({
   testDir: "apps/web/e2e",
   testMatch: "**/*.spec.ts",
-  // One gate covers both a cold scene load and a cold Room Designer catalog.
+  // Guest coverage walks the chat workspace and the engine-unavailable
+  // fallback; WebGL scene gates live with the engine in Agent Sim.
   timeout: 90_000,
   // These gates create real WebGL contexts; serializing them avoids GPU and
   // asset-load contention that would make the measurements nondeterministic.
