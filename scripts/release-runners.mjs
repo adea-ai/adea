@@ -34,17 +34,17 @@ const legacyMacCargoTarget = join(
   "src-tauri",
   "target"
 );
-const linuxImage = `agent-hq-release-runner-linux-x64:${runnerVersion}`;
-const linuxBuilder = "agent-hq-release-builder";
-const linuxContainer = "agent-hq-release-runner-linux-x64";
-const linuxCargoTargetVolume = "agent-hq-release-linux-cargo-target";
-const linuxWorkspaceVolume = "agent-hq-release-linux-workspace";
+const linuxImage = `adea-release-runner-linux-x64:${runnerVersion}`;
+const linuxBuilder = "adea-release-builder";
+const linuxContainer = "adea-release-runner-linux-x64";
+const linuxCargoTargetVolume = "adea-release-linux-cargo-target";
+const linuxWorkspaceVolume = "adea-release-linux-workspace";
 const runnerDeletionAttempts = 120;
 const safeHost = hostname()
   .toLowerCase()
   .replace(/[^a-z0-9-]+/g, "-");
-const macRunnerName = `agent-hq-release-macos-arm64-${safeHost}`;
-const linuxRunnerName = `agent-hq-release-linux-x64-${safeHost}`;
+const macRunnerName = `adea-release-macos-arm64-${safeHost}`;
+const linuxRunnerName = `adea-release-linux-x64-${safeHost}`;
 
 function run(command, args, { capture = false, cwd = root, displayArgs = args } = {}) {
   const result = spawnSync(command, args, {
@@ -207,7 +207,7 @@ function ensureMacRunner() {
         "--name",
         macRunnerName,
         "--labels",
-        "agent-hq-release-macos-arm64",
+        "adea-release-macos-arm64",
         "--work",
         "_work",
       ],
@@ -357,7 +357,7 @@ function clean() {
         "image",
         "ls",
         "--filter",
-        "reference=agent-hq-release-runner-linux-x64:*",
+        "reference=adea-release-runner-linux-x64:*",
         "--format",
         "{{.Repository}}:{{.Tag}}",
       ],
