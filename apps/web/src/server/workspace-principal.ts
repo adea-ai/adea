@@ -10,6 +10,7 @@ import {
 import type { UserPrincipalRef } from "@adea-ai/types";
 
 import { applicationDatabase } from "./database";
+import { emailAllowlistConfigured, isAllowedEmail } from "./allowed-emails";
 import { desktopPrincipalMapping, resolveDesktopSessionPrincipal } from "./desktop-auth";
 import { resolveOrProvisionDesktopPrincipal } from "./desktop-principal";
 import {
@@ -58,6 +59,9 @@ export async function resolveWorkspacePrincipal(
   }
 
   if (authentication) {
+    // Account allowlist: when configured, only listed emails may hold a
+    // workspace principal.
+    if (!isAllowedEmail(authentication.profile.email)) return null;
     if (credential) {
       try {
         const principal = await claimTemporaryUserSession(database, {
@@ -93,6 +97,8 @@ export async function resolveWorkspacePrincipal(
   }
 
   if (credential) {
+    // The allowlist disables guest access entirely.
+    if (emailAllowlistConfigured()) return null;
     const principal = await resolveTemporaryUserSession(
       database,
       await digestTemporaryCredential(credential)
@@ -107,7 +113,8 @@ export async function resolveWorkspacePrincipal(
     }
   }
 
-  if (!options.createTemporary) return null;
+  // The allowlist disables guest access entirely.
+  if (!options.createTemporary || emailAllowlistConfigured()) return null;
   const createdCredential = createTemporaryCredential();
   const expiresAt = new Date(Date.now() + TEMPORARY_SESSION_LIFETIME_MS);
   const session = await createTemporaryUserSession(database, {

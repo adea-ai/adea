@@ -469,13 +469,20 @@ function DesktopApp() {
 
         <div className="workspace-actions">
           {(status === "offline" || status === "failed") && (
-            <button
-              type="button"
-              className="button-secondary"
-              onClick={() => void openWorkspace(session)}
-            >
-              Try again
-            </button>
+            <>
+              <button
+                type="button"
+                className="button-secondary"
+                onClick={() => void openWorkspace(session)}
+              >
+                Try again
+              </button>
+              {!session && (
+                <button type="button" className="button-secondary" onClick={() => void beginSignIn()}>
+                  Sign in
+                </button>
+              )}
+            </>
           )}
         </div>
 

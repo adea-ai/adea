@@ -52,6 +52,11 @@ supported). Cloudflare Workers is the deployment target.
    wrangler secret put CONTROL_PLANE_SERVICE_TOKEN
    wrangler secret put CONTROL_PLANE_SCOPE_WORKSPACE_ID
    ```
+   Access is additionally gated by an account allowlist: set the
+   `ADEA_ALLOWED_EMAILS` variable (Worker → Settings → Variables, a
+   comma-separated list of email addresses) to restrict sign-in and workspace
+   access to those accounts and disable guest sessions. Unset or empty keeps
+   the default open behavior (any authenticated account plus guests).
    Source values: the Cloudflare Secret Store is the source of truth for hosted
    values (the `ADEA_*` records); `.env.local` (gitignored) keeps local
    Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
