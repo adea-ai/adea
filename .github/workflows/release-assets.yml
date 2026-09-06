@@ -302,7 +302,7 @@ jobs:
           # and bundles exceed that) multipart-uploads each channel file.
           for asset in "$site"/*; do
             name="$(basename "$asset")"
-            aws --region auto --endpoint-url "$endpoint" s3 cp "$asset" "s3://adea-desktop-updates/desktop-updates/${name}"
+            aws --region auto --endpoint-url "$endpoint" s3 cp "$asset" "s3://adea/desktop-updates/${name}"
           done
 
       - name: Verify public updater manifest
