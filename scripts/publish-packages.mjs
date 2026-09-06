@@ -69,12 +69,21 @@ for (const relative of PUBLISH_PACKAGES) {
   }
   await writeFile(stagedManifestPath, `${JSON.stringify(staged, null, 2)}\n`);
   console.log(`[publish] publishing ${name}@${version}...`);
-  const result = sh(
-    ["npm", "publish", "--access", "public"],
-    join(stage, "package")
-  );
+  const result = sh(["npm", "publish", "--access", "public"], join(stage, "package"));
   await rm(stage, { recursive: true, force: true });
   if (result.status !== 0) {
+    // Tolerate publish races: concurrent lanes may both pass the version
+    // check, then exactly one wins the PUT. A 403 overwrite for the version
+    // we wanted is convergence, not failure.
+    const output = `${result.stdout ?? ""}
+${result.stderr ?? ""}`;
+    if (
+      output.includes("cannot publish over the previously published versions") &&
+      (await publishedVersion(name)) === version
+    ) {
+      console.log(`[publish] ${name}@${version} won by a concurrent lane; continuing.`);
+      continue;
+    }
     console.error(result.stdout, result.stderr);
     throw new Error(`[publish] failed for ${name}@${version}`);
   }
