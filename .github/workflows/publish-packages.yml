@@ -49,7 +49,7 @@ jobs:
           no-cache: true
 
       - name: Install Node
-        uses: actions/setup-node@499ecec0ebc8707a26501b6f46bf0a0353e37d6e31b3463d9297291e4 # v6
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
