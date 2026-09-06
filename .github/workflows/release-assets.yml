@@ -211,104 +211,10 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --notes-file -
 
-  publish-updater-channel:
-    name: Publish desktop updater channel
-    needs: [validate-release, desktop, publish-release-notes]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout release
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-          persist-credentials: false
-
-      - name: Prepare public signed updater channel
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
-        run: |
-          set -euo pipefail
-          staging="$RUNNER_TEMP/adea-update-channel"
-          channel="https://updates.adea.dev/desktop-updates/"
-          mkdir -p "$staging/site/desktop-updates"
-          gh release download "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --pattern latest.json \
-            --dir "$staging"
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
-            --jq '.assets' > "$staging/assets.json"
-          node scripts/prepare-desktop-update-channel.mjs \
-            "$staging/latest.json" \
-            "$staging/assets.json" \
-            "$channel" \
-            "$staging/site/desktop-updates/latest.json" \
-            "$staging/update-assets.json"
-          jq -e --arg version "$RELEASE_VERSION" '.version == $version' \
-            "$staging/site/desktop-updates/latest.json" >/dev/null
-          while IFS= read -r asset; do
-            gh release download "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --pattern "$asset" \
-              --dir "$staging/site/desktop-updates"
-          done < <(jq -r '.[]' "$staging/update-assets.json")
-          test -n "$(find "$staging/site/desktop-updates" -maxdepth 1 -type f ! -name latest.json -print -quit)"
-
-      - name: Upload updater channel to R2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_EC2_METADATA_DISABLED: "true"
-        run: |
-          set -euo pipefail
-          site="$RUNNER_TEMP/adea-update-channel/site/desktop-updates"
-          endpoint="https://aa2dc82d7e02aff12b77800a8201df3f.r2.cloudflarestorage.com"
-          # AWS CLI (not wrangler: wrangler caps single uploads at 300 MiB
-          # and bundles exceed that) multipart-uploads each channel file.
-          for asset in "$site"/*; do
-            name="$(basename "$asset")"
-            aws --region auto --endpoint-url "$endpoint" s3 cp "$asset" "s3://adea/desktop-updates/${name}"
-          done
-
-      - name: Verify published updater channel
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_EC2_METADATA_DISABLED: "true"
-          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
-        run: |
-          set -euo pipefail
-          endpoint="https://aa2dc82d7e02aff12b77800a8201df3f.r2.cloudflarestorage.com"
-          manifest="$RUNNER_TEMP/latest.json"
-          # Verify the channel at the R2 source of truth. The public
-          # updates.adea.dev edge sits behind Cloudflare, which blocks
-          # datacenter IPs (GitHub runners) with 403, so a public curl from
-          # this job is not a reliable check.
-          aws --region auto --endpoint-url "$endpoint" s3 cp \
-            "s3://adea/desktop-updates/latest.json" "$manifest"
-          jq -e --arg version "$RELEASE_VERSION" \
-            '. as $manifest |
-              .version == $version and
-              (["darwin-aarch64", "linux-x86_64", "windows-x86_64"] | all(
-                . as $platform |
-                ($manifest.platforms[$platform].signature | type == "string" and length > 0) and
-                ($manifest.platforms[$platform].url | startswith("https://updates.adea.dev/desktop-updates/"))
-              ))' \
-            "$manifest" >/dev/null
-          # The public edge is what user devices poll; probe it without
-          # failing the release on Cloudflare WAF artifacts.
-          if ! curl --fail --silent --max-time 15 \
-            "https://updates.adea.dev/desktop-updates/latest.json" --output /dev/null; then
-            echo "::warning::updates.adea.dev did not serve latest.json from this runner (Cloudflare blocks datacenter IPs). Spot-check the public channel from a trusted network."
-          fi
-
   verify-assets:
     name: Verify desktop assets
-    needs: [validate-release, desktop, publish-release-notes, publish-updater-channel]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
+    needs: [validate-release, desktop, publish-release-notes]
+    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -326,3 +232,29 @@ jobs:
             exit 1
           fi
           echo "Verified $count Adea desktop release asset(s)."
+
+      - name: Verify updater channel
+        # The Tauri updater polls the release's latest.json directly
+        # (releases/latest/download/latest.json); tauri-action aggregates the
+        # matrix entries into it. Reject the release unless every target is
+        # present, signed, and pointing at this repository's assets.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          manifest="$RUNNER_TEMP/latest.json"
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern latest.json \
+            --output "$manifest"
+          jq -e --arg version "$RELEASE_VERSION" \
+            '. as $manifest |
+              .version == $version and
+              (["darwin-aarch64", "linux-x86_64", "windows-x86_64"] | all(
+                . as $platform |
+                ($manifest.platforms[$platform].signature | type == "string" and length > 0) and
+                ($manifest.platforms[$platform].url | test("^https://(api\\.)?github\\.com/repos/adea-ai/adea/releases/"))
+              ))' \
+            "$manifest" >/dev/null
+          echo "Updater channel verified for $RELEASE_VERSION."
