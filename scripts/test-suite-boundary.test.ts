@@ -72,9 +72,10 @@ describe("test suite boundaries", () => {
     expect(workflow).toContain("continue-on-error: true");
     expect(workflow).toContain("steps.desktop_bundle.outcome == 'failure'");
     expect(workflow).toContain("Retry desktop bundle upload");
-    expect(workflow).toContain("Upload updater channel to R2");
-    expect(workflow).toContain("updates.adea.dev/desktop-updates/");
-    expect(workflow).toContain("r2.cloudflarestorage.com");
+    expect(workflow).toContain("Verify updater channel");
+    expect(workflow).toContain("releases/latest/download/latest.json");
+    expect(workflow).not.toContain("r2.cloudflarestorage.com");
+    expect(workflow).not.toContain("updates.adea.dev");
     expect(workflow).not.toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("deploy-pages");
     expect(workflow).not.toContain("name: github-pages");

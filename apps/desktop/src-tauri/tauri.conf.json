@@ -37,7 +37,7 @@
     },
     "updater": {
       "dialog": false,
-      "endpoints": ["https://updates.adea.dev/desktop-updates/latest.json"],
+      "endpoints": ["https://github.com/adea-ai/adea/releases/latest/download/latest.json"],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY1MjgzRDRBMEYwMzVCRDYKUldUV1d3TVBTajBvWlY1NHA5MXlxdFFnNStMbWZlNTFqZWI2Wi85SlJqZ0JQUHNmVWRScmVQTnIK"
     }
   }
