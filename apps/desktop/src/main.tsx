@@ -478,7 +478,11 @@ function DesktopApp() {
                 Try again
               </button>
               {!session && (
-                <button type="button" className="button-secondary" onClick={() => void beginSignIn()}>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  onClick={() => void beginSignIn()}
+                >
                   Sign in
                 </button>
               )}

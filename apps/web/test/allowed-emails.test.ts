@@ -18,17 +18,17 @@ describe("email allowlist", () => {
   });
 
   test("is unconfigured when the variable is unset or blank", () => {
-    delete process.env[VARIABLE];
+    setAllowlist(undefined);
     expect(emailAllowlistConfigured()).toBe(false);
     expect(isAllowedEmail("anyone@example.com")).toBe(true);
     expect(isAllowedEmail(undefined)).toBe(true);
 
-    process.env[VARIABLE] = "   ";
+    setAllowlist("   ");
     expect(emailAllowlistConfigured()).toBe(false);
   });
 
   test("matches listed emails case-insensitively and trims entries", () => {
-    process.env[VARIABLE] = " Andrew.Mahoney.F@Gmail.com , any@niftyleague.com,ali@niftyleague.com";
+    setAllowlist(" Andrew.Mahoney.F@Gmail.com , any@niftyleague.com,ali@niftyleague.com");
     expect(emailAllowlistConfigured()).toBe(true);
     expect(isAllowedEmail("andrew.mahoney.f@gmail.com")).toBe(true);
     expect(isAllowedEmail("ANY@NIFTYLEAGUE.COM")).toBe(true);
@@ -37,7 +37,7 @@ describe("email allowlist", () => {
   });
 
   test("rejects sessions without an email while the allowlist is active", () => {
-    process.env[VARIABLE] = "andrew.mahoney.f@gmail.com";
+    setAllowlist("andrew.mahoney.f@gmail.com");
     expect(isAllowedEmail(undefined)).toBe(false);
     expect(isAllowedEmail("")).toBe(false);
   });
