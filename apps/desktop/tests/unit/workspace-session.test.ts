@@ -50,7 +50,7 @@ describe("desktop workspace session", () => {
         expect(session).toBeUndefined();
         expect(temporaryCredential).toBeUndefined();
         return {
-          bootstrapWorkspace: async () => bootstrap(true, `ahq_tmp_${"a".repeat(43)}`),
+          bootstrapWorkspace: async () => bootstrap(true, `adea_tmp_${"a".repeat(43)}`),
           claimTemporaryWorkspace: async () => ({ claimed: true as const }),
         };
       },
@@ -63,11 +63,11 @@ describe("desktop workspace session", () => {
 
     expect(result.temporary).toBe(true);
     expect(result.workspace).toEqual(workspace);
-    expect(saved).toEqual([`ahq_tmp_${"a".repeat(43)}`]);
+    expect(saved).toEqual([`adea_tmp_${"a".repeat(43)}`]);
   });
 
   test("keeps the guest workspace usable when device credential persistence is unavailable", async () => {
-    const credential = `ahq_tmp_${"d".repeat(43)}`;
+    const credential = `adea_tmp_${"d".repeat(43)}`;
     const result = await bootstrapDesktopWorkspace({
       createClient: ({ session, temporaryCredential }) => {
         expect(session).toBeUndefined();
@@ -92,7 +92,7 @@ describe("desktop workspace session", () => {
   });
 
   test("reopens an existing guest workspace with its stored credential", async () => {
-    const stored = `ahq_tmp_${"b".repeat(43)}`;
+    const stored = `adea_tmp_${"b".repeat(43)}`;
     const result = await bootstrapDesktopWorkspace({
       createClient: ({ session, temporaryCredential }) => {
         expect(session).toBeUndefined();
@@ -114,7 +114,7 @@ describe("desktop workspace session", () => {
   });
 
   test("claims the guest workspace after optional desktop sign-in", async () => {
-    const stored = `ahq_tmp_${"c".repeat(43)}`;
+    const stored = `adea_tmp_${"c".repeat(43)}`;
     const calls: string[] = [];
     const result = await bootstrapDesktopWorkspace({
       createClient: ({ session, temporaryCredential }) => ({
@@ -151,7 +151,7 @@ describe("desktop workspace session", () => {
   });
 
   test("reports a successful claim before a later account bootstrap failure", async () => {
-    const stored = `ahq_tmp_${"e".repeat(43)}`;
+    const stored = `adea_tmp_${"e".repeat(43)}`;
     let claimed = false;
 
     await expect(

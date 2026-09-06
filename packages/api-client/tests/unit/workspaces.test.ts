@@ -41,15 +41,15 @@ describe("workspace API client", () => {
         return Response.json({
           activeWorkspace: workspace,
           principal: { temporary: true },
-          temporaryCredential: "ahq_tmp_secret",
+          temporaryCredential: "adea_tmp_secret",
           workspaces: [workspace],
         });
       },
     });
 
-    expect((await client.bootstrapWorkspace()).temporaryCredential).toBe("ahq_tmp_secret");
+    expect((await client.bootstrapWorkspace()).temporaryCredential).toBe("adea_tmp_secret");
     expect(credentials).toBe("omit");
-    expect(request?.headers.get("x-agent-hq-client")).toBe("desktop");
+    expect(request?.headers.get("x-adea-client")).toBe("desktop");
   });
 
   test("sends a temporary desktop credential and idempotency key on creation", async () => {
@@ -116,7 +116,7 @@ describe("workspace API client", () => {
       }),
     });
 
-    await expect(client.claimTemporaryWorkspace("ahq_tmp_guest-secret")).resolves.toEqual({
+    await expect(client.claimTemporaryWorkspace("adea_tmp_guest-secret")).resolves.toEqual({
       claimed: true,
     });
     expect(request?.method).toBe("POST");
@@ -124,7 +124,7 @@ describe("workspace API client", () => {
     expect(request?.headers.get("x-adea-desktop-session")).toBe(
       "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1"
     );
-    expect(request?.headers.get("x-agent-hq-temporary-session")).toBe("ahq_tmp_guest-secret");
+    expect(request?.headers.get("x-adea-temporary-session")).toBe("adea_tmp_guest-secret");
   });
 
   test("reopens a workspace through the typed contract", async () => {

@@ -28,7 +28,7 @@ export function desktopTrustedOrigins(environment: NodeJS.ProcessEnv = process.e
 }
 
 function markedDesktopRequest(request: Request) {
-  return request.headers.get("x-agent-hq-client") === DESKTOP_CLIENT;
+  return request.headers.get("x-adea-client") === DESKTOP_CLIENT;
 }
 
 export function trustedDesktopWorkspaceRequest(
@@ -65,7 +65,7 @@ export function desktopWorkspacePreflight(request: Request, trustedOrigins: read
     status: 204,
     headers: {
       "access-control-allow-headers":
-        "Authorization, Content-Type, Idempotency-Key, X-Agent-HQ-Client, X-Agent-HQ-Desktop-Session, X-Agent-HQ-Temporary-Session",
+        "Authorization, Content-Type, Idempotency-Key, X-Adea-Client, X-Adea-Desktop-Session, X-Adea-Temporary-Session",
       "access-control-allow-methods": "GET, POST, OPTIONS",
       "access-control-allow-origin": origin,
       "access-control-max-age": "600",

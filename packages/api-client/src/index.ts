@@ -328,7 +328,7 @@ export class AgentHqApiClient {
 
   async claimTemporaryWorkspace(temporaryCredential: string): Promise<ApiWorkspaceClaimResponse> {
     return this.request<ApiWorkspaceClaimResponse>("/workspaces/claim", {
-      headers: { "X-Agent-HQ-Temporary-Session": temporaryCredential },
+      headers: { "X-Adea-Temporary-Session": temporaryCredential },
       method: "POST",
     });
   }
@@ -901,13 +901,13 @@ export class AgentHqApiClient {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
-    if (this.client === "desktop") headers.set("X-Agent-HQ-Client", "desktop");
+    if (this.client === "desktop") headers.set("X-Adea-Client", "desktop");
     const desktopSession = this.getDesktopSession?.();
     const token = this.getAccessToken?.();
     const temporaryCredential = this.getTemporaryCredential?.();
     if (desktopSession) {
       headers.set("Authorization", `Desktop ${desktopSession.credential}`);
-      headers.set("X-Agent-HQ-Desktop-Session", desktopSession.sessionId);
+      headers.set("X-Adea-Desktop-Session", desktopSession.sessionId);
     } else if (token) headers.set("Authorization", `Bearer ${token}`);
     else if (temporaryCredential) headers.set("Authorization", `Temporary ${temporaryCredential}`);
 

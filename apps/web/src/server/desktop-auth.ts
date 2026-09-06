@@ -79,7 +79,7 @@ export function desktopCorsPreflight(request: Request) {
   return new Response(null, {
     status: 204,
     headers: {
-      "access-control-allow-headers": "Authorization, Content-Type, X-Agent-HQ-Desktop-Session",
+      "access-control-allow-headers": "Authorization, Content-Type, X-Adea-Desktop-Session",
       "access-control-allow-methods": "POST, OPTIONS",
       "access-control-allow-origin": origin,
       "access-control-max-age": "600",
