@@ -1,13 +1,13 @@
 import "server-only";
 
-import type { AuthResult } from "@adea/auth";
-import { createNeonServerAdapter } from "@adea/auth/server";
+import type { AuthResult } from "@adea-ai/auth";
+import { createNeonServerAdapter } from "@adea-ai/auth/server";
 import {
   claimTemporaryUserSession,
   createTemporaryUserSession,
   resolveTemporaryUserSession,
-} from "@adea/db";
-import type { UserPrincipalRef } from "@adea/types";
+} from "@adea-ai/db";
+import type { UserPrincipalRef } from "@adea-ai/types";
 
 import { applicationDatabase } from "./database";
 import { desktopPrincipalMapping, resolveDesktopSessionPrincipal } from "./desktop-auth";

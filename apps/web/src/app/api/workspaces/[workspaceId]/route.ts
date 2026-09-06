@@ -1,5 +1,5 @@
-import type { ApiWorkspaceResponse } from "@adea/api-client";
-import { getWorkspaceForUser, listAgentsForUser, listTasksForUser } from "@adea/db";
+import type { ApiWorkspaceResponse } from "@adea-ai/api-client";
+import { getWorkspaceForUser, listAgentsForUser, listTasksForUser } from "@adea-ai/db";
 
 import { applicationDatabase } from "../../../../server/database";
 import {

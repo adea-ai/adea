@@ -1,7 +1,7 @@
-@import "@adea/ui/theme.css";
-@import "@adea/ui/auth-shell.css";
-@import "@adea/ui/workspace-shell.css";
-@import "@adea/ui/conventional-workspace.css";
+@import "@adea-ai/ui/theme.css";
+@import "@adea-ai/ui/auth-shell.css";
+@import "@adea-ai/ui/workspace-shell.css";
+@import "@adea-ai/ui/conventional-workspace.css";
 
 .browser-auth-mode {
   display: grid;

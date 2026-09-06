@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createApiClient, type AgentHqApiClient } from "@adea/api-client";
-import type { HqSceneId } from "@adea/app-core";
-import { useWorkspaceStore } from "@adea/state";
-import { hqHomeManifest, hqWorkManifest } from "@adea/spatial-protocol";
-import type { SceneStartPosition } from "@adea/asset-manifests";
+import { createApiClient, type AgentHqApiClient } from "@adea-ai/api-client";
+import type { HqSceneId } from "@adea-ai/app-core";
+import { useWorkspaceStore } from "@adea-ai/state";
+import { hqHomeManifest, hqWorkManifest } from "@adea-ai/spatial-protocol";
+import type { SceneStartPosition } from "@adea-ai/asset-manifests";
 import {
   VirtualRoomControls,
   VirtualUnavailable,
   type WorkspacePlatformServices,
   type WorkspaceView,
-} from "@adea/workspace-ui";
+} from "@adea-ai/workspace-ui";
 
 const sceneOptions = [
   {

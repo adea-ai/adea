@@ -1,4 +1,4 @@
-import type { WorkspaceState } from "@adea/state";
+import type { WorkspaceState } from "@adea-ai/state";
 
 export type WorkspaceStatePersister = {
   /** Coalesces bursts of store changes into one trailing write. */

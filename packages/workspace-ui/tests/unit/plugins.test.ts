@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AgentHqApiClient } from "@adea/api-client";
+import type { AgentHqApiClient } from "@adea-ai/api-client";
 
 import {
   canonicalDigest,

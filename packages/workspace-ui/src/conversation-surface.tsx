@@ -5,12 +5,12 @@ import type {
   ChannelSummary,
   MessageSummary,
   TaskSummary,
-} from "@adea/types";
-import type { AgentHqApiClient } from "@adea/api-client";
-import { useCreateMessageMutation, useMessageListQuery } from "@adea/data";
+} from "@adea-ai/types";
+import type { AgentHqApiClient } from "@adea-ai/api-client";
+import { useCreateMessageMutation, useMessageListQuery } from "@adea-ai/data";
 import { Info, MailOpen, MessagesSquare, Search } from "lucide-react";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "@adea/ui/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@adea-ai/ui/components/ui/tooltip";
 import { MessageComposer, type ComposerSubmission } from "./message-composer";
 import { MessageRow } from "./message-row";
 import { ThreadPanel } from "./thread-panel";

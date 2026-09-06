@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from "@adea/types";
+import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from "@adea-ai/types";
 import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from "lucide-react";
 
-import { Tooltip, TooltipContent, TooltipTrigger } from "@adea/ui/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@adea-ai/ui/components/ui/tooltip";
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from "./platform";
 import { mergeTranscription } from "./transcription";
 import { createClientRequestId } from "./request-id";

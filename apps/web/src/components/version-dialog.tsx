@@ -3,7 +3,7 @@
 import {
   VersionDialog as SharedVersionDialog,
   type VersionDialogAdapter,
-} from "@adea/ui/components/version-dialog";
+} from "@adea-ai/ui/components/version-dialog";
 
 import {
   checkDesktopUpdate,

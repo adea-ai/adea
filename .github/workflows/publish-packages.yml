@@ -1,13 +1,13 @@
 name: Publish shared packages
 
-# Publishes the moat-free shared packages (@adea/ui, @adea/asset-manifests,
-# @adea/audio) to the public npm registry on every main push that touches
+# Publishes the moat-free shared packages (@adea-ai/ui, @adea-ai/asset-manifests,
+# @adea-ai/audio) to the public npm registry on every main push that touches
 # them (plus manual dispatch). The private agent-sim repo consumes these by
 # version, so no registry auth is needed anywhere — not locally, not in CI.
 #
 # Prerequisites (one-time, dashboard):
 #   1. Create the `adea` org on npmjs.com.
-#   2. Set NPM_TOKEN to an automation token with publish rights on @adea/*.
+#   2. Set NPM_TOKEN to an automation token with publish rights on @adea-ai/*.
 # Provenance attestation needs id-token: write (granted below).
 
 on:

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AuthResult } from "@adea/auth";
+import type { AuthResult } from "@adea-ai/auth";
 
 import { resolveOrProvisionDesktopPrincipal } from "../src/server/desktop-principal";
 

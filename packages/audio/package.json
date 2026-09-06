@@ -1,5 +1,5 @@
 {
-  "name": "@adea/audio",
+  "name": "@adea-ai/audio",
   "version": "0.10.8",
   "private": true,
   "type": "module",

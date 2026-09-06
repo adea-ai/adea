@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useWorkspaceStore, type WorkspaceState } from "@adea/state";
+import { useWorkspaceStore, type WorkspaceState } from "@adea-ai/state";
 
 import { createWorkspaceStatePersister } from "./workspace-state-persister";
 

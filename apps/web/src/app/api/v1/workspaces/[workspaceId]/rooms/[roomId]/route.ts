@@ -1,5 +1,5 @@
-import type { ApiRoomResponse, ApiRoomUpdateInput } from "@adea/api-client";
-import { archiveRoom, getRoomForUser, updateRoom } from "@adea/db";
+import type { ApiRoomResponse, ApiRoomUpdateInput } from "@adea-ai/api-client";
+import { archiveRoom, getRoomForUser, updateRoom } from "@adea-ai/db";
 
 import { applicationDatabase } from "../../../../../../../server/database";
 import {

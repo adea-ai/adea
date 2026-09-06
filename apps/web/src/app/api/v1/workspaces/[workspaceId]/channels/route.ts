@@ -1,10 +1,10 @@
-import type { ApiChannelResponse } from "@adea/api-client";
+import type { ApiChannelResponse } from "@adea-ai/api-client";
 import {
   createDirectAgentChannel,
   createGroupChannel,
   createRoomChannel,
   listChannelsForUser,
-} from "@adea/db";
+} from "@adea-ai/db";
 
 import {
   conversationErrorResponse,

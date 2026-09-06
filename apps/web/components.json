@@ -11,9 +11,9 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@adea/ui/components",
-    "utils": "@adea/ui/lib/utils",
-    "lib": "@adea/ui/lib",
-    "ui": "@adea/ui/components"
+    "components": "@adea-ai/ui/components",
+    "utils": "@adea-ai/ui/lib/utils",
+    "lib": "@adea-ai/ui/lib",
+    "ui": "@adea-ai/ui/components"
   }
 }

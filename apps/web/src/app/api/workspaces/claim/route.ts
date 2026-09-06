@@ -1,5 +1,5 @@
-import type { ApiWorkspaceClaimResponse } from "@adea/api-client";
-import { claimTemporaryUserSessionForUser } from "@adea/db";
+import type { ApiWorkspaceClaimResponse } from "@adea-ai/api-client";
+import { claimTemporaryUserSessionForUser } from "@adea-ai/db";
 
 import { applicationDatabase } from "../../../../server/database";
 import {

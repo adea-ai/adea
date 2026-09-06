@@ -1,4 +1,4 @@
-import type { WorkspaceSceneId } from "@adea/types";
+import type { WorkspaceSceneId } from "@adea-ai/types";
 
 export type HqSceneId = WorkspaceSceneId;
 

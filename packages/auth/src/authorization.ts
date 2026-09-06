@@ -1,4 +1,4 @@
-import { isUserPrincipalRef, type PrincipalRef, type WorkspacePermission } from "@adea/types";
+import { isUserPrincipalRef, type PrincipalRef, type WorkspacePermission } from "@adea-ai/types";
 
 export type WorkspaceRole = "admin" | "member" | "owner";
 

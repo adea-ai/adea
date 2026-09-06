@@ -1,7 +1,7 @@
-import { createApiClient } from "@adea/api-client";
-import { SoundProvider } from "@adea/audio";
-import { useAgentListQuery } from "@adea/data";
-import { AgentHqQueryProvider } from "@adea/data/provider";
+import { createApiClient } from "@adea-ai/api-client";
+import { SoundProvider } from "@adea-ai/audio";
+import { useAgentListQuery } from "@adea-ai/data";
+import { AgentHqQueryProvider } from "@adea-ai/data/provider";
 import {
   createDesktopAuthorizationManager,
   createDesktopAuthorizationUrl,
@@ -10,21 +10,21 @@ import {
   type DesktopAuthorizationAttempt,
   type DesktopSession,
   type DesktopSessionVault,
-} from "@adea/auth/desktop";
+} from "@adea-ai/auth/desktop";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen } from "@tauri-apps/api/event";
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { useWorkspaceStore } from "@adea/state";
-import { ThemeProvider } from "@adea/ui/components/theme-provider";
-import { ConventionalWorkspaceShell } from "@adea/workspace-ui/conventional-workspace-shell";
-import { GlobalWorkspaceRail } from "@adea/workspace-ui/global-workspace-rail";
+import { useWorkspaceStore } from "@adea-ai/state";
+import { ThemeProvider } from "@adea-ai/ui/components/theme-provider";
+import { ConventionalWorkspaceShell } from "@adea-ai/workspace-ui/conventional-workspace-shell";
+import { GlobalWorkspaceRail } from "@adea-ai/workspace-ui/global-workspace-rail";
 import type {
   WorkspacePlatformServices,
   WorkspacePluginsProvider,
-} from "@adea/workspace-ui/platform";
-import type { WorkspaceView } from "@adea/workspace-ui/workspace-view-toggle";
+} from "@adea-ai/workspace-ui/platform";
+import type { WorkspaceView } from "@adea-ai/workspace-ui/workspace-view-toggle";
 
 import { localContentAuthority } from "./local-content";
 import packageJson from "../package.json";
@@ -50,17 +50,17 @@ const SpatialDesktopWorkspace = lazy(() =>
 // Dialogs are infrequent overlays, so their code stays out of the startup
 // chunk and loads the first time each one mounts.
 const PluginsDialog = lazy(() =>
-  import("@adea/workspace-ui/plugins-dialog").then(({ PluginsDialog }) => ({
+  import("@adea-ai/workspace-ui/plugins-dialog").then(({ PluginsDialog }) => ({
     default: PluginsDialog,
   }))
 );
 const WorkspaceAboutDialog = lazy(() =>
-  import("@adea/workspace-ui/workspace-about-dialog").then(({ WorkspaceAboutDialog }) => ({
+  import("@adea-ai/workspace-ui/workspace-about-dialog").then(({ WorkspaceAboutDialog }) => ({
     default: WorkspaceAboutDialog,
   }))
 );
 const WorkspaceSettingsDialog = lazy(() =>
-  import("@adea/workspace-ui/workspace-settings").then(({ WorkspaceSettingsDialog }) => ({
+  import("@adea-ai/workspace-ui/workspace-settings").then(({ WorkspaceSettingsDialog }) => ({
     default: WorkspaceSettingsDialog,
   }))
 );
@@ -163,7 +163,7 @@ function DesktopApp() {
     let provider: Promise<WorkspacePluginsProvider> | undefined;
     let loaded: WorkspacePluginsProvider | undefined;
     const load = () => {
-      provider ??= import("@adea/workspace-ui/plugins")
+      provider ??= import("@adea-ai/workspace-ui/plugins")
         .then(({ createRegistryPluginsProvider }) =>
           createRegistryPluginsProvider({
             client: () =>

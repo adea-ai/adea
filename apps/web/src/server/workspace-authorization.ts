@@ -1,8 +1,8 @@
 import "server-only";
 
-import { authorizeWorkspaceAction } from "@adea/auth/authorization";
-import { findWorkspaceMembership, recordWorkspaceAuthorizationDecision } from "@adea/db";
-import type { UserPrincipalRef, WorkspacePermission } from "@adea/types";
+import { authorizeWorkspaceAction } from "@adea-ai/auth/authorization";
+import { findWorkspaceMembership, recordWorkspaceAuthorizationDecision } from "@adea-ai/db";
+import type { UserPrincipalRef, WorkspacePermission } from "@adea-ai/types";
 
 import { applicationDatabase } from "./database";
 
