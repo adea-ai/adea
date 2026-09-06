@@ -40,6 +40,9 @@ for (const relative of PUBLISH_PACKAGES) {
   const source = resolve(repoRoot, relative);
   const manifest = JSON.parse(await readFile(join(source, "package.json"), "utf8"));
   const { name, version } = manifest;
+  if (manifest.private) {
+    throw new Error(`[publish] refusing to publish ${name}: remove "private": true first`);
+  }
   if (await publishedVersion(name).then((v) => v === version)) {
     console.log(`[publish] ${name}@${version} already published; skipping.`);
     continue;
