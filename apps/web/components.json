@@ -11,9 +11,9 @@
   },
   "iconLibrary": "lucide",
   "aliases": {
-    "components": "@agent-hq/ui/components",
-    "utils": "@agent-hq/ui/lib/utils",
-    "lib": "@agent-hq/ui/lib",
-    "ui": "@agent-hq/ui/components"
+    "components": "@adea/ui/components",
+    "utils": "@adea/ui/lib/utils",
+    "lib": "@adea/ui/lib",
+    "ui": "@adea/ui/components"
   }
 }

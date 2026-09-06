@@ -26,7 +26,7 @@ describe("database package boundary", () => {
   test("keeps database imports out of mobile and desktop bundles", async () => {
     for (const app of ["mobile", "desktop"]) {
       for (const file of await sourceFiles(join(root, "apps", app))) {
-        expect(await readFile(file, "utf8")).not.toContain("@agent-hq/db");
+        expect(await readFile(file, "utf8")).not.toContain("@adea/db");
       }
     }
   });
@@ -35,7 +35,7 @@ describe("database package boundary", () => {
     for (const file of await sourceFiles(join(root, "apps/web/src"))) {
       const source = await readFile(file, "utf8");
       if (/^[\s\n]*["']use client["'];/m.test(source)) {
-        expect(source).not.toContain("@agent-hq/db");
+        expect(source).not.toContain("@adea/db");
       }
     }
   });

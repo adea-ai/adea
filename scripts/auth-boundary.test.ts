@@ -26,7 +26,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
 }
 
 describe("authentication provider boundary", () => {
-  test("keeps Neon Auth imports inside @agent-hq/auth", async () => {
+  test("keeps Neon Auth imports inside @adea/auth", async () => {
     for (const directory of ["apps", "packages"]) {
       for (const file of await sourceFiles(join(root, directory))) {
         if (file.includes("/packages/auth/")) continue;
@@ -35,7 +35,7 @@ describe("authentication provider boundary", () => {
     }
   });
 
-  test("keeps auth provider schema out of @agent-hq/db", async () => {
+  test("keeps auth provider schema out of @adea/db", async () => {
     for (const file of await sourceFiles(join(root, "packages/db"))) {
       const source = await readFile(file, "utf8");
       expect(source).not.toContain("neon_auth");

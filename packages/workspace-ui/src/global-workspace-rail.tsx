@@ -1,14 +1,14 @@
 "use client";
 
-import type { WorkspaceSummary } from "@agent-hq/types";
-import { Button } from "@agent-hq/ui/components/ui/button";
-import { Separator } from "@agent-hq/ui/components/ui/separator";
+import type { WorkspaceSummary } from "@adea/types";
+import { Button } from "@adea/ui/components/ui/button";
+import { Separator } from "@adea/ui/components/ui/separator";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@agent-hq/ui/components/ui/tooltip";
+} from "@adea/ui/components/ui/tooltip";
 import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 

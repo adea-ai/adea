@@ -2,7 +2,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AlertTriangle, X } from "lucide-react";
-import { useWorkspaceStore } from "@agent-hq/state";
+import { useWorkspaceStore } from "@adea/state";
 
 import { AgentRoster } from "./agent-roster";
 import { ArtifactDetail } from "./artifact-detail";

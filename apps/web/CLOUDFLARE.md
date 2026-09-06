@@ -63,24 +63,20 @@ supported). Cloudflare Workers is the deployment target.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev stays `bun run dev` (plain Node).
 
-## Private asset pack
+## Scene manifests (no private pack here)
 
-Binary art (models, textures, audio) lives in the private `adea-ai/assets`
-repository, never in this one. `scripts/sync-assets.mjs` reads it from
-`AGENT_HQ_ASSETS_DIR` or `vendor/assets` (populated by
-`scripts/fetch-assets.mjs`); without the pack it syncs manifests only and
-warns, so plain checkouts still build and test, minus real pixels.
+This repository ships manifests only. The spatial engine (models, textures,
+audio) lives in the private `agent-sim` repo and is delivered through the
+entitlement-gated engine remote; `adea` lanes never fetch the private
+`adea-ai/assets` pack and need no asset credentials. `scripts/sync-assets.mjs`
+stages the tracked protocol manifests (`packages/spatial-protocol/data`) into
+the ignored Next public-assets directory, so plain checkouts build and test
+with zero setup.
 
-- **Local dev:** clone `adea-ai/assets` next to this repo and export
-  `AGENT_HQ_ASSETS_DIR`, or run `bun scripts/fetch-assets.mjs` (uses your
-  own `gh` auth or `ASSETS_READ_TOKEN`).
-- **Cloudflare Builds:** set an `ASSETS_READ_TOKEN` build variable
-  (fine-grained PAT, contents:read on `adea-ai/assets` only).
-  `scripts/build-cloudflare-worker.mjs` fetches the pack and then refuses to
-  ship a Worker without real models, so production can never silently deploy
-  manifests-only.
-- **GitHub release lanes:** same `ASSETS_READ_TOKEN` repository secret;
-  `release-assets.yml` fetches when the secret exists.
+- **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically.
+- **Cloudflare Builds:** no asset variables needed.
+- **GitHub release lanes:** unchanged (`release-assets.yml` still serves the
+  desktop shell; full engine payloads ship from `agent-sim` lanes).
 
 ## Release attribution (telemetry)
 

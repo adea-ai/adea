@@ -6,7 +6,7 @@ import type {
   MessageSenderRef,
   MessageSummary,
   UserPrincipalRef,
-} from "@agent-hq/types";
+} from "@adea/types";
 import { and, asc, eq, gt, inArray, isNull, max } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

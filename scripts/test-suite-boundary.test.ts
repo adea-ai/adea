@@ -186,7 +186,7 @@ describe("test suite boundaries", () => {
       jsonpath: "$.package[?(@.name.value=='agent-hq-desktop')].version",
     });
 
-    for (const workspaceGroup of ["apps", "packages", "scenes"]) {
+    for (const workspaceGroup of ["apps", "packages"]) {
       for (const workspace of readdirSync(resolve(root, workspaceGroup))) {
         const packagePath = `${workspaceGroup}/${workspace}/package.json`;
         if (!existsSync(resolve(root, packagePath))) continue;

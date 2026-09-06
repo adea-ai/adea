@@ -1,4 +1,4 @@
-import { isUserPrincipalRef, type PrincipalRef, type UserPrincipalRef } from "@agent-hq/types";
+import { isUserPrincipalRef, type PrincipalRef, type UserPrincipalRef } from "@adea/types";
 
 import type { AuthResult } from "./session";
 

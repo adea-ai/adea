@@ -1,5 +1,5 @@
-import type { ApiMessagePage, ApiMessageResponse } from "@agent-hq/api-client";
-import { createMessage, listMessagesForUser } from "@agent-hq/db";
+import type { ApiMessagePage, ApiMessageResponse } from "@adea/api-client";
+import { createMessage, listMessagesForUser } from "@adea/db";
 
 import {
   conversationErrorResponse,

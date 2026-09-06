@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/asset-manifests",
+  "name": "@adea/asset-manifests",
   "version": "0.10.8",
   "private": true,
   "type": "module",

@@ -47,7 +47,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "agent-hq"
+      "package-name": "adea"
     }
   },
   "extra-files": [
@@ -78,11 +78,6 @@
     },
     {
       "type": "json",
-      "path": "packages/architecture/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
       "path": "packages/asset-manifests/package.json",
       "jsonpath": "$.version"
     },
@@ -98,11 +93,6 @@
     },
     {
       "type": "json",
-      "path": "packages/characters/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
       "path": "packages/config/package.json",
       "jsonpath": "$.version"
     },
@@ -114,46 +104,6 @@
     {
       "type": "json",
       "path": "packages/db/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/interior/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/landscape/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/pets/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/rooms/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/scene-fields/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/scene-runtime/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/scene-shell/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "packages/scene-telemetry/package.json",
       "jsonpath": "$.version"
     },
     {
@@ -177,21 +127,6 @@
       "jsonpath": "$.version"
     },
     {
-      "type": "json",
-      "path": "scenes/character-designer/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "scenes/hq/package.json",
-      "jsonpath": "$.version"
-    },
-    {
-      "type": "json",
-      "path": "scenes/room-designer/package.json",
-      "jsonpath": "$.version"
-    },
-    {
       "type": "toml",
       "path": "apps/desktop/src-tauri/Cargo.toml",
       "jsonpath": "$.package.version"
@@ -200,6 +135,11 @@
       "type": "toml",
       "path": "apps/desktop/src-tauri/Cargo.lock",
       "jsonpath": "$.package[?(@.name.value=='agent-hq-desktop')].version"
+    },
+    {
+      "type": "json",
+      "path": "packages/spatial-protocol/package.json",
+      "jsonpath": "$.version"
     }
   ]
 }

@@ -9,7 +9,7 @@ orthographic room designer.
 
 - Turborepo, Next.js, React, and TypeScript
 - Bun for installation, scripts, and tests
-- Vanilla Three.js behind `@agent-hq/scene-runtime`
+- Vanilla Three.js behind `/scene-runtime`
 - TanStack Query for server state and Zustand for client-only coordination
 - shadcn/ui primitives backed by Base UI
 
@@ -50,9 +50,10 @@ Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 `NEXT_PUBLIC_AGENT_HQ_WORLD_URL` when the sibling World app uses a different
 Portless name.
 
-The asset sync step copies the HQ scene foundations and the domain asset
-packages—interior, landscape, pets, characters, and reserved room scenes—into
-the ignored Next public-assets directory.
+The asset sync step stages the tracked scene manifests from
+`@adea/spatial-protocol` into the ignored Next public-assets directory. The
+spatial engine itself lives in the private Agent Sim repo and is delivered
+through the entitlement-gated engine remote.
 
 ## Plugin marketplace
 

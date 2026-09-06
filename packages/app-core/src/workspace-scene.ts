@@ -1,4 +1,4 @@
-import type { WorkspaceSceneId } from "@agent-hq/types";
+import type { WorkspaceSceneId } from "@adea/types";
 
 export type HqSceneId = WorkspaceSceneId;
 

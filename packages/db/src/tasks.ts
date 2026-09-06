@@ -6,7 +6,7 @@ import type {
   TaskPriority,
   TaskSummary,
   UserPrincipalRef,
-} from "@agent-hq/types";
+} from "@adea/types";
 import { and, asc, eq, inArray, not } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

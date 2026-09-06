@@ -5,7 +5,7 @@ import type {
   ArtifactSummary,
   PrincipalRef,
   UserPrincipalRef,
-} from "@agent-hq/types";
+} from "@adea/types";
 import { and, asc, eq } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

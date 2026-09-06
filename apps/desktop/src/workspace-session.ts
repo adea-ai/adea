@@ -1,5 +1,5 @@
-import type { AgentHqApiClient, ApiWorkspaceBootstrapResponse } from "@agent-hq/api-client";
-import type { DesktopSession } from "@agent-hq/auth/desktop";
+import type { AgentHqApiClient, ApiWorkspaceBootstrapResponse } from "@adea/api-client";
+import type { DesktopSession } from "@adea/auth/desktop";
 
 type WorkspaceClient = Pick<AgentHqApiClient, "bootstrapWorkspace" | "claimTemporaryWorkspace">;
 

@@ -1,5 +1,5 @@
-import type { ApiReadStateResponse } from "@agent-hq/api-client";
-import { markChannelReadState } from "@agent-hq/db";
+import type { ApiReadStateResponse } from "@adea/api-client";
+import { markChannelReadState } from "@adea/db";
 
 import { applicationDatabase } from "../../../../../../../../server/database";
 import {

@@ -2,7 +2,7 @@ import {
   resolveAuthenticatedPrincipal,
   type AuthIdentityMapping,
   type AuthResult,
-} from "@agent-hq/auth";
+} from "@adea/auth";
 
 type DesktopPrincipalProvisioning = AuthIdentityMapping &
   Readonly<{
