@@ -13,7 +13,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: agent-hq-release-assets-${{ github.event.release.tag_name || inputs.tag }}
+  group: adea-release-assets-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 env:
@@ -22,7 +22,7 @@ env:
 jobs:
   validate-release:
     name: Validate release
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -82,14 +82,14 @@ jobs:
       matrix:
         include:
           - runner: macos-14
-            self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
+            self_hosted_runner: '["self-hosted","adea-release-macos-arm64"]'
             platform: macOS ARM64
             args: --target aarch64-apple-darwin
             self_hosted_args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
             timeout_minutes: 45
           - runner: ubuntu-24.04
-            self_hosted_runner: '["self-hosted","agent-hq-release-linux-x64"]'
+            self_hosted_runner: '["self-hosted","adea-release-linux-x64"]'
             platform: Linux x64
             # Tauri 2.11's in-process RPM bundler can hang indefinitely after
             # rendering the desktop file. Keep RPM out of the release matrix
@@ -100,7 +100,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             timeout_minutes: 120
           - runner: windows-latest
-            self_hosted_runner: '["self-hosted","agent-hq-release-macos-arm64"]'
+            self_hosted_runner: '["self-hosted","adea-release-macos-arm64"]'
             platform: Windows x64
             args: ""
             self_hosted_args: --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
@@ -214,7 +214,7 @@ jobs:
     name: Publish release notes
     needs: [validate-release, desktop]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       contents: write
@@ -240,7 +240,7 @@ jobs:
     name: Publish desktop updater channel
     needs: [validate-release, desktop, publish-release-notes]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -331,7 +331,7 @@ jobs:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-release-notes, publish-updater-channel]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","agent-hq-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
     timeout-minutes: 10
     permissions:
       contents: read
