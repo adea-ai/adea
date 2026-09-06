@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@agent-hq/ui/components/ui/button";
-import { WorkspaceLogo } from "@agent-hq/ui/components/workspace-logo";
+import { Button } from "@adea/ui/components/ui/button";
+import { WorkspaceLogo } from "@adea/ui/components/workspace-logo";
 import { ExternalLink } from "lucide-react";
 
 import { ModalDialog } from "./modal-dialog";

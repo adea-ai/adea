@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentSummary } from "@agent-hq/types";
+import type { AgentSummary } from "@adea/types";
 
 import { agentStatusModel } from "../../src/agent-status";
 

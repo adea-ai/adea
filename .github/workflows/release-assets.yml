@@ -131,23 +131,14 @@ jobs:
           bun-version: 1.4.0
           no-cache: true
 
-      - name: Fetch private asset pack
-        # Release artifacts must ship real models: without ASSETS_READ_TOKEN
-        # this step (and the release) fails fast instead of shipping
-        # manifests-only desktop builds. (`secrets` is intentionally not
-        # tested in `if:` here — that context is unavailable to step
-        # conditionals; an empty secret makes the fetch fail loudly.)
-        # All tags carry the fetch script since the pack move; tags without it
-        # fall through to the in-repo branch below as a safety net.
-        env:
-          ASSETS_READ_TOKEN: ${{ secrets.ASSETS_READ_TOKEN }}
+      - name: Note manifests-only desktop shell
+        # The desktop shell ships manifests only by design. The spatial engine
+        # (models, textures, audio) lives in the private agent-sim repo and
+        # ships through its own lanes; adea lanes fetch no private pack and
+        # need no asset credentials.
         run: |
           set -euo pipefail
-          if [ -f scripts/fetch-assets.mjs ]; then
-            bun scripts/fetch-assets.mjs
-          else
-            echo 'No fetch script at this tag; using in-repo art.'
-          fi
+          echo 'Building manifests-only desktop shell (engine ships from agent-sim).'
 
       - name: Load release notes
         id: release_notes

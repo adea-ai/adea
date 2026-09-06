@@ -1,4 +1,4 @@
-import { reorderRooms } from "@agent-hq/db";
+import { reorderRooms } from "@adea/db";
 
 import { applicationDatabase } from "../../../../../../../server/database";
 import {

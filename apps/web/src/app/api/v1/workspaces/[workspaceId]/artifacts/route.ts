@@ -1,5 +1,5 @@
-import type { ApiArtifactResponse } from "@agent-hq/api-client";
-import { createArtifact, listArtifactsForUser } from "@agent-hq/db";
+import type { ApiArtifactResponse } from "@adea/api-client";
+import { createArtifact, listArtifactsForUser } from "@adea/db";
 
 import {
   artifactErrorResponse,

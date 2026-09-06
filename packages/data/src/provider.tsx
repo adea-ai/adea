@@ -1,6 +1,6 @@
 "use client";
 
-import { useWorkspaceStore } from "@agent-hq/state";
+import { useWorkspaceStore } from "@adea/state";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 

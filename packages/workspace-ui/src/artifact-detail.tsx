@@ -1,4 +1,4 @@
-import type { ArtifactSummary } from "@agent-hq/types";
+import type { ArtifactSummary } from "@adea/types";
 import { FileText, X } from "lucide-react";
 
 export function ArtifactDetail({

@@ -1,5 +1,5 @@
-import type { ApiAgentResponse } from "@agent-hq/api-client";
-import { archiveAgent, getAgentForUser } from "@agent-hq/db";
+import type { ApiAgentResponse } from "@adea/api-client";
+import { archiveAgent, getAgentForUser } from "@adea/db";
 import { applicationDatabase } from "../../../../../../../server/database";
 import {
   guardDesktopWorkspaceRequest,

@@ -5,8 +5,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@agent-hq/ui/components/ui/dialog";
-import { cn } from "@agent-hq/ui/lib/utils";
+} from "@adea/ui/components/ui/dialog";
+import { cn } from "@adea/ui/lib/utils";
 
 export function ModalDialog({
   children,

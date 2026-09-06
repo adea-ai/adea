@@ -1,5 +1,5 @@
 {
-  "name": "agent-hq",
+  "name": "adea",
   "private": true,
   "license": "Apache-2.0",
   "version": "0.10.8",
@@ -10,16 +10,15 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*",
-    "scenes/*"
+    "packages/*"
   ],
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "turbo run build && bun run perf:check",
+    "build": "turbo run build",
     "build:cloudflare": "bun scripts/build-cloudflare-worker.mjs",
-    "dev": "turbo run dev --filter=@agent-hq/web --env-mode=loose",
+    "dev": "turbo run dev --filter=@adea/web --env-mode=loose",
     "format:check": "prettier --check .",
     "lint": "turbo run lint",
     "test": "bun run test:unit",
@@ -28,18 +27,10 @@
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
-    "perf:check": "bun scripts/performance-budgets.mjs --build --assets && bun run assets:check",
-    "perf:check:runtime": "bun scripts/performance-budgets.mjs --runtime .artifacts/scene-performance.json",
-    "perf:browser": "playwright test --config=playwright.config.ts --grep \"home scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"work scene meets runtime performance gates\" && playwright test --config=playwright.config.ts --grep \"room designer loads compressed interior props\" && playwright test --config=playwright.config.ts --grep \"web layout does not reserve space for the desktop status bar\" && playwright test --config=playwright.config.ts --grep \"desktop runtime keeps the shared scene layout without a status bar\" && playwright test --config=playwright.config.ts --grep \"HQ keeps perspective backgrounds fixed while the camera moves\" && playwright test --config=playwright.config.ts --grep \"HQ plays only the active locomotion animation\" && playwright test --config=playwright.config.ts --grep \"direct character designer mount\" && playwright test --config=playwright.config.ts --grep \"character designer starts slot thumbnails\" && playwright test --config=playwright.config.ts --grep \"switching from a reference character to Custom\"",
-    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@agent-hq/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts && bun run perf:browser",
+    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts",
     "test:smoke": "bun run native:smoke",
-    "perf:gate": "bun run build && bun run perf:browser && bun run perf:check:runtime",
     "native:smoke": "bun scripts/native-smoke.mjs",
-    "release": "bun scripts/manual-release.mjs",
-    "assets:optimize:interior": "bun scripts/optimize-interior-assets.mjs",
-    "assets:optimize:runtime": "bun scripts/optimize-runtime-assets.mjs",
-    "assets:optimize:all": "bun scripts/optimize-runtime-assets.mjs --all",
-    "assets:check": "bun scripts/optimize-runtime-assets.mjs --check --all"
+    "release": "bun scripts/manual-release.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

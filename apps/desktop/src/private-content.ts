@@ -2,7 +2,7 @@ import type {
   ApiContentRefCreateInput,
   ApiContentRefResponse,
   ApiContentRefUpdateInput,
-} from "@agent-hq/api-client";
+} from "@adea/api-client";
 
 import {
   localContentAuthority,

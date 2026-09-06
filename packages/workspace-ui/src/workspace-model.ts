@@ -3,7 +3,7 @@ import type {
   ChannelSummary,
   ConversationParticipantRef,
   RoomSummary,
-} from "@agent-hq/types";
+} from "@adea/types";
 
 export type RoomNavigationItem = Readonly<{
   primaryChannel?: ChannelSummary;

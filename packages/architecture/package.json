@@ -1,9 +1,0 @@
-{
-  "name": "@agent-hq/architecture",
-  "version": "0.10.8",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "bun test test/*.test.ts"
-  }
-}

@@ -1,7 +1,7 @@
 import "server-only";
 
-import type { ApiArtifactCreateInput } from "@agent-hq/api-client";
-import { isPrincipalRef } from "@agent-hq/types";
+import type { ApiArtifactCreateInput } from "@adea/api-client";
+import { isPrincipalRef } from "@adea/types";
 
 import type { WorkspacePrincipalResolution } from "./workspace-principal";
 import { workspaceJsonResponse, workspaceUnavailableResponse } from "./workspace-response";

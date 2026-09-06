@@ -21,7 +21,7 @@ describe("desktop packaging and privilege boundary", () => {
     const prepareScript = manifestScript(
       await readFile(join(root, "apps/desktop/package.json"), "utf8")
     );
-    expect(prepareScript).toContain("turbo run build --filter=@agent-hq/desktop^...");
+    expect(prepareScript).toContain("turbo run build --filter=@adea/desktop^...");
     expect(prepareScript).not.toContain("scenes/hq build");
     expect(main).not.toContain("WebviewUrl::External");
     expect(main).not.toContain("AGENT_HQ_WEB_URL");
@@ -32,14 +32,15 @@ describe("desktop packaging and privilege boundary", () => {
     const client = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
     const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
 
-    expect(manifest.dependencies["@agent-hq/hq-scenes"]).toBe("workspace:*");
+    expect(manifest.dependencies["@adea/hq-scenes"]).toBeUndefined();
+    expect(manifest.dependencies["@adea/room-designer-scene"]).toBeUndefined();
+    expect(manifest.dependencies["@adea/character-designer-scene"]).toBeUndefined();
     expect(client).toContain("<DesktopWorkspace");
     expect(client).toContain("if (workspaceState)");
     expect(client).toContain("setSession(activeSession)");
     expect(client).toContain("<GlobalWorkspaceRail");
-    expect(workspace).toContain("<HqRoomScene");
+    expect(workspace).toContain("<VirtualUnavailable");
     expect(workspace).toContain('aria-label="Agent HQ workspace controls"');
-    expect(workspace).toContain("showAccountDrawer={false}");
     expect(client).toContain("Try again");
   });
 
@@ -47,7 +48,10 @@ describe("desktop packaging and privilege boundary", () => {
     const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
     const styles = await readFile(join(root, "apps/desktop/src/styles.css"), "utf8");
 
-    expect(workspace).toContain('className="workspace-view-switcher"');
+    expect(workspace).toContain("<VirtualUnavailable");
+    expect(workspace).not.toContain("workspace-camera-slot");
+    expect(workspace).not.toContain("workspace-scene-tools-slot");
+    expect(workspace).not.toContain("HqRoomScene");
     expect(workspace).not.toContain("workspace-statusbar");
     expect(workspace).not.toContain("<VersionDialog");
     expect(styles).toContain(".workspace-scene-viewport [data-agent-hq-on-screen-controls]");
@@ -95,8 +99,8 @@ describe("desktop packaging and privilege boundary", () => {
       "utf8"
     );
 
-    expect(desktopVersion).toContain("@agent-hq/ui/components/version-dialog");
-    expect(webVersion).toContain("@agent-hq/ui/components/version-dialog");
+    expect(desktopVersion).toContain("@adea/ui/components/version-dialog");
+    expect(webVersion).toContain("@adea/ui/components/version-dialog");
     expect(sharedVersion).toContain("What changed in this release");
     expect(sharedVersion).toContain("Installed changelog");
     expect(sharedVersion).toContain("View releases");
@@ -141,7 +145,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(webStyles).toContain("max-width: calc(100% - 2.5rem)");
     expect(webStyles).not.toContain("max-width: calc(100vw - 2.5rem)");
     expect(webLayout).toContain("themeColor:");
-    expect(webWorkspace).toContain("showAccountDrawer={false}");
+    expect(webWorkspace).toContain("<VirtualUnavailable");
   });
 
   test("grants privileged commands only to bundled application code", async () => {
@@ -195,8 +199,8 @@ describe("desktop packaging and privilege boundary", () => {
     const client = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
 
     expect(config.plugins["deep-link"].desktop.schemes).toEqual(["agent-hq"]);
-    expect(manifest.dependencies["@agent-hq/auth"]).toBe("workspace:*");
-    expect(client).not.toContain("@agent-hq/auth/server");
+    expect(manifest.dependencies["@adea/auth"]).toBe("workspace:*");
+    expect(client).not.toContain("@adea/auth/server");
     expect(client).not.toContain("server-only");
     expect(client).toContain("createDesktopHttpSessionBroker");
     expect(client).toContain("desktop_user_session_save");
@@ -222,8 +226,8 @@ describe("desktop packaging and privilege boundary", () => {
       "utf8"
     );
 
-    expect(desktopStyles).toContain('@import "@agent-hq/ui/auth-shell.css"');
-    expect(webStyles).toContain('@import "@agent-hq/ui/auth-shell.css"');
+    expect(desktopStyles).toContain('@import "@adea/ui/auth-shell.css"');
+    expect(webStyles).toContain('@import "@adea/ui/auth-shell.css"');
     expect(desktop).toContain('className="auth-shell"');
     expect(web).toContain('className="auth-shell"');
     expect(sharedStyles).toContain(".auth-panel");
@@ -293,7 +297,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(bundle).not.toContain("@neondatabase/auth");
     expect(bundle).not.toContain("node:crypto");
     expect(bundle).not.toContain("server-only");
-    expect(bundle).not.toContain("@agent-hq/db");
+    expect(bundle).not.toContain("@adea/db");
   });
 });
 

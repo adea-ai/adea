@@ -1,4 +1,4 @@
-import type { AgentHqApiClient } from "@agent-hq/api-client";
+import type { AgentHqApiClient } from "@adea/api-client";
 
 export type PrivateContentResolver = Readonly<{
   health?(

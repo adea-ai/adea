@@ -1,5 +1,5 @@
 {
-  "name": "@agent-hq/data",
+  "name": "@adea/data",
   "version": "0.10.8",
   "private": true,
   "type": "module",
@@ -25,9 +25,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@agent-hq/api-client": "workspace:*",
-    "@agent-hq/state": "workspace:*",
-    "@agent-hq/types": "workspace:*",
+    "@adea/api-client": "workspace:*",
+    "@adea/state": "workspace:*",
+    "@adea/types": "workspace:*",
     "@tanstack/react-query": "^5.66.8",
     "react": "19.2.8"
   },

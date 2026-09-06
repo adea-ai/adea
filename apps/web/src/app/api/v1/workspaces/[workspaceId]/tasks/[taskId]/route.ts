@@ -1,5 +1,5 @@
-import type { ApiTaskResponse, ApiTaskUpdateInput } from "@agent-hq/api-client";
-import { getTaskForUser, updateTask } from "@agent-hq/db";
+import type { ApiTaskResponse, ApiTaskUpdateInput } from "@adea/api-client";
+import { getTaskForUser, updateTask } from "@adea/db";
 
 import { applicationDatabase } from "../../../../../../../server/database";
 import {
