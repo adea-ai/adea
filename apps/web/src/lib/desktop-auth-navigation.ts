@@ -1,5 +1,5 @@
 const DESKTOP_AUTHORIZATION_PATH = "/api/auth/desktop/authorize";
-const DESKTOP_CALLBACK_TARGET = "agent-hq://auth/callback";
+const DESKTOP_CALLBACK_TARGET = "adea://auth/callback";
 
 export function createDesktopCompletionUrl(authorizationUrl: URL, callback: string) {
   const completionUrl = new URL("/auth/desktop/complete", authorizationUrl.origin);

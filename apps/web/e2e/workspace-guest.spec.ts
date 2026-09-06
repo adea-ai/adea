@@ -176,9 +176,9 @@ test("settings opens over chat without changing the current view", async ({ page
 
 test("desktop authentication ends on a clear browser success page", async ({ page }) => {
   const callback =
-    "agent-hq://auth/callback?code=one-time-code&nonce=nonce-value-12345&state=state-value-12345";
+    "adea://auth/callback?code=one-time-code&nonce=nonce-value-12345&state=state-value-12345";
   const fragment = new URLSearchParams({ callback }).toString();
-  await page.route("agent-hq://**", (route) => route.abort());
+  await page.route("adea://**", (route) => route.abort());
 
   await page.goto(`/auth/desktop/complete#${fragment}`, { waitUntil: "commit" });
 

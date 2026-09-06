@@ -16,14 +16,14 @@ describe("desktop HTTP boundary", () => {
     url.searchParams.set("code_challenge", "c".repeat(43));
     url.searchParams.set("code_challenge_method", "S256");
     url.searchParams.set("nonce", "n".repeat(32));
-    url.searchParams.set("redirect_uri", "agent-hq://auth/callback");
+    url.searchParams.set("redirect_uri", "adea://auth/callback");
     url.searchParams.set("response_type", "code");
     url.searchParams.set("state", "s".repeat(32));
 
     expect(parseDesktopAuthorizationRequest(new Request(url))).toEqual({
       codeChallenge: "c".repeat(43),
       nonce: "n".repeat(32),
-      redirectUri: "agent-hq://auth/callback",
+      redirectUri: "adea://auth/callback",
       state: "s".repeat(32),
     });
     url.searchParams.append("state", "attacker");
@@ -35,7 +35,7 @@ describe("desktop HTTP boundary", () => {
       code: "one-time-code",
       codeVerifier: "v".repeat(64),
       nonce: "n".repeat(32),
-      redirectUri: "agent-hq://auth/callback",
+      redirectUri: "adea://auth/callback",
     };
     const request = new Request("https://agent-hq.example/api/auth/desktop/exchange", {
       body: JSON.stringify(body),
@@ -59,7 +59,7 @@ describe("desktop HTTP boundary", () => {
       headers: {
         authorization: `Desktop ${"x".repeat(43)}`,
         origin: "http://tauri.localhost",
-        "x-agent-hq-desktop-session": "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1",
+        "x-adea-desktop-session": "018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1",
       },
       method: "POST",
     });

@@ -20,7 +20,7 @@ workspace remains usable for the current process if that store is unavailable, a
 offers optional sign-in at any time to claim and persist the same workspaces.
 
 Desktop sign-in starts in the system browser and returns through the registered
-`agent-hq://auth/callback` scheme. The local client creates state, nonce, and a
+`adea://auth/callback` scheme. The local client creates state, nonce, and a
 PKCE verifier; the native launcher accepts only the fixed desktop authorization
 endpoint; and the callback carries only a short-lived one-time code. The
 pending PKCE attempt is kept in the operating-system credential vault until it

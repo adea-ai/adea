@@ -8,7 +8,7 @@ import {
 
 describe("auth request security", () => {
   test("fails closed for missing and wrong origins", () => {
-    const trusted = ["https://agent-hq.example", "agent-hq://auth/callback"];
+    const trusted = ["https://agent-hq.example", "adea://auth/callback"];
     expect(() => assertTrustedOrigin(undefined, trusted)).toThrow("origin");
     expect(() => assertTrustedOrigin("https://attacker.example", trusted)).toThrow("origin");
     expect(assertTrustedOrigin("https://agent-hq.example/path", trusted)).toBe(
@@ -18,8 +18,8 @@ describe("auth request security", () => {
 
   test("binds redirect, state, nonce, and verifier to a single callback", async () => {
     const transaction = await createAuthorizationState({
-      redirectUri: "agent-hq://auth/callback",
-      trustedOrigins: ["agent-hq://auth/callback"],
+      redirectUri: "adea://auth/callback",
+      trustedOrigins: ["adea://auth/callback"],
     });
 
     expect(transaction.state).not.toBe(transaction.nonce);
@@ -28,14 +28,14 @@ describe("auth request security", () => {
       await verifyAuthorizationState(transaction, {
         state: transaction.state,
         nonce: transaction.nonce,
-        redirectUri: "agent-hq://auth/callback",
+        redirectUri: "adea://auth/callback",
       })
     ).toBe(true);
     await expect(
       verifyAuthorizationState(transaction, {
         state: "wrong",
         nonce: transaction.nonce,
-        redirectUri: "agent-hq://auth/callback",
+        redirectUri: "adea://auth/callback",
       })
     ).rejects.toThrow("state");
   });

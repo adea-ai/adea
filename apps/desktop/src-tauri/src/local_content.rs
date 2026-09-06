@@ -21,7 +21,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 const DATABASE_FILENAME: &str = "local-content.sqlite3";
-const KEYCHAIN_SERVICE: &str = "com.agenthq.desktop.local-content";
+const KEYCHAIN_SERVICE: &str = "com.adea.desktop.local-content";
 const SCHEMA_VERSION: u32 = 1;
 const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ROTATION_BATCH: usize = 500;
@@ -953,7 +953,7 @@ fn aad(
     key_version: u32,
 ) -> Vec<u8> {
     format!(
-        "agent-hq-content|{SCHEMA_VERSION}|{key_version}|{workspace_id}|{content_id}|{}",
+        "adea-content|{SCHEMA_VERSION}|{key_version}|{workspace_id}|{content_id}|{}",
         content_type.as_str()
     )
     .into_bytes()

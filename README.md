@@ -23,7 +23,7 @@ bun install
 portless
 ```
 
-Portless runs the web app at [https://agent-hq.localhost](https://agent-hq.localhost)
+Portless runs the web app at [https://adea.localhost](https://adea.localhost)
 with a stable named route instead of a fixed development port. Portless requires
 Node.js 24 or newer; Bun remains the repository's package manager and test runner.
 
@@ -45,12 +45,12 @@ value is server-only; do not rename it to a `NEXT_PUBLIC_` or `VITE_` variable.
 
 For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
-- Home workspace: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
-- Work workspace: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
+- Home workspace: [https://adea.localhost/?scene=home](https://adea.localhost/?scene=home)
+- Work workspace: [https://adea.localhost/?scene=work](https://adea.localhost/?scene=work)
 - Room designer: append `&roomDesigner=1` to the selected scene URL (renders
   the engine-unavailable state in builds without Agent Sim)
 
-Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
+Cross-app portal defaults use `adea.localhost` and `world.localhost`. Set
 `NEXT_PUBLIC_ADEA_WORLD_URL` when the sibling World app uses a different
 Portless name.
 
