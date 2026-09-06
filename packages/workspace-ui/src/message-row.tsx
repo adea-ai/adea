@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from "@agent-hq/types";
+import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from "@adea/types";
 import {
   CheckCheck,
   File,

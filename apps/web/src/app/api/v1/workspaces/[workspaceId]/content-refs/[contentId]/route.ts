@@ -1,5 +1,5 @@
-import type { ApiContentRefResponse } from "@agent-hq/api-client";
-import { getContentRefForUser, updateContentRef } from "@agent-hq/db";
+import type { ApiContentRefResponse } from "@adea/api-client";
+import { getContentRefForUser, updateContentRef } from "@adea/db";
 
 import {
   contentRefErrorResponse,

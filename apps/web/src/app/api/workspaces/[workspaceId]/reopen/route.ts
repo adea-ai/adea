@@ -1,4 +1,4 @@
-import { reopenWorkspace } from "@agent-hq/db";
+import { reopenWorkspace } from "@adea/db";
 
 import { applicationDatabase } from "../../../../../server/database";
 import {

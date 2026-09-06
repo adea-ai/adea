@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@agent-hq/ui/components/ui/badge";
-import { Button } from "@agent-hq/ui/components/ui/button";
+import { Badge } from "@adea/ui/components/ui/badge";
+import { Button } from "@adea/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,17 +10,17 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@agent-hq/ui/components/ui/dropdown-menu";
+} from "@adea/ui/components/ui/dropdown-menu";
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from "@agent-hq/ui/components/ui/empty";
-import { Input } from "@agent-hq/ui/components/ui/input";
-import { Skeleton } from "@agent-hq/ui/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@agent-hq/ui/components/ui/tabs";
+} from "@adea/ui/components/ui/empty";
+import { Input } from "@adea/ui/components/ui/input";
+import { Skeleton } from "@adea/ui/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@adea/ui/components/ui/tabs";
 import {
   ArrowLeft,
   Blocks,

@@ -18,11 +18,6 @@ export {
   DrawerTitle,
   DrawerTrigger,
 } from "./components/ui/drawer";
-export {
-  CharacterSelector,
-  type CharacterOption,
-  type CharacterSelectorProps,
-} from "./components/character-selector";
 export { AccountDrawer, type AccountDrawerProps } from "./components/account-drawer";
 export { WorkspaceBrand, type WorkspaceBrandProps } from "./components/workspace-brand";
 export { WorkspaceLogo } from "./components/workspace-logo";

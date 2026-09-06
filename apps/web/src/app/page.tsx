@@ -1,11 +1,7 @@
 import type { Metadata } from "next";
-import { hqSceneFromSearchParams } from "@agent-hq/app-core";
-import {
-  configurableCharacterId,
-  isCharacterId,
-  isCustomCharacterId,
-} from "@agent-hq/characters/runtime";
-import { readSceneStartPosition } from "@agent-hq/scene-shell/scene-spawn";
+import { hqSceneFromSearchParams } from "@adea/app-core";
+import { configurableCharacterId, isPlausibleCharacterId } from "@adea/spatial-protocol";
+import { readSceneStartPosition } from "@adea/spatial-protocol";
 import { WorkspaceEntry } from "../components/workspace-entry";
 
 export const metadata: Metadata = {
@@ -30,8 +26,7 @@ export default async function HomePage({
   const requestedCharacter = Array.isArray(params.character)
     ? params.character[0]
     : params.character;
-  const isValidCharacter =
-    isCharacterId(requestedCharacter) || isCustomCharacterId(requestedCharacter);
+  const isValidCharacter = isPlausibleCharacterId(requestedCharacter);
   const cameraParam = Array.isArray(params.camera) ? params.camera[0] : params.camera;
   const view = Array.isArray(params.view) ? params.view[0] : params.view;
   const characterDesigner = Array.isArray(params.characterDesigner)

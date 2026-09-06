@@ -2,7 +2,7 @@ import type {
   ChannelReadStateSummary,
   ThreadReadStateSummary,
   UserPrincipalRef,
-} from "@agent-hq/types";
+} from "@adea/types";
 import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 
 import type { AgentHqDatabase, AgentHqTransaction } from "./connection";

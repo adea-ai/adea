@@ -2,7 +2,7 @@ import "server-only";
 
 import { after } from "next/server";
 
-import { createDatabase } from "@agent-hq/db";
+import { createDatabase } from "@adea/db";
 
 import {
   resolveDatabaseConnectionString,

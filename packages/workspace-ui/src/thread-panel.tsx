@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
-import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from "@agent-hq/types";
-import type { AgentHqApiClient } from "@agent-hq/api-client";
-import { useCreateMessageMutation, useMessageListQuery } from "@agent-hq/data";
+import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from "@adea/types";
+import type { AgentHqApiClient } from "@adea/api-client";
+import { useCreateMessageMutation, useMessageListQuery } from "@adea/data";
 import { MailOpen, X } from "lucide-react";
 
 import { MessageComposer, type ComposerSubmission } from "./message-composer";

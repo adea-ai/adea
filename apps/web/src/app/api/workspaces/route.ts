@@ -1,6 +1,6 @@
-import type { ApiWorkspaceCreateResponse } from "@agent-hq/api-client";
-import { createWorkspaceWithOwner, listWorkspacesForUser } from "@agent-hq/db";
-import type { WorkspaceSceneId } from "@agent-hq/types";
+import type { ApiWorkspaceCreateResponse } from "@adea/api-client";
+import { createWorkspaceWithOwner, listWorkspacesForUser } from "@adea/db";
+import type { WorkspaceSceneId } from "@adea/types";
 
 import { applicationDatabase } from "../../../server/database";
 import {

@@ -128,110 +128,15 @@ test-results/
 .dev.vars
 cloudflare-env.d.ts
 
-# Private binary asset pack (adea-ai/assets, fetched by scripts/fetch-assets.mjs
-# into vendor/assets or via AGENT_HQ_ASSETS_DIR). Never commit licensed or
-# production models, textures, or audio here; catalogs and manifests stay
-# tracked, binaries do not.
-/vendor/assets/
-# Defense in depth: no 3D/audio authoring binary may ever be tracked anywhere
-# in this repository, regardless of directory. Icons (.png) are the only
-# binary art that stays tracked; everything below ships via adea-ai/assets.
+# Engine binaries are never tracked here. The spatial engine and its binary
+# art live in the private agent-sim repo (assets in adea-ai/assets); this
+# repository ships manifests only. No 3D/audio authoring binary may ever be
+# tracked anywhere, regardless of directory.
 *.glb
 *.gltf
 *.fbx
 *.obj
 *.blend
-packages/architecture/assets/**/*.glb
-packages/architecture/assets/**/*.gltf
-packages/architecture/assets/**/*.fbx
-packages/architecture/assets/**/*.obj
-packages/architecture/assets/**/*.png
-packages/architecture/assets/**/*.jpg
-packages/architecture/assets/**/*.jpeg
-packages/architecture/assets/**/*.webp
-packages/architecture/assets/**/*.mp3
-packages/architecture/assets/**/*.wav
-packages/architecture/assets/**/*.ogg
-packages/architecture/assets/**/*.pdf
-packages/architecture/assets/**/*.blend
-packages/interior/assets/**/*.glb
-packages/interior/assets/**/*.gltf
-packages/interior/assets/**/*.fbx
-packages/interior/assets/**/*.obj
-packages/interior/assets/**/*.png
-packages/interior/assets/**/*.jpg
-packages/interior/assets/**/*.jpeg
-packages/interior/assets/**/*.webp
-packages/interior/assets/**/*.mp3
-packages/interior/assets/**/*.wav
-packages/interior/assets/**/*.ogg
-packages/interior/assets/**/*.pdf
-packages/interior/assets/**/*.blend
-packages/characters/assets/**/*.glb
-packages/characters/assets/**/*.gltf
-packages/characters/assets/**/*.fbx
-packages/characters/assets/**/*.obj
-packages/characters/assets/**/*.png
-packages/characters/assets/**/*.jpg
-packages/characters/assets/**/*.jpeg
-packages/characters/assets/**/*.webp
-packages/characters/assets/**/*.mp3
-packages/characters/assets/**/*.wav
-packages/characters/assets/**/*.ogg
-packages/characters/assets/**/*.pdf
-packages/characters/assets/**/*.blend
-packages/pets/assets/**/*.glb
-packages/pets/assets/**/*.gltf
-packages/pets/assets/**/*.fbx
-packages/pets/assets/**/*.obj
-packages/pets/assets/**/*.png
-packages/pets/assets/**/*.jpg
-packages/pets/assets/**/*.jpeg
-packages/pets/assets/**/*.webp
-packages/pets/assets/**/*.mp3
-packages/pets/assets/**/*.wav
-packages/pets/assets/**/*.ogg
-packages/pets/assets/**/*.pdf
-packages/pets/assets/**/*.blend
-packages/rooms/assets/**/*.glb
-packages/rooms/assets/**/*.gltf
-packages/rooms/assets/**/*.fbx
-packages/rooms/assets/**/*.obj
-packages/rooms/assets/**/*.png
-packages/rooms/assets/**/*.jpg
-packages/rooms/assets/**/*.jpeg
-packages/rooms/assets/**/*.webp
-packages/rooms/assets/**/*.mp3
-packages/rooms/assets/**/*.wav
-packages/rooms/assets/**/*.ogg
-packages/rooms/assets/**/*.pdf
-packages/rooms/assets/**/*.blend
-packages/landscape/assets/**/*.glb
-packages/landscape/assets/**/*.gltf
-packages/landscape/assets/**/*.fbx
-packages/landscape/assets/**/*.obj
-packages/landscape/assets/**/*.png
-packages/landscape/assets/**/*.jpg
-packages/landscape/assets/**/*.jpeg
-packages/landscape/assets/**/*.webp
-packages/landscape/assets/**/*.mp3
-packages/landscape/assets/**/*.wav
-packages/landscape/assets/**/*.ogg
-packages/landscape/assets/**/*.pdf
-packages/landscape/assets/**/*.blend
-scenes/hq/assets/**/*.glb
-scenes/hq/assets/**/*.gltf
-scenes/hq/assets/**/*.fbx
-scenes/hq/assets/**/*.obj
-scenes/hq/assets/**/*.png
-scenes/hq/assets/**/*.jpg
-scenes/hq/assets/**/*.jpeg
-scenes/hq/assets/**/*.webp
-scenes/hq/assets/**/*.mp3
-scenes/hq/assets/**/*.wav
-scenes/hq/assets/**/*.ogg
-scenes/hq/assets/**/*.pdf
-scenes/hq/assets/**/*.blend
 
 # Generated web assets (rebuilt by scripts/sync-assets.mjs)
 apps/*/public/assets/

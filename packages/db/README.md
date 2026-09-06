@@ -1,8 +1,8 @@
 # Database package
 
-`@agent-hq/db` is Agent HQ's server-only PostgreSQL boundary. Its public entry point imports
+`/db` is Agent HQ's server-only PostgreSQL boundary. Its public entry point imports
 `server-only`, and no database subpaths are exported. Browser, mobile, and desktop code must use
-API contracts from `@agent-hq/api-client` and cache/query behavior from `@agent-hq/data`.
+API contracts from `/api-client` and cache/query behavior from `/data`.
 
 ## Schema conventions
 

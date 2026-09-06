@@ -1,8 +1,8 @@
 import { useState } from "react";
-import type { WorkspaceSceneId } from "@agent-hq/types";
-import { Button } from "@agent-hq/ui/components/ui/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@agent-hq/ui/components/ui/field";
-import { Input } from "@agent-hq/ui/components/ui/input";
+import type { WorkspaceSceneId } from "@adea/types";
+import { Button } from "@adea/ui/components/ui/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@adea/ui/components/ui/field";
+import { Input } from "@adea/ui/components/ui/input";
 
 import { ModalDialog } from "./modal-dialog";
 import { RoomIcon } from "./room-icon";

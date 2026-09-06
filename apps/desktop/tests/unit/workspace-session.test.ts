@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ApiWorkspaceBootstrapResponse } from "@agent-hq/api-client";
+import type { ApiWorkspaceBootstrapResponse } from "@adea/api-client";
 
 import {
   bootstrapDesktopWorkspace,

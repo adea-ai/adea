@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ConversationParticipantRef } from "@agent-hq/types";
+import type { ConversationParticipantRef } from "@adea/types";
 
 import type { WorkspacePrincipalResolution } from "./workspace-principal";
 import { workspaceJsonResponse, workspaceUnavailableResponse } from "./workspace-response";

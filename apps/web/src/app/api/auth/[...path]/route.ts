@@ -1,4 +1,4 @@
-import { handleNeonAuthRequest } from "@agent-hq/auth/server";
+import { handleNeonAuthRequest } from "@adea/auth/server";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 

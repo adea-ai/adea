@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createApiClient, type AgentHqApiClient } from "@agent-hq/api-client";
-import { useChannelListQuery, useRoomListQuery, useWorkspaceBootstrapQuery } from "@agent-hq/data";
-import { useWorkspaceStore } from "@agent-hq/state";
-import { Button } from "@agent-hq/ui/components/ui/button";
+import { createApiClient, type AgentHqApiClient } from "@adea/api-client";
+import { useChannelListQuery, useRoomListQuery, useWorkspaceBootstrapQuery } from "@adea/data";
+import { useWorkspaceStore } from "@adea/state";
+import { Button } from "@adea/ui/components/ui/button";
 
 import { useWorkspacePersistence } from "./use-workspace-persistence";
 import { projectWorkspaceNavigation } from "./workspace-model";

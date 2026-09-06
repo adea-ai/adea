@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentHqApiClient } from "@agent-hq/api-client";
+import type { AgentHqApiClient } from "@adea/api-client";
 import { QueryClient } from "@tanstack/react-query";
 
 import { workspaceMutationOptions, workspaceQueryKeys, workspaceQueryOptions } from "../../src";

@@ -1,3 +1,3 @@
-import { onRouterTransitionStart } from "@agent-hq/scene-telemetry";
+import { onRouterTransitionStart } from "@adea/spatial-protocol";
 
 export { onRouterTransitionStart };

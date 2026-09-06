@@ -12,7 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 
-import { Button } from "@agent-hq/ui/components/ui/button";
+import { Button } from "@adea/ui/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,7 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "@agent-hq/ui/components/ui/dropdown-menu";
+} from "@adea/ui/components/ui/dropdown-menu";
 
 import { accountMenuItemsForPlatform, accountSessionItem } from "./account-menu-model";
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { type PrincipalRef, type WorkspacePermission, workspacePermissions } from "@agent-hq/types";
+import { type PrincipalRef, type WorkspacePermission, workspacePermissions } from "@adea/types";
 
 import { authorizeWorkspaceAction, workspaceRolePermissions } from "../../src/authorization";
 
