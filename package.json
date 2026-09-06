@@ -31,10 +31,7 @@
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
-    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts",
-    "test:smoke": "bun run native:smoke",
-    "native:smoke": "bun scripts/native-smoke.mjs",
-    "release": "bun scripts/manual-release.mjs"
+    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
