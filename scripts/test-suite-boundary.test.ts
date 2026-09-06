@@ -68,8 +68,8 @@ describe("test suite boundaries", () => {
   test("routes paused desktop releases to this machine's self-hosted runners", () => {
     const workflow = readFileSync(resolve(root, ".github/workflows/release-assets.yml"), "utf8");
     const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
-    expect(workflow).toContain("agent-hq-release-macos-arm64");
-    expect(workflow).toContain("agent-hq-release-linux-x64");
+    expect(workflow).toContain("adea-release-macos-arm64");
+    expect(workflow).toContain("adea-release-linux-x64");
     expect(workflow).toContain("cargo-xwin");
     expect(workflow).toContain("rustup target add x86_64-pc-windows-msvc");
     expect(workflow).toContain("Isolate Windows cross-compilation output");
@@ -95,11 +95,11 @@ describe("test suite boundaries", () => {
     expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
     expect(runnerScript).toContain('join(homedir(), ".local", "share", "agent-hq"');
     expect(runnerScript).not.toContain('"Application Support"');
-    expect(runnerScript).toContain("agent-hq-release-linux-cargo-target");
+    expect(runnerScript).toContain("adea-release-linux-cargo-target");
     expect(runnerScript).toContain('const macCargoTarget = join(stateRoot, "macos-cargo-target")');
     expect(runnerScript).toContain("CARGO_TARGET_DIR: macCargoTarget");
     expect(runnerScript).toContain("renameSync(legacyMacCargoTarget, macCargoTarget)");
-    expect(runnerScript).toContain('const linuxBuilder = "agent-hq-release-builder"');
+    expect(runnerScript).toContain('const linuxBuilder = "adea-release-builder"');
     expect(runnerScript).toContain('else if (command === "clean") clean()');
     expect(runnerScript).toContain("linuxWorkspaceVolume");
     expect(runnerScript).toContain("runAllowMissing");
