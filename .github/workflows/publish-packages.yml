@@ -8,7 +8,8 @@ name: Publish shared packages
 # Prerequisites (one-time, dashboard):
 #   1. Create the `adea` org on npmjs.com.
 #   2. Set NPM_TOKEN to an automation token with publish rights on @adea-ai/*.
-# Provenance attestation needs id-token: write (granted below).
+# Provenance attestation is deferred until hosted runners return (the local
+# runner predates OIDC support and fails job setup when id-token is requested).
 
 on:
   push:
@@ -23,7 +24,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: adea-publish-packages
