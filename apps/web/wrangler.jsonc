@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   // Must match the Worker name in the Cloudflare dashboard (repo is already
   // connected to GitHub there). Rename here or in the dashboard so they agree.
-  "name": "agent-hq-web",
+  "name": "adea-web",
   "account_id": "aa2dc82d7e02aff12b77800a8201df3f",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-08-01",
