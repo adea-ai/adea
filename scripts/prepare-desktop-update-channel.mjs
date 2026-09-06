@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const RELEASE_ASSET_PATH = /^\/repos\/adea-ai\/agent-hq\/releases\/assets\/(\d+)$/;
+const RELEASE_ASSET_PATH = /^\/repos\/adea-ai\/adea\/releases\/assets\/(\d+)$/;
 
 function requireObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
