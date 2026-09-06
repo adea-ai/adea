@@ -79,4 +79,31 @@ describe("asset pack boundary", () => {
       expect(missing).toEqual([]);
     }
   );
+
+  test("never tracks 3D/audio binaries anywhere", async () => {
+    // Defense in depth alongside .gitignore: no .glb/.gltf/.fbx/.obj/.blend
+    // may ever be tracked, regardless of directory. Icons (.png) stay tracked.
+    const forbidden = new Set([".glb", ".gltf", ".fbx", ".obj", ".blend"]);
+    const offenders = (await trackedFiles()).filter((file) => {
+      const dot = file.lastIndexOf(".");
+      return dot !== -1 && forbidden.has(file.slice(dot).toLowerCase());
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  test("never tracks fetched or generated asset trees", async () => {
+    // vendor/assets (fetch-assets.mjs) and apps/*/public/assets (sync-assets.mjs)
+    // are always fetched/generated. apps/mobile/www keeps only its placeholder.
+    const offenders = (await trackedFiles()).filter((file) => {
+      if (file === "vendor/assets" || file.startsWith("vendor/assets/")) return true;
+      if (file.includes("/public/assets") || file.startsWith("apps/")) {
+        if (/(^|\/)public\/assets(\/|$)/.test(file)) return true;
+      }
+      if (file === "apps/mobile/www" || file.startsWith("apps/mobile/www/")) {
+        return file !== "apps/mobile/www/index.html";
+      }
+      return false;
+    });
+    expect(offenders).toEqual([]);
+  });
 });

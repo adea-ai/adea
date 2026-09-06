@@ -133,6 +133,14 @@ cloudflare-env.d.ts
 # production models, textures, or audio here; catalogs and manifests stay
 # tracked, binaries do not.
 /vendor/assets/
+# Defense in depth: no 3D/audio authoring binary may ever be tracked anywhere
+# in this repository, regardless of directory. Icons (.png) are the only
+# binary art that stays tracked; everything below ships via adea-ai/assets.
+*.glb
+*.gltf
+*.fbx
+*.obj
+*.blend
 packages/architecture/assets/**/*.glb
 packages/architecture/assets/**/*.gltf
 packages/architecture/assets/**/*.fbx
@@ -230,6 +238,10 @@ apps/*/public/assets/
 # Transient swap backups from scripts/sync-assets.mjs (removed on success,
 # orphaned only if a run is interrupted); never commit.
 apps/*/public/assets.backup-*/
+# Mobile shell: apps/mobile/www/index.html is a tracked placeholder. Never
+# commit a built web bundle there (a build could stage private pack bytes).
+apps/mobile/www/**/*
+!apps/mobile/www/index.html
 cache/
 !.github/actions/cache/
 !.github/actions/cache/action.yml

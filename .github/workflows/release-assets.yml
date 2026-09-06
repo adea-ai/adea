@@ -137,9 +137,8 @@ jobs:
         # manifests-only desktop builds. (`secrets` is intentionally not
         # tested in `if:` here — that context is unavailable to step
         # conditionals; an empty secret makes the fetch fail loudly.)
-        # Tags predating the pack move (e.g. repair dispatches for old
-        # releases) carry their art in-repo and have no fetch script;
-        # skip there instead of failing.
+        # All tags carry the fetch script since the pack move; tags without it
+        # fall through to the in-repo branch below as a safety net.
         env:
           ASSETS_READ_TOKEN: ${{ secrets.ASSETS_READ_TOKEN }}
         run: |
