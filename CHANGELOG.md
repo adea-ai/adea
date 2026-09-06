@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.15](https://github.com/adea-ai/adea/compare/v0.10.14...v0.10.15) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ci:** verify the updater channel at the R2 source of truth ([#282](https://github.com/adea-ai/adea/issues/282)) ([012996a](https://github.com/adea-ai/adea/commit/012996a1477d883fb11df4b9d780151fc92d267f))
+
 ## [0.10.14](https://github.com/adea-ai/adea/compare/v0.10.13...v0.10.14) (2026-09-06)
 
 
