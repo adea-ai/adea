@@ -34,7 +34,7 @@ supported). Cloudflare Workers is the deployment target.
 3. **Hyperdrive (Neon pooling).** ✅ Done: `agent-hq-db` (id in
    `wrangler.jsonc`) points at the standalone Neon project (`us-east-2`)
    via its **direct/unpooled** origin as `neondb_owner` — Hyperdrive pools
-   itself, so never use the `-pooler` host here. No Vercel-style integration exists; if you
+   itself, so never use the `-pooler` host here. There is no hosted-integration shortcut; if you
    ever need to recreate it:
    ```bash
    wrangler hyperdrive create agent-hq-db \
@@ -57,9 +57,7 @@ supported). Cloudflare Workers is the deployment target.
    ```
    Source values: the Cloudflare Secret Store is the source of truth for hosted
    values (the `AGENT_HQ_*` records); `.env.local` (gitignored) keeps local
-   Development copies for day-to-day dev. Drop `VERCEL_OIDC_TOKEN` (unused in
-   code) and every `POSTGRES_*`/`PG*` duplicate — they were Vercel-integration
-   copies of the same Neon role.
+   Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev stays `bun run dev` (plain Node).
 
