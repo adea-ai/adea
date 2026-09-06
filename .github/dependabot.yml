@@ -23,6 +23,11 @@ updates:
       interval: weekly
       day: sunday
     open-pull-requests-limit: 99
+    ignore:
+      # TypeScript stays on the 6.0 beta line this repo pins; 7.x is a
+      # deliberate upgrade, not a routine bump.
+      - dependency-name: "typescript"
+        versions: [">=7"]
     groups:
       npm-dependencies:
         applies-to: version-updates
