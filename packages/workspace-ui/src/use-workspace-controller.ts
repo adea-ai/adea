@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createApiClient, type AgentHqApiClient } from "@adea/api-client";
-import type { ChannelSummary, TaskSummary } from "@adea/types";
+import { createApiClient, type AgentHqApiClient } from "@adea-ai/api-client";
+import type { ChannelSummary, TaskSummary } from "@adea-ai/types";
 import {
   useAgentListQuery,
   useArchiveAgentMutation,
@@ -35,8 +35,8 @@ import {
   useUpdateChannelMutation,
   useUpdateRoomMutation,
   useWorkspaceBootstrapQuery,
-} from "@adea/data";
-import { useWorkspaceStore } from "@adea/state";
+} from "@adea-ai/data";
+import { useWorkspaceStore } from "@adea-ai/state";
 
 import { projectWorkspaceNavigation } from "./workspace-model";
 import { useWorkspacePersistence } from "./use-workspace-persistence";

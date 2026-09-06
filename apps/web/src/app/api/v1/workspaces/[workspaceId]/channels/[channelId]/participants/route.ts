@@ -1,5 +1,5 @@
-import type { ApiChannelResponse } from "@adea/api-client";
-import { setChannelParticipants } from "@adea/db";
+import type { ApiChannelResponse } from "@adea-ai/api-client";
+import { setChannelParticipants } from "@adea-ai/db";
 
 import {
   conversationErrorResponse,

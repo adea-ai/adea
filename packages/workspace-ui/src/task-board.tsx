@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AgentSummary, RoomSummary, TaskSummary } from "@adea/types";
+import type { AgentSummary, RoomSummary, TaskSummary } from "@adea-ai/types";
 import {
   ArrowDown,
   ArrowUp,
@@ -15,8 +15,8 @@ import {
   X,
 } from "lucide-react";
 
-import { Button } from "@adea/ui/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@adea/ui/components/ui/tooltip";
+import { Button } from "@adea-ai/ui/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@adea-ai/ui/components/ui/tooltip";
 import { TaskDetail } from "./task-detail";
 import type { PrivateContentResolver } from "./platform";
 import { TaskObjective } from "./private-task-objective";

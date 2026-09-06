@@ -33,7 +33,7 @@ const workspaceDepFilters = Object.keys({
   ...(webManifest.dependencies ?? {}),
   ...(webManifest.devDependencies ?? {}),
 })
-  .filter((name) => name.startsWith("@adea/"))
+  .filter((name) => name.startsWith("@adea-ai/"))
   .map((name) => `--filter=${name}`);
 run(["x", "turbo", "run", "build", ...workspaceDepFilters], repositoryRoot);
 

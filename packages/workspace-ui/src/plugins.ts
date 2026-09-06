@@ -1,4 +1,4 @@
-import type { AgentHqApiClient } from "@adea/api-client";
+import type { AgentHqApiClient } from "@adea-ai/api-client";
 
 import {
   categoryLabel,

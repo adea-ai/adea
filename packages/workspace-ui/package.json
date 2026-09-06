@@ -1,5 +1,5 @@
 {
-  "name": "@adea/workspace-ui",
+  "name": "@adea-ai/workspace-ui",
   "version": "0.10.8",
   "private": true,
   "type": "module",
@@ -80,12 +80,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea/api-client": "workspace:*",
-    "@adea/audio": "workspace:*",
-    "@adea/data": "workspace:*",
-    "@adea/state": "workspace:*",
-    "@adea/types": "workspace:*",
-    "@adea/ui": "workspace:*",
+    "@adea-ai/api-client": "workspace:*",
+    "@adea-ai/audio": "workspace:*",
+    "@adea-ai/data": "workspace:*",
+    "@adea-ai/state": "workspace:*",
+    "@adea-ai/types": "workspace:*",
+    "@adea-ai/ui": "workspace:*",
     "lucide-react": "^1.33.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"

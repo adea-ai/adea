@@ -1,5 +1,5 @@
-import type { ApiContentRefResponse } from "@adea/api-client";
-import { createContentRef } from "@adea/db";
+import type { ApiContentRefResponse } from "@adea-ai/api-client";
+import { createContentRef } from "@adea-ai/db";
 
 import {
   contentRefErrorResponse,

@@ -1,4 +1,4 @@
-import { createNeonServerAdapter, parseDesktopAuthorizationRequest } from "@adea/auth/server";
+import { createNeonServerAdapter, parseDesktopAuthorizationRequest } from "@adea-ai/auth/server";
 
 import {
   desktopAuthorizationBroker,

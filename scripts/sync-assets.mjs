@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 // private agent-sim repo and is never synced here: this step emits manifests
 // only, so plain checkouts, CI lanes, and public builds stay green without
 // credentials. The entitlement-gated engine remote resolves these same-origin
-// manifest URLs at runtime (see @adea/spatial-protocol manifests).
+// manifest URLs at runtime (see @adea-ai/spatial-protocol manifests).
 
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const publicAssets = resolve(repoRoot, "apps/web/public/assets");

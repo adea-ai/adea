@@ -21,7 +21,7 @@ describe("desktop packaging and privilege boundary", () => {
     const prepareScript = manifestScript(
       await readFile(join(root, "apps/desktop/package.json"), "utf8")
     );
-    expect(prepareScript).toContain("turbo run build --filter=@adea/desktop^...");
+    expect(prepareScript).toContain("turbo run build --filter=@adea-ai/desktop^...");
     expect(prepareScript).not.toContain("scenes/hq build");
     expect(main).not.toContain("WebviewUrl::External");
     expect(main).not.toContain("AGENT_HQ_WEB_URL");
@@ -32,9 +32,9 @@ describe("desktop packaging and privilege boundary", () => {
     const client = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
     const workspace = await readFile(join(root, "apps/desktop/src/desktop-workspace.tsx"), "utf8");
 
-    expect(manifest.dependencies["@adea/hq-scenes"]).toBeUndefined();
-    expect(manifest.dependencies["@adea/room-designer-scene"]).toBeUndefined();
-    expect(manifest.dependencies["@adea/character-designer-scene"]).toBeUndefined();
+    expect(manifest.dependencies["@adea-ai/hq-scenes"]).toBeUndefined();
+    expect(manifest.dependencies["@adea-ai/room-designer-scene"]).toBeUndefined();
+    expect(manifest.dependencies["@adea-ai/character-designer-scene"]).toBeUndefined();
     expect(client).toContain("<DesktopWorkspace");
     expect(client).toContain("if (workspaceState)");
     expect(client).toContain("setSession(activeSession)");
@@ -99,8 +99,8 @@ describe("desktop packaging and privilege boundary", () => {
       "utf8"
     );
 
-    expect(desktopVersion).toContain("@adea/ui/components/version-dialog");
-    expect(webVersion).toContain("@adea/ui/components/version-dialog");
+    expect(desktopVersion).toContain("@adea-ai/ui/components/version-dialog");
+    expect(webVersion).toContain("@adea-ai/ui/components/version-dialog");
     expect(sharedVersion).toContain("What changed in this release");
     expect(sharedVersion).toContain("Installed changelog");
     expect(sharedVersion).toContain("View releases");
@@ -199,8 +199,8 @@ describe("desktop packaging and privilege boundary", () => {
     const client = await readFile(join(root, "apps/desktop/src/main.tsx"), "utf8");
 
     expect(config.plugins["deep-link"].desktop.schemes).toEqual(["agent-hq"]);
-    expect(manifest.dependencies["@adea/auth"]).toBe("workspace:*");
-    expect(client).not.toContain("@adea/auth/server");
+    expect(manifest.dependencies["@adea-ai/auth"]).toBe("workspace:*");
+    expect(client).not.toContain("@adea-ai/auth/server");
     expect(client).not.toContain("server-only");
     expect(client).toContain("createDesktopHttpSessionBroker");
     expect(client).toContain("desktop_user_session_save");
@@ -226,8 +226,8 @@ describe("desktop packaging and privilege boundary", () => {
       "utf8"
     );
 
-    expect(desktopStyles).toContain('@import "@adea/ui/auth-shell.css"');
-    expect(webStyles).toContain('@import "@adea/ui/auth-shell.css"');
+    expect(desktopStyles).toContain('@import "@adea-ai/ui/auth-shell.css"');
+    expect(webStyles).toContain('@import "@adea-ai/ui/auth-shell.css"');
     expect(desktop).toContain('className="auth-shell"');
     expect(web).toContain('className="auth-shell"');
     expect(sharedStyles).toContain(".auth-panel");
@@ -297,7 +297,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(bundle).not.toContain("@neondatabase/auth");
     expect(bundle).not.toContain("node:crypto");
     expect(bundle).not.toContain("server-only");
-    expect(bundle).not.toContain("@adea/db");
+    expect(bundle).not.toContain("@adea-ai/db");
   });
 });
 

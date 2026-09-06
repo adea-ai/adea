@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Publishes the moat-free shared packages (@adea/ui, @adea/asset-manifests,
-// @adea/audio) to the public npm registry so the private agent-sim repo —
+// Publishes the moat-free shared packages (@adea-ai/ui, @adea-ai/asset-manifests,
+// @adea-ai/audio) to the public npm registry so the private agent-sim repo —
 // and, later, the public adea repo — consume them without any registry auth.
-// These three packages have zero @adea/* transitive deps and contain no
+// These three packages have zero @adea-ai/* transitive deps and contain no
 // engine, simulation, or binary-asset code; that is what makes public
 // publishing safe. Never add an engine package to PUBLISH_PACKAGES.
 //

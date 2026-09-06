@@ -1,5 +1,5 @@
 import { AlertTriangle, Inbox, RefreshCw } from "lucide-react";
-import { ApiClientError } from "@adea/api-client";
+import { ApiClientError } from "@adea-ai/api-client";
 
 export function WorkspaceSkeleton({ label = "Loading workspace" }: { label?: string }) {
   return (

@@ -1,5 +1,5 @@
 {
-  "name": "@adea/asset-manifests",
+  "name": "@adea-ai/asset-manifests",
   "version": "0.10.8",
   "private": true,
   "type": "module",

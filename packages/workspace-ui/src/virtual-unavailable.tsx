@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@adea/ui/components/ui/button";
+import { Button } from "@adea-ai/ui/components/ui/button";
 
 export function VirtualUnavailable({
   sceneLabel,

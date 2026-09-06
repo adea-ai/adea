@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { PrincipalRef } from "@adea/types";
+import type { PrincipalRef } from "@adea-ai/types";
 
 import { resolveAuthenticatedPrincipal } from "../../src/principal";
 import type { AuthResult } from "../../src/session";

@@ -1,6 +1,6 @@
-import type { SceneManifest } from "@adea/asset-manifests";
+import type { SceneManifest } from "@adea-ai/asset-manifests";
 
-// Scene ids mirror @adea/app-core's HqSceneId, which remains the canonical
+// Scene ids mirror @adea-ai/app-core's HqSceneId, which remains the canonical
 // shell-side scene identity. This package only carries mount constants.
 type HqSceneId = "home" | "work";
 

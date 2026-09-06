@@ -2,7 +2,7 @@ import type {
   AgentHqApiClient,
   ApiMarketplaceCatalogResponse,
   ApiMarketplaceInstallResponse,
-} from "@adea/api-client";
+} from "@adea-ai/api-client";
 
 import type {
   WorkspacePlugin,

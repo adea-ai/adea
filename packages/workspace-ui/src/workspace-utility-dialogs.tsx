@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentHqApiClient } from "@adea/api-client";
-import { useWorkspaceSearchQuery } from "@adea/data";
+import type { AgentHqApiClient } from "@adea-ai/api-client";
+import { useWorkspaceSearchQuery } from "@adea-ai/data";
 import type {
   AgentSummary,
   ArtifactSummary,
@@ -8,7 +8,7 @@ import type {
   RoomSummary,
   TaskSummary,
   WorkspaceSearchResult,
-} from "@adea/types";
+} from "@adea-ai/types";
 import {
   Bot,
   CheckCheck,

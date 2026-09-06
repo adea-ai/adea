@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { AgentSummary, ChannelSummary, RoomSummary } from "@adea/types";
+import type { AgentSummary, ChannelSummary, RoomSummary } from "@adea-ai/types";
 
 import {
   composerKeyboardAction,

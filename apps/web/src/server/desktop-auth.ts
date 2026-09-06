@@ -10,7 +10,7 @@ import {
   rotateDesktopSessionRecord,
   saveDesktopAuthorizationCode,
   setUserDisplayNameIfMissing,
-} from "@adea/db";
+} from "@adea-ai/db";
 import {
   createDesktopAuthorizationCodeBroker,
   createDesktopSessionService,
@@ -19,7 +19,7 @@ import {
   parseDesktopSessionRequest,
   type DesktopAuthorizationCodeStore,
   type DesktopSessionStore,
-} from "@adea/auth/server";
+} from "@adea-ai/auth/server";
 
 import { applicationDatabase } from "./database";
 import { desktopTrustedOrigins } from "./desktop-workspace";
