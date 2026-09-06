@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.10.9](https://github.com/adea-ai/adea/compare/v0.10.8...v0.10.9) (2026-09-06)
+
+
+### Bug Fixes
+
+* **auth:** rename desktop credential headers and prefixes to adea ([#264](https://github.com/adea-ai/adea/issues/264)) ([7774506](https://github.com/adea-ai/adea/commit/7774506c9ff18818813c9b8a48fe946d2eab5935))
+* **ci:** fetch asset pack unconditionally in release matrix ([#237](https://github.com/adea-ai/adea/issues/237)) ([6d98a4a](https://github.com/adea-ai/adea/commit/6d98a4aee575ccb0956936d8731e66ca34bfb62d))
+* **ci:** repair lanes while hosted minutes are paused ([#238](https://github.com/adea-ai/adea/issues/238)) ([5a07437](https://github.com/adea-ai/adea/commit/5a0743765cff9ce83f9abcf2f8726d78fa385d8e))
+* **ci:** restore tailwind engine, pin capacitor, stabilize e2e ([#269](https://github.com/adea-ai/adea/issues/269)) ([70811ca](https://github.com/adea-ai/adea/commit/70811caf258abd5ec90f2c48a93570fc24bf0277))
+* **e2e:** retry designer navigation when the default-scene redirect aborts it ([#232](https://github.com/adea-ai/adea/issues/232)) ([41a42aa](https://github.com/adea-ai/adea/commit/41a42aa1accc9a7c1e8626aa839c7c6912091bc2))
+* **packages:** ship built dist in published tarballs ([#252](https://github.com/adea-ai/adea/issues/252)) ([a7eebac](https://github.com/adea-ai/adea/commit/a7eebacb7d25b39f3742cce7607fed10cc16cf35))
+
+
+### Documentation
+
+* add missing package READMEs and refresh manifest note ([#265](https://github.com/adea-ai/adea/issues/265)) ([30d0b04](https://github.com/adea-ai/adea/commit/30d0b04d287914a07e5146763ecc3f77c87625e0))
+* **adr:** lock repository topology, naming, and visibility ([#240](https://github.com/adea-ai/adea/issues/240)) ([7180829](https://github.com/adea-ai/adea/commit/7180829cf2dd5c9ec4d86d3d743b2e94065288d4))
+* describe shell/engine split in runbooks ([#255](https://github.com/adea-ai/adea/issues/255)) ([fa28510](https://github.com/adea-ai/adea/commit/fa28510a4ccdf1620a28a83588b5c41bc09b7531))
+* follow hyperdrive rename to adea-db ([#262](https://github.com/adea-ai/adea/issues/262)) ([9dcd5e1](https://github.com/adea-ai/adea/commit/9dcd5e1e96557ef147499ad4d4dbb29ee5e7104f))
+
+
+### Maintenance
+
+* **assets:** harden private pack boundary ahead of open-source plan ([#239](https://github.com/adea-ai/adea/issues/239)) ([8dffc6c](https://github.com/adea-ai/adea/commit/8dffc6c678520a97b7555c3d1e8a9b70a612e4cf))
+* **assets:** move binary art to the private adea-ai/assets pack ([#234](https://github.com/adea-ai/adea/issues/234)) ([ffeeb12](https://github.com/adea-ai/adea/commit/ffeeb12a3ebcf64b653d5365e5bc3f886f2eb10c))
+* **brand:** rename user-visible Agent HQ strings to Adea ([#257](https://github.com/adea-ai/adea/issues/257)) ([bb68ae0](https://github.com/adea-ai/adea/commit/bb68ae06534e63dfc3312a6addb768454de7fd65))
+* **ci:** retrigger worker build after ASSETS_READ_TOKEN provisioning ([#235](https://github.com/adea-ai/adea/issues/235)) ([ce865ca](https://github.com/adea-ai/adea/commit/ce865ca40df3b6aa5952a1836fc484fa11d40a96))
+* **ci:** sync code-foundry runtime to v1.0.2 ([#241](https://github.com/adea-ai/adea/issues/241)) ([e875b15](https://github.com/adea-ai/adea/commit/e875b15206b63ef170fa08927450040ca3706e18))
+* **ci:** upgrade code-foundry runtime to v1.0.0 ([#236](https://github.com/adea-ai/adea/issues/236)) ([d8014df](https://github.com/adea-ai/adea/commit/d8014df21d78cd520b5c724c8700ad54de424a95))
+* **cloudflare:** follow account subdomain to adea-ai.workers.dev ([#260](https://github.com/adea-ai/adea/issues/260)) ([b170930](https://github.com/adea-ai/adea/commit/b17093011dcb6f1c97b8927f9290facc4566370d))
+* **cloudflare:** rename worker agent-hq-web to adea-web ([#253](https://github.com/adea-ai/adea/issues/253)) ([6001294](https://github.com/adea-ai/adea/commit/600129453f2301c089b06789c9087cefbc993323))
+* **env:** rename AGENT_HQ_* environment contract to ADEA_* ([#254](https://github.com/adea-ai/adea/issues/254)) ([a5b3ade](https://github.com/adea-ai/adea/commit/a5b3adeba52495178d251be0a09ef8e12248cb44))
+* **identity:** migrate app identifiers from agent-hq to adea ([#263](https://github.com/adea-ai/adea/issues/263)) ([d7816ea](https://github.com/adea-ai/adea/commit/d7816ea5bf1e6607756e99a79f319787bc3781ff))
+* **infra:** point updater channel at adea-desktop-updates bucket ([#259](https://github.com/adea-ai/adea/issues/259)) ([7a51dff](https://github.com/adea-ai/adea/commit/7a51dfffe1f1276b43cfc39cb92365c1d224efd7))
+* **infra:** publish updater channel to adea bucket ([#261](https://github.com/adea-ai/adea/issues/261)) ([2f81744](https://github.com/adea-ai/adea/commit/2f8174438537f4f28f2c3943c4a407c7f847a401))
+* **infra:** rename release runner labels and state to adea ([#258](https://github.com/adea-ai/adea/issues/258)) ([849ef26](https://github.com/adea-ai/adea/commit/849ef26e3c4263a9c3bca32ba312758c28688bbb))
+* **packages:** drop provenance until hosted runners return ([#247](https://github.com/adea-ai/adea/issues/247)) ([64ed61c](https://github.com/adea-ai/adea/commit/64ed61ca317f89b91919d261aabef5deb56460ac))
+* **packages:** move workspace scope to [@adea-ai](https://github.com/adea-ai) ([#245](https://github.com/adea-ai/adea/issues/245)) ([e1a89fa](https://github.com/adea-ai/adea/commit/e1a89fab099abc288662cf6b3142c79f704be441))
+* **packages:** publish moat-free shared packages to npm ([#244](https://github.com/adea-ai/adea/issues/244)) ([15bb770](https://github.com/adea-ai/adea/commit/15bb770401b81776731740cc58e2fe6a6c9a8105))
+* **packages:** retry version check on publish races ([#251](https://github.com/adea-ai/adea/issues/251)) ([8e385ef](https://github.com/adea-ai/adea/commit/8e385ef15174d3f7f832d0cbd1f01e83d6647779))
+* **packages:** run publish lane on paused-billing runners ([#246](https://github.com/adea-ai/adea/issues/246)) ([97ea45d](https://github.com/adea-ai/adea/commit/97ea45d4bc30da871e011ef6b85b4af1c9d55f75))
+* **packages:** tolerate concurrent publish wins ([#250](https://github.com/adea-ai/adea/issues/250)) ([521a167](https://github.com/adea-ai/adea/commit/521a1673d7eaf861fc104ef877322cb1d71ccf3d))
+* **packages:** unmark shared packages private for npm publish ([#249](https://github.com/adea-ai/adea/issues/249)) ([cc82fce](https://github.com/adea-ai/adea/commit/cc82fcef932b13ac37b57dbc817579ad17e5b0c2))
+* **packages:** use real setup-node pin in publish lane ([#248](https://github.com/adea-ai/adea/issues/248)) ([326ec2d](https://github.com/adea-ai/adea/commit/326ec2d80bbf7e8b817d23326c468c4dbf8418e4))
+* point repo slug at adea-ai/adea ([#256](https://github.com/adea-ai/adea/issues/256)) ([6f0c067](https://github.com/adea-ai/adea/commit/6f0c067ab494c2f507dbee3b83a7abf252280ba2))
+* prune vercel references (cloudflare-only deploys) ([#243](https://github.com/adea-ai/adea/issues/243)) ([5941f6e](https://github.com/adea-ai/adea/commit/5941f6ec2c35aa46c18934ea084a4cf9a7b6a407))
+* **release:** serve desktop updater channel from Cloudflare R2 ([#233](https://github.com/adea-ai/adea/issues/233)) ([558f982](https://github.com/adea-ai/adea/commit/558f9822e3d59c19d3ec11fcd1fe7374482fa697))
+* **sim:** cut the engine out of adea into agent-sim ([#242](https://github.com/adea-ai/adea/issues/242)) ([f7f75a6](https://github.com/adea-ai/adea/commit/f7f75a6433cb246b6dfcafa8bd51b0a901195e46))
+
 ## [0.10.8](https://github.com/adea-ai/agent-hq/compare/v0.10.7...v0.10.8) (2026-09-05)
 
 
