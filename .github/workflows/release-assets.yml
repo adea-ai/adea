@@ -19,10 +19,14 @@ concurrency:
 env:
   RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   validate-release:
     name: Validate release
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
@@ -75,38 +79,28 @@ jobs:
     if: needs.validate-release.outputs.desktop_release == 'true'
     strategy:
       fail-fast: false
-      # The local fallback runners share one macOS host (and Rosetta for
-      # Linux). Serialize those jobs to avoid exhausting the host process
-      # table; hosted runners retain parallel matrix builds.
-      max-parallel: ${{ vars.CI_BILLING_PAUSED == 'true' && 1 || 3 }}
       matrix:
         include:
           - runner: macos-14
-            self_hosted_runner: '["self-hosted","adea-release-macos-arm64"]'
             platform: macOS ARM64
             args: --target aarch64-apple-darwin
-            self_hosted_args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
             timeout_minutes: 45
           - runner: ubuntu-24.04
-            self_hosted_runner: '["self-hosted","adea-release-linux-x64"]'
             platform: Linux x64
             # Tauri 2.11's in-process RPM bundler can hang indefinitely after
             # rendering the desktop file. Keep RPM out of the release matrix
             # until the upstream rpm-rs update lands; DEB + AppImage provide
             # the Linux install and updater artifacts we publish.
             args: --bundles deb,appimage
-            self_hosted_args: --bundles deb,appimage
             target: x86_64-unknown-linux-gnu
             timeout_minutes: 120
           - runner: windows-latest
-            self_hosted_runner: '["self-hosted","adea-release-macos-arm64"]'
             platform: Windows x64
             args: ""
-            self_hosted_args: --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis
             target: x86_64-pc-windows-msvc
             timeout_minutes: 45
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_runner || format('"{0}"', matrix.runner)) }}
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     permissions:
       contents: write
@@ -114,10 +108,6 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      # The local Linux runner is an emulated x64 environment. Keep Cargo
-      # single-threaded there because Rosetta's process accounting can reject
-      # a second rustc even when the desktop matrix is serialized.
-      CARGO_BUILD_JOBS: ${{ matrix.platform == 'Linux x64' && '1' || '4' }}
     steps:
       - name: Checkout release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -164,21 +154,6 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Install Windows cross-compilation tools
-        if: vars.CI_BILLING_PAUSED == 'true' && matrix.platform == 'Windows x64'
-        run: |
-          set -euo pipefail
-          brew list llvm >/dev/null 2>&1 || brew install llvm
-          brew list nsis >/dev/null 2>&1 || brew install nsis
-          command -v cargo-xwin >/dev/null 2>&1 || cargo install --locked cargo-xwin@0.23.1
-          rustup target add x86_64-pc-windows-msvc
-          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
-
-      - name: Isolate Windows cross-compilation output
-        if: vars.CI_BILLING_PAUSED == 'true' && matrix.platform == 'Windows x64'
-        run: |
-          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/apps/desktop/src-tauri/target" >> "$GITHUB_ENV"
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -196,7 +171,7 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
           tauriScript: bun scripts/tauri.mjs
-          args: ${{ vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_args || matrix.args }}
+          args: ${{ matrix.args }}
 
       - name: Retry desktop bundle upload
         if: steps.desktop_bundle.outcome == 'failure'
@@ -208,13 +183,13 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseBody: ${{ steps.release_notes.outputs.body }}
           tauriScript: bun scripts/tauri.mjs
-          args: ${{ vars.CI_BILLING_PAUSED == 'true' && matrix.self_hosted_args || matrix.args }}
+          args: ${{ matrix.args }}
 
   publish-release-notes:
     name: Publish release notes
     needs: [validate-release, desktop]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: write
@@ -240,7 +215,7 @@ jobs:
     name: Publish desktop updater channel
     needs: [validate-release, desktop, publish-release-notes]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
@@ -281,13 +256,6 @@ jobs:
               --dir "$staging/site/desktop-updates"
           done < <(jq -r '.[]' "$staging/update-assets.json")
           test -n "$(find "$staging/site/desktop-updates" -maxdepth 1 -type f ! -name latest.json -print -quit)"
-
-      - name: Install AWS CLI for R2 upload
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          command -v aws >/dev/null || brew install awscli
-          command -v aws >/dev/null
 
       - name: Upload updater channel to R2
         env:
@@ -331,7 +299,7 @@ jobs:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-release-notes, publish-updater-channel]
     if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' && needs.publish-updater-channel.result == 'success' }}
-    runs-on: ${{ fromJSON(vars.CI_BILLING_PAUSED == 'true' && '["self-hosted","adea-release-macos-arm64"]' || '"ubuntu-latest"') }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
@@ -341,7 +309,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          count="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("agent"; "i"))] | length')"
+          count="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("adea"; "i"))] | length')"
           if [ "$count" -lt 3 ]; then
             echo "Expected at least one Adea desktop asset per target; found $count." >&2
             gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' >&2
