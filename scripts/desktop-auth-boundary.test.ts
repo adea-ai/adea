@@ -24,7 +24,7 @@ describe("desktop packaging and privilege boundary", () => {
     expect(prepareScript).toContain("turbo run build --filter=@adea-ai/desktop^...");
     expect(prepareScript).not.toContain("scenes/hq build");
     expect(main).not.toContain("WebviewUrl::External");
-    expect(main).not.toContain("AGENT_HQ_WEB_URL");
+    expect(main).not.toContain("ADEA_WEB_URL");
   });
 
   test("enters the bundled spatial workspace after guest bootstrap", async () => {
