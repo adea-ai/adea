@@ -67,7 +67,7 @@ export function WorkspaceShell({
   }, [initialCameraViewMode, initialScene, setCameraViewMode, setSelectedScene]);
 
   useEffect(() => {
-    document.title = `Agent HQ | ${scene.label}`;
+    document.title = `Adea | ${scene.label}`;
   }, [scene.label]);
 
   return (
@@ -78,7 +78,7 @@ export function WorkspaceShell({
           onOpenChat={() => onWorkspaceViewChange?.("chat")}
         />
 
-        <div className="workspace-ui" aria-label="Agent HQ workspace controls">
+        <div className="workspace-ui" aria-label="Adea workspace controls">
           <VirtualRoomControls
             client={apiClient}
             openChat={() => onWorkspaceViewChange?.("chat")}

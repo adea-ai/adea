@@ -328,7 +328,7 @@ export function ConversationSurface({
                 ? `Start a direct conversation with ${directAgent.name}`
                 : `Start the ${channel.title} conversation`
             }
-            detail="Messages here are canonical Agent HQ history and remain stable across runtime sessions."
+            detail="Messages here are canonical Adea history and remain stable across runtime sessions."
           />
         ) : null}
         {rootMessages.map((message, index) => {

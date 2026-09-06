@@ -1,4 +1,4 @@
-# Agent HQ Mobile
+# Adea Mobile
 
 The mobile target is a thin Capacitor shell around the canonical web
 application. The React application, domain logic, data contracts, state, and

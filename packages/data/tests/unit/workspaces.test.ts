@@ -6,7 +6,7 @@ import { workspaceMutationOptions, workspaceQueryKeys, workspaceQueryOptions } f
 
 const workspace = {
   id: "workspace-1",
-  name: "My Agent HQ",
+  name: "My Adea",
   scene: "home" as const,
   updatedAt: "2026-08-25T00:00:00.000Z",
 };

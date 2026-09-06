@@ -28,7 +28,7 @@ export function notificationPreview(
   const body = input.privateContent
     ? input.privatePreviewAuthorized && input.privateBody
       ? input.privateBody.slice(0, 180)
-      : "New private message. Open Agent HQ on the authorized device to read it."
+      : "New private message. Open Adea on the authorized device to read it."
     : (input.publicBody ?? "New workspace activity").slice(0, 180);
   return Object.freeze({
     body,

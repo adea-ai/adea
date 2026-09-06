@@ -1,10 +1,10 @@
-# Agent HQ Diagram Sources
+# Adea Diagram Sources
 
 Status: Canonical repository source
-Owner: Agent HQ architecture
+Owner: Adea architecture
 Last reviewed: 2026-08-28
 
-These Mermaid definitions are the version-controlled Agent HQ source for the rendered diagrams cataloged in the canonical Google Docs. Cross-repository Control Plane and Cortana diagrams remain in their owning repositories.
+These Mermaid definitions are the version-controlled Adea source for the rendered diagrams cataloged in the canonical Google Docs. Cross-repository Control Plane and Cortana diagrams remain in their owning repositories.
 
 ## Editing and rendering rules
 
@@ -13,13 +13,13 @@ These Mermaid definitions are the version-controlled Agent HQ source for the ren
 3. Keep headings aligned with the owning document and figure purpose.
 4. Do not hand-edit rendered diagram images.
 5. Physical provider resource names such as R2 bucket names, Wrangler bindings, Neon project IDs, and Railway project IDs are deployment configuration, not domain identifiers.
-6. Agent HQ and Control Plane may share a Cloudflare account/provider, but they use separate bucket/credential authority. The Control Plane `ctrl-plane` bucket is not Agent HQ Artifact storage.
+6. Adea and Control Plane may share a Cloudflare account/provider, but they use separate bucket/credential authority. The Control Plane `ctrl-plane` bucket is not Adea Artifact storage.
 
-## Agent HQ PRD: Product Architecture
+## Adea PRD: Product Architecture
 
 ```mermaid
 flowchart TB
-    U([User]) --> HQ[Agent HQ Workspace]
+    U([User]) --> HQ[Adea Workspace]
     HQ --> CP[Control Plane]
     CP --> CPO{Optional ContextProvider?}
     CPO -->|No / disabled| EP[Immutable ExecutionPlan]
@@ -41,11 +41,11 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    subgraph HQ["Agent HQ — Private First-Party Product"]
+    subgraph HQ["Adea — Private First-Party Product"]
         C[Desktop / Web / Mobile UI]
         API[Application Services]
-        HQDB[(Agent HQ Neon / Cloud-Safe Metadata)]
-        RELAY[Agent HQ Remote Relay / HPKE Ciphertext]
+        HQDB[(Adea Neon / Cloud-Safe Metadata)]
+        RELAY[Adea Remote Relay / HPKE Ciphertext]
         EVT[Railway Event Gateway / Neon WorkspaceEvents]
     end
     subgraph CP["Control Plane — Open Source / Apache-2.0"]
@@ -115,18 +115,18 @@ flowchart TB
     NONE[No provider is a supported baseline] -. no dependency .-> PLAN
 ```
 
-## Agent HQ TDD: Application Architecture
+## Adea TDD: Application Architecture
 
 ```mermaid
 flowchart TB
-    U([User]) --> CL[Agent HQ Desktop Client]
+    U([User]) --> CL[Adea Desktop Client]
     subgraph Client["Client Layer"]
         CL --> S[Agent Sim engine remote (entitlement-gated)]
         CL --> L[Channel / List View]
         CL --> UI[Task, Chat, Kanban, Settings]
         CL --> EC[Event Client]
     end
-    subgraph App["Agent HQ Application Services"]
+    subgraph App["Adea Application Services"]
         AUTH["Neon Auth<br/>via @agent-hq/auth"]
         API[API]
         WS[Workspace / Agent / Task / Conversation Metadata Services]
@@ -147,14 +147,14 @@ flowchart TB
     EV --> EC
 ```
 
-## Agent HQ TDD: Remote-Origin Product Event Flow
+## Adea TDD: Remote-Origin Product Event Flow
 
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant C as Agent HQ Client Surface
-    participant A as Agent HQ API
-    participant X as Agent HQ Remote Relay
+    participant C as Adea Client Surface
+    participant A as Adea API
+    participant X as Adea Remote Relay
     participant P as Selected Control Plane Host
     participant T as Restate
     participant RA as Runtime Adapter
@@ -186,15 +186,15 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    U([User]) --> B[Browser / Agent HQ Client]
-    subgraph AppCloud["Agent HQ Application Trust Zone"]
+    U([User]) --> B[Browser / Adea Client]
+    subgraph AppCloud["Adea Application Trust Zone"]
         AUTH["Neon Auth<br/>via @agent-hq/auth"]
-        API[Agent HQ API]
-        DB[(Agent HQ Neon / Cloud-Safe Metadata)]
+        API[Adea API]
+        DB[(Adea Neon / Cloud-Safe Metadata)]
         RELAY[Remote Relay / HPKE Ciphertext]
         EG[Railway Event Gateway]
         ART[@agent-hq/artifacts]
-        BLOB[(Agent HQ Cloudflare R2 - separate product bucket)]
+        BLOB[(Adea Cloudflare R2 - separate product bucket)]
     end
     subgraph Control["Selected Control Plane Trust Zone - local, self-hosted, or managed cloud"]
         CP[Control Plane]
@@ -207,7 +207,7 @@ flowchart LR
         SB[SandboxProvider]
     end
     subgraph Local["User Device Trust Zone"]
-        LC[(Encrypted Agent HQ Local Content)]
+        LC[(Encrypted Adea Local Content)]
         RH[Desktop Local Runtime Host]
         MP[Managed Local Pi]
         EH[External Harnesses]
@@ -275,7 +275,7 @@ erDiagram
 
 ```mermaid
 stateDiagram-v2
-    state "Agent HQ Task" as Task {
+    state "Adea Task" as Task {
         [*] --> Created
         Created --> Queued
         Queued --> Running
@@ -302,7 +302,7 @@ stateDiagram-v2
 
 ```mermaid
 flowchart LR
-    subgraph HQ["Agent HQ"]
+    subgraph HQ["Adea"]
         W[Private Home / Office]
         P[Productivity / Agentic Tooling]
     end
@@ -313,7 +313,7 @@ flowchart LR
     end
     W --> T --> S
     S --> T --> W
-    P -. remains in Agent HQ .- W
+    P -. remains in Adea .- W
     S --> G
 ```
 
@@ -322,7 +322,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant H as Agent HQ
+    participant H as Adea
     participant I as Integration Service
     participant N as Nifty World
     U->>H: Exit through gate
@@ -332,7 +332,7 @@ sequenceDiagram
     N->>I: Validate token
     I-->>N: Minimum identity + avatar mapping
     N-->>U: Enter Nifty World
-    U->>N: Return to Agent HQ
+    U->>N: Return to Adea
     N->>H: Navigate to signed return route
     Note over H,N: Productivity context, conversations, tasks, and credentials are not transferred
 ```
@@ -341,12 +341,12 @@ sequenceDiagram
 
 ```mermaid
 flowchart TB
-    subgraph Clients["Agent HQ Clients"]
+    subgraph Clients["Adea Clients"]
         D[Desktop App / Full Workspace]
         W[Web Remote Control]
         M[Mobile Remote Control]
     end
-    subgraph Cloud["Agent HQ Cloud Coordination"]
+    subgraph Cloud["Adea Cloud Coordination"]
         APP[Application Services]
         DB[(Neon / Drizzle Cloud Metadata)]
         RELAY[Durable Remote Relay / Metadata + HPKE Ciphertext]
@@ -357,7 +357,7 @@ flowchart TB
         RG[Runtime Gateway - non-co-located RuntimeNode only]
     end
     subgraph Local["Paired Developer Device"]
-        LC[(Encrypted Agent HQ Local Content / rusqlite)]
+        LC[(Encrypted Adea Local Content / rusqlite)]
         LCP[Local All-in-One Control Plane / Restate / node:sqlite]
         LG[Bounded LangGraph.js]
         RH[Local Runtime Host]
@@ -411,17 +411,17 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    C[Desktop / Web / Mobile] --> APP[Agent HQ Cloud Application Services]
+    C[Desktop / Web / Mobile] --> APP[Adea Cloud Application Services]
     APP --> RELAY[Durable Remote Relay / HPKE]
     APP --> X{Execution Location}
     X -->|Local| RELAY
     RELAY --> LCP[Local Control Plane]
     X -->|Self-hosted| RELAY
     RELAY --> HCP[Self-Hosted Control Plane]
-    X -->|Agent HQ Cloud| CCP[Agent HQ Cloud Control Plane]
+    X -->|Adea Cloud| CCP[Adea Cloud Control Plane]
     LCP --> L[Local RuntimeNode]
     HCP --> H[Self-Hosted RuntimeNode]
-    CCP --> CC[Agent HQ Cloud RuntimeNode]
+    CCP --> CC[Adea Cloud RuntimeNode]
     L --> LH[Local Harnesses / Pi]
     H --> HH[Self-Hosted Harnesses / Pi]
     CC --> S[Isolated Managed Sandbox]
@@ -440,7 +440,7 @@ flowchart LR
 flowchart LR
     AUTH[Neon Auth] --> AB[@agent-hq/auth]
     AB --> AI[(AuthIdentity)]
-    AI --> U[(Stable Agent HQ User)]
+    AI --> U[(Stable Adea User)]
     U --> UP[User PrincipalRef]
     UP --> MEM[Workspace Membership and Permissions]
     DS[Desktop App Session] --> UP
@@ -459,7 +459,7 @@ sequenceDiagram
     actor U as User
     participant D as Packaged Tauri Desktop
     participant B as System Browser
-    participant A as Agent HQ Auth Broker
+    participant A as Adea Auth Broker
     participant N as Neon Auth
     U->>D: Sign in
     D->>D: Create state, nonce, PKCE verifier
@@ -477,7 +477,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    subgraph AgentHQ["Agent HQ Application Services"]
+    subgraph AgentHQ["Adea Application Services"]
         RN[(RuntimeNode Registry)]
         PAIR[Pairing / Rotation / Revocation]
     end
@@ -514,7 +514,7 @@ flowchart LR
     DR --> AD --> EXT
     PC -->|available through| RN
     RN -. Ed25519 auth identity / authorization .-> RG
-    RN -. separate X25519 E2E content key registered with Agent HQ .-> PAIR
+    RN -. separate X25519 E2E content key registered with Adea .-> PAIR
 ```
 
 ## Remote-Origin Cross-Service Command and Event Consistency
@@ -522,9 +522,9 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant A as Agent HQ API
-    participant X as Agent HQ Remote Relay
-    participant AD as Agent HQ Database
+    participant A as Adea API
+    participant X as Adea Remote Relay
+    participant AD as Adea Database
     participant P as Selected Control Plane Host
     participant CD as Control Plane Database
     participant G as DirectLocalRuntimeTransport or Runtime Gateway
@@ -565,7 +565,7 @@ flowchart LR
     D -->|ProjectState| P[StatePromotionProposal]
     D -->|Cloud Artifact| A[Artifact Upload Intent]
     D -->|No| L[Remain Local]
-    A --> V[Agent HQ Cloudflare R2 via @agent-hq/artifacts]
+    A --> V[Adea Cloudflare R2 via @agent-hq/artifacts]
     Note[Absolute paths never enter cloud product state]
     NM -. enforces .-> Note
 ```
@@ -579,7 +579,7 @@ flowchart LR
     X[External System] --> ER[External Reference]
     P --> D{Byte Location}
     D --> L[Local RuntimeNode]
-    D --> C[Agent HQ Cloudflare R2 - explicit cloud promotion]
+    D --> C[Adea Cloudflare R2 - explicit cloud promotion]
     D --> ER
     L -->|Explicit authorized promotion| C
     C --> V[Verify Ownership / Size / Digest / Media Type]
@@ -599,7 +599,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    DB[(Agent HQ Neon WorkspaceEvent Log - >=30d online replay)]
+    DB[(Adea Neon WorkspaceEvent Log - >=30d online replay)]
     W[LISTEN/NOTIFY IDs + 2s Neon Poll Fallback]
     G1[Railway Event Gateway A]
     G2[Railway Event Gateway B]

@@ -58,7 +58,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
 
     const first = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: "default",
-      name: "My Agent HQ",
+      name: "My Adea",
       owner: temporary.principal,
     });
     const retry = await createWorkspaceWithOwner(connection.db, {
@@ -122,7 +122,7 @@ describe.skipIf(!connectionUrl)("workspace tenancy integration", () => {
     });
     const legacy = await createWorkspaceWithOwner(connection.db, {
       idempotencyKey: "default",
-      name: "My Agent HQ",
+      name: "My Adea",
       owner: temporary.principal,
     });
 

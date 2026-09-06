@@ -344,7 +344,7 @@ function PluginDetail({
               : "Managed by this workspace"}
         </p>
         <small>
-          Adding enables this provider in Agent HQ. Account authorization and runtime execution stay
+          Adding enables this provider in Adea. Account authorization and runtime execution stay
           within the authoritative Control Plane connection.
         </small>
       </section>

@@ -40,7 +40,7 @@ function errorCopy(error: unknown) {
   }
   if (typeof navigator !== "undefined" && !navigator.onLine)
     return "You appear to be offline. Your draft is safe on this device.";
-  return "Agent HQ could not load this content. Your durable workspace was not changed.";
+  return "Adea could not load this content. Your durable workspace was not changed.";
 }
 
 export function WorkspaceError({ error, retry }: { error: unknown; retry?: () => void }) {

@@ -15,7 +15,7 @@ import { ConversationAvatar } from "./conversation-avatar";
 
 function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
   if (message.sender.kind === "user") return "You";
-  if (message.sender.kind === "system") return "Agent HQ";
+  if (message.sender.kind === "system") return "Adea";
   const agentId = message.sender.agentId;
   return agents.find(({ id }) => id === agentId)?.name ?? "Agent";
 }

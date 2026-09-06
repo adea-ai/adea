@@ -51,7 +51,7 @@ export function DesktopWorkspace({ client, onWorkspaceViewChange, scene }: Deskt
           />
         </Suspense>
         {!roomDesignerEnabled ? (
-          <div className="workspace-ui" aria-label="Agent HQ workspace controls">
+          <div className="workspace-ui" aria-label="Adea workspace controls">
             <VirtualRoomControls client={client} openChat={() => onWorkspaceViewChange("chat")} />
           </div>
         ) : null}

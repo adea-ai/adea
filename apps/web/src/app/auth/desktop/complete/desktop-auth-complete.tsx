@@ -34,12 +34,12 @@ export function DesktopAuthComplete() {
   if (status === "invalid") {
     return (
       <>
-        <p className="auth-eyebrow">Agent HQ desktop</p>
+        <p className="auth-eyebrow">Adea desktop</p>
         <h1 className="auth-title" id="desktop-auth-complete-title">
           Return link expired
         </h1>
         <p className="auth-introduction" role="alert">
-          Start sign-in again from the Agent HQ desktop app to generate a new secure return link.
+          Start sign-in again from the Adea desktop app to generate a new secure return link.
         </p>
       </>
     );
@@ -55,15 +55,15 @@ export function DesktopAuthComplete() {
         You’re all set
       </h1>
       <p className="auth-introduction" role="status" aria-live="polite">
-        Agent HQ {status === "opening" ? "is opening" : "has been opened"}. You can close this tab
-        and continue in the desktop app.
+        Adea {status === "opening" ? "is opening" : "has been opened"}. You can close this tab and
+        continue in the desktop app.
       </p>
       <button
         className="browser-auth-submit browser-auth-open-app"
         type="button"
         onClick={openDesktopApp}
       >
-        Open Agent HQ
+        Open Adea
         <ExternalLink aria-hidden="true" />
       </button>
     </>

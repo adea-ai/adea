@@ -23,7 +23,7 @@ function server(environment: AuthEnvironment = process.env) {
         secret: cachedConfig.cookieSecret,
         sessionDataTtl: cachedConfig.sessionDataTtl,
       },
-      // Provider payloads and transport errors may contain PII or cookies. Agent HQ emits
+      // Provider payloads and transport errors may contain PII or cookies. Adea emits
       // only its own allowlisted auth events through createAuthEvent().
       logLevel: "silent",
     });

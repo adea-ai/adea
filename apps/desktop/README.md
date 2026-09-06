@@ -1,7 +1,7 @@
-# Agent HQ Desktop
+# Adea Desktop
 
 The desktop target is a Tauri 2 application that ships its React client as
-packaged local assets. It never loads the Agent HQ web deployment as the
+packaged local assets. It never loads the Adea web deployment as the
 privileged top-level WebView. Shared browser-safe packages remain reusable,
 while Next.js handlers, `/auth/server`, `/db`, provider SDKs,
 and other server-only modules stay out of the bundle.
@@ -9,7 +9,7 @@ and other server-only modules stay out of the bundle.
 Run `bun run shell:dev` from this directory to start the local Vite client and
 open it in Tauri. `bun run client:build` produces the assets embedded by Tauri.
 The public `VITE_ADEA_CLOUD_ORIGIN` build setting may select an approved
-Agent HQ deployment; native code reads that same compile-time value when it
+Adea deployment; native code reads that same compile-time value when it
 allowlists the authorization origin. Release builds default to
 `https://adea.dev`.
 

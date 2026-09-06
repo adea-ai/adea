@@ -151,7 +151,7 @@ export function WorkspaceSettingsDialog({
         />
       }
       title="Settings"
-      description="Product preferences and boundaries for this Agent HQ workspace."
+      description="Product preferences and boundaries for this Adea workspace."
     >
       <div className="conventional-settings-shell">
         <nav aria-label="Settings sections" className="conventional-settings-nav">
@@ -225,7 +225,7 @@ export function WorkspaceSettingsDialog({
                 </button>
               </SettingsRow>
               <SettingsRow
-                title={services?.app?.name ?? "Agent HQ"}
+                title={services?.app?.name ?? "Adea"}
                 detail={`${services?.app?.platform === "desktop" ? "Desktop application" : "Web application"}${services?.app?.version ? ` · v${services.app.version}` : ""}`}
               />
               <SettingsRow
@@ -316,7 +316,7 @@ export function WorkspaceSettingsDialog({
                 detail={
                   services?.transcription
                     ? `Uses ${services.transcription.label}; text stays editable and is never auto-sent.`
-                    : "Install Agent HQ Desktop to use system dictation."
+                    : "Install Adea Desktop to use system dictation."
                 }
               >
                 <button

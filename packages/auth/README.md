@@ -1,6 +1,6 @@
 # Auth package
 
-Provider-neutral authentication boundary for Agent HQ. The root export contains normalized types
+Provider-neutral authentication boundary for Adea. The root export contains normalized types
 and adapters. `/auth/server` is the only server-side Neon Auth integration, and
 `/auth/client` is the only client-side integration.
 
