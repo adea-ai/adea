@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.16](https://github.com/adea-ai/adea/compare/v0.10.15...v0.10.16) (2026-09-06)
+
+
+### Maintenance
+
+* **ci:** serve desktop updates directly from GitHub Releases ([#284](https://github.com/adea-ai/adea/issues/284)) ([8e47b2c](https://github.com/adea-ai/adea/commit/8e47b2c28340c206606b362f8a5cb29f486c42af))
+
 ## [0.10.15](https://github.com/adea-ai/adea/compare/v0.10.14...v0.10.15) (2026-09-06)
 
 
