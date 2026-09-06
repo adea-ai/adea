@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.12](https://github.com/adea-ai/adea/compare/v0.10.11...v0.10.12) (2026-09-06)
+
+
+### Maintenance
+
+* **ui:** drop prop catalog and three from published package ([#277](https://github.com/adea-ai/adea/issues/277)) ([f6a2a66](https://github.com/adea-ai/adea/commit/f6a2a660aef51e118b55a11dee8a15923303e0c8))
+
 ## [0.10.11](https://github.com/adea-ai/adea/compare/v0.10.10...v0.10.11) (2026-09-06)
 
 
