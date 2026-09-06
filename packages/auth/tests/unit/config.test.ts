@@ -45,12 +45,12 @@ describe("auth configuration", () => {
     const config = readAuthConfig({
       ...validEnvironment,
       AUTH_TRUSTED_ORIGINS:
-        "https://adea.dev,https://agent-hq-web.agent-hq.workers.dev,agent-hq://auth/callback",
+        "https://adea.dev,https://adea-web.agent-hq.workers.dev,agent-hq://auth/callback",
     });
 
     expect(config.trustedOrigins).toEqual([
       "https://adea.dev",
-      "https://agent-hq-web.agent-hq.workers.dev",
+      "https://adea-web.agent-hq.workers.dev",
       "agent-hq://auth/callback",
     ]);
   });
