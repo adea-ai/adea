@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/audio",
-  "version": "0.10.16",
+  "version": "0.10.17",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
