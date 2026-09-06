@@ -74,15 +74,20 @@ for (const relative of PUBLISH_PACKAGES) {
   if (result.status !== 0) {
     // Tolerate publish races: concurrent lanes may both pass the version
     // check, then exactly one wins the PUT. A 403 overwrite for the version
-    // we wanted is convergence, not failure.
+    // we wanted is convergence, not failure. Registry reads lag writes by
+    // seconds, so retry the version check before concluding anything.
     const output = `${result.stdout ?? ""}
 ${result.stderr ?? ""}`;
-    if (
-      output.includes("cannot publish over the previously published versions") &&
-      (await publishedVersion(name)) === version
-    ) {
-      console.log(`[publish] ${name}@${version} won by a concurrent lane; continuing.`);
-      continue;
+    if (output.includes("cannot publish over the previously published versions")) {
+      let converged = false;
+      for (let attempt = 1; attempt <= 6 && !converged; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+        converged = (await publishedVersion(name)) === version;
+      }
+      if (converged) {
+        console.log(`[publish] ${name}@${version} won by a concurrent lane; continuing.`);
+        continue;
+      }
     }
     console.error(result.stdout, result.stderr);
     throw new Error(`[publish] failed for ${name}@${version}`);
