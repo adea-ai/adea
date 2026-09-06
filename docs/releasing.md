@@ -1,6 +1,6 @@
-# Releasing Agent HQ
+# Releasing Adea
 
-Agent HQ uses Code Foundry's direct workflow:
+Adea uses Code Foundry's direct workflow:
 
 ```text
 feature branch -> pull request -> main -> Release Please pull request -> GitHub Release
@@ -14,7 +14,7 @@ manual readiness and merge. Feature PRs are likewise opened manually; the Code
 Foundry draft-PR caller is intentionally disabled because this repository's
 Actions policy does not permit the workflow token to create PRs.
 
-Agent HQ is versioned as one private, lockstep product. The root `CHANGELOG.md`
+Adea is versioned as one private, lockstep product. The root `CHANGELOG.md`
 is therefore the only canonical release history; workspace package versions
 are updated as extra files in the same Release Please change and do not carry
 duplicate package-level changelogs.

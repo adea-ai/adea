@@ -2,7 +2,7 @@
 
 [[permission]]
 identifier = "allow-desktop-updater"
-description = "Allows the desktop shell to report, check, and install signed Agent HQ updates."
+description = "Allows the desktop shell to report, check, and install signed Adea updates."
 commands.allow = [
   "desktop_update_status",
   "desktop_update_check",

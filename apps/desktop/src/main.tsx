@@ -229,7 +229,7 @@ function DesktopApp() {
         setStatus(activeSession ? "authenticated" : "guest");
         setMessage(
           activeSession
-            ? "Your workspace is saved to your Agent HQ account."
+            ? "Your workspace is saved to your Adea account."
             : nextWorkspace.temporaryCredentialPersisted
               ? "You can use this workspace now. Sign in whenever you want to save it to an account."
               : "You can use this workspace now. Sign in before closing the app to save it to an account."
@@ -237,9 +237,7 @@ function DesktopApp() {
       } catch {
         if (!requestIsCurrent()) return;
         setStatus("offline");
-        setMessage(
-          "Agent HQ could not reach the workspace service. Your local credentials are safe."
-        );
+        setMessage("Adea could not reach the workspace service. Your local credentials are safe.");
       }
     },
     [switchWorkspace]
@@ -316,7 +314,7 @@ function DesktopApp() {
     } catch {
       await authorizationManager.cancel().catch(() => undefined);
       setStatus(workspaceState?.temporary ? "guest" : "failed");
-      setMessage("Agent HQ could not open the trusted sign-in page. Your workspace is unchanged.");
+      setMessage("Adea could not open the trusted sign-in page. Your workspace is unchanged.");
     }
   }
 
@@ -346,7 +344,7 @@ function DesktopApp() {
         onSignIn: () => void beginSignIn(),
         onSignOut: () => signOut(),
       },
-      app: { name: "Agent HQ", platform: "desktop" as const, version: appVersion },
+      app: { name: "Adea", platform: "desktop" as const, version: appVersion },
       client,
       privateContent: localContentAuthority,
       plugins,
@@ -437,7 +435,7 @@ function DesktopApp() {
             provider={plugins}
           />
           <WorkspaceAboutDialog
-            appName="Agent HQ"
+            appName="Adea"
             open={globalPanel === "about"}
             onClose={() => setGlobalPanel(null)}
             platform="desktop"
@@ -454,7 +452,7 @@ function DesktopApp() {
       <section className="auth-panel desktop-panel" aria-labelledby="desktop-title">
         <div className="workspace-heading">
           <div>
-            <p className="auth-eyebrow">Agent HQ desktop</p>
+            <p className="auth-eyebrow">Adea desktop</p>
             <h1 className="auth-title" id="desktop-title">
               Your workspace, ready when you are.
             </h1>

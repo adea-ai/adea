@@ -2,7 +2,7 @@
 
 [[permission]]
 identifier = "allow-desktop-auth"
-description = "Allows bundled Agent HQ code to open the fixed cloud authorization endpoint."
+description = "Allows bundled Adea code to open the fixed cloud authorization endpoint."
 commands.allow = [
   "desktop_auth_start",
   "desktop_auth_take_callback",

@@ -1,6 +1,6 @@
-# Agent HQ
+# Adea
 
-Agent HQ is a browser-based workspace with Home and Work workspaces, chat,
+Adea is a browser-based workspace with Home and Work workspaces, chat,
 tasks, and a plugin marketplace. The spatial 3D scenes (home/work worlds,
 character and interior content, room designer) live in the private Agent Sim
 engine repo and mount here through an entitlement-gated remote; this
@@ -61,7 +61,7 @@ through the entitlement-gated engine remote.
 
 ## Plugin marketplace
 
-Agent HQ consumes the authoritative registry through the same-origin server
+Adea consumes the authoritative registry through the same-origin server
 proxy. The proxy calls Control Plane; browser and desktop clients never fetch
 GitHub release assets or upstream plugin content directly. The registry's stable
 latest artifact is
@@ -78,7 +78,7 @@ requirements. `metadata-only` entries are visible as unavailable metadata and
 cannot be enabled. A stale last-known-good catalog is labeled stale; a failed
 verification is fail-closed.
 
-Agent HQ is a read-only catalog consumer. Add/Enable submits the exact plugin
+Adea is a read-only catalog consumer. Add/Enable submits the exact plugin
 and release pins, requested harness, and workspace/user identity to Control
 Plane. It does not claim local installation state, download upstream content,
 or execute plugin content. Control Plane owns authorization, connector and
@@ -88,9 +88,9 @@ for the integration contract and required environment variables.
 
 ## Architecture references
 
-- [`docs/architecture/diagram-sources.md`](docs/architecture/diagram-sources.md) contains the version-controlled Mermaid definitions for Agent HQ-owned product, architecture, data, trust, runtime, Artifact, and event diagrams.
+- [`docs/architecture/diagram-sources.md`](docs/architecture/diagram-sources.md) contains the version-controlled Mermaid definitions for Adea-owned product, architecture, data, trust, runtime, Artifact, and event diagrams.
 - [`.github/labels.yml`](.github/labels.yml) defines the shared issue-label taxonomy without installing a synchronization workflow.
-- Canonical product requirements, TDDs, specifications, ADRs, roadmap decisions, and terminology remain in the Agent HQ Google Docs corpus.
+- Canonical product requirements, TDDs, specifications, ADRs, roadmap decisions, and terminology remain in the Adea Google Docs corpus.
 
 ## Runtime and asset performance
 

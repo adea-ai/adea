@@ -261,7 +261,7 @@ export function MessageComposer({
             <TooltipContent>
               {transcription
                 ? `Dictate with ${transcription.label}`
-                : "Dictation is available in Agent HQ Desktop"}
+                : "Dictation is available in Adea Desktop"}
             </TooltipContent>
           </Tooltip>
         </div>

@@ -1,9 +1,9 @@
 import type { SVGProps } from "react";
 
-/** The canonical Agent HQ mark used by web, desktop, and dialogs. */
+/** The canonical Adea mark used by web, desktop, and dialogs. */
 export function WorkspaceLogo(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 64 64" role="img" aria-label="Agent HQ" {...props}>
+    <svg viewBox="0 0 64 64" role="img" aria-label="Adea" {...props}>
       <rect width="64" height="64" rx="16" fill="#111827" />
       <path d="M10 16h7v13h9V16h7v32h-7V36h-9v12h-7z" fill="#f8fafc" />
       <path

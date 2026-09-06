@@ -3,9 +3,9 @@
 `@agent-hq/auth` is the only application-facing authentication provider boundary. It wraps Neon
 Auth's managed Better Auth service today, but its public result contains only a provider name,
 provider subject, non-authoritative profile hints, and session metadata. The provider subject is
-an `AuthIdentity` input; it is never an Agent HQ `User.id` and never grants workspace access.
+an `AuthIdentity` input; it is never an Adea `User.id` and never grants workspace access.
 
-Authentication is optional for using Agent HQ. A first web or desktop launch provisions a
+Authentication is optional for using Adea. A first web or desktop launch provisions a
 temporary canonical `User`, owner membership, and default Home and Work workspaces transactionally. The browser
 stores its opaque temporary credential in an HTTP-only cookie; the desktop app stores a distinct
 credential in the operating-system keychain. Temporary credentials expire after 30 days and are
@@ -54,7 +54,7 @@ credentials are forbidden in URLs.
 The web application exposes separate `authorize`, `exchange`, `refresh`, `logout`, and `revoke`
 handlers under `/api/auth/desktop`. An unauthenticated authorization request is routed through
 `/auth/sign-in` with an exact same-origin return target. Email registration creates the Neon
-account, and the first authenticated authorization provisions one stable Agent HQ user and identity
+account, and the first authenticated authorization provisions one stable Adea user and identity
 mapping before issuing the one-time desktop code. Exchange and lifecycle requests accept only exact
 packaged Tauri origins plus the fixed `http://127.0.0.1:1420` local Vite origin, use no-store
 responses, and carry opaque user credentials in request headers or bodies rather than URLs. Keeping
@@ -134,7 +134,7 @@ schema. To move to another managed or self-hosted Better Auth deployment:
 5. Run invalid/expired/revoked/wrong-origin, refresh, logout, and identity-mapping tests before
    switching traffic.
 
-Never copy provider tables into Agent HQ migrations or reinterpret a provider subject as a domain
+Never copy provider tables into Adea migrations or reinterpret a provider subject as a domain
 user ID during migration.
 
 ## Stable identity and principals
@@ -153,13 +153,13 @@ Agent delegation   -> Agent PrincipalRef
 Worker execution   -> Worker PrincipalRef
 ```
 
-`AuthIdentity` is the only bridge between a Neon provider subject and an Agent HQ `User`. The
+`AuthIdentity` is the only bridge between a Neon provider subject and an Adea `User`. The
 provider/subject pair is unique and belongs to exactly one stable user. Creation writes both rows
 in one transaction, so a concurrent duplicate cannot leave an orphan user. Revoked identities and
 disabled users do not resolve. Unknown, non-user, or ambiguous mappings fail closed.
 
 Provider subjects must never appear in workspace membership, control-plane foreign keys, API
 principal fields, or model context. Those boundaries use `PrincipalRef`; user principals contain
-only the stable Agent HQ `userId`. Account linking is intentionally not automatic: adding another
+only the stable Adea `userId`. Account linking is intentionally not automatic: adding another
 provider identity to an existing user requires a future explicit, reauthenticated linking flow
 that preserves the one-provider-subject-to-one-user invariant.

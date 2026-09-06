@@ -1,5 +1,5 @@
 export const accountMenuItems = [
-  { id: "mobile", label: "Get Agent HQ mobile", disabled: true },
+  { id: "mobile", label: "Get Adea mobile", disabled: true },
   { id: "about", label: "About", disabled: false },
   { id: "help", label: "Help Center", disabled: true },
   { id: "feedback", label: "Send Feedback", disabled: true },

@@ -38,7 +38,7 @@ export function CreateRoomDialog({
       open={open}
       onClose={onClose}
       title="Create Room"
-      description="Rooms are the primary functional contexts in Agent HQ."
+      description="Rooms are the primary functional contexts in Adea."
     >
       <div className="conventional-template-options" aria-label={`${template} Room suggestions`}>
         {roomTemplates.map((room) => (

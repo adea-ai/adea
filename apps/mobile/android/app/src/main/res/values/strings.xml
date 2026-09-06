@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Agent HQ</string>
-    <string name="title_activity_main">Agent HQ</string>
+    <string name="app_name">Adea</string>
+    <string name="title_activity_main">Adea</string>
     <string name="package_name">com.agenthq.mobile</string>
     <string name="custom_url_scheme">com.agenthq.mobile</string>
 </resources>

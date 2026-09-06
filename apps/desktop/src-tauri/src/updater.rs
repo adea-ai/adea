@@ -82,8 +82,8 @@ impl UpdaterState {
             Ok(updater) => updater
                 .check()
                 .await
-                .map_err(|error| format!("check for signed Agent HQ update: {error}")),
-            Err(error) => Err(format!("initialize signed Agent HQ updater: {error}")),
+                .map_err(|error| format!("check for signed Adea update: {error}")),
+            Err(error) => Err(format!("initialize signed Adea updater: {error}")),
         };
 
         match result {
@@ -186,9 +186,9 @@ impl UpdaterState {
         .await
         {
             Ok(result) => result
-                .map_err(|error| format!("verify and install signed Agent HQ update: {error}")),
+                .map_err(|error| format!("verify and install signed Adea update: {error}")),
             Err(_) => Err(format!(
-                "signed Agent HQ update timed out after {} seconds",
+                "signed Adea update timed out after {} seconds",
                 UPDATE_TIMEOUT.as_secs()
             )),
         };

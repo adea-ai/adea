@@ -230,7 +230,7 @@ function verifyReleaseAssets(tag) {
   const desktopAssets = release.assets.filter((asset) => /agent[ ._-]*hq/i.test(asset.name));
   if (desktopAssets.length < 3 || !release.assets.some((asset) => asset.name === "latest.json")) {
     throw new Error(
-      `${tag} is incomplete: expected latest.json and at least three Agent HQ desktop assets; found ${desktopAssets.length}.`
+      `${tag} is incomplete: expected latest.json and at least three Adea desktop assets; found ${desktopAssets.length}.`
     );
   }
   const manifest = JSON.parse(

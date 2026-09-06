@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { DesktopAuthComplete } from "./desktop-auth-complete";
 
 export const metadata: Metadata = {
-  title: "Sign-in complete | Agent HQ",
+  title: "Sign-in complete | Adea",
 };
 
 export default function DesktopAuthCompletePage() {

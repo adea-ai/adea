@@ -295,7 +295,7 @@ function start() {
   try {
     startMacRunner();
     startLinuxRunner();
-    console.log("Local Agent HQ release runners are online.");
+    console.log("Local Adea release runners are online.");
   } catch (error) {
     try {
       stop();
@@ -339,7 +339,7 @@ function stop() {
     cleanupError ??= error;
   }
   if (cleanupError) throw cleanupError;
-  console.log("Local Agent HQ release runners are stopped.");
+  console.log("Local Adea release runners are stopped.");
 }
 
 function removeDockerVolume(name) {
@@ -382,7 +382,7 @@ function clean() {
     force: true,
   });
   rmSync(join(root, ".turbo"), { recursive: true, force: true });
-  console.log("Disposable local Agent HQ release state has been removed.");
+  console.log("Disposable local Adea release state has been removed.");
 }
 
 const command = process.argv[2];
