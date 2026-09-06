@@ -12,9 +12,8 @@ jobs:
   detect:
     name: OpenCode Security / Detect
     if: >-
-      vars.CI_BILLING_PAUSED != 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-      startsWith(github.event.pull_request.head.ref, 'release-please--branches--main'))
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.pull_request.head.ref, 'release-please--branches--main')
     runs-on: ubuntu-slim
     outputs:
       enabled: ${{ steps.detect.outputs.enabled }}
@@ -39,7 +38,7 @@ jobs:
   scan:
     name: OpenCode Security / Scan
     needs: detect
-    if: vars.CI_BILLING_PAUSED != 'true' && needs.detect.outputs.enabled == 'true' && needs.detect.outputs.token == 'true'
+    if: needs.detect.outputs.enabled == 'true' && needs.detect.outputs.token == 'true'
     uses: 0xPlayerOne/opencode-security/.github/workflows/opencode-security.yml@137698ef3545204af8fad00fc8bd64d663c8122e # main
     with:
       # This is the scanner checkout ref, not the consumer PR ref. The

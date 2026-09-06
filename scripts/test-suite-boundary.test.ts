@@ -24,13 +24,9 @@ describe("test suite boundaries", () => {
     expect(playwrightConfig).toContain('"--use-angle=metal"');
     expect(playwrightConfig).toContain("const headless = process.env.PLAYWRIGHT_HEADLESS");
     expect(playwrightConfig).toContain("headless,");
-    expect(packageJson.scripts["test:smoke"]).toBe("bun run native:smoke");
-    expect(packageJson.scripts.release).toBe("bun scripts/manual-release.mjs");
-    expect(packageJson.scripts["release:manual"]).toBeUndefined();
-  });
-
-  test("keeps smoke validation independent from the build lane", () => {
-    expect(packageJson.scripts.build).not.toContain("native:smoke");
+    expect(packageJson.scripts.release).toBeUndefined();
+    expect(packageJson.scripts["test:smoke"]).toBeUndefined();
+    expect(packageJson.scripts["native:smoke"]).toBeUndefined();
   });
 
   test("enforces the repository coverage goal on durable core code", () => {
@@ -55,26 +51,19 @@ describe("test suite boundaries", () => {
     expect(neonWorkflow).not.toContain("packages/auth test:integration");
   });
 
-  test("keeps Release Please local while allowing the asset workflow to run anywhere", () => {
-    const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
-    expect(manualRelease).toContain('runReleasePlease("release-pr"');
-    expect(manualRelease).toContain('runReleasePlease("github-release"');
-    expect(manualRelease).toContain("GITHUB_REPOSITORY: repository");
-    expect(manualRelease).toContain('"workflow", "run", "release-assets.yml"');
-    expect(manualRelease).toContain("`${command} ${displayArgs.join");
-    expect(manualRelease).not.toContain("`${command} ${args.join");
-  });
-
-  test("routes paused desktop releases to this machine's self-hosted runners", () => {
+  test("builds desktop releases entirely on GitHub-hosted runners", () => {
     const workflow = readFileSync(resolve(root, ".github/workflows/release-assets.yml"), "utf8");
-    const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
-    expect(workflow).toContain("adea-release-macos-arm64");
-    expect(workflow).toContain("adea-release-linux-x64");
-    expect(workflow).toContain("cargo-xwin");
-    expect(workflow).toContain("rustup target add x86_64-pc-windows-msvc");
-    expect(workflow).toContain("Isolate Windows cross-compilation output");
-    expect(workflow).toContain("CARGO_TARGET_DIR=$GITHUB_WORKSPACE/apps/desktop/src-tauri/target");
-    expect(workflow).toContain("--bundles nsis");
+    expect(workflow).not.toContain("self-hosted");
+    expect(workflow).not.toContain("self_hosted");
+    expect(workflow).not.toContain("CI_BILLING_PAUSED");
+    expect(workflow).not.toContain("cargo-xwin");
+    expect(workflow).not.toContain("CI_BILLING_GATE_BACKUP");
+    // Bash-syntax steps must not fall back to the Windows default shell.
+    expect(workflow).toContain("defaults:");
+    expect(workflow).toContain("shell: bash");
+    expect(workflow).toContain("runner: macos-14");
+    expect(workflow).toContain("runner: ubuntu-24.04");
+    expect(workflow).toContain("runner: windows-latest");
     expect(workflow).toContain("bun scripts/release-notes.mjs");
     expect(workflow).toContain("bun run --cwd packages/types build");
     expect(workflow).toContain("timeout_minutes: 120");
@@ -89,79 +78,12 @@ describe("test suite boundaries", () => {
     expect(workflow).not.toContain("name: desktop-updater-pages");
     expect(workflow).not.toContain("deploy-pages");
     expect(workflow).not.toContain("name: github-pages");
-    expect(workflow).toContain("Install AWS CLI for R2 upload");
-    expect(workflow).toContain("brew install awscli");
-    expect(workflow).toContain("vars.CI_BILLING_PAUSED == 'true'");
-    expect(workflow).not.toContain("if: vars.CI_BILLING_PAUSED != 'true'");
-    expect(runnerScript).toContain('join(homedir(), ".local", "share", "adea"');
-    expect(runnerScript).not.toContain('"Application Support"');
-    expect(runnerScript).toContain("adea-release-linux-cargo-target");
-    expect(runnerScript).toContain('const macCargoTarget = join(stateRoot, "macos-cargo-target")');
-    expect(runnerScript).toContain("CARGO_TARGET_DIR: macCargoTarget");
-    expect(runnerScript).toContain("renameSync(legacyMacCargoTarget, macCargoTarget)");
-    expect(runnerScript).toContain('const linuxBuilder = "adea-release-builder"');
-    expect(runnerScript).toContain('else if (command === "clean") clean()');
-    expect(runnerScript).toContain("linuxWorkspaceVolume");
-    expect(runnerScript).toContain("runAllowMissing");
-    expect(runnerScript).toContain("no such volume");
-    expect(runnerScript).toContain('join(root, "apps", "desktop", "src-tauri", "target")');
-    expect(runnerScript).toContain('join(root, ".turbo")');
-
-    const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
-    expect(manualRelease).toContain("cleanLocalReleaseState");
-    expect(manualRelease).toContain('run("bun", ["scripts/release-runners.mjs", "clean"])');
-
-    const linuxRunner = readFileSync(
-      resolve(root, ".github/release-runner/linux-x64/Dockerfile"),
-      "utf8"
-    );
-    expect(linuxRunner).toContain("sudo unzip xdg-utils xz-utils");
-    expect(linuxRunner).toContain("ENV CARGO_BUILD_JOBS=1");
-    expect(linuxRunner).toContain("ENV CARGO_TARGET_DIR=/home/runner/cache/cargo-target");
-    expect(linuxRunner).toContain("squashfs-tools");
-    expect(linuxRunner).toContain("file git jq");
-    expect(linuxRunner).toContain("extract_appimage");
-    expect(linuxRunner).toContain("LINUXDEPLOY_PLUGIN_APPIMAGE_SHA256");
-    expect(linuxRunner).toContain("/tmp/linuxdeploy-source.AppImage");
-    expect(linuxRunner).toContain("/tmp/linuxdeploy-plugin-appimage-source.AppImage");
-    expect(linuxRunner).toContain("appimage-wrapper.c");
-    expect(linuxRunner).not.toContain(
-      "/home/runner/.cache/tauri/linuxdeploy-plugin-appimage.AppImage.real"
-    );
-    expect(linuxRunner).toContain("cc -O2 -Wall -Wextra -Werror");
-
-    const appImageWrapper = readFileSync(
-      resolve(root, ".github/release-runner/linux-x64/appimage-wrapper.c"),
-      "utf8"
-    );
-    expect(appImageWrapper).toContain('setenv("APPIMAGE", executable');
-    expect(appImageWrapper).toContain('setenv("APPDIR", appdir');
-    expect(appImageWrapper).toContain('strcmp(argv[index], "--appimage-extract-and-run")');
-    expect(appImageWrapper).toContain("execv(apprun, forwarded)");
-  });
-
-  test("does not report a release before its desktop assets finish", () => {
-    const manualRelease = readFileSync(resolve(root, "scripts/manual-release.mjs"), "utf8");
-    expect(manualRelease).toContain("waitForPublishedReleaseAssets");
-    expect(manualRelease).toContain("waitForWorkflowRun");
-    expect(manualRelease).toContain("Release status check failed; retrying");
-    expect(manualRelease).toContain("const workflowWaitAttempts = 900");
-    expect(manualRelease).toContain("attempt < workflowWaitAttempts");
-    expect(manualRelease).toContain("verifyReleaseAssets");
-    expect(manualRelease).toContain("releaseAssetsAreComplete");
-    expect(manualRelease).toContain("dispatchReleaseAssets");
-
-    const runnerScript = readFileSync(resolve(root, "scripts/release-runners.mjs"), "utf8");
-    expect(runnerScript).toContain("deleteRunnerRegistration");
-    expect(runnerScript).toContain("deleteRunnerRegistration(macRunnerName)");
-    expect(runnerScript).toContain("deleteRunnerRegistration(linuxRunnerName)");
-    expect(runnerScript).toContain("removeStaleMacRunnerConfiguration");
-    expect(runnerScript).toContain('runnerStatus(macRunnerName) !== ""');
-    expect(runnerScript).toContain('[".runner", ".credentials", ".credentials_rsaparams"]');
-    expect(runnerScript).toContain("if (existsSync(path)) unlinkSync(path)");
-    expect(runnerScript).toContain("currently running a job");
-    expect(runnerScript).toContain("const runnerDeletionAttempts = 120");
-    expect(runnerScript).toContain("attempt < runnerDeletionAttempts");
+    expect(workflow).not.toContain("brew install awscli");
+    expect(workflow).not.toContain("release-runner");
+    expect(existsSync(resolve(root, ".github/release-runner"))).toBeFalse();
+    expect(existsSync(resolve(root, "scripts/manual-release.mjs"))).toBeFalse();
+    expect(existsSync(resolve(root, "scripts/release-runners.mjs"))).toBeFalse();
+    expect(existsSync(resolve(root, "scripts/native-smoke.mjs"))).toBeFalse();
   });
 
   test("keeps one canonical changelog and versions every private workspace in lockstep", () => {
