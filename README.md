@@ -1,15 +1,18 @@
 # Agent HQ
 
-Agent HQ is a browser-based spatial workspace with Home and Work workspaces,
-each backed by its own spatial scene,
-character and interior asset packages, a vanilla Three.js scene runtime, and an
-orthographic room designer.
+Agent HQ is a browser-based workspace with Home and Work workspaces, chat,
+tasks, and a plugin marketplace. The spatial 3D scenes (home/work worlds,
+character and interior content, room designer) live in the private Agent Sim
+engine repo and mount here through an entitlement-gated remote; this
+repository ships the shell, the scene-manifest protocol, and an unavailable
+state wherever the virtual view mounts.
 
 ## Stack
 
 - Turborepo, Next.js, React, and TypeScript
 - Bun for installation, scripts, and tests
-- Vanilla Three.js behind `/scene-runtime`
+- Scene manifests and telemetry schema via `@adea-ai/spatial-protocol`
+  (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
 - TanStack Query for server state and Zustand for client-only coordination
 - shadcn/ui primitives backed by Base UI
 
@@ -44,7 +47,8 @@ For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
 - Home workspace: [https://agent-hq.localhost/?scene=home](https://agent-hq.localhost/?scene=home)
 - Work workspace: [https://agent-hq.localhost/?scene=work](https://agent-hq.localhost/?scene=work)
-- Room designer: append `&roomDesigner=1` to the selected scene URL; it opens a dedicated scene with its own camera state
+- Room designer: append `&roomDesigner=1` to the selected scene URL (renders
+  the engine-unavailable state in builds without Agent Sim)
 
 Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
 `NEXT_PUBLIC_ADEA_WORLD_URL` when the sibling World app uses a different
@@ -90,23 +94,12 @@ for the integration contract and required environment variables.
 
 ## Runtime and asset performance
 
-Scene field catalogs use `InstancedMesh` for repeated foliage and props, and
-the runtime enables frustum culling, Meshopt GLB decoding, and KTX2/Basis
-decoding through Three.js. The checked-in interior optimization command is
-`bun run assets:optimize:interior` and `bun run assets:optimize:runtime`; they
-preserve authored transforms/material boundaries while applying Meshopt geometry
-compression and WebP base-color textures. Runtime asset validation is included
-in `bun run perf:check` and covers the loaded character runtime, pets, and
-landscape GLBs. Complete character exports under `packages/characters/assets/_complete`
-are available as menu examples but remain outside the configurable wearable
-catalog. The optimizer leaves future normal-map candidates
-lossless when the KTX encoder is unavailable. The runtime loader and
-transcoder assets are already wired for `KHR_texture_basisu` without changing
-scene code.
-
-Meshopt remains the geometry default for loaded runtime models. Authoring
-inputs remain external; checked-in runtime GLBs are the optimized delivery
-artifacts.
+The spatial engine (InstancedMesh scene fields, frustum culling, Meshopt GLB
+and KTX2/Basis decoding, asset optimization, performance budgets) lives in
+the private Agent Sim repo. This repository stages only the tracked scene
+manifests from `@adea-ai/spatial-protocol` into the ignored Next
+public-assets directory, so plain checkouts build and test with zero setup
+and no credentials.
 
 ## Verification
 
@@ -120,18 +113,13 @@ bun run test:integration
 bun run test:smoke
 bun run build
 
-# Browser/runtime gate (starts the dev app automatically when PERF_BASE_URL is unset)
-PERF_BASE_URL=http://localhost:4304 bun run perf:gate
-
 # Force Chromium headless (useful for CI or local non-interactive runs)
 PLAYWRIGHT_HEADLESS=1 bun run test:e2e
 ```
 
 Code Foundry runs `test:unit`, `test:integration`, `test:e2e`, and `test:smoke`
 as independent jobs so the categories can execute in parallel. Package unit
-tests also fan out through Turborepo. Browser performance tests intentionally
-remain serial because concurrent WebGL probes would make the performance gate
-nondeterministic.
+tests also fan out through Turborepo.
 
 `bun run test:unit` includes an 80% line-and-function coverage gate for the
 durable authentication, persistence, and repository-boundary code exercised by
@@ -145,16 +133,12 @@ Neon runs must provide all three canonical variables (`DATABASE_URL`,
 `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL`) for an isolated test
 branch; production or owner credentials are not valid test targets.
 
-`bun run build` includes the static route and asset budgets. Native desktop,
+`bun run build` covers the workspace packages and the Next.js production
+build. Native desktop,
 Capacitor, Android `assembleDebug`, and unsigned iOS device-SDK compiler checks
-live in the separate `bun run test:smoke` category. `bun run perf:gate`
-additionally runs the Chromium scene probe and writes
-`.artifacts/scene-performance.json`; the runtime gate rejects missing
-load/runtime reports, scene errors, oversized transfers, and slow frames.
-The headless E2E command above is suitable for CI and functional/layout
-coverage; run the performance budget gate with a hardware-backed browser on
-macOS because SwiftShader headless timings are not representative of the
-10-second scene-load target.
+live in the separate `bun run test:smoke` category. The headless E2E command above is suitable for CI and functional/layout
+coverage of the shell and chat flows; scene performance gates live with the
+engine in Agent Sim.
 Native compiler checks skip platforms whose toolchains are unavailable on the
 current host; set `NATIVE_SMOKE_STRICT=1` in a platform-specific CI job to make
 an unavailable or missing platform fail the gate.
