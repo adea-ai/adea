@@ -121,7 +121,7 @@ flowchart TB
 flowchart TB
     U([User]) --> CL[Agent HQ Desktop Client]
     subgraph Client["Client Layer"]
-        CL --> S[Vanilla Three.js Scene Runtime]
+        CL --> S[Agent Sim engine remote (entitlement-gated)]
         CL --> L[Channel / List View]
         CL --> UI[Task, Chat, Kanban, Settings]
         CL --> EC[Event Client]
