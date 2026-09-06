@@ -47,7 +47,7 @@ For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 - Room designer: append `&roomDesigner=1` to the selected scene URL; it opens a dedicated scene with its own camera state
 
 Cross-app portal defaults use `agent-hq.localhost` and `world.localhost`. Set
-`NEXT_PUBLIC_AGENT_HQ_WORLD_URL` when the sibling World app uses a different
+`NEXT_PUBLIC_ADEA_WORLD_URL` when the sibling World app uses a different
 Portless name.
 
 The asset sync step stages the tracked scene manifests from

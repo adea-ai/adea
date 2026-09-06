@@ -1,6 +1,6 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
-const webUrl = process.env.AGENT_HQ_WEB_URL?.trim();
+const webUrl = process.env.ADEA_WEB_URL?.trim();
 
 const config: CapacitorConfig = {
   appId: "com.agenthq.mobile",
