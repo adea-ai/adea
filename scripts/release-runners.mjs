@@ -19,7 +19,7 @@ const root = resolve(import.meta.dirname, "..");
 // The Actions runner prepends its bundled tools to PATH without shell-escaping the
 // installation directory. Keep the runner beneath a path with no spaces so every
 // workflow shell can start reliably.
-const stateRoot = join(homedir(), ".local", "share", "agent-hq", "release-runner");
+const stateRoot = join(homedir(), ".local", "share", "adea", "release-runner");
 const macRunnerRoot = join(stateRoot, "macos-arm64");
 const macRunnerPid = join(stateRoot, "macos-arm64.pid");
 const macRunnerLog = join(stateRoot, "macos-arm64.log");
