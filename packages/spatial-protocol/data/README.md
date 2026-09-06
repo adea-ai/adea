@@ -1,7 +1,7 @@
 # Scene manifest data
 
 Tracked placement manifests for the HQ home/work scenes. These files mirror
-`agent-sim`'s `scenes/hq/assets/{home,work}/` — the engine is the source of
+`agent-sim`'s `scenes/sim/assets/{home,work}/` — the engine is the source of
 truth; changes land here via the cutover sync and must be re-mirrored when
 the engine edits them.
 
