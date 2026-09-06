@@ -67,7 +67,7 @@ for (const relative of PUBLISH_PACKAGES) {
   await writeFile(stagedManifestPath, `${JSON.stringify(staged, null, 2)}\n`);
   console.log(`[publish] publishing ${name}@${version}...`);
   const result = sh(
-    ["npm", "publish", "--provenance", "--access", "public"],
+    ["npm", "publish", "--access", "public"],
     join(stage, "package")
   );
   await rm(stage, { recursive: true, force: true });
