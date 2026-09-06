@@ -43,13 +43,4 @@ export {
   DialogTitle,
   DialogTrigger,
 } from "./components/ui/dialog";
-export {
-  ModelThumbnail,
-  PropCatalog,
-  defaultPropCatalogCategories,
-  getSharedLoader,
-  type PropCatalogCategory,
-  type PropCatalogItem,
-  type PropCatalogProps,
-} from "./components/prop-catalog";
 export { cn } from "./lib/utils";
