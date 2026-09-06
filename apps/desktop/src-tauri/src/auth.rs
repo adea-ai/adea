@@ -27,8 +27,8 @@ const FORBIDDEN_PARAMETERS: [&str; 5] = [
 ];
 
 fn cloud_origin() -> &'static str {
-    option_env!("VITE_AGENT_HQ_CLOUD_ORIGIN")
-        .or(option_env!("AGENT_HQ_CLOUD_ORIGIN"))
+    option_env!("VITE_ADEA_CLOUD_ORIGIN")
+        .or(option_env!("ADEA_CLOUD_ORIGIN"))
         .unwrap_or(DEFAULT_CLOUD_ORIGIN)
 }
 
