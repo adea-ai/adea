@@ -26,14 +26,15 @@ orchestration is involved. When a Release Please version pull request is
 merged, the tagged GitHub Release triggers
 `.github/workflows/release-assets.yml`, which builds the Tauri desktop shell
 for macOS ARM64, Linux x64, and Windows x64 on hosted `macos-14`,
-`ubuntu-24.04`, and `windows-latest` runners. The workflow aligns the
-checked-out desktop bundle version with the release tag, uploads the bundles
-to the release, publishes the signed updater files to the R2 bucket served at
-`https://updates.adea.dev/desktop-updates/` (requiring the
-`R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` secrets: R2 S3 credentials with
-Object Read & Write on that bucket), and verifies both the release assets and
-the public manifest. GitHub Pages is intentionally not used: Pages does not
-serve private repositories on the free plan.
+`ubuntu-24.04`, and `windows-latest` runners, uploads the bundles to the
+release, and verifies both the release assets and the updater channel.
+
+The Tauri updater polls the release channel directly on GitHub:
+`https://github.com/adea-ai/adea/releases/latest/download/latest.json`. The
+`tauri-action` aggregates the matrix builds into that manifest, and the
+verify-assets gate rejects the release unless every target is present,
+signed, and pointing at this repository's release assets. The channel
+follows the latest stable release automatically and ignores prereleases.
 
 The Linux lane excludes the RPM bundle because Tauri 2.11's in-process RPM
 bundler can hang indefinitely after rendering the desktop file; DEB + AppImage
