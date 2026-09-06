@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/adea-ai/adea/compare/v0.10.17...v0.11.0) (2026-09-06)
+
+
+### Features
+
+* **web:** gate workspace access behind an account email allowlist ([#288](https://github.com/adea-ai/adea/issues/288)) ([4ebfd2c](https://github.com/adea-ai/adea/commit/4ebfd2c4868a4b3f2c20194ae5a068d1a92bf7bd))
+
 ## [0.10.17](https://github.com/adea-ai/adea/compare/v0.10.16...v0.10.17) (2026-09-06)
 
 
