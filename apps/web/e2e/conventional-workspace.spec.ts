@@ -394,10 +394,10 @@ const readState = [
 
 async function mockWorkspace(page: Page, empty = false) {
   await page.addInitScript(() => {
-    if (!sessionStorage.getItem("agent-hq:e2e-initialized")) {
+    if (!sessionStorage.getItem("adea:e2e-initialized")) {
       localStorage.clear();
       localStorage.setItem("theme", "light");
-      sessionStorage.setItem("agent-hq:e2e-initialized", "true");
+      sessionStorage.setItem("adea:e2e-initialized", "true");
     }
   });
   await page.route("**/api/workspaces/bootstrap", (route) =>

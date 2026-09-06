@@ -1,4 +1,4 @@
-package com.agenthq.mobile;
+package com.adea.mobile;
 
 import com.getcapacitor.BridgeActivity;
 

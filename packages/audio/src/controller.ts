@@ -7,8 +7,8 @@ export type MusicOptions = {
   fadeMs?: number;
 };
 
-const MUSIC_MUTE_KEY = "agent-hq:audio:music-muted";
-const LEGACY_MUTE_KEY = "agent-hq:audio:muted";
+const MUSIC_MUTE_KEY = "adea:audio:music-muted";
+const LEGACY_MUTE_KEY = "adea:audio:muted";
 const DEFAULT_MUSIC_VOLUME = 0.8;
 const FADE_STEP_MS = 30;
 

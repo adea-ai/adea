@@ -39,7 +39,7 @@ Development enables Neon's localhost setting.
 
 Neon accepts only HTTP(S) trusted domains. Desktop OAuth therefore returns to the stable HTTPS web
 callback, which verifies state and nonce before handing off to the allowlisted
-`agent-hq://auth/callback` URI. The desktop shell registers that exact scheme, opens only the fixed
+`adea://auth/callback` URI. The desktop shell registers that exact scheme, opens only the fixed
 cloud authorization endpoint in the system browser, and rejects custom-scheme callbacks containing
 tokens or session credentials. A provider must never redirect directly to an unregistered custom
 scheme.

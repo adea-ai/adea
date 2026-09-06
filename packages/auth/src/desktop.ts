@@ -1,4 +1,4 @@
-const DESKTOP_CALLBACK_URI = "agent-hq://auth/callback";
+const DESKTOP_CALLBACK_URI = "adea://auth/callback";
 const DEFAULT_AUTHORIZATION_TTL_MS = 5 * 60 * 1_000;
 const BASE64_URL = /^[A-Za-z0-9_-]+$/u;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -233,7 +233,7 @@ export function createDesktopHttpSessionBroker({
     const response = await request(path, {
       headers: {
         authorization: `Desktop ${session.credential}`,
-        "x-agent-hq-desktop-session": session.sessionId,
+        "x-adea-desktop-session": session.sessionId,
       },
       method: "POST",
     });

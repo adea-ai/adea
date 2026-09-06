@@ -36,11 +36,11 @@ export function normalizeTrustedTarget(value: string): string {
   if (url.protocol === "http:" && isLoopback(url.hostname)) {
     return url.origin;
   }
-  if (url.protocol === "agent-hq:") {
+  if (url.protocol === "adea:") {
     return `${url.protocol}//${url.host}${url.pathname}`;
   }
 
-  throw new Error("Auth trusted origins require HTTPS, loopback HTTP, or agent-hq callbacks");
+  throw new Error("Auth trusted origins require HTTPS, loopback HTTP, or adea callbacks");
 }
 
 export function readAuthConfig(environment: AuthEnvironment = process.env): AuthConfig {

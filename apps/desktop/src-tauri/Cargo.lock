@@ -3,6 +3,38 @@
 version = 4
 
 [[package]]
+name = "adea-desktop"
+version = "0.10.8"
+dependencies = [
+ "aes-gcm",
+ "base64 0.23.1",
+ "block2",
+ "hex",
+ "keyring",
+ "objc2",
+ "objc2-av-foundation",
+ "objc2-avf-audio",
+ "objc2-foundation",
+ "objc2-speech",
+ "rand_core 0.6.4",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -52,38 +84,6 @@ dependencies = [
  "ctr",
  "ctutils",
  "ghash",
-]
-
-[[package]]
-name = "agent-hq-desktop"
-version = "0.10.8"
-dependencies = [
- "aes-gcm",
- "base64 0.23.1",
- "block2",
- "hex",
- "keyring",
- "objc2",
- "objc2-av-foundation",
- "objc2-avf-audio",
- "objc2-foundation",
- "objc2-speech",
- "rand_core 0.6.4",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "url",
- "uuid",
- "zeroize",
 ]
 
 [[package]]
