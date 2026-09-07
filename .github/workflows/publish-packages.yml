@@ -1,9 +1,10 @@
 name: Publish shared packages
 
 # Publishes the moat-free shared packages (@adea-ai/ui, @adea-ai/asset-manifests,
-# @adea-ai/audio) to the public npm registry on every main push that touches
-# them (plus manual dispatch). The private agent-sim repo consumes these by
-# version, so no registry auth is needed anywhere — not locally, not in CI.
+# @adea-ai/audio, @adea-ai/spatial-protocol) to the public npm registry on every
+# main push that touches them (plus manual dispatch). The private agent-sim
+# repo consumes these by version, so no registry auth is needed anywhere — not
+# locally, not in CI.
 #
 # Prerequisites (one-time, dashboard):
 #   1. Create the `adea` org on npmjs.com.
@@ -18,6 +19,7 @@ on:
       - 'packages/ui/**'
       - 'packages/asset-manifests/**'
       - 'packages/audio/**'
+      - 'packages/spatial-protocol/**'
       - 'scripts/publish-packages.mjs'
       - '.github/workflows/publish-packages.yml'
   workflow_dispatch:
@@ -58,7 +60,7 @@ jobs:
       - name: Build published packages
         # The tarballs must contain dist/ output: the exports map serves
         # dist types and entry points to registry consumers.
-        run: bunx turbo run build --filter=@adea-ai/ui --filter=@adea-ai/asset-manifests --filter=@adea-ai/audio
+        run: bunx turbo run build --filter=@adea-ai/ui --filter=@adea-ai/asset-manifests --filter=@adea-ai/audio --filter=@adea-ai/spatial-protocol
 
       - name: Publish changed packages
         env:
