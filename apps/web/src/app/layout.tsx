@@ -1,25 +1,25 @@
-import type { Metadata, Viewport } from "next";
-import type { ReactNode } from "react";
-import { SoundProvider } from "@adea-ai/audio";
-import { AgentHqQueryProvider } from "@adea-ai/data/provider";
-import { ThemeProvider } from "@adea-ai/ui/components/theme-provider";
-import { NuqsAdapter } from "nuqs/adapters/next/app";
-import "./globals.css";
+import type { Metadata, Viewport } from 'next'
+import type { ReactNode } from 'react'
+import { SoundProvider } from '@adea-ai/audio'
+import { AgentHqQueryProvider } from '@adea-ai/data/provider'
+import { ThemeProvider } from '@adea-ai/ui/components/theme-provider'
+import { NuqsAdapter } from 'nuqs/adapters/next/app'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: "Adea",
-  description: "Adea room headquarters",
-};
+  title: 'Adea',
+  description: 'Adea room headquarters',
+}
 
 export const viewport: Viewport = {
-  width: "device-width",
+  width: 'device-width',
   initialScale: 1,
-  viewportFit: "cover",
+  viewportFit: 'cover',
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#11161d" },
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#11161d' },
   ],
-};
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
@@ -34,5 +34,5 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         </ThemeProvider>
       </body>
     </html>
-  );
+  )
 }

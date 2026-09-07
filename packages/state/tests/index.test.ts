@@ -1,35 +1,35 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test } from 'bun:test'
 
-import { useWorkspaceStore } from "../src";
+import { useWorkspaceStore } from '../src'
 
-const initialState = useWorkspaceStore.getState();
+const initialState = useWorkspaceStore.getState()
 
 afterEach(() => {
-  useWorkspaceStore.setState(initialState, true);
-});
+  useWorkspaceStore.setState(initialState, true)
+})
 
-test("switchWorkspace starts a fresh workspace context with its configured scene", () => {
+test('switchWorkspace starts a fresh workspace context with its configured scene', () => {
   useWorkspaceStore.setState({
-    activeSurface: "tasks",
-    cameraViewMode: "perspective",
-    collapsedRoomIds: ["room-work"],
-    drafts: { "channel-work": "unsent work" },
-    globalPanel: "plugins",
+    activeSurface: 'tasks',
+    cameraViewMode: 'perspective',
+    collapsedRoomIds: ['room-work'],
+    drafts: { 'channel-work': 'unsent work' },
+    globalPanel: 'plugins',
     mobileSidebarOpen: true,
-    selectedAgentId: "agent-work",
-    selectedChannelId: "channel-work",
-    selectedRoomId: "room-work",
-    selectedTaskId: "task-work",
-    selectedWorkspaceId: "workspace-work",
-    selectedScene: "work",
-    threadRootMessageId: "thread-work",
-  });
+    selectedAgentId: 'agent-work',
+    selectedChannelId: 'channel-work',
+    selectedRoomId: 'room-work',
+    selectedTaskId: 'task-work',
+    selectedWorkspaceId: 'workspace-work',
+    selectedScene: 'work',
+    threadRootMessageId: 'thread-work',
+  })
 
-  useWorkspaceStore.getState().switchWorkspace("workspace-home", "home");
+  useWorkspaceStore.getState().switchWorkspace('workspace-home', 'home')
 
   expect(useWorkspaceStore.getState()).toMatchObject({
-    activeSurface: "conversation",
-    cameraViewMode: "orthographic",
+    activeSurface: 'conversation',
+    cameraViewMode: 'orthographic',
     collapsedRoomIds: [],
     drafts: {},
     globalPanel: null,
@@ -37,9 +37,9 @@ test("switchWorkspace starts a fresh workspace context with its configured scene
     selectedAgentId: null,
     selectedChannelId: null,
     selectedRoomId: null,
-    selectedScene: "home",
+    selectedScene: 'home',
     selectedTaskId: null,
-    selectedWorkspaceId: "workspace-home",
+    selectedWorkspaceId: 'workspace-home',
     threadRootMessageId: null,
-  });
-});
+  })
+})

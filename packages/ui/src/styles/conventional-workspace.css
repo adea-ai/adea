@@ -82,7 +82,7 @@
 
 .global-rail__workspace-menu > button:hover,
 .global-rail__workspace-menu > button:focus-visible,
-.global-rail__workspace-menu > button[aria-checked="true"] {
+.global-rail__workspace-menu > button[aria-checked='true'] {
   background: var(--accent);
   color: var(--accent-foreground);
   outline: none;
@@ -105,7 +105,7 @@
   height: 1.5rem;
 }
 
-.global-rail__button[aria-pressed="true"]::after {
+.global-rail__button[aria-pressed='true']::after {
   position: absolute;
   top: 0.45rem;
   right: -0.46rem;
@@ -113,7 +113,7 @@
   width: 2px;
   border-radius: 999px;
   background: var(--foreground);
-  content: "";
+  content: '';
 }
 
 .global-rail__search {
@@ -124,7 +124,7 @@
 
 .global-rail__search kbd {
   color: var(--muted-foreground);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   font-size: 0.55rem;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -146,21 +146,21 @@
   border-radius: 0.75rem;
 }
 
-.global-account-menu [data-slot="dropdown-menu-item"] {
+.global-account-menu [data-slot='dropdown-menu-item'] {
   min-height: 2.25rem;
   gap: 0.65rem;
   padding: 0.45rem 0.55rem;
   font-size: 0.86rem;
 }
 
-.global-account-menu [data-slot="dropdown-menu-item"] svg {
+.global-account-menu [data-slot='dropdown-menu-item'] svg {
   width: 1.05rem;
   height: 1.05rem;
   color: var(--muted-foreground);
 }
 
-.global-account-menu [data-slot="dropdown-menu-item"]:not([data-disabled]):hover svg,
-.global-account-menu [data-slot="dropdown-menu-item"]:focus svg {
+.global-account-menu [data-slot='dropdown-menu-item']:not([data-disabled]):hover svg,
+.global-account-menu [data-slot='dropdown-menu-item']:focus svg {
   color: currentColor;
 }
 
@@ -521,12 +521,12 @@
   height: 2rem;
   flex-shrink: 0;
 }
-.conventional-channel-actions [data-slot="dropdown-menu-trigger"],
-.conventional-room-actions [data-slot="dropdown-menu-trigger"] {
+.conventional-channel-actions [data-slot='dropdown-menu-trigger'],
+.conventional-room-actions [data-slot='dropdown-menu-trigger'] {
   background: var(--cw-sidebar-hover);
 }
-.conventional-channel-actions [data-slot="dropdown-menu-trigger"]:hover,
-.conventional-room-actions [data-slot="dropdown-menu-trigger"]:hover {
+.conventional-channel-actions [data-slot='dropdown-menu-trigger']:hover,
+.conventional-room-actions [data-slot='dropdown-menu-trigger']:hover {
   background: color-mix(in srgb, var(--cw-sidebar-hover) 70%, var(--cw-text));
 }
 .conventional-room-actions button svg,
@@ -544,9 +544,9 @@
   flex: 1;
 }
 .conventional-room-select:hover,
-.conventional-room-select[aria-current="page"],
+.conventional-room-select[aria-current='page'],
 .conventional-channel-list > li > button:hover,
-.conventional-channel-list > li > button[aria-current="page"] {
+.conventional-channel-list > li > button[aria-current='page'] {
   background: var(--cw-sidebar-hover);
   color: var(--cw-text);
 }
@@ -823,7 +823,7 @@
   height: 1px;
   flex: 1;
   background: var(--cw-border);
-  content: "";
+  content: '';
 }
 .conventional-date-divider span {
   padding: 0.22rem 0.65rem;
@@ -1593,7 +1593,7 @@
 .conventional-dependency-results button:hover {
   background: var(--cw-surface-muted);
 }
-.conventional-dependency-results button[aria-pressed="true"] {
+.conventional-dependency-results button[aria-pressed='true'] {
   border-color: var(--cw-accent);
   background: var(--cw-accent-soft);
   color: var(--cw-accent-strong);
@@ -1743,7 +1743,7 @@
   color: var(--cw-text);
   font-size: 0.82rem;
 }
-.conventional-detail-panel input[type="checkbox"] {
+.conventional-detail-panel input[type='checkbox'] {
   width: 1rem;
   height: 1rem;
   min-height: 0;
@@ -1789,7 +1789,7 @@
   color: var(--cw-text);
   resize: vertical;
 }
-.conventional-detail-panel input:not([type="checkbox"]),
+.conventional-detail-panel input:not([type='checkbox']),
 .conventional-inline-form input,
 .conventional-inline-form textarea,
 .conventional-inline-form select,
@@ -1891,7 +1891,7 @@
   height: 2.5rem;
   border-radius: 0.75rem;
 }
-.conventional-dialog > .conventional-dialog__header [data-slot="dialog-description"] {
+.conventional-dialog > .conventional-dialog__header [data-slot='dialog-description'] {
   margin-top: 0.25rem;
   color: var(--cw-muted);
   font-size: 0.82rem;
@@ -1936,7 +1936,7 @@
 }
 .conventional-template-options button:hover,
 .conventional-search-results button:hover,
-.conventional-search-results button[aria-selected="true"] {
+.conventional-search-results button[aria-selected='true'] {
   background: var(--cw-surface-muted);
   outline: 2px solid var(--cw-focus);
   outline-offset: -2px;
@@ -2130,7 +2130,7 @@
   overflow: auto;
   padding: 0.8rem 1.25rem 1.25rem;
 }
-.plugins-browser[data-filter-open="true"] .plugins-browser__list {
+.plugins-browser[data-filter-open='true'] .plugins-browser__list {
   pointer-events: none;
 }
 .plugins-browser__group + .plugins-browser__group {
@@ -2380,12 +2380,12 @@
   color: var(--cw-muted);
 }
 .conventional-settings-nav button:hover,
-.conventional-settings-nav button[aria-selected="true"] {
+.conventional-settings-nav button[aria-selected='true'] {
   background: var(--cw-surface);
   color: var(--cw-accent-strong);
   font-weight: 700;
 }
-.conventional-settings-nav button[aria-selected="true"] svg {
+.conventional-settings-nav button[aria-selected='true'] svg {
   color: var(--cw-accent-strong);
 }
 .conventional-settings-panel {
@@ -2427,7 +2427,7 @@
   margin: 0 0 0.2rem;
   font-size: 0.9rem;
 }
-.conventional-settings-row input:not([type="checkbox"]) {
+.conventional-settings-row input:not([type='checkbox']) {
   width: min(13rem, 44%);
   min-height: 2.4rem;
   padding: 0 0.65rem;
@@ -2436,7 +2436,7 @@
   background: var(--cw-surface);
   color: var(--cw-text);
 }
-.conventional-settings-row input[type="checkbox"] {
+.conventional-settings-row input[type='checkbox'] {
   width: 1.1rem;
   height: 1.1rem;
   accent-color: var(--cw-accent-strong);
@@ -2624,7 +2624,7 @@
   .conventional-settings-row {
     align-items: flex-start;
   }
-  .conventional-settings-row input:not([type="checkbox"]) {
+  .conventional-settings-row input:not([type='checkbox']) {
     width: 9rem;
     flex: none;
   }

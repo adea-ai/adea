@@ -58,7 +58,7 @@
   border-radius: 0.55rem;
   color: var(--hq-shell-accent-foreground);
   background: var(--hq-shell-accent);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: -0.08em;
@@ -123,7 +123,7 @@
 /* Room Designer owns the viewport while it is open. Keep the global rail
  * available for workspace, scene, and plugin navigation, but remove controls
  * that would compete with the editor canvas. */
-.workspace-scene-viewport:has([data-room-designer-active="true"])
+.workspace-scene-viewport:has([data-room-designer-active='true'])
   .workspace-ui
   :is(
     .virtual-room-panel,

@@ -1,191 +1,197 @@
-"use client";
+'use client'
 
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
-import { useWorkspaceStore } from "@adea-ai/state";
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { AlertTriangle, X } from 'lucide-react'
+import { useWorkspaceStore } from '@adea-ai/state'
 
-import { AgentRoster } from "./agent-roster";
-import { ArtifactDetail } from "./artifact-detail";
-import { ConversationSurface } from "./conversation-surface";
-import { TaskBoard } from "./task-board";
-import { useWorkspaceController } from "./use-workspace-controller";
-import { WorkspaceSidebar } from "./workspace-sidebar";
-import { WorkspaceError, WorkspaceSkeleton } from "./workspace-states";
-import type { SearchResult } from "./workspace-utility-dialogs";
-import type { WorkspacePlatformServices } from "./platform";
-import type { WorkspaceView } from "./workspace-view-toggle";
+import { AgentRoster } from './agent-roster'
+import { ArtifactDetail } from './artifact-detail'
+import { ConversationSurface } from './conversation-surface'
+import { TaskBoard } from './task-board'
+import { useWorkspaceController } from './use-workspace-controller'
+import { WorkspaceSidebar } from './workspace-sidebar'
+import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
+import type { SearchResult } from './workspace-utility-dialogs'
+import type { WorkspacePlatformServices } from './platform'
+import type { WorkspaceView } from './workspace-view-toggle'
 
 const CreateGroupDialog = lazy(() =>
-  import("./create-workspace-dialogs").then((module) => ({ default: module.CreateGroupDialog }))
-);
+  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
+)
 const CreateRoomDialog = lazy(() =>
-  import("./create-workspace-dialogs").then((module) => ({ default: module.CreateRoomDialog }))
-);
+  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateRoomDialog }))
+)
 const ModalDialog = lazy(() =>
-  import("./modal-dialog").then((module) => ({ default: module.ModalDialog }))
-);
+  import('./modal-dialog').then((module) => ({ default: module.ModalDialog }))
+)
 const WorkspaceSearchDialog = lazy(() =>
-  import("./workspace-utility-dialogs").then((module) => ({
+  import('./workspace-utility-dialogs').then((module) => ({
     default: module.WorkspaceSearchDialog,
   }))
-);
+)
 const WorkspaceSettingsDialog = lazy(() =>
-  import("./workspace-settings").then((module) => ({ default: module.WorkspaceSettingsDialog }))
-);
+  import('./workspace-settings').then((module) => ({ default: module.WorkspaceSettingsDialog }))
+)
 
 type DialogId =
-  "conversation-search" | "create-group" | "create-room" | "details" | "search" | "settings" | null;
+  | 'conversation-search'
+  | 'create-group'
+  | 'create-room'
+  | 'details'
+  | 'search'
+  | 'settings'
+  | null
 
 export function ConventionalWorkspaceShell({
   manageSettings = true,
   services,
 }: Readonly<{
-  manageSettings?: boolean;
-  onViewChange?: (view: WorkspaceView) => void;
-  services?: WorkspacePlatformServices;
-  view?: WorkspaceView;
+  manageSettings?: boolean
+  onViewChange?: (view: WorkspaceView) => void
+  services?: WorkspacePlatformServices
+  view?: WorkspaceView
 }> = {}) {
-  const controller = useWorkspaceController(services?.client);
-  const [dialog, setDialog] = useState<DialogId>(null);
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [online, setOnline] = useState(true);
-  const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null);
-  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null);
-  const [sessionNoticeDismissed, setSessionNoticeDismissed] = useState(false);
-  const activeSurface = useWorkspaceStore((state) => state.activeSurface);
-  const globalPanel = useWorkspaceStore((state) => state.globalPanel);
-  const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds);
-  const drafts = useWorkspaceStore((state) => state.drafts);
-  const mobileSidebarOpen = useWorkspaceStore((state) => state.mobileSidebarOpen);
-  const selectedAgentId = useWorkspaceStore((state) => state.selectedAgentId);
-  const selectedChannelId = useWorkspaceStore((state) => state.selectedChannelId);
-  const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId);
-  const threadRootMessageId = useWorkspaceStore((state) => state.threadRootMessageId);
-  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface);
-  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel);
-  const setDraft = useWorkspaceStore((state) => state.setDraft);
-  const setMobileSidebarOpen = useWorkspaceStore((state) => state.setMobileSidebarOpen);
-  const setSelectedAgentId = useWorkspaceStore((state) => state.setSelectedAgentId);
-  const setSelectedTaskId = useWorkspaceStore((state) => state.setSelectedTaskId);
-  const setThreadRootMessageId = useWorkspaceStore((state) => state.setThreadRootMessageId);
-  const toggleRoomCollapsed = useWorkspaceStore((state) => state.toggleRoomCollapsed);
-  const sessionRotated = controller.bootstrap.data?.sessionRotated ?? false;
-  const sessionIdentity = controller.bootstrap.data?.principal.userId;
+  const controller = useWorkspaceController(services?.client)
+  const [dialog, setDialog] = useState<DialogId>(null)
+  const [accountBusy, setAccountBusy] = useState(false)
+  const [online, setOnline] = useState(true)
+  const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null)
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
+  const [sessionNoticeDismissed, setSessionNoticeDismissed] = useState(false)
+  const activeSurface = useWorkspaceStore((state) => state.activeSurface)
+  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
+  const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds)
+  const drafts = useWorkspaceStore((state) => state.drafts)
+  const mobileSidebarOpen = useWorkspaceStore((state) => state.mobileSidebarOpen)
+  const selectedAgentId = useWorkspaceStore((state) => state.selectedAgentId)
+  const selectedChannelId = useWorkspaceStore((state) => state.selectedChannelId)
+  const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
+  const threadRootMessageId = useWorkspaceStore((state) => state.threadRootMessageId)
+  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface)
+  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
+  const setDraft = useWorkspaceStore((state) => state.setDraft)
+  const setMobileSidebarOpen = useWorkspaceStore((state) => state.setMobileSidebarOpen)
+  const setSelectedAgentId = useWorkspaceStore((state) => state.setSelectedAgentId)
+  const setSelectedTaskId = useWorkspaceStore((state) => state.setSelectedTaskId)
+  const setThreadRootMessageId = useWorkspaceStore((state) => state.setThreadRootMessageId)
+  const toggleRoomCollapsed = useWorkspaceStore((state) => state.toggleRoomCollapsed)
+  const sessionRotated = controller.bootstrap.data?.sessionRotated ?? false
+  const sessionIdentity = controller.bootstrap.data?.principal.userId
   useEffect(() => {
-    setSessionNoticeDismissed(false);
-  }, [sessionIdentity]);
-  const principal = controller.bootstrap.data?.principal;
+    setSessionNoticeDismissed(false)
+  }, [sessionIdentity])
+  const principal = controller.bootstrap.data?.principal
   const accountAuthenticated =
-    services?.account?.authenticated ?? Boolean(principal && !principal.temporary);
+    services?.account?.authenticated ?? Boolean(principal && !principal.temporary)
   const accountLabel =
     services?.account?.label ??
-    (accountAuthenticated ? (principal?.displayName ?? "Account") : "Sign in");
+    (accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in')
   const selectChannel = useCallback(
     (channelId: string, roomId?: string) => {
-      setSelectedArtifactId(null);
-      setSearchTargetMessageId(null);
-      controller.selectChannel(channelId, roomId);
-      setActiveSurface("conversation");
-      setMobileSidebarOpen(false);
+      setSelectedArtifactId(null)
+      setSearchTargetMessageId(null)
+      controller.selectChannel(channelId, roomId)
+      setActiveSurface('conversation')
+      setMobileSidebarOpen(false)
     },
     [controller.selectChannel, setActiveSurface, setMobileSidebarOpen]
-  );
+  )
 
   useEffect(() => {
-    if (globalPanel === "settings" && !manageSettings) return;
-    if (globalPanel !== "search" && globalPanel !== "settings") return;
-    setDialog(globalPanel);
-    setGlobalPanel(null);
-  }, [globalPanel, manageSettings, setGlobalPanel]);
+    if (globalPanel === 'settings' && !manageSettings) return
+    if (globalPanel !== 'search' && globalPanel !== 'settings') return
+    setDialog(globalPanel)
+    setGlobalPanel(null)
+  }, [globalPanel, manageSettings, setGlobalPanel])
 
   useEffect(() => {
-    if (!manageSettings) return;
+    if (!manageSettings) return
     const openDeepLinkedSettings = () => {
-      if (window.location.hash.startsWith("#settings")) setDialog("settings");
-    };
-    openDeepLinkedSettings();
-    window.addEventListener("hashchange", openDeepLinkedSettings);
-    return () => window.removeEventListener("hashchange", openDeepLinkedSettings);
-  }, [manageSettings]);
+      if (window.location.hash.startsWith('#settings')) setDialog('settings')
+    }
+    openDeepLinkedSettings()
+    window.addEventListener('hashchange', openDeepLinkedSettings)
+    return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
+  }, [manageSettings])
 
   useEffect(() => {
-    const updateOnlineStatus = () => setOnline(navigator.onLine);
-    updateOnlineStatus();
-    window.addEventListener("online", updateOnlineStatus);
-    window.addEventListener("offline", updateOnlineStatus);
+    const updateOnlineStatus = () => setOnline(navigator.onLine)
+    updateOnlineStatus()
+    window.addEventListener('online', updateOnlineStatus)
+    window.addEventListener('offline', updateOnlineStatus)
     return () => {
-      window.removeEventListener("online", updateOnlineStatus);
-      window.removeEventListener("offline", updateOnlineStatus);
-    };
-  }, []);
+      window.removeEventListener('online', updateOnlineStatus)
+      window.removeEventListener('offline', updateOnlineStatus)
+    }
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const editableTarget =
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
-        (event.target instanceof HTMLElement && event.target.isContentEditable);
+        (event.target instanceof HTMLElement && event.target.isContentEditable)
       const targetInClosingDialog =
         dialog === null &&
         event.target instanceof HTMLElement &&
-        Boolean(event.target.closest('[role="dialog"]'));
-      const editable = editableTarget && !targetInClosingDialog;
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setDialog("search");
+        Boolean(event.target.closest('[role="dialog"]'))
+      const editable = editableTarget && !targetInClosingDialog
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setDialog('search')
       }
       if (
         (event.metaKey || event.ctrlKey) &&
         !event.shiftKey &&
-        event.key.toLowerCase() === "f" &&
+        event.key.toLowerCase() === 'f' &&
         controller.selectedChannel &&
         !editable
       ) {
-        event.preventDefault();
-        setDialog("conversation-search");
+        event.preventDefault()
+        setDialog('conversation-search')
       }
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "a") {
-        event.preventDefault();
-        void controller.readStateActions.markAllRead();
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'a') {
+        event.preventDefault()
+        void controller.readStateActions.markAllRead()
       }
       if (
         (event.metaKey || event.ctrlKey) &&
         event.shiftKey &&
-        event.key.toLowerCase() === "u" &&
+        event.key.toLowerCase() === 'u' &&
         controller.selectedChannel
       ) {
-        event.preventDefault();
+        event.preventDefault()
         void controller.readStateActions.markChannel({
-          action: "unread",
+          action: 'unread',
           channelId: controller.selectedChannel.id,
-        });
+        })
       }
-      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "m") {
-        event.preventDefault();
-        document.querySelector<HTMLTextAreaElement>('[id^="composer-"]')?.focus();
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === 'm') {
+        event.preventDefault()
+        document.querySelector<HTMLTextAreaElement>('[id^="composer-"]')?.focus()
       }
-      if (event.altKey && !editable && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+      if (event.altKey && !editable && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
         const destinations = controller.channels.filter(
-          ({ lifecycleState }) => lifecycleState === "active"
-        );
+          ({ lifecycleState }) => lifecycleState === 'active'
+        )
         if (destinations.length) {
-          event.preventDefault();
+          event.preventDefault()
           const current = Math.max(
             destinations.findIndex(({ id }) => id === selectedChannelId),
             0
-          );
-          const direction = event.key === "ArrowDown" ? 1 : -1;
-          const next = (current + direction + destinations.length) % destinations.length;
-          selectChannel(destinations[next]!.id, destinations[next]!.roomId);
+          )
+          const direction = event.key === 'ArrowDown' ? 1 : -1
+          const next = (current + direction + destinations.length) % destinations.length
+          selectChannel(destinations[next]!.id, destinations[next]!.roomId)
         }
       }
-      if (event.key === "Escape" && threadRootMessageId) setThreadRootMessageId(null);
-      if (event.key === "Escape" && selectedArtifactId) setSelectedArtifactId(null);
-    };
+      if (event.key === 'Escape' && threadRootMessageId) setThreadRootMessageId(null)
+      if (event.key === 'Escape' && selectedArtifactId) setSelectedArtifactId(null)
+    }
     // Capture workspace shortcuts before a portalled dialog's focus trap can
     // stop propagation while it restores focus after closing.
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
   }, [
     activeSurface,
     controller.channels,
@@ -197,29 +203,29 @@ export function ConventionalWorkspaceShell({
     selectChannel,
     setThreadRootMessageId,
     threadRootMessageId,
-  ]);
+  ])
 
   useEffect(() => {
     document.title = controller.activeWorkspace
       ? `${controller.activeWorkspace.name} | Adea`
-      : "Adea";
-  }, [controller.activeWorkspace]);
+      : 'Adea'
+  }, [controller.activeWorkspace])
 
   useEffect(() => {
-    if (!controller.workspaceId || !controller.channels.length) return;
-    const query = new URLSearchParams(window.location.search);
-    const requestedWorkspace = query.get("workspace");
-    if (requestedWorkspace && requestedWorkspace !== controller.workspaceId) return;
-    const channelId = query.get("channel");
-    const taskId = query.get("task");
+    if (!controller.workspaceId || !controller.channels.length) return
+    const query = new URLSearchParams(window.location.search)
+    const requestedWorkspace = query.get('workspace')
+    if (requestedWorkspace && requestedWorkspace !== controller.workspaceId) return
+    const channelId = query.get('channel')
+    const taskId = query.get('task')
     if (channelId && controller.channels.some(({ id }) => id === channelId)) {
-      const channel = controller.channels.find(({ id }) => id === channelId)!;
-      selectChannel(channel.id, channel.roomId);
-      setThreadRootMessageId(query.get("thread"));
-      setSearchTargetMessageId(query.get("message"));
+      const channel = controller.channels.find(({ id }) => id === channelId)!
+      selectChannel(channel.id, channel.roomId)
+      setThreadRootMessageId(query.get('thread'))
+      setSearchTargetMessageId(query.get('message'))
     } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
-      setSelectedTaskId(taskId);
-      setActiveSurface("tasks");
+      setSelectedTaskId(taskId)
+      setActiveSurface('tasks')
     }
   }, [
     controller.channels,
@@ -229,14 +235,14 @@ export function ConventionalWorkspaceShell({
     setActiveSurface,
     setSelectedTaskId,
     setThreadRootMessageId,
-  ]);
+  ])
 
   if (controller.bootstrap.isPending || !controller.persistenceReady)
     return (
       <main className="conventional-workspace conventional-workspace--loading">
         <WorkspaceSkeleton />
       </main>
-    );
+    )
   if (controller.bootstrap.isError)
     return (
       <main className="conventional-workspace conventional-workspace--loading">
@@ -245,53 +251,53 @@ export function ConventionalWorkspaceShell({
           retry={() => void controller.bootstrap.refetch()}
         />
       </main>
-    );
-  if (!controller.activeWorkspace || !controller.workspaceId) return null;
-  const queryError = controller.workspaceQueries.find(({ isError }) => isError);
-  const selectedArtifact = controller.artifacts.find(({ id }) => id === selectedArtifactId);
+    )
+  if (!controller.activeWorkspace || !controller.workspaceId) return null
+  const queryError = controller.workspaceQueries.find(({ isError }) => isError)
+  const selectedArtifact = controller.artifacts.find(({ id }) => id === selectedArtifactId)
   const selectSearchResult = (result: SearchResult) => {
-    if (result.kind === "settings") {
-      setDialog("settings");
-      return;
+    if (result.kind === 'settings') {
+      setDialog('settings')
+      return
     }
-    if (result.kind === "action" && result.id === "mark-all-read") {
-      void controller.readStateActions.markAllRead();
-      return;
+    if (result.kind === 'action' && result.id === 'mark-all-read') {
+      void controller.readStateActions.markAllRead()
+      return
     }
-    if (result.kind === "channel") return selectChannel(result.id);
-    if (result.kind === "room") {
-      const item = controller.navigation.rooms.find(({ room }) => room.id === result.id);
-      if (item?.selectionChannelId) selectChannel(item.selectionChannelId, item.room.id);
-      return;
+    if (result.kind === 'channel') return selectChannel(result.id)
+    if (result.kind === 'room') {
+      const item = controller.navigation.rooms.find(({ room }) => room.id === result.id)
+      if (item?.selectionChannelId) selectChannel(item.selectionChannelId, item.room.id)
+      return
     }
-    if (result.kind === "agent") {
-      setSelectedArtifactId(null);
-      setSelectedAgentId(result.id);
-      setActiveSurface("agents");
-      return;
+    if (result.kind === 'agent') {
+      setSelectedArtifactId(null)
+      setSelectedAgentId(result.id)
+      setActiveSurface('agents')
+      return
     }
-    if (result.kind === "message" && result.channelId) {
-      selectChannel(result.channelId, result.roomId);
-      setThreadRootMessageId(result.threadRootMessageId ?? null);
-      setSearchTargetMessageId(result.messageId ?? result.id);
-      return;
+    if (result.kind === 'message' && result.channelId) {
+      selectChannel(result.channelId, result.roomId)
+      setThreadRootMessageId(result.threadRootMessageId ?? null)
+      setSearchTargetMessageId(result.messageId ?? result.id)
+      return
     }
-    if (result.kind === "artifact") {
-      setSelectedArtifactId(result.id);
-      return;
+    if (result.kind === 'artifact') {
+      setSelectedArtifactId(result.id)
+      return
     }
-    setSelectedTaskId(result.id);
-    setSelectedArtifactId(null);
-    setActiveSurface("tasks");
-  };
+    setSelectedTaskId(result.id)
+    setSelectedArtifactId(null)
+    setActiveSurface('tasks')
+  }
   const signOut = async () => {
-    setAccountBusy(true);
+    setAccountBusy(true)
     try {
-      await services?.account?.onSignOut();
+      await services?.account?.onSignOut()
     } finally {
-      setAccountBusy(false);
+      setAccountBusy(false)
     }
-  };
+  }
 
   return (
     <main className="conventional-workspace">
@@ -305,16 +311,16 @@ export function ConventionalWorkspaceShell({
         mobileOpen={mobileSidebarOpen}
         navigation={controller.navigation}
         onArchiveChannel={controller.channelActions.archive}
-        onCreateGroup={() => setDialog("create-group")}
-        onCreateRoom={() => setDialog("create-room")}
+        onCreateGroup={() => setDialog('create-group')}
+        onCreateRoom={() => setDialog('create-room')}
         onRenameChannel={controller.channelActions.rename}
         onOpenAgents={() => {
-          setSelectedArtifactId(null);
-          setActiveSurface("agents");
+          setSelectedArtifactId(null)
+          setActiveSurface('agents')
         }}
         onOpenTasks={() => {
-          setSelectedArtifactId(null);
-          setActiveSurface("tasks");
+          setSelectedArtifactId(null)
+          setActiveSurface('tasks')
         }}
         onMarkAllRead={() => void controller.readStateActions.markAllRead()}
         onSelectChannel={selectChannel}
@@ -354,31 +360,31 @@ export function ConventionalWorkspaceShell({
             artifact={selectedArtifact}
             dismiss={() => setSelectedArtifactId(null)}
             openTask={(taskId) => {
-              setSelectedTaskId(taskId);
-              setActiveSurface("tasks");
-              setSelectedArtifactId(null);
+              setSelectedTaskId(taskId)
+              setActiveSurface('tasks')
+              setSelectedArtifactId(null)
             }}
           />
-        ) : activeSurface === "conversation" ? (
+        ) : activeSurface === 'conversation' ? (
           <ConversationSurface
             agents={controller.agents}
             artifacts={controller.artifacts}
             channel={controller.selectedChannel}
             client={controller.client}
-            draft={selectedChannelId ? (drafts[selectedChannelId] ?? "") : ""}
+            draft={selectedChannelId ? (drafts[selectedChannelId] ?? '') : ''}
             onDraftChange={(value) => selectedChannelId && setDraft(selectedChannelId, value)}
-            onOpenDetails={() => setDialog("details")}
-            onOpenSearch={() => setDialog("conversation-search")}
+            onOpenDetails={() => setDialog('details')}
+            onOpenSearch={() => setDialog('conversation-search')}
             onMarkRead={(lastReadSequence) =>
               controller.readStateActions.markChannel({
-                action: "read",
+                action: 'read',
                 channelId: controller.selectedChannel!.id,
                 lastReadSequence,
               })
             }
             onMarkThreadRead={(rootId, lastReadSequence) =>
               controller.readStateActions.markThread({
-                action: "read",
+                action: 'read',
                 channelId: controller.selectedChannel!.id,
                 lastReadSequence,
                 threadRootMessageId: rootId,
@@ -386,20 +392,20 @@ export function ConventionalWorkspaceShell({
             }
             onMarkThreadUnread={(rootId) =>
               controller.readStateActions.markThread({
-                action: "unread",
+                action: 'unread',
                 channelId: controller.selectedChannel!.id,
                 threadRootMessageId: rootId,
               })
             }
             onMarkUnread={() =>
               controller.readStateActions.markChannel({
-                action: "unread",
+                action: 'unread',
                 channelId: controller.selectedChannel!.id,
               })
             }
             onOpenTask={(taskId) => {
-              setSelectedTaskId(taskId);
-              setActiveSurface("tasks");
+              setSelectedTaskId(taskId)
+              setActiveSurface('tasks')
             }}
             privateContent={services?.privateContent}
             onThreadChange={setThreadRootMessageId}
@@ -408,20 +414,20 @@ export function ConventionalWorkspaceShell({
             }
             tasks={controller.tasks}
             searchTargetMessageId={searchTargetMessageId}
-            threadDraft={threadRootMessageId ? (drafts[`thread:${threadRootMessageId}`] ?? "") : ""}
+            threadDraft={threadRootMessageId ? (drafts[`thread:${threadRootMessageId}`] ?? '') : ''}
             threadRootMessageId={threadRootMessageId}
             transcription={services?.transcription}
             workspaceId={controller.workspaceId}
           />
-        ) : activeSurface === "agents" ? (
+        ) : activeSurface === 'agents' ? (
           <AgentRoster
             agents={controller.agents}
             busy={controller.createAgentBusy || controller.agentBusy}
             onArchive={controller.agentActions.archive}
             onCreate={controller.createAgent}
             onMessage={async (agentId) => {
-              await controller.openAgentConversation(agentId);
-              setActiveSurface("conversation");
+              await controller.openAgentConversation(agentId)
+              setActiveSurface('conversation')
             }}
             onUpdate={async (agent, input) => {
               if (
@@ -435,9 +441,9 @@ export function ConventionalWorkspaceShell({
                   characterRef: input.characterRef,
                   name: input.name,
                   roleSummary: input.roleSummary,
-                });
+                })
               if (input.roomId !== (agent.roomId ?? null))
-                await controller.agentActions.assignRoom(agent.id, input.roomId);
+                await controller.agentActions.assignRoom(agent.id, input.roomId)
               if (
                 input.profileId.trim() !== agent.profile.id ||
                 input.profileVersion.trim() !== agent.profile.version
@@ -445,7 +451,7 @@ export function ConventionalWorkspaceShell({
                 await controller.agentActions.profile(agent.id, {
                   profileId: input.profileId,
                   profileVersion: input.profileVersion,
-                });
+                })
             }}
             rooms={controller.rooms}
           />
@@ -464,7 +470,7 @@ export function ConventionalWorkspaceShell({
             onOpenConversation={(task) =>
               void controller.taskActions
                 .openConversation(task)
-                .then(() => setActiveSurface("conversation"))
+                .then(() => setActiveSurface('conversation'))
             }
             onQueue={controller.taskActions.queue}
             onReview={controller.taskActions.review}
@@ -482,14 +488,14 @@ export function ConventionalWorkspaceShell({
           busy={controller.createRoomBusy}
           onClose={() => setDialog(null)}
           onCreate={controller.createRoom}
-          open={dialog === "create-room"}
+          open={dialog === 'create-room'}
           template={controller.activeWorkspace.scene}
         />
         <CreateGroupDialog
           busy={controller.createGroupBusy}
           onClose={() => setDialog(null)}
           onCreate={controller.createGroup}
-          open={dialog === "create-group"}
+          open={dialog === 'create-group'}
         />
         <WorkspaceSearchDialog
           agents={controller.agents}
@@ -499,11 +505,11 @@ export function ConventionalWorkspaceShell({
           onClose={() => setDialog(null)}
           online={online}
           onSelect={selectSearchResult}
-          open={dialog === "search" || dialog === "conversation-search"}
+          open={dialog === 'search' || dialog === 'conversation-search'}
           privateContent={services?.privateContent}
           rooms={controller.rooms}
           scopeChannelId={
-            dialog === "conversation-search" ? controller.selectedChannel?.id : undefined
+            dialog === 'conversation-search' ? controller.selectedChannel?.id : undefined
           }
           tasks={controller.tasks}
           workspaceId={controller.workspaceId}
@@ -516,18 +522,18 @@ export function ConventionalWorkspaceShell({
             busy={services?.account?.busy ?? accountBusy}
             onClose={() => setDialog(null)}
             onOpenAgents={() => {
-              setSelectedArtifactId(null);
-              setActiveSurface("agents");
+              setSelectedArtifactId(null)
+              setActiveSurface('agents')
             }}
             onSignIn={() => services?.account?.onSignIn()}
             onSignOut={() => void signOut()}
-            open={dialog === "settings"}
+            open={dialog === 'settings'}
             services={services}
             workspace={controller.activeWorkspace}
           />
         ) : null}
         <ModalDialog
-          open={dialog === "details"}
+          open={dialog === 'details'}
           onClose={() => setDialog(null)}
           title="Conversation details"
           description="Canonical Adea identity and scope."
@@ -535,7 +541,7 @@ export function ConventionalWorkspaceShell({
           <div className="conventional-conversation-details">
             <p>
               <span>Kind</span>
-              <strong>{controller.selectedChannel?.kind.replace("_", " ")}</strong>
+              <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
             </p>
             <p>
               <span>Visibility</span>
@@ -547,17 +553,17 @@ export function ConventionalWorkspaceShell({
             </p>
             <p>
               <span>Task link</span>
-              <strong>{controller.selectedChannel?.taskId ? "Linked" : "None"}</strong>
+              <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
             </p>
           </div>
         </ModalDialog>
       </Suspense>
       <div className="visually-hidden" aria-live="polite">
-        {online ? "Workspace online" : "Workspace offline. Drafts remain on this device."}
+        {online ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}
       </div>
       {selectedAgentId ? (
         <span className="visually-hidden">Selected Agent {selectedAgentId}</span>
       ) : null}
     </main>
-  );
+  )
 }

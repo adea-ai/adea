@@ -1,12 +1,12 @@
-import type { ReactNode } from "react";
+import type { ReactNode } from 'react'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@adea-ai/ui/components/ui/dialog";
-import { cn } from "@adea-ai/ui/lib/utils";
+} from '@adea-ai/ui/components/ui/dialog'
+import { cn } from '@adea-ai/ui/lib/utils'
 
 export function ModalDialog({
   children,
@@ -17,17 +17,17 @@ export function ModalDialog({
   open,
   title,
 }: Readonly<{
-  children: ReactNode;
-  className?: string;
-  description?: string;
-  headerLeading?: ReactNode;
-  onClose: () => void;
-  open: boolean;
-  title: string;
+  children: ReactNode
+  className?: string
+  description?: string
+  headerLeading?: ReactNode
+  onClose: () => void
+  open: boolean
+  title: string
 }>) {
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className={cn("conventional-dialog", className)}>
+      <DialogContent className={cn('conventional-dialog', className)}>
         <DialogHeader className="conventional-dialog__header">
           {headerLeading ? (
             <div className="conventional-dialog__heading">
@@ -47,5 +47,5 @@ export function ModalDialog({
         {children}
       </DialogContent>
     </Dialog>
-  );
+  )
 }

@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "shadcn/tailwind.css";
+@import 'tailwindcss';
+@import 'shadcn/tailwind.css';
 
 /* Include shared components when this stylesheet is consumed by an app. */
 @source "../";

@@ -1,10 +1,10 @@
-import type { Metadata } from "next";
+import type { Metadata } from 'next'
 
-import { DesktopAuthComplete } from "./desktop-auth-complete";
+import { DesktopAuthComplete } from './desktop-auth-complete'
 
 export const metadata: Metadata = {
-  title: "Sign-in complete | Adea",
-};
+  title: 'Sign-in complete | Adea',
+}
 
 export default function DesktopAuthCompletePage() {
   return (
@@ -13,5 +13,5 @@ export default function DesktopAuthCompletePage() {
         <DesktopAuthComplete />
       </section>
     </main>
-  );
+  )
 }

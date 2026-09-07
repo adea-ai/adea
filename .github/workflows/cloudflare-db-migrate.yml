@@ -18,9 +18,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/db/drizzle/**"
-      - "packages/db/src/verify-migrations.ts"
-      - ".github/workflows/cloudflare-db-migrate.yml"
+      - 'packages/db/drizzle/**'
+      - 'packages/db/src/verify-migrations.ts'
+      - '.github/workflows/cloudflare-db-migrate.yml'
   workflow_dispatch:
 
 permissions:

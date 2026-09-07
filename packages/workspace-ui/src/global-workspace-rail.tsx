@@ -1,27 +1,27 @@
-"use client";
+'use client'
 
-import type { WorkspaceSummary } from "@adea-ai/types";
-import { Button } from "@adea-ai/ui/components/ui/button";
-import { Separator } from "@adea-ai/ui/components/ui/separator";
+import type { WorkspaceSummary } from '@adea-ai/types'
+import { Button } from '@adea-ai/ui/components/ui/button'
+import { Separator } from '@adea-ai/ui/components/ui/separator'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@adea-ai/ui/components/ui/tooltip";
-import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+} from '@adea-ai/ui/components/ui/tooltip'
+import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
 
-import { AccountMenu } from "./account-menu";
-import type { WorkspaceView } from "./workspace-view-toggle";
+import { AccountMenu } from './account-menu'
+import type { WorkspaceView } from './workspace-view-toggle'
 
 type RailActionProps = Readonly<{
-  active?: boolean;
-  disabled?: boolean;
-  icon: typeof Home;
-  label: string;
-  onClick?: () => void;
-}>;
+  active?: boolean
+  disabled?: boolean
+  icon: typeof Home
+  label: string
+  onClick?: () => void
+}>
 
 function RailAction({
   active = false,
@@ -37,7 +37,7 @@ function RailAction({
           <Button
             type="button"
             className="global-rail__button"
-            variant={active ? "secondary" : "ghost"}
+            variant={active ? 'secondary' : 'ghost'}
             size="icon-lg"
             aria-label={label}
             aria-pressed={active || undefined}
@@ -50,12 +50,12 @@ function RailAction({
       </TooltipTrigger>
       <TooltipContent side="right">{label}</TooltipContent>
     </Tooltip>
-  );
+  )
 }
 
 function WorkspaceMark({ workspace }: Readonly<{ workspace?: WorkspaceSummary }>) {
-  const Icon = workspace?.scene === "home" ? Home : BriefcaseBusiness;
-  return <Icon aria-hidden="true" />;
+  const Icon = workspace?.scene === 'home' ? Home : BriefcaseBusiness
+  return <Icon aria-hidden="true" />
 }
 
 export function GlobalWorkspaceRail({
@@ -72,45 +72,45 @@ export function GlobalWorkspaceRail({
   workspaces,
 }: Readonly<{
   account: Readonly<{
-    authenticated: boolean;
-    busy?: boolean;
-    label: string;
-    onOpenUpdates?: () => void;
-    onSignIn: () => void;
-    onSignOut: () => void;
-    platform: "desktop" | "web";
-  }>;
-  activeWorkspace?: WorkspaceSummary;
-  onOpenNotifications: () => void;
-  onOpenAbout: () => void;
-  onOpenPlugins: () => void;
-  onOpenSearch: () => void;
-  onOpenSettings: () => void;
-  onWorkspaceChange: (workspace: WorkspaceSummary) => void;
-  onViewChange: (view: WorkspaceView) => void;
-  view: WorkspaceView;
-  workspaces: readonly WorkspaceSummary[];
+    authenticated: boolean
+    busy?: boolean
+    label: string
+    onOpenUpdates?: () => void
+    onSignIn: () => void
+    onSignOut: () => void
+    platform: 'desktop' | 'web'
+  }>
+  activeWorkspace?: WorkspaceSummary
+  onOpenNotifications: () => void
+  onOpenAbout: () => void
+  onOpenPlugins: () => void
+  onOpenSearch: () => void
+  onOpenSettings: () => void
+  onWorkspaceChange: (workspace: WorkspaceSummary) => void
+  onViewChange: (view: WorkspaceView) => void
+  view: WorkspaceView
+  workspaces: readonly WorkspaceSummary[]
 }>) {
-  const activeWorkspaceLabel = activeWorkspace?.name ?? "Loading";
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
-  const workspaceMenuId = useId();
-  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+  const activeWorkspaceLabel = activeWorkspace?.name ?? 'Loading'
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
+  const workspaceMenuId = useId()
+  const workspaceMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!workspaceMenuOpen) return;
+    if (!workspaceMenuOpen) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!workspaceMenuRef.current?.contains(event.target as Node)) setWorkspaceMenuOpen(false);
-    };
+      if (!workspaceMenuRef.current?.contains(event.target as Node)) setWorkspaceMenuOpen(false)
+    }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setWorkspaceMenuOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
+      if (event.key === 'Escape') setWorkspaceMenuOpen(false)
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
     return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [workspaceMenuOpen]);
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [workspaceMenuOpen])
 
   useEffect(() => {
     const openSettingsWithShortcut = (event: KeyboardEvent) => {
@@ -118,23 +118,23 @@ export function GlobalWorkspaceRail({
         !(event.metaKey || event.ctrlKey) ||
         event.shiftKey ||
         event.altKey ||
-        event.key !== ","
+        event.key !== ','
       ) {
-        return;
+        return
       }
-      const target = event.target;
+      const target = event.target
       const isEditable =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable);
-      if (isEditable) return;
-      event.preventDefault();
-      onOpenSettings();
-    };
+        (target instanceof HTMLElement && target.isContentEditable)
+      if (isEditable) return
+      event.preventDefault()
+      onOpenSettings()
+    }
 
-    window.addEventListener("keydown", openSettingsWithShortcut, { capture: true });
-    return () => window.removeEventListener("keydown", openSettingsWithShortcut, { capture: true });
-  }, [onOpenSettings]);
+    window.addEventListener('keydown', openSettingsWithShortcut, { capture: true })
+    return () => window.removeEventListener('keydown', openSettingsWithShortcut, { capture: true })
+  }, [onOpenSettings])
 
   return (
     <TooltipProvider>
@@ -169,8 +169,8 @@ export function GlobalWorkspaceRail({
                   aria-checked={workspace.id === activeWorkspace?.id}
                   key={workspace.id}
                   onClick={() => {
-                    onWorkspaceChange(workspace);
-                    setWorkspaceMenuOpen(false);
+                    onWorkspaceChange(workspace)
+                    setWorkspaceMenuOpen(false)
                   }}
                 >
                   <WorkspaceMark workspace={workspace} />
@@ -190,16 +190,16 @@ export function GlobalWorkspaceRail({
 
         <div className="global-rail__views" role="group" aria-label="Workspace views">
           <RailAction
-            active={view === "virtual"}
+            active={view === 'virtual'}
             icon={Map}
             label="Virtual view"
-            onClick={() => onViewChange("virtual")}
+            onClick={() => onViewChange('virtual')}
           />
           <RailAction
-            active={view === "chat"}
+            active={view === 'chat'}
             icon={MessageSquareText}
             label="Chat view"
-            onClick={() => onViewChange("chat")}
+            onClick={() => onViewChange('chat')}
           />
           <RailAction
             disabled
@@ -229,5 +229,5 @@ export function GlobalWorkspaceRail({
         </div>
       </nav>
     </TooltipProvider>
-  );
+  )
 }

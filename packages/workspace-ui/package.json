@@ -75,7 +75,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "lint": "eslint .",
+    "lint": "oxlint",
     "test": "bun test tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
