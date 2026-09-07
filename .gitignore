@@ -81,14 +81,12 @@ mise.local.lock
 .DS_Store
 Thumbs.db
 .Trashes
-
 # Secrets and local environment
 .env
 .env.*
 !.env.example
 *.pem
 *.key
-
 # JavaScript and TypeScript
 node_modules/
 .pnp/
@@ -96,7 +94,6 @@ node_modules/
 .turbo/
 *.tsbuildinfo
 next-env.d.ts
-
 # Python
 .venv/
 venv/
@@ -105,12 +102,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-
 # Rust
 target/
 # Tauri generates capability/ACL schemas here on dev/build; never commit.
 apps/desktop/src-tauri/gen/
-
 # Build and test output
 dist/
 build/
@@ -121,13 +116,11 @@ htmlcov/
 .next/
 /.artifacts/
 test-results/
-
 # Cloudflare Workers (OpenNext)
 .open-next/
 .wrangler/
 .dev.vars
 cloudflare-env.d.ts
-
 # Engine binaries are never tracked here. The spatial engine and its binary
 # art live in the private agent-sim repo (assets in adea-ai/assets); this
 # repository ships manifests only. No 3D/audio authoring binary may ever be
@@ -137,7 +130,6 @@ cloudflare-env.d.ts
 *.fbx
 *.obj
 *.blend
-
 # Generated web assets (rebuilt by scripts/sync-assets.mjs)
 apps/*/public/assets/
 # Transient swap backups from scripts/sync-assets.mjs (removed on success,
@@ -154,7 +146,6 @@ typechain/
 coverage.json
 tests/.bin/
 **/.app/
-
 # Logs and temporary files
 *.log
 *.tmp
@@ -162,7 +153,6 @@ tests/.bin/
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
-
 # Editors, agents, and local tools
 .claude/
 .kilo/
