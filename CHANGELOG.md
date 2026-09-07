@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/adea-ai/adea/compare/v0.11.0...v0.12.0) (2026-09-07)
+
+
+### Features
+
+* **web:** show an early-access notice for accounts outside the allowlist ([#290](https://github.com/adea-ai/adea/issues/290)) ([f9c696a](https://github.com/adea-ai/adea/commit/f9c696ac828f80acd364ce95e4a7f09656fbcc49))
+
 ## [0.11.0](https://github.com/adea-ai/adea/compare/v0.10.17...v0.11.0) (2026-09-06)
 
 
