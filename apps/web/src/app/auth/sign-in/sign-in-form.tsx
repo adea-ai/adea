@@ -1,48 +1,48 @@
-"use client";
+'use client'
 
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent } from 'react'
 
-type AuthMode = "sign-in" | "sign-up";
+type AuthMode = 'sign-in' | 'sign-up'
 
 export function SignInForm({ returnTo }: { returnTo: string }) {
-  const [mode, setMode] = useState<AuthMode>("sign-in");
-  const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [mode, setMode] = useState<AuthMode>('sign-in')
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setPending(true);
-    const data = new FormData(event.currentTarget);
-    const email = String(data.get("email") ?? "").trim();
-    const password = String(data.get("password") ?? "");
+    event.preventDefault()
+    setError('')
+    setPending(true)
+    const data = new FormData(event.currentTarget)
+    const email = String(data.get('email') ?? '').trim()
+    const password = String(data.get('password') ?? '')
 
     try {
-      const { createNeonClientAdapter } = await import("@adea-ai/auth/client");
-      const authentication = createNeonClientAdapter();
-      if (mode === "sign-up") {
+      const { createNeonClientAdapter } = await import('@adea-ai/auth/client')
+      const authentication = createNeonClientAdapter()
+      if (mode === 'sign-up') {
         await authentication.signUp({
           email,
-          name: String(data.get("name") ?? "").trim(),
+          name: String(data.get('name') ?? '').trim(),
           password,
-        });
+        })
       } else {
-        await authentication.signIn({ email, password });
+        await authentication.signIn({ email, password })
       }
-      window.location.assign(returnTo);
+      window.location.assign(returnTo)
     } catch {
       setError(
-        mode === "sign-up"
-          ? "Adea could not create that account. Check the details or sign in instead."
-          : "Adea could not sign you in. Check your email and password, then try again."
-      );
-      setPending(false);
+        mode === 'sign-up'
+          ? 'Adea could not create that account. Check the details or sign in instead.'
+          : 'Adea could not sign you in. Check your email and password, then try again.'
+      )
+      setPending(false)
     }
   }
 
   function changeMode(nextMode: AuthMode) {
-    setMode(nextMode);
-    setError("");
+    setMode(nextMode)
+    setError('')
   }
 
   return (
@@ -50,22 +50,22 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
       <div className="browser-auth-mode" aria-label="Choose authentication mode">
         <button
           type="button"
-          aria-pressed={mode === "sign-in"}
-          onClick={() => changeMode("sign-in")}
+          aria-pressed={mode === 'sign-in'}
+          onClick={() => changeMode('sign-in')}
         >
           Sign in
         </button>
         <button
           type="button"
-          aria-pressed={mode === "sign-up"}
-          onClick={() => changeMode("sign-up")}
+          aria-pressed={mode === 'sign-up'}
+          onClick={() => changeMode('sign-up')}
         >
           Create account
         </button>
       </div>
 
       <form className="browser-auth-form" onSubmit={submit}>
-        {mode === "sign-up" ? (
+        {mode === 'sign-up' ? (
           <label htmlFor="name">
             Display name
             <input id="name" name="name" autoComplete="name" required disabled={pending} />
@@ -91,7 +91,7 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
             id="password"
             name="password"
             type="password"
-            autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
+            autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'}
             minLength={8}
             required
             disabled={pending}
@@ -104,14 +104,14 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
 
         <button className="browser-auth-submit" type="submit" disabled={pending}>
           {pending
-            ? mode === "sign-up"
-              ? "Creating account…"
-              : "Signing in…"
-            : mode === "sign-up"
-              ? "Create account and continue"
-              : "Sign in and continue"}
+            ? mode === 'sign-up'
+              ? 'Creating account…'
+              : 'Signing in…'
+            : mode === 'sign-up'
+              ? 'Create account and continue'
+              : 'Sign in and continue'}
         </button>
       </form>
     </>
-  );
+  )
 }

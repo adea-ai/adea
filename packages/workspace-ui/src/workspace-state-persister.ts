@@ -1,11 +1,11 @@
-import type { WorkspaceState } from "@adea-ai/state";
+import type { WorkspaceState } from '@adea-ai/state'
 
 export type WorkspaceStatePersister = {
   /** Coalesces bursts of store changes into one trailing write. */
-  save: (state: WorkspaceState) => void;
+  save: (state: WorkspaceState) => void
   /** Writes any pending state immediately (tab hide, page hide, unmount). */
-  flush: () => void;
-};
+  flush: () => void
+}
 
 /**
  * Trailing-edge debounced writer for persisted workspace state. Store changes
@@ -19,26 +19,26 @@ export function createWorkspaceStatePersister(
   write: (state: WorkspaceState) => void,
   delayMs = 300
 ): WorkspaceStatePersister {
-  let pendingState: WorkspaceState | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let pendingState: WorkspaceState | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
 
   const flush = () => {
     if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
+      clearTimeout(timer)
+      timer = null
     }
-    if (pendingState === null) return;
-    const state = pendingState;
-    pendingState = null;
-    write(state);
-  };
+    if (pendingState === null) return
+    const state = pendingState
+    pendingState = null
+    write(state)
+  }
 
   return {
     save: (state) => {
-      pendingState = state;
-      if (timer !== null) clearTimeout(timer);
-      timer = setTimeout(flush, delayMs);
+      pendingState = state
+      if (timer !== null) clearTimeout(timer)
+      timer = setTimeout(flush, delayMs)
     },
     flush,
-  };
+  }
 }

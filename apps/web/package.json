@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "lint": "eslint .",
+    "lint": "oxlint",
     "dev": "bun ../../scripts/sync-assets.mjs && sh -c 'next dev --webpack -H 0.0.0.0 -p \"${PORT:-3000}\"'",
     "build": "bun run cf-typegen && bun ../../scripts/sync-assets.mjs && next build --webpack",
     "build:worker": "opennextjs-cloudflare build",

@@ -1,8 +1,8 @@
-@import "tailwindcss";
-@import "shadcn/tailwind.css";
-@import "@adea-ai/ui/auth-shell.css";
-@import "@adea-ai/ui/workspace-shell.css";
-@import "@adea-ai/ui/conventional-workspace.css";
+@import 'tailwindcss';
+@import 'shadcn/tailwind.css';
+@import '@adea-ai/ui/auth-shell.css';
+@import '@adea-ai/ui/workspace-shell.css';
+@import '@adea-ai/ui/conventional-workspace.css';
 
 :root {
   color: var(--hq-shell-foreground);
@@ -13,7 +13,7 @@
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
-    "Segoe UI",
+    'Segoe UI',
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -272,7 +272,7 @@ body {
 .workspace-eyebrow {
   margin-bottom: 0.2rem;
   color: var(--hq-shell-muted);
-  font-family: "SFMono-Regular", Consolas, monospace;
+  font-family: 'SFMono-Regular', Consolas, monospace;
   font-size: 0.625rem;
   letter-spacing: 0.1em;
 }
@@ -365,7 +365,7 @@ body {
   background: var(--hq-shell-surface-strong);
 }
 
-.workspace-scene-tools button[aria-pressed="true"] {
+.workspace-scene-tools button[aria-pressed='true'] {
   border-color: var(--hq-shell-accent);
   color: var(--hq-shell-accent-foreground);
   background: var(--hq-shell-accent);

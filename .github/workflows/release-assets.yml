@@ -97,7 +97,7 @@ jobs:
             timeout_minutes: 120
           - runner: windows-latest
             platform: Windows x64
-            args: ""
+            args: ''
             target: x86_64-pc-windows-msvc
             timeout_minutes: 45
     runs-on: ${{ matrix.runner }}

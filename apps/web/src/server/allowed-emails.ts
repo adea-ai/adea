@@ -9,18 +9,18 @@
  * request without a redeploy.
  */
 function rawAllowlist(): string[] {
-  return (process.env.ADEA_ALLOWED_EMAILS ?? "")
-    .split(",")
+  return (process.env.ADEA_ALLOWED_EMAILS ?? '')
+    .split(',')
     .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
+    .filter(Boolean)
 }
 
 export function emailAllowlistConfigured(): boolean {
-  return rawAllowlist().length > 0;
+  return rawAllowlist().length > 0
 }
 
 export function isAllowedEmail(email: string | null | undefined): boolean {
-  if (!emailAllowlistConfigured()) return true;
-  if (!email) return false;
-  return rawAllowlist().includes(email.trim().toLowerCase());
+  if (!emailAllowlistConfigured()) return true
+  if (!email) return false
+  return rawAllowlist().includes(email.trim().toLowerCase())
 }

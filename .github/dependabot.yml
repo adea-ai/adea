@@ -10,11 +10,11 @@ updates:
     ignore:
       # Code Foundry runtime pins are sync-managed by runtime_ref in
       # code-foundry.yml and must not be independently upgraded.
-      - dependency-name: "0xPlayerOne/code-foundry*"
+      - dependency-name: '0xPlayerOne/code-foundry*'
     groups:
       github-actions:
         applies-to: version-updates
-        patterns: ["*"]
+        patterns: ['*']
 
   - package-ecosystem: npm
     directory: /
@@ -26,12 +26,12 @@ updates:
     ignore:
       # TypeScript stays on the 6.0 beta line this repo pins; 7.x is a
       # deliberate upgrade, not a routine bump.
-      - dependency-name: "typescript"
-        versions: [">=7"]
+      - dependency-name: 'typescript'
+        versions: ['>=7']
     groups:
       npm-dependencies:
         applies-to: version-updates
-        patterns: ["*"]
+        patterns: ['*']
 
   - package-ecosystem: cargo
     directory: /apps/desktop/src-tauri
@@ -43,4 +43,4 @@ updates:
     groups:
       cargo-dependencies:
         applies-to: version-updates
-        patterns: ["*"]
+        patterns: ['*']

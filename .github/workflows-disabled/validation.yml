@@ -9,7 +9,7 @@ on:
       - reopened
       - ready_for_review
   schedule:
-    - cron: "31 6 * * 1"
+    - cron: '31 6 * * 1'
   workflow_dispatch:
 
 # Default every caller job to no repository permissions. Individual jobs grant
@@ -75,7 +75,7 @@ jobs:
       security-runner: ubuntu-slim
       codeql-runner: ubuntu-latest
       rust-shards: '["all"]'
-      rust-threads: "1"
+      rust-threads: '1'
       rust-max-parallel: 1
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}

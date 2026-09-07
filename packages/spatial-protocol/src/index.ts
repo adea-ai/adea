@@ -1,5 +1,5 @@
-export type { SceneManifest, SceneStartPosition, SceneZone } from "@adea-ai/asset-manifests";
-export { hqHomeManifest, hqWorkManifest } from "./manifests";
+export type { SceneManifest, SceneStartPosition, SceneZone } from '@adea-ai/asset-manifests'
+export { hqHomeManifest, hqWorkManifest } from './manifests'
 export {
   appRouteHref,
   encodeSceneStartPosition,
@@ -7,7 +7,7 @@ export {
   readSceneStartPosition,
   type PortalNavigation,
   type SceneApp,
-} from "./scene-spawn";
+} from './scene-spawn'
 export {
   createSceneTelemetryEnvelope,
   MAX_SCENE_TELEMETRY_BYTES,
@@ -19,9 +19,9 @@ export {
   type ScenePerformanceReport,
   type SceneRuntimeStats,
   type SceneTelemetryEnvelope,
-} from "./telemetry";
-export const configurableCharacterId = "configurable";
-export const DEFAULT_CHARACTER_ID = configurableCharacterId;
+} from './telemetry'
+export const configurableCharacterId = 'configurable'
+export const DEFAULT_CHARACTER_ID = configurableCharacterId
 
 /**
  * Shell-side character param check. The engine validates against its
@@ -29,5 +29,5 @@ export const DEFAULT_CHARACTER_ID = configurableCharacterId;
  * non-empty value to thread through.
  */
 export function isPlausibleCharacterId(value: string | undefined): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 128;
+  return typeof value === 'string' && value.length > 0 && value.length <= 128
 }

@@ -1,1 +1,1 @@
-export { hqSceneFromSearchParams, type HqSceneId } from "./workspace-scene";
+export { hqSceneFromSearchParams, type HqSceneId } from './workspace-scene'

@@ -15,11 +15,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "packages/ui/**"
-      - "packages/asset-manifests/**"
-      - "packages/audio/**"
-      - "scripts/publish-packages.mjs"
-      - ".github/workflows/publish-packages.yml"
+      - 'packages/ui/**'
+      - 'packages/asset-manifests/**'
+      - 'packages/audio/**'
+      - 'scripts/publish-packages.mjs'
+      - '.github/workflows/publish-packages.yml'
   workflow_dispatch:
 
 permissions:

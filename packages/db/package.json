@@ -17,7 +17,7 @@
     }
   },
   "scripts": {
-    "lint": "eslint .",
+    "lint": "oxlint",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
