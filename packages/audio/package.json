@@ -1,6 +1,20 @@
 {
   "name": "@adea-ai/audio",
   "version": "0.12.1",
+  "description": "Optional, lazy music controller and React bindings for Adea. Audio is non-blocking so scene loading never waits on sound assets.",
+  "keywords": [
+    "audio",
+    "react",
+    "music",
+    "threejs",
+    "workspace"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adea-ai/adea.git",
+    "directory": "packages/audio"
+  },
   "files": [
     "dist",
     "src",

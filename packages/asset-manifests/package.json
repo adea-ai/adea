@@ -1,6 +1,20 @@
 {
   "name": "@adea-ai/asset-manifests",
   "version": "0.12.1",
+  "description": "Shared scene and asset manifest contracts for Adea workspaces.",
+  "keywords": [
+    "scene",
+    "manifest",
+    "assets",
+    "threejs",
+    "workspace"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adea-ai/adea.git",
+    "directory": "packages/asset-manifests"
+  },
   "files": [
     "dist",
     "src",
