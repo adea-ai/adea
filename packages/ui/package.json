@@ -3,11 +3,11 @@
   "version": "0.12.1",
   "description": "Shared UI kit for Adea: Base UI-backed shadcn primitives, workspace shells, and theme styles.",
   "keywords": [
+    "base-ui",
+    "components",
     "react",
     "shadcn",
-    "base-ui",
     "tailwind",
-    "components",
     "workspace"
   ],
   "license": "Apache-2.0",

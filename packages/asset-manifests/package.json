@@ -3,9 +3,9 @@
   "version": "0.12.1",
   "description": "Shared scene and asset manifest contracts for Adea workspaces.",
   "keywords": [
-    "scene",
-    "manifest",
     "assets",
+    "manifest",
+    "scene",
     "threejs",
     "workspace"
   ],

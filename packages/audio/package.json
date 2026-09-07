@@ -4,8 +4,8 @@
   "description": "Optional, lazy music controller and React bindings for Adea. Audio is non-blocking so scene loading never waits on sound assets.",
   "keywords": [
     "audio",
-    "react",
     "music",
+    "react",
     "threejs",
     "workspace"
   ],
