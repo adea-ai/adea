@@ -7,6 +7,12 @@ export function createDesktopCompletionUrl(authorizationUrl: URL, callback: stri
   return completionUrl;
 }
 
+export function createDesktopErrorCompletionUrl(authorizationUrl: URL, error: string) {
+  const completionUrl = new URL("/auth/desktop/complete", authorizationUrl.origin);
+  completionUrl.hash = new URLSearchParams({ error }).toString();
+  return completionUrl;
+}
+
 export function parseDesktopCallbackFragment(fragment: string) {
   const fragmentParams = new URLSearchParams(
     fragment.startsWith("#") ? fragment.slice(1) : fragment
