@@ -3,6 +3,13 @@ name: Code Foundry
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      release-while-paused:
+        description: Run only the release pipeline while the shared CI billing pause remains active.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -14,11 +21,13 @@ permissions:
 jobs:
   release:
     name: Release
-    uses: 0xPlayerOne/code-foundry/.github/workflows/release.yml@v1.0.6
+    if: vars.CI_BILLING_PAUSED != 'true' || (github.event_name == 'workflow_dispatch' && inputs['release-while-paused'] == true)
+    uses: 0xPlayerOne/code-foundry/.github/workflows/release.yml@v1.3.1
     with:
+      billing-pause-bypass: ${{ github.event_name == 'workflow_dispatch' && inputs['release-while-paused'] == true }}
       runner: ubuntu-latest
       runtime-repository: 0xPlayerOne/code-foundry
-      runtime-ref: v1.0.6
+      runtime-ref: v1.3.1
     secrets:
       CODE_FOUNDRY_TOKEN: ${{ secrets.CODE_FOUNDRY_TOKEN }}
       STAGING_DEPLOY_KEY: ${{ secrets.STAGING_DEPLOY_KEY }}

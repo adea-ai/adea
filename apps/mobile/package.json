@@ -9,7 +9,7 @@
     "sync": "cap sync",
     "add:android": "cap add android",
     "add:ios": "cap add ios",
-    "lint": "eslint .",
+    "lint": "oxlint",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,51 +1,51 @@
-import type { AgentHqApiClient, ApiWorkspaceBootstrapResponse } from "@adea-ai/api-client";
-import type { DesktopSession } from "@adea-ai/auth/desktop";
+import type { AgentHqApiClient, ApiWorkspaceBootstrapResponse } from '@adea-ai/api-client'
+import type { DesktopSession } from '@adea-ai/auth/desktop'
 
-type WorkspaceClient = Pick<AgentHqApiClient, "bootstrapWorkspace" | "claimTemporaryWorkspace">;
+type WorkspaceClient = Pick<AgentHqApiClient, 'bootstrapWorkspace' | 'claimTemporaryWorkspace'>
 
 export type TemporaryWorkspaceVault = Readonly<{
-  clear(): Promise<void>;
-  save(credential: string): Promise<void>;
-}>;
+  clear(): Promise<void>
+  save(credential: string): Promise<void>
+}>
 
 export type DesktopWorkspaceBootstrap = Readonly<{
-  accountLabel: string | null;
-  temporary: boolean;
-  temporaryCredential: string | null;
-  temporaryCredentialPersisted: boolean;
-  userId?: string;
-  workspace: ApiWorkspaceBootstrapResponse["activeWorkspace"];
-  workspaces: ApiWorkspaceBootstrapResponse["workspaces"];
-}>;
+  accountLabel: string | null
+  temporary: boolean
+  temporaryCredential: string | null
+  temporaryCredentialPersisted: boolean
+  userId?: string
+  workspace: ApiWorkspaceBootstrapResponse['activeWorkspace']
+  workspaces: ApiWorkspaceBootstrapResponse['workspaces']
+}>
 
 export function createWorkspaceRequestGuard() {
-  let latestRequest = 0;
+  let latestRequest = 0
   return Object.freeze({
     begin() {
-      const request = ++latestRequest;
-      return () => request === latestRequest;
+      const request = ++latestRequest
+      return () => request === latestRequest
     },
     invalidate() {
-      latestRequest += 1;
+      latestRequest += 1
     },
-  });
+  })
 }
 
 export async function loadTemporaryWorkspaceCredential(
   load: () => Promise<string | null>,
   timeoutMs = 1_500
 ): Promise<string | null> {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return null
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
       load().catch(() => null),
       new Promise<null>((resolve) => {
-        timeout = setTimeout(() => resolve(null), timeoutMs);
+        timeout = setTimeout(() => resolve(null), timeoutMs)
       }),
-    ]);
+    ])
   } finally {
-    if (timeout) clearTimeout(timeout);
+    if (timeout) clearTimeout(timeout)
   }
 }
 
@@ -58,44 +58,44 @@ export async function bootstrapDesktopWorkspace({
 }: Readonly<{
   createClient(
     input: Readonly<{
-      session?: DesktopSession;
-      temporaryCredential?: string;
+      session?: DesktopSession
+      temporaryCredential?: string
     }>
-  ): WorkspaceClient;
-  session?: DesktopSession;
-  storedTemporaryCredential: string | null;
-  onTemporaryCredentialClaimed?(): void;
-  temporaryVault: TemporaryWorkspaceVault;
+  ): WorkspaceClient
+  session?: DesktopSession
+  storedTemporaryCredential: string | null
+  onTemporaryCredentialClaimed?(): void
+  temporaryVault: TemporaryWorkspaceVault
 }>): Promise<DesktopWorkspaceBootstrap> {
-  let temporaryCredential = storedTemporaryCredential;
-  let temporaryCredentialPersisted = Boolean(storedTemporaryCredential);
+  let temporaryCredential = storedTemporaryCredential
+  let temporaryCredentialPersisted = Boolean(storedTemporaryCredential)
 
   if (session && temporaryCredential) {
-    const claimingClient = createClient({ session, temporaryCredential });
-    await claimingClient.claimTemporaryWorkspace(temporaryCredential);
-    await temporaryVault.clear().catch(() => undefined);
-    temporaryCredential = null;
-    temporaryCredentialPersisted = false;
-    onTemporaryCredentialClaimed?.();
+    const claimingClient = createClient({ session, temporaryCredential })
+    await claimingClient.claimTemporaryWorkspace(temporaryCredential)
+    await temporaryVault.clear().catch(() => undefined)
+    temporaryCredential = null
+    temporaryCredentialPersisted = false
+    onTemporaryCredentialClaimed?.()
   }
 
   const client = createClient({
     ...(session ? { session } : {}),
     ...(temporaryCredential ? { temporaryCredential } : {}),
-  });
-  const result = await client.bootstrapWorkspace();
+  })
+  const result = await client.bootstrapWorkspace()
 
   if (result.principal.temporary && !temporaryCredential) {
     if (!result.temporaryCredential) {
-      throw new Error("Desktop guest credential is unavailable");
+      throw new Error('Desktop guest credential is unavailable')
     }
-    temporaryCredential = result.temporaryCredential;
+    temporaryCredential = result.temporaryCredential
     try {
-      await temporaryVault.save(result.temporaryCredential);
-      temporaryCredentialPersisted = true;
+      await temporaryVault.save(result.temporaryCredential)
+      temporaryCredentialPersisted = true
     } catch {
       // A device vault failure must not prevent a guest from using this session.
-      temporaryCredentialPersisted = false;
+      temporaryCredentialPersisted = false
     }
   }
 
@@ -107,5 +107,5 @@ export async function bootstrapDesktopWorkspace({
     userId: result.principal.userId,
     workspace: result.activeWorkspace,
     workspaces: result.workspaces,
-  });
+  })
 }

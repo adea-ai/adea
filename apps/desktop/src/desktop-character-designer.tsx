@@ -1,5 +1,5 @@
-import { VirtualUnavailable } from "@adea-ai/workspace-ui";
+import { VirtualUnavailable } from '@adea-ai/workspace-ui'
 
 export function DesktopCharacterDesigner() {
-  return <VirtualUnavailable sceneLabel="Character designer" />;
+  return <VirtualUnavailable sceneLabel="Character designer" />
 }

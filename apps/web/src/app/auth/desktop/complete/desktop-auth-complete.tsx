@@ -1,48 +1,48 @@
-"use client";
+'use client'
 
-import { Check, ExternalLink } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Check, ExternalLink } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 
-import { parseDesktopCallbackFragment } from "../../../../lib/desktop-auth-navigation";
+import { parseDesktopCallbackFragment } from '../../../../lib/desktop-auth-navigation'
 
-type CompletionStatus = "opening" | "opened" | "invalid" | "early_access";
+type CompletionStatus = 'opening' | 'opened' | 'invalid' | 'early_access'
 
 export function DesktopAuthComplete() {
-  const callbackRef = useRef<string | null>(null);
-  const attemptedRef = useRef(false);
-  const [status, setStatus] = useState<CompletionStatus>("opening");
+  const callbackRef = useRef<string | null>(null)
+  const attemptedRef = useRef(false)
+  const [status, setStatus] = useState<CompletionStatus>('opening')
 
   function openDesktopApp() {
-    if (!callbackRef.current) return;
-    window.location.assign(callbackRef.current);
-    setStatus("opened");
+    if (!callbackRef.current) return
+    window.location.assign(callbackRef.current)
+    setStatus('opened')
   }
 
   useEffect(() => {
-    if (attemptedRef.current) return;
-    attemptedRef.current = true;
+    if (attemptedRef.current) return
+    attemptedRef.current = true
 
-    const fragment = window.location.hash;
-    const errorParams = new URLSearchParams(fragment.startsWith("#") ? fragment.slice(1) : "");
-    if (errorParams.get("error") === "early_access") {
+    const fragment = window.location.hash
+    const errorParams = new URLSearchParams(fragment.startsWith('#') ? fragment.slice(1) : '')
+    if (errorParams.get('error') === 'early_access') {
       // Return the app to a recoverable state: the pending attempt fails
       // cleanly and the start screen offers sign-in again.
-      callbackRef.current = "adea://auth/callback?error=early_access";
-      openDesktopApp();
-      setStatus("early_access");
-      return;
+      callbackRef.current = 'adea://auth/callback?error=early_access'
+      openDesktopApp()
+      setStatus('early_access')
+      return
     }
 
-    callbackRef.current = parseDesktopCallbackFragment(window.location.hash);
-    window.history.replaceState(null, "", window.location.pathname);
+    callbackRef.current = parseDesktopCallbackFragment(window.location.hash)
+    window.history.replaceState(null, '', window.location.pathname)
     if (!callbackRef.current) {
-      setStatus("invalid");
-      return;
+      setStatus('invalid')
+      return
     }
-    openDesktopApp();
-  }, []);
+    openDesktopApp()
+  }, [])
 
-  if (status === "early_access") {
+  if (status === 'early_access') {
     return (
       <>
         <p className="auth-eyebrow">Adea desktop</p>
@@ -62,10 +62,10 @@ export function DesktopAuthComplete() {
           <ExternalLink aria-hidden="true" />
         </a>
       </>
-    );
+    )
   }
 
-  if (status === "invalid") {
+  if (status === 'invalid') {
     return (
       <>
         <p className="auth-eyebrow">Adea desktop</p>
@@ -76,7 +76,7 @@ export function DesktopAuthComplete() {
           Start sign-in again from the Adea desktop app to generate a new secure return link.
         </p>
       </>
-    );
+    )
   }
 
   return (
@@ -89,7 +89,7 @@ export function DesktopAuthComplete() {
         You’re all set
       </h1>
       <p className="auth-introduction" role="status" aria-live="polite">
-        Adea {status === "opening" ? "is opening" : "has been opened"}. You can close this tab and
+        Adea {status === 'opening' ? 'is opening' : 'has been opened'}. You can close this tab and
         continue in the desktop app.
       </p>
       <button
@@ -101,5 +101,5 @@ export function DesktopAuthComplete() {
         <ExternalLink aria-hidden="true" />
       </button>
     </>
-  );
+  )
 }

@@ -1,9 +1,9 @@
 /** Optional soundtrack hooks for Adea. */
-export const AUDIO_BASE_URL = "/assets/audio";
-export const MUSIC_DIR = `${AUDIO_BASE_URL}/sounds/music`;
+export const AUDIO_BASE_URL = '/assets/audio'
+export const MUSIC_DIR = `${AUDIO_BASE_URL}/sounds/music`
 
 export const MUSIC_FILES = {
-  silent: "",
-} as const;
+  silent: '',
+} as const
 
-export type MusicId = keyof typeof MUSIC_FILES;
+export type MusicId = keyof typeof MUSIC_FILES

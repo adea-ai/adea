@@ -1,29 +1,18 @@
 {
   "name": "adea",
+  "version": "0.12.0",
   "private": true,
   "license": "Apache-2.0",
-  "version": "0.12.0",
-  "packageManager": "bun@1.4.0",
-  "overrides": {
-    "uuid": "^11.1.1",
-    "esbuild": "^0.25.0",
-    "@capacitor/android": "8.5.0",
-    "@capacitor/cli": "8.5.0",
-    "@capacitor/core": "8.5.0",
-    "@capacitor/ios": "8.5.0"
-  },
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
-  "engines": {
-    "node": ">=22.0.0"
-  },
   "scripts": {
     "build": "turbo run build",
     "build:cloudflare": "bun scripts/build-cloudflare-worker.mjs",
     "dev": "turbo run dev --filter=@adea-ai/web --env-mode=loose",
-    "format:check": "prettier --check .",
+    "format:check": "oxfmt --check .",
+    "format:write": "oxfmt --write .",
     "lint": "turbo run lint",
     "test": "bun run test:unit",
     "test:unit": "turbo run test && bun run test:coverage",
@@ -37,13 +26,24 @@
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.3.3",
     "bun-types": "^1.4.0",
-    "eslint": "^10.9.0",
-    "eslint-config-next": "^16.3.2",
-    "prettier": "^3.9.6",
+    "oxfmt": "^0.66.0",
+    "oxlint": "^1.81.0",
     "release-please": "17.11.2",
     "shadcn": "^4.18.0",
     "tailwindcss": "^4.3.3",
     "turbo": "^2.10.12",
     "typescript": "6.0.0-beta"
-  }
+  },
+  "overrides": {
+    "@capacitor/android": "8.5.0",
+    "@capacitor/cli": "8.5.0",
+    "@capacitor/core": "8.5.0",
+    "@capacitor/ios": "8.5.0",
+    "esbuild": "^0.25.0",
+    "uuid": "^11.1.1"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "bun@1.4.0"
 }

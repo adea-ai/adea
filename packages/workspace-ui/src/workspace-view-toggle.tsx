@@ -1,16 +1,16 @@
-"use client";
+'use client'
 
-import { MessageSquareText, PanelsTopLeft } from "lucide-react";
-import { ToggleGroup, ToggleGroupItem } from "@adea-ai/ui/components/ui/toggle-group";
+import { MessageSquareText, PanelsTopLeft } from 'lucide-react'
+import { ToggleGroup, ToggleGroupItem } from '@adea-ai/ui/components/ui/toggle-group'
 
-export type WorkspaceView = "chat" | "virtual";
+export type WorkspaceView = 'chat' | 'virtual'
 
 export function WorkspaceViewToggle({
   onChange,
   value,
 }: Readonly<{
-  onChange: (view: WorkspaceView) => void;
-  value: WorkspaceView;
+  onChange: (view: WorkspaceView) => void
+  value: WorkspaceView
 }>) {
   return (
     <ToggleGroup
@@ -20,8 +20,8 @@ export function WorkspaceViewToggle({
       variant="outline"
       value={[value]}
       onValueChange={(nextValue) => {
-        const nextView = nextValue[0] as WorkspaceView | undefined;
-        if (nextView) onChange(nextView);
+        const nextView = nextValue[0] as WorkspaceView | undefined
+        if (nextView) onChange(nextView)
       }}
     >
       <ToggleGroupItem aria-label="Chat view" value="chat">
@@ -33,5 +33,5 @@ export function WorkspaceViewToggle({
         Virtual
       </ToggleGroupItem>
     </ToggleGroup>
-  );
+  )
 }

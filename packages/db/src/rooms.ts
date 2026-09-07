@@ -1,25 +1,25 @@
-import type { RoomSummary, UserPrincipalRef } from "@adea-ai/types";
-import { and, asc, eq, inArray, max } from "drizzle-orm";
+import type { RoomSummary, UserPrincipalRef } from '@adea-ai/types'
+import { and, asc, eq, inArray, max } from 'drizzle-orm'
 
-import type { AgentHqDatabase, AgentHqTransaction } from "./connection";
-import { provisionPrimaryRoomChannelInTransaction } from "./conversations";
-import { channels, rooms, workspaceEvents, workspaceMemberships } from "./schema";
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { provisionPrimaryRoomChannelInTransaction } from './conversations'
+import { channels, rooms, workspaceEvents, workspaceMemberships } from './schema'
 
 type RoomCreateInput = Readonly<{
-  functionKey: string;
-  layoutRef?: string;
-  name: string;
-  spatialRef?: string;
-  templateKey?: string;
-}>;
+  functionKey: string
+  layoutRef?: string
+  name: string
+  spatialRef?: string
+  templateKey?: string
+}>
 
 type RoomUpdateInput = Readonly<{
-  functionKey?: string;
-  layoutRef?: string | null;
-  name?: string;
-  spatialRef?: string | null;
-  templateKey?: string | null;
-}>;
+  functionKey?: string
+  layoutRef?: string | null
+  name?: string
+  spatialRef?: string | null
+  templateKey?: string | null
+}>
 
 function roomSummary(row: typeof rooms.$inferSelect): RoomSummary {
   return Object.freeze({
@@ -34,7 +34,7 @@ function roomSummary(row: typeof rooms.$inferSelect): RoomSummary {
     ...(row.templateKey ? { templateKey: row.templateKey } : {}),
     updatedAt: row.updatedAt.toISOString(),
     workspaceId: row.workspaceId,
-  });
+  })
 }
 
 async function requireMembership(
@@ -51,8 +51,8 @@ async function requireMembership(
         eq(workspaceMemberships.userId, principal.userId)
       )
     )
-    .limit(1);
-  if (!membership) throw new Error("Room unavailable");
+    .limit(1)
+  if (!membership) throw new Error('Room unavailable')
 }
 
 export async function createRoom(
@@ -62,11 +62,11 @@ export async function createRoom(
   input: RoomCreateInput
 ): Promise<RoomSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal);
+    await requireMembership(transaction, workspaceId, principal)
     const [position] = await transaction
       .select({ value: max(rooms.sortOrder) })
       .from(rooms)
-      .where(and(eq(rooms.workspaceId, workspaceId), eq(rooms.lifecycleState, "active")));
+      .where(and(eq(rooms.workspaceId, workspaceId), eq(rooms.lifecycleState, 'active')))
     const [created] = await transaction
       .insert(rooms)
       .values({
@@ -78,21 +78,21 @@ export async function createRoom(
         templateKey: input.templateKey?.trim() || null,
         workspaceId,
       })
-      .returning();
-    if (!created) throw new Error("Room creation failed");
+      .returning()
+    if (!created) throw new Error('Room creation failed')
     await provisionPrimaryRoomChannelInTransaction(
       transaction,
       workspaceId,
       created.id,
       created.name
-    );
+    )
     await transaction.insert(workspaceEvents).values({
-      eventType: "room.created",
+      eventType: 'room.created',
       payload: { actorUserId: principal.userId, roomId: created.id },
       workspaceId,
-    });
-    return roomSummary(created);
-  });
+    })
+    return roomSummary(created)
+  })
 }
 
 export async function listRoomsForUser(
@@ -101,18 +101,18 @@ export async function listRoomsForUser(
   principal: UserPrincipalRef,
   options: Readonly<{ includeArchived?: boolean }> = {}
 ): Promise<RoomSummary[]> {
-  await requireMembership(database, workspaceId, principal);
+  await requireMembership(database, workspaceId, principal)
   const rows = await database
     .select()
     .from(rooms)
     .where(
       and(
         eq(rooms.workspaceId, workspaceId),
-        ...(options.includeArchived ? [] : [eq(rooms.lifecycleState, "active")])
+        ...(options.includeArchived ? [] : [eq(rooms.lifecycleState, 'active')])
       )
     )
-    .orderBy(asc(rooms.sortOrder), asc(rooms.id));
-  return rows.map(roomSummary);
+    .orderBy(asc(rooms.sortOrder), asc(rooms.id))
+  return rows.map(roomSummary)
 }
 
 export async function getRoomForUser(
@@ -136,11 +136,11 @@ export async function getRoomForUser(
       and(
         eq(rooms.id, roomId),
         eq(rooms.workspaceId, workspaceId),
-        ...(options.includeArchived ? [] : [eq(rooms.lifecycleState, "active")])
+        ...(options.includeArchived ? [] : [eq(rooms.lifecycleState, 'active')])
       )
     )
-    .limit(1);
-  return row ? roomSummary(row.room) : null;
+    .limit(1)
+  return row ? roomSummary(row.room) : null
 }
 
 export async function updateRoom(
@@ -151,7 +151,7 @@ export async function updateRoom(
   input: RoomUpdateInput
 ): Promise<RoomSummary> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal);
+    await requireMembership(transaction, workspaceId, principal)
     const [updated] = await transaction
       .update(rooms)
       .set({
@@ -168,18 +168,18 @@ export async function updateRoom(
         and(
           eq(rooms.id, roomId),
           eq(rooms.workspaceId, workspaceId),
-          eq(rooms.lifecycleState, "active")
+          eq(rooms.lifecycleState, 'active')
         )
       )
-      .returning();
-    if (!updated) throw new Error("Room unavailable");
+      .returning()
+    if (!updated) throw new Error('Room unavailable')
     await transaction.insert(workspaceEvents).values({
-      eventType: "room.updated",
+      eventType: 'room.updated',
       payload: { actorUserId: principal.userId, roomId },
       workspaceId,
-    });
-    return roomSummary(updated);
-  });
+    })
+    return roomSummary(updated)
+  })
 }
 
 export async function archiveRoom(
@@ -189,7 +189,7 @@ export async function archiveRoom(
   principal: UserPrincipalRef
 ): Promise<void> {
   await database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal);
+    await requireMembership(transaction, workspaceId, principal)
     const roomChannels = await transaction
       .select({ id: channels.id, version: channels.version })
       .from(channels)
@@ -197,38 +197,38 @@ export async function archiveRoom(
         and(
           eq(channels.workspaceId, workspaceId),
           eq(channels.roomId, roomId),
-          eq(channels.lifecycleState, "active")
+          eq(channels.lifecycleState, 'active')
         )
-      );
+      )
     for (const channel of roomChannels) {
       await transaction
         .update(channels)
-        .set({ lifecycleState: "archived", updatedAt: new Date(), version: channel.version + 1 })
-        .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)));
+        .set({ lifecycleState: 'archived', updatedAt: new Date(), version: channel.version + 1 })
+        .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)))
       await transaction.insert(workspaceEvents).values({
-        eventType: "channel.archived",
+        eventType: 'channel.archived',
         payload: { actorUserId: principal.userId, channelId: channel.id, roomId },
         workspaceId,
-      });
+      })
     }
     const [archived] = await transaction
       .update(rooms)
-      .set({ lifecycleState: "archived", updatedAt: new Date() })
+      .set({ lifecycleState: 'archived', updatedAt: new Date() })
       .where(
         and(
           eq(rooms.id, roomId),
           eq(rooms.workspaceId, workspaceId),
-          eq(rooms.lifecycleState, "active")
+          eq(rooms.lifecycleState, 'active')
         )
       )
-      .returning({ id: rooms.id });
-    if (!archived) throw new Error("Room unavailable");
+      .returning({ id: rooms.id })
+    if (!archived) throw new Error('Room unavailable')
     await transaction.insert(workspaceEvents).values({
-      eventType: "room.archived",
+      eventType: 'room.archived',
       payload: { actorUserId: principal.userId, roomId },
       workspaceId,
-    });
-  });
+    })
+  })
 }
 
 export async function reorderRooms(
@@ -238,34 +238,34 @@ export async function reorderRooms(
   roomIds: readonly string[]
 ): Promise<RoomSummary[]> {
   return database.transaction(async (transaction) => {
-    await requireMembership(transaction, workspaceId, principal);
+    await requireMembership(transaction, workspaceId, principal)
     const activeRooms = await transaction
       .select()
       .from(rooms)
-      .where(and(eq(rooms.workspaceId, workspaceId), eq(rooms.lifecycleState, "active")));
+      .where(and(eq(rooms.workspaceId, workspaceId), eq(rooms.lifecycleState, 'active')))
     if (
       roomIds.length !== activeRooms.length ||
       new Set(roomIds).size !== roomIds.length ||
       activeRooms.some(({ id }) => !roomIds.includes(id))
     ) {
-      throw new Error("Room order conflict");
+      throw new Error('Room order conflict')
     }
     for (const [sortOrder, roomId] of roomIds.entries()) {
       await transaction
         .update(rooms)
         .set({ sortOrder, updatedAt: new Date() })
-        .where(and(eq(rooms.id, roomId), eq(rooms.workspaceId, workspaceId)));
+        .where(and(eq(rooms.id, roomId), eq(rooms.workspaceId, workspaceId)))
     }
     await transaction.insert(workspaceEvents).values({
-      eventType: "room.reordered",
+      eventType: 'room.reordered',
       payload: { actorUserId: principal.userId, roomIds: [...roomIds] },
       workspaceId,
-    });
+    })
     const reordered = await transaction
       .select()
       .from(rooms)
       .where(and(eq(rooms.workspaceId, workspaceId), inArray(rooms.id, [...roomIds])))
-      .orderBy(asc(rooms.sortOrder), asc(rooms.id));
-    return reordered.map(roomSummary);
-  });
+      .orderBy(asc(rooms.sortOrder), asc(rooms.id))
+    return reordered.map(roomSummary)
+  })
 }

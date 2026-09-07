@@ -1,15 +1,15 @@
 {
   "name": "@adea-ai/asset-manifests",
   "version": "0.12.0",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "files": [
     "dist",
     "src",
     "tsconfig.json",
     "README.md"
   ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,7 +18,7 @@
     }
   },
   "scripts": {
-    "lint": "eslint .",
+    "lint": "oxlint",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit"

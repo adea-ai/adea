@@ -1,34 +1,34 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AgentSummary, WorkspaceSummary } from "@adea-ai/types";
-import { MusicToggle } from "@adea-ai/audio";
-import { WorkspaceLogo } from "@adea-ai/ui/components/workspace-logo";
-import { ThemeToggle } from "@adea-ai/ui/components/theme-toggle";
-import { Switch } from "@adea-ai/ui/components/ui/switch";
-import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
+import { MusicToggle } from '@adea-ai/audio'
+import { WorkspaceLogo } from '@adea-ai/ui/components/workspace-logo'
+import { ThemeToggle } from '@adea-ai/ui/components/theme-toggle'
+import { Switch } from '@adea-ai/ui/components/ui/switch'
+import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-react'
 
-import { ModalDialog } from "./modal-dialog";
+import { ModalDialog } from './modal-dialog'
 import {
   defaultWorkspacePreferences,
   type WorkspacePlatformServices,
   type WorkspacePreferences,
-} from "./platform";
+} from './platform'
 import {
   nextSettingsSection,
   settingsSectionFromHash,
   settingsSectionGroups,
   settingsSectionLabels,
   type SettingsSection,
-} from "./settings-section";
+} from './settings-section'
 
 const sectionIcons = {
   account: UserRound,
   appearance: MonitorCog,
   workspace: MonitorCog,
   agents: Bot,
-  "input-notifications": Mic,
-  "privacy-data": EyeOff,
+  'input-notifications': Mic,
+  'privacy-data': EyeOff,
   integrations: Link2,
-} satisfies Record<SettingsSection, typeof UserRound>;
+} satisfies Record<SettingsSection, typeof UserRound>
 
 function SettingsRow({
   children,
@@ -43,7 +43,7 @@ function SettingsRow({
       </div>
       {children}
     </div>
-  );
+  )
 }
 
 export function WorkspaceSettingsDialog({
@@ -59,84 +59,84 @@ export function WorkspaceSettingsDialog({
   services,
   workspace,
 }: Readonly<{
-  accountAuthenticated: boolean;
-  accountLabel: string;
-  agents: readonly AgentSummary[];
-  busy: boolean;
-  onClose: () => void;
-  onOpenAgents: () => void;
-  onSignIn: () => void;
-  onSignOut: () => void;
-  open: boolean;
-  services?: WorkspacePlatformServices;
-  workspace: WorkspaceSummary;
+  accountAuthenticated: boolean
+  accountLabel: string
+  agents: readonly AgentSummary[]
+  busy: boolean
+  onClose: () => void
+  onOpenAgents: () => void
+  onSignIn: () => void
+  onSignOut: () => void
+  open: boolean
+  services?: WorkspacePlatformServices
+  workspace: WorkspaceSummary
 }>) {
-  const [section, setSection] = useState<SettingsSection>("account");
-  const [preferences, setPreferences] = useState(defaultWorkspacePreferences);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [section, setSection] = useState<SettingsSection>('account')
+  const [preferences, setPreferences] = useState(defaultWorkspacePreferences)
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [permissionState, setPermissionState] = useState<
-    "denied" | "granted" | "idle" | "prompt" | "unavailable"
-  >("idle");
-  const [privateHealth, setPrivateHealth] = useState<"available" | "checking" | "unavailable">(
-    services?.privateContent ? "checking" : "unavailable"
-  );
-  const navigationRefs = useRef(new Map<SettingsSection, HTMLButtonElement>());
+    'denied' | 'granted' | 'idle' | 'prompt' | 'unavailable'
+  >('idle')
+  const [privateHealth, setPrivateHealth] = useState<'available' | 'checking' | 'unavailable'>(
+    services?.privateContent ? 'checking' : 'unavailable'
+  )
+  const navigationRefs = useRef(new Map<SettingsSection, HTMLButtonElement>())
 
   useEffect(() => {
-    if (!open) return;
-    const next = settingsSectionFromHash(window.location.hash);
-    setSection(next);
-    let active = true;
+    if (!open) return
+    const next = settingsSectionFromHash(window.location.hash)
+    setSection(next)
+    let active = true
     void services?.settings
       ?.load()
       .then((loaded) => active && setPreferences(loaded))
-      .catch(() => active && setSaveState("error"));
+      .catch(() => active && setSaveState('error'))
     if (services?.privateContent?.health) {
-      setPrivateHealth("checking");
+      setPrivateHealth('checking')
       void services.privateContent
         .health(workspace.id)
         .then(
-          ({ available }) => active && setPrivateHealth(available ? "available" : "unavailable")
+          ({ available }) => active && setPrivateHealth(available ? 'available' : 'unavailable')
         )
-        .catch(() => active && setPrivateHealth("unavailable"));
+        .catch(() => active && setPrivateHealth('unavailable'))
     }
     return () => {
-      active = false;
-    };
-  }, [open, services?.privateContent, services?.settings, workspace.id]);
+      active = false
+    }
+  }, [open, services?.privateContent, services?.settings, workspace.id])
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) return
     const revealSelected = () =>
-      navigationRefs.current.get(section)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    revealSelected();
-    window.addEventListener("resize", revealSelected);
-    return () => window.removeEventListener("resize", revealSelected);
-  }, [open, section]);
+      navigationRefs.current.get(section)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    revealSelected()
+    window.addEventListener('resize', revealSelected)
+    return () => window.removeEventListener('resize', revealSelected)
+  }, [open, section])
 
   const selectSection = (next: SettingsSection, focus = false) => {
-    setSection(next);
-    window.history.replaceState(null, "", `#settings/${next}`);
-    if (focus) requestAnimationFrame(() => navigationRefs.current.get(next)?.focus());
-  };
+    setSection(next)
+    window.history.replaceState(null, '', `#settings/${next}`)
+    if (focus) requestAnimationFrame(() => navigationRefs.current.get(next)?.focus())
+  }
   const close = () => {
-    if (window.location.hash.startsWith("#settings"))
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    onClose();
-  };
+    if (window.location.hash.startsWith('#settings'))
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
+    onClose()
+  }
   const save = async (next: WorkspacePreferences) => {
-    setPreferences(next);
-    if (!services?.settings) return;
-    setSaveState("saving");
+    setPreferences(next)
+    if (!services?.settings) return
+    setSaveState('saving')
     try {
-      setPreferences(await services.settings.save(next));
-      setSaveState("saved");
+      setPreferences(await services.settings.save(next))
+      setSaveState('saved')
     } catch {
-      setSaveState("error");
+      setSaveState('error')
     }
-  };
-  const toggle = (key: "notifyMentions" | "notifyTasks" | "privateNotificationPreviews") =>
-    void save({ ...preferences, [key]: !preferences[key] });
+  }
+  const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
+    void save({ ...preferences, [key]: !preferences[key] })
 
   return (
     <ModalDialog
@@ -159,13 +159,13 @@ export function WorkspaceSettingsDialog({
             <div className="conventional-settings-nav__group" key={group.label}>
               <p className="conventional-settings-nav__label">{group.label}</p>
               {group.items.map((item) => {
-                const Icon = sectionIcons[item];
+                const Icon = sectionIcons[item]
                 return (
                   <button
                     key={item}
                     ref={(element) => {
-                      if (element) navigationRefs.current.set(item, element);
-                      else navigationRefs.current.delete(item);
+                      if (element) navigationRefs.current.set(item, element)
+                      else navigationRefs.current.delete(item)
                     }}
                     type="button"
                     role="tab"
@@ -174,21 +174,21 @@ export function WorkspaceSettingsDialog({
                     tabIndex={section === item ? 0 : -1}
                     onClick={() => selectSection(item)}
                     onKeyDown={(event) => {
-                      if (!["ArrowDown", "ArrowUp", "End", "Home"].includes(event.key)) return;
-                      event.preventDefault();
+                      if (!['ArrowDown', 'ArrowUp', 'End', 'Home'].includes(event.key)) return
+                      event.preventDefault()
                       selectSection(
                         nextSettingsSection(
                           item,
-                          event.key as "ArrowDown" | "ArrowUp" | "End" | "Home"
+                          event.key as 'ArrowDown' | 'ArrowUp' | 'End' | 'Home'
                         ),
                         true
-                      );
+                      )
                     }}
                   >
                     <Icon aria-hidden="true" />
                     <span>{settingsSectionLabels[item]}</span>
                   </button>
-                );
+                )
               })}
             </div>
           ))}
@@ -199,7 +199,7 @@ export function WorkspaceSettingsDialog({
           role="tabpanel"
           aria-label={settingsSectionLabels[section]}
         >
-          {section === "account" ? (
+          {section === 'account' ? (
             <>
               <header>
                 <UserRound aria-hidden="true" />
@@ -209,11 +209,11 @@ export function WorkspaceSettingsDialog({
                 </div>
               </header>
               <SettingsRow
-                title={accountAuthenticated ? accountLabel : "Guest workspace"}
+                title={accountAuthenticated ? accountLabel : 'Guest workspace'}
                 detail={
                   accountAuthenticated
-                    ? "This workspace is saved to your account."
-                    : "Sign in when you want to keep this workspace across devices."
+                    ? 'This workspace is saved to your account.'
+                    : 'Sign in when you want to keep this workspace across devices.'
                 }
               >
                 <button
@@ -221,12 +221,12 @@ export function WorkspaceSettingsDialog({
                   disabled={busy}
                   onClick={accountAuthenticated ? onSignOut : onSignIn}
                 >
-                  {accountAuthenticated ? "Sign out" : "Sign in"}
+                  {accountAuthenticated ? 'Sign out' : 'Sign in'}
                 </button>
               </SettingsRow>
               <SettingsRow
-                title={services?.app?.name ?? "Adea"}
-                detail={`${services?.app?.platform === "desktop" ? "Desktop application" : "Web application"}${services?.app?.version ? ` · v${services.app.version}` : ""}`}
+                title={services?.app?.name ?? 'Adea'}
+                detail={`${services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${services?.app?.version ? ` · v${services.app.version}` : ''}`}
               />
               <SettingsRow
                 title="Virtual preview"
@@ -235,7 +235,7 @@ export function WorkspaceSettingsDialog({
                 <a href="/?view=virtual">Open preview</a>
               </SettingsRow>
             </>
-          ) : section === "appearance" ? (
+          ) : section === 'appearance' ? (
             <>
               <header>
                 <MonitorCog aria-hidden="true" />
@@ -257,7 +257,7 @@ export function WorkspaceSettingsDialog({
                 <MusicToggle />
               </SettingsRow>
             </>
-          ) : section === "workspace" ? (
+          ) : section === 'workspace' ? (
             <>
               <header>
                 <MonitorCog aria-hidden="true" />
@@ -268,14 +268,14 @@ export function WorkspaceSettingsDialog({
               </header>
               <SettingsRow
                 title={workspace.name}
-                detail={`${workspace.scene === "work" ? "Work" : "Home"} scene · Rooms remain the primary navigation.`}
+                detail={`${workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
               />
               <SettingsRow
                 title="Room defaults"
                 detail="Primary Channels stay implicit; additional Channels are progressively disclosed. Arbitrary sidebar sections are intentionally unavailable in M2."
               />
             </>
-          ) : section === "agents" ? (
+          ) : section === 'agents' ? (
             <>
               <header>
                 <Bot aria-hidden="true" />
@@ -288,26 +288,26 @@ export function WorkspaceSettingsDialog({
                 <SettingsRow
                   key={agent.id}
                   title={agent.name}
-                  detail={`${agent.profile.id} · v${agent.profile.version} · ${agent.lifecycleState.replace("_", " ")}`}
+                  detail={`${agent.profile.id} · v${agent.profile.version} · ${agent.lifecycleState.replace('_', ' ')}`}
                 />
               ))}
               <button
                 type="button"
                 className="conventional-primary-button"
                 onClick={() => {
-                  close();
-                  onOpenAgents();
+                  close()
+                  onOpenAgents()
                 }}
               >
                 Customize Agents
               </button>
             </>
-          ) : section === "input-notifications" ? (
+          ) : section === 'input-notifications' ? (
             <>
               <header>
                 <Mic aria-hidden="true" />
                 <div>
-                  <h3>{settingsSectionLabels["input-notifications"]}</h3>
+                  <h3>{settingsSectionLabels['input-notifications']}</h3>
                   <p>Desktop dictation and bounded notification preferences.</p>
                 </div>
               </header>
@@ -316,7 +316,7 @@ export function WorkspaceSettingsDialog({
                 detail={
                   services?.transcription
                     ? `Uses ${services.transcription.label}; text stays editable and is never auto-sent.`
-                    : "Install Adea Desktop to use system dictation."
+                    : 'Install Adea Desktop to use system dictation.'
                 }
               >
                 <button
@@ -326,7 +326,7 @@ export function WorkspaceSettingsDialog({
                     void services?.transcription?.requestPermission().then(setPermissionState)
                   }
                 >
-                  {permissionState === "idle" ? "Check microphone" : permissionState}
+                  {permissionState === 'idle' ? 'Check microphone' : permissionState}
                 </button>
               </SettingsRow>
               <SettingsRow
@@ -350,7 +350,7 @@ export function WorkspaceSettingsDialog({
               >
                 <Switch
                   checked={preferences.notifyMentions}
-                  onCheckedChange={() => toggle("notifyMentions")}
+                  onCheckedChange={() => toggle('notifyMentions')}
                   aria-label="Mention notifications"
                 />
               </SettingsRow>
@@ -360,7 +360,7 @@ export function WorkspaceSettingsDialog({
               >
                 <Switch
                   checked={preferences.notifyTasks}
-                  onCheckedChange={() => toggle("notifyTasks")}
+                  onCheckedChange={() => toggle('notifyTasks')}
                   aria-label="Task notifications"
                 />
               </SettingsRow>
@@ -369,12 +369,12 @@ export function WorkspaceSettingsDialog({
                 Message, and Task identities when live events are wired in M3.
               </p>
             </>
-          ) : section === "privacy-data" ? (
+          ) : section === 'privacy-data' ? (
             <>
               <header>
                 <Database aria-hidden="true" />
                 <div>
-                  <h3>{settingsSectionLabels["privacy-data"]}</h3>
+                  <h3>{settingsSectionLabels['privacy-data']}</h3>
                   <p>
                     Understand what this device can access without exposing cryptographic internals.
                   </p>
@@ -383,11 +383,11 @@ export function WorkspaceSettingsDialog({
               <SettingsRow
                 title="Local/private content"
                 detail={
-                  privateHealth === "checking"
-                    ? "Checking this device…"
-                    : privateHealth === "available"
-                      ? "Available on this authorized desktop device."
-                      : "Unavailable in this app or on this device."
+                  privateHealth === 'checking'
+                    ? 'Checking this device…'
+                    : privateHealth === 'available'
+                      ? 'Available on this authorized desktop device.'
+                      : 'Unavailable in this app or on this device.'
                 }
               />
               <SettingsRow
@@ -396,7 +396,7 @@ export function WorkspaceSettingsDialog({
               >
                 <Switch
                   checked={preferences.privateNotificationPreviews}
-                  onCheckedChange={() => toggle("privateNotificationPreviews")}
+                  onCheckedChange={() => toggle('privateNotificationPreviews')}
                   aria-label="Private notification previews"
                 />
               </SettingsRow>
@@ -437,16 +437,16 @@ export function WorkspaceSettingsDialog({
             </>
           )}
           <div className="visually-hidden" aria-live="polite">
-            {saveState === "saving"
-              ? "Saving settings"
-              : saveState === "saved"
-                ? "Settings saved"
-                : saveState === "error"
-                  ? "Settings could not be saved"
-                  : ""}
+            {saveState === 'saving'
+              ? 'Saving settings'
+              : saveState === 'saved'
+                ? 'Settings saved'
+                : saveState === 'error'
+                  ? 'Settings could not be saved'
+                  : ''}
           </div>
         </section>
       </div>
     </ModalDialog>
-  );
+  )
 }

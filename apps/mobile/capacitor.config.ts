@@ -1,19 +1,19 @@
-import type { CapacitorConfig } from "@capacitor/cli";
+import type { CapacitorConfig } from '@capacitor/cli'
 
-const webUrl = process.env.ADEA_WEB_URL?.trim();
+const webUrl = process.env.ADEA_WEB_URL?.trim()
 
 const config: CapacitorConfig = {
-  appId: "com.adea.mobile",
-  appName: "Adea",
-  webDir: "www",
+  appId: 'com.adea.mobile',
+  appName: 'Adea',
+  webDir: 'www',
   ...(webUrl
     ? {
         server: {
           url: webUrl,
-          cleartext: webUrl.startsWith("http://"),
+          cleartext: webUrl.startsWith('http://'),
         },
       }
     : {}),
-};
+}
 
-export default config;
+export default config

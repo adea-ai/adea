@@ -1,10 +1,10 @@
-"use client";
+'use client'
 
-import { createAuthClient } from "@neondatabase/auth/next";
+import { createAuthClient } from '@neondatabase/auth/next'
 
-import { createAuthAdapter } from "./adapter";
-import { createNeonAuthDriver, type NeonSdk } from "./neon-driver";
+import { createAuthAdapter } from './adapter'
+import { createNeonAuthDriver, type NeonSdk } from './neon-driver'
 
 export function createNeonClientAdapter() {
-  return createAuthAdapter(createNeonAuthDriver(createAuthClient() as unknown as NeonSdk));
+  return createAuthAdapter(createNeonAuthDriver(createAuthClient() as unknown as NeonSdk))
 }

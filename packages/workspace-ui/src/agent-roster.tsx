@@ -1,36 +1,36 @@
-import { useState } from "react";
-import type { AgentSummary, RoomSummary } from "@adea-ai/types";
-import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from "lucide-react";
+import { useState } from 'react'
+import type { AgentSummary, RoomSummary } from '@adea-ai/types'
+import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-react'
 
-import { AgentStatus } from "./agent-status";
-import { WorkspaceEmpty } from "./workspace-states";
+import { AgentStatus } from './agent-status'
+import { WorkspaceEmpty } from './workspace-states'
 
 export type AgentCustomizationInput = Readonly<{
-  avatarRef: string | null;
-  characterRef: string | null;
-  name: string;
-  profileId: string;
-  profileVersion: string;
-  roleSummary: string | null;
-  roomId: string | null;
-}>;
+  avatarRef: string | null
+  characterRef: string | null
+  name: string
+  profileId: string
+  profileVersion: string
+  roleSummary: string | null
+  roomId: string | null
+}>
 
 type Props = Readonly<{
-  agents: readonly AgentSummary[];
-  busy: boolean;
+  agents: readonly AgentSummary[]
+  busy: boolean
   onCreate: (
     input: Readonly<{
-      name: string;
-      profileId: string;
-      profileVersion: string;
-      roleSummary?: string;
+      name: string
+      profileId: string
+      profileVersion: string
+      roleSummary?: string
     }>
-  ) => Promise<void>;
-  onArchive: (agentId: string) => Promise<void>;
-  onMessage: (agentId: string) => Promise<void>;
-  onUpdate: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>;
-  rooms: readonly RoomSummary[];
-}>;
+  ) => Promise<void>
+  onArchive: (agentId: string) => Promise<void>
+  onMessage: (agentId: string) => Promise<void>
+  onUpdate: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
+  rooms: readonly RoomSummary[]
+}>
 
 export function AgentRoster({
   agents,
@@ -41,11 +41,11 @@ export function AgentRoster({
   onUpdate,
   rooms,
 }: Props) {
-  const [creating, setCreating] = useState(false);
-  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const roomById = new Map(rooms.map((room) => [room.id, room]));
-  const editingAgent = agents.find(({ id }) => id === editingAgentId);
+  const [creating, setCreating] = useState(false)
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const roomById = new Map(rooms.map((room) => [room.id, room]))
+  const editingAgent = agents.find(({ id }) => id === editingAgentId)
   return (
     <section className="conventional-directory" aria-labelledby="agent-roster-title">
       <header className="conventional-surface-header">
@@ -70,12 +70,12 @@ export function AgentRoster({
           error={error}
           onCancel={() => setCreating(false)}
           onSubmit={async (input) => {
-            setError(null);
+            setError(null)
             try {
-              await onCreate(input);
-              setCreating(false);
+              await onCreate(input)
+              setCreating(false)
             } catch {
-              setError("Agent could not be created. Check the fields and retry.");
+              setError('Agent could not be created. Check the fields and retry.')
             }
           }}
         />
@@ -86,22 +86,22 @@ export function AgentRoster({
           busy={busy}
           error={error}
           onArchive={async (agent) => {
-            setError(null);
+            setError(null)
             try {
-              await onArchive(agent.id);
-              setEditingAgentId(null);
+              await onArchive(agent.id)
+              setEditingAgentId(null)
             } catch {
-              setError("Agent could not be archived. Resolve linked constraints and retry.");
+              setError('Agent could not be archived. Resolve linked constraints and retry.')
             }
           }}
           onCancel={() => setEditingAgentId(null)}
           onSubmit={async (agent, input) => {
-            setError(null);
+            setError(null)
             try {
-              await onUpdate(agent, input);
-              setEditingAgentId(null);
+              await onUpdate(agent, input)
+              setEditingAgentId(null)
             } catch {
-              setError("Agent changes could not be saved. Review the fields and retry.");
+              setError('Agent changes could not be saved. Review the fields and retry.')
             }
           }}
           rooms={rooms}
@@ -119,7 +119,7 @@ export function AgentRoster({
             <div className="conventional-agent-card__status">
               <AgentStatus agent={agent} compact />
             </div>
-            <p>{agent.roleSummary ?? "No role summary yet."}</p>
+            <p>{agent.roleSummary ?? 'No role summary yet.'}</p>
             <div className="conventional-agent-card__metadata">
               <p>
                 <span>Profile</span>
@@ -131,8 +131,8 @@ export function AgentRoster({
                 <span>Room</span>
                 <strong>
                   {agent.roomId
-                    ? (roomById.get(agent.roomId)?.name ?? "Unavailable Room")
-                    : "Unassigned"}
+                    ? (roomById.get(agent.roomId)?.name ?? 'Unavailable Room')
+                    : 'Unassigned'}
                 </strong>
               </p>
               <p>
@@ -158,7 +158,7 @@ export function AgentRoster({
         />
       ) : null}
     </section>
-  );
+  )
 }
 
 function AgentCustomizationForm({
@@ -170,30 +170,30 @@ function AgentCustomizationForm({
   onSubmit,
   rooms,
 }: Readonly<{
-  agent: AgentSummary;
-  busy: boolean;
-  error: string | null;
-  onArchive: (agent: AgentSummary) => Promise<void>;
-  onCancel: () => void;
-  onSubmit: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>;
-  rooms: readonly RoomSummary[];
+  agent: AgentSummary
+  busy: boolean
+  error: string | null
+  onArchive: (agent: AgentSummary) => Promise<void>
+  onCancel: () => void
+  onSubmit: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
+  rooms: readonly RoomSummary[]
 }>) {
-  const [archiveConfirmation, setArchiveConfirmation] = useState(false);
+  const [archiveConfirmation, setArchiveConfirmation] = useState(false)
   return (
     <form
       className="conventional-inline-form conventional-agent-customization"
       onSubmit={(event) => {
-        event.preventDefault();
-        const form = new FormData(event.currentTarget);
+        event.preventDefault()
+        const form = new FormData(event.currentTarget)
         void onSubmit(agent, {
-          avatarRef: String(form.get("avatarRef") ?? "").trim() || null,
-          characterRef: String(form.get("characterRef") ?? "").trim() || null,
-          name: String(form.get("name") ?? ""),
-          profileId: String(form.get("profileId") ?? ""),
-          profileVersion: String(form.get("profileVersion") ?? ""),
-          roleSummary: String(form.get("roleSummary") ?? "").trim() || null,
-          roomId: String(form.get("roomId") ?? "").trim() || null,
-        });
+          avatarRef: String(form.get('avatarRef') ?? '').trim() || null,
+          characterRef: String(form.get('characterRef') ?? '').trim() || null,
+          name: String(form.get('name') ?? ''),
+          profileId: String(form.get('profileId') ?? ''),
+          profileVersion: String(form.get('profileVersion') ?? ''),
+          roleSummary: String(form.get('roleSummary') ?? '').trim() || null,
+          roomId: String(form.get('roomId') ?? '').trim() || null,
+        })
       }}
     >
       <div className="conventional-inline-form__header">
@@ -213,7 +213,7 @@ function AgentCustomizationForm({
         </label>
         <label>
           Room
-          <select name="roomId" defaultValue={agent.roomId ?? ""}>
+          <select name="roomId" defaultValue={agent.roomId ?? ''}>
             <option value="">Unassigned</option>
             {rooms.map((room) => (
               <option key={room.id} value={room.id}>
@@ -228,7 +228,7 @@ function AgentCustomizationForm({
             name="roleSummary"
             rows={3}
             maxLength={500}
-            defaultValue={agent.roleSummary ?? ""}
+            defaultValue={agent.roleSummary ?? ''}
           />
         </label>
         <label>
@@ -236,7 +236,7 @@ function AgentCustomizationForm({
           <input
             name="avatarRef"
             maxLength={500}
-            defaultValue={agent.avatarRef ?? ""}
+            defaultValue={agent.avatarRef ?? ''}
             placeholder="Optional stable asset reference"
           />
         </label>
@@ -245,7 +245,7 @@ function AgentCustomizationForm({
           <input
             name="characterRef"
             maxLength={500}
-            defaultValue={agent.characterRef ?? ""}
+            defaultValue={agent.characterRef ?? ''}
             placeholder="Optional M4 character reference"
           />
         </label>
@@ -270,7 +270,7 @@ function AgentCustomizationForm({
       {error ? <p role="alert">{error}</p> : null}
       <div className="conventional-agent-customization__actions">
         <button type="submit" className="conventional-primary-button" disabled={busy}>
-          {busy ? "Saving…" : "Save changes"}
+          {busy ? 'Saving…' : 'Save changes'}
         </button>
         {!archiveConfirmation ? (
           <button
@@ -306,7 +306,7 @@ function AgentCustomizationForm({
         references.
       </p>
     </form>
-  );
+  )
 }
 
 function AgentCreateForm({
@@ -315,23 +315,23 @@ function AgentCreateForm({
   onCancel,
   onSubmit,
 }: Readonly<{
-  busy: boolean;
-  error: string | null;
-  onCancel: () => void;
-  onSubmit: Props["onCreate"];
+  busy: boolean
+  error: string | null
+  onCancel: () => void
+  onSubmit: Props['onCreate']
 }>) {
   return (
     <form
       className="conventional-inline-form"
       onSubmit={(event) => {
-        event.preventDefault();
-        const form = new FormData(event.currentTarget);
+        event.preventDefault()
+        const form = new FormData(event.currentTarget)
         void onSubmit({
-          name: String(form.get("name") ?? ""),
-          profileId: String(form.get("profileId") ?? ""),
-          profileVersion: String(form.get("profileVersion") ?? ""),
-          roleSummary: String(form.get("roleSummary") ?? ""),
-        });
+          name: String(form.get('name') ?? ''),
+          profileId: String(form.get('profileId') ?? ''),
+          profileVersion: String(form.get('profileVersion') ?? ''),
+          roleSummary: String(form.get('roleSummary') ?? ''),
+        })
       }}
     >
       <div className="conventional-inline-form__header">
@@ -358,8 +358,8 @@ function AgentCreateForm({
       </label>
       {error ? <p role="alert">{error}</p> : null}
       <button type="submit" className="conventional-primary-button" disabled={busy}>
-        {busy ? "Creating…" : "Create Agent"}
+        {busy ? 'Creating…' : 'Create Agent'}
       </button>
     </form>
-  );
+  )
 }

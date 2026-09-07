@@ -1,6 +1,7 @@
 # Agent HQ Repository Configuration and Licensing Baseline
 
-Status: Accepted
+Status: Superseded by the oxlint/oxfmt migration (code-foundry 1.3.1) — the
+formatter decision below applied to Prettier and is retained for history.
 Date: 2026-08-21
 
 ## Decision

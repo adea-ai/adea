@@ -3,7 +3,7 @@ import type {
   ChannelReadStateSummary,
   ChannelSummary,
   RoomSummary,
-} from "@adea-ai/types";
+} from '@adea-ai/types'
 import {
   Bot,
   ChevronDown,
@@ -18,42 +18,42 @@ import {
   Plus,
   Users,
   X,
-} from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { Button } from "@adea-ai/ui/components/ui/button";
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@adea-ai/ui/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@adea-ai/ui/components/ui/tooltip";
+} from '@adea-ai/ui/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 
-import type { WorkspaceNavigation } from "./workspace-model";
-import { EditRoomDialog, RenameConversationDialog } from "./create-workspace-dialogs";
-import { RoomIcon } from "./room-icon";
+import type { WorkspaceNavigation } from './workspace-model'
+import { EditRoomDialog, RenameConversationDialog } from './create-workspace-dialogs'
+import { RoomIcon } from './room-icon'
 
-const SIDEBAR_WIDTH_STORAGE_KEY = "adea:workspace-sidebar-width";
-const SIDEBAR_MIN_WIDTH = 208;
-const SIDEBAR_MAX_WIDTH = 448;
-const SIDEBAR_DEFAULT_WIDTH = 272;
+const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
+const SIDEBAR_MIN_WIDTH = 208
+const SIDEBAR_MAX_WIDTH = 448
+const SIDEBAR_DEFAULT_WIDTH = 272
 
 function clampSidebarWidth(width: number): number {
-  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
 }
 
 function workspaceRootFor(sidebar: HTMLElement | null): HTMLElement | null {
-  return sidebar?.closest<HTMLElement>(".conventional-workspace") ?? null;
+  return sidebar?.closest<HTMLElement>('.conventional-workspace') ?? null
 }
 
 function currentSidebarWidth(root: HTMLElement): number {
-  const columns = getComputedStyle(root).gridTemplateColumns.split(" ");
-  return Number.parseFloat(columns[0] ?? "") || SIDEBAR_DEFAULT_WIDTH;
+  const columns = getComputedStyle(root).gridTemplateColumns.split(' ')
+  return Number.parseFloat(columns[0] ?? '') || SIDEBAR_DEFAULT_WIDTH
 }
 
 function applySidebarWidth(root: HTMLElement, width: number) {
-  root.style.setProperty("--conventional-sidebar-width", `${clampSidebarWidth(width)}px`);
+  root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
 }
 
 function ConversationChannelRow({
@@ -67,19 +67,19 @@ function ConversationChannelRow({
   selected,
   unread,
 }: Readonly<{
-  channel: ChannelSummary;
-  icon: ReactNode;
-  label: string;
-  onArchive: (channel: ChannelSummary) => void;
-  onCopyLink: (channel: ChannelSummary) => void;
-  onRename: (channel: ChannelSummary) => void;
-  onSelect: () => void;
-  selected: boolean;
-  unread: ReactNode;
+  channel: ChannelSummary
+  icon: ReactNode
+  label: string
+  onArchive: (channel: ChannelSummary) => void
+  onCopyLink: (channel: ChannelSummary) => void
+  onRename: (channel: ChannelSummary) => void
+  onSelect: () => void
+  selected: boolean
+  unread: ReactNode
 }>) {
   return (
     <li className="conventional-channel-row">
-      <button type="button" aria-current={selected ? "page" : undefined} onClick={onSelect}>
+      <button type="button" aria-current={selected ? 'page' : undefined} onClick={onSelect}>
         {icon}
         <span>{label}</span>
         {unread}
@@ -117,127 +117,127 @@ function ConversationChannelRow({
         </Button>
       </span>
     </li>
-  );
+  )
 }
 
 type Props = Readonly<{
-  agents: readonly AgentSummary[];
-  channelBusy: boolean;
-  collapsedRoomIds: readonly string[];
-  mobileOpen: boolean;
-  navigation: WorkspaceNavigation;
-  onArchiveChannel: (channel: ChannelSummary) => Promise<void>;
-  onCreateGroup: () => void;
-  onCreateRoom: () => void;
-  onOpenAgents: () => void;
-  onOpenTasks: () => void;
-  onMarkAllRead: () => void;
-  onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>;
-  onSelectChannel: (channelId: string, roomId?: string) => void;
-  onToggleMobile: (open: boolean) => void;
-  onToggleRoom: (roomId: string) => void;
+  agents: readonly AgentSummary[]
+  channelBusy: boolean
+  collapsedRoomIds: readonly string[]
+  mobileOpen: boolean
+  navigation: WorkspaceNavigation
+  onArchiveChannel: (channel: ChannelSummary) => Promise<void>
+  onCreateGroup: () => void
+  onCreateRoom: () => void
+  onOpenAgents: () => void
+  onOpenTasks: () => void
+  onMarkAllRead: () => void
+  onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
+  onSelectChannel: (channelId: string, roomId?: string) => void
+  onToggleMobile: (open: boolean) => void
+  onToggleRoom: (roomId: string) => void
   onUpdateRoom: (
     roomId: string,
     update: Readonly<{ functionKey?: string; name?: string }>
-  ) => Promise<void>;
-  roomBusy: boolean;
-  selectedChannelId: string | null;
-  readState: readonly ChannelReadStateSummary[];
-  workspaceName: string;
-}>;
+  ) => Promise<void>
+  roomBusy: boolean
+  selectedChannelId: string | null
+  readState: readonly ChannelReadStateSummary[]
+  workspaceName: string
+}>
 
 export function WorkspaceSidebar(props: Props) {
-  const sidebarRef = useRef<HTMLElement>(null);
-  const [editingRoom, setEditingRoom] = useState<RoomSummary | null>(null);
-  const [renamingChannel, setRenamingChannel] = useState<ChannelSummary | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const agentById = new Map(props.agents.map((agent) => [agent.id, agent]));
-  const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]));
+  const sidebarRef = useRef<HTMLElement>(null)
+  const [editingRoom, setEditingRoom] = useState<RoomSummary | null>(null)
+  const [renamingChannel, setRenamingChannel] = useState<ChannelSummary | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
+  const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]))
   const hasUnread = props.readState.some(
     (state) =>
       (state.topLevelUnreadCount ?? 0) + (state.threadUnreadCount ?? 0) > 0 ||
       Boolean(state.manuallyUnread)
-  );
+  )
   const unreadBadge = (channelId: string) => {
-    const state = readStateByChannel.get(channelId);
-    const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0);
+    const state = readStateByChannel.get(channelId)
+    const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
     return count || state?.manuallyUnread ? (
       <span className="conventional-unread-badge" aria-label={`${count || 1} unread`}>
-        {count > 99 ? "99+" : count || "•"}
+        {count > 99 ? '99+' : count || '•'}
       </span>
-    ) : null;
-  };
+    ) : null
+  }
 
   const archiveChannel = (channel: ChannelSummary) => {
-    setActionError(null);
+    setActionError(null)
     void props
       .onArchiveChannel(channel)
-      .catch(() => setActionError("Conversation could not be deleted."));
-  };
+      .catch(() => setActionError('Conversation could not be deleted.'))
+  }
   const copyChannelLink = (channel: ChannelSummary) => {
-    setActionError(null);
-    const url = new URL(window.location.href);
-    url.searchParams.set("channel", channel.id);
+    setActionError(null)
+    const url = new URL(window.location.href)
+    url.searchParams.set('channel', channel.id)
     void navigator.clipboard
       .writeText(url.toString())
-      .catch(() => setActionError("Conversation link could not be copied."));
-  };
+      .catch(() => setActionError('Conversation link could not be copied.'))
+  }
 
   // Restore the persisted sidebar width before first paint of the layout.
   useEffect(() => {
-    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY));
-    if (!Number.isFinite(stored) || stored <= 0) return;
-    const root = workspaceRootFor(sidebarRef.current);
-    if (root) applySidebarWidth(root, stored);
-  }, []);
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
+    if (!Number.isFinite(stored) || stored <= 0) return
+    const root = workspaceRootFor(sidebarRef.current)
+    if (root) applySidebarWidth(root, stored)
+  }, [])
 
   const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const root = workspaceRootFor(sidebarRef.current);
-    const handle = event.currentTarget;
-    if (!root) return;
-    const startWidth = currentSidebarWidth(root);
-    const startX = event.clientX;
-    let width = startWidth;
-    handle.setPointerCapture(event.pointerId);
+    const root = workspaceRootFor(sidebarRef.current)
+    const handle = event.currentTarget
+    if (!root) return
+    const startWidth = currentSidebarWidth(root)
+    const startX = event.clientX
+    let width = startWidth
+    handle.setPointerCapture(event.pointerId)
 
     // The element is captured in a closure because React nulls
     // event.currentTarget once the synthetic handler returns.
     const onMove = (moveEvent: PointerEvent) => {
-      width = clampSidebarWidth(startWidth + (moveEvent.clientX - startX));
-      applySidebarWidth(root, width);
-    };
+      width = clampSidebarWidth(startWidth + (moveEvent.clientX - startX))
+      applySidebarWidth(root, width)
+    }
     const onEnd = () => {
-      handle.removeEventListener("pointermove", onMove);
-      handle.removeEventListener("pointerup", onEnd);
-      handle.removeEventListener("pointercancel", onEnd);
-      applySidebarWidth(root, width);
-      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
-    };
-    handle.addEventListener("pointermove", onMove);
-    handle.addEventListener("pointerup", onEnd);
-    handle.addEventListener("pointercancel", onEnd);
-  }, []);
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onEnd)
+      handle.removeEventListener('pointercancel', onEnd)
+      applySidebarWidth(root, width)
+      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onEnd)
+    handle.addEventListener('pointercancel', onEnd)
+  }, [])
 
   const resizeByKeyboard = useCallback((delta: number) => {
-    const root = workspaceRootFor(sidebarRef.current);
-    if (!root) return;
-    const width = clampSidebarWidth(currentSidebarWidth(root) + delta);
-    applySidebarWidth(root, width);
-    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
-  }, []);
+    const root = workspaceRootFor(sidebarRef.current)
+    if (!root) return
+    const width = clampSidebarWidth(currentSidebarWidth(root) + delta)
+    applySidebarWidth(root, width)
+    window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
+  }, [])
 
   const onResizeKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        resizeByKeyboard(-16);
-      } else if (event.key === "ArrowRight") {
-        event.preventDefault();
-        resizeByKeyboard(16);
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        resizeByKeyboard(-16)
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        resizeByKeyboard(16)
       }
     },
     [resizeByKeyboard]
-  );
+  )
   return (
     <>
       <button
@@ -259,7 +259,7 @@ export function WorkspaceSidebar(props: Props) {
       ) : null}
       <aside
         ref={sidebarRef}
-        className={`conventional-sidebar${props.mobileOpen ? " conventional-sidebar--open" : ""}`}
+        className={`conventional-sidebar${props.mobileOpen ? ' conventional-sidebar--open' : ''}`}
         aria-label="Workspace navigation"
       >
         <div
@@ -327,28 +327,28 @@ export function WorkspaceSidebar(props: Props) {
             {props.navigation.rooms.length ? (
               <ul className="conventional-room-list">
                 {props.navigation.rooms.map((item) => {
-                  const collapsed = props.collapsedRoomIds.includes(item.room.id);
+                  const collapsed = props.collapsedRoomIds.includes(item.room.id)
                   const selected =
                     Boolean(item.selectionChannelId) &&
                     (props.selectedChannelId === item.selectionChannelId ||
-                      item.visibleChannels.some(({ id }) => id === props.selectedChannelId));
+                      item.visibleChannels.some(({ id }) => id === props.selectedChannelId))
                   const roomChannels = [
                     ...(item.primaryChannel ? [item.primaryChannel] : []),
                     ...item.visibleChannels.filter(({ id }) => id !== item.primaryChannel?.id),
-                  ];
+                  ]
                   const roomUnread = roomChannels.reduce((total, channel) => {
-                    const state = readStateByChannel.get(channel.id);
+                    const state = readStateByChannel.get(channel.id)
                     return (
                       total + (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
-                    );
-                  }, 0);
+                    )
+                  }, 0)
                   return (
                     <li key={item.room.id}>
                       <div className="conventional-room-row">
                         <button
                           type="button"
                           className="conventional-room-select"
-                          aria-current={selected ? "page" : undefined}
+                          aria-current={selected ? 'page' : undefined}
                           onClick={() =>
                             item.selectionChannelId &&
                             props.onSelectChannel(item.selectionChannelId, item.room.id)
@@ -361,7 +361,7 @@ export function WorkspaceSidebar(props: Props) {
                               className="conventional-unread-badge"
                               aria-label={`${roomUnread} unread in ${item.room.name}`}
                             >
-                              {roomUnread > 99 ? "99+" : roomUnread}
+                              {roomUnread > 99 ? '99+' : roomUnread}
                             </span>
                           ) : null}
                         </button>
@@ -382,8 +382,8 @@ export function WorkspaceSidebar(props: Props) {
                             <DropdownMenuContent align="end" side="bottom">
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setActionError(null);
-                                  setEditingRoom(item.room);
+                                  setActionError(null)
+                                  setEditingRoom(item.room)
                                 }}
                               >
                                 <Pencil aria-hidden="true" />
@@ -396,7 +396,7 @@ export function WorkspaceSidebar(props: Props) {
                           <button
                             type="button"
                             className="conventional-room-toggle"
-                            aria-label={`${collapsed ? "Expand" : "Collapse"} ${item.room.name}`}
+                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${item.room.name}`}
                             aria-expanded={!collapsed}
                             onClick={() => props.onToggleRoom(item.room.id)}
                           >
@@ -415,7 +415,7 @@ export function WorkspaceSidebar(props: Props) {
                               <button
                                 type="button"
                                 aria-current={
-                                  channel.id === props.selectedChannelId ? "page" : undefined
+                                  channel.id === props.selectedChannelId ? 'page' : undefined
                                 }
                                 onClick={() => props.onSelectChannel(channel.id, item.room.id)}
                               >
@@ -428,7 +428,7 @@ export function WorkspaceSidebar(props: Props) {
                         </ul>
                       ) : null}
                     </li>
-                  );
+                  )
                 })}
               </ul>
             ) : (
@@ -454,7 +454,7 @@ export function WorkspaceSidebar(props: Props) {
                   channel={channel}
                   icon={<Bot aria-hidden="true" />}
                   label={
-                    channel.agentId ? (agentById.get(channel.agentId)?.name ?? "Agent") : "Agent"
+                    channel.agentId ? (agentById.get(channel.agentId)?.name ?? 'Agent') : 'Agent'
                   }
                   onArchive={archiveChannel}
                   onCopyLink={copyChannelLink}
@@ -514,5 +514,5 @@ export function WorkspaceSidebar(props: Props) {
         />
       ) : null}
     </>
-  );
+  )
 }
