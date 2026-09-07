@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/adea-ai/adea/compare/v0.12.0...v0.12.1) (2026-09-07)
+
+
+### Maintenance
+
+* **ci:** upgrade code-foundry runtime to v1.3.1 and migrate to oxlint/oxfmt ([#292](https://github.com/adea-ai/adea/issues/292)) ([0a3b113](https://github.com/adea-ai/adea/commit/0a3b113c8f45a9f6bab4a94a4f6d71a871846df6))
+
 ## [0.12.0](https://github.com/adea-ai/adea/compare/v0.11.0...v0.12.0) (2026-09-07)
 
 

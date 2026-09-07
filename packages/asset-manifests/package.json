@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/asset-manifests",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "files": [
     "dist",
     "src",
