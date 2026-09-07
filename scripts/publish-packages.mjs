@@ -5,11 +5,12 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Publishes the moat-free shared packages (@adea-ai/ui, @adea-ai/asset-manifests,
-// @adea-ai/audio) to the public npm registry so the private agent-sim repo —
-// and, later, the public adea repo — consume them without any registry auth.
-// These three packages have zero @adea-ai/* transitive deps and contain no
-// engine, simulation, or binary-asset code; that is what makes public
-// publishing safe. Never add an engine package to PUBLISH_PACKAGES.
+// @adea-ai/audio, @adea-ai/spatial-protocol) to the public npm registry so the
+// private agent-sim repo — and, later, the public adea repo — consume them
+// without any registry auth. These packages have zero @adea-ai/* transitive
+// deps beyond each other and contain no engine, simulation, or binary-asset
+// code; that is what makes public publishing safe. Never add an engine
+// package to PUBLISH_PACKAGES.
 //
 // The npm `adea` org must exist and NPM_TOKEN must be an automation token
 // with publish rights on it. Versions come from each package.json
@@ -18,7 +19,12 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
-const PUBLISH_PACKAGES = ['packages/asset-manifests', 'packages/audio', 'packages/ui']
+const PUBLISH_PACKAGES = [
+  'packages/asset-manifests',
+  'packages/audio',
+  'packages/ui',
+  'packages/spatial-protocol',
+]
 
 function sh(args, cwd, extraEnv) {
   const result = spawnSync(args[0], args.slice(1), {
@@ -68,6 +74,9 @@ for (const relative of PUBLISH_PACKAGES) {
     }
   }
   await writeFile(stagedManifestPath, `${JSON.stringify(staged, null, 2)}\n`)
+  // Ship the repository license inside the tarball so registry consumers and
+  // license scanners see it without visiting the repository.
+  await cp(join(repoRoot, 'LICENSE'), join(stage, 'package', 'LICENSE'))
   console.log(`[publish] publishing ${name}@${version}...`)
   const result = sh(['npm', 'publish', '--access', 'public'], join(stage, 'package'))
   await rm(stage, { recursive: true, force: true })

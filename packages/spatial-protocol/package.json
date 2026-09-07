@@ -1,7 +1,29 @@
 {
   "name": "@adea-ai/spatial-protocol",
   "version": "0.12.1",
-  "private": true,
+  "description": "Shell↔engine contract for the Adea spatial view: scene mount manifests, spawn URL helpers, and scene telemetry schemas. Pure types — no rendering, no binaries.",
+  "keywords": [
+    "manifest",
+    "protocol",
+    "scene",
+    "spatial",
+    "telemetry",
+    "threejs"
+  ],
+  "homepage": "https://github.com/adea-ai/adea#readme",
+  "bugs": "https://github.com/adea-ai/adea/issues",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adea-ai/adea.git",
+    "directory": "packages/spatial-protocol"
+  },
+  "files": [
+    "dist",
+    "src",
+    "tsconfig.json",
+    "README.md"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
