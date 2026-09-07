@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.13.0](https://github.com/adea-ai/adea/compare/v0.12.1...v0.13.0) (2026-09-07)
+
+
+### Features
+
+* **packages:** publish @adea-ai/spatial-protocol and add registry metadata ([#298](https://github.com/adea-ai/adea/issues/298)) ([dc4b0e8](https://github.com/adea-ai/adea/commit/dc4b0e8d08ad5d4b14221185638969f613d9cd6d))
+
+
+### Bug Fixes
+
+* **ci:** pin generated callers to the adopted v1.4.1 runtime ([#300](https://github.com/adea-ai/adea/issues/300)) ([8ed999d](https://github.com/adea-ai/adea/commit/8ed999d365534e622ffdefd1a4cf306db63befc4))
+* **publish:** resolve workspace: ranges from workspace manifests ([#299](https://github.com/adea-ai/adea/issues/299)) ([e36170e](https://github.com/adea-ai/adea/commit/e36170e9241371b1d35ce9febd1d62fc1f420e65))
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.4.1 ([#296](https://github.com/adea-ai/adea/issues/296)) ([11b95fb](https://github.com/adea-ai/adea/commit/11b95fbaceaf29d88e4bd6811a09b6f535650370))
+
 ## [0.12.1](https://github.com/adea-ai/adea/compare/v0.12.0...v0.12.1) (2026-09-07)
 
 
