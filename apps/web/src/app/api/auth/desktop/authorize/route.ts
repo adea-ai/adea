@@ -7,6 +7,7 @@ import {
 } from "../../../../../server/desktop-auth";
 import {
   createDesktopCompletionUrl,
+  createDesktopErrorCompletionUrl,
   createDesktopSignInUrl,
 } from "../../../../../lib/desktop-auth-navigation";
 import { resolveOrProvisionDesktopPrincipal } from "../../../../../server/desktop-principal";
@@ -29,12 +30,19 @@ export async function GET(request: Request) {
       });
     }
     // Account allowlist: when configured, only listed emails may start a
-    // desktop session.
+    // desktop session. Rejected accounts land on the early-access notice in
+    // the browser, and the completion hash returns an error to the app so it
+    // leaves the waiting state.
     if (!isAllowedEmail(authentication.profile.email)) {
-      return Response.json(
-        { error: "This account is not authorized to use Adea." },
-        { status: 403 }
-      );
+      const completion = createDesktopErrorCompletionUrl(new URL(request.url), "early_access");
+      return new Response(null, {
+        status: 303,
+        headers: {
+          "cache-control": "no-store",
+          location: `${completion.pathname}${completion.hash}`,
+          "referrer-policy": "no-referrer",
+        },
+      });
     }
     const principal = await resolveOrProvisionDesktopPrincipal(
       authentication,

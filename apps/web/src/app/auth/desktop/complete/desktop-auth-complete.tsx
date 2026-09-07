@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { parseDesktopCallbackFragment } from "../../../../lib/desktop-auth-navigation";
 
-type CompletionStatus = "opening" | "opened" | "invalid";
+type CompletionStatus = "opening" | "opened" | "invalid" | "early_access";
 
 export function DesktopAuthComplete() {
   const callbackRef = useRef<string | null>(null);
@@ -22,6 +22,17 @@ export function DesktopAuthComplete() {
     if (attemptedRef.current) return;
     attemptedRef.current = true;
 
+    const fragment = window.location.hash;
+    const errorParams = new URLSearchParams(fragment.startsWith("#") ? fragment.slice(1) : "");
+    if (errorParams.get("error") === "early_access") {
+      // Return the app to a recoverable state: the pending attempt fails
+      // cleanly and the start screen offers sign-in again.
+      callbackRef.current = "adea://auth/callback?error=early_access";
+      openDesktopApp();
+      setStatus("early_access");
+      return;
+    }
+
     callbackRef.current = parseDesktopCallbackFragment(window.location.hash);
     window.history.replaceState(null, "", window.location.pathname);
     if (!callbackRef.current) {
@@ -30,6 +41,29 @@ export function DesktopAuthComplete() {
     }
     openDesktopApp();
   }, []);
+
+  if (status === "early_access") {
+    return (
+      <>
+        <p className="auth-eyebrow">Adea desktop</p>
+        <h1 className="auth-title" id="desktop-auth-complete-title">
+          Adea is in early access
+        </h1>
+        <p className="auth-introduction" role="status">
+          Please reach out on github if you&apos;d like to contribute.
+        </p>
+        <a
+          className="browser-auth-submit browser-auth-open-app"
+          href="https://github.com/adea-ai/adea"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Adea on GitHub
+          <ExternalLink aria-hidden="true" />
+        </a>
+      </>
+    );
+  }
 
   if (status === "invalid") {
     return (

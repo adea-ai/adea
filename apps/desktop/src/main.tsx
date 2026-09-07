@@ -272,7 +272,9 @@ function DesktopApp() {
       } catch {
         setStatus("failed");
         setMessage(
-          "The sign-in callback was invalid or expired. Your guest workspace is unchanged."
+          callbackUrl.includes("error=early_access")
+            ? "Adea is in early access. Please reach out on github if you'd like to contribute."
+            : "The sign-in callback was invalid or expired. Your guest workspace is unchanged."
         );
       }
     }
