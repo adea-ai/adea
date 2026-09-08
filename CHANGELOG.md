@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/adea-ai/adea/compare/v0.13.1...v0.13.2) (2026-09-08)
+
+
+### Maintenance
+
+* **ci:** upgrade Code Foundry to v1.9.11 ([#314](https://github.com/adea-ai/adea/issues/314)) ([c0c65b3](https://github.com/adea-ai/adea/commit/c0c65b39967f7311d443b41cac3dd0ef13bc661d))
+
 ## [0.13.1](https://github.com/adea-ai/adea/compare/v0.13.0...v0.13.1) (2026-09-08)
 
 
