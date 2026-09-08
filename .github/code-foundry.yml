@@ -1,17 +1,17 @@
 version: 1
 profile: monorepo
-languages: typescript
+languages: typescript,rust
 features: validation,release
 # Public repository: Advanced Security features (CodeQL, Dependency Review)
 # are expected to be available; lanes degrade gracefully where they are not.
 codeql: auto
 dependency_review: auto
 package_manager: bun
-codeql_rust_shards: '["all"]'
+codeql_rust_shards: '["apps/desktop/src-tauri"]'
 codeql_rust_threads: 1
 codeql_rust_max_parallel: 1
 runtime_repository: 0xPlayerOne/code-foundry
-runtime_ref: v1.5.1
+runtime_ref: v1.9.12
 runner: ubuntu-latest
 ci_runner: ubuntu-latest
 test_runner: ubuntu-latest
@@ -31,12 +31,15 @@ npm_publish: false
 post_release: false
 post_release_workflow:
 post_release_mode: auto
-opencode_security: true
 sync_mode: overlay
 custom_workflows: preserve
 license: apache-2.0
 git_workflow: direct
 merge_strategy: squash
-release_merge_strategy: rebase
+release_merge_strategy: squash
 opencode_security_model:
-staging_validation_mode: fast
+performance_runner: ubuntu-latest
+performance: auto
+performance_command:
+performance_profile:
+performance_budget_file: performance-package-budgets.json
