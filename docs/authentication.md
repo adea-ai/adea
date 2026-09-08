@@ -33,7 +33,7 @@ also branch-specific for the later desktop shell. Never client-prefix the cookie
 The Next.js client calls the same-origin `/api/auth/*` proxy. State-changing proxy requests require
 an exact `Origin` match. Production uses only stable HTTPS aliases (`adea.dev` and the `workers.dev` URL).
 Preview Worker deployments must list their exact URLs in `AUTH_TRUSTED_ORIGINS`;
-those aliases must also exist in the staging branch's Neon Auth domain list.
+those aliases must also exist in the Neon staging database branch's Auth domain list.
 Wildcards are prohibited.
 Development enables Neon's localhost setting.
 
