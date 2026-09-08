@@ -1,0 +1,25 @@
+name: Cloudflare Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  production:
+    name: Cloudflare Production / adea-web
+    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.9.11
+    with:
+      mode: production
+      working-directory: apps/web
+      install-working-directory: .
+      build-script: build:cloudflare
+      bun-version: 1.4.0
+      environment: Production - adea-web
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
