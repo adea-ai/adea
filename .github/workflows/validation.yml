@@ -81,7 +81,7 @@ jobs:
       performance-runner: ubuntu-latest
       security-runner: ubuntu-latest
       codeql-runner: ubuntu-latest
-      rust-shards: '["all"]'
+      rust-shards: '["apps/desktop/src-tauri"]'
       rust-threads: '1'
       rust-max-parallel: 1
     secrets:

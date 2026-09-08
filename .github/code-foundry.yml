@@ -7,7 +7,7 @@ features: validation,release
 codeql: auto
 dependency_review: auto
 package_manager: bun
-codeql_rust_shards: '["all"]'
+codeql_rust_shards: '["apps/desktop/src-tauri"]'
 codeql_rust_threads: 1
 codeql_rust_max_parallel: 1
 runtime_repository: 0xPlayerOne/code-foundry
