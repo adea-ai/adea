@@ -4,30 +4,24 @@
 [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare) (Next 16 is
 supported). Cloudflare Workers is the deployment target.
 
-## One-time setup (dashboard + CLI)
+## One-time setup (Worker + GitHub Actions)
 
 1. **Worker name.** `wrangler.jsonc` uses `adea-web` (renamed from
    `agent-hq-web`). Keep dashboard and config in agreement, otherwise CLI
    deploys miss the Git-connected Worker.
-2. **Dashboard build settings** (Worker → Settings → Build), following the
-   proven pink-binder pattern (see pink-binder `docs/CLOUDFLARE_BUILDS.md`):
-   - Root directory: `apps/web`
-   - Build command: `bun run build:cloudflare` (delegates to the repo-root
-     script: frozen install + OpenNext build; produces `.open-next/`)
-   - Deploy command: `npx wrangler deploy --config wrangler.jsonc`
-   - Watch paths (repo-relative): `apps/web/**`, `packages/db/**`,
-     `packages/auth/**`, `packages/ui/**`, `packages/workspace-ui/**`,
-     `packages/app-core/**`, `packages/state/**`, `packages/types/**`,
-     `packages/spatial-protocol/**`, `packages/data/**`,
-     `packages/audio/**`, `packages/asset-manifests/**`,
-     `scripts/build-cloudflare-worker.mjs`, `scripts/sync-assets.mjs`,
-     `package.json`, `bun.lock`, `turbo.json`
-   - Preview trigger: same build command (the default versions-upload
-     deploy is valid once `.open-next/worker.js` exists).
-   - Do NOT use the app's plain `bun run build` for a trigger (no Worker
-     entry point), and do NOT add a `build` block to `wrangler.jsonc`.
-   - After changing a trigger, validate with a new commit and confirm the
-     build detail page shows `bun run build:cloudflare`.
+2. **GitHub Actions deployment.** The repository-owned
+   `.github/workflows/cloudflare-preview.yml` and
+   `.github/workflows/cloudflare-production.yml` call the shared Code Foundry
+   Cloudflare workflow. Configure these repository secrets:
+   - `CLOUDFLARE_API_TOKEN`: scoped to deploy the `adea-web` Worker
+   - `CLOUDFLARE_ACCOUNT_ID`: `aa2dc82d7e02aff12b77800a8201df3f`
+     The preview workflow uses `wrangler versions upload`; production uses
+     `wrangler deploy`. After the first successful Actions deployment, disable
+     the old Cloudflare Workers Builds GitHub integration so there is one deploy
+     owner and no duplicate builds.
+     Do NOT use the app's plain `bun run build` for a workflow trigger (it does
+     not produce the Worker entry point), and do NOT add a `build` block to
+     `wrangler.jsonc`.
 3. **Hyperdrive (Neon pooling).** ✅ Done: `adea-db` (id in
    `wrangler.jsonc`) points at the standalone Neon project (`us-east-2`)
    via its **direct/unpooled** origin as `neondb_owner` — Hyperdrive pools
