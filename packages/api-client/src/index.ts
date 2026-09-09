@@ -205,6 +205,8 @@ export type ApiMarketplaceCatalogResponse = Readonly<{
     pluginId: string
     releaseId: string
     canonicalContentDigest: string
+    installationInstanceId?: string
+    packageDigest?: string
     state:
       | 'pending-authorization'
       | 'unavailable'
@@ -219,15 +221,40 @@ export type ApiMarketplaceInstallInput = Readonly<{
   releaseId: string
   canonicalContentDigest: string
   requestedHarness: string
+  /** Stable workspace/user/plugin installation scope owned by Control Plane. */
+  installationInstanceId?: string
   workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
   idempotencyKey: string
 }>
 
+export type ApiMarketplaceInstallPlanInput = Readonly<{
+  pluginId: string
+  releaseId: string
+  instanceId: string
+  requestedHarness: string
+  workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
+}>
+
+export type ApiMarketplaceInstallPlanResponse = Readonly<{
+  planVersion: 2
+  pluginId: string
+  releaseId: string
+  instanceId: string
+  strategy: 'native-agent-plugin' | 'component-adapter' | 'unavailable'
+  compatibility: 'full' | 'partial' | 'unsupported'
+  allowedToActivate: false
+  approvalRequired: true
+  packageDigest?: string
+  [key: string]: unknown
+}>
+
 export type ApiMarketplaceInstallResponse = Readonly<{
   installationId: string
+  installationInstanceId?: string
   pluginId: string
   releaseId: string
   canonicalContentDigest: string
+  packageDigest?: string
   state: 'pending-authorization' | 'unavailable' | 'rejected-by-policy' | 'installed' | 'superseded'
   requiredConnectors: readonly string[]
   requiredCredentials: readonly string[]
@@ -313,6 +340,17 @@ export class AgentHqApiClient {
   async getMarketplaceCatalog(workspaceId: string): Promise<ApiMarketplaceCatalogResponse> {
     return this.request<ApiMarketplaceCatalogResponse>('/marketplace/catalog', {
       body: JSON.stringify({ workspaceId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
+  }
+
+  async requestMarketplaceInstallPlan(
+    workspaceId: string,
+    input: ApiMarketplaceInstallPlanInput
+  ): Promise<ApiMarketplaceInstallPlanResponse> {
+    return this.request<ApiMarketplaceInstallPlanResponse>('/marketplace/install-plan', {
+      body: JSON.stringify(input),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     })

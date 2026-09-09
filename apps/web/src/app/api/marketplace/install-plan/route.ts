@@ -13,7 +13,7 @@ import {
 } from '../../../../server/workspace-response'
 import {
   MarketplaceProxyError,
-  proxyMarketplaceInstall,
+  proxyMarketplaceInstallPlan,
 } from '../../../../server/marketplace-proxy'
 
 export const runtime = 'nodejs'
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   } catch {
     return invalidRequest(request)
   }
-  if (!isInstallInput(body)) return invalidRequest(request)
+  if (!isPlanInput(body)) return invalidRequest(request)
   const workspaceId = body.workspaceIdentity.workspaceId
   const authorization = await authorizeWorkspace(
     resolution.principal,
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   )
   if (!authorization.allowed) return workspaceUnavailableResponse(request, 403)
   try {
-    const response = await proxyMarketplaceInstall({
+    const response = await proxyMarketplaceInstallPlan({
       ...body,
       workspaceIdentity: { ...body.workspaceIdentity, userId: resolution.principal.userId },
     })
@@ -54,13 +54,11 @@ export async function POST(request: Request) {
   }
 }
 
-function isInstallInput(value: unknown): value is {
-  canonicalContentDigest: string
-  idempotencyKey: string
+function isPlanInput(value: unknown): value is {
   pluginId: string
   releaseId: string
+  instanceId: string
   requestedHarness: string
-  installationInstanceId?: string
   workspaceIdentity: { userId: string; workspaceId: string }
 } {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -71,18 +69,12 @@ function isInstallInput(value: unknown): value is {
     /^plugin:[a-z0-9-]+:[a-z0-9][a-z0-9-]{1,127}$/u.test(input.pluginId) &&
     typeof input.releaseId === 'string' &&
     /^release:[a-f0-9]{64}$/u.test(input.releaseId) &&
-    typeof input.canonicalContentDigest === 'string' &&
-    /^sha256:[a-f0-9]{64}$/u.test(input.canonicalContentDigest) &&
+    typeof input.instanceId === 'string' &&
+    input.instanceId.length > 0 &&
+    input.instanceId.length <= 256 &&
     typeof input.requestedHarness === 'string' &&
     input.requestedHarness.length > 0 &&
-    input.requestedHarness.length < 128 &&
-    (input.installationInstanceId === undefined ||
-      (typeof input.installationInstanceId === 'string' &&
-        input.installationInstanceId.length > 0 &&
-        input.installationInstanceId.length <= 256)) &&
-    typeof input.idempotencyKey === 'string' &&
-    input.idempotencyKey.length >= 16 &&
-    input.idempotencyKey.length < 128 &&
+    input.requestedHarness.length <= 128 &&
     isObject(identity) &&
     typeof identity.workspaceId === 'string' &&
     identity.workspaceId.length > 0 &&
@@ -94,7 +86,7 @@ function isInstallInput(value: unknown): value is {
 function invalidRequest(request: Request) {
   return withDesktopWorkspaceCors(
     NextResponse.json(
-      { code: 'invalid_request', message: 'Invalid marketplace request' },
+      { code: 'invalid_request', message: 'Invalid marketplace plan request' },
       { status: 400 }
     ),
     request

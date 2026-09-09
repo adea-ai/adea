@@ -18,16 +18,34 @@ describe('Marketplace API client', () => {
                 installations: [],
                 releaseId: 'catalog:test',
               }
-            : {
-                canonicalContentDigest: 'sha256:test',
-                installationId: 'ins_test',
-                releaseId: 'release:test',
-                state: 'pending-authorization',
-              }
+            : request.url.endsWith('/install-plan')
+              ? {
+                  allowedToActivate: false,
+                  approvalRequired: true,
+                  compatibility: 'full',
+                  instanceId: 'marketplace:test',
+                  planVersion: 2,
+                  pluginId: 'plugin:openai-official:gmail',
+                  releaseId: `release:${'b'.repeat(64)}`,
+                  strategy: 'native-agent-plugin',
+                }
+              : {
+                  canonicalContentDigest: 'sha256:test',
+                  installationId: 'ins_test',
+                  releaseId: 'release:test',
+                  state: 'pending-authorization',
+                }
         )
       },
     })
     await client.getMarketplaceCatalog('workspace-1')
+    await client.requestMarketplaceInstallPlan('workspace-1', {
+      instanceId: 'marketplace:test',
+      pluginId: 'plugin:openai-official:gmail',
+      releaseId: `release:${'b'.repeat(64)}`,
+      requestedHarness: 'codex',
+      workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
+    })
     await client.requestMarketplaceInstall('workspace-1', {
       canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
       idempotencyKey: 'marketplace-install-1',
@@ -39,14 +57,21 @@ describe('Marketplace API client', () => {
 
     expect(requests.map(({ method, url }) => [method, new URL(url).pathname])).toEqual([
       ['POST', '/api/marketplace/catalog'],
+      ['POST', '/api/marketplace/install-plan'],
       ['POST', '/api/marketplace/install'],
     ])
     expect(await requests[1]!.json()).toMatchObject({
+      instanceId: 'marketplace:test',
+      pluginId: 'plugin:openai-official:gmail',
+      releaseId: `release:${'b'.repeat(64)}`,
+      requestedHarness: 'codex',
+    })
+    expect(await requests[2]!.json()).toMatchObject({
       canonicalContentDigest: `sha256:${'a'.repeat(64)}`,
       pluginId: 'plugin:openai-official:gmail',
       releaseId: `release:${'b'.repeat(64)}`,
       requestedHarness: 'codex',
     })
-    expect(requests[1]?.url).not.toContain('github.com')
+    expect(requests[2]?.url).not.toContain('github.com')
   })
 })

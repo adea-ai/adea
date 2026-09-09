@@ -114,6 +114,16 @@ export type WorkspacePluginDefinition = Readonly<{
   requiredCredentials?: readonly string[]
   provenance?: Readonly<Record<string, unknown>>
   updateMetadata?: Readonly<Record<string, unknown>>
+  /** Agent Plugins normalization status; this is descriptive, not activation authority. */
+  agentPluginsStatus?: 'portable' | 'partial' | 'unavailable'
+  packageDigest?: string
+  installationPlan?: Readonly<{
+    planVersion: 2
+    strategy: 'native-agent-plugin' | 'component-adapter' | 'unavailable'
+    compatibility: 'full' | 'partial' | 'unsupported'
+    allowedToActivate: false
+    approvalRequired: true
+  }>
   contentResolution?: 'complete' | 'metadata-only'
 }>
 

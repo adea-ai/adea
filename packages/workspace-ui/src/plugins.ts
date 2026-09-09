@@ -126,16 +126,62 @@ export function createRegistryPluginsProvider(
         'verification-failure',
         `Current release is missing: ${pluginId}`
       )
-    if (release.contentResolution === 'metadata-only') {
+    const requestedHarness = options.requestedHarness ?? 'codex'
+    if (
+      release.contentResolution === 'metadata-only' ||
+      release.agentPlugins?.status === 'unavailable'
+    ) {
       state = 'unavailable'
       throw new MarketplaceCatalogError(
         'unavailable',
-        'This plugin is source metadata only and cannot be enabled'
+        release.contentResolution === 'metadata-only'
+          ? 'This plugin is source metadata only and cannot be enabled'
+          : 'This plugin has no portable Agent Plugins components for this catalog release'
       )
     }
+    const installationInstanceDigest = await canonicalDigest({
+      pluginId,
+      userId,
+      workspaceId,
+    })
+    const installationInstanceId = `marketplace:${installationInstanceDigest.slice('sha256:'.length)}`
+    let installationPlan: WorkspacePluginDefinition['installationPlan']
+    if (release.agentPlugins) {
+      const plan = await apiClient().requestMarketplaceInstallPlan(workspaceId, {
+        instanceId: installationInstanceId,
+        pluginId,
+        releaseId: release.releaseId,
+        requestedHarness,
+        workspaceIdentity: { userId, workspaceId },
+      })
+      if (
+        plan.planVersion !== 2 ||
+        plan.pluginId !== pluginId ||
+        plan.releaseId !== release.releaseId ||
+        plan.instanceId !== installationInstanceId ||
+        plan.allowedToActivate !== false ||
+        plan.approvalRequired !== true
+      ) {
+        state = 'verification-failure'
+        throw new MarketplaceCatalogError(
+          'verification-failure',
+          'Control Plane returned an invalid or mismatched installation plan'
+        )
+      }
+      installationPlan = {
+        allowedToActivate: false,
+        approvalRequired: true,
+        compatibility: plan.compatibility,
+        planVersion: 2,
+        strategy: plan.strategy,
+      }
+    }
     const idempotencyDigest = await canonicalDigest({
+      canonicalContentDigest: release.canonicalContentDigest,
+      installationInstanceId,
       pluginId,
       releaseId: release.releaseId,
+      requestedHarness,
       userId,
       workspaceId,
     })
@@ -143,7 +189,8 @@ export function createRegistryPluginsProvider(
       pluginId,
       releaseId: release.releaseId,
       canonicalContentDigest: release.canonicalContentDigest,
-      requestedHarness: options.requestedHarness ?? 'codex',
+      requestedHarness,
+      installationInstanceId,
       workspaceIdentity: { userId, workspaceId },
       idempotencyKey: `marketplace:${idempotencyDigest.slice('sha256:'.length)}`,
     })
@@ -156,11 +203,18 @@ export function createRegistryPluginsProvider(
           pluginId,
           releaseId: response.releaseId,
           canonicalContentDigest: response.canonicalContentDigest,
+          ...(response.installationInstanceId
+            ? { installationInstanceId: response.installationInstanceId }
+            : {}),
+          ...(response.packageDigest ? { packageDigest: response.packageDigest } : {}),
           state: installationResponseState(response),
         },
       ],
     }
-    return mapRegistryCatalog(cache.catalog, cache.installations)
+    const mapped = mapRegistryCatalog(cache.catalog, cache.installations)
+    return mapped.map((candidate) =>
+      candidate.id === pluginId && installationPlan ? { ...candidate, installationPlan } : candidate
+    )
   }
 
   return {
