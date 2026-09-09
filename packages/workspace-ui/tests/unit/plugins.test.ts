@@ -150,6 +150,37 @@ describe('registry marketplace catalog', () => {
     expect(plugin.requiredCredentials).toEqual(['google.oauth'])
   })
 
+  test('surfaces canonical Agent Plugins package status without treating it as approval', async () => {
+    const fixture = await fixtureArtifacts()
+    const release = fixture.catalog.plugins[0]!.availableReleases[0]!
+    const catalog = {
+      ...fixture.catalog,
+      plugins: [
+        {
+          ...fixture.catalog.plugins[0]!,
+          availableReleases: [
+            {
+              ...release,
+              releaseMetadata: {
+                ...release.releaseMetadata,
+                agentPlugins: {
+                  packageDigest: `sha256:${'d'.repeat(64)}`,
+                  status: 'partial',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    }
+    const [plugin] = mapRegistryCatalog(catalog, [])
+    expect(plugin).toMatchObject({
+      agentPluginsStatus: 'partial',
+      installationPolicy: 'available',
+      packageDigest: `sha256:${'d'.repeat(64)}`,
+    })
+  })
+
   test('loads the registry through the provider and submits the exact release request', async () => {
     const fixture = await fixtureArtifacts()
     const requests: unknown[] = []
@@ -187,6 +218,7 @@ describe('registry marketplace catalog', () => {
       pluginId: 'plugin:openai-official:gmail',
       releaseId: `release:${'c'.repeat(64)}`,
       requestedHarness: 'codex',
+      installationInstanceId: expect.stringMatching(/^marketplace:[a-f0-9]{64}$/u),
       workspaceIdentity: { userId: 'user-1', workspaceId: 'workspace-1' },
     })
     expect((requests[0] as { idempotencyKey: string }).idempotencyKey).toMatch(

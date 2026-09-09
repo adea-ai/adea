@@ -65,6 +65,9 @@ export type RegistryRelease = Readonly<{
     securityImpact: string
   }>[]
   releaseMetadata: JsonObject
+  /** Canonical Agent Plugins descriptor, when this release was resynchronized. */
+  agentPlugins?: JsonObject
+  packageDigest?: string
   [key: string]: unknown
 }>
 
@@ -77,6 +80,8 @@ export type VerifiedRegistryCatalog = Readonly<{
     pluginId: string
     releaseId: string
     canonicalContentDigest: string
+    installationInstanceId?: string
+    packageDigest?: string
     state: WorkspacePluginInstallationStatus
   }[]
 }>
@@ -263,14 +268,25 @@ export function mapRegistryCatalog(
         `Current release is missing: ${plugin.pluginId}`
       )
     const installation = states.get(plugin.pluginId)
+    const agentPlugins =
+      release.agentPlugins ??
+      (isObject(release.releaseMetadata['agentPlugins'])
+        ? release.releaseMetadata['agentPlugins']
+        : undefined)
+    const agentPluginsStatus = agentPlugins ? agentPluginsStatusValue(agentPlugins['status']) : ''
+    const packageDigest = agentPlugins ? digestValue(agentPlugins['packageDigest']) : undefined
+    const installable =
+      release.contentResolution !== 'metadata-only' && agentPluginsStatus !== 'unavailable'
+    const releasePackageDigest = release.packageDigest ?? packageDigest
     const installationStatus =
       installation &&
       installation.releaseId === release.releaseId &&
-      installation.canonicalContentDigest === release.canonicalContentDigest
+      installation.canonicalContentDigest === release.canonicalContentDigest &&
+      (releasePackageDigest === undefined || installation.packageDigest === releasePackageDigest)
         ? installation.state
-        : release.contentResolution === 'metadata-only'
-          ? 'unavailable'
-          : 'available'
+        : installable
+          ? 'available'
+          : 'unavailable'
     const capabilities = release.capabilities.map((capability) => capability.name)
     const capabilityTypes = new Set(release.capabilities.map((capability) => capability.type))
     const connector =
@@ -301,6 +317,7 @@ export function mapRegistryCatalog(
       id: plugin.pluginId,
       installed: installationStatus === 'installed',
       installationPolicy: installationStatus === 'unavailable' ? 'not-available' : 'available',
+      ...(agentPluginsStatus ? { agentPluginsStatus } : {}),
       installationStatus,
       kind: connector ? 'connector' : 'skill',
       keywords: plugin.keywords,
@@ -315,6 +332,9 @@ export function mapRegistryCatalog(
       publisher: plugin.authors[0] ?? plugin.sourceId,
       releaseId: release.releaseId,
       canonicalContentDigest: release.canonicalContentDigest,
+      ...((release.packageDigest ?? packageDigest)
+        ? { packageDigest: release.packageDigest ?? packageDigest }
+        : {}),
       requiredConnectors: release.requiredConnectors,
       requiredCredentials: release.requiredCredentials,
       securityClassification: plugin.securityClassification,
@@ -497,6 +517,18 @@ function parseRelease(value: unknown, index: string): RegistryRelease {
         requireObject(capability, 'capability') as RegistryRelease['capabilities'][number]
     ),
     releaseMetadata: release.releaseMetadata,
+    ...(isObject(release.releaseMetadata['agentPlugins'])
+      ? {
+          agentPlugins: release.releaseMetadata['agentPlugins'],
+          ...(digestValue(release.releaseMetadata['agentPlugins']['packageDigest'])
+            ? {
+                packageDigest: digestValue(
+                  release.releaseMetadata['agentPlugins']['packageDigest']
+                ),
+              }
+            : {}),
+        }
+      : {}),
   }
 }
 
@@ -530,6 +562,14 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function digestValue(value: unknown): string | undefined {
+  return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/u.test(value) ? value : undefined
+}
+
+function agentPluginsStatusValue(value: unknown): 'portable' | 'partial' | 'unavailable' | '' {
+  return value === 'portable' || value === 'partial' || value === 'unavailable' ? value : ''
 }
 
 function timestamp(value: unknown): value is string {
