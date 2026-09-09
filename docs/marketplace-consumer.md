@@ -31,21 +31,34 @@ JSON sorts object keys, preserves array order, and uses the registry's
 
 The following values are opaque and must be preserved exactly:
 
-| Field                    | Use                                                              |
-| ------------------------ | ---------------------------------------------------------------- |
-| `catalogId`              | Complete immutable catalog snapshot identity.                    |
-| `pluginId`               | Source-qualified stable plugin identity.                         |
-| `releaseId`              | Exact immutable plugin release identity.                         |
-| `canonicalContentDigest` | Exact normalized content digest to persist and submit.           |
-| `harnessCompatibility`   | Per-harness descriptive compatibility; not an execution grant.   |
-| `requiredConnectors`     | Connector authorities required by the release.                   |
-| `requiredCredentials`    | Credential requirement names; never secret values.               |
-| `securityClassification` | Sensitivity, resolution, and permission-impact metadata.         |
-| `provenance`             | Source repository, manifest, path, and resolved commit metadata. |
+| Field                                        | Use                                                                                                     |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `catalogId`                                  | Complete immutable catalog snapshot identity.                                                           |
+| `pluginId`                                   | Source-qualified stable plugin identity.                                                                |
+| `releaseId`                                  | Exact immutable plugin release identity.                                                                |
+| `canonicalContentDigest`                     | Exact normalized content digest to persist and submit.                                                  |
+| `releaseMetadata.agentPlugins.packageDigest` | Derived canonical package recipe digest, when present; descriptive until Control Plane confirms a plan. |
+| `harnessCompatibility`                       | Per-harness descriptive compatibility; not an execution grant.                                          |
+| `requiredConnectors`                         | Connector authorities required by the release.                                                          |
+| `requiredCredentials`                        | Credential requirement names; never secret values.                                                      |
+| `securityClassification`                     | Sensitivity, resolution, and permission-impact metadata.                                                |
+| `provenance`                                 | Source repository, manifest, path, and resolved commit metadata.                                        |
+
+For releases with `releaseMetadata.agentPlugins`, Adea first calls the
+same-origin `/api/marketplace/install-plan` route. The returned plan must
+match the requested `pluginId`, `releaseId`, and stable installation instance;
+`allowedToActivate` must remain `false` and `approvalRequired` must remain
+`true`. The plan is advisory only: it does not authorize materialization,
+credentials, network access, dependency installation, or activation. Adea
+fails closed on a missing, malformed, or mismatched plan. Legacy releases
+without Agent Plugins metadata retain the existing install compatibility path.
 
 The Add/Enable request to Control Plane includes `pluginId`, exact `releaseId`,
-exact `canonicalContentDigest`, requested harness, and workspace/user identity.
-It is idempotent. Adea may display states returned by Control Plane such as
+exact `canonicalContentDigest`, requested harness, a stable installation
+instance scoped to the workspace/user/plugin, and workspace/user identity. It
+is idempotent. Adea may display canonical Agent Plugins status (`portable`,
+`partial`, or `unavailable`) but never treats it as authorization. It may
+also display states returned by Control Plane such as
 `pending-authorization`, `unavailable`, `rejected-by-policy`, `installed`, and
 `superseded`, but it must not mark an item installed from local storage.
 

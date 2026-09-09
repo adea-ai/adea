@@ -23,6 +23,38 @@ export async function proxyMarketplaceCatalog(
   )
 }
 
+export async function proxyMarketplaceInstallPlan(
+  input: Readonly<{
+    pluginId: string
+    releaseId: string
+    instanceId: string
+    requestedHarness: string
+    workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
+  }>
+): Promise<Response> {
+  const requestId = identifier('req')
+  const traceId = identifier('trc')
+  const commandId = identifier('cmd')
+  const idempotencyKey = `marketplace-plan:${sha256(canonicalJson(input))}`
+  return proxyControlPlane(
+    '/v1/marketplace/install-plan',
+    {
+      caller: { servicePrincipalId: 'svc_agent_hq' },
+      commandId,
+      contractVersion,
+      correlation: { traceId },
+      idempotencyKey,
+      issuedAt: new Date().toISOString(),
+      operation: 'marketplace.install.plan',
+      payload: input,
+      payloadHash: sha256(canonicalJson(input)),
+      requestId,
+      workspaceId: requiredControlPlaneWorkspaceId(),
+    },
+    requestId
+  )
+}
+
 export async function proxyMarketplaceInstall(
   input: Readonly<{
     canonicalContentDigest: string
@@ -30,6 +62,7 @@ export async function proxyMarketplaceInstall(
     pluginId: string
     releaseId: string
     requestedHarness: string
+    installationInstanceId?: string
     workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
   }>
 ): Promise<Response> {
