@@ -70,7 +70,7 @@ describe.skipIf(!connectionUrl)('identity mapping integration', () => {
       createUserWithAuthIdentity(connection.db, { identity }),
     ])
 
-    expect(attempts.map(({ status }) => status).sort()).toEqual(['fulfilled', 'rejected'])
+    expect(attempts.map(({ status }) => status).toSorted()).toEqual(['fulfilled', 'rejected'])
     const [principal] = await findUserPrincipalsByAuthIdentity(connection.db, identity)
     expect(principal).toBeDefined()
     const [{ value: finalUserCount }] = await connection.db.select({ value: count() }).from(users)

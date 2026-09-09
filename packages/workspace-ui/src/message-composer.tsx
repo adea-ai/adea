@@ -118,12 +118,13 @@ export function MessageComposer({
       transcriptionSessionRef.current = null
       setTranscriptionState('idle')
       requestAnimationFrame(() => textareaRef.current?.focus())
-    } catch (error) {
+    } catch (transcriptionFailure) {
       if (activeSession && transcriptionSessionRef.current !== activeSession) return
       transcriptionSessionRef.current = null
       setTranscriptionState('error')
       setTranscriptionError(
-        error instanceof DOMException && error.name === 'NotAllowedError'
+        transcriptionFailure instanceof DOMException &&
+          transcriptionFailure.name === 'NotAllowedError'
           ? 'Microphone access is off. Enable it in system privacy settings, then retry.'
           : 'Dictation stopped unexpectedly. Your existing draft is unchanged.'
       )

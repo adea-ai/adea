@@ -251,7 +251,7 @@ export function groupWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
   const preferred = new Map<string, number>(
     workspacePluginCategoryOrder.map((category, index) => [category, index])
   )
-  const names = [...new Set(plugins.map((plugin) => plugin.category))].sort(
+  const names = [...new Set(plugins.map((plugin) => plugin.category))].toSorted(
     (left, right) =>
       (preferred.get(left) ?? Number.MAX_SAFE_INTEGER) -
         (preferred.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
