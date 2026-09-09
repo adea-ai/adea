@@ -52,6 +52,10 @@ function command(prefix: string, expectedVersion?: number) {
   }
 }
 
+function taskMutation<T>(mutation: { mutateAsync: (input: T) => Promise<unknown> }, input: T) {
+  return mutation.mutateAsync(input).then(() => undefined)
+}
+
 export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const [defaultClient] = useState(() => createApiClient())
   const client = providedClient ?? defaultClient
@@ -147,8 +151,6 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     [setSelectedChannelId, setSelectedRoomId]
   )
-  const taskMutation = <T>(mutation: { mutateAsync: (input: T) => Promise<unknown> }, input: T) =>
-    mutation.mutateAsync(input).then(() => undefined)
   const taskInput = (task: TaskSummary, prefix: string) => command(prefix, task.version)
 
   return {

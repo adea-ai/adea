@@ -36,7 +36,7 @@ function stableValue(value: unknown): unknown {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
         .filter(([, entry]) => entry !== undefined)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .toSorted(([left], [right]) => left.localeCompare(right))
         .map(([key, entry]) => [key, stableValue(entry)])
     )
   return value
@@ -137,7 +137,7 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
         ? { kind: 'user', userId: participant.userId! }
         : { agentId: participant.agentId!, kind: 'agent' }
     )
-    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    .toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -656,7 +656,7 @@ async function messageSummary(database: Database, row: MessageRow): Promise<Mess
         ? { kind: 'user', userId: mention.userId! }
         : { agentId: mention.agentId!, kind: 'agent' }
     )
-    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    .toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
   let sender: MessageSenderRef
   if (row.senderKind === 'user') sender = { kind: 'user', userId: row.senderUserId! }
   else if (row.senderKind === 'agent') sender = { agentId: row.senderAgentId!, kind: 'agent' }
@@ -726,7 +726,7 @@ export async function createMessage(
     await validateSender(transaction, workspaceId, input.sender)
     if (Boolean(input.bodyText?.trim()) === Boolean(input.bodyContentRefId))
       throw new Error('Message body invalid')
-    const artifactIds = [...new Set(input.artifactIds ?? [])].sort()
+    const artifactIds = [...new Set(input.artifactIds ?? [])].toSorted()
     if (artifactIds.length) {
       const availableArtifacts = await transaction
         .select({ id: artifacts.id })
@@ -742,7 +742,7 @@ export async function createMessage(
     }
     const mentions = [
       ...new Map((input.mentions ?? []).map((entry) => [JSON.stringify(entry), entry])).values(),
-    ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    ].toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
     for (const mention of mentions) await validateParticipant(transaction, workspaceId, mention)
     let reply: MessageRow | undefined
     if (input.replyToMessageId) {
