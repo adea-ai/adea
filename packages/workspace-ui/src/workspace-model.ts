@@ -33,7 +33,7 @@ export function projectWorkspaceNavigation(
   const activeChannels = channels.filter(({ lifecycleState }) => lifecycleState === 'active')
   const roomItems = [...rooms]
     .filter(({ lifecycleState }) => lifecycleState === 'active')
-    .sort(
+    .toSorted(
       (left, right) =>
         left.sortOrder - right.sortOrder ||
         left.name.localeCompare(right.name) ||
@@ -42,7 +42,7 @@ export function projectWorkspaceNavigation(
     .map((room) => {
       const roomChannels = activeChannels
         .filter((channel) => channel.kind === 'room' && channel.roomId === room.id)
-        .sort(compareChannels)
+        .toSorted(compareChannels)
       const primaryChannel = roomChannels.find(({ isPrimaryRoomChannel }) => isPrimaryRoomChannel)
       return Object.freeze({
         ...(primaryChannel ? { primaryChannel } : {}),
@@ -55,10 +55,10 @@ export function projectWorkspaceNavigation(
     })
   return Object.freeze({
     directAgentChannels: Object.freeze(
-      activeChannels.filter(({ kind }) => kind === 'direct_agent').sort(compareChannels)
+      activeChannels.filter(({ kind }) => kind === 'direct_agent').toSorted(compareChannels)
     ),
     groupChannels: Object.freeze(
-      activeChannels.filter(({ kind }) => kind === 'group').sort(compareChannels)
+      activeChannels.filter(({ kind }) => kind === 'group').toSorted(compareChannels)
     ),
     rooms: Object.freeze(roomItems),
   })
@@ -103,6 +103,8 @@ export function parseAgentMentions(
   const normalized = text.toLocaleLowerCase()
   return agents
     .filter(({ name }) => normalized.includes(`@${name.toLocaleLowerCase()}`))
-    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+    .toSorted(
+      (left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+    )
     .map(({ id }) => Object.freeze({ agentId: id, kind: 'agent' as const }))
 }

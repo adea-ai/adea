@@ -45,7 +45,7 @@ function marketplaceCanonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(marketplaceCanonicalJson).join(',')}]`
   const object = value as Record<string, unknown>
   return `{${Object.keys(object)
-    .sort()
+    .toSorted()
     .map((key) => `${JSON.stringify(key)}:${marketplaceCanonicalJson(object[key])}`)
     .join(',')}}`
 }

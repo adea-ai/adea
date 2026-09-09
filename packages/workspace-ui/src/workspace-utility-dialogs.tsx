@@ -27,6 +27,26 @@ import type { PrivateContentResolver } from './platform'
 
 type SearchResult = WorkspaceSearchResult
 
+function searchResultIcon(kind: SearchResult['kind']) {
+  return kind === 'agent' ? (
+    <Bot aria-hidden="true" />
+  ) : kind === 'room' ? (
+    <DoorOpen aria-hidden="true" />
+  ) : kind === 'task' ? (
+    <ListTodo aria-hidden="true" />
+  ) : kind === 'artifact' ? (
+    <FileText aria-hidden="true" />
+  ) : kind === 'message' ? (
+    <MessageSquare aria-hidden="true" />
+  ) : kind === 'action' ? (
+    <CheckCheck aria-hidden="true" />
+  ) : kind === 'settings' ? (
+    <Settings aria-hidden="true" />
+  ) : (
+    <Hash aria-hidden="true" />
+  )
+}
+
 export function WorkspaceSearchDialog({
   agents,
   artifacts,
@@ -218,24 +238,6 @@ export function WorkspaceSearchDialog({
     onSelect(result)
     onClose()
   }
-  const icon = (kind: SearchResult['kind']) =>
-    kind === 'agent' ? (
-      <Bot aria-hidden="true" />
-    ) : kind === 'room' ? (
-      <DoorOpen aria-hidden="true" />
-    ) : kind === 'task' ? (
-      <ListTodo aria-hidden="true" />
-    ) : kind === 'artifact' ? (
-      <FileText aria-hidden="true" />
-    ) : kind === 'message' ? (
-      <MessageSquare aria-hidden="true" />
-    ) : kind === 'action' ? (
-      <CheckCheck aria-hidden="true" />
-    ) : kind === 'settings' ? (
-      <Settings aria-hidden="true" />
-    ) : (
-      <Hash aria-hidden="true" />
-    )
   return (
     <ModalDialog
       open={open}
@@ -285,7 +287,7 @@ export function WorkspaceSearchDialog({
               onMouseEnter={() => setSelectedIndex(index)}
               onClick={() => select(result)}
             >
-              {icon(result.kind)}
+              {searchResultIcon(result.kind)}
               <span>
                 <strong>{result.label}</strong>
                 <small>{result.secondary}</small>
