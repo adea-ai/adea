@@ -35,7 +35,7 @@ export function SoundProvider({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', onGesture, { capture: true })
     window.addEventListener('touchstart', onGesture, { capture: true })
     if (new URLSearchParams(window.location.search).has('debug')) {
-      ;(window as unknown as { __agentHqSound?: typeof soundController }).__agentHqSound =
+      ;(window as unknown as { __agentHqSound?: typeof soundController })['__agentHqSound'] =
         soundController
     }
     return () => {

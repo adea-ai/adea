@@ -143,7 +143,7 @@ export function ConversationSurface({
     setMessages((current) => {
       const merged = new Map(current.map((message) => [message.id, message]))
       for (const message of page) merged.set(message.id, message)
-      return [...merged.values()].sort((left, right) => left.sequence - right.sequence)
+      return [...merged.values()].toSorted((left, right) => left.sequence - right.sequence)
     })
   }, [channel, messageQuery.data])
 
@@ -157,7 +157,7 @@ export function ConversationSurface({
   }, [messages, searchTargetMessageId, threadRootMessageId])
 
   const rootMessages = useMemo(
-    () => messages.filter(({ threadRootMessageId }) => !threadRootMessageId),
+    () => messages.filter(({ threadRootMessageId: messageThreadRootId }) => !messageThreadRootId),
     [messages]
   )
   useEffect(() => {

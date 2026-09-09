@@ -128,7 +128,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
 
     const bootstrapped = await ensureBootstrapWorkspaces(connection.db, temporary.principal)
 
-    expect(bootstrapped.map(({ name }) => name).sort()).toEqual(['Home', 'Work'])
+    expect(bootstrapped.map(({ name }) => name).toSorted()).toEqual(['Home', 'Work'])
     expect(
       await getWorkspaceForUser(connection.db, legacy.workspace.id, temporary.principal)
     ).toMatchObject({

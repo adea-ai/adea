@@ -59,7 +59,10 @@ describe('conventional workspace projection', () => {
       ]
     )
 
-    expect(navigation.rooms.map(({ room }) => room.id)).toEqual(['engineering', 'marketing'])
+    expect(navigation.rooms.map(({ room: workspaceRoom }) => workspaceRoom.id)).toEqual([
+      'engineering',
+      'marketing',
+    ])
     expect(navigation.rooms[0]?.visibleChannels).toEqual([])
     expect(navigation.rooms[0]?.selectionChannelId).toBe('engineering-main')
     expect(navigation.rooms[1]?.visibleChannels.map(({ id }) => id)).toEqual([

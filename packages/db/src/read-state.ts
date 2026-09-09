@@ -144,10 +144,10 @@ export async function listReadStateForUser(
         .map(([threadRootMessageId, replies]) => {
           const threadState = threadStateByRoot.get(threadRootMessageId)
           const effectiveReadSequence = threadState?.lastReadSequence ?? 0
-          const latestSequence = replies.at(-1)?.sequence ?? 0
+          const latestReplySequence = replies.at(-1)?.sequence ?? 0
           return Object.freeze({
             lastReadSequence: threadState?.lastReadSequence ?? 0,
-            latestSequence,
+            latestSequence: latestReplySequence,
             manuallyUnread: threadState?.manuallyUnread ?? false,
             ...(threadState?.readAt ? { readAt: threadState.readAt.toISOString() } : {}),
             threadRootMessageId,
@@ -155,7 +155,7 @@ export async function listReadStateForUser(
             ...(threadState?.updatedAt ? { updatedAt: threadState.updatedAt.toISOString() } : {}),
           })
         })
-        .sort(
+        .toSorted(
           (left, right) =>
             right.latestSequence - left.latestSequence ||
             left.threadRootMessageId.localeCompare(right.threadRootMessageId)

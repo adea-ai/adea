@@ -44,14 +44,14 @@ export class SoundController {
   private desiredMusic: MusicId | null = null
   private currentMusic: MusicId | null = null
   private activeFades = new Set<number>()
-  private _musicMuted: boolean
+  private musicMutedState: boolean
 
   constructor() {
-    this._musicMuted = loadMusicMuted()
+    this.musicMutedState = loadMusicMuted()
   }
 
   get musicMuted(): boolean {
-    return this._musicMuted
+    return this.musicMutedState
   }
 
   /** Retry queued playback after a user gesture. */
@@ -68,7 +68,7 @@ export class SoundController {
   }
 
   setMusicMuted(muted: boolean): void {
-    this._musicMuted = muted
+    this.musicMutedState = muted
     writeStorage(MUSIC_MUTE_KEY, muted)
     for (const element of this.musicElements.values()) {
       if (muted) element.pause()
@@ -77,8 +77,8 @@ export class SoundController {
   }
 
   toggleMusicMute(): boolean {
-    this.setMusicMuted(!this._musicMuted)
-    return this._musicMuted
+    this.setMusicMuted(!this.musicMutedState)
+    return this.musicMutedState
   }
 
   private prepareMusicElement(id: MusicId): void {

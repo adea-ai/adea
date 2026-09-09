@@ -32,8 +32,8 @@ export function createNativeTranscriptionProvider(
     async start(input = {}) {
       let settled = false
       let sessionId: string | null = null
-      let rejectCompletion: (reason?: unknown) => void = () => undefined
-      let resolveCompletion: (result: Readonly<{ text: string }>) => void = () => undefined
+      let rejectCompletion: ((reason?: unknown) => void) | undefined
+      let resolveCompletion: ((result: Readonly<{ text: string }>) => void) | undefined
       const completion = new Promise<Readonly<{ text: string }>>((resolve, reject) => {
         resolveCompletion = resolve
         rejectCompletion = reject
@@ -41,8 +41,8 @@ export function createNativeTranscriptionProvider(
       const channel = dependencies.createEventChannel((event) => {
         if (settled) return
         settled = true
-        if (event.type === 'complete') resolveCompletion({ text: event.text })
-        else rejectCompletion(nativeError(event.code))
+        if (event.type === 'complete') resolveCompletion?.({ text: event.text })
+        else rejectCompletion?.(nativeError(event.code))
       })
       const configuredLocale = await dependencies.getLocale().catch(() => '')
       sessionId = await dependencies.start(
@@ -54,7 +54,7 @@ export function createNativeTranscriptionProvider(
           if (settled) return
           settled = true
           if (sessionId) void dependencies.cancel(sessionId).catch(() => undefined)
-          rejectCompletion(new DOMException('Dictation cancelled', 'AbortError'))
+          rejectCompletion?.(new DOMException('Dictation cancelled', 'AbortError'))
         },
         completion,
       })

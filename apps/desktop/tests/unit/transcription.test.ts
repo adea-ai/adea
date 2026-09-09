@@ -8,7 +8,7 @@ type Event =
   | Readonly<{ type: 'error'; code: string }>
 
 function harness(permission: 'denied' | 'granted' | 'unavailable' = 'granted') {
-  let handler: (event: Event) => void = () => undefined
+  let handler: ((event: Event) => void) | undefined
   const cancelled: string[] = []
   const starts: Array<Readonly<{ events: unknown; locale: string }>> = []
   const provider = createNativeTranscriptionProvider({
@@ -27,7 +27,7 @@ function harness(permission: 'denied' | 'granted' | 'unavailable' = 'granted') {
       return 'session-1'
     },
   })
-  return { cancelled, emit: (event: Event) => handler(event), provider, starts }
+  return { cancelled, emit: (event: Event) => handler?.(event), provider, starts }
 }
 
 describe('desktop native transcription provider', () => {

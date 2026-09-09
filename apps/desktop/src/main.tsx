@@ -50,19 +50,23 @@ const SpatialDesktopWorkspace = lazy(() =>
 // Dialogs are infrequent overlays, so their code stays out of the startup
 // chunk and loads the first time each one mounts.
 const PluginsDialog = lazy(() =>
-  import('@adea-ai/workspace-ui/plugins-dialog').then(({ PluginsDialog }) => ({
-    default: PluginsDialog,
+  import('@adea-ai/workspace-ui/plugins-dialog').then(({ PluginsDialog: Dialog }) => ({
+    default: Dialog,
   }))
 )
 const WorkspaceAboutDialog = lazy(() =>
-  import('@adea-ai/workspace-ui/workspace-about-dialog').then(({ WorkspaceAboutDialog }) => ({
-    default: WorkspaceAboutDialog,
-  }))
+  import('@adea-ai/workspace-ui/workspace-about-dialog').then(
+    ({ WorkspaceAboutDialog: Dialog }) => ({
+      default: Dialog,
+    })
+  )
 )
 const WorkspaceSettingsDialog = lazy(() =>
-  import('@adea-ai/workspace-ui/workspace-settings').then(({ WorkspaceSettingsDialog }) => ({
-    default: WorkspaceSettingsDialog,
-  }))
+  import('@adea-ai/workspace-ui/workspace-settings').then(
+    ({ WorkspaceSettingsDialog: Dialog }) => ({
+      default: Dialog,
+    })
+  )
 )
 
 function DesktopSettingsOverlay({

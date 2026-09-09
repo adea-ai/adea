@@ -101,7 +101,7 @@ export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   const object = value as JsonObject
   return `{${Object.keys(object)
-    .sort()
+    .toSorted()
     .map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`)
     .join(',')}}`
 }

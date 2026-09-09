@@ -82,8 +82,8 @@ export function TaskDetail(props: Props) {
   const agentChanged = (agentId ?? null) !== (props.task.agentId ?? null)
   const roomChanged = (roomId ?? null) !== (props.task.roomId ?? null)
   const dependenciesChanged =
-    JSON.stringify([...dependencyIds].sort()) !==
-    JSON.stringify([...props.task.dependencyIds].sort())
+    JSON.stringify([...dependencyIds].toSorted()) !==
+    JSON.stringify([...props.task.dependencyIds].toSorted())
   const detailsChanged =
     (titleChanged && trimmedTitle.length > 0 && trimmedTitle.length <= 200) ||
     (objectiveChanged && trimmedObjective.length > 0 && trimmedObjective.length <= 20_000) ||
