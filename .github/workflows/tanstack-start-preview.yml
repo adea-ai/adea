@@ -38,8 +38,8 @@ jobs:
       - run: bun run --cwd apps/web start:verify
       - run: bun run build:cloudflare
       - run: bunx playwright install --with-deps chromium
-      - name: Isolated Workers and browser parity
-        run: bun run --cwd apps/web start:test:local
+      - name: Isolated Workers, browser parity and comparison
+        run: bun run --cwd apps/web start:test:local --compare
       - name: Upload validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -50,6 +50,7 @@ jobs:
             apps/web/start-preview/playwright-report/
             apps/web/start-preview/.checks/client-modules.json
             apps/web/start-preview/.checks/local-*/result.json
+            apps/web/start-preview/.checks/local-*/comparison/
             apps/web/start-preview/.checks/local-*/worker-*.log
           include-hidden-files: true
           retention-days: 14

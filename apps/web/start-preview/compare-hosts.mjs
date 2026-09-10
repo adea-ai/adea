@@ -36,12 +36,6 @@ const directory = resolve(values.output)
 await mkdir(directory, { recursive: true })
 const samples = { next: [], start: [] }
 const browser = await chromium.launch({ headless: true })
-const workspace = {
-  id: 'workspace-start-comparison',
-  name: 'My Adea',
-  scene: 'home',
-  updatedAt: '2026-08-25T00:00:00.000Z',
-}
 const browserVersion = browser.version()
 try {
   for (let index = 0; index < count; index++) {
@@ -68,16 +62,13 @@ try {
         let bootstrapRequests = 0
         const errors = []
         page.on('pageerror', (error) => errors.push(error.stack ?? error.message))
-        await page.route('**/api/workspaces/bootstrap', (route) => {
-          bootstrapRequests++
-          return route.fulfill({
-            contentType: 'application/json',
-            json: {
-              activeWorkspace: workspace,
-              principal: { temporary: true },
-              workspaces: [workspace],
-            },
-          })
+        page.on('request', (request) => {
+          if (new URL(request.url()).pathname === '/api/workspaces/bootstrap') bootstrapRequests++
+        })
+        page.on('response', (response) => {
+          const path = new URL(response.url()).pathname
+          if (path.startsWith('/api/v1/workspaces/') && response.status() >= 400)
+            errors.push(`${path}: ${response.status()}`)
         })
         const response = await page.goto(`${origins[name]}/?view=chat&scene=home`)
         if (response.status() !== 200)
@@ -154,9 +145,10 @@ const medians = Object.fromEntries(
   ])
 )
 const result = {
-  instrumentation: 'v2: browser-observed DOM readiness; automation-observed view switching',
+  instrumentation:
+    'v3: live guest/database path; browser-observed DOM readiness; automation-observed view switching',
   comparison: 'retained Next host versus opt-in Start host from the same worktree',
-  note: 'Unthrottled desktop lab samples over local HTTPS; fresh browser contexts, identical bootstrap fixture, alternating order. Readiness uses a browser MutationObserver timestamp; view-switch timing includes automation overhead. Resource transfer excludes the document and is not field INP or production LCP.',
+  note: 'Unthrottled desktop lab samples over local HTTPS; fresh browser contexts, real fresh guest sessions and the same empty-workspace template, alternating order. Readiness uses a browser MutationObserver timestamp; view-switch timing includes automation overhead. Resource transfer excludes the document and is not field INP or production LCP.',
   revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   dirtyWorktree: Boolean(
     execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()

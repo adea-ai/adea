@@ -66,6 +66,8 @@ bun run --cwd apps/web start:verify
 bun run build:cloudflare
 bunx playwright install chromium
 bun run --cwd apps/web start:test:local
+# Also compare retained Next versus Start with fresh real guest sessions:
+bun run --cwd apps/web start:test:local --compare
 ```
 
 The runner creates an isolated Docker Compose project with restricted database roles, free ports, unique local Worker names, and loopback HTTPS. It applies reviewed migrations only to that disposable database, runs the browser suite, checks restricted entry and backend disconnection, and removes its processes and database volume. Production credentials are not inherited. Logs and gate results remain under ignored `.checks/local-*`. It does not use your normal development database.
@@ -104,7 +106,7 @@ To repeat the local comparison against two built loopback HTTPS hosts:
 bun run --cwd apps/web start:compare --next-url https://127.0.0.1:3105 --start-url https://127.0.0.1:3104 --runs 5
 ```
 
-This command does not launch servers. It records browser-side DOM readiness, initial resource sizes, request counts, and automation-observed view switches in `.checks/comparison`. Both hosts receive identical bootstrap fixtures, browser contexts are fresh, and order alternates. It is not a production Core Web Vitals measurement.
+This command does not launch servers. It records browser-side DOM readiness, initial resource sizes, request counts, and automation-observed view switches in `.checks/comparison`. Both hosts create real guest sessions against the same disposable database and empty-workspace template; browser contexts are fresh and order alternates. The comparator fails on browser exceptions and failed workspace API responses. The readiness marker denotes visible shell controls, not completion of every remote query. It is not a production Core Web Vitals measurement.
 
 ## References
 

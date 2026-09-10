@@ -9,7 +9,7 @@ Production-build checks and a controlled local comparison for Adea's web host.
 
 ## Performance experiment
 
-Five fresh browser contexts per host, alternating order, using production builds served by local Wrangler over HTTPS. Both received the same bootstrap fixture. The actual legacy entry gate still ran. These are unthrottled desktop measurements, not production Core Web Vitals, authenticated-provider timings, mobile performance, or an engine benchmark.
+Five fresh browser contexts per host, alternating order, using production builds served by local Wrangler over HTTPS. Both created real guest sessions against the same disposable PostgreSQL service, using the same empty-workspace template; no bootstrap or workspace APIs were mocked. The actual legacy entry gate still ran. These are unthrottled desktop measurements, not production Core Web Vitals, authenticated-provider timings, mobile performance, or an engine benchmark.
 
 | Metric (median)                                        | Retained Next | Start candidate |
 | ------------------------------------------------------ | ------------: | --------------: |
@@ -22,7 +22,7 @@ Five fresh browser contexts per host, alternating order, using production builds
 
 The JavaScript reduction is approximately 15.9%. Readiness means a visible account control and non-loading conventional workspace shell, recorded by a MutationObserver inside the browser. It does not mean every remote data query has completed. View-switch latency includes Playwright overhead and is not INP. Resource collection includes a fixed 1.5-second observation window after readiness, before switching views. Lazy chunks not requested in that window are not counted as initial payload.
 
-Readiness samples in milliseconds: Next `[331.7, 325.4, 325.0, 325.2, 334.4]`; Start `[233.3, 221.2, 183.2, 193.6, 203.9]`.
+Readiness samples in milliseconds: Next `[544.5, 479.2, 468.0, 480.1, 488.3]`; Start `[161.6, 158.0, 152.5, 175.9, 169.5]`.
 
 ## Validation performed
 
@@ -45,8 +45,8 @@ The browser suite includes live guest-cookie reuse, idempotent writes and tenant
 
 ## Interpretation and limits
 
-Earlier experiments exposed nested deferred-render delays; the preview loader was adjusted and parity rerun. Earlier cold-readiness values used Playwright polling, so they are not directly comparable to the final browser-side marker above. The local Next control also needed OpenNext's documented `keep_names: false` workaround to eliminate a serialized theme-script error. That adjustment exists only in the isolated test backend, not the production Wrangler configuration.
+Earlier experiments exposed nested deferred-render delays; the preview loader was adjusted and parity rerun. Earlier cold-readiness values used Playwright polling, so they are not directly comparable to the final browser-side marker above. A later shell-only experiment mocked bootstrap without a real session, leaving downstream APIs unauthorized; those results are superseded by this real-session experiment. The final comparator fails on browser exceptions or failed workspace API responses. The local Next control also needed OpenNext's documented `keep_names: false` workaround to eliminate a serialized theme-script error. That adjustment exists only in the isolated test backend, not the production Wrangler configuration.
 
-Both hosts were built from the same migration worktree based on the base commit above. The Next home route has the equivalent extracted entry policy; this is a retained-host comparison, not a fresh production-CDN or immutable-main benchmark. Raw reports and request timing details are retained locally under ignored `.checks/comparison-v2/`; reruns use `.checks/comparison/` by default. No generated bundles or reports are committed.
+Both hosts were built from the same migration worktree based on the base commit above. The Next home route has the equivalent extracted entry policy; this is a retained-host comparison, not a fresh production-CDN or immutable-main benchmark. The tested application revision is `6e8609c6a387d078b2a5a5add1b790c99da953d6`; the working tree differed only in the local runner/comparison helpers. Raw reports and request timing details are retained under ignored `.checks/local-Fm4st5/comparison/`. The self-contained `start:test:local --compare` command and CI produce the same evidence under a fresh `.checks/local-*/comparison/` directory. No generated bundles or raw reports are committed. The CI artifact includes the raw comparison, request timelines and screenshots.
 
 Hosted OAuth, allowed/denied provider-account flows, production Cloudflare routing, WebSocket delivery/reconnect, native OS compilers and the private Agent Sim engine are not validated by this experiment. The preview deliberately does not switch production commands or DNS. These remain promotion gates, not implicit approvals from a faster local run.

@@ -112,7 +112,7 @@ function stopWorker(child) {
 const [databasePort, backendPort, gatewayPort, backendInspector, gatewayInspector] =
   await Promise.all(Array.from({ length: 5 }, availablePort))
 const baseURL = `https://127.0.0.1:${gatewayPort}`
-const backendURL = `http://127.0.0.1:${backendPort}`
+const backendURL = `https://127.0.0.1:${backendPort}`
 const generatedPath = resolve(preview, 'dist/server/wrangler.json')
 const built = JSON.parse(await readFile(generatedPath, 'utf8'))
 await readFile(resolve(web, '.open-next/worker.js'))
@@ -173,9 +173,8 @@ try {
     databaseEnvironment
   )
   await run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], root, databaseEnvironment)
-  const backend = startWorker(backendConfig, backendPort, backendInspector)
-  const gateStatus = async () =>
-    (await fetch(`${backendURL}/api/web-entry`, { signal: AbortSignal.timeout(5000) })).status
+  const backend = startWorker(backendConfig, backendPort, backendInspector, true)
+  const gateStatus = async () => (await localHttps(`${backendURL}/api/web-entry`)).status
   await waitFor(async () => (await gateStatus()) === 200, 'Legacy entry gate')
   startWorker(gatewayConfig, gatewayPort, gatewayInspector, true)
   await waitFor(async () => (await localHttps(baseURL)).status === 200, 'Start gateway')
@@ -184,6 +183,24 @@ try {
     ADEA_START_PREVIEW_URL: baseURL,
     ADEA_START_ISOLATED_TEST_TARGET: '1',
   })
+  if (process.argv.includes('--compare')) {
+    await run(
+      'bun',
+      [
+        'run',
+        'start:compare',
+        '--next-url',
+        backendURL,
+        '--start-url',
+        baseURL,
+        '--runs',
+        '5',
+        '--output',
+        resolve(evidence, 'comparison'),
+      ],
+      web
+    )
+  }
   // Exercise the actual Next policy and gateway after enabling the account allowlist.
   legacy.vars.ADEA_ALLOWED_EMAILS = 'allowed@example.test'
   await writeFile(backendConfig, JSON.stringify(legacy, null, 2))
