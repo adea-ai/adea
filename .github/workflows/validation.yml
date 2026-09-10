@@ -115,6 +115,8 @@ jobs:
       runtime-repository: 0xPlayerOne/code-foundry
       runtime-ref: v1.28.6
       runner: ubuntu-latest
+      # Keep the default-branch baseline focused on application-owned Rust;
+      # vendored GTK compatibility code is tracked separately in #323.
       rust-shards: '["apps/desktop/src-tauri"]'
       rust-threads: '1'
       rust-max-parallel: 1
