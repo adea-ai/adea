@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.0](https://github.com/adea-ai/adea/compare/v0.13.2...v0.14.0) (2026-09-09)
+
+
+### Features
+
+* integrate marketplace Agent Plugins plans ([#316](https://github.com/adea-ai/adea/issues/316)) ([6e96731](https://github.com/adea-ai/adea/commit/6e9673191929ec17a631593285b2ddfadcbaea33))
+
+
+### Bug Fixes
+
+* **ci:** preserve Bun context for Cloudflare deploys ([#318](https://github.com/adea-ai/adea/issues/318)) ([dd91256](https://github.com/adea-ai/adea/commit/dd9125650cdc1083fb7d11453b935d7736cbc204))
+
 ## [0.13.2](https://github.com/adea-ai/adea/compare/v0.13.1...v0.13.2) (2026-09-08)
 
 
