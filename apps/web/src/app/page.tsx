@@ -1,11 +1,10 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
-import { createNeonServerAdapter } from '@adea-ai/auth/server'
 import { hqSceneFromSearchParams } from '@adea-ai/app-core'
 import { configurableCharacterId, isPlausibleCharacterId } from '@adea-ai/spatial-protocol'
 import { readSceneStartPosition } from '@adea-ai/spatial-protocol'
 
-import { emailAllowlistConfigured, isAllowedEmail } from '../server/allowed-emails'
+import { readWorkspaceEntryAccess } from '../server/workspace-entry-access'
 import { WorkspaceEntry } from '../components/workspace-entry'
 
 export const metadata: Metadata = {
@@ -53,17 +52,9 @@ export default async function HomePage({
   // Account allowlist: when configured, the workspace requires sign-in with a
   // listed email. Unsigned visitors are sent to sign-in; signed-in accounts
   // that are not on the list see the early-access notice.
-  if (emailAllowlistConfigured()) {
-    let email: string | null | undefined
-    try {
-      const authentication = await createNeonServerAdapter().getSession()
-      email = authentication?.profile.email ?? null
-    } catch {
-      email = null
-    }
-    if (!email) redirect('/auth/sign-in')
-    if (!isAllowedEmail(email)) return <EarlyAccessNotice />
-  }
+  const access = await readWorkspaceEntryAccess()
+  if (access === 'sign-in') redirect('/auth/sign-in')
+  if (access === 'denied') return <EarlyAccessNotice />
 
   const params = await searchParams
   const requestedCharacter = Array.isArray(params.character)
