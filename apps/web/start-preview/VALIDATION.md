@@ -13,11 +13,11 @@ Five fresh browser contexts per host, alternating order, using production builds
 
 | Metric (median)                                        | Retained Next | Start candidate |
 | ------------------------------------------------------ | ------------: | --------------: |
-| Browser-observed workspace DOM readiness               |      325.4 ms |        203.9 ms |
-| Chat → virtual-unavailable → chat, automation-observed |      842.8 ms |        158.3 ms |
+| Browser-observed workspace DOM readiness               |      480.1 ms |        161.6 ms |
+| Chat → virtual-unavailable → chat, automation-observed |      840.4 ms |        158.3 ms |
 | Loaded JavaScript encoded body bytes                   |       309,752 |         260,443 |
-| Resource transfer bytes, excluding the document        |       347,494 |         297,667 |
-| Resource requests                                      |            41 |              39 |
+| Resource transfer bytes, excluding the document        |       345,023 |         295,196 |
+| Resource requests                                      |            35 |              33 |
 | Bootstrap requests                                     |             1 |               1 |
 
 The JavaScript reduction is approximately 15.9%. Readiness means a visible account control and non-loading conventional workspace shell, recorded by a MutationObserver inside the browser. It does not mean every remote data query has completed. View-switch latency includes Playwright overhead and is not INP. Resource collection includes a fixed 1.5-second observation window after readiness, before switching views. Lazy chunks not requested in that window are not counted as initial payload.
