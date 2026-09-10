@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/adea-ai/adea/compare/v0.14.0...v0.14.1) (2026-09-10)
+
+
+### Maintenance
+
+* **code-foundry:** upgrade runtime to v1.28.4 ([77e1c50](https://github.com/adea-ai/adea/commit/77e1c5072db62c4258673a9afbbf67e15e8684b3))
+
 ## [0.14.0](https://github.com/adea-ai/adea/compare/v0.13.2...v0.14.0) (2026-09-09)
 
 
