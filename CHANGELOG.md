@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.0](https://github.com/adea-ai/adea/compare/v0.14.1...v0.15.0) (2026-09-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **web:** complete the TanStack Start migration and remove Next.js ([#324](https://github.com/adea-ai/adea/issues/324))
+
+### Features
+
+* **web:** complete the TanStack Start migration and remove Next.js ([#324](https://github.com/adea-ai/adea/issues/324)) ([ee87314](https://github.com/adea-ai/adea/commit/ee873143143e6113a2e222fe806fc3db39eb0927))
+
+
+### Bug Fixes
+
+* **auth:** explain sign-in failures and keep deep links through sign-in ([#325](https://github.com/adea-ai/adea/issues/325)) ([c08e2d8](https://github.com/adea-ai/adea/commit/c08e2d8f18a93001e3a8605372220dc09e839858))
+
 ## [0.14.1](https://github.com/adea-ai/adea/compare/v0.14.0...v0.14.1) (2026-09-10)
 
 
