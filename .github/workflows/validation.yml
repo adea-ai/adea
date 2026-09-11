@@ -43,7 +43,7 @@ jobs:
         with:
           persist-credentials: false
           repository: 0xPlayerOne/code-foundry
-          ref: v1.28.4
+          ref: v1.28.8
           path: .github/.code-foundry
           sparse-checkout: |
             src/lib
@@ -77,14 +77,14 @@ jobs:
       contents: read
       packages: read
       security-events: write
-    uses: 0xPlayerOne/code-foundry/.github/workflows/validation.yml@v1.28.4
+    uses: 0xPlayerOne/code-foundry/.github/workflows/validation.yml@v1.28.8
     with:
       mode: ${{ needs.mode.outputs.mode }}
       runtime-repository: 0xPlayerOne/code-foundry
       # Pull requests validate the proposed runtime commit. Scheduled and
       # manually dispatched audits use a separate default-branch-pinned caller,
       # so this caller-selected ref never runs with default-branch cache access.
-      runtime-ref: v1.28.4
+      runtime-ref: v1.28.8
       ci-runner: ubuntu-latest
       test-runner: ubuntu-latest
       unit-runner: ubuntu-latest
@@ -92,11 +92,12 @@ jobs:
       security-runner: ubuntu-latest
       eval-runner: ubuntu-latest
       codeql-runner: ubuntu-latest
-      rust-shards: '["apps/desktop/src-tauri"]'
+      rust-shards: '["all"]'
       rust-threads: '1'
       rust-max-parallel: 1
     secrets:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
 
   # CodeQL requires a push analysis to populate default-branch code-scanning
   # alerts. Keep the full validation gate pull-request-only so main pushes do
@@ -109,10 +110,10 @@ jobs:
       contents: read
       packages: read
       security-events: write
-    uses: 0xPlayerOne/code-foundry/.github/workflows/codeql.yml@v1.28.4
+    uses: 0xPlayerOne/code-foundry/.github/workflows/codeql.yml@v1.28.8
     with:
       runtime-repository: 0xPlayerOne/code-foundry
-      runtime-ref: v1.28.4
+      runtime-ref: v1.28.8
       runner: ubuntu-latest
       rust-shards: '["all"]'
       rust-threads: '1'
