@@ -5,6 +5,10 @@
 @import '@adea-ai/ui/workspace-shell.css';
 @import '@adea-ai/ui/conventional-workspace.css';
 
+/* Shared workspace components live outside Vite's automatic scan root. Must
+   stay after all @imports — CSS drops imports that follow other rules. */
+@source '../../../../packages/workspace-ui/src';
+
 .browser-auth-mode {
   display: grid;
   grid-template-columns: 1fr 1fr;

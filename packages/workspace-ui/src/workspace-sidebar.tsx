@@ -12,8 +12,8 @@ import {
   Hash,
   Link2,
   ListTodo,
-  Menu,
   MessageCircle,
+  PanelLeftClose,
   Pencil,
   Plus,
   Users,
@@ -33,6 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/
 import type { WorkspaceNavigation } from './workspace-model'
 import { EditRoomDialog, RenameConversationDialog } from './create-workspace-dialogs'
 import { RoomIcon } from './room-icon'
+import { SidebarToggleButton } from './sidebar-toggle-button'
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
 const SIDEBAR_MIN_WIDTH = 208
@@ -240,15 +241,7 @@ export function WorkspaceSidebar(props: Props) {
   )
   return (
     <>
-      <button
-        type="button"
-        className="conventional-mobile-menu"
-        aria-label="Open workspace navigation"
-        aria-expanded={props.mobileOpen}
-        onClick={() => props.onToggleMobile(true)}
-      >
-        <Menu aria-hidden="true" />
-      </button>
+      <SidebarToggleButton expanded={props.mobileOpen} onToggle={props.onToggleMobile} />
       {props.mobileOpen ? (
         <button
           type="button"
@@ -277,7 +270,7 @@ export function WorkspaceSidebar(props: Props) {
           className="conventional-sidebar__close"
           onClick={() => props.onToggleMobile(false)}
         >
-          <X aria-hidden="true" />
+          <PanelLeftClose aria-hidden="true" />
         </button>
 
         <div className="conventional-sidebar__title">
