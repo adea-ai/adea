@@ -9,6 +9,7 @@ import type { SceneStartPosition } from '@adea-ai/asset-manifests'
 import {
   VirtualRoomControls,
   VirtualUnavailable,
+  VirtualView,
   type WorkspacePlatformServices,
   type WorkspaceView,
 } from '@adea-ai/workspace-ui'
@@ -73,22 +74,28 @@ export function WorkspaceShell({
   return (
     <main className="workspace-shell">
       <div className="workspace-scene-viewport">
-        <VirtualUnavailable
-          sceneLabel={scene.label}
-          onOpenChat={() => onWorkspaceViewChange?.('chat')}
+        <VirtualView
+          fallback={
+            <>
+              <VirtualUnavailable
+                sceneLabel={scene.label}
+                onOpenChat={() => onWorkspaceViewChange?.('chat')}
+              />
+
+              <div className="workspace-ui" aria-label="Adea workspace controls">
+                <VirtualRoomControls
+                  client={apiClient}
+                  openChat={() => onWorkspaceViewChange?.('chat')}
+                />
+
+                <p className="workspace-scene-caption">
+                  <span className="workspace-scene-caption__dot" aria-hidden="true" />
+                  {scene.label} scene · Virtual view lives in Agent Sim
+                </p>
+              </div>
+            </>
+          }
         />
-
-        <div className="workspace-ui" aria-label="Adea workspace controls">
-          <VirtualRoomControls
-            client={apiClient}
-            openChat={() => onWorkspaceViewChange?.('chat')}
-          />
-
-          <p className="workspace-scene-caption">
-            <span className="workspace-scene-caption__dot" aria-hidden="true" />
-            {scene.label} scene · Virtual view lives in Agent Sim
-          </p>
-        </div>
       </div>
     </main>
   )

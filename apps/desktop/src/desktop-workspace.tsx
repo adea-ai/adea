@@ -1,5 +1,10 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { VirtualRoomControls, VirtualUnavailable, type WorkspaceView } from '@adea-ai/workspace-ui'
+import {
+  VirtualRoomControls,
+  VirtualUnavailable,
+  VirtualView,
+  type WorkspaceView,
+} from '@adea-ai/workspace-ui'
 import { Suspense } from 'react'
 
 function SceneLoading() {
@@ -39,22 +44,31 @@ export function DesktopWorkspace({ client, onWorkspaceViewChange, scene }: Deskt
   return (
     <main className="workspace-shell">
       <div className="workspace-scene-viewport">
-        <Suspense fallback={<SceneLoading />}>
-          <VirtualUnavailable
-            sceneLabel={
-              roomDesignerEnabled
-                ? `${scene === 'work' ? 'Work' : 'Home'} room designer`
-                : scene === 'work'
-                  ? 'Work'
-                  : 'Home'
-            }
-          />
-        </Suspense>
-        {!roomDesignerEnabled ? (
-          <div className="workspace-ui" aria-label="Adea workspace controls">
-            <VirtualRoomControls client={client} openChat={() => onWorkspaceViewChange('chat')} />
-          </div>
-        ) : null}
+        <VirtualView
+          fallback={
+            <>
+              <Suspense fallback={<SceneLoading />}>
+                <VirtualUnavailable
+                  sceneLabel={
+                    roomDesignerEnabled
+                      ? `${scene === 'work' ? 'Work' : 'Home'} room designer`
+                      : scene === 'work'
+                        ? 'Work'
+                        : 'Home'
+                  }
+                />
+              </Suspense>
+              {!roomDesignerEnabled ? (
+                <div className="workspace-ui" aria-label="Adea workspace controls">
+                  <VirtualRoomControls
+                    client={client}
+                    openChat={() => onWorkspaceViewChange('chat')}
+                  />
+                </div>
+              ) : null}
+            </>
+          }
+        />
       </div>
     </main>
   )

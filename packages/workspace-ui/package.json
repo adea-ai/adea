@@ -83,6 +83,7 @@
     "@adea-ai/api-client": "workspace:*",
     "@adea-ai/audio": "workspace:*",
     "@adea-ai/data": "workspace:*",
+    "@adea-ai/spatial-protocol": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "workspace:*",
