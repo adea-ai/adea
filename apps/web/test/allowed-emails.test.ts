@@ -28,16 +28,16 @@ describe('email allowlist', () => {
   })
 
   test('matches listed emails case-insensitively and trims entries', () => {
-    setAllowlist(' Andrew.Mahoney.F@Gmail.com , any@niftyleague.com,ali@niftyleague.com')
+    setAllowlist(' Person.One@Example.Test , any@niftyleague.com,ali@niftyleague.com')
     expect(emailAllowlistConfigured()).toBe(true)
-    expect(isAllowedEmail('andrew.mahoney.f@gmail.com')).toBe(true)
+    expect(isAllowedEmail('person.one@example.test')).toBe(true)
     expect(isAllowedEmail('ANY@NIFTYLEAGUE.COM')).toBe(true)
     expect(isAllowedEmail('ali@niftyleague.com')).toBe(true)
     expect(isAllowedEmail('someone.else@example.com')).toBe(false)
   })
 
   test('rejects sessions without an email while the allowlist is active', () => {
-    setAllowlist('andrew.mahoney.f@gmail.com')
+    setAllowlist('person.one@example.test')
     expect(isAllowedEmail(undefined)).toBe(false)
     expect(isAllowedEmail('')).toBe(false)
   })
