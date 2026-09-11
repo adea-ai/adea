@@ -59,12 +59,16 @@ describe('database package boundary', () => {
 
   test('closes per-request database connections and keeps shutdown hooks', async () => {
     const source = await readFile(join(root, 'apps/web/src/server/database.ts'), 'utf8')
+    const scope = await readFile(join(root, 'apps/web/src/server/request-scope.ts'), 'utf8')
 
     // Worker-side pooled sessions go stale across requests, so each call opens
-    // a short-lived client that is closed after the response. The ./config
+    // a short-lived client that is closed after the response. The request
+    // scope replaces Next's after(): the connection registers a cleanup
+    // callback that runs once the response has been produced. The ./config
     // subpath above stays validation-only: no client, pool, or server-only.
-    expect(source).toContain('after(')
+    expect(source).toContain('registerRequestCleanup(')
     expect(source).toContain('.close()')
+    expect(scope).toContain('AsyncLocalStorage')
     expect(source).toContain("['SIGINT', 'SIGTERM']")
     expect(source).toContain('process.once(signal')
   })

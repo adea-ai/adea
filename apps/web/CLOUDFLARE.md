@@ -1,8 +1,29 @@
-# Cloudflare Workers deployment (OpenNext)
+# Cloudflare Workers deployment (TanStack Start)
 
-`apps/web` deploys to Cloudflare Workers via
-[`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare) (Next 16 is
-supported). Cloudflare Workers is the deployment target.
+`apps/web` deploys to Cloudflare Workers as a TanStack Start Worker built by
+Vite and the [`@cloudflare/vite-plugin`](https://developers.cloudflare.com/workers/vite-plugin/).
+Cloudflare Workers is the deployment target.
+
+## Build and deploy commands
+
+```sh
+bun run build:cloudflare   # root: frozen install, workspace builds, vite build
+wrangler deploy            # from apps/web; uses wrangler.jsonc
+```
+
+`build:cloudflare` (`scripts/build-cloudflare.mjs`) installs from the root
+lockfile, builds the workspace packages the app depends on, syncs the scene
+manifests, and runs `vite build`. The build emits the Worker entry at
+`dist/server/index.js` and the browser assets under `dist/client/`.
+
+The production `wrangler.jsonc` keeps `main` pointed at the source entry
+(`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file
+to exist while bundling. The plugin then writes the deploy-time manifest to
+`dist/server/wrangler.json` — carrying the same Worker name, account, bindings,
+and asset settings, with `main` rewritten to the built `index.js` — plus a
+`.wrangler/deploy/config.json` redirect. `wrangler deploy` and `wrangler
+versions upload` run from `apps/web` therefore use the built output
+automatically, and no step rewrites `wrangler.jsonc`.
 
 ## One-time setup (Worker + GitHub Actions)
 
@@ -20,8 +41,9 @@ supported). Cloudflare Workers is the deployment target.
      the old Cloudflare Workers Builds GitHub integration so there is one deploy
      owner and no duplicate builds.
      Do NOT use the app's plain `bun run build` for a workflow trigger (it does
-     not produce the Worker entry point), and do NOT add a `build` block to
-     `wrangler.jsonc`.
+     not stage the workspace dependencies), and do NOT add a `build` block to
+     `wrangler.jsonc` (`no_bundle` is set because Vite already produced a
+     bundled entry).
 3. **Hyperdrive (Neon pooling).** ✅ Done: `adea-db` (id in
    `wrangler.jsonc`) points at the standalone Neon project (`us-east-2`)
    via its **direct/unpooled** origin as `neondb_owner` — Hyperdrive pools
@@ -31,17 +53,17 @@ supported). Cloudflare Workers is the deployment target.
    wrangler hyperdrive create adea-db \
      --connection-string="$DATABASE_URL_UNPOOLED"
    ```
-   The app reads `env.HYPERDRIVE.connectionString` at runtime
-   (`src/server/database-connection.ts`) and falls back to `DATABASE_URL`
-   anywhere the binding is absent (local dev, tests). The existing
-   `postgres.js` driver and all Drizzle transactions work unchanged.
+   The app reads the binding captured by the Worker entry at runtime
+   (`src/server/worker-bindings.ts`, resolved in
+   `src/server/database-connection.ts`) and falls back to `DATABASE_URL`
+   anywhere it is absent (local dev, tests). The existing `postgres.js` driver
+   and all Drizzle transactions work unchanged.
 4. **Secrets** (never in `wrangler.jsonc` or git):
    ```bash
    wrangler secret put DATABASE_URL_UNPOOLED
    wrangler secret put DATABASE_URL
    wrangler secret put NEON_AUTH_BASE_URL
    wrangler secret put NEON_AUTH_COOKIE_SECRET
-   wrangler secret put VITE_NEON_AUTH_URL
    wrangler secret put CONTROL_PLANE_ORIGIN
    wrangler secret put CONTROL_PLANE_SERVICE_TOKEN
    wrangler secret put CONTROL_PLANE_SCOPE_WORKSPACE_ID
@@ -55,7 +77,24 @@ supported). Cloudflare Workers is the deployment target.
    values (the `ADEA_*` records); `.env.local` (gitignored) keeps local
    Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
-   then `bun run preview`. Day-to-day dev stays `bun run dev` (plain Node).
+   then `bun run preview`. Day-to-day dev is `bun run dev`, which runs the Vite
+   dev server inside the Workers runtime using the same `wrangler.jsonc`
+   bindings, so Hyperdrive and secrets behave like production.
+
+## Request handling and caching
+
+- **Root document** (`/`) is rendered per request behind the entry policy in
+  `src/start/worker.ts`. Unsigned visitors on an allowlisted deployment get a
+  307 to `/auth/sign-in`; denied accounts render the early-access notice.
+- **API routes** under `/api/*` always execute the Worker
+  (`assets.run_worker_first`), so authorization runs on every call.
+- **Static assets** (`/start-assets/*`, `/assets/*`, `/icon.svg`) are served
+  directly by Cloudflare's asset layer without invoking the Worker.
+  `public/_headers` sets immutable caching for hashed build output and a
+  day-long cache with stale-while-revalidate for scene manifests.
+- Every dynamic response the Worker produces is `Cache-Control: private,
+no-store` with `X-Robots-Tag: noindex, nofollow, noarchive`
+  (`src/start/http-policy.mjs`).
 
 ## Scene manifests (no private pack here)
 
@@ -64,8 +103,8 @@ audio) lives in the private `agent-sim` repo and is delivered through the
 entitlement-gated engine remote; `adea` lanes never fetch the private
 `adea-ai/assets` pack and need no asset credentials. `scripts/sync-assets.mjs`
 stages the tracked protocol manifests (`packages/spatial-protocol/data`) into
-the ignored Next public-assets directory, so plain checkouts build and test
-with zero setup.
+the app's public assets directory, so plain checkouts build and test with zero
+setup.
 
 - **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically.
 - **Cloudflare Builds:** no asset variables needed.
@@ -74,11 +113,12 @@ with zero setup.
 
 ## Release attribution (telemetry)
 
-`scripts/build-cloudflare-worker.mjs` stamps `DEPLOY_GIT_COMMIT_SHA` (plus the
-`NEXT_PUBLIC_` twin for the client bundle) from `git rev-parse HEAD`, so scene
+`scripts/build-cloudflare.mjs` stamps `DEPLOY_GIT_COMMIT_SHA` (plus the
+`NEXT_PUBLIC_` twin the client bundle reads) from `git rev-parse HEAD`, so scene
 telemetry keeps release labels without a hosting provider. An explicit
 `DEPLOY_GIT_COMMIT_SHA` in the build environment always wins; Workers Builds
-previews therefore report their own commit automatically.
+previews therefore report their own commit automatically. Navigation telemetry
+subscribes to the router history in `src/start/router.tsx`.
 
 ## Database migrations
 
@@ -99,11 +139,10 @@ previews therefore report their own commit automatically.
   required before any app traffic). `AUTH_TRUSTED_ORIGINS` must therefore
   list every public origin: the `workers.dev` URL and the `adea.dev`
   custom domain.
-- `src/app/api/scene-editor/route.ts` is dev-only (404s outside
-  `NODE_ENV=development`) and now imports `node:fs` lazily so it never
-  enters the Workers bundle.
-- No `next/image` usage, so no Cloudflare Images loader config is needed.
-- All API routes use `runtime = "nodejs"` (required); there is no
-  `runtime = "edge"` anywhere.
+- `src/start/routes/api/scene-editor.ts` is dev-only (404s outside
+  `NODE_ENV=development`) and imports `node:fs` lazily so it never enters the
+  Worker bundle for production requests.
+- No `next/image` usage existed; the workspace uses plain `<img>` elements, so
+  no Cloudflare Images loader configuration is needed.
 - Preview Neon branches (`.github/workflows/neon_workflow.yml`) are unchanged
   and still gate PRs.

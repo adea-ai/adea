@@ -1,11 +1,20 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "plugins": [{ "name": "next" }], "noEmit": true },
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun-types", "vite/client"],
+    // Workers and modern browsers both ship ES2023 (toSorted, findLast).
+    "lib": ["DOM", "DOM.Iterable", "ES2023"]
+  },
   "include": [
-    "next-env.d.ts",
     "cloudflare-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
-    ".next/types/**/*.ts"
-  ]
+    "vite.config.ts",
+    "start/**/*.ts",
+    "start/**/*.tsx"
+  ],
+  // Bun-run tests and Playwright specs compile under their own runners, so tsc
+  // covers application and build-config sources only.
+  "exclude": ["node_modules", "dist", "start/routeTree.gen.ts", "e2e", "test"]
 }

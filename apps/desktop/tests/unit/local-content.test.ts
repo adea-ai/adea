@@ -31,9 +31,13 @@ describe('desktop local content boundary', () => {
   })
 
   test('keeps private-content implementation out of browser and cloud packages', async () => {
-    const browserPage = await readFile(new URL('apps/web/src/app/page.tsx', root), 'utf8')
+    // The browser workspace root is the Start route that mounts the shell.
+    const browserRoute = await readFile(
+      new URL('apps/web/src/start/routes/index.tsx', root),
+      'utf8'
+    )
     const client = await readFile(new URL('packages/api-client/src/index.ts', root), 'utf8')
-    expect(browserPage).not.toContain('local-content')
+    expect(browserRoute).not.toContain('local-content')
     expect(client).not.toMatch(/rusqlite|master-key|local-content\.sqlite/i)
   })
 })

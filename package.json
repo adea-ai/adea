@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "turbo run build",
-    "build:cloudflare": "bun scripts/build-cloudflare-worker.mjs",
+    "build:cloudflare": "bun scripts/build-cloudflare.mjs",
     "dev": "turbo run dev --filter=@adea-ai/web --env-mode=loose",
     "format:check": "oxfmt --check .",
     "format:write": "oxfmt --write .",

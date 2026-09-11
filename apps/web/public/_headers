@@ -1,2 +1,11 @@
-/_next/static/*
+/*
+  X-Robots-Tag: noindex, nofollow, noarchive
+
+/start-assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+/assets/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/icon.svg
+  Cache-Control: public, max-age=86400

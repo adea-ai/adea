@@ -1,14 +1,14 @@
 'use client'
 
-import dynamic from 'next/dynamic'
+import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
 
-const WorkspaceNavigationEntry = dynamic(
+const WorkspaceNavigationEntry = lazyComponent(
   () => import('./workspace-navigation-entry').then(({ WorkspaceNavigationEntry: Entry }) => Entry),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const CharacterDesignerEntry = dynamic(
+const CharacterDesignerEntry = lazyComponent(
   () => import('./character-designer-entry').then(({ CharacterDesignerEntry: Entry }) => Entry),
   { loading: () => <WorkspaceEntryLoading /> }
 )
