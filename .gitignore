@@ -16,7 +16,6 @@ node_modules/
 .pnp.js
 .turbo/
 *.tsbuildinfo
-next-env.d.ts
 
 # Python
 .venv/
@@ -37,7 +36,6 @@ out/
 coverage/
 htmlcov/
 .coverage*
-.next/
 artifacts/
 performance-results.json
 performance-results/
@@ -96,7 +94,6 @@ node_modules/
 .pnp.js
 .turbo/
 *.tsbuildinfo
-next-env.d.ts
 # Python
 .venv/
 venv/
@@ -116,11 +113,9 @@ out/
 coverage/
 htmlcov/
 .coverage*
-.next/
 /.artifacts/
 test-results/
 # Cloudflare Workers (OpenNext)
-.open-next/
 .wrangler/
 .dev.vars
 cloudflare-env.d.ts

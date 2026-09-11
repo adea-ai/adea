@@ -19,6 +19,7 @@
     ".next",
     "dist",
     "cloudflare-env.d.ts",
+    "**/routeTree.gen.ts",
     "**/build",
     "node_modules",
     ".bun-cache-release",

@@ -1,13 +1,18 @@
 # Agent HQ Frontend Stack and Vanilla Three.js Boundary
 
-- Status: Accepted
+- Status: Accepted, superseded in part
 - Date: 2026-08-20
+- Superseding note (2026-09-11): the web host is now TanStack Start on
+  Cloudflare Workers with Vite, replacing the original Next.js/OpenNext host.
+  Everything else in this decision still holds: vanilla Three.js behind the
+  scene-runtime abstraction, TanStack Query for server state, Zustand for
+  client-only state, and shadcn/ui for UI primitives.
 
 ## Decision
 
-Use Turborepo, Next.js, React, and TypeScript for the Agent HQ web
-application; vanilla Three.js behind a dedicated scene-runtime abstraction for
-spatial rendering; TanStack Query for server state; Zustand for shared
+Use Turborepo, React, and TypeScript for the Adea web application, served by
+TanStack Start; vanilla Three.js behind a dedicated scene-runtime abstraction
+for spatial rendering; TanStack Query for server state; Zustand for shared
 client-only state; and shadcn/ui for the application UI foundation.
 
 ## Alternatives considered

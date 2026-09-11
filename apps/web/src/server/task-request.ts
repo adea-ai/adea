@@ -108,7 +108,7 @@ export type TaskAction =
 export async function handleTaskAction(
   action: TaskAction,
   request: Request,
-  params: Promise<{ taskId: string; workspaceId: string }>
+  params: { taskId: string; workspaceId: string }
 ) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected

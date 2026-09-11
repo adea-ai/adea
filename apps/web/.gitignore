@@ -1,0 +1,12 @@
+/dist/
+/.wrangler/
+/node_modules/
+/.dev.vars
+/.env*
+/.checks/
+/test-results/
+/playwright-report/
+/start/dist/
+/start/.checks/
+/start/test-results/
+/start/playwright-report/

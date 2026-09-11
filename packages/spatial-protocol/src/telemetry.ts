@@ -181,10 +181,10 @@ try {
     | undefined
   recordNavigation(window.location.href, 'navigate', navigation?.startTime ?? 0)
   const endpoint =
-    process.env.NEXT_PUBLIC_SCENE_TELEMETRY_ENDPOINT ||
+    process.env.ADEA_PUBLIC_SCENE_TELEMETRY_ENDPOINT ||
     (process.env.NODE_ENV === 'production' ? '/api/telemetry/scene-performance' : undefined)
   if (endpoint) window.__ADEA_SCENE_TELEMETRY_ENDPOINT__ = endpoint
-  const release = process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA
+  const release = process.env.ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA
   if (release) window.__ADEA_RELEASE__ = release
 } catch {
   // Telemetry must never interfere with page initialization.

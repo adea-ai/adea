@@ -1,13 +1,12 @@
 import 'server-only'
 
-import { after } from 'next/server'
-
 import { createDatabase } from '@adea-ai/db'
 
 import {
   resolveDatabaseConnectionString,
   shouldRegisterDatabaseShutdownHooks,
 } from './database-connection'
+import { registerRequestCleanup } from './request-scope'
 
 let shutdownRegistered = false
 
@@ -30,12 +29,6 @@ export function applicationDatabase() {
   // the same driver, options, and Hyperdrive config answer in ~100ms.
   const connection = createDatabase(resolveDatabaseConnectionString())
   registerDatabaseShutdown()
-  try {
-    after(() => {
-      void connection.close().catch(() => undefined)
-    })
-  } catch {
-    // Outside request scope (build prerender, scripts): rely on isolate GC.
-  }
+  registerRequestCleanup(() => connection.close().catch(() => undefined))
   return connection.db
 }

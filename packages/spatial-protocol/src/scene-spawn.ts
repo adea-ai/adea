@@ -59,7 +59,7 @@ export function readSceneStartPosition(
 
 function configuredAppBase(app: SceneApp): string | undefined {
   const configured =
-    app === 'world' ? process.env.NEXT_PUBLIC_ADEA_WORLD_URL : process.env.NEXT_PUBLIC_ADEA_HQ_URL
+    app === 'world' ? process.env.ADEA_PUBLIC_WORLD_URL : process.env.ADEA_PUBLIC_HQ_URL
   return configured?.trim() || undefined
 }
 
