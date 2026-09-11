@@ -253,6 +253,22 @@ export function parseCatalog(value: unknown): RegistryCatalog {
   }
 }
 
+
+// Upstream plugin sources rarely publish icon data (`icons: []`), so brand
+// marks resolve from the Simple Icons CDN — official company logos keyed by
+// the plugin's upstream name (gmail, github, notion, ...). Monochrome tints
+// keep the marks legible in both themes; niche plugins without a brand mark
+// 404 and fall back to the logo initials.
+const BRAND_ICON_BASE = 'https://cdn.simpleicons.org'
+const BRAND_ICON_LIGHT_TINT = '52525b'
+const BRAND_ICON_DARK_TINT = 'a1a1aa'
+
+export function pluginBrandIconUrl(upstreamName: string): string | undefined {
+  const slug = upstreamName.trim().toLowerCase()
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return undefined
+  return `${BRAND_ICON_BASE}/${slug}/${BRAND_ICON_LIGHT_TINT}/${BRAND_ICON_DARK_TINT}`
+}
+
 export function mapRegistryCatalog(
   catalog: RegistryCatalog,
   installations: readonly VerifiedRegistryCatalog['installations'][number][]
@@ -312,7 +328,11 @@ export function mapRegistryCatalog(
       harnessCompatibility: plugin.harnessCompatibility,
       homepage: plugin.homepage,
       iconKey: `registry:${plugin.pluginId}`,
-      iconUrl: plugin.icons[0],
+      iconUrl:
+        plugin.icons[0] ??
+        (typeof plugin.upstreamPluginName === 'string'
+          ? pluginBrandIconUrl(plugin.upstreamPluginName)
+          : undefined),
       icons: plugin.icons,
       id: plugin.pluginId,
       installed: installationStatus === 'installed',

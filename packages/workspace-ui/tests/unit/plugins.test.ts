@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { pluginBrandIconUrl } from '../../src/marketplace-catalog'
 
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 
@@ -242,5 +243,22 @@ describe('registry marketplace catalog', () => {
         ...defaultPluginFilter,
       }).map(({ id }) => id)
     ).toEqual(['plugin:openai-official:gmail'])
+  })
+})
+
+describe('plugin brand icons', () => {
+  test('derives a Simple Icons URL from the upstream plugin name', () => {
+    expect(pluginBrandIconUrl('github')).toBe(
+      'https://cdn.simpleicons.org/github/52525b/a1a1aa'
+    )
+    expect(pluginBrandIconUrl('google-drive')).toBe(
+      'https://cdn.simpleicons.org/google-drive/52525b/a1a1aa'
+    )
+  })
+
+  test('rejects names that cannot be URL slugs', () => {
+    expect(pluginBrandIconUrl('')).toBeUndefined()
+    expect(pluginBrandIconUrl('has spaces')).toBeUndefined()
+    expect(pluginBrandIconUrl('../etc')).toBeUndefined()
   })
 })
