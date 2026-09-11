@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/adea-ai/adea/compare/v0.15.1...v0.15.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* **ci:** align CodeQL Rust shards across both lanes and bump runtime to v1.28.8 ([#328](https://github.com/adea-ai/adea/issues/328)) ([f37101d](https://github.com/adea-ai/adea/commit/f37101d6e51091b34d04f9b4976d373b6f6ebb48))
+
 ## [0.15.1](https://github.com/adea-ai/adea/compare/v0.15.0...v0.15.1) (2026-09-11)
 
 
