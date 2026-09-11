@@ -1,4 +1,5 @@
 import type { AuthCredentials, AuthDriver, AuthRegistration } from './adapter'
+import { providerError } from './errors'
 import type { ProviderSessionInput } from './session'
 
 type AuthResponse<T> = Promise<{ data: T | null; error: unknown }>
@@ -17,9 +18,12 @@ export type NeonSdk = {
   signOut(): AuthResponse<unknown>
 }
 
+// Preserve the provider's normalized error code so callers can show a precise
+// reason (wrong password, unconfirmed email, rate limit) instead of one
+// opaque failure message for every cause.
 function requireData<T>(result: { data: T | null; error: unknown }): T {
   if (result.error || result.data === null) {
-    throw new Error('Authentication provider request failed')
+    throw providerError(result.error)
   }
   return result.data
 }
@@ -35,7 +39,7 @@ export function createNeonAuthDriver(sdk: NeonSdk): AuthDriver {
   return {
     async getSession() {
       const result = await sdk.getSession()
-      if (result.error) throw new Error('Authentication provider request failed')
+      if (result.error) throw providerError(result.error)
       return result.data
     },
     async refreshSession() {

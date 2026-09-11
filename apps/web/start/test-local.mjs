@@ -185,7 +185,16 @@ try {
   await waitFor(async () => (await entryStatus()) === 401, 'Restricted entry gate')
   const restricted = await localHttps(baseURL)
   assert.equal(restricted.status, 307)
-  assert.equal(restricted.headers.location, '/auth/sign-in')
+  // A signed-out visitor is sent to sign-in with the requested destination
+  // preserved, so a deep link survives authenticating.
+  const signInRedirect = new URL(restricted.headers.location, baseURL)
+  assert.equal(signInRedirect.pathname, '/auth/sign-in')
+  assert.equal(signInRedirect.searchParams.get('returnTo'), '/')
+  const deepLink = await localHttps(`${baseURL}/?view=chat&scene=home`)
+  assert.equal(deepLink.status, 307)
+  const deepRedirect = new URL(deepLink.headers.location, baseURL)
+  assert.equal(deepRedirect.pathname, '/auth/sign-in')
+  assert.equal(deepRedirect.searchParams.get('returnTo'), '/?view=chat&scene=home')
   assert.equal((await localHttps(`${baseURL}/api/workspaces/bootstrap`, 'POST')).status, 401)
   delete host.vars.ADEA_ALLOWED_EMAILS
   await writeFile(hostConfig, JSON.stringify(host, null, 2))
