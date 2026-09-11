@@ -58,7 +58,5 @@ export function VirtualRoomControls({
     setSelectedRoomId,
   ])
 
-  return (
-    <SidebarToggleButton expanded={false} onToggle={() => openChat()} />
-  )
+  return <SidebarToggleButton expanded={false} onToggle={() => openChat()} />
 }
