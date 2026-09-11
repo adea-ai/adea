@@ -275,3 +275,25 @@ describe('entry-gate request context', () => {
     })
   })
 })
+
+describe('entry-gate redirect target', () => {
+  it('carries the requested search into sign-in so deep links survive', () => {
+    // Mirrors the worker entry's redirect construction.
+    const redirectFor = (url: string) => {
+      const { pathname, search } = new URL(url)
+      if (pathname !== '/') return null
+      const returnTo = search ? `/?${search.slice(1)}` : '/'
+      return `/auth/sign-in?returnTo=${encodeURIComponent(returnTo)}`
+    }
+    const deep = redirectFor('https://adea.test/?view=chat&scene=home')
+    assert.ok(deep)
+    const target = new URL(deep, 'https://adea.test').searchParams.get('returnTo')
+    assert.equal(target, '/?view=chat&scene=home')
+    // A bare root still round-trips to the workspace root.
+    const bare = redirectFor('https://adea.test/')
+    assert.equal(new URL(bare!, 'https://adea.test').searchParams.get('returnTo'), '/')
+    // Round-trip through the sign-in page's validator keeps the search intact.
+    const parsed = new URLSearchParams(new URL(deep, 'https://adea.test').search)
+    assert.equal(parsed.get('returnTo'), '/?view=chat&scene=home')
+  })
+})

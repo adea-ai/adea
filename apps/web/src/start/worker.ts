@@ -32,7 +32,7 @@ export default createServerEntry({
       if (rejected) return rejected
 
       const stripped = stripEntryAccessHeader(request)
-      const { pathname } = new URL(stripped.url)
+      const { pathname, search } = new URL(stripped.url)
       let forwarded = stripped
       let gateCookies: string[] = []
       if (pathname === '/') {
@@ -44,9 +44,14 @@ export default createServerEntry({
         )
         gateCookies = gate.cookies
         if (gate.result === 'sign-in') {
+          // Carry the requested search through sign-in so a deep link such as
+          // ?view=chat&scene=home still resolves after authenticating. Only the
+          // root document is gated, so the target is same-origin by
+          // construction and the sign-in page re-validates it anyway.
+          const returnTo = search ? `/?${search.slice(1)}` : '/'
           const headers = new Headers({
             'Cache-Control': 'private, no-store',
-            Location: '/auth/sign-in',
+            Location: `/auth/sign-in?returnTo=${encodeURIComponent(returnTo)}`,
           })
           for (const cookie of gateCookies) headers.append('Set-Cookie', cookie)
           return new Response(null, { status: 307, headers })
