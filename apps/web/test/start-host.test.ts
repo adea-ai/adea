@@ -198,9 +198,12 @@ describe('browser dependency guard', () => {
       PUBLIC_ENV_NAMES.some((name) => PRIVATE_ENV_NAMES.includes(name)),
       false
     )
+    // Public values use the host-neutral ADEA_PUBLIC_ prefix. Framework-specific
+    // prefixes (NEXT_PUBLIC_, VITE_) are never substituted into client output.
     assert.equal(
-      PUBLIC_ENV_NAMES.every((name) => name.startsWith('NEXT_PUBLIC_')),
-      true
+      PUBLIC_ENV_NAMES.every((name) => name.startsWith('ADEA_PUBLIC_')),
+      true,
+      PUBLIC_ENV_NAMES.join(',')
     )
   })
 })

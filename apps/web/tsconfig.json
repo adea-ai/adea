@@ -14,7 +14,7 @@
     "start/**/*.ts",
     "start/**/*.tsx"
   ],
-  // Bun-run tests and Playwright specs compile under their own runners; the
-  // previous Next configuration excluded them from tsc for the same reason.
+  // Bun-run tests and Playwright specs compile under their own runners, so tsc
+  // covers application and build-config sources only.
   "exclude": ["node_modules", "dist", "start/routeTree.gen.ts", "e2e", "test"]
 }

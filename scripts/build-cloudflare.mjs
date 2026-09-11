@@ -35,7 +35,7 @@ run(['x', 'turbo', 'run', 'build', ...workspaceDepFilters], repositoryRoot)
 // Stamp the deployment commit SHA into the bundle so scene telemetry keeps
 // release attribution without a hosting provider (the old platform's
 // commit-SHA variable is gone). The client bundle reads it through the
-// build-time public-env allowlist (NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA; see
+// build-time public-env allowlist (ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA; see
 // vite.config.ts and start/client-policy.mjs), and DEPLOY_GIT_COMMIT_SHA
 // remains available to the worker at runtime. An explicit value always
 // wins; when git is unavailable the variables stay unset and telemetry
@@ -48,8 +48,8 @@ if (!process.env.DEPLOY_GIT_COMMIT_SHA) {
   const sha = revision.error || revision.status !== 0 ? '' : revision.stdout.trim()
   if (sha) process.env.DEPLOY_GIT_COMMIT_SHA = sha
 }
-if (process.env.DEPLOY_GIT_COMMIT_SHA && !process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA) {
-  process.env.NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA = process.env.DEPLOY_GIT_COMMIT_SHA
+if (process.env.DEPLOY_GIT_COMMIT_SHA && !process.env.ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA) {
+  process.env.ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA = process.env.DEPLOY_GIT_COMMIT_SHA
 }
 
 run(['run', '--cwd', webRoot, 'build'])

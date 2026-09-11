@@ -33,8 +33,8 @@ export const PRIVATE_ENV_NAMES = [
 
 /** Only these already-public values may be substituted into the shared browser code. */
 export const PUBLIC_ENV_NAMES = [
-  'NEXT_PUBLIC_ADEA_WORLD_URL',
-  'NEXT_PUBLIC_ADEA_HQ_URL',
-  'NEXT_PUBLIC_SCENE_TELEMETRY_ENDPOINT',
-  'NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA',
+  'ADEA_PUBLIC_WORLD_URL',
+  'ADEA_PUBLIC_HQ_URL',
+  'ADEA_PUBLIC_SCENE_TELEMETRY_ENDPOINT',
+  'ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA',
 ]

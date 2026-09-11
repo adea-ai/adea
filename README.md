@@ -9,7 +9,7 @@ state wherever the virtual view mounts.
 
 ## Stack
 
-- Turborepo, Next.js, React, and TypeScript
+- Turborepo, TanStack Start, React, and TypeScript
 - Bun for installation, scripts, and tests
 - Scene manifests and telemetry schema via `@adea-ai/spatial-protocol`
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
@@ -133,8 +133,8 @@ Neon runs must provide all three canonical variables (`DATABASE_URL`,
 `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL`) for an isolated test
 branch; production or owner credentials are not valid test targets.
 
-`bun run build` covers the workspace packages and the Next.js production
-build. Native desktop,
+`bun run build` covers the workspace packages and the TanStack Start
+production build. Native desktop,
 Capacitor, Android `assembleDebug`, and unsigned iOS device-SDK compiler checks
 live in the separate `bun run test:smoke` category. The headless E2E command above is suitable for CI and functional/layout
 coverage of the shell and chat flows; scene performance gates live with the

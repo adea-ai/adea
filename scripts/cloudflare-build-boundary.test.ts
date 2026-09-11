@@ -9,7 +9,7 @@ describe('cloudflare worker build boundary', () => {
     const source = await readFile(join(root, 'scripts/build-cloudflare.mjs'), 'utf8')
 
     expect(source).toContain('DEPLOY_GIT_COMMIT_SHA')
-    expect(source).toContain('NEXT_PUBLIC_DEPLOY_GIT_COMMIT_SHA')
+    expect(source).toContain('ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA')
     expect(source).toContain('rev-parse')
     expect(source).not.toContain('VERCEL')
   })

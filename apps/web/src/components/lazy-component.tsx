@@ -1,10 +1,9 @@
 import { useEffect, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
 
 /**
- * Preview-only adapter for the two existing next/dynamic import sites.
+ * Deferred component loader for the workspace entry points.
  * The owning Start route is browser-only. Load on mount, never during SSR;
  * shared snapshots deduplicate imports without nested Suspense reveal delays.
- * No navigation, authentication, server, or image APIs are emulated.
  */
 export default function lazyComponent<Props extends object>(
   load: () => Promise<ComponentType<Props>>,

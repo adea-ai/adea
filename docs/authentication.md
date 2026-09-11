@@ -30,7 +30,7 @@ Each target keeps separate `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, and
 `AUTH_TRUSTED_ORIGINS` records in the Cloudflare Secret Store. `VITE_NEON_AUTH_URL` is public by design and is
 also branch-specific for the later desktop shell. Never client-prefix the cookie secret.
 
-The Next.js client calls the same-origin `/api/auth/*` proxy. State-changing proxy requests require
+The browser client calls the same-origin `/api/auth/*` proxy. State-changing proxy requests require
 an exact `Origin` match. Production uses only stable HTTPS aliases (`adea.dev` and the `workers.dev` URL).
 Preview Worker deployments must list their exact URLs in `AUTH_TRUSTED_ORIGINS`;
 those aliases must also exist in the Neon staging database branch's Auth domain list.
