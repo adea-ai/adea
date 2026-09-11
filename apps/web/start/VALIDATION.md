@@ -62,10 +62,62 @@ trip), hashed assets are served by the Cloudflare asset layer without invoking
 the Worker, and there is no OpenNext request-routing layer or Next client
 runtime in the bundle.
 
+## Hosted acceptance (isolated Worker + isolated Neon branch)
+
+Run against a production-built Worker deployed under the distinct name
+`adea-web-pr324-acceptance` with secrets scoped to the PR's Neon branch
+(`preview/pr-324-refactor/tanstack-start-web`) and that branch's Neon Auth
+instance. Neither the production `adea-web` Worker, the production branch, its
+secrets, nor its DNS were modified. Evidence is written to the ignored
+`start/.checks/hosted/`.
+
+| Area                                                                                 | Result       |
+| ------------------------------------------------------------------------------------ | ------------ |
+| Browser suite (desktop + mobile, real hosted auth and Postgres)                      | 16/16 passed |
+| Guest bootstrap, cookie attributes, rotation flag                                    | Passed       |
+| Sign-up, session lookup, sign-in, wrong-password, sign-out                           | Passed       |
+| Guest → account workspace claim (same workspace, credential cleared)                 | Passed       |
+| Account allowlist: anonymous redirect, listed admitted, unlisted denied early-access | Passed       |
+| Desktop authorize/completion, PKCE + fragment handoff, no-store/no-referrer          | Passed       |
+| Desktop exchange/refresh/logout/revoke fail closed; untrusted preflight rejected     | Passed       |
+| Hostile-Origin state change rejected (403)                                           | Passed       |
+| Marketplace, telemetry, scene editor fail closed without hosted credentials          | Passed       |
+
+Commands (any isolated Worker + branch; never production):
+
+```sh
+ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev \
+  bun run --cwd apps/web start:accept:hosted
+
+# Allowlist phases: create accounts, enable ADEA_ALLOWED_EMAILS on the isolated
+# Worker, then verify.
+ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev \
+  bun run --cwd apps/web start:accept:allowlist create
+ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev \
+  bun run --cwd apps/web start:accept:allowlist verify
+
+ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev \
+  bun run --cwd apps/web start:accept:gates
+```
+
+### Bug found and fixed by hosted acceptance
+
+With `ADEA_ALLOWED_EMAILS` configured, a **signed-in** visitor was redirected
+to `/auth/sign-in` instead of being admitted. The Worker entry runs before
+TanStack Start establishes its request storage, so the gate's Neon Auth context
+resolved no session cookie and every account failed closed. The gate now reads
+the session through a request-bound context (`src/server/gate-request-context.ts`)
+and propagates any refreshed session cookie onto its own response. This also
+required the hosted auth provider's trusted-origin list to include the
+deployed origin; production `adea.dev` currently returns `INVALID_ORIGIN` from
+the provider for the same reason, which is a pre-existing hosted configuration
+gap rather than a migration regression.
+
 ## Not exercised here
 
-- Hosted Neon Auth OAuth/provider flows, credential rotation, and live
-  marketplace/event delivery.
+- Hosted OAuth/social provider callbacks (the branch has email/password only,
+  and no social provider credentials were available).
+- Live marketplace/event delivery against a real Control Plane.
 - Production Cloudflare deployment, DNS, and custom-domain behavior.
 - The private Agent Sim engine integration beyond the shared workspace shell.
 

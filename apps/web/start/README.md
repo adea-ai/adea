@@ -90,6 +90,22 @@ Start, unknown paths cannot become an unguarded workspace shell, a failed
 workspace import produces a recoverable route error, view switching preserves
 query state, and guest cookies/durable writes/tenant isolation hold.
 
+### Hosted acceptance
+
+Automated hosted checks run against a production-built Worker deployed under a
+distinct name with secrets scoped to an isolated Neon branch — never the
+production Worker, database, or DNS:
+
+```sh
+ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev bun run --cwd apps/web start:accept:hosted
+ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev bun run --cwd apps/web start:accept:gates
+```
+
+`start:accept:allowlist create` makes the accounts for the allowlist phases;
+enable `ADEA_ALLOWED_EMAILS` on that isolated Worker, then run
+`start:accept:allowlist verify`. See [VALIDATION.md](VALIDATION.md) for results
+and the hosted bug these checks caught.
+
 ### Performance
 
 `start:compare` measures two built loopback hosts with fresh browser contexts

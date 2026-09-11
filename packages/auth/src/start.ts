@@ -1,5 +1,3 @@
-import 'server-only'
-
 import type { CookieOptions, RequestContext } from '@neondatabase/auth/server'
 
 export type { RequestContext } from '@neondatabase/auth/server'
@@ -55,4 +53,29 @@ function toSerializeOptions(options: CookieOptions): SerializeOptions {
     ...(options.sameSite !== undefined ? { sameSite: options.sameSite } : {}),
     ...(options.secure !== undefined ? { secure: options.secure } : {}),
   }
+}
+
+/**
+ * Serializes a cookie the toolkit asked us to persist when the host framework
+ * has no framework-native cookie jar to write into (for example a Worker entry
+ * that resolves a session before the framework's request storage exists). The
+ * result can be appended to a `Set-Cookie` header verbatim.
+ */
+export function serializeSessionCookie(
+  name: string,
+  value: string,
+  options: CookieOptions
+): string {
+  const parts = [`${name}=${value}`]
+  if (options.maxAge !== undefined) parts.push(`Max-Age=${Math.floor(options.maxAge)}`)
+  if (options.domain) parts.push(`Domain=${options.domain}`)
+  if (options.path) parts.push(`Path=${options.path}`)
+  if (options.expires) parts.push(`Expires=${options.expires.toUTCString()}`)
+  if (options.httpOnly) parts.push('HttpOnly')
+  if (options.secure) parts.push('Secure')
+  if (options.sameSite) {
+    parts.push(`SameSite=${options.sameSite[0]!.toUpperCase()}${options.sameSite.slice(1)}`)
+  }
+  if (options.partitioned) parts.push('Partitioned')
+  return parts.join('; ')
 }

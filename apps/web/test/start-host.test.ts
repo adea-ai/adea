@@ -219,3 +219,56 @@ describe('lazy component boundary', () => {
     assert.equal(imports, 0)
   })
 })
+
+describe('entry-gate request context', () => {
+  it('reads the session from the request the gate was given, not framework storage', async () => {
+    const { createGateRequestContext, gateScope, runWithGateRequest } =
+      await import('../src/server/gate-request-context')
+    // Outside a gate scope there is no context: reading one must be an error
+    // rather than silently resolving an empty cookie jar.
+    assert.equal(gateScope(), undefined)
+    assert.throws(() => createGateRequestContext())
+
+    const gateRequest = new Request('https://adea.test/', {
+      headers: {
+        cookie: 'session=abc; __Secure-neon-auth.local.session_data=xyz',
+        origin: 'https://adea.test',
+        'user-agent': 'acceptance',
+      },
+    })
+    const { cookies, result } = await runWithGateRequest(gateRequest, async () => {
+      const context = createGateRequestContext()
+      assert.equal(
+        await context.getCookies(),
+        'session=abc; __Secure-neon-auth.local.session_data=xyz'
+      )
+      assert.equal(await context.getHeader('origin'), 'https://adea.test')
+      assert.equal(await context.getOrigin(), 'https://adea.test')
+      assert.equal(context.getFramework(), 'tanstack-start')
+      context.setCookie('__Secure-neon-auth.local.session_data', 'rotated', {
+        httpOnly: true,
+        maxAge: 300,
+        path: '/',
+        sameSite: 'lax',
+        secure: true,
+      })
+      return 'resolved'
+    })
+    assert.equal(result, 'resolved')
+    assert.equal(cookies.length, 1)
+    assert.match(cookies[0]!, /^__Secure-neon-auth\.local\.session_data=rotated;/)
+    assert.match(cookies[0]!, /Max-Age=300/)
+    assert.match(cookies[0]!, /HttpOnly/)
+    assert.match(cookies[0]!, /SameSite=Lax/)
+    assert.match(cookies[0]!, /Secure/)
+    // The scope must not leak past the request it was created for.
+    assert.equal(gateScope(), undefined)
+  })
+  it('never invents an origin when the request omits one', async () => {
+    const { createGateRequestContext, runWithGateRequest } =
+      await import('../src/server/gate-request-context')
+    await runWithGateRequest(new Request('https://adea.test/'), async () => {
+      assert.equal(await createGateRequestContext().getOrigin(), '')
+    })
+  })
+})

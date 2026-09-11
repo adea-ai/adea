@@ -9,10 +9,10 @@ export function forbiddenClientModule(id) {
     /\/packages\/db\/(?:src|dist)\//.test(path) ||
     /\/@adea-ai\/db\//.test(path) ||
     /\/apps\/web\/src\/server\//.test(path) ||
-    /\/packages\/auth\/(?:src|dist)\/(?:server|desktop-server|desktop-http-server|config|security)\./.test(
+    /\/packages\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security)\./.test(
       path
     ) ||
-    /\/@adea-ai\/auth\/(?:src|dist)\/(?:server|desktop-server|desktop-http-server|config|security)\./.test(
+    /\/@adea-ai\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security)\./.test(
       path
     ) ||
     /\/@neondatabase\/auth\/(?:dist\/)?(?:next\/|server\/|server\.)/.test(path) ||
