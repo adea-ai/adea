@@ -12,6 +12,9 @@ export const AUTH_ERROR_CODES = {
   sessionExpired: 'session_expired',
   sessionNotFound: 'session_not_found',
   userAlreadyExists: 'user_already_exists',
+  // The provider can report this specific code; the SDK may normalize it to
+  // validation_failed, so callers should treat both as "may already exist".
+  userAlreadyExistsUseAnotherEmail: 'user_already_exists_use_another_email',
   validationFailed: 'validation_failed',
   weakPassword: 'weak_password',
 } as const
@@ -69,6 +72,7 @@ export class AuthProviderError extends Error {
       this.code === AUTH_ERROR_CODES.invalidCredentials ||
       this.code === AUTH_ERROR_CODES.emailNotConfirmed ||
       this.code === AUTH_ERROR_CODES.userAlreadyExists ||
+      this.code === AUTH_ERROR_CODES.userAlreadyExistsUseAnotherEmail ||
       this.code === AUTH_ERROR_CODES.emailExists
     )
   }

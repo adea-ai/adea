@@ -19,6 +19,7 @@ function messageForFailure(code: string | null, mode: AuthMode): string {
     case 'email_not_confirmed':
       return 'Confirm your email address first — check your inbox for the verification message.'
     case 'user_already_exists':
+    case 'user_already_exists_use_another_email':
     case 'email_exists':
       return 'An account already exists for that email. Sign in instead.'
     case 'weak_password':
@@ -31,7 +32,11 @@ function messageForFailure(code: string | null, mode: AuthMode): string {
     case 'session_not_found':
       return 'Your sign-in session expired before it finished. Try again.'
     case 'validation_failed':
-      return 'Check the details and try again.'
+      // The provider's "already registered" code is normalized to this one, so
+      // name the likely cause without asserting it.
+      return mode === 'sign-up'
+        ? 'Check the details and try again. If that email is already registered, sign in instead.'
+        : 'Check the details and try again.'
     default:
       return mode === 'sign-up'
         ? 'Adea could not create that account. Check the details or sign in instead.'
