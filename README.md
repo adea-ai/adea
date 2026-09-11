@@ -41,7 +41,7 @@ bun run --cwd packages/db db:migrate
 ```
 
 `apps/web/.env.local` is ignored and must never be committed. The `DATABASE_URL`
-value is server-only; do not rename it to a `NEXT_PUBLIC_` or `VITE_` variable.
+value is server-only; do not rename it to a `ADEA_PUBLIC_` or `VITE_` variable.
 
 For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
 
@@ -51,11 +51,11 @@ For a direct, non-Portless launch, use `PORT=3004 bun run dev`.
   the engine-unavailable state in builds without Agent Sim)
 
 Cross-app portal defaults use `adea.localhost` and `world.localhost`. Set
-`NEXT_PUBLIC_ADEA_WORLD_URL` when the sibling World app uses a different
+`ADEA_PUBLIC_WORLD_URL` when the sibling World app uses a different
 Portless name.
 
 The asset sync step stages the tracked scene manifests from
-`@adea-ai/spatial-protocol` into the ignored Next public-assets directory. The
+`@adea-ai/spatial-protocol` into the ignored public-assets directory. The
 spatial engine itself lives in the private Agent Sim repo and is delivered
 through the entitlement-gated engine remote.
 
