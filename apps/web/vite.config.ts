@@ -74,8 +74,12 @@ export default defineConfig({
   css: { postcss: { plugins: [tailwindcss()] } },
   build: { assetsDir: 'start-assets', sourcemap: false },
   plugins: [
+    // The plugin reads the deployment config so the manifest it generates and
+    // the `.wrangler/deploy/config.json` redirect it writes both carry the
+    // production Worker name, bindings, and asset settings. `main` is ignored
+    // during dev; the plugin supplies the Start entry itself.
     cloudflare({
-      configPath: fileURLToPath(new URL('./wrangler.dev.jsonc', import.meta.url)),
+      configPath: fileURLToPath(new URL('./wrangler.jsonc', import.meta.url)),
       viteEnvironment: { name: 'ssr' },
       persistState: { path: fileURLToPath(new URL('./.wrangler/state', import.meta.url)) },
       remoteBindings: false,

@@ -14,10 +14,16 @@ wrangler deploy            # from apps/web; uses wrangler.jsonc
 `build:cloudflare` (`scripts/build-cloudflare.mjs`) installs from the root
 lockfile, builds the workspace packages the app depends on, syncs the scene
 manifests, and runs `vite build`. The build emits the Worker entry at
-`dist/server/index.js` and the browser assets under `dist/client/`; the Vite
-plugin also writes an intermediate `dist/server/wrangler.json` that records the
-generated paths. The production `wrangler.jsonc` points at those paths, so a
-deploy never needs generated filenames hardcoded.
+`dist/server/index.js` and the browser assets under `dist/client/`.
+
+The production `wrangler.jsonc` keeps `main` pointed at the source entry
+(`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file
+to exist while bundling. The plugin then writes the deploy-time manifest to
+`dist/server/wrangler.json` — carrying the same Worker name, account, bindings,
+and asset settings, with `main` rewritten to the built `index.js` — plus a
+`.wrangler/deploy/config.json` redirect. `wrangler deploy` and `wrangler
+versions upload` run from `apps/web` therefore use the built output
+automatically, and no step rewrites `wrangler.jsonc`.
 
 ## One-time setup (Worker + GitHub Actions)
 
@@ -72,8 +78,8 @@ deploy never needs generated filenames hardcoded.
    Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev is `bun run dev`, which runs the Vite
-   dev server inside the Workers runtime (`wrangler.dev.jsonc`), so bindings
-   behave like production.
+   dev server inside the Workers runtime using the same `wrangler.jsonc`
+   bindings, so Hyperdrive and secrets behave like production.
 
 ## Request handling and caching
 

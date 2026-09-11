@@ -3,11 +3,14 @@
   // Must match the Worker name in the Cloudflare dashboard (repo is already
   // connected to GitHub there). Rename here or in the dashboard so they agree.
   //
-  // Production config for the TanStack Start host. `main` and the assets
-  // directory point at the Vite build output produced by `bun run build:cloudflare`.
+  // Deployment config for the TanStack Start host. `main` is the source entry
+  // the Cloudflare Vite plugin bundles; the plugin writes the deploy-time
+  // manifest to `dist/server/wrangler.json` (worker entry `index.js`, assets
+  // `../client`) plus a `.wrangler/deploy/config.json` redirect, so `wrangler
+  // deploy` / `versions upload` from this directory use the built output.
   "name": "adea-web",
   "account_id": "aa2dc82d7e02aff12b77800a8201df3f",
-  "main": "dist/server/index.js",
+  "main": "src/start/worker.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "no_bundle": true,

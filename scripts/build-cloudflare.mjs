@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, relative, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -53,30 +53,3 @@ if (process.env.DEPLOY_GIT_COMMIT_SHA && !process.env.NEXT_PUBLIC_DEPLOY_GIT_COM
 }
 
 run(['run', '--cwd', webRoot, 'build'])
-
-// The deployment wrangler.jsonc points at the built worker entry and client
-// assets, expressed relative to apps/web. Values must stay byte-stable for a
-// given build so repeatable CI lanes do not produce noise diffs.
-const generatedWrangler = resolve(webRoot, 'dist/server/wrangler.json')
-if (!existsSync(generatedWrangler)) {
-  throw new Error(`Missing generated Worker manifest: ${generatedWrangler}`)
-}
-const generated = JSON.parse(readFileSync(generatedWrangler, 'utf8'))
-const configPath = resolve(webRoot, 'wrangler.jsonc')
-let configText = readFileSync(configPath, 'utf8')
-configText = configText.replace(/"main":\s*"[^"]+"/, `"main": "${relativeToWeb(generated.main)}"`)
-configText = configText.replace(
-  /"directory":\s*"[^"]+"/,
-  `"directory": "${relativeToWeb(generated.assets.directory)}"`
-)
-writeFileSync(configPath, configText)
-
-/**
- * The generated manifest records paths relative to its own directory
- * (dist/server); deployment paths must be relative to apps/web.
- * @param {string} target path as recorded in the generated manifest
- */
-function relativeToWeb(target) {
-  const fromManifest = resolve(dirname(generatedWrangler), target)
-  return relative(webRoot, fromManifest).replaceAll('\\', '/')
-}
