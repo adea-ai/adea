@@ -72,7 +72,7 @@ describe('desktop packaging and privilege boundary', () => {
       'utf8'
     )
     const bootstrapRoute = await readFile(
-      join(root, 'apps/web/src/app/api/workspaces/bootstrap/route.ts'),
+      join(root, 'apps/web/src/start/routes/api/workspaces/bootstrap.ts'),
       'utf8'
     )
 
@@ -114,8 +114,8 @@ describe('desktop packaging and privilege boundary', () => {
       join(root, 'apps/web/src/components/workspace-navigation-entry.tsx'),
       'utf8'
     )
-    const webLayout = await readFile(join(root, 'apps/web/src/app/layout.tsx'), 'utf8')
-    const webStyles = await readFile(join(root, 'apps/web/src/app/globals.css'), 'utf8')
+    const webLayout = await readFile(join(root, 'apps/web/src/start/routes/__root.tsx'), 'utf8')
+    const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
     const globalRail = await readFile(
       join(root, 'packages/workspace-ui/src/global-workspace-rail.tsx'),
       'utf8'
@@ -141,7 +141,7 @@ describe('desktop packaging and privilege boundary', () => {
     expect(webStyles).toContain('env(safe-area-inset-top)')
     expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
     expect(webStyles).not.toContain('max-width: calc(100vw - 2.5rem)')
-    expect(webLayout).toContain('themeColor:')
+    expect(webLayout).toContain("name: 'theme-color'")
     expect(webWorkspace).toContain('<VirtualUnavailable')
   })
 
@@ -216,8 +216,8 @@ describe('desktop packaging and privilege boundary', () => {
   test('uses one shared visual shell for browser and desktop authentication', async () => {
     const desktop = await readFile(join(root, 'apps/desktop/src/main.tsx'), 'utf8')
     const desktopStyles = await readFile(join(root, 'apps/desktop/src/styles.css'), 'utf8')
-    const web = await readFile(join(root, 'apps/web/src/app/auth/sign-in/page.tsx'), 'utf8')
-    const webStyles = await readFile(join(root, 'apps/web/src/app/globals.css'), 'utf8')
+    const web = await readFile(join(root, 'apps/web/src/start/routes/auth/sign-in.tsx'), 'utf8')
+    const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
     const sharedStyles = await readFile(join(root, 'packages/ui/src/styles/auth-shell.css'), 'utf8')
 
     expect(desktopStyles).toContain("@import '@adea-ai/ui/auth-shell.css'")
@@ -235,11 +235,15 @@ describe('desktop packaging and privilege boundary', () => {
   test('provides cloud authorization, exchange, refresh, logout, and revocation handlers', async () => {
     for (const endpoint of ['authorize', 'exchange', 'refresh', 'logout', 'revoke']) {
       const route = await readFile(
-        join(root, `apps/web/src/app/api/auth/desktop/${endpoint}/route.ts`),
+        join(root, `apps/web/src/start/routes/api/auth/desktop/${endpoint}.ts`),
         'utf8'
       )
-      expect(route).toContain("export const runtime = 'nodejs'")
-      expect(route).toContain("export const dynamic = 'force-dynamic'")
+      // Every desktop endpoint is a dynamic server route. The CORS endpoints
+      // (exchange/refresh/logout/revoke) add a preflight; authorize is a
+      // top-level browser navigation and therefore has none.
+      expect(route).toContain('createFileRoute')
+      expect(route).toContain('server:')
+      if (endpoint !== 'authorize') expect(route).toContain('OPTIONS')
     }
 
     const schema = await readFile(join(root, 'packages/db/src/schema/desktop-auth.ts'), 'utf8')
@@ -250,20 +254,17 @@ describe('desktop packaging and privilege boundary', () => {
 
   test('provides an accessible browser sign-in handoff for desktop authorization', async () => {
     const authorize = await readFile(
-      join(root, 'apps/web/src/app/api/auth/desktop/authorize/route.ts'),
+      join(root, 'apps/web/src/start/routes/api/auth/desktop/authorize.ts'),
       'utf8'
     )
-    const page = await readFile(join(root, 'apps/web/src/app/auth/sign-in/page.tsx'), 'utf8')
-    const form = await readFile(
-      join(root, 'apps/web/src/app/auth/sign-in/sign-in-form.tsx'),
-      'utf8'
-    )
+    const page = await readFile(join(root, 'apps/web/src/start/routes/auth/sign-in.tsx'), 'utf8')
+    const form = await readFile(join(root, 'apps/web/src/components/sign-in-form.tsx'), 'utf8')
     const completionPage = await readFile(
-      join(root, 'apps/web/src/app/auth/desktop/complete/page.tsx'),
+      join(root, 'apps/web/src/start/routes/auth/desktop/complete.tsx'),
       'utf8'
     )
     const completionClient = await readFile(
-      join(root, 'apps/web/src/app/auth/desktop/complete/desktop-auth-complete.tsx'),
+      join(root, 'apps/web/src/components/desktop-auth-complete.tsx'),
       'utf8'
     )
 

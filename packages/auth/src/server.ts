@@ -1,62 +1,81 @@
 import 'server-only'
 
-import { createNeonAuth, type NeonAuth } from '@neondatabase/auth/next/server'
+import {
+  createAuthServer,
+  handleAuthProxyRequest,
+  resolveNeonAuthLogging,
+  type NeonAuthServer,
+  type RequestContextFactory,
+} from '@neondatabase/auth/server'
 
 import { createAuthAdapter } from './adapter'
 import { readAuthConfig, type AuthEnvironment } from './config'
 import { createNeonAuthDriver, type NeonSdk } from './neon-driver'
 import { assertTrustedOrigin } from './security'
 
-type RouteContext = { params: Promise<{ path: string[] }> }
 type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT'
 
-let cachedAuth: NeonAuth | undefined
+let cachedAuth: NeonAuthServer | undefined
+let cachedAuthContext: RequestContextFactory | undefined
 let cachedConfig: ReturnType<typeof readAuthConfig> | undefined
 
-function server(environment: AuthEnvironment = process.env) {
-  if (!cachedAuth || !cachedConfig) {
-    cachedConfig = readAuthConfig(environment)
-    cachedAuth = createNeonAuth({
-      baseUrl: cachedConfig.baseUrl,
-      cookies: {
-        sameSite: 'lax',
-        secret: cachedConfig.cookieSecret,
-        sessionDataTtl: cachedConfig.sessionDataTtl,
-      },
-      // Provider payloads and transport errors may contain PII or cookies. Adea emits
-      // only its own allowlisted auth events through createAuthEvent().
-      logLevel: 'silent',
-    })
-  }
-  return { auth: cachedAuth, config: cachedConfig }
+function config(environment: AuthEnvironment) {
+  cachedConfig ??= readAuthConfig(environment)
+  return cachedConfig
 }
 
-export function createNeonServerAdapter(environment: AuthEnvironment = process.env) {
-  const { auth } = server(environment)
-  return createAuthAdapter(createNeonAuthDriver(auth as unknown as NeonSdk))
+// Provider payloads and transport errors may contain PII or cookies. Adea
+// emits only its own allowlisted auth events through createAuthEvent().
+const silentLog = () => resolveNeonAuthLogging({ logLevel: 'silent' })
+
+export function createNeonServerAdapter(
+  context: RequestContextFactory,
+  environment: AuthEnvironment = process.env
+) {
+  if (!cachedAuth || cachedAuthContext !== context) {
+    cachedAuthContext = context
+    cachedAuth = createAuthServer({
+      baseUrl: config(environment).baseUrl,
+      context,
+      cookieSecret: config(environment).cookieSecret,
+      sessionDataTtl: config(environment).sessionDataTtl,
+      sameSite: 'lax',
+      log: silentLog(),
+    })
+  }
+  return createAuthAdapter(createNeonAuthDriver(cachedAuth as unknown as NeonSdk))
 }
 
 export async function handleNeonAuthRequest(
   method: RouteMethod,
   request: Request,
-  context: RouteContext,
+  path: string,
   environment: AuthEnvironment = process.env
 ): Promise<Response> {
-  const { auth, config } = server(environment)
+  const settings = config(environment)
   const origin = request.headers.get('origin') ?? undefined
 
   // OAuth callbacks are top-level GET navigations and normally omit Origin. Every request that
   // supplies Origin, and every state-changing request, must match an exact allowlist entry.
   if (origin || method !== 'GET') {
     try {
-      assertTrustedOrigin(origin, config.trustedOrigins)
+      assertTrustedOrigin(origin, settings.trustedOrigins)
     } catch {
       return Response.json({ error: 'Forbidden' }, { status: 403 })
     }
   }
 
-  const handlers = auth.handler()
-  return handlers[method](request, context)
+  // The proxy is a plain Request -> Response pipe; it never consults the
+  // host framework's request context, so no factory is involved here.
+  return handleAuthProxyRequest({
+    request,
+    path,
+    baseUrl: settings.baseUrl,
+    cookieSecret: settings.cookieSecret,
+    sessionDataTtl: settings.sessionDataTtl,
+    sameSite: 'lax',
+    log: silentLog(),
+  })
 }
 
 export { readAuthConfig } from './config'

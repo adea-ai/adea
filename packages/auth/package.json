@@ -30,6 +30,11 @@
       "types": "./dist/server.d.ts",
       "development": "./src/server.ts",
       "import": "./dist/server.js"
+    },
+    "./start": {
+      "types": "./dist/start.d.ts",
+      "development": "./src/start.ts",
+      "import": "./dist/start.js"
     }
   },
   "scripts": {

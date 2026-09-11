@@ -1,8 +1,0 @@
-/dist/
-/.wrangler/
-/node_modules/
-/.dev.vars
-/.env*
-/.checks/
-/test-results/
-/playwright-report/

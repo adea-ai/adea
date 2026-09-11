@@ -10,6 +10,7 @@ import {
 import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { applicationDatabase } from './database'
+import { createStartRequestContext } from './auth-request-context'
 import { emailAllowlistConfigured, isAllowedEmail } from './allowed-emails'
 import { desktopPrincipalMapping, resolveDesktopSessionPrincipal } from './desktop-auth'
 import { resolveOrProvisionDesktopPrincipal } from './desktop-principal'
@@ -53,7 +54,7 @@ export async function resolveWorkspacePrincipal(
   const credential = readTemporaryCredential(request)
   let authentication: AuthResult | null = null
   try {
-    authentication = await createNeonServerAdapter().getSession()
+    authentication = await createNeonServerAdapter(createStartRequestContext).getSession()
   } catch {
     // Account persistence is optional. A missing provider configuration must not block guests.
   }

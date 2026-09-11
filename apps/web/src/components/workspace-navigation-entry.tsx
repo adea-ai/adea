@@ -1,6 +1,6 @@
 'use client'
 
-import dynamic from 'next/dynamic'
+import lazyComponent from './lazy-component'
 import { useEffect, useRef, useState } from 'react'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import { useAgentListQuery, useWorkspaceBootstrapQuery } from '@adea-ai/data'
@@ -19,7 +19,7 @@ import packageJson from '../../package.json'
 
 const appVersion = packageJson.version
 
-const ConventionalWorkspace = dynamic(
+const ConventionalWorkspace = lazyComponent(
   () =>
     import('./conventional-workspace-entry').then(
       ({ ConventionalWorkspaceEntry }) => ConventionalWorkspaceEntry
@@ -27,17 +27,17 @@ const ConventionalWorkspace = dynamic(
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const SpatialWorkspace = dynamic(
+const SpatialWorkspace = lazyComponent(
   () => import('./workspace-shell').then(({ WorkspaceShell }) => WorkspaceShell),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const RoomDesignerWorkspace = dynamic(
+const RoomDesignerWorkspace = lazyComponent(
   () => import('./room-designer-entry').then(({ RoomDesignerEntry }) => RoomDesignerEntry),
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
-const GlobalWorkspaceRail = dynamic(
+const GlobalWorkspaceRail = lazyComponent(
   () =>
     import('@adea-ai/workspace-ui/global-workspace-rail').then(
       ({ GlobalWorkspaceRail: Rail }) => Rail
@@ -45,7 +45,7 @@ const GlobalWorkspaceRail = dynamic(
   { loading: () => <WorkspaceRailLoading />, ssr: false }
 )
 
-const WorkspaceAboutDialog = dynamic(
+const WorkspaceAboutDialog = lazyComponent(
   () =>
     import('@adea-ai/workspace-ui/workspace-about-dialog').then(
       ({ WorkspaceAboutDialog: AboutDialog }) => AboutDialog
@@ -53,12 +53,12 @@ const WorkspaceAboutDialog = dynamic(
   { ssr: false }
 )
 
-const PluginsDialog = dynamic(
+const PluginsDialog = lazyComponent(
   () => import('@adea-ai/workspace-ui/plugins-dialog').then((module) => module.PluginsDialog),
   { ssr: false }
 )
 
-const WorkspaceSettingsDialog = dynamic(
+const WorkspaceSettingsDialog = lazyComponent(
   () =>
     import('@adea-ai/workspace-ui/workspace-settings').then(
       ({ WorkspaceSettingsDialog: SettingsDialog }) => SettingsDialog

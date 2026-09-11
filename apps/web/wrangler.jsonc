@@ -2,20 +2,32 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   // Must match the Worker name in the Cloudflare dashboard (repo is already
   // connected to GitHub there). Rename here or in the dashboard so they agree.
+  //
+  // Production config for the TanStack Start host. `main` and the assets
+  // directory point at the Vite build output produced by `bun run build:cloudflare`.
   "name": "adea-web",
   "account_id": "aa2dc82d7e02aff12b77800a8201df3f",
-  "main": ".open-next/worker.js",
+  "main": "dist/server/index.js",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "no_bundle": true,
+  "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "assets": {
-    "directory": ".open-next/assets",
+    "directory": "dist/client",
     "binding": "ASSETS",
+    // API requests must always execute the worker; every other asset hit is
+    // served straight from the Cloudflare asset layer without billing a
+    // worker request. HTML documents do not exist in the client output (the
+    // root document is rendered per request behind the entry policy), so
+    // `not_found_handling: none` keeps unknown paths failing closed.
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "none",
   },
   // Hyperdrive (Neon connection pooling) `adea-db`, pointed at the
   // production Neon branch (direct/unpooled origin; Hyperdrive pools itself).
   // See CLOUDFLARE.md.
-  // Local emulation target for `next dev` / `wrangler dev` (see compose.yaml
-  // and .env.example). Non-secret dev default; production uses the origin
+  // Local emulation target for `wrangler dev` (see compose.yaml and
+  // .env.example). Non-secret dev default; production uses the origin
   // connection string from `wrangler hyperdrive create`. Requires
   // `compose up` (or any Postgres on 127.0.0.1:55432) for DB-backed pages.
   "hyperdrive": [
