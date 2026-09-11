@@ -16,6 +16,7 @@ node_modules/
 .pnp.js
 .turbo/
 *.tsbuildinfo
+next-env.d.ts
 
 # Python
 .venv/
@@ -36,6 +37,7 @@ out/
 coverage/
 htmlcov/
 .coverage*
+.next/
 artifacts/
 performance-results.json
 performance-results/
