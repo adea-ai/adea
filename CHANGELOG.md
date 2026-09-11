@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/adea-ai/adea/compare/v0.15.0...v0.15.1) (2026-09-11)
+
+
+### Documentation
+
+* drop stale framework env prefixes from the README ([#329](https://github.com/adea-ai/adea/issues/329)) ([0eac845](https://github.com/adea-ai/adea/commit/0eac845d82bc45bd23df5d7c35400e76e59827bd))
+
 ## [0.15.0](https://github.com/adea-ai/adea/compare/v0.14.1...v0.15.0) (2026-09-11)
 
 
