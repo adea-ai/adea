@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { pluginBrandIconUrl } from '../../src/marketplace-catalog'
+import { pluginBrandIconUrl, pluginIconUrl } from '../../src/marketplace-catalog'
 
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 
@@ -246,19 +246,31 @@ describe('registry marketplace catalog', () => {
   })
 })
 
-describe('plugin brand icons', () => {
-  test('derives a Simple Icons URL from the upstream plugin name', () => {
-    expect(pluginBrandIconUrl('github')).toBe(
-      'https://cdn.simpleicons.org/github/52525b/a1a1aa'
-    )
-    expect(pluginBrandIconUrl('google-drive')).toBe(
-      'https://cdn.simpleicons.org/google-drive/52525b/a1a1aa'
-    )
+describe('plugin icon resolution', () => {
+  test('prefers an upstream-provided icon URL', () => {
+    expect(
+      pluginIconUrl({ icons: ['https://example.com/logo.svg'], homepage: 'https://gmail.com', upstreamPluginName: 'gmail' })
+    ).toBe('https://example.com/logo.svg')
   })
 
-  test('rejects names that cannot be URL slugs', () => {
+  test('resolves the homepage domain favicon when upstream publishes none', () => {
+    expect(
+      pluginIconUrl({ icons: [], homepage: 'https://github.com/anthropics/claude-plugins-public/tree/main/x', upstreamPluginName: 'github' })
+    ).toBe('https://www.google.com/s2/favicons?domain=github.com&sz=64')
+  })
+
+  test('falls back to the Simple Icons brand mark by upstream name', () => {
+    expect(
+      pluginIconUrl({ icons: [], upstreamPluginName: 'gmail' })
+    ).toBe('https://cdn.simpleicons.org/gmail')
+    expect(
+      pluginIconUrl({ icons: [], upstreamPluginName: 'has spaces' })
+    ).toBeUndefined()
+  })
+
+  test('returns undefined without any resolvable source', () => {
+    expect(pluginIconUrl({ icons: [] })).toBeUndefined()
     expect(pluginBrandIconUrl('')).toBeUndefined()
-    expect(pluginBrandIconUrl('has spaces')).toBeUndefined()
     expect(pluginBrandIconUrl('../etc')).toBeUndefined()
   })
 })

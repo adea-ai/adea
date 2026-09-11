@@ -254,19 +254,50 @@ export function parseCatalog(value: unknown): RegistryCatalog {
 }
 
 
-// Upstream plugin sources rarely publish icon data (`icons: []`), so brand
-// marks resolve from the Simple Icons CDN — official company logos keyed by
-// the plugin's upstream name (gmail, github, notion, ...). Monochrome tints
-// keep the marks legible in both themes; niche plugins without a brand mark
-// 404 and fall back to the logo initials.
-const BRAND_ICON_BASE = 'https://cdn.simpleicons.org'
-const BRAND_ICON_LIGHT_TINT = '52525b'
-const BRAND_ICON_DARK_TINT = 'a1a1aa'
+// Upstream plugin sources publish no icon data (`icons: []`), so logos are
+// resolved from the plugin's own brand presence, mirroring how other agent
+// clients (Open Grok, Cursor) do it: Google's favicon service keyed by the
+// homepage domain returns the real colored logo for nearly every company
+// with a website; the Simple Icons CDN covers the rest by upstream name;
+// plugins with neither fall back to the logo initials.
+const GOOGLE_FAVICON_BASE = 'https://www.google.com/s2/favicons'
+const SIMPLE_ICONS_BASE = 'https://cdn.simpleicons.org'
+
+function homepageFaviconUrl(homepage: string): string | undefined {
+  try {
+    const hostname = new URL(homepage).hostname
+    if (hostname.length === 0) return undefined
+    return `${GOOGLE_FAVICON_BASE}?domain=${encodeURIComponent(hostname)}&sz=64`
+  } catch {
+    return undefined
+  }
+}
 
 export function pluginBrandIconUrl(upstreamName: string): string | undefined {
   const slug = upstreamName.trim().toLowerCase()
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return undefined
-  return `${BRAND_ICON_BASE}/${slug}/${BRAND_ICON_LIGHT_TINT}/${BRAND_ICON_DARK_TINT}`
+  return `${SIMPLE_ICONS_BASE}/${slug}`
+}
+
+/**
+ * Best-effort logo resolution for a catalog plugin: upstream-provided icon,
+ * then the homepage domain's favicon, then the Simple Icons brand mark.
+ */
+export function pluginIconUrl(plugin: {
+  icons: readonly unknown[]
+  homepage?: unknown
+  upstreamPluginName?: unknown
+}): string | undefined {
+  const upstream = plugin.icons.find((icon): icon is string => typeof icon === 'string')
+  if (upstream) return upstream
+  if (typeof plugin.homepage === 'string') {
+    const favicon = homepageFaviconUrl(plugin.homepage)
+    if (favicon) return favicon
+  }
+  if (typeof plugin.upstreamPluginName === 'string') {
+    return pluginBrandIconUrl(plugin.upstreamPluginName)
+  }
+  return undefined
 }
 
 export function mapRegistryCatalog(
@@ -328,11 +359,7 @@ export function mapRegistryCatalog(
       harnessCompatibility: plugin.harnessCompatibility,
       homepage: plugin.homepage,
       iconKey: `registry:${plugin.pluginId}`,
-      iconUrl:
-        plugin.icons[0] ??
-        (typeof plugin.upstreamPluginName === 'string'
-          ? pluginBrandIconUrl(plugin.upstreamPluginName)
-          : undefined),
+      iconUrl: pluginIconUrl(plugin),
       icons: plugin.icons,
       id: plugin.pluginId,
       installed: installationStatus === 'installed',

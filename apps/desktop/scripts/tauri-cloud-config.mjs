@@ -24,7 +24,7 @@ export function createTauriCloudConfig(value) {
         csp: [
           "default-src 'self' customprotocol: asset:",
           `connect-src 'self' blob: ipc: http://ipc.localhost ${cloudOrigin} ws://127.0.0.1:1420`,
-          "img-src 'self' asset: data: blob: https://raw.githubusercontent.com https://cdn.simpleicons.org",
+          "img-src 'self' asset: data: blob: https://raw.githubusercontent.com https://cdn.simpleicons.org https://www.google.com",
           "script-src 'self' 'wasm-unsafe-eval'",
           "style-src 'self'",
         ].join('; '),
