@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/spatial-protocol",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "Shell↔engine contract for the Adea spatial view: scene mount manifests, spawn URL helpers, and scene telemetry schemas. Pure types — no rendering, no binaries.",
   "keywords": [
     "manifest",
