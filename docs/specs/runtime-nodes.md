@@ -161,6 +161,11 @@ rotation count as proofs — the node demonstrated possession of its key — so 
 freshly paired node reads healthy rather than unknown. Nothing sweeps nodes in
 the background, so an expired proof cannot silently change authorization.
 
+The list read is deliberately unbounded: a workspace's nodes are the machines
+its members pair, which is a handful. It resolves each node with two queries per
+node, which is the right shape at that scale — if a consumer ever appears with
+thousands of nodes, paginate or batch it then rather than carrying a silent cap.
+
 ## Durable events
 
 Every state change is recorded through the one publication path
