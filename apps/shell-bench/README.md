@@ -21,11 +21,33 @@ lockfile.
 | `electron/` | Electron parity shell (`main.cjs` + sandboxed preload + `electron-builder --dir` app bundle) |
 | `tauri/` | Minimal Tauri 2 parity shell (baseline; `ping` command, external-URL window) |
 | `nwjs/` | NW.js longshot shell (redirect page) |
-| `cef/` | CEF-in-Rust parity shell (primary candidate — see README there for build status) |
+| `cef/` | CEF-in-Rust parity shell (primary candidate — vendored from tauri-apps/cef-rs `cefsimple`; bundled via `CEF_PATH=<dist> bundle-cef-app shell-bench-cef -o target/bundle`) |
+| `electrobun/` | Electrobun bootstrap + two generated projects (not committed — regenerate below) |
 | `results/` | Raw benchmark output (JSON + markdown), gitignored in M5.4 cleanup |
 
 Chrome `--app` mode needs no harness directory — the runner launches the
 installed Chrome binary directly with a throwaway profile.
+
+### Regenerating the Electrobun variants
+
+The generated projects are gitignored (template scaffolding). Recreate with:
+
+```sh
+cd apps/shell-bench/electrobun
+bun add electrobun
+./node_modules/.bin/electrobun init shell-bench-electrobun-bun --template=hello-world
+./node_modules/.bin/electrobun init shell-bench-electrobun-rust --template=rust-flock-wgpu
+```
+
+Then patch one line in `shell-bench-electrobun-bun/src/bun/index.ts` so the
+window honors the bench URL:
+
+```ts
+url: process.env.BENCH_URL ?? "views://mainview/index.html",
+```
+
+Build each with `hutch run build` (requires `~/.hutch/bin` on PATH — the first
+`electrobun init` installs it).
 
 ## Run
 
