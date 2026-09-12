@@ -22,6 +22,11 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  /* App-only status colors. They carry the same value the status marks used to
+     hardcode, now overridable from one place. */
+  --status-offline: #e7c77d;
+  --status-failed: #f1aaa2;
+  --scene-tool-shadow: 0 0.35rem 1rem rgb(0 0 0 / 18%);
 }
 
 * {
@@ -163,13 +168,13 @@ body {
 }
 
 .status-mark--offline {
-  border-color: #e7c77d;
-  background: #e7c77d;
+  border-color: var(--status-offline);
+  background: var(--status-offline);
 }
 
 .status-mark--failed {
-  border-color: #f1aaa2;
-  background: #f1aaa2;
+  border-color: var(--status-failed);
+  background: var(--status-failed);
 }
 
 .workspace-actions {
@@ -362,7 +367,7 @@ body {
   border-color: var(--hq-shell-border);
   color: var(--hq-shell-foreground);
   background: color-mix(in srgb, var(--hq-shell-surface) 92%, transparent);
-  box-shadow: 0 0.35rem 1rem rgb(0 0 0 / 18%);
+  box-shadow: var(--scene-tool-shadow);
 }
 
 .workspace-scene-tools button:hover {

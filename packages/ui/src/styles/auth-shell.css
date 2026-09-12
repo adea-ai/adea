@@ -10,13 +10,15 @@
   --auth-accent: var(--hq-shell-accent);
   --auth-accent-hover: var(--hq-shell-accent-strong);
   --auth-accent-foreground: var(--hq-shell-accent-foreground);
+  --auth-grid-line: rgb(255 255 255 / 4%);
+  --auth-panel-shadow: 0 1.5rem 4rem rgb(0 0 0 / 24%);
 
   display: grid;
   min-height: 100svh;
   place-items: center;
   padding: 1.5rem;
   background:
-    linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px) 0 0 / 4rem 4rem,
+    linear-gradient(90deg, var(--auth-grid-line) 1px, transparent 1px) 0 0 / 4rem 4rem,
     var(--auth-background);
   color: var(--auth-foreground);
 }
@@ -27,7 +29,7 @@
   border: 1px solid var(--auth-border);
   border-radius: 0.75rem;
   background: var(--auth-surface);
-  box-shadow: 0 1.5rem 4rem rgb(0 0 0 / 24%);
+  box-shadow: var(--auth-panel-shadow);
 }
 
 .auth-eyebrow {

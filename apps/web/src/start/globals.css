@@ -9,6 +9,14 @@
    stay after all @imports — CSS drops imports that follow other rules. */
 @source '../../../../packages/workspace-ui/src';
 
+:root {
+  --browser-auth-error: #b42318;
+}
+
+.dark {
+  --browser-auth-error: #fda29b;
+}
+
 .browser-auth-mode {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -72,13 +80,9 @@
 .browser-auth-error {
   min-height: 1.25rem;
   margin: 0;
-  color: #b42318;
+  color: var(--browser-auth-error);
   font-size: 0.85rem;
   line-height: 1.45;
-}
-
-.dark .browser-auth-error {
-  color: #fda29b;
 }
 
 .browser-auth-submit {
