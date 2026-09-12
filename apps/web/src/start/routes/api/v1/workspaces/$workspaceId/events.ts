@@ -28,6 +28,7 @@ import {
   eventFrame,
   heartbeatFrame,
   resyncFrame,
+  revalidationOutcome,
   StreamConnections,
   type ResyncReason,
   STREAM_HEARTBEAT_MS,
@@ -42,8 +43,9 @@ import {
  * The stream is a delivery channel, not a store: every frame it emits is an
  * already-committed WorkspaceEvent read from the log in `workspace_sequence`
  * order, and a client that misses frames recovers by reconnecting with its
- * cursor. Authorization happens before the first byte, and membership is
- * revalidated while the stream is open so a revoked subscriber stops receiving.
+ * cursor. Authorization happens before the first byte, and the subscriber is
+ * re-resolved and re-authorized while the stream is open, so a revoked session
+ * or a removed membership stops delivery promptly.
  */
 
 /** Longest a single stream stays open before the client is asked to reconnect. */
@@ -200,17 +202,22 @@ async function get(request: Request, { params }: { params: { workspaceId: string
             send(heartbeatFrame())
           }
 
-          // A revoked membership must stop delivery promptly, not at the next
-          // reconnect: the subscriber is re-authorized while the stream is open.
+          // A revoked session or membership must stop delivery promptly, not at
+          // the next reconnect. The subscriber is re-resolved and re-authorized
+          // while the stream is open, so a deleted credential counts too.
           if (now - lastReauthorize >= STREAM_REAUTHORIZE_MS) {
             lastReauthorize = now
-            const recheck = await authorizeWorkspace(
-              resolution.principal,
-              'workspace.read',
-              workspaceId
+            const current = await resolveWorkspacePrincipal(request)
+            const recheck = current
+              ? await authorizeWorkspace(current.principal, 'workspace.read', workspaceId)
+              : { allowed: false }
+            const outcome = revalidationOutcome(
+              current ? { principalId: current.principal.userId } : null,
+              resolution.principal.userId,
+              recheck
             )
-            if (!recheck.allowed) {
-              send(drainingFrame())
+            if (outcome.state === 'terminate') {
+              send(drainingFrame(outcome.reason))
               break
             }
           }

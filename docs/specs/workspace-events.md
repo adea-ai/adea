@@ -51,9 +51,12 @@ optional correlation id.
 
 `GET /api/v1/workspaces/:workspaceId/events` returns `text/event-stream`.
 
-- **Authorization happens before the first byte** and is revalidated while the
-  stream is open, so a revoked subscriber stops receiving during the stream.
-  Denials answer identically for unknown and unauthorized workspaces.
+- **Authorization happens before the first byte**: the subscriber is
+  re-resolved and re-authorized every 30 seconds while the stream is open, so a
+  removed membership (`membership-revoked`) or a revoked session or device
+  (`session-revoked`) ends delivery within that window instead of at the next
+  reconnect. The ending frame names which authorization changed. Denials answer
+  identically for unknown and unauthorized workspaces.
 - **Cursor v1** is opaque, versioned, HMAC-signed, workspace-bound, and expires.
   The key is derived from the deployment's auth cookie secret with a
   domain-separation label; without a usable secret the route refuses to sign and
@@ -64,11 +67,35 @@ optional correlation id.
   in sequence order before live delivery. A cursor outside the window, expired,
   foreign, or ahead of the head produces `resync_required` with its reason and a
   fresh cursor — never a silent gap.
+- **Retention.** `pruneWorkspaceEventsBefore` drops a workspace's oldest events
+  in bounded batches and cascades to their publication records. Nothing schedules
+  it yet: the retained window is an operator decision (how far back a client may
+  resume), and the stream already answers a cursor from before the window with
+  `resync_required`.
 - **Liveness.** Heartbeats every 15 seconds, `retry: 1000` guidance, bounded
   catch-up reads on a short interval (a lost wake-up loses no event), a
   deliberate 30-minute stream lifetime, and a bounded number of concurrent
   streams per workspace. That bound is per server instance: a global limit needs
   shared state.
+
+## Verifying it locally
+
+The stream's guarantees are checkable against a running host without special
+tooling:
+
+- **Replay and cursors**: bootstrap a guest, open the stream, create a Room, then
+  reconnect with the cursor printed in the earlier frame's `id:` — only events
+  after it are replayed.
+- **Recovery**: present a cursor from another workspace, a tampered one, or one
+  from before the retained window; each answers `resync_required` with its
+  reason rather than a gap.
+- **Revocation**: delete the workspace membership row (or the temporary session
+  row) while a stream is open; the stream ends within 30 seconds with
+  `membership-revoked` or `session-revoked`.
+- **Cross-instance**: start a second host on the same database and secret and
+  reconnect there with a cursor minted by the first; the cursor verifies and the
+  missed events replay, because neither the cursor nor replay depends on
+  instance state. The only per-instance state is the connection counter.
 
 ## The client
 
@@ -97,7 +124,8 @@ desktop sessions share one path, and the cursor travels explicitly.
   redaction and oversize refusal, conversation create/update/delete events,
   artifact availability, and two clients converging on the same history.
 - `apps/web/test/event-stream.test.ts`: cursor round-trip and every rejection
-  reason, wire frames and their exact field set, the replay decision table, and
+  reason, wire frames and their exact field set, the replay decision table, the
+  revalidation outcome (allowed, session-revoked, membership-revoked), and
   stream-connection accounting.
 - `packages/data/tests/unit/events.test.ts`: frame parsing, family-to-query
   mapping, backoff, apply-once semantics with cursor persistence, gap and resync

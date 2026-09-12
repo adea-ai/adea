@@ -57,14 +57,38 @@ export function resyncFrame(reason: ResyncReason, cursor: string): string {
   ].join('\n')
 }
 
-/** Server-draining notice so clients reconnect promptly instead of waiting out a timeout. */
-export function drainingFrame(): string {
-  return [
-    'event: stream_unavailable',
-    `data: ${JSON.stringify({ reason: 'draining' })}`,
-    '',
-    '',
-  ].join('\n')
+/**
+ * Why an open stream is ending. A revoked subscriber is told which authorization
+ * changed, so a client can distinguish "reconnect" from "stop retrying".
+ */
+export type StreamEndReason = 'draining' | 'membership-revoked' | 'session-revoked'
+
+export function drainingFrame(reason: StreamEndReason = 'draining'): string {
+  return ['event: stream_unavailable', `data: ${JSON.stringify({ reason })}`, '', ''].join('\n')
+}
+
+/**
+ * Whether an open stream may keep delivering.
+ *
+ * Re-resolving the subscriber — not just re-authorizing — is what makes a
+ * revoked session or device end the stream at the next check: a membership
+ * lookup keyed on the principal captured at connect time would otherwise keep
+ * serving a credential that no longer exists.
+ */
+export type StreamRevalidation =
+  | Readonly<{ state: 'allowed' }>
+  | Readonly<{ state: 'terminate'; reason: Exclude<StreamEndReason, 'draining'> }>
+
+export function revalidationOutcome(
+  resolution: Readonly<{ principalId: string }> | null,
+  expectedPrincipalId: string,
+  authorization: Readonly<{ allowed: boolean }>
+): StreamRevalidation {
+  if (!resolution || resolution.principalId !== expectedPrincipalId) {
+    return { state: 'terminate', reason: 'session-revoked' }
+  }
+  if (!authorization.allowed) return { state: 'terminate', reason: 'membership-revoked' }
+  return { state: 'allowed' }
 }
 
 /** Retry guidance in milliseconds: the client starts here and backs off itself. */

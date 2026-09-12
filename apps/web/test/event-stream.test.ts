@@ -11,6 +11,7 @@ import {
   eventFrame,
   heartbeatFrame,
   resyncFrame,
+  revalidationOutcome,
   StreamConnections,
   STREAM_CONNECTION_LIMIT,
 } from '../src/server/workspace-event-stream'
@@ -156,6 +157,37 @@ describe('workspace event stream protocol', () => {
       from: 0,
     })
     expect(decideReplay(0, { earliest: null, latest: 0 })).toEqual({ mode: 'replay', from: 0 })
+  })
+
+  test('revalidation ends the stream when the session or the membership is gone', () => {
+    const allowed = { allowed: true }
+    const denied = { allowed: false }
+    const principal = { principalId: 'user-1' }
+
+    // Still the same subscriber with the same permission: keep delivering.
+    expect(revalidationOutcome(principal, 'user-1', allowed)).toEqual({ state: 'allowed' })
+    // A revoked session or device: the subscriber no longer resolves, so the
+    // stream ends with a reason the client can act on.
+    expect(revalidationOutcome(null, 'user-1', allowed)).toEqual({
+      state: 'terminate',
+      reason: 'session-revoked',
+    })
+    // Resolving to a different principal is equally a revoked session.
+    expect(revalidationOutcome({ principalId: 'user-2' }, 'user-1', allowed)).toEqual({
+      state: 'terminate',
+      reason: 'session-revoked',
+    })
+    // A removed membership ends the stream even though the session is alive.
+    expect(revalidationOutcome(principal, 'user-1', denied)).toEqual({
+      state: 'terminate',
+      reason: 'membership-revoked',
+    })
+  })
+
+  test('an ending stream names why it is ending', () => {
+    expect(drainingFrame()).toContain('"reason":"draining"')
+    expect(drainingFrame('membership-revoked')).toContain('"reason":"membership-revoked"')
+    expect(drainingFrame('session-revoked')).toContain('"reason":"session-revoked"')
   })
 
   test('bounds concurrent streams per workspace and releases them', () => {
