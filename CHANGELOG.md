@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/adea-ai/adea/compare/v0.20.1...v0.21.0) (2026-09-12)
+
+
+### Features
+
+* **db,web:** RuntimeNode identity, pairing, and host credentials ([#363](https://github.com/adea-ai/adea/issues/363)) ([ac831d4](https://github.com/adea-ai/adea/commit/ac831d49db19868347ab7198a7e19a8ca5fb15d0))
+
 ## [0.20.1](https://github.com/adea-ai/adea/compare/v0.20.0...v0.20.1) (2026-09-12)
 
 
