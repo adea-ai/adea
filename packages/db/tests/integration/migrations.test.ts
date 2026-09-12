@@ -8,6 +8,7 @@ import { appendWorkspaceEvent, inTransaction } from '../../src/transactions'
 import {
   commandOutbox,
   users,
+  workspaceEventDispatches,
   workspaceEvents,
   workspaceMemberships,
   workspaces,
@@ -28,7 +29,7 @@ describe.skipIf(!connectionUrl)('PostgreSQL integration', () => {
 
   test('commits a domain mutation, WorkspaceEvent, and outbox atomically', async () => {
     const workspaceId = randomUUID()
-    const eventId = randomUUID()
+    let eventId = randomUUID()
     const outboxId = randomUUID()
     const ownerUserId = randomUUID()
 
@@ -45,12 +46,12 @@ describe.skipIf(!connectionUrl)('PostgreSQL integration', () => {
         userId: ownerUserId,
         workspaceId,
       })
-      await appendWorkspaceEvent(transaction, {
-        id: eventId,
-        workspaceId,
+      const event = await appendWorkspaceEvent(transaction, {
         eventType: 'workspace.created',
         payload: { workspaceId },
+        workspaceId,
       })
+      eventId = event.eventId
       await transaction.insert(commandOutbox).values({
         id: outboxId,
         workspaceId,
@@ -61,8 +62,17 @@ describe.skipIf(!connectionUrl)('PostgreSQL integration', () => {
       })
     })
 
+    const committed = await connection.db
+      .select()
+      .from(workspaceEvents)
+      .where(eq(workspaceEvents.id, eventId))
+    expect(committed).toHaveLength(1)
+    expect(committed[0]?.workspaceSequence).toBe(1)
     expect(
-      await connection.db.select().from(workspaceEvents).where(eq(workspaceEvents.id, eventId))
+      await connection.db
+        .select()
+        .from(workspaceEventDispatches)
+        .where(eq(workspaceEventDispatches.eventId, eventId))
     ).toHaveLength(1)
     expect(
       await connection.db.select().from(commandOutbox).where(eq(commandOutbox.id, outboxId))
@@ -79,6 +89,8 @@ describe.skipIf(!connectionUrl)('PostgreSQL integration', () => {
     const workspaceId = randomUUID()
     const eventId = randomUUID()
     const ownerUserId = randomUUID()
+    // The rollback case asserts nothing survives, so the id only needs to be
+    // one the append would have used had it committed.
 
     await expect(
       inTransaction(connection.db, async (transaction) => {
@@ -90,10 +102,9 @@ describe.skipIf(!connectionUrl)('PostgreSQL integration', () => {
           ownerUserId,
         })
         await appendWorkspaceEvent(transaction, {
-          id: eventId,
-          workspaceId,
           eventType: 'workspace.created',
           payload: { workspaceId },
+          workspaceId,
         })
         throw new Error('rollback marker')
       })

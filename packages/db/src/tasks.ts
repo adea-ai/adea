@@ -11,6 +11,8 @@ import { and, asc, eq, inArray, not } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachTaskContentRef } from './content-refs'
+import type { WorkspaceEventType } from './event-contract'
+import { appendWorkspaceEvent } from './transactions'
 import {
   agents,
   artifacts,
@@ -20,7 +22,6 @@ import {
   taskDependencies,
   taskMutations,
   tasks,
-  workspaceEvents,
   workspaceMemberships,
 } from './schema'
 
@@ -193,7 +194,7 @@ async function runMutation(
   workspaceId: string,
   principal: UserPrincipalRef,
   commandType: string,
-  eventType: string,
+  eventType: WorkspaceEventType,
   payload: unknown,
   command: TaskCommand,
   mutate: () => Promise<TaskSummary>
@@ -243,7 +244,7 @@ async function runMutation(
       updatedAt: new Date(),
     })
     .where(eq(taskMutations.id, reservation.id))
-  await transaction.insert(workspaceEvents).values({
+  await appendWorkspaceEvent(transaction, {
     eventType,
     payload: {
       actorUserId: principal.userId,
@@ -415,7 +416,7 @@ async function mutateExisting(
   taskId: string,
   principal: UserPrincipalRef,
   commandType: string,
-  eventType: string,
+  eventType: WorkspaceEventType,
   payload: Record<string, unknown>,
   command: TaskCommand,
   mutate: (transaction: AgentHqTransaction, row: TaskRow) => Promise<TaskRow>

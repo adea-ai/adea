@@ -12,6 +12,7 @@ import { and, asc, eq, gt, inArray, isNull, max } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachMessageContentRef } from './content-refs'
 import { reopenTasksForChannelMessage } from './tasks'
+import { appendWorkspaceEvent } from './transactions'
 import {
   agents,
   artifacts,
@@ -22,7 +23,6 @@ import {
   messages,
   rooms,
   tasks,
-  workspaceEvents,
   workspaceMemberships,
 } from './schema'
 
@@ -248,7 +248,7 @@ export async function provisionPrimaryRoomChannelInTransaction(
     .onConflictDoNothing({ target: [channels.workspaceId, channels.idempotencyKey] })
     .returning()
   if (created) {
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'channel.created',
       payload: { channelId: created.id, kind: 'room', roomId },
       workspaceId,
@@ -351,7 +351,7 @@ async function createChannel(
       )
         throw new Error('Channel idempotency conflict')
     } else {
-      await transaction.insert(workspaceEvents).values({
+      await appendWorkspaceEvent(transaction, {
         eventType: 'channel.created',
         payload: { actorUserId: principal.userId, channelId: channel.id, kind: channel.kind },
         workspaceId,
@@ -531,7 +531,7 @@ export async function updateChannel(
       )
       .returning()
     if (!updated) throw new Error('Channel version conflict')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'channel.updated',
       payload: { actorUserId: principal.userId, channelId, version: updated.version },
       workspaceId,
@@ -571,7 +571,7 @@ export async function archiveChannel(
       )
       .returning()
     if (!archived) throw new Error('Channel version conflict')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'channel.archived',
       payload: { actorUserId: principal.userId, channelId, version: archived.version },
       workspaceId,
@@ -833,7 +833,7 @@ export async function createMessage(
         .values(
           artifactIds.map((artifactId) => ({ artifactId, messageId: created.id, workspaceId }))
         )
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'message.created',
       payload: {
         actorUserId: principal.userId,
@@ -933,7 +933,7 @@ export async function editMessage(
     if (!updated) throw new Error('Message version conflict')
     if (input.bodyContentRefId)
       await attachMessageContentRef(transaction, workspaceId, input.bodyContentRefId, messageId)
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'message.updated',
       payload: { actorUserId: principal.userId, messageId, version: updated.version },
       workspaceId,
@@ -974,7 +974,7 @@ export async function deleteMessage(
       )
       .returning()
     if (!deleted) throw new Error('Message version conflict')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'message.deleted',
       payload: { actorUserId: principal.userId, messageId, version: deleted.version },
       workspaceId,

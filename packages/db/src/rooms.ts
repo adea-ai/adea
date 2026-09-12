@@ -3,7 +3,8 @@ import { and, asc, eq, inArray, max } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { provisionPrimaryRoomChannelInTransaction } from './conversations'
-import { channels, rooms, workspaceEvents, workspaceMemberships } from './schema'
+import { channels, rooms, workspaceMemberships } from './schema'
+import { appendWorkspaceEvent } from './transactions'
 
 type RoomCreateInput = Readonly<{
   functionKey: string
@@ -86,7 +87,7 @@ export async function createRoom(
       created.id,
       created.name
     )
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'room.created',
       payload: { actorUserId: principal.userId, roomId: created.id },
       workspaceId,
@@ -173,7 +174,7 @@ export async function updateRoom(
       )
       .returning()
     if (!updated) throw new Error('Room unavailable')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'room.updated',
       payload: { actorUserId: principal.userId, roomId },
       workspaceId,
@@ -205,7 +206,7 @@ export async function archiveRoom(
         .update(channels)
         .set({ lifecycleState: 'archived', updatedAt: new Date(), version: channel.version + 1 })
         .where(and(eq(channels.id, channel.id), eq(channels.workspaceId, workspaceId)))
-      await transaction.insert(workspaceEvents).values({
+      await appendWorkspaceEvent(transaction, {
         eventType: 'channel.archived',
         payload: { actorUserId: principal.userId, channelId: channel.id, roomId },
         workspaceId,
@@ -223,7 +224,7 @@ export async function archiveRoom(
       )
       .returning({ id: rooms.id })
     if (!archived) throw new Error('Room unavailable')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'room.archived',
       payload: { actorUserId: principal.userId, roomId },
       workspaceId,
@@ -256,7 +257,7 @@ export async function reorderRooms(
         .set({ sortOrder, updatedAt: new Date() })
         .where(and(eq(rooms.id, roomId), eq(rooms.workspaceId, workspaceId)))
     }
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'room.reordered',
       payload: { actorUserId: principal.userId, roomIds: [...roomIds] },
       workspaceId,

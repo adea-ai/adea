@@ -9,8 +9,9 @@ import type {
 import { and, asc, eq } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { agents, artifacts, tasks, workspaceEvents, workspaceMemberships } from './schema'
+import { agents, artifacts, tasks, workspaceMemberships } from './schema'
 import type { JsonObject } from './schema'
+import { appendWorkspaceEvent } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 type ArtifactRow = typeof artifacts.$inferSelect
@@ -338,7 +339,7 @@ export async function createArtifact(
       .onConflictDoNothing({ target: [artifacts.workspaceId, artifacts.sourceArtifactRef] })
       .returning()
     if (created) {
-      await transaction.insert(workspaceEvents).values({
+      await appendWorkspaceEvent(transaction, {
         eventType: 'artifact.created',
         payload: { actorUserId: principal.userId, artifactId: created.id },
         workspaceId,
@@ -441,7 +442,7 @@ export async function setArtifactAvailability(
       .where(and(eq(artifacts.id, artifactId), eq(artifacts.version, expectedVersion)))
       .returning()
     if (!updated) throw new Error('Artifact version conflict')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'artifact.availability_changed',
       payload: { actorUserId: principal.userId, artifactId, availability },
       workspaceId,
@@ -476,7 +477,7 @@ export async function deleteArtifact(
       .where(and(eq(artifacts.id, artifactId), eq(artifacts.version, expectedVersion)))
       .returning()
     if (!updated) throw new Error('Artifact version conflict')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'artifact.deleted',
       payload: { actorUserId: principal.userId, artifactId },
       workspaceId,

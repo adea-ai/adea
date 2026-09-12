@@ -1,7 +1,8 @@
 import type { AgentProfileState, AgentSummary, UserPrincipalRef } from '@adea-ai/types'
 import { and, asc, eq } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { agents, rooms, workspaceEvents, workspaceMemberships } from './schema'
+import { agents, rooms, workspaceMemberships } from './schema'
+import { appendWorkspaceEvent } from './transactions'
 
 type AgentCreateInput = Readonly<{
   avatarRef?: string
@@ -104,7 +105,7 @@ export async function createAgent(
       })
       .returning()
     if (!created) throw new Error('Agent creation failed')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'agent.created',
       payload: { actorUserId: principal.userId, agentId: created.id },
       workspaceId,
@@ -183,7 +184,7 @@ export async function assignAgentToRoom(
       )
       .returning()
     if (!updated) throw new Error('Agent unavailable')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'agent.room_assigned',
       payload: { actorUserId: principal.userId, agentId, roomId },
       workspaceId,
@@ -226,7 +227,7 @@ export async function updateAgentPresentation(
       )
       .returning()
     if (!updated) throw new Error('Agent unavailable')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'agent.presentation_updated',
       payload: { actorUserId: principal.userId, agentId },
       workspaceId,
@@ -261,7 +262,7 @@ export async function changeAgentProfile(
       )
       .returning()
     if (!updated) throw new Error('Agent unavailable')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'agent.profile_changed',
       payload: {
         actorUserId: principal.userId,
@@ -295,7 +296,7 @@ export async function archiveAgent(
       )
       .returning({ id: agents.id })
     if (!updated) throw new Error('Agent unavailable')
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'agent.archived',
       payload: { actorUserId: principal.userId, agentId },
       workspaceId,
