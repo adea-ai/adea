@@ -1,0 +1,11 @@
+appId: com.adea.bench.electron
+productName: shell-bench-electron
+directories:
+  output: release
+files:
+  - main.cjs
+  - preload.cjs
+  - package.json
+mac:
+  target: dir
+  identity: null

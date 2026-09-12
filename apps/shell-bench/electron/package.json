@@ -1,0 +1,14 @@
+{
+  "name": "shell-bench-electron",
+  "version": "0.1.0",
+  "private": true,
+  "description": "M5.2 throwaway parity shell — deleted by #371",
+  "main": "main.cjs",
+  "scripts": {
+    "dist": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.7"
+  }
+}
