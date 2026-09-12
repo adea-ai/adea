@@ -33,6 +33,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdAgentsRouteImport } from './routes/a
 import { Route as ApiV1WorkspacesWorkspaceIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs'
+import { Route as ApiV1WorkspacesWorkspaceIdEventsRouteImport } from './routes/api/v1/workspaces/$workspaceId/events'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state'
 import { Route as ApiV1WorkspacesWorkspaceIdRoomsRouteImport } from './routes/api/v1/workspaces/$workspaceId/rooms'
 import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/api/v1/workspaces/$workspaceId/search'
@@ -189,6 +190,12 @@ const ApiV1WorkspacesWorkspaceIdContentRefsRoute =
   ApiV1WorkspacesWorkspaceIdContentRefsRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/content-refs',
     path: '/api/v1/workspaces/$workspaceId/content-refs',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdEventsRoute =
+  ApiV1WorkspacesWorkspaceIdEventsRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/events',
+    path: '/api/v1/workspaces/$workspaceId/events',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiV1WorkspacesWorkspaceIdReadStateRoute =
@@ -393,6 +400,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/rooms': typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -448,6 +456,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/rooms': typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -504,6 +513,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/events': typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   '/api/v1/workspaces/$workspaceId/rooms': typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -561,6 +571,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
+    | '/api/v1/workspaces/$workspaceId/events'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/rooms'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -616,6 +627,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
+    | '/api/v1/workspaces/$workspaceId/events'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/rooms'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -671,6 +683,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/artifacts'
     | '/api/v1/workspaces/$workspaceId/channels'
     | '/api/v1/workspaces/$workspaceId/content-refs'
+    | '/api/v1/workspaces/$workspaceId/events'
     | '/api/v1/workspaces/$workspaceId/read-state'
     | '/api/v1/workspaces/$workspaceId/rooms'
     | '/api/v1/workspaces/$workspaceId/search'
@@ -723,6 +736,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdEventsRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRoute
   ApiV1WorkspacesWorkspaceIdReadStateRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
   ApiV1WorkspacesWorkspaceIdRoomsRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdSearchRoute: typeof ApiV1WorkspacesWorkspaceIdSearchRoute
@@ -898,6 +912,13 @@ declare module '@tanstack/react-router' {
       path: '/api/v1/workspaces/$workspaceId/content-refs'
       fullPath: '/api/v1/workspaces/$workspaceId/content-refs'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/events': {
+      id: '/api/v1/workspaces/$workspaceId/events'
+      path: '/api/v1/workspaces/$workspaceId/events'
+      fullPath: '/api/v1/workspaces/$workspaceId/events'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/read-state': {
@@ -1341,6 +1362,7 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdContentRefsRoute:
     ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren,
+  ApiV1WorkspacesWorkspaceIdEventsRoute: ApiV1WorkspacesWorkspaceIdEventsRoute,
   ApiV1WorkspacesWorkspaceIdReadStateRoute:
     ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdRoomsRoute:

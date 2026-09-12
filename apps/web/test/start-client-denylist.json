@@ -7,5 +7,7 @@
   "/repo/node_modules/@neondatabase/auth/dist/server/index.js",
   "/repo/apps/web/src/server/workspace-principal.ts",
   "/repo/apps/web/src/start/worker.ts",
-  "/repo/node_modules/server-only/index.js"
+  "/repo/node_modules/server-only/index.js",
+  "/repo/apps/web/src/server/event-cursor.ts",
+  "/repo/apps/web/src/server/workspace-event-stream.ts"
 ]
