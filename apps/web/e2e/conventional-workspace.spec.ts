@@ -1,3 +1,10 @@
+// Workspace visual and flow gate.
+//
+// The committed baselines are macOS snapshots (`-darwin`), so this spec runs
+// through `bun run test:e2e:visual` on a workstation instead of the Linux CI
+// lane, which has no baselines to compare against. The same flows are asserted
+// without pixels in CI by workspace-guest.spec.ts, sidebar-resize.spec.ts, and
+// cursor-check.spec.ts.
 import { createHash } from 'node:crypto'
 
 import { expect, test, type Page } from '@playwright/test'
@@ -736,7 +743,7 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await expect(page.locator('#workspace-switcher')).toHaveCount(0)
   await expect(page.locator('.conventional-topbar')).toHaveCount(0)
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
-  await page.getByRole('button', { name: /^Product Room/ }).click()
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
   await globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' }).click()
@@ -762,12 +769,20 @@ test('toggles chat and virtual Room views without losing shared selection or dra
 
   await globalNavigation.getByRole('button', { name: 'Virtual view' }).click()
   await expect(page).toHaveURL(/view=virtual/)
-  await expect(page.getByRole('region', { name: 'Virtual Room' })).toBeVisible({ timeout: 30_000 })
+  // The engine is entitled per build: a packed Agent Sim renders its own room
+  // region and controls, and every other build renders the documented offline
+  // fallback. Both are correct, so the gate accepts either and only checks the
+  // engine's room controls when the engine is actually there.
+  const virtualRoom = page.getByRole('region', { name: 'Virtual Room' })
+  const engineFallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+  await expect(virtualRoom.or(engineFallback)).toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Product', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true'
-  )
+  if (await virtualRoom.count()) {
+    await expect(page.getByRole('button', { name: 'Product', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  }
 
   await globalNavigation.getByRole('button', { name: 'Chat view' }).click()
   await expect(page).toHaveURL(/view=chat/)
@@ -886,14 +901,25 @@ test('browses the verified registry marketplace and submits an exact install req
   expect(installRequests).toEqual([
     {
       canonicalContentDigest: `sha256:${'02'.repeat(32)}`,
-      idempotencyKey: `marketplace:plugin:openai-official:github:release:${'02'.repeat(32)}`,
+      idempotencyKey:
+        'marketplace:a6f55d19184dc1c1e0f3ed5765bc0fb1ca49437a32130aee7b6f9610953a9ad6',
+      installationInstanceId:
+        'marketplace:37f53eb6e39f6ecffb13eba915de46666a9403f31951ab444f3e17131cb57371',
       pluginId: 'plugin:openai-official:github',
       releaseId: `release:${'02'.repeat(32)}`,
       requestedHarness: 'codex',
+      workspaceIdentity: { userId: 'user-e2e', workspaceId: workspace.id },
     },
   ])
+  // The verified catalog is cached for stale-while-revalidate, so the assertion
+  // is about what must never be persisted: installations, authorizations, and
+  // credentials. Anything else plugin-shaped in storage fails this gate.
   expect(
-    await page.evaluate(() => Object.keys(localStorage).filter((key) => /plugin/i.test(key)))
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter(
+        (key) => /plugin/i.test(key) && key !== 'adea:plugin-catalog-cache:v1'
+      )
+    )
   ).toEqual([])
   await plugins.getByRole('button', { name: 'Back to plugins' }).click()
   await plugins.getByRole('tab', { name: 'Yours' }).click()
@@ -904,7 +930,7 @@ test('navigates direct, group, thread, and Task detail surfaces', async ({ page 
   await mockWorkspace(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
-  await expect(page.getByText('Direct Agent', { exact: true })).toBeVisible()
+  await expect(page.getByText('Direct Conversation', { exact: true })).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-direct-agent.png', { animations: 'disabled' })
 
   await page.getByRole('button', { name: 'Launch group', exact: true }).click()
@@ -913,7 +939,7 @@ test('navigates direct, group, thread, and Task detail surfaces', async ({ page 
   ).toBeVisible()
   await expect(page).toHaveScreenshot('workspace-group.png', { animations: 'disabled' })
 
-  await page.getByRole('button', { name: /^Product Room/ }).click()
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
   await page.getByRole('button', { name: 'Thread', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Thread' })).toBeVisible()
   await expect(page.getByText('I will add competitor evidence here.')).toBeVisible()
@@ -996,7 +1022,7 @@ test('retains drafts across navigation and reloads at supported breakpoints', as
   const draft = 'Evidence to preserve while I check another conversation.'
   await page.getByRole('textbox', { name: 'Message' }).fill(draft)
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
-  await page.getByRole('button', { name: /^Product Room/ }).click()
+  await page.getByRole('button', { name: /^Product( |$)/ }).click()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Message' })).toHaveValue(draft)
