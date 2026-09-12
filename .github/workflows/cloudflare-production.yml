@@ -12,7 +12,7 @@ permissions:
 jobs:
   production:
     name: Cloudflare Production / adea-web
-    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.21.1
+    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.28.14
     with:
       mode: production
       working-directory: apps/web
