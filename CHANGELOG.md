@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/adea-ai/adea/compare/v0.15.3...v0.16.0) (2026-09-12)
+
+
+### Features
+
+* Agent Sim engine loader with entitlement gate, UI styling parity, and width-independent sidebar flow ([#339](https://github.com/adea-ai/adea/issues/339)) ([4aef105](https://github.com/adea-ai/adea/commit/4aef105004ba926de5540362f01938a1c1a7885d))
+
 ## [0.15.3](https://github.com/adea-ai/adea/compare/v0.15.2...v0.15.3) (2026-09-12)
 
 
