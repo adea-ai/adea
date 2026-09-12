@@ -56,7 +56,9 @@ optional correlation id.
   removed membership (`membership-revoked`) or a revoked session or device
   (`session-revoked`) ends delivery within that window instead of at the next
   reconnect. The ending frame names which authorization changed. Denials answer
-  identically for unknown and unauthorized workspaces.
+  identically for unknown and unauthorized workspaces. Both the first check and
+  the recheck use `workspace.events.read` — the catalog permission for this
+  surface, held by every role that can read the workspace.
 - **Cursor v1** is opaque, versioned, HMAC-signed, workspace-bound, and expires.
   The key is derived from the deployment's auth cookie secret with a
   domain-separation label; without a usable secret the route refuses to sign and

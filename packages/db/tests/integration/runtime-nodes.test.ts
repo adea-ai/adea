@@ -102,7 +102,6 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     runtimeNodeId?: string
   ) {
     return createRuntimeNodeChallenge(connection.db, {
-      audience: kind,
       createdByUserId: userId,
       kind,
       nonce: crypto.randomUUID().replaceAll('-', ''),

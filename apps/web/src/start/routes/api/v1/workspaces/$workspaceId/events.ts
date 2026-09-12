@@ -72,9 +72,11 @@ async function get(request: Request, { params }: { params: { workspaceId: string
   const resolution = await resolveWorkspacePrincipal(request)
   if (!resolution) return workspaceUnavailableResponse(request, 401)
 
+  // The stream is its own surface: it authorizes with the catalog's
+  // `workspace.events.read`, which every role that can read the workspace holds.
   const authorization = await authorizeWorkspace(
     resolution.principal,
-    'workspace.read',
+    'workspace.events.read',
     workspaceId
   )
   // Unauthorized and unknown workspaces answer identically, so a subscriber
@@ -209,7 +211,7 @@ async function get(request: Request, { params }: { params: { workspaceId: string
             lastReauthorize = now
             const current = await resolveWorkspacePrincipal(request)
             const recheck = current
-              ? await authorizeWorkspace(current.principal, 'workspace.read', workspaceId)
+              ? await authorizeWorkspace(current.principal, 'workspace.events.read', workspaceId)
               : { allowed: false }
             const outcome = revalidationOutcome(
               current ? { principalId: current.principal.userId } : null,

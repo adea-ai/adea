@@ -90,7 +90,6 @@ async function post(request: Request, { params }: { params: { workspaceId: strin
   const database = applicationDatabase()
   try {
     const challenge = await createRuntimeNodeChallenge(database, {
-      audience: parsed.kind,
       createdByUserId: access.resolution.principal.userId,
       kind: parsed.kind,
       nonce: crypto.randomUUID().replaceAll('-', '') + crypto.randomUUID().replaceAll('-', ''),

@@ -57,10 +57,11 @@ Pairing is a signed exchange in three steps:
 
 1. **Open a challenge** (`POST .../runtime-nodes`). An owner or admin asks for a
    pairing challenge for a kind. The server stores a random 64-character nonce
-   with the challenge's purpose (`pair`), kind, audience, and workspace, and
-   returns `{ challengeId, expiresAt, nonce }`. For a `remote_host` the same
-   response carries a one-time **exchange credential**, returned exactly once
-   and stored only as a SHA-256 digest.
+   with the challenge's purpose (`pair`), kind, and workspace, and returns
+   `{ challengeId, expiresAt, nonce }`. The kind is the challenge's audience: a
+   `local_device` challenge cannot register a `remote_host`. For a `remote_host`
+   the same response carries a one-time **exchange credential**, returned exactly
+   once and stored only as a SHA-256 digest.
 2. **Sign the challenge.** The node signs the canonical message for its purpose
    (`runtimeNodeProofMessage`):
 
@@ -176,7 +177,11 @@ see it in the same transaction as the change:
 Payloads carry fingerprints and ids, never key material, and stay inside the
 fail-closed redaction rules of `docs/specs/workspace-events.md`.
 `aggregate_type` is `runtime_node` for all four, which is what lets a client
-refresh exactly one node's view from the stream.
+refresh exactly one node's view from the stream. The realtime client's family
+map has no `runtime_node` entry yet, so these events currently refresh the
+workspace scope (`['workspaces', workspaceId]`) — correct but coarse. Adding the
+family means adding a runtime-node query-key group to `packages/data` first, so
+the mapping and the keys land together rather than pointing at nothing.
 
 ## Failure semantics
 
@@ -199,6 +204,11 @@ challenges because deleting a challenge cascades to the credential that
 references it. Nodes, keys, and events are never pruned: an identity that was
 revoked years ago is still the answer to "which machine was that?".
 
+Like `pruneWorkspaceEventsBefore`, this is a retention function an operator or
+scheduled job calls; nothing runs it automatically, so the local database and CI
+never depend on a timer and a missing scheduler cannot silently shorten a
+challenge's life.
+
 ## What pins this
 
 - `packages/db/tests/integration/runtime-nodes.test.ts` — pairing and resume,
@@ -212,3 +222,6 @@ revoked years ago is still the answer to "which machine was that?".
   impostor key, and malformed input treated as failure rather than an exception.
 - `apps/web/start/browser/runtime-nodes.e2e.ts` — the whole flow against an
   isolated host and PostgreSQL, including the desktop-origin guard.
+- `scripts/event-stream-authorization-boundary.test.ts` — the stream authorizes
+  with `workspace.events.read` at both the first byte and the mid-stream
+  recheck, and every role that can read a workspace holds it.
