@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.2](https://github.com/adea-ai/adea/compare/v0.18.1...v0.18.2) (2026-09-12)
+
+
+### Maintenance
+
+* **ci:** report the desktop shell check on every pull request ([#349](https://github.com/adea-ai/adea/issues/349)) ([9c57cf6](https://github.com/adea-ai/adea/commit/9c57cf6904afdb526129ac6a09fe6960505f283c))
+
 ## [0.18.1](https://github.com/adea-ai/adea/compare/v0.18.0...v0.18.1) (2026-09-12)
 
 
