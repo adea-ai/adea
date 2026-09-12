@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.1](https://github.com/adea-ai/adea/compare/v0.18.0...v0.18.1) (2026-09-12)
+
+
+### Documentation
+
+* **ui:** per-module specs with a router, and CSS custom properties as the only color surface ([#347](https://github.com/adea-ai/adea/issues/347)) ([9f83b2c](https://github.com/adea-ai/adea/commit/9f83b2cf4b978bbf432b1bcf8778130dd52570cf))
+
 ## [0.18.0](https://github.com/adea-ai/adea/compare/v0.17.0...v0.18.0) (2026-09-12)
 
 
