@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.3](https://github.com/adea-ai/adea/compare/v0.18.2...v0.18.3) (2026-09-12)
+
+
+### Maintenance
+
+* **ui:** burn down the theme-color baseline and drop the dead shell capability list ([#350](https://github.com/adea-ai/adea/issues/350)) ([0ab42f0](https://github.com/adea-ai/adea/commit/0ab42f0ed17a1bd476832e4854b3fa01184f9710))
+
 ## [0.18.2](https://github.com/adea-ai/adea/compare/v0.18.1...v0.18.2) (2026-09-12)
 
 
