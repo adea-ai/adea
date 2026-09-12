@@ -10,6 +10,7 @@ import type {
   WorkspacePluginsProviderState,
 } from './platform'
 
+import { PLUGIN_ORG_DOMAINS } from './plugin-brand-domains'
 type JsonObject = Record<string, unknown>
 
 export type RegistryArtifactBundle = Readonly<{
@@ -257,31 +258,86 @@ export function parseCatalog(value: unknown): RegistryCatalog {
 // Upstream plugin sources publish no icon data (`icons: []`), so logos are
 // resolved from the plugin's own brand presence, mirroring how other agent
 // clients (Open Grok, Cursor) do it: Google's favicon service keyed by the
-// homepage domain returns the real colored logo for nearly every company
-// with a website; the Simple Icons CDN covers the rest by upstream name;
-// plugins with neither fall back to the logo initials.
+// company's domain returns the real colored logo for nearly every provider;
+// the Simple Icons CDN covers brands by name; plugins with neither fall
+// back to the logo initials.
 const GOOGLE_FAVICON_BASE = 'https://www.google.com/s2/favicons'
 const SIMPLE_ICONS_BASE = 'https://cdn.simpleicons.org'
 
-function homepageFaviconUrl(homepage: string): string | undefined {
+// Code hosts host the plugin SOURCE, not the brand — their favicon is never
+// the provider logo.
+const CODE_HOSTS = new Set(['github.com', 'www.github.com', 'gitlab.com'])
+
+// Upstream names that map to a different Simple Icons slug than themselves
+// (compound names like `deploy-on-aws`, or brands Simple Icons spells
+// differently, like `google-drive` → `googledrive`).
+const BRAND_SLUG_ALIASES: Readonly<Record<string, string>> = {
+  'amazon-location-service': 'amazonaws',
+  amazon: 'amazonaws',
+  'atlassian-twg-cli': 'atlassian',
+  'azure-cosmos-db-assistant': 'azurecosmosdb',
+  azure: 'microsoftazure',
+  'google-calendar': 'googlecalendar',
+  'google-cloud-storage': 'googlecloud',
+  'google-drive': 'googledrive',
+  outlook: 'microsoftoutlook',
+  'outlook-calendar': 'microsoftoutlook',
+  'outlook-email': 'microsoftoutlook',
+  'slack-by-salesforce': 'slack',
+}
+
+// Brand keywords recognized inside compound plugin names: the first token
+// match wins, longest alias first.
+const BRAND_TOKEN_SLUGS: Readonly<Record<string, string>> = {
+  adobe: 'adobe',
+  aws: 'amazonaws',
+  azure: 'microsoftazure',
+  cloudflare: 'cloudflare',
+  figma: 'figma',
+  github: 'github',
+  gitlab: 'gitlab',
+  google: 'google',
+  outlook: 'microsoftoutlook',
+  playwright: 'playwright',
+  slack: 'slack',
+}
+
+function homepageHost(homepage: string): string | undefined {
   try {
-    const hostname = new URL(homepage).hostname
-    if (hostname.length === 0) return undefined
-    return `${GOOGLE_FAVICON_BASE}?domain=${encodeURIComponent(hostname)}&sz=64`
+    return new URL(homepage).hostname || undefined
   } catch {
     return undefined
   }
 }
 
+function faviconForDomain(domain: string): string {
+  return `${GOOGLE_FAVICON_BASE}?domain=${encodeURIComponent(domain)}&sz=64`
+}
+
+function homepageFaviconUrl(homepage: string): string | undefined {
+  const host = homepageHost(homepage)
+  return host ? faviconForDomain(host) : undefined
+}
+
 export function pluginBrandIconUrl(upstreamName: string): string | undefined {
-  const slug = upstreamName.trim().toLowerCase()
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) return undefined
-  return `${SIMPLE_ICONS_BASE}/${slug}`
+  const name = upstreamName.trim().toLowerCase()
+  if (!name) return undefined
+  const alias = BRAND_SLUG_ALIASES[name]
+  if (alias) return `${SIMPLE_ICONS_BASE}/${alias}`
+  const tokens = name.split(/[-_. ]+/).filter(Boolean)
+  for (const token of tokens) {
+    const slug = BRAND_TOKEN_SLUGS[token]
+    if (slug) return `${SIMPLE_ICONS_BASE}/${slug}`
+  }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return undefined
+  return `${SIMPLE_ICONS_BASE}/${name}`
 }
 
 /**
  * Best-effort logo resolution for a catalog plugin: upstream-provided icon,
- * then the homepage domain's favicon, then the Simple Icons brand mark.
+ * the company website's favicon (via the brand domain for repository
+ * homepages), the Simple Icons brand mark, or undefined — the caller falls
+ * back to the logo initials.
  */
 export function pluginIconUrl(plugin: {
   icons: readonly unknown[]
@@ -290,13 +346,22 @@ export function pluginIconUrl(plugin: {
 }): string | undefined {
   const upstream = plugin.icons.find((icon): icon is string => typeof icon === 'string')
   if (upstream) return upstream
+  const upstreamName =
+    typeof plugin.upstreamPluginName === 'string' ? plugin.upstreamPluginName : undefined
   if (typeof plugin.homepage === 'string') {
-    const favicon = homepageFaviconUrl(plugin.homepage)
-    if (favicon) return favicon
+    const host = homepageHost(plugin.homepage)
+    if (host === undefined) return undefined
+    // The company website's favicon is the provider logo itself.
+    if (!CODE_HOSTS.has(host)) return homepageFaviconUrl(plugin.homepage)
+    // Repository homepage: a mapped GitHub org gives the company's favicon…
+    const org = new URL(plugin.homepage).pathname.split('/')[1]?.toLowerCase()
+    const orgDomain = org ? PLUGIN_ORG_DOMAINS[org] : undefined
+    if (orgDomain) return faviconForDomain(orgDomain)
+    // …otherwise fall back to a brand mark by plugin name.
+    if (upstreamName) return pluginBrandIconUrl(upstreamName)
+    return undefined
   }
-  if (typeof plugin.upstreamPluginName === 'string') {
-    return pluginBrandIconUrl(plugin.upstreamPluginName)
-  }
+  if (upstreamName) return pluginBrandIconUrl(upstreamName)
   return undefined
 }
 

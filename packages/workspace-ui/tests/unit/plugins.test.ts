@@ -253,10 +253,20 @@ describe('plugin icon resolution', () => {
     ).toBe('https://example.com/logo.svg')
   })
 
-  test('resolves the homepage domain favicon when upstream publishes none', () => {
+  test('resolves company favicons and brand marks for repository homepages', () => {
+    // Mapped org → the company site's favicon is the provider logo.
     expect(
-      pluginIconUrl({ icons: [], homepage: 'https://github.com/anthropics/claude-plugins-public/tree/main/x', upstreamPluginName: 'github' })
-    ).toBe('https://www.google.com/s2/favicons?domain=github.com&sz=64')
+      pluginIconUrl({ icons: [], homepage: 'https://github.com/adobe/skills/tree/main/plugins/creative-cloud/adobe-for-creativity', upstreamPluginName: 'adobe-for-creativity' })
+    ).toBe('https://www.google.com/s2/favicons?domain=www.adobe.com&sz=64')
+    expect(
+      pluginIconUrl({ icons: [], homepage: 'https://github.com/awslabs/agent-plugins', upstreamPluginName: 'deploy-on-aws' })
+    ).toBe('https://www.google.com/s2/favicons?domain=aws.amazon.com&sz=64')
+  })
+
+  test('falls back to the org favicon for unmapped brands on mapped orgs', () => {
+    expect(
+      pluginIconUrl({ icons: [], homepage: 'https://github.com/gemini-cli-extensions/spanner', upstreamPluginName: 'spanner' })
+    ).toBe('https://www.google.com/s2/favicons?domain=cloud.google.com&sz=64')
   })
 
   test('falls back to the Simple Icons brand mark by upstream name', () => {
