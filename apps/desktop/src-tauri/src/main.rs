@@ -2,6 +2,7 @@
 
 mod auth;
 mod boot;
+mod cloud;
 #[cfg(test)]
 mod ipc_contract;
 mod local_content;

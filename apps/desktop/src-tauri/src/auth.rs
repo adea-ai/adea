@@ -8,11 +8,12 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
+use crate::cloud::cloud_origin;
+
 use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 
 const CALLBACK_URI: &str = "adea://auth/callback";
-const DEFAULT_CLOUD_ORIGIN: &str = "https://adea.dev";
 const AUTHORIZATION_PATH: &str = "/api/auth/desktop/authorize";
 const CALLBACK_EVENT: &str = "desktop-auth-callback-ready";
 const AUTH_ATTEMPT_KEYCHAIN_USER: &str = "desktop-authorization-attempt";
@@ -26,12 +27,6 @@ const FORBIDDEN_PARAMETERS: [&str; 5] = [
     "session_token",
     "token",
 ];
-
-fn cloud_origin() -> &'static str {
-    option_env!("VITE_ADEA_CLOUD_ORIGIN")
-        .or(option_env!("ADEA_CLOUD_ORIGIN"))
-        .unwrap_or(DEFAULT_CLOUD_ORIGIN)
-}
 
 #[derive(Clone, Default)]
 pub struct DesktopAuthState(Arc<Mutex<Option<String>>>);

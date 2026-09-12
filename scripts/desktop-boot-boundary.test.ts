@@ -54,8 +54,8 @@ describe('desktop boot pipeline', () => {
       await readFile(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')
     ) as { identifier: string }
 
-    expect(boot).toContain("const LAUNCH_LOG_FILENAME: &str = \"launch-log.jsonl\"")
-    expect(boot).toContain("const LOG_DIRECTORY_NAME: &str = \"com.adea.desktop\"")
+    expect(boot).toContain('const LAUNCH_LOG_FILENAME: &str = "launch-log.jsonl"')
+    expect(boot).toContain('const LOG_DIRECTORY_NAME: &str = "com.adea.desktop"')
     // The log directory is derived from the bundle identifier, so the record
     // survives a reinstall of the same product.
     expect(config.identifier).toBe('com.adea.desktop')
@@ -67,7 +67,10 @@ describe('desktop boot pipeline', () => {
 
   test('opens the main window only after the boot steps pass', async () => {
     const boot = await readFile(join(shell, 'boot.rs'), 'utf8')
-    const startBody = boot.slice(boot.indexOf('fn start<R: Runtime>'), boot.indexOf('fn create_main_window'))
+    const startBody = boot.slice(
+      boot.indexOf('fn start<R: Runtime>'),
+      boot.indexOf('fn create_main_window')
+    )
     const order = [
       'verify_bundled_assets(app)?',
       'prepare_writable_directories(app)?',

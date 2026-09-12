@@ -41,7 +41,9 @@ import './styles.css'
 
 const packageVersion = packageJson.version
 
-const cloudOrigin = import.meta.env.VITE_ADEA_CLOUD_ORIGIN || 'https://adea.dev'
+// Injected by `vite.config.ts` from the same validated value the packaged CSP
+// and the native authorization allowlist use (see `src-tauri/src/cloud.rs`).
+const cloudOrigin = __ADEA_CLOUD_ORIGIN__
 
 const SpatialDesktopWorkspace = lazy(() =>
   import('./desktop-workspace').then(({ DesktopWorkspace }) => ({ default: DesktopWorkspace }))

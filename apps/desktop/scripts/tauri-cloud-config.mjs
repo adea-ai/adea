@@ -1,4 +1,8 @@
-const DEFAULT_CLOUD_ORIGIN = 'https://adea.dev'
+// The single JavaScript source of truth for the cloud origin. The desktop
+// client config and the Tauri build wrapper both read it, and the native
+// constant in src-tauri/src/cloud.rs is pinned to the same value by
+// scripts/desktop-origin-boundary.test.ts.
+export const DEFAULT_CLOUD_ORIGIN = 'https://adea.dev'
 
 export function normalizeDesktopCloudOrigin(value = DEFAULT_CLOUD_ORIGIN) {
   const url = new URL(value)
