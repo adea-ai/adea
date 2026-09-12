@@ -2,7 +2,7 @@
 // this Deno.serve handler, which proxies everything to the bench server on
 // :14209 (static client + /__bench endpoints). Disposable — deleted by #371.
 
-const UPSTREAM = 'http://127.0.0.1:14209'
+const UPSTREAM = 'http://127.0.0.1:1420'
 
 Deno.serve(async (req: Request) => {
   const incoming = new URL(req.url)

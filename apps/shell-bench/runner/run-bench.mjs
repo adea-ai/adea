@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 const BENCH_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const REPO_ROOT = dirname(dirname(BENCH_ROOT))
 const CLIENT_DIST = join(REPO_ROOT, 'apps', 'desktop', 'dist')
-const PORT = 14209
+const PORT = 1420
 const CLIENT_URL = `http://127.0.0.1:${PORT}/`
 const PROBE_URL = `http://127.0.0.1:${PORT}/__bench/probe`
 
@@ -233,14 +233,14 @@ async function proxyToCloud(req, res, url) {
   const headers = {}
   for (const [key, value] of Object.entries(req.headers)) {
     const k = key.toLowerCase()
-    if (['host', 'origin', 'referer', 'connection', 'content-length'].includes(k)) continue
+    if (['host', 'referer', 'connection', 'content-length'].includes(k)) continue
     if (Array.isArray(value)) headers[key] = value.join(', ')
     else headers[key] = value
   }
   // Bench-only: the hosted CP rejects desktop-client bootstrap without a device
   // credential (real app mints one via keyring — M5.3 item). Bench shells run
   // as browser-type clients for the workspace service.
-  if (headers['x-adea-client'] === 'desktop') headers['x-adea-client'] = 'browser'
+  // bench: keep x-adea-client as desktop (session-authenticated)
   try {
     const upstream = await fetch(`${CLOUD_ORIGIN}${url.pathname}${url.search}`, {
       method: req.method,

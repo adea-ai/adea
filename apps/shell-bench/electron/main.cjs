@@ -76,10 +76,18 @@ const handlers = {
     return null
   },
   desktop_auth_attempt_load: () => readJson('auth-attempt.json'),
-  desktop_auth_attempt_save: (a) => (writeJson('auth-attempt.json', a), null),
+  desktop_auth_attempt_save: (a) => (writeJson('auth-attempt.json', a?.attempt ?? a), null),
   desktop_auth_attempt_clear: () => (clearFile('auth-attempt.json'), null),
   desktop_auth_start: () => null,
-  desktop_auth_take_callback: () => null,
+  desktop_auth_take_callback: () => {
+    try {
+      const cb = fs.readFileSync(stateFile('callback.txt'), 'utf8').trim()
+      fs.rmSync(stateFile('callback.txt'))
+      return cb || null
+    } catch {
+      return null
+    }
+  },
   desktop_temporary_workspace_load: () => readJson('temporary-workspace.json'),
   desktop_temporary_workspace_save: (a) => (writeJson('temporary-workspace.json', a), null),
   desktop_temporary_workspace_clear: () => (clearFile('temporary-workspace.json'), null),
