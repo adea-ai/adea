@@ -254,7 +254,6 @@ export function parseCatalog(value: unknown): RegistryCatalog {
   }
 }
 
-
 // Upstream plugin sources publish no icon data (`icons: []`), so logos are
 // resolved from the plugin's own brand presence, mirroring how other agent
 // clients (Open Grok, Cursor) do it: Google's favicon service keyed by the

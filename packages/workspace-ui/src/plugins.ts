@@ -69,9 +69,7 @@ type PersistedPluginCache = Readonly<{
   plugins: readonly WorkspacePlugin[]
 }>
 
-function readPersistedPlugins(
-  workspaceId: string
-): PersistedPluginCache | undefined {
+function readPersistedPlugins(workspaceId: string): PersistedPluginCache | undefined {
   try {
     const raw = window.localStorage.getItem(PLUGIN_CACHE_STORAGE_KEY)
     if (!raw) return undefined
