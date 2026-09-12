@@ -142,6 +142,21 @@ function PluginBrowserRow({
   )
 }
 
+function usePluginPreviewCount(): number {
+  const [wide, setWide] = useState(
+    () => typeof window === 'undefined' || window.matchMedia('(min-width: 48rem)').matches
+  )
+  useEffect(() => {
+    const query = window.matchMedia('(min-width: 48rem)')
+    const onChange = (event: MediaQueryListEvent) => setWide(event.matches)
+    query.addEventListener('change', onChange)
+    return () => query.removeEventListener('change', onChange)
+  }, [])
+  // Wide viewports lay the grid out two columns; narrow ones use one. Three
+  // rows either way.
+  return wide ? 6 : 3
+}
+
 function PluginBrowserGroup({
   disabled,
   expanded,
@@ -149,6 +164,7 @@ function PluginBrowserGroup({
   onSelect,
   onToggle,
   plugins,
+  previewCount,
 }: Readonly<{
   disabled: boolean
   expanded: boolean
@@ -156,10 +172,11 @@ function PluginBrowserGroup({
   onSelect: (pluginId: string) => void
   onToggle: () => void
   plugins: readonly WorkspacePlugin[]
+  previewCount: number
 }>) {
   const id = `plugins-category-${name.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-')}`
-  const preview = expanded ? plugins : plugins.slice(0, 6)
-  const hidden = plugins.slice(6)
+  const preview = expanded ? plugins : plugins.slice(0, previewCount)
+  const hidden = plugins.slice(previewCount)
   const nextNames = hidden.slice(0, 2).map((plugin) => plugin.name)
   const expandLabel = `See ${nextNames.join(', ')}${hidden.length > 2 ? ' and more' : ''}`
 
@@ -373,6 +390,7 @@ export function PluginsDialog({
   open: boolean
   provider?: WorkspacePluginsProvider
 }>) {
+  const previewCount = usePluginPreviewCount()
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(() => new Set())
   const [plugins, setPlugins] = useState<readonly WorkspacePlugin[]>([])
   const [filterOpen, setFilterOpen] = useState(false)
@@ -519,6 +537,7 @@ export function PluginsDialog({
                   key={group.category}
                   name={group.category}
                   onSelect={setSelectedId}
+                  previewCount={previewCount}
                   onToggle={() =>
                     setExpandedGroups((current) => {
                       const next = new Set(current)
