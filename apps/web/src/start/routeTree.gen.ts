@@ -44,6 +44,8 @@ import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteImport } fr
 import { Route as ApiV1WorkspacesWorkspaceIdMessagesMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/messages/$messageId'
 import { Route as ApiV1WorkspacesWorkspaceIdRoomsRoomIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/rooms/$roomId'
 import { Route as ApiV1WorkspacesWorkspaceIdRoomsReorderRouteImport } from './routes/api/v1/workspaces/$workspaceId/rooms/reorder'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/index'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
@@ -52,6 +54,10 @@ import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRouteImport
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdArtifactsRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdAssignRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/assign'
@@ -258,6 +264,18 @@ const ApiV1WorkspacesWorkspaceIdRoomsReorderRoute =
     path: '/reorder',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdRoomsRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/runtime-nodes/',
+    path: '/api/v1/workspaces/$workspaceId/runtime-nodes/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/runtime-nodes/pair',
+    path: '/api/v1/workspaces/$workspaceId/runtime-nodes/pair',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdTasksTaskIdRoute =
   ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteImport.update({
     id: '/$taskId',
@@ -308,6 +326,32 @@ const ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute =
       getParentRoute: () => ApiV1WorkspacesWorkspaceIdReadStateRoute,
     } as any,
   )
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport.update(
+    {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges',
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof',
+    path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke',
+    path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate',
+    path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute =
   ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRouteImport.update({
     id: '/archive',
@@ -411,7 +455,9 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
   '/api/v1/workspaces/$workspaceId/rooms/$roomId': typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
   '/api/v1/workspaces/$workspaceId/rooms/reorder': typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/room': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
@@ -419,6 +465,10 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/assign': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdAssignRoute
@@ -467,7 +517,9 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
   '/api/v1/workspaces/$workspaceId/rooms/$roomId': typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
   '/api/v1/workspaces/$workspaceId/rooms/reorder': typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/runtime-nodes': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/room': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
@@ -475,6 +527,10 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/assign': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdAssignRoute
@@ -524,7 +580,9 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
   '/api/v1/workspaces/$workspaceId/rooms/$roomId': typeof ApiV1WorkspacesWorkspaceIdRoomsRoomIdRoute
   '/api/v1/workspaces/$workspaceId/rooms/reorder': typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdPresentationRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/profile': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdProfileRoute
   '/api/v1/workspaces/$workspaceId/agents/$agentId/room': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoomRoute
@@ -532,6 +590,10 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/channels/$channelId/participants': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
   '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdReadStateChannelsChannelIdRoute
   '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId': typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/assign': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdAssignRoute
@@ -582,7 +644,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
     | '/api/v1/workspaces/$workspaceId/rooms/$roomId'
     | '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
@@ -590,6 +654,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/assign'
@@ -638,7 +706,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
     | '/api/v1/workspaces/$workspaceId/rooms/$roomId'
     | '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
@@ -646,6 +716,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/assign'
@@ -694,7 +768,9 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
     | '/api/v1/workspaces/$workspaceId/rooms/$roomId'
     | '/api/v1/workspaces/$workspaceId/rooms/reorder'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/presentation'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/profile'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId/room'
@@ -702,6 +778,10 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/channels/$channelId/participants'
     | '/api/v1/workspaces/$workspaceId/read-state/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/artifacts'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/assign'
@@ -742,6 +822,12 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdSearchRoute: typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   ApiV1WorkspacesWorkspaceIdTasksRoute: typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute: typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -991,6 +1077,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsReorderRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdRoomsRoute
     }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/pair': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/pair'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/workspaces/$workspaceId/tasks/$taskId': {
       id: '/api/v1/workspaces/$workspaceId/tasks/$taskId'
       path: '/$taskId'
@@ -1046,6 +1146,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/v1/workspaces/$workspaceId/read-state/threads/$threadRootMessageId'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRoute
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': {
       id: '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
@@ -1372,6 +1500,18 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute:
     ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesPairRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesIndexRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

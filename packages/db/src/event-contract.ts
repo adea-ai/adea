@@ -18,6 +18,7 @@ export type WorkspaceEventAggregateType =
   | 'content_ref'
   | 'message'
   | 'room'
+  | 'runtime_node'
   | 'task'
   | 'workspace'
 
@@ -73,6 +74,26 @@ export const WORKSPACE_EVENT_CONTRACTS = {
   'room.created': { schemaVersion: 1, aggregateType: 'room', aggregateIdKey: 'roomId' },
   'room.reordered': { schemaVersion: 1, aggregateType: 'room' },
   'room.updated': { schemaVersion: 1, aggregateType: 'room', aggregateIdKey: 'roomId' },
+  'runtime_node.key_rotated': {
+    schemaVersion: 1,
+    aggregateType: 'runtime_node',
+    aggregateIdKey: 'runtimeNodeId',
+  },
+  'runtime_node.paired': {
+    schemaVersion: 1,
+    aggregateType: 'runtime_node',
+    aggregateIdKey: 'runtimeNodeId',
+  },
+  'runtime_node.proof_accepted': {
+    schemaVersion: 1,
+    aggregateType: 'runtime_node',
+    aggregateIdKey: 'runtimeNodeId',
+  },
+  'runtime_node.revoked': {
+    schemaVersion: 1,
+    aggregateType: 'runtime_node',
+    aggregateIdKey: 'runtimeNodeId',
+  },
   'thread.read': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'thread.unread': { schemaVersion: 1, aggregateType: 'channel', aggregateIdKey: 'channelId' },
   'task.archived': { schemaVersion: 1, aggregateType: 'task', aggregateIdKey: 'taskId' },

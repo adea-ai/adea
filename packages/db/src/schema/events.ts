@@ -25,6 +25,7 @@ export const workspaceEventAggregateType = appSchema.enum('workspace_event_aggre
   'agent',
   'artifact',
   'content_ref',
+  'runtime_node',
 ])
 
 export const workspaceEventActorKind = appSchema.enum('workspace_event_actor_kind', [

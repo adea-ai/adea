@@ -162,6 +162,51 @@ export type ApiRoomUpdateInput = Readonly<{
   templateKey?: string | null
 }>
 
+export type ApiRuntimeNodeKey = Readonly<{
+  algorithm: 'ed25519' | 'x25519'
+  fingerprint: string
+  keyVersion: number
+  publicKey: string
+  retiredAt: string | null
+  role: 'signing' | 'command_encryption'
+  verifiedAt: string | null
+}>
+
+/** Product read model for a registered execution host. Public material only. */
+export type ApiRuntimeNode = Readonly<{
+  displayName: string
+  health: 'healthy' | 'stale' | 'unknown'
+  id: string
+  keys: readonly ApiRuntimeNodeKey[]
+  kind: 'local_device' | 'remote_host'
+  lastProofAt: string | null
+  lastSeenAt: string | null
+  pairedAt: string
+  pairingState: 'paired' | 'revoked'
+  platform: string
+  revocationReason: string | null
+  revokedAt: string | null
+  softwareVersion: string
+  trustMetadata: Record<string, unknown>
+}>
+
+export type ApiRuntimeNodeResponse = Readonly<{ nodes: readonly ApiRuntimeNode[] }>
+
+export type ApiRuntimeNodeChallenge = Readonly<{
+  challengeId: string
+  expiresAt: string
+  nonce: string
+}>
+
+export type ApiRuntimeNodeChallengeResponse = Readonly<{
+  challenge: ApiRuntimeNodeChallenge
+  /** Returned once for a `remote_host`; the server stores only its digest. */
+  exchangeCredential: string | null
+  node: null
+}>
+
+export type ApiRuntimeNodeRegistrationResponse = Readonly<{ node: ApiRuntimeNode }>
+
 export type ApiRoomResponse = Readonly<{ room: RoomSummary }>
 export type ApiRoomArchiveResponse = Readonly<{ archived: true }>
 

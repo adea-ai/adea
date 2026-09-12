@@ -31,7 +31,12 @@ describe('workspace event cursor', () => {
 
   test('does not expose the raw sequence as the token', async () => {
     const token = await encodeWorkspaceEventCursor({ sequence: 42, workspaceId }, environment)
-    expect(token).not.toContain('42')
+    // The payload is base64url, so the sequence and its delimiters are not
+    // readable text. Asserting on the bare digits would be a coin toss: the
+    // signature half is random enough to contain "42" on its own.
+    expect(token).not.toContain(':42:')
+    expect(token).not.toContain(`42:${workspaceId}`)
+    expect(token).not.toContain(workspaceId)
   })
 
   test('refuses a cursor bound to another workspace', async () => {
