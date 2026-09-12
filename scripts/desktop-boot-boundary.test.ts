@@ -62,6 +62,9 @@ describe('desktop boot pipeline', () => {
     expect(boot).toContain('LaunchEvent::Started')
     expect(boot).toContain('LaunchEvent::Ready')
     expect(boot).toContain('LaunchEvent::Exited')
+    // The clean-exit record is written from the run loop's exit event; nothing
+    // else in the shell observes it.
+    expect(boot).toContain('tauri::RunEvent::Exit')
     expect(boot).toContain('MAX_LAUNCH_RECORDS')
   })
 

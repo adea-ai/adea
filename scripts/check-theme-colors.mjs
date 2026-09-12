@@ -41,28 +41,16 @@ export const TOKEN_FILES = [
 ]
 
 /**
- * Literals that are not theme decisions and cannot move behind a custom
- * property, plus the legacy component styles still to be burned down. Each
- * entry pins an exact count: adding a literal fails, and so does fixing one
- * without updating the baseline, which is what keeps the list shrinking.
+ * Literals that cannot move behind a custom property. Each entry pins an exact
+ * count: adding a literal fails, and so does fixing one without updating the
+ * baseline, which is what keeps the list shrinking.
  */
 export const BASELINE = [
-  {
-    file: 'packages/ui/src/styles/conventional-workspace.css',
-    literals: 19,
-    reason:
-      'legacy workspace stylesheet: its amber notice family and shadow overlays predate the token layer',
-  },
-  {
-    file: 'packages/ui/src/components/workspace-logo.tsx',
-    literals: 4,
-    reason: 'brand artwork: the logo mark ships its own palette',
-  },
   {
     file: 'apps/web/src/start/routes/__root.tsx',
     literals: 2,
     reason:
-      'browser theme-color meta tags require concrete colors; they mirror --background and --foreground',
+      'browser theme-color meta tags take a color value rather than a custom property, so the light and dark page background have to be written out',
   },
 ]
 

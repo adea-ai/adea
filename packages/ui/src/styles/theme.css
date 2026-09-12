@@ -53,6 +53,10 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  /* The Adea mark keeps its own pairing in both themes; these are the two
+     values the logo used to hardcode. */
+  --workspace-logo-surface: #111827;
+  --workspace-logo-foreground: #f8fafc;
 }
 
 .dark {
