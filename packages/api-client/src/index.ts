@@ -939,6 +939,30 @@ export class AgentHqApiClient {
     })
   }
 
+  /** Durable workspace event stream URL for one workspace. */
+  workspaceEventStreamUrl(workspaceId: string): string {
+    return `${this.baseUrl}/v1/workspaces/${workspaceId}/events`
+  }
+
+  /**
+   * Auth headers for a streaming request. SSE over `fetch` cannot rely on the
+   * client's own request path, so the event stream asks the client for the same
+   * identity its REST calls use instead of rebuilding it per application.
+   */
+  eventStreamHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { Accept: 'text/event-stream' }
+    if (this.client === 'desktop') headers['X-Adea-Client'] = 'desktop'
+    const desktopSession = this.getDesktopSession?.()
+    const accessToken = this.getAccessToken?.()
+    const temporaryCredential = this.getTemporaryCredential?.()
+    if (desktopSession) {
+      headers.Authorization = `Desktop ${desktopSession.credential}`
+      headers['X-Adea-Desktop-Session'] = desktopSession.sessionId
+    } else if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+    else if (temporaryCredential) headers.Authorization = `Temporary ${temporaryCredential}`
+    return headers
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers)
     headers.set('Accept', 'application/json')

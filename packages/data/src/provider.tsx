@@ -1,8 +1,10 @@
 'use client'
 
 import { useWorkspaceStore } from '@adea-ai/state'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+
+import { createWorkspaceEventSubscription } from './events'
 
 /**
  * Releases every cached query and in-flight request belonging to one workspace.
@@ -40,4 +42,35 @@ export function AgentHqQueryProvider({ children }: { children: ReactNode }) {
   }, [queryClient, selectedWorkspaceId])
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+}
+
+/**
+ * Keeps the cache current from the durable workspace event stream while a
+ * workspace is open, and drops the subscription when it closes or changes. The
+ * subscription owns reconnection, cursor persistence, and gap recovery; this
+ * hook only decides when it should exist.
+ */
+export function useWorkspaceEventStream(
+  options: Readonly<{
+    workspaceId: string | undefined
+    url: string | undefined
+    headers?: () => Record<string, string>
+  }>
+) {
+  const queryClient = useQueryClient()
+  const { headers, url, workspaceId } = options
+  // Callers build the header callback inline; holding it in a ref keeps the
+  // subscription identity tied to the workspace rather than to a render.
+  const headersRef = useRef(headers)
+  headersRef.current = headers
+  useEffect(() => {
+    if (!workspaceId || !url) return
+    const subscription = createWorkspaceEventSubscription({
+      headers: () => headersRef.current?.() ?? {},
+      queryClient,
+      url,
+      workspaceId,
+    })
+    return () => subscription.stop()
+  }, [queryClient, url, workspaceId])
 }

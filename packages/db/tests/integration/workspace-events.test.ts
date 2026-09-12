@@ -331,6 +331,39 @@ describe.skipIf(!connectionUrl)('durable workspace events', () => {
     )
   })
 
+  test('two clients at different cursors converge on the same durable history', async () => {
+    const { start, workspace } = await fixture('events-convergence')
+
+    // Client A applies the first two events, client B nothing yet.
+    const first = await append(workspace.id, 'message.created', { messageId: crypto.randomUUID() })
+    const second = await append(workspace.id, 'message.updated', { messageId: crypto.randomUUID() })
+    const clientACursor = second.workspaceSequence
+
+    // A third event lands while client A is connected and client B is away.
+    const third = await append(workspace.id, 'message.deleted', { messageId: crypto.randomUUID() })
+
+    const clientB = await listWorkspaceEventsAfter(connection.db, workspace.id, start)
+    const clientAResume = await listWorkspaceEventsAfter(connection.db, workspace.id, clientACursor)
+
+    // Both converge on the same final state: B replays everything it missed,
+    // A resumes after its cursor, and neither depends on a transient delta.
+    const clientAHistory = [first, second]
+      .map((event) => event.eventId)
+      .concat(clientAResume.map((event) => event.eventId))
+    expect(clientAHistory).toEqual(clientB.map((event) => event.eventId))
+    expect(clientAResume.map((event) => event.workspaceSequence)).toEqual([third.workspaceSequence])
+
+    // Replay is idempotent across clients: the same cursor yields the same page.
+    expect(await listWorkspaceEventsAfter(connection.db, workspace.id, start)).toEqual(clientB)
+    // And no client can reach another workspace's history.
+    const other = await fixture('events-convergence-other')
+    expect(
+      (await listWorkspaceEventsAfter(connection.db, other.workspace.id, 0)).map(
+        (event) => event.eventId
+      )
+    ).not.toContain(third.eventId)
+  })
+
   test('artifact availability changes travel as bounded metadata events', async () => {
     const { owner, workspace } = await fixture('events-artifact')
     const artifact = await createArtifact(connection.db, workspace.id, owner.principal, {
