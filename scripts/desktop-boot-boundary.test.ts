@@ -75,6 +75,7 @@ describe('desktop boot pipeline', () => {
       'verify_bundled_assets(app)?',
       'prepare_writable_directories(app)?',
       'register_native_services(app)?',
+      'initialize_preferences(app)?',
       'initialize_local_content(app)?',
       'create_main_window(app)',
     ]
@@ -85,6 +86,28 @@ describe('desktop boot pipeline', () => {
       expect(index).toBeGreaterThan(cursor)
       cursor = index
     }
+  })
+
+  test('applies restored window geometry before the window is visible', async () => {
+    const boot = await readFile(join(shell, 'boot.rs'), 'utf8')
+    const windowState = await readFile(join(shell, 'window_state.rs'), 'utf8')
+    const createWindow = boot.slice(
+      boot.indexOf('fn create_main_window'),
+      boot.indexOf('pub fn install')
+    )
+
+    // Geometry comes from the versioned preferences store and is applied to the
+    // builder; the window is only shown once it is in place, which is what
+    // keeps a resize flash out of the launch.
+    expect(createWindow).toContain('crate::window_state::restore_geometry(')
+    expect(createWindow).toContain('.visible(false)')
+    expect(createWindow).toContain('.show()')
+    expect(createWindow.indexOf('.visible(false)')).toBeLessThan(createWindow.indexOf('.show()'))
+    // The minimum size stays a hardcoded floor rather than a restored value.
+    expect(createWindow).toContain('.min_inner_size(960.0, 640.0)')
+    expect(windowState).toContain('pub const WINDOW_GROUP')
+    expect(windowState).toContain('fn restore_onto')
+    expect(windowState).toContain('WindowGeometryTracker')
   })
 
   test('serves the auth callback channel and updater from the boot pipeline', async () => {

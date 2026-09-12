@@ -6,9 +6,11 @@ import { ThemeToggle } from '@adea-ai/ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-react'
 
+import { CapabilityList } from './capability-card'
 import { ModalDialog } from './modal-dialog'
 import {
   defaultWorkspacePreferences,
+  type CapabilitySnapshot,
   type WorkspacePlatformServices,
   type WorkspacePreferences,
 } from './platform'
@@ -80,6 +82,8 @@ export function WorkspaceSettingsDialog({
   const [privateHealth, setPrivateHealth] = useState<'available' | 'checking' | 'unavailable'>(
     services?.privateContent ? 'checking' : 'unavailable'
   )
+  const [capabilities, setCapabilities] = useState<CapabilitySnapshot | undefined>()
+  const [capabilitiesBusy, setCapabilitiesBusy] = useState(false)
   const navigationRefs = useRef(new Map<SettingsSection, HTMLButtonElement>())
 
   useEffect(() => {
@@ -91,6 +95,7 @@ export function WorkspaceSettingsDialog({
       ?.load()
       .then((loaded) => active && setPreferences(loaded))
       .catch(() => active && setSaveState('error'))
+    void refreshCapabilities(false)
     if (services?.privateContent?.health) {
       setPrivateHealth('checking')
       void services.privateContent
@@ -103,7 +108,7 @@ export function WorkspaceSettingsDialog({
     return () => {
       active = false
     }
-  }, [open, services?.privateContent, services?.settings, workspace.id])
+  }, [open, services?.capabilities, services?.privateContent, services?.settings, workspace.id])
 
   useEffect(() => {
     if (!open) return
@@ -113,6 +118,18 @@ export function WorkspaceSettingsDialog({
     window.addEventListener('resize', revealSelected)
     return () => window.removeEventListener('resize', revealSelected)
   }, [open, section])
+
+  async function refreshCapabilities(force: boolean) {
+    if (!services?.capabilities) return
+    setCapabilitiesBusy(true)
+    try {
+      setCapabilities(await services.capabilities.snapshot({ force }))
+    } catch {
+      setCapabilities(undefined)
+    } finally {
+      setCapabilitiesBusy(false)
+    }
+  }
 
   const selectSection = (next: SettingsSection, focus = false) => {
     setSection(next)
@@ -430,6 +447,13 @@ export function WorkspaceSettingsDialog({
                   detail="Create an Agent to establish an authoritative profile reference."
                 />
               )}
+              {capabilities ? (
+                <CapabilityList
+                  busy={capabilitiesBusy}
+                  onRefresh={() => void refreshCapabilities(true)}
+                  snapshot={capabilities}
+                />
+              ) : null}
               <SettingsRow
                 title="Plugin runtime connections"
                 detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."

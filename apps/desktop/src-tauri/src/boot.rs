@@ -432,7 +432,9 @@ fn start<R: Runtime>(app: &mut App<R>) -> Result<(), BootError> {
     verify_bundled_assets(app)?;
     prepare_writable_directories(app)?;
     register_native_services(app)?;
+    initialize_preferences(app)?;
     initialize_local_content(app)?;
+    initialize_capabilities(app)?;
     create_main_window(app)
 }
 
@@ -453,6 +455,21 @@ fn register_native_services<R: Runtime>(app: &mut App<R>) -> Result<(), BootErro
         .map_err(|detail| BootError::new(BootFailureKind::NativeServiceUnavailable, detail))
 }
 
+/// The versioned preferences store backs both the client's settings and the
+/// window's own geometry, so it exists before the window is created.
+fn initialize_preferences<R: Runtime>(app: &mut App<R>) -> Result<(), BootError> {
+    if app
+        .try_state::<crate::preferences::PreferencesStore>()
+        .is_some()
+    {
+        return Ok(());
+    }
+    let store = crate::preferences::PreferencesStore::at_app_config(app.handle())
+        .map_err(|detail| BootError::new(BootFailureKind::DataDirUnavailable, detail))?;
+    app.manage(store);
+    Ok(())
+}
+
 /// The encrypted local content store is initialized before any window can call
 /// its commands. `initialize` degrades to an unavailable store on its own, so
 /// only an unresolvable data directory is a boot failure.
@@ -469,6 +486,26 @@ fn initialize_local_content<R: Runtime>(app: &mut App<R>) -> Result<(), BootErro
         .map_err(|error| BootError::new(BootFailureKind::DataDirUnavailable, error.to_string()))?;
     app.manage(crate::local_content::LocalContentState::initialize(
         &directory,
+    ));
+    Ok(())
+}
+
+/// The capability registry probes the stores the steps above initialized, so it
+/// is built once they exist and managed for the lifetime of the app.
+fn initialize_capabilities<R: Runtime>(app: &mut App<R>) -> Result<(), BootError> {
+    if app
+        .try_state::<crate::capabilities::CapabilityRegistry>()
+        .is_some()
+    {
+        return Ok(());
+    }
+    let local_content = app
+        .state::<crate::local_content::LocalContentState>()
+        .inner()
+        .clone();
+    app.manage(crate::capabilities::CapabilityRegistry::new(
+        app.handle(),
+        local_content,
     ));
     Ok(())
 }
@@ -515,13 +552,48 @@ fn probe_writable_directory(directory: &Path) -> std::io::Result<()> {
     fs::remove_file(&probe)
 }
 
+/// Create the main window with the geometry the last launch ended with. The
+/// window stays hidden until its restored geometry is applied, which is what
+/// keeps a resize flash out of the launch, and its geometry is written back on
+/// resize, move, and close.
 fn create_main_window<R: Runtime>(app: &mut App<R>) -> Result<(), BootError> {
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+    let preferences = app
+        .state::<crate::preferences::PreferencesStore>()
+        .inner()
+        .clone();
+    let geometry = crate::window_state::restore_geometry(
+        &preferences,
+        &crate::window_state::monitor_bounds(app.handle()),
+    );
+
+    let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
         .title("Adea")
-        .inner_size(1440.0, 960.0)
+        .inner_size(geometry.width, geometry.height)
         .min_inner_size(960.0, 640.0)
+        .maximized(geometry.maximized)
+        .visible(false);
+    if let (Some(x), Some(y)) = (geometry.x, geometry.y) {
+        builder = builder.position(x, y);
+    }
+
+    let window = builder
         .build()
-        .map(|_| ())
+        .map_err(|error| BootError::new(BootFailureKind::WebviewFailure, error.to_string()))?;
+
+    let tracker = crate::window_state::WindowGeometryTracker::new(preferences);
+    let tracked_window = window.clone();
+    window.on_window_event(move |event| match event {
+        tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Moved(_) => {
+            tracker.record(&tracked_window, false)
+        }
+        tauri::WindowEvent::CloseRequested { .. } | tauri::WindowEvent::Destroyed => {
+            tracker.record(&tracked_window, true)
+        }
+        _ => {}
+    });
+
+    window
+        .show()
         .map_err(|error| BootError::new(BootFailureKind::WebviewFailure, error.to_string()))
 }
 

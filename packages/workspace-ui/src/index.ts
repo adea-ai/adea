@@ -31,10 +31,23 @@ export {
   verifyRegistryArtifacts,
 } from './marketplace-catalog'
 export { WorkspaceSettingsDialog } from './workspace-settings'
+export { CapabilityCard, CapabilityList } from './capability-card'
+export {
+  capabilitiesNeedingAttention,
+  capabilitySnapshotAge,
+  presentCapability,
+  presentCapabilityState,
+  type CapabilityPresentation,
+  type CapabilityTone,
+} from './capability-status'
 export { mergeTranscription } from './transcription'
 export { canonicalNotificationHref, notificationPreview } from './notifications'
 export { createBrowserSettingsProvider, normalizeWorkspacePreferences } from './preferences'
 export type {
+  CapabilityProvider,
+  CapabilitySnapshot,
+  CapabilityState,
+  CapabilityStatus,
   PrivateContentResolver,
   TranscriptionProvider,
   TranscriptionSession,
