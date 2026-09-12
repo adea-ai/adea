@@ -4,6 +4,7 @@ use std::{
 };
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
@@ -362,6 +363,53 @@ pub fn queue_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) -> bool {
         return true;
     }
     false
+}
+
+fn reveal_main_window<R: Runtime>(app: &AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    let _ = app.show();
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+/// A callback that reaches an already-running app must surface the window that
+/// is waiting for it, otherwise the sign-in looks like it did nothing.
+pub fn receive_auth_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) {
+    if queue_callback(app, raw_url) {
+        reveal_main_window(app);
+    }
+}
+
+/// Own the callback channel: register the scheme where the platform requires
+/// it, deliver a callback that launched this process, and listen for later
+/// ones. Returns the failing step's detail when the channel cannot be opened.
+pub fn start_deep_link_channel<R: Runtime>(app: &tauri::App<R>) -> Result<(), String> {
+    #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+    app.deep_link()
+        .register_all()
+        .map_err(|error| format!("deep link registration: {error}"))?;
+
+    if let Some(urls) = app
+        .deep_link()
+        .get_current()
+        .map_err(|error| format!("deep link handoff: {error}"))?
+    {
+        for url in urls {
+            queue_callback(app.handle(), url.as_str());
+        }
+    }
+
+    let app_handle = app.handle().clone();
+    app.deep_link().on_open_url(move |event| {
+        for url in event.urls() {
+            receive_auth_callback(&app_handle, url.as_str());
+        }
+    });
+    Ok(())
 }
 
 #[cfg(test)]

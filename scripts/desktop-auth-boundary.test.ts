@@ -204,13 +204,17 @@ describe('desktop packaging and privilege boundary', () => {
   })
 
   test('reveals and focuses the desktop window whenever a callback reaches a running app', async () => {
+    // The callback channel lives with the rest of the auth boundary; the entry
+    // point only hands single-instance arguments to it.
     const main = await readFile(join(root, 'apps/desktop/src-tauri/src/main.rs'), 'utf8')
+    const auth = await readFile(join(root, 'apps/desktop/src-tauri/src/auth.rs'), 'utf8')
 
-    expect(main).toContain('fn reveal_main_window')
-    expect(main).toContain('window.show()')
-    expect(main).toContain('window.unminimize()')
-    expect(main).toContain('window.set_focus()')
-    expect(main.match(/receive_auth_callback/g)).toHaveLength(3)
+    expect(auth).toContain('fn reveal_main_window')
+    expect(auth).toContain('window.show()')
+    expect(auth).toContain('window.unminimize()')
+    expect(auth).toContain('window.set_focus()')
+    expect(main).toContain('auth::receive_auth_callback(app, &argument)')
+    expect(`${main}${auth}`.match(/receive_auth_callback/g)).toHaveLength(3)
   })
 
   test('uses one shared visual shell for browser and desktop authentication', async () => {

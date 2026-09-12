@@ -185,8 +185,9 @@ impl UpdaterState {
         )
         .await
         {
-            Ok(result) => result
-                .map_err(|error| format!("verify and install signed Adea update: {error}")),
+            Ok(result) => {
+                result.map_err(|error| format!("verify and install signed Adea update: {error}"))
+            }
             Err(_) => Err(format!(
                 "signed Adea update timed out after {} seconds",
                 UPDATE_TIMEOUT.as_secs()
@@ -305,7 +306,9 @@ mod tests {
     fn snapshot_contains_plain_changelog_source() {
         let snapshot = UpdateSnapshot::default();
         assert_eq!(snapshot.github_url, GITHUB_URL);
-        assert!(snapshot.changelog.len() <= MAX_RELEASE_NOTES_CHARS);
+        // `bounded` budgets characters; byte length is not the invariant (the
+        // bundled changelog contains multi-byte punctuation).
+        assert!(snapshot.changelog.chars().count() <= MAX_RELEASE_NOTES_CHARS);
         assert!(snapshot.changelog.contains("Changelog"));
     }
 

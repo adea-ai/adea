@@ -1,0 +1,108 @@
+name: Desktop shell
+
+# Rust validation for the Tauri shell.
+#
+# The Code Foundry validation lanes lint, type-check, test, and scan the
+# JavaScript workspaces; their Rust steps only engage for a repository-root
+# `Cargo.toml`, which this repository does not have. This workflow closes that
+# gap for `apps/desktop/src-tauri` — format, clippy with warnings denied, and
+# the crate's own unit tests (boot taxonomy and launch log, the IPC contract
+# parity test, preference migrations). It is path-filtered because a cold build
+# of the Tauri dependency graph is the expensive part.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/src-tauri/**'
+      - 'vendor/**'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/scripts/**'
+      - 'apps/desktop/vite.config.ts'
+      - '.github/workflows/desktop-shell.yml'
+  pull_request:
+    branches: [main]
+    # Draft pull requests allocate no runner; validation starts at the ready
+    # transition and reruns for later commits, matching the validation lanes.
+    types:
+      - ready_for_review
+      - synchronize
+    paths:
+      - 'apps/desktop/src-tauri/**'
+      - 'vendor/**'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/scripts/**'
+      - 'apps/desktop/vite.config.ts'
+      - '.github/workflows/desktop-shell.yml'
+
+permissions: {}
+
+# Superseded updates cancel the previous run.
+concurrency:
+  group: desktop-shell-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  shell:
+    name: Rust shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/desktop/src-tauri
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.0
+          no-cache: true
+
+      # `tauri::generate_context!` embeds the frontend bundle at compile time
+      # and refuses to build when it is missing, so the client comes first.
+      - name: Build bundled client assets
+        working-directory: .
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run --cwd apps/desktop shell:client:build
+
+      - name: Install Tauri system dependencies
+        working-directory: .
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test

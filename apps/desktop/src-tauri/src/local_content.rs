@@ -23,6 +23,7 @@ use zeroize::Zeroizing;
 const DATABASE_FILENAME: &str = "local-content.sqlite3";
 const KEYCHAIN_SERVICE: &str = "com.adea.desktop.local-content";
 const SCHEMA_VERSION: u32 = 1;
+const NONCE_LENGTH: usize = 12;
 const MAX_CONTENT_BYTES: usize = 2 * 1024 * 1024;
 const MAX_ROTATION_BATCH: usize = 500;
 
@@ -965,18 +966,20 @@ fn encrypt(
     plaintext: &[u8],
 ) -> Result<(Vec<u8>, Vec<u8>), LocalContentError> {
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| LocalContentError::KeyUnavailable)?;
-    let mut nonce = vec![0_u8; 12];
-    OsRng.fill_bytes(&mut nonce);
+    // A fixed-size array keeps the AES-GCM nonce length a compile-time
+    // property of the cipher rather than a checked runtime convention.
+    let mut nonce_bytes = [0_u8; NONCE_LENGTH];
+    OsRng.fill_bytes(&mut nonce_bytes);
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce),
+            &Nonce::from(nonce_bytes),
             Payload {
                 msg: plaintext,
                 aad,
             },
         )
         .map_err(|_| LocalContentError::Storage)?;
-    Ok((nonce, ciphertext))
+    Ok((nonce_bytes.to_vec(), ciphertext))
 }
 
 fn decrypt(
@@ -985,13 +988,11 @@ fn decrypt(
     nonce: &[u8],
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, LocalContentError> {
-    if nonce.len() != 12 {
-        return Err(LocalContentError::Corrupt);
-    }
+    let nonce: [u8; NONCE_LENGTH] = nonce.try_into().map_err(|_| LocalContentError::Corrupt)?;
     Aes256Gcm::new_from_slice(key)
         .map_err(|_| LocalContentError::KeyUnavailable)?
         .decrypt(
-            Nonce::from_slice(nonce),
+            &Nonce::from(nonce),
             Payload {
                 msg: ciphertext,
                 aad,

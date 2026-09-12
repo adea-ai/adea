@@ -1,50 +1,39 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod auth;
+mod boot;
 mod bridge;
 mod local_content;
 mod preferences;
 mod transcription;
 mod updater;
 
-use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_deep_link::DeepLinkExt;
-
-fn reveal_main_window<R: Runtime>(app: &AppHandle<R>) {
-    #[cfg(target_os = "macos")]
-    let _ = app.show();
-
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
-    }
-}
-
-fn receive_auth_callback<R: Runtime>(app: &AppHandle<R>, raw_url: &str) {
-    if auth::queue_callback(app, raw_url) {
-        reveal_main_window(app);
-    }
-}
-
 fn main() {
+    let diagnostics = boot::BootDiagnostics::from_process();
     let mut builder = tauri::Builder::default();
 
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|app, arguments, _| {
-            for argument in arguments {
-                receive_auth_callback(app, &argument);
-            }
-        }));
+        let handoff_diagnostics = diagnostics.clone();
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            move |app, arguments, _| {
+                // The forwarding process is terminated by the plugin before it can
+                // write its own exit, so the receiver records the handoff.
+                handoff_diagnostics.record_handoff();
+                for argument in arguments {
+                    auth::receive_auth_callback(app, &argument);
+                }
+            },
+        ));
     }
 
-    builder
+    let builder = builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .manage(auth::DesktopAuthState::default())
         .manage(transcription::DesktopTranscriptionState::default())
         .manage(updater::UpdaterState::default())
+        .manage(diagnostics.clone())
         .invoke_handler(tauri::generate_handler![
             auth::desktop_auth_start,
             auth::desktop_auth_take_callback,
@@ -75,38 +64,7 @@ fn main() {
             updater::desktop_update_check,
             updater::desktop_update_install
         ])
-        .setup(|app| {
-            let app_data_dir = app.path().app_data_dir()?;
-            let local_content = local_content::LocalContentState::initialize(&app_data_dir);
-            app.manage(local_content);
+        .setup(boot::install);
 
-            #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
-
-            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
-            app.deep_link().register_all()?;
-
-            if let Some(urls) = app.deep_link().get_current()? {
-                for url in urls {
-                    auth::queue_callback(app.handle(), url.as_str());
-                }
-            }
-
-            let app_handle = app.handle().clone();
-            app.deep_link().on_open_url(move |event| {
-                for url in event.urls() {
-                    receive_auth_callback(&app_handle, url.as_str());
-                }
-            });
-
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Adea")
-                .inner_size(1440.0, 960.0)
-                .min_inner_size(960.0, 640.0)
-                .build()?;
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("error while running Adea desktop shell");
+    std::process::exit(boot::launch(builder, diagnostics));
 }
