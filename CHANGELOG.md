@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/adea-ai/adea/compare/v0.16.0...v0.17.0) (2026-09-12)
+
+
+### Features
+
+* **desktop:** typed boot pipeline, IPC contract gate, and single cloud origin ([#343](https://github.com/adea-ai/adea/issues/343)) ([e058e1d](https://github.com/adea-ai/adea/commit/e058e1d5caba21233fadc22d0543e247da93016a))
+
 ## [0.16.0](https://github.com/adea-ai/adea/compare/v0.15.3...v0.16.0) (2026-09-12)
 
 
