@@ -113,6 +113,18 @@ const candidates = [
     }),
   },
   {
+    name: 'deno-cef',
+    kind: 'longshot',
+    launch: () => {
+      const bin = join(BENCH_ROOT, 'deno/dist/shell-bench-deno-cef.app.app/Contents/MacOS/laufey')
+      return { cmd: bin, args: [], cwd: dirname(bin) }
+    },
+    ipc: false, // deno desktop bindings not probed (longshot)
+    sizes: async () => ({
+      built_app_kb: await duKb(join(BENCH_ROOT, 'deno/dist/shell-bench-deno-cef.app.app')),
+    }),
+  },
+  {
     name: 'nwjs',
     kind: 'longshot',
     launch: () => ({
