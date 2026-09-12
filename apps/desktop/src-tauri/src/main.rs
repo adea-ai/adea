@@ -2,6 +2,7 @@
 
 mod auth;
 mod boot;
+mod capabilities;
 mod cloud;
 #[cfg(test)]
 mod ipc_contract;
@@ -9,6 +10,8 @@ mod local_content;
 mod preferences;
 mod transcription;
 mod updater;
+mod window_state;
+mod window_trust;
 
 fn main() {
     let diagnostics = boot::BootDiagnostics::from_process();
@@ -48,6 +51,7 @@ fn main() {
             auth::desktop_temporary_workspace_clear,
             auth::desktop_temporary_workspace_load,
             auth::desktop_temporary_workspace_save,
+            capabilities::capability_snapshot,
             local_content::local_content_authorize_workspace,
             local_content::local_content_create,
             local_content::local_content_delete,

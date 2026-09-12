@@ -16,7 +16,7 @@ use rand_core::{OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{Runtime, State, Url, WebviewWindow};
+use tauri::{Runtime, State, WebviewWindow};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -185,6 +185,17 @@ pub struct ContentHealth {
     pub available: bool,
     pub current_key_version: u32,
     pub rotation_in_progress: bool,
+}
+
+impl ContentHealth {
+    /// The store is unavailable: no open repository, or no readable key.
+    fn unavailable() -> Self {
+        Self {
+            available: false,
+            current_key_version: 0,
+            rotation_in_progress: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -538,6 +549,9 @@ impl Repository {
         let current_key_version = self.ensure_current_key(&connection)?;
         let rotation_in_progress = rotation(&connection)?.is_some();
         Ok(ContentHealth {
+            // `available` is the input the capability snapshot maps to its own
+            // state, so the health command and the snapshot cannot disagree
+            // about whether the store is usable.
             available: true,
             current_key_version,
             rotation_in_progress,
@@ -645,6 +659,21 @@ impl LocalContentState {
         }
     }
 
+    /// The store's health without touching an authorized workspace: this is the
+    /// same answer the `local_content_health` command and the capability
+    /// snapshot both report.
+    pub fn store_health(&self) -> ContentHealth {
+        let Ok(repository) = self.repository.lock() else {
+            return ContentHealth::unavailable();
+        };
+        match repository.as_ref() {
+            Some(repository) => repository
+                .health()
+                .unwrap_or_else(|_| ContentHealth::unavailable()),
+            None => ContentHealth::unavailable(),
+        }
+    }
+
     fn authorize(&self, workspace_id: &str) -> Result<(), LocalContentError> {
         let workspace_id = validated_uuid(workspace_id)?;
         let mut authorized = self
@@ -669,28 +698,13 @@ impl LocalContentState {
     }
 }
 
-fn trusted_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), LocalContentError> {
-    if window.label() != "main" {
-        return Err(LocalContentError::Unauthorized);
-    }
-    let url = window.url().map_err(|_| LocalContentError::Unauthorized)?;
-    if trusted_url(&url) {
+/// The content commands answer only the bundled main window.
+fn trusted<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), LocalContentError> {
+    if crate::window_trust::is_trusted_window(window) {
         Ok(())
     } else {
         Err(LocalContentError::Unauthorized)
     }
-}
-
-fn trusted_url(url: &Url) -> bool {
-    let packaged = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
-        || (cfg!(target_os = "windows")
-            && url.scheme() == "https"
-            && url.host_str() == Some("tauri.localhost"));
-    let development = cfg!(debug_assertions)
-        && url.scheme() == "http"
-        && matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
-        && url.port() == Some(1420);
-    packaged || development
 }
 
 #[tauri::command]
@@ -699,7 +713,7 @@ pub fn local_content_authorize_workspace<R: Runtime>(
     state: State<'_, LocalContentState>,
     workspace_id: String,
 ) -> Result<(), String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.authorize(&workspace_id))
         .map_err(|error| error.public_message())
 }
@@ -710,7 +724,7 @@ pub async fn local_content_create<R: Runtime>(
     state: State<'_, LocalContentState>,
     input: CreateContentInput,
 ) -> Result<ContentRef, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&input.workspace_id))
         .map_err(|error| error.public_message())?;
     let repository = state.repository.clone();
@@ -732,7 +746,7 @@ pub async fn local_content_read<R: Runtime>(
     state: State<'_, LocalContentState>,
     input: ReadContentInput,
 ) -> Result<ResolvedContent, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&input.workspace_id))
         .map_err(|error| error.public_message())?;
     let repository = state.repository.clone();
@@ -754,7 +768,7 @@ pub async fn local_content_search<R: Runtime>(
     state: State<'_, LocalContentState>,
     input: SearchContentInput,
 ) -> Result<Vec<LocalSearchResult>, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&input.workspace_id))
         .map_err(|error| error.public_message())?;
     let repository = state.repository.clone();
@@ -776,7 +790,7 @@ pub async fn local_content_update<R: Runtime>(
     state: State<'_, LocalContentState>,
     input: UpdateContentInput,
 ) -> Result<ContentRef, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&input.workspace_id))
         .map_err(|error| error.public_message())?;
     let repository = state.repository.clone();
@@ -798,7 +812,7 @@ pub async fn local_content_delete<R: Runtime>(
     state: State<'_, LocalContentState>,
     input: DeleteContentInput,
 ) -> Result<ContentRef, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&input.workspace_id))
         .map_err(|error| error.public_message())?;
     let repository = state.repository.clone();
@@ -820,24 +834,13 @@ pub async fn local_content_health<R: Runtime>(
     state: State<'_, LocalContentState>,
     workspace_id: String,
 ) -> Result<ContentHealth, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&workspace_id))
         .map_err(|error| error.public_message())?;
-    let repository = state.repository.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let repository = repository.lock().map_err(|_| LocalContentError::Storage)?;
-        match repository.as_ref() {
-            Some(repository) => repository.health(),
-            None => Ok(ContentHealth {
-                available: false,
-                current_key_version: 0,
-                rotation_in_progress: false,
-            }),
-        }
-    })
-    .await
-    .map_err(|_| LocalContentError::Storage.public_message())?
-    .map_err(|error| error.public_message())
+    let health = state.store_health();
+    tauri::async_runtime::spawn_blocking(move || health)
+        .await
+        .map_err(|_| LocalContentError::Storage.public_message())
 }
 
 #[tauri::command]
@@ -847,7 +850,7 @@ pub async fn local_content_rotate_key<R: Runtime>(
     workspace_id: String,
     batch_size: usize,
 ) -> Result<RotationStatus, String> {
-    trusted_window(&window)
+    trusted(&window)
         .and_then(|_| state.require_workspace(&workspace_id))
         .map_err(|error| error.public_message())?;
     let repository = state.repository.clone();
@@ -1560,20 +1563,6 @@ mod tests {
         ] {
             assert!(!payload.contains(canary));
         }
-    }
-
-    #[test]
-    fn trusted_origin_check_rejects_navigated_or_lookalike_pages() {
-        assert!(trusted_url(
-            &Url::parse("tauri://localhost/index.html").unwrap()
-        ));
-        assert!(!trusted_url(
-            &Url::parse("https://localhost/index.html").unwrap()
-        ));
-        assert!(!trusted_url(
-            &Url::parse("tauri://localhost.attacker.example/index.html").unwrap()
-        ));
-        assert!(!trusted_url(&Url::parse("file:///tmp/index.html").unwrap()));
     }
 
     #[test]

@@ -26,6 +26,7 @@ import type {
 } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 
+import { desktopCapabilityProvider } from './capabilities'
 import { localContentAuthority } from './local-content'
 import packageJson from '../package.json'
 import { desktopSettingsProvider } from './preferences'
@@ -353,6 +354,7 @@ function DesktopApp() {
         onSignOut: () => signOut(),
       },
       app: { name: 'Adea', platform: 'desktop' as const, version: appVersion },
+      capabilities: desktopCapabilityProvider,
       client,
       privateContent: localContentAuthority,
       plugins,

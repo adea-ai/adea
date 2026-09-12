@@ -50,6 +50,34 @@ export type WorkspacePreferences = Readonly<{
   version: 1
 }>
 
+/**
+ * Local capability health as the shell reports it. Mirrors the native
+ * `CapabilityState` taxonomy: a prerequisite is either satisfied, absent with a
+ * hint, refused by the host, or did not answer in time.
+ */
+export type CapabilityState =
+  | Readonly<{ state: 'ready' }>
+  | Readonly<{ state: 'missing'; hint: string }>
+  | Readonly<{ state: 'permissionDenied'; hint: string }>
+  | Readonly<{ state: 'timedOut'; hint: string }>
+
+export type CapabilityStatus = Readonly<{
+  id: string
+  title: string
+  state: CapabilityState
+}>
+
+export type CapabilitySnapshot = Readonly<{
+  capabilities: readonly CapabilityStatus[]
+  servedFromCache: boolean
+  ageMs: number
+  reProbeFloorMs: number
+}>
+
+export type CapabilityProvider = Readonly<{
+  snapshot(options?: Readonly<{ force?: boolean }>): Promise<CapabilitySnapshot>
+}>
+
 export const defaultWorkspacePreferences: WorkspacePreferences = Object.freeze({
   dictationLocale: '',
   notifyMentions: true,
@@ -169,6 +197,7 @@ export type WorkspacePlatformServices = Readonly<{
     version?: string
   }>
   client?: AgentHqApiClient
+  capabilities?: CapabilityProvider
   privateContent?: PrivateContentResolver
   plugins?: WorkspacePluginsProvider
   settings?: WorkspaceSettingsProvider

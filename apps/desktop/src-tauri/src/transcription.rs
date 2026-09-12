@@ -48,19 +48,60 @@ mod platform {
         time::{Duration, Instant},
     };
 
+    /// What the host reported for one permission.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Authorization {
+        Denied,
+        Granted,
+        Undetermined,
+    }
+
     const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(120);
     const SESSION_TIMEOUT: Duration = Duration::from_secs(90);
+
+    /// What the host currently says, without asking the user anything.
+    fn authorization(state: AVAuthorizationStatus) -> Authorization {
+        match state {
+            AVAuthorizationStatus::Authorized => Authorization::Granted,
+            AVAuthorizationStatus::NotDetermined => Authorization::Undetermined,
+            _ => Authorization::Denied,
+        }
+    }
+
+    fn microphone_status() -> Authorization {
+        let Some(media_type) = (unsafe { AVMediaTypeAudio }) else {
+            return Authorization::Denied;
+        };
+        authorization(unsafe { AVCaptureDevice::authorizationStatusForMediaType(media_type) })
+    }
+
+    fn speech_status() -> Authorization {
+        match unsafe { SFSpeechRecognizer::authorizationStatus() } {
+            SFSpeechRecognizerAuthorizationStatus::Authorized => Authorization::Granted,
+            SFSpeechRecognizerAuthorizationStatus::NotDetermined => Authorization::Undetermined,
+            _ => Authorization::Denied,
+        }
+    }
+
+    /// Report the host's answer for both permissions without prompting; this is
+    /// what the capability snapshot reads.
+    pub fn permission_state() -> &'static str {
+        match (microphone_status(), speech_status()) {
+            (Authorization::Granted, Authorization::Granted) => "granted",
+            (Authorization::Denied, _) | (_, Authorization::Denied) => "denied",
+            _ => "prompt",
+        }
+    }
 
     fn microphone_authorized() -> bool {
         let media_type = unsafe { AVMediaTypeAudio };
         let Some(media_type) = media_type else {
             return false;
         };
-        let status = unsafe { AVCaptureDevice::authorizationStatusForMediaType(media_type) };
-        if status == AVAuthorizationStatus::Authorized {
+        if microphone_status() == Authorization::Granted {
             return true;
         }
-        if status != AVAuthorizationStatus::NotDetermined {
+        if microphone_status() == Authorization::Denied {
             return false;
         }
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -76,12 +117,10 @@ mod platform {
     }
 
     fn speech_authorized() -> bool {
-        let status = unsafe { SFSpeechRecognizer::authorizationStatus() };
-        if status == SFSpeechRecognizerAuthorizationStatus::Authorized {
-            return true;
-        }
-        if status != SFSpeechRecognizerAuthorizationStatus::NotDetermined {
-            return false;
+        match speech_status() {
+            Authorization::Granted => return true,
+            Authorization::Denied => return false,
+            Authorization::Undetermined => {}
         }
         let (sender, receiver) = mpsc::sync_channel(1);
         let handler = RcBlock::new(move |status: SFSpeechRecognizerAuthorizationStatus| {
@@ -237,6 +276,10 @@ mod platform {
         "unavailable"
     }
 
+    pub fn permission_state() -> &'static str {
+        "unavailable"
+    }
+
     pub fn start(
         _locale: String,
         _cancelled: Arc<AtomicBool>,
@@ -248,6 +291,12 @@ mod platform {
         });
         finished();
     }
+}
+
+/// The host's answer for the dictation permissions, without prompting. The
+/// capability snapshot reads this; the command below asks when it must.
+pub fn permission_state() -> &'static str {
+    platform::permission_state()
 }
 
 #[tauri::command]
