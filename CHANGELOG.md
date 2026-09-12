@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/adea-ai/adea/compare/v0.17.0...v0.18.0) (2026-09-12)
+
+
+### Features
+
+* **desktop:** versioned preferences, restored window geometry, and one capability snapshot ([#345](https://github.com/adea-ai/adea/issues/345)) ([94d29ac](https://github.com/adea-ai/adea/commit/94d29acdf3f8f6c66b56653c34980b3c31bb981e))
+
 ## [0.17.0](https://github.com/adea-ai/adea/compare/v0.16.0...v0.17.0) (2026-09-12)
 
 
