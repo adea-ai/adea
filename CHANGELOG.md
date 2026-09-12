@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.2](https://github.com/adea-ai/adea/compare/v0.21.1...v0.21.2) (2026-09-12)
+
+
+### Maintenance
+
+* **test:** share the lane transport retry and document the node list bound ([#367](https://github.com/adea-ai/adea/issues/367)) ([ad9f07e](https://github.com/adea-ai/adea/commit/ad9f07e23c07e10abde113a3fdcf61efaeaa72c1))
+
 ## [0.21.1](https://github.com/adea-ai/adea/compare/v0.21.0...v0.21.1) (2026-09-12)
 
 
