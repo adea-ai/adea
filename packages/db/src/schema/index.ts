@@ -6,7 +6,16 @@ export {
   workspaceRole,
   workspaces,
 } from './workspaces'
-export { commandOutbox, eventInbox, outboxStatus, workspaceEvents } from './events'
+export {
+  commandOutbox,
+  eventInbox,
+  outboxStatus,
+  workspaceEventActorKind,
+  workspaceEventAggregateType,
+  workspaceEventDispatches,
+  workspaceEventSequences,
+  workspaceEvents,
+} from './events'
 export { authIdentities, temporaryUserSessions, users } from './identity'
 export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
 export { roomLifecycleState, rooms } from './rooms'

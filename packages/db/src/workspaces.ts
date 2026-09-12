@@ -8,12 +8,8 @@ import type {
 import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import {
-  authorizationAuditRecords,
-  workspaceEvents,
-  workspaceMemberships,
-  workspaces,
-} from './schema'
+import { appendWorkspaceEvent } from './transactions'
+import { authorizationAuditRecords, workspaceMemberships, workspaces } from './schema'
 
 export type WorkspaceRole = 'admin' | 'member' | 'owner'
 
@@ -74,7 +70,7 @@ async function createWorkspaceWithOwnerInTransaction(
     userId: input.owner.userId,
     workspaceId: createdWorkspace.id,
   })
-  await transaction.insert(workspaceEvents).values({
+  await appendWorkspaceEvent(transaction, {
     eventType: 'workspace.created',
     payload: { ownerUserId: input.owner.userId },
     workspaceId: createdWorkspace.id,
@@ -271,7 +267,7 @@ export async function archiveWorkspace(
       .update(workspaces)
       .set({ deletedAt: now, updatedAt: now })
       .where(eq(workspaces.id, workspaceId))
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'workspace.archived',
       payload: { actorUserId: principal.userId },
       workspaceId,
@@ -313,7 +309,7 @@ export async function reopenWorkspace(
       if (!reopened || reopened.deletedAt) throw new Error('Workspace unavailable')
       return workspaceSummary(reopened)
     }
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: 'workspace.reopened',
       payload: { actorUserId: principal.userId },
       workspaceId,

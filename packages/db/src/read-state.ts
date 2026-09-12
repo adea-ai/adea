@@ -6,13 +6,13 @@ import type {
 import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { appendWorkspaceEvent } from './transactions'
 import {
   channelParticipants,
   channelReadStates,
   channels,
   messages,
   threadReadStates,
-  workspaceEvents,
   workspaceMemberships,
 } from './schema'
 
@@ -282,7 +282,7 @@ export async function markChannelReadState(
       manuallyUnread: action === 'unread',
     })
     if (changed)
-      await transaction.insert(workspaceEvents).values({
+      await appendWorkspaceEvent(transaction, {
         eventType: `channel.${action}`,
         payload: { actorUserId: principal.userId, channelId },
         workspaceId,
@@ -373,7 +373,7 @@ export async function markThreadReadState(
           version: (existing?.version ?? 0) + 1,
         },
       })
-    await transaction.insert(workspaceEvents).values({
+    await appendWorkspaceEvent(transaction, {
       eventType: `thread.${action}`,
       payload: { actorUserId: principal.userId, channelId, threadRootMessageId },
       workspaceId,
@@ -464,7 +464,7 @@ export async function markAllChannelsRead(
       }
     }
     if (changed)
-      await transaction.insert(workspaceEvents).values({
+      await appendWorkspaceEvent(transaction, {
         eventType: 'workspace.read_all',
         payload: { actorUserId: principal.userId },
         workspaceId,

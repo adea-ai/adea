@@ -48,7 +48,36 @@ export {
   type StoredDesktopSession,
 } from './desktop-auth'
 export * from './schema'
-export { appendWorkspaceEvent, inTransaction } from './transactions'
+export {
+  appendWorkspaceEvent,
+  inTransaction,
+  type WorkspaceEventInput,
+  type WorkspaceEventRecord,
+} from './transactions'
+export {
+  assertCloudSafeEventPayload,
+  FORBIDDEN_EVENT_PAYLOAD_KEYS,
+  isWorkspaceEventType,
+  MAX_EVENT_PAYLOAD_BYTES,
+  resolveWorkspaceEventContract,
+  WORKSPACE_EVENT_CONTRACTS,
+  WORKSPACE_EVENT_TYPES,
+  WorkspaceEventContractError,
+  type WorkspaceEventActorKind,
+  type WorkspaceEventAggregateType,
+  type WorkspaceEventType,
+} from './event-contract'
+export {
+  countWorkspaceEvents,
+  latestWorkspaceEvents,
+  listWorkspaceEventsAfter,
+  markEventDispatchesNotified,
+  pendingEventDispatches,
+  pruneWorkspaceEventsBefore,
+  workspaceEventWindow,
+  WORKSPACE_EVENT_PAGE_LIMIT,
+  type WorkspaceEventView,
+} from './event-log'
 export {
   listReadStateForUser,
   markAllChannelsRead,
