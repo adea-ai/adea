@@ -2,7 +2,7 @@
 
 [[permission]]
 identifier = "allow-desktop-auth"
-description = "Allows bundled Adea code to open the fixed cloud authorization endpoint."
+description = "Allows bundled Adea code to open the fixed cloud authorization endpoint and to use the device credential vaults that back guest and signed-in sessions."
 commands.allow = [
   "desktop_auth_start",
   "desktop_auth_take_callback",
@@ -12,4 +12,7 @@ commands.allow = [
   "desktop_user_session_clear",
   "desktop_user_session_load",
   "desktop_user_session_save",
+  "desktop_temporary_workspace_clear",
+  "desktop_temporary_workspace_load",
+  "desktop_temporary_workspace_save",
 ]

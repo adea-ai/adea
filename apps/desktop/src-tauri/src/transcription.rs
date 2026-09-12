@@ -16,8 +16,17 @@ pub struct DesktopTranscriptionState {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum TranscriptionEvent {
-    Complete { text: String },
-    Error { code: &'static str },
+    /// Part of the event contract with the packaged client on every platform.
+    /// Only the macOS recognizer constructs it; other platforms report
+    /// `Error { code: "unavailable" }` instead, which is why the variant is
+    /// dead code there and must not fail the lint on those targets.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Complete {
+        text: String,
+    },
+    Error {
+        code: &'static str,
+    },
 }
 
 #[cfg(target_os = "macos")]
