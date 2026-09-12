@@ -77,7 +77,6 @@ async function post(
 
   try {
     const challenge = await createRuntimeNodeChallenge(database, {
-      audience: node.kind,
       createdByUserId: access.resolution.principal.userId,
       kind: node.kind,
       nonce: challengeNonce(),

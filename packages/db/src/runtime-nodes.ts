@@ -112,13 +112,14 @@ function assertKeyRoleMatchesAlgorithm(
 
 /**
  * Open a short-lived, single-use challenge for one purpose. The nonce is what
- * the node signs; binding it to a purpose, kind, workspace, and audience is what
- * stops a captured signature from being replayed somewhere else.
+ * the node signs; binding it to a purpose, kind, workspace, and node is what
+ * stops a captured signature from being replayed somewhere else. The kind is
+ * the challenge's audience: a `local_device` challenge cannot register a
+ * `remote_host`.
  */
 export async function createRuntimeNodeChallenge(
   database: AgentHqDatabase,
   input: Readonly<{
-    audience: string
     createdByUserId: string
     kind: RuntimeNodeKindValue
     nonce: string
@@ -133,7 +134,6 @@ export async function createRuntimeNodeChallenge(
   const [challenge] = await database
     .insert(runtimeNodeChallenges)
     .values({
-      audience: input.audience,
       createdByUserId: input.createdByUserId,
       expiresAt,
       kind: input.kind,

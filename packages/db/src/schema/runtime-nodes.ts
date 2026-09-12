@@ -128,9 +128,11 @@ export const runtimeNodeKeys = appSchema.table(
 )
 
 /**
- * Short-lived, single-use, audience-bound challenges. Pairing, rotation, and
- * liveness proofs all consume one, so a captured proof cannot be replayed and
- * cannot be pointed at a different node, workspace, or purpose.
+ * Short-lived, single-use challenges bound to their recipient. Pairing,
+ * rotation, and liveness proofs all consume one, so a captured proof cannot be
+ * replayed and cannot be pointed at a different node, workspace, or purpose.
+ * The kind *is* the audience: a challenge issued for a `local_device` is only
+ * consumable by a `local_device` registration in the same workspace.
  */
 export const runtimeNodeChallenges = appSchema.table(
   'runtime_node_challenges',
@@ -146,7 +148,6 @@ export const runtimeNodeChallenges = appSchema.table(
     kind: runtimeNodeKind('kind').notNull(),
     /** Random nonce the node signs; unique so a challenge cannot be duplicated. */
     nonce: text('nonce').notNull(),
-    audience: text('audience').notNull(),
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
@@ -158,10 +159,6 @@ export const runtimeNodeChallenges = appSchema.table(
     uniqueIndex('runtime_node_challenges_nonce_uidx').on(table.nonce),
     index('runtime_node_challenges_open_idx').on(table.workspaceId, table.purpose, table.expiresAt),
     index('runtime_node_challenges_node_idx').on(table.runtimeNodeId),
-    check(
-      'runtime_node_challenges_audience_bounded',
-      sql`char_length(${table.audience}) between 1 and 200`
-    ),
   ]
 )
 
