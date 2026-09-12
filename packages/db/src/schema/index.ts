@@ -16,6 +16,17 @@ export {
   workspaceEventSequences,
   workspaceEvents,
 } from './events'
+export {
+  runtimeNodeChallengePurpose,
+  runtimeNodeChallenges,
+  runtimeNodeExchangeCredentials,
+  runtimeNodeKeyAlgorithm,
+  runtimeNodeKeyRole,
+  runtimeNodeKeys,
+  runtimeNodeKind,
+  runtimeNodePairingState,
+  runtimeNodes,
+} from './runtime-nodes'
 export { authIdentities, temporaryUserSessions, users } from './identity'
 export { desktopAuthorizationCodes, desktopSessions } from './desktop-auth'
 export { roomLifecycleState, rooms } from './rooms'
