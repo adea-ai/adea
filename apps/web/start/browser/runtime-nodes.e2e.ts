@@ -1,50 +1,11 @@
-import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
+import { expect, test, type APIResponse } from '@playwright/test'
+
+import { Client } from './request-client'
 
 // Runtime node identity against the real isolated backend. A guest owns the
 // workspace it bootstraps, so it holds `runtime.invoke`. Every signature below
 // is made with a real Ed25519 key: the host must verify what an independent
 // signer produced, so a stubbed verifier would prove nothing here.
-
-/**
- * The isolated lane serves the worker through workerd's local TLS listener, and
- * a pooled connection the listener has already closed comes back as a miniflare
- * 500 whose body is a transport error rather than an app response. This suite
- * makes far more requests than the rest of the lane, so it retries that one
- * case; every other outcome, including a 500 from the route handlers, is
- * returned untouched.
- */
-class Client {
-  constructor(private readonly context: APIRequestContext) {}
-
-  async get(path: string, options?: Parameters<APIRequestContext['get']>[1]) {
-    return this.retrying(() => this.context.get(path, options))
-  }
-
-  async post(path: string, options?: Parameters<APIRequestContext['post']>[1]) {
-    return this.retrying(() => this.context.post(path, options))
-  }
-
-  async fetch(path: string, options?: Parameters<APIRequestContext['fetch']>[1]) {
-    return this.retrying(() => this.context.fetch(path, options))
-  }
-
-  dispose() {
-    return this.context.dispose()
-  }
-
-  private async retrying(send: () => Promise<APIResponse>) {
-    let response = await send()
-    for (let attempt = 0; attempt < 3 && (await transportLoss(response)); attempt += 1) {
-      response = await send()
-    }
-    return response
-  }
-}
-
-async function transportLoss(response: APIResponse) {
-  if (response.status() !== 500) return false
-  return (await response.text()).includes('Network connection lost')
-}
 
 const KEY_FIELDS = [
   'algorithm',
