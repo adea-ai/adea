@@ -12,6 +12,9 @@
   --hq-shell-accent-foreground: #fafafa;
   --hq-shell-focus: #a3a3a3;
   --hq-shell-active: #525252;
+  /* Elevation for chrome that lives outside the conventional workspace's own
+     token scope, such as the global rail's workspace menu. */
+  --hq-shell-shadow-popover: 0 0.8rem 2rem rgb(0 0 0 / 0.18);
 }
 
 .dark {
