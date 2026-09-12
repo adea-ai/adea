@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.1](https://github.com/adea-ai/adea/compare/v0.20.0...v0.20.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **web:** end workspace event streams when the session itself is revoked ([#361](https://github.com/adea-ai/adea/issues/361)) ([aaf9e64](https://github.com/adea-ai/adea/commit/aaf9e6488e9da73ccc748f59fdf506a9544fe727))
+
 ## [0.20.0](https://github.com/adea-ai/adea/compare/v0.19.0...v0.20.0) (2026-09-12)
 
 
