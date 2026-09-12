@@ -67,6 +67,11 @@ optional correlation id.
   in sequence order before live delivery. A cursor outside the window, expired,
   foreign, or ahead of the head produces `resync_required` with its reason and a
   fresh cursor — never a silent gap.
+- **Retention.** `pruneWorkspaceEventsBefore` drops a workspace's oldest events
+  in bounded batches and cascades to their publication records. Nothing schedules
+  it yet: the retained window is an operator decision (how far back a client may
+  resume), and the stream already answers a cursor from before the window with
+  `resync_required`.
 - **Liveness.** Heartbeats every 15 seconds, `retry: 1000` guidance, bounded
   catch-up reads on a short interval (a lost wake-up loses no event), a
   deliberate 30-minute stream lifetime, and a bounded number of concurrent
