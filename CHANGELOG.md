@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.5](https://github.com/adea-ai/adea/compare/v0.18.4...v0.18.5) (2026-09-12)
+
+
+### Tests
+
+* **web:** repair the workspace E2E gate and run its flow specs in CI ([#355](https://github.com/adea-ai/adea/issues/355)) ([15c4049](https://github.com/adea-ai/adea/commit/15c40492fe7b58c759153eb78a275362d80a6215))
+
 ## [0.18.4](https://github.com/adea-ai/adea/compare/v0.18.3...v0.18.4) (2026-09-12)
 
 
