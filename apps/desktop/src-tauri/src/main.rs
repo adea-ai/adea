@@ -2,7 +2,8 @@
 
 mod auth;
 mod boot;
-mod bridge;
+#[cfg(test)]
+mod ipc_contract;
 mod local_content;
 mod preferences;
 mod transcription;
@@ -46,7 +47,6 @@ fn main() {
             auth::desktop_temporary_workspace_clear,
             auth::desktop_temporary_workspace_load,
             auth::desktop_temporary_workspace_save,
-            bridge::native_capabilities,
             local_content::local_content_authorize_workspace,
             local_content::local_content_create,
             local_content::local_content_delete,
