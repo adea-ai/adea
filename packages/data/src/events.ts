@@ -284,12 +284,17 @@ export function createWorkspaceEventSubscription(
     controller = new AbortController()
     const signal = controller.signal
     const cursor = readCursor()
-    const target = new URL(url)
-    if (cursor > 0) target.searchParams.set('cursor', String(cursor))
+    // The stream URL may be relative (same-origin web) or absolute (desktop
+    // against the cloud origin), so the cursor is appended rather than parsed
+    // through URL(): a relative path is not a valid absolute URL in a browser.
+    const target =
+      cursor > 0
+        ? `${url}${url.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(String(cursor))}`
+        : url
 
     let connectedAt = 0
     try {
-      const response = await fetchImpl(target.toString(), {
+      const response = await fetchImpl(target, {
         headers: { accept: 'text/event-stream', ...headers?.() },
         signal,
       })

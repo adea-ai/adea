@@ -258,6 +258,32 @@ describe('workspace event client', () => {
     expect(subscription.appliedSequence()).toBe(12)
   })
 
+  test('appends the cursor to a relative stream URL without parsing it as absolute', async () => {
+    // The browser API client builds a same-origin path, which is not a valid
+    // absolute URL; the subscription must not assume otherwise.
+    const { client } = fakeQueryClient()
+    const storage = memoryStorage()
+    storage.setItem(`adea:workspace-events-cursor:${workspaceId}`, '4')
+    const requested: string[] = []
+
+    const subscription = createWorkspaceEventSubscription({
+      fetchImpl: (async (target: string) => {
+        requested.push(target)
+        return new Response(null, { status: 204 })
+      }) as unknown as typeof fetch,
+      queryClient: client,
+      schedule: immediateScheduler([]),
+      storage,
+      url: `/api/v1/workspaces/${workspaceId}/events`,
+      workspaceId,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    subscription.stop()
+
+    expect(requested[0]).toBe(`/api/v1/workspaces/${workspaceId}/events?cursor=4`)
+  })
+
   test('reconnects with backoff when the stream ends or refuses', async () => {
     const scheduled: number[] = []
     const { client } = fakeQueryClient()
