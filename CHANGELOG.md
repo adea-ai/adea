@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.4](https://github.com/adea-ai/adea/compare/v0.18.3...v0.18.4) (2026-09-12)
+
+
+### Documentation
+
+* **contributing:** name the required checks and why the shell one always runs ([#353](https://github.com/adea-ai/adea/issues/353)) ([3f0ede0](https://github.com/adea-ai/adea/commit/3f0ede0f3b47f4983c9afb91ca3e1167080f86ae))
+
 ## [0.18.3](https://github.com/adea-ai/adea/compare/v0.18.2...v0.18.3) (2026-09-12)
 
 
