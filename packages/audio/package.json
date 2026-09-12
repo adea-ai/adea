@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/audio",
-  "version": "0.21.0",
+  "version": "0.21.1",
   "description": "Optional, lazy music controller and React bindings for Adea. Audio is non-blocking so scene loading never waits on sound assets.",
   "keywords": [
     "audio",

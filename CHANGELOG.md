@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.1](https://github.com/adea-ai/adea/compare/v0.21.0...v0.21.1) (2026-09-12)
+
+
+### Maintenance
+
+* **web,db:** close the runtime-node and stream follow-ups ([#365](https://github.com/adea-ai/adea/issues/365)) ([2d3311c](https://github.com/adea-ai/adea/commit/2d3311c78d613b9b9f0995c487f6f73ebb25bdc3))
+
 ## [0.21.0](https://github.com/adea-ai/adea/compare/v0.20.1...v0.21.0) (2026-09-12)
 
 
