@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/ui",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Shared UI kit for Adea: Base UI-backed shadcn primitives, workspace shells, and theme styles.",
   "keywords": [
     "base-ui",

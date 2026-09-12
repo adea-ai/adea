@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.20.0](https://github.com/adea-ai/adea/compare/v0.19.0...v0.20.0) (2026-09-12)
+
+
+### Features
+
+* **web:** authenticated workspace event stream and realtime cache integration ([#359](https://github.com/adea-ai/adea/issues/359)) ([db186be](https://github.com/adea-ai/adea/commit/db186be6c9a2f57769ae3fa2d373546c96684fdd))
+
 ## [0.19.0](https://github.com/adea-ai/adea/compare/v0.18.5...v0.19.0) (2026-09-12)
 
 
