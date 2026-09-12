@@ -45,6 +45,23 @@ Before editing:
 
 If the worktree is dirty, preserve existing changes and avoid overlapping edits until their ownership is clear.
 
+## Module specs: read the spec before touching the subsystem
+
+The hairiest subsystems have a spec page under `docs/specs/`. If you touch the
+code in the left column, read spec Y first — most questions that come up while
+editing are already answered there.
+
+| If you touch                                                                                   | Read spec first                                            | It covers                                                                                         |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `apps/desktop/src-tauri/src/{auth,cloud}.rs`, `packages/auth/src/desktop.ts`                   | [docs/specs/desktop-auth.md](docs/specs/desktop-auth.md)   | One cloud origin, the PKCE handoff, the `adea://` callback, credential vaults, session lifecycles |
+| `apps/desktop/src-tauri/src/{local_content,window_trust}.rs`                                   | [docs/specs/local-content.md](docs/specs/local-content.md) | Encryption and AAD, keyring keys, rotation, trusted-window and workspace authority, threat model  |
+| `apps/desktop/src-tauri/src/updater.rs`, the `plugins.updater` block, the desktop release lane | [docs/specs/updater.md](docs/specs/updater.md)             | Release channel, signing keys, approval and version guards, update state machine                  |
+
+A change to the behaviour a spec describes lands **in the same commit** as the
+update to that page. `scripts/check-docs.mjs` (run by
+`scripts/docs-boundary.test.ts`) fails the build when a spec is orphaned, a
+routed spec is missing, or a relative link between docs stops resolving.
+
 ## Priorities
 
 When instructions conflict, use this order:

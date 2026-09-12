@@ -112,6 +112,24 @@ Security and dependency audits run through the GitHub Security workflow.
 
 Run the checks relevant to the change. For a release or security-sensitive change, run the complete set. Record the commands and results in the pull request.
 
+## Documentation stays in the same commit
+
+Docs-as-spec, not docs-as-archive:
+
+- The subsystem specs under `docs/specs/` are part of the code they describe. A
+  change to the behaviour a spec covers — the desktop auth handoff, the local
+  content authority, the desktop updater — updates that spec **in the same
+  commit**. A review should treat a stale spec as a failing check.
+- The router table in `AGENTS.md` says which spec to read before touching which
+  files. Adding a spec means adding its row.
+- `scripts/check-docs.mjs` (via `scripts/docs-boundary.test.ts`) fails the build
+  when a spec is orphaned, a routed spec is missing, or a relative link between
+  docs stops resolving. `scripts/theme-color-boundary.test.ts` does the same for
+  the color-token contract in `packages/ui/README.md`.
+
+Prose in a README may summarize a spec, but it must not be the only place a
+decision is recorded.
+
 ## Internal contribution workflow
 
 For maintainers, trusted contributors, and automation agents:
