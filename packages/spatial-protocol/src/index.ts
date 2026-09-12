@@ -1,4 +1,12 @@
 export type { SceneManifest, SceneStartPosition, SceneZone } from '@adea-ai/asset-manifests'
+export {
+  agentSimEngineManifestUrl,
+  isLocalDevHost,
+  isOfficialAgentSimWebOrigin,
+  parseAgentSimEngineManifest,
+  OFFICIAL_AGENT_SIM_WEB_HOSTS,
+  type AgentSimEngineManifest,
+} from './engine'
 export { hqHomeManifest, hqWorkManifest } from './manifests'
 export {
   appRouteHref,

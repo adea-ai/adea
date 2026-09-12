@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import { useChannelListQuery, useRoomListQuery, useWorkspaceBootstrapQuery } from '@adea-ai/data'
 import { useWorkspaceStore } from '@adea-ai/state'
-import { Button } from '@adea-ai/ui/components/ui/button'
 
 import { useWorkspacePersistence } from './use-workspace-persistence'
+import { SidebarToggleButton } from './sidebar-toggle-button'
 import { projectWorkspaceNavigation } from './workspace-model'
 
 export function VirtualRoomControls({
@@ -58,40 +58,5 @@ export function VirtualRoomControls({
     setSelectedRoomId,
   ])
 
-  const selectedRoom =
-    navigation.rooms.find(({ room }) => room.id === selectedRoomId) ?? navigation.rooms[0]
-
-  return (
-    <section className="virtual-room-panel" aria-label="Virtual Room">
-      <header>
-        <div>
-          <p>Workspace Rooms</p>
-          <h2>{selectedRoom?.room.name ?? 'No Rooms yet'}</h2>
-        </div>
-        <Button type="button" variant="outline" size="sm" onClick={openChat}>
-          Open chat
-        </Button>
-      </header>
-      <div className="virtual-room-panel__rooms" role="group" aria-label="Choose a Room">
-        {navigation.rooms.map((item) => (
-          <Button
-            key={item.room.id}
-            type="button"
-            aria-pressed={item.room.id === selectedRoom?.room.id}
-            variant={item.room.id === selectedRoom?.room.id ? 'secondary' : 'ghost'}
-            size="sm"
-            onClick={() => {
-              setSelectedRoomId(item.room.id)
-              setSelectedChannelId(item.selectionChannelId ?? null)
-            }}
-          >
-            {item.room.name}
-          </Button>
-        ))}
-        {!navigation.rooms.length && !rooms.isPending ? (
-          <p>Create a Room in Chat to give this workspace a connected virtual context.</p>
-        ) : null}
-      </div>
-    </section>
-  )
+  return <SidebarToggleButton expanded={false} onToggle={() => openChat()} />
 }

@@ -96,20 +96,37 @@ automatically, and no step rewrites `wrangler.jsonc`.
 no-store` with `X-Robots-Tag: noindex, nofollow, noarchive`
   (`src/start/http-policy.mjs`).
 
-## Scene manifests (no private pack here)
+## Scene manifests and the Agent Sim engine guard
 
-This repository ships manifests only. The spatial engine (models, textures,
-audio) lives in the private `agent-sim` repo and is delivered through the
-entitlement-gated engine remote; `adea` lanes never fetch the private
-`adea-ai/assets` pack and need no asset credentials. `scripts/sync-assets.mjs`
-stages the tracked protocol manifests (`packages/spatial-protocol/data`) into
-the app's public assets directory, so plain checkouts build and test with zero
-setup.
+This repository ships manifests by default. The spatial engine (models,
+textures, audio, runtime code) lives in the private `agent-sim` repo, and the
+shell mounts it only for entitled deployments
+(`packages/spatial-protocol/src/engine.ts`):
 
-- **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically.
+- **Official web domains** (`adea.dev`, `adea.io`, including subdomains): the
+  engine is served same-origin from `/assets/agent-sim/` and the virtual view
+  mounts it. Forked sites on other domains are refused by host before any
+  engine fetch.
+- **Packed builds:** `scripts/pack-agent-sim.mjs` stages an engine pack
+  (`ADEA_AGENT_SIM_DIST`) into the app assets, writing the same-origin
+  `engine.json` the loader probes. Desktop release builds pack via
+  `release-assets.yml` when `AGENT_SIM_REF` and `AGENT_SIM_DEPLOY_TOKEN` are
+  configured; local development can point `ADEA_AGENT_SIM_DIST` at a local
+  agent-sim checkout to exercise the mounted view.
+- **Everything else:** plain checkouts, forks, and previews stay
+  manifests-only and render the offline fallback — no engine fetch, no
+  credentials.
+
+`scripts/sync-assets.mjs` stages the tracked protocol manifests
+(`packages/spatial-protocol/data`) into the app's public assets directory, so
+plain checkouts build and test with zero setup.
+
+- **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically
+  and renders the fallback unless a local engine pack was staged.
 - **Cloudflare Builds:** no asset variables needed.
-- **GitHub release lanes:** unchanged (`release-assets.yml` still serves the
-  desktop shell; full engine payloads ship from `agent-sim` lanes).
+- **GitHub release lanes:** `release-assets.yml` packs the engine into the
+  desktop bundle when `AGENT_SIM_REF`/`AGENT_SIM_DEPLOY_TOKEN` are set;
+  otherwise it builds manifests-only.
 
 ## Release attribution (telemetry)
 

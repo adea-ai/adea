@@ -38,7 +38,6 @@ import { Route as ApiV1WorkspacesWorkspaceIdRoomsRouteImport } from './routes/ap
 import { Route as ApiV1WorkspacesWorkspaceIdSearchRouteImport } from './routes/api/v1/workspaces/$workspaceId/search'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks'
 import { Route as ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/agents/$agentId'
-import { Route as ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/artifacts/$artifactId'
 import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/channels/$channelId'
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId'
 import { Route as ApiV1WorkspacesWorkspaceIdMessagesMessageIdRouteImport } from './routes/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -222,12 +221,6 @@ const ApiV1WorkspacesWorkspaceIdAgentsAgentIdRoute =
     path: '/$agentId',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdAgentsRoute,
   } as any)
-const ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute =
-  ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRouteImport.update({
-    id: '/$artifactId',
-    path: '/$artifactId',
-    getParentRoute: () => ApiV1WorkspacesWorkspaceIdArtifactsRoute,
-  } as any)
 const ApiV1WorkspacesWorkspaceIdChannelsChannelIdRoute =
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteImport.update({
     id: '/$channelId',
@@ -397,7 +390,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
@@ -405,7 +398,6 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/artifacts/$artifactId': typeof ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -453,7 +445,7 @@ export interface FileRoutesByTo {
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
@@ -461,7 +453,6 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/artifacts/$artifactId': typeof ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -510,7 +501,7 @@ export interface FileRoutesById {
   '/api/auth/desktop/revoke': typeof ApiAuthDesktopRevokeRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/v1/workspaces/$workspaceId/agents': typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRouteWithChildren
+  '/api/v1/workspaces/$workspaceId/artifacts': typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   '/api/v1/workspaces/$workspaceId/channels': typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs': typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   '/api/v1/workspaces/$workspaceId/read-state': typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
@@ -518,7 +509,6 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/search': typeof ApiV1WorkspacesWorkspaceIdSearchRoute
   '/api/v1/workspaces/$workspaceId/tasks': typeof ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren
   '/api/v1/workspaces/$workspaceId/agents/$agentId': typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteWithChildren
-  '/api/v1/workspaces/$workspaceId/artifacts/$artifactId': typeof ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute
   '/api/v1/workspaces/$workspaceId/channels/$channelId': typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteWithChildren
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdRoute
   '/api/v1/workspaces/$workspaceId/messages/$messageId': typeof ApiV1WorkspacesWorkspaceIdMessagesMessageIdRoute
@@ -576,7 +566,6 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
-    | '/api/v1/workspaces/$workspaceId/artifacts/$artifactId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -632,7 +621,6 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
-    | '/api/v1/workspaces/$workspaceId/artifacts/$artifactId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -688,7 +676,6 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/search'
     | '/api/v1/workspaces/$workspaceId/tasks'
     | '/api/v1/workspaces/$workspaceId/agents/$agentId'
-    | '/api/v1/workspaces/$workspaceId/artifacts/$artifactId'
     | '/api/v1/workspaces/$workspaceId/channels/$channelId'
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId'
     | '/api/v1/workspaces/$workspaceId/messages/$messageId'
@@ -733,7 +720,7 @@ export interface RootRouteChildren {
   ApiAuthDesktopRefreshRoute: typeof ApiAuthDesktopRefreshRoute
   ApiAuthDesktopRevokeRoute: typeof ApiAuthDesktopRevokeRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
-  ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRouteWithChildren
+  ApiV1WorkspacesWorkspaceIdArtifactsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
   ApiV1WorkspacesWorkspaceIdChannelsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdContentRefsRoute: typeof ApiV1WorkspacesWorkspaceIdContentRefsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdReadStateRoute: typeof ApiV1WorkspacesWorkspaceIdReadStateRouteWithChildren
@@ -947,13 +934,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/v1/workspaces/$workspaceId/agents/$agentId'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsAgentIdRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRoute
-    }
-    '/api/v1/workspaces/$workspaceId/artifacts/$artifactId': {
-      id: '/api/v1/workspaces/$workspaceId/artifacts/$artifactId'
-      path: '/$artifactId'
-      fullPath: '/api/v1/workspaces/$workspaceId/artifacts/$artifactId'
-      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRouteImport
-      parentRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsRoute
     }
     '/api/v1/workspaces/$workspaceId/channels/$channelId': {
       id: '/api/v1/workspaces/$workspaceId/channels/$channelId'
@@ -1192,21 +1172,6 @@ const ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren =
     ApiV1WorkspacesWorkspaceIdAgentsRouteChildren,
   )
 
-interface ApiV1WorkspacesWorkspaceIdArtifactsRouteChildren {
-  ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute
-}
-
-const ApiV1WorkspacesWorkspaceIdArtifactsRouteChildren: ApiV1WorkspacesWorkspaceIdArtifactsRouteChildren =
-  {
-    ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute:
-      ApiV1WorkspacesWorkspaceIdArtifactsArtifactIdRoute,
-  }
-
-const ApiV1WorkspacesWorkspaceIdArtifactsRouteWithChildren =
-  ApiV1WorkspacesWorkspaceIdArtifactsRoute._addFileChildren(
-    ApiV1WorkspacesWorkspaceIdArtifactsRouteChildren,
-  )
-
 interface ApiV1WorkspacesWorkspaceIdChannelsChannelIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdMessagesRoute
   ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute: typeof ApiV1WorkspacesWorkspaceIdChannelsChannelIdParticipantsRoute
@@ -1371,7 +1336,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
     ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdArtifactsRoute:
-    ApiV1WorkspacesWorkspaceIdArtifactsRouteWithChildren,
+    ApiV1WorkspacesWorkspaceIdArtifactsRoute,
   ApiV1WorkspacesWorkspaceIdChannelsRoute:
     ApiV1WorkspacesWorkspaceIdChannelsRouteWithChildren,
   ApiV1WorkspacesWorkspaceIdContentRefsRoute:

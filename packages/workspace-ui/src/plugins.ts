@@ -59,6 +59,48 @@ export type RegistryPluginsProviderOptions = Readonly<{
   requestedHarness?: string
 }>
 
+const PLUGIN_CACHE_STORAGE_KEY = 'adea:plugin-catalog-cache:v1'
+const PLUGIN_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const PLUGIN_REFRESH_INTERVAL_MS = 60_000
+
+type PersistedPluginCache = Readonly<{
+  catalogId: string
+  cachedAt: number
+  plugins: readonly WorkspacePlugin[]
+}>
+
+function readPersistedPlugins(workspaceId: string): PersistedPluginCache | undefined {
+  try {
+    const raw = window.localStorage.getItem(PLUGIN_CACHE_STORAGE_KEY)
+    if (!raw) return undefined
+    const parsed = JSON.parse(raw) as Record<string, PersistedPluginCache>
+    const entry = parsed[workspaceId]
+    if (
+      !entry ||
+      typeof entry.catalogId !== 'string' ||
+      !Array.isArray(entry.plugins) ||
+      typeof entry.cachedAt !== 'number' ||
+      Date.now() - entry.cachedAt > PLUGIN_CACHE_MAX_AGE_MS
+    ) {
+      return undefined
+    }
+    return entry
+  } catch {
+    return undefined
+  }
+}
+
+function writePersistedPlugins(workspaceId: string, entry: PersistedPluginCache): void {
+  try {
+    const raw = window.localStorage.getItem(PLUGIN_CACHE_STORAGE_KEY)
+    const parsed = raw ? (JSON.parse(raw) as Record<string, PersistedPluginCache>) : {}
+    parsed[workspaceId] = entry
+    window.localStorage.setItem(PLUGIN_CACHE_STORAGE_KEY, JSON.stringify(parsed))
+  } catch {
+    // Persistence is best-effort: private modes and full quotas simply skip it.
+  }
+}
+
 export function createRegistryPluginsProvider(
   options: RegistryPluginsProviderOptions
 ): WorkspacePluginsProvider {
@@ -66,6 +108,27 @@ export function createRegistryPluginsProvider(
   let cacheWorkspaceId: string | undefined
   let state: WorkspacePluginsProviderState = 'idle'
   const apiClient = () => (typeof options.client === 'function' ? options.client() : options.client)
+
+  let lastFetchAt = 0
+
+  const refresh = async (): Promise<VerifiedRegistryCatalog> => {
+    const workspaceId = options.getWorkspaceId()
+    if (!workspaceId) {
+      state = 'unavailable'
+      throw new MarketplaceCatalogError('unavailable', 'A workspace is required to load plugins')
+    }
+    const fresh = await loadRegistryArtifacts(apiClient(), workspaceId)
+    cache = fresh
+    cacheWorkspaceId = workspaceId
+    lastFetchAt = Date.now()
+    state = fresh.state === 'stale' ? 'stale' : 'ready'
+    writePersistedPlugins(workspaceId, {
+      catalogId: fresh.catalog.catalogId,
+      cachedAt: lastFetchAt,
+      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations),
+    })
+    return fresh
+  }
 
   const list = async (): Promise<readonly WorkspacePlugin[]> => {
     const workspaceId = options.getWorkspaceId()
@@ -77,11 +140,22 @@ export function createRegistryPluginsProvider(
       cache = undefined
       cacheWorkspaceId = workspaceId
     }
+    // A persisted snapshot renders the browser almost immediately; a single
+    // background refresh keeps it current for subsequent loads.
+    if (!cache) {
+      const persisted = readPersistedPlugins(workspaceId)
+      if (persisted) {
+        state = 'ready'
+        void refresh().catch(() => undefined)
+        return persisted.plugins
+      }
+    } else if (Date.now() - lastFetchAt > PLUGIN_REFRESH_INTERVAL_MS) {
+      void refresh().catch(() => undefined)
+    }
     state = 'loading'
     try {
-      cache = await loadRegistryArtifacts(apiClient(), workspaceId)
-      state = cache.state === 'stale' ? 'stale' : 'ready'
-      return mapRegistryCatalog(cache.catalog, cache.installations)
+      const fresh = await refresh()
+      return mapRegistryCatalog(fresh.catalog, fresh.installations)
     } catch (error) {
       if (error instanceof MarketplaceCatalogError && error.state === 'verification-failure') {
         state = 'verification-failure'
@@ -106,7 +180,8 @@ export function createRegistryPluginsProvider(
         'A workspace and user identity are required to enable a plugin'
       )
     }
-    if (!cache) await list()
+    // Installs need the verified artifacts, not just the mapped plugin list.
+    if (!cache) await refresh()
     if (!cache)
       throw new MarketplaceCatalogError('unavailable', 'The plugin catalog is unavailable')
     if (cache.state !== 'ready') {

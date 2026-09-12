@@ -59,7 +59,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
   activeSurface: 'conversation',
   collapsedRoomIds: [],
   drafts: {},
-  mobileSidebarOpen: false,
+  mobileSidebarOpen:
+    typeof window === 'undefined' ? true : window.matchMedia('(min-width: 48rem)').matches,
   globalPanel: null,
   setSelectedScene: (selectedScene) => set({ selectedScene }),
   setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),
@@ -71,7 +72,6 @@ export const useWorkspaceStore = create<WorkspaceState>((set) => ({
       collapsedRoomIds: [],
       drafts: {},
       globalPanel: null,
-      mobileSidebarOpen: false,
       selectedAgentId: null,
       selectedChannelId: null,
       selectedRoomId: null,

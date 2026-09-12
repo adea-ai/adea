@@ -64,60 +64,9 @@
   letter-spacing: -0.08em;
 }
 
-.virtual-room-panel {
+.virtual-view-engine {
   position: absolute;
-  top: calc(var(--workspace-topbar-offset) + 1rem);
-  left: 1rem;
-  z-index: 10;
-  width: min(20rem, calc(100vw - 2rem));
-  max-height: min(26rem, calc(100svh - var(--workspace-topbar-offset) - 6rem));
-  overflow: auto;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--card) 90%, transparent);
-  color: var(--card-foreground);
-  box-shadow: 0 16px 40px rgb(0 0 0 / 0.2);
-  backdrop-filter: blur(18px);
-  pointer-events: auto;
-}
-
-.virtual-room-panel > header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.65rem;
-}
-
-.virtual-room-panel h2,
-.virtual-room-panel p {
-  margin: 0;
-}
-
-.virtual-room-panel header p {
-  margin-bottom: 0.15rem;
-  color: var(--muted-foreground);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.virtual-room-panel h2 {
-  font-size: 0.95rem;
-}
-
-.virtual-room-panel__rooms {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.virtual-room-panel__rooms > p {
-  color: var(--muted-foreground);
-  font-size: 0.8rem;
-  line-height: 1.4;
+  inset: 0;
 }
 
 /* Room Designer owns the viewport while it is open. Keep the global rail
@@ -126,20 +75,10 @@
 .workspace-scene-viewport:has([data-room-designer-active='true'])
   .workspace-ui
   :is(
-    .virtual-room-panel,
+    .conventional-mobile-menu,
     .workspace-scene-tools,
     .workspace-view-switcher,
     .workspace-scene-caption
   ) {
   display: none;
-}
-
-@media (max-width: 640px) {
-  .virtual-room-panel {
-    top: auto;
-    bottom: calc(var(--workspace-bottom-controls) + 4rem);
-    left: 0.75rem;
-    width: calc(100vw - 1.5rem);
-    max-height: 11rem;
-  }
 }

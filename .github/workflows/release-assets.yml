@@ -121,14 +121,31 @@ jobs:
           bun-version: 1.4.0
           no-cache: true
 
-      - name: Note manifests-only desktop shell
-        # The desktop shell ships manifests only by design. The spatial engine
-        # (models, textures, audio) lives in the private agent-sim repo and
-        # ships through its own lanes; adea lanes fetch no private pack and
-        # need no asset credentials.
+      - name: Pack Agent Sim engine
+        # Official builds pack the private Agent Sim engine into the desktop
+        # bundle, which is what entitles them to mount the virtual view (see
+        # packages/spatial-protocol/src/engine.ts). The pack lives in the
+        # agent-sim repo's `export/` directory at the AGENT_SIM_REF variable;
+        # AGENT_SIM_DEPLOY_TOKEN needs read access to that private repo.
+        # Without both configured, the shell builds manifests-only and the
+        # virtual view renders its offline fallback.
+        env:
+          AGENT_SIM_REF: ${{ vars.AGENT_SIM_REF }}
+          AGENT_SIM_TOKEN: ${{ secrets.AGENT_SIM_DEPLOY_TOKEN }}
         run: |
           set -euo pipefail
-          echo 'Building manifests-only desktop shell (engine ships from agent-sim).'
+          if [[ -z "$AGENT_SIM_REF" || -z "$AGENT_SIM_TOKEN" ]]; then
+            echo 'Agent Sim pack credentials not configured; building manifests-only shell.'
+            exit 0
+          fi
+          git clone --depth 1 --branch "$AGENT_SIM_REF" \
+            "https://x-access-token:${AGENT_SIM_TOKEN}@github.com/adea-ai/agent-sim.git" \
+            "$RUNNER_TEMP/agent-sim"
+          if [[ ! -f "$RUNNER_TEMP/agent-sim/export/engine.json" ]]; then
+            echo "agent-sim at ${AGENT_SIM_REF} has no export/engine.json; refusing to ship a sim-less official build." >&2
+            exit 1
+          fi
+          echo "ADEA_AGENT_SIM_DIST=$RUNNER_TEMP/agent-sim/export" >> "$GITHUB_ENV"
 
       - name: Load release notes
         id: release_notes

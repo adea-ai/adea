@@ -19,7 +19,7 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/audio": "workspace:*",
@@ -44,7 +44,7 @@
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@capacitor/android": "^8.5.0",
         "@capacitor/core": "^8.5.0",
@@ -57,7 +57,7 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
@@ -99,25 +99,25 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/asset-manifests": {
       "name": "@adea-ai/asset-manifests",
-      "version": "0.14.1",
+      "version": "0.15.0",
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "lucide-react": "^1.33.0",
         "react": "19.2.8",
@@ -128,7 +128,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -137,11 +137,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.14.1",
+      "version": "0.15.0",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -155,7 +155,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -168,14 +168,14 @@
     },
     "packages/spatial-protocol": {
       "name": "@adea-ai/spatial-protocol",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/asset-manifests": "workspace:*",
       },
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "zustand": "^5.0.3",
@@ -183,11 +183,11 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.14.1",
+      "version": "0.15.0",
     },
     "packages/ui": {
       "name": "@adea-ai/ui",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@base-ui/react": "^1.7.0",
         "class-variance-authority": "^0.7.1",
@@ -206,11 +206,12 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.14.1",
+      "version": "0.15.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/audio": "workspace:*",
         "@adea-ai/data": "workspace:*",
+        "@adea-ai/spatial-protocol": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
         "@adea-ai/ui": "workspace:*",

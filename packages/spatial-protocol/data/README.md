@@ -6,6 +6,9 @@ truth; changes land here via the cutover sync and must be re-mirrored when
 the engine edits them.
 
 `scripts/sync-assets.mjs` stages these into `apps/web/public/assets/worlds/`
-so the shell (and the future entitlement-gated engine remote) resolves
-same-origin manifest URLs from the protocol's `hqHomeManifest` /
-`hqWorkManifest`. Runtime models, textures, and audio are never staged here.
+so the shell (and the entitlement-gated engine remote it mounts on official
+domains and packed builds) resolves same-origin manifest URLs from the
+protocol's `hqHomeManifest` / `hqWorkManifest`. Runtime models, textures, and
+audio are never staged here; the engine mount contract lives in
+`../src/engine.ts` (`window.__adeaAgentSim.mount`, registered by the engine
+entry listed in the packed `engine.json`).

@@ -42,6 +42,16 @@ state without treating stale credentials as authorization for cloud work. Expire
 malformed sessions are cleared. Sign-out and user-session revocation do not delete or revoke the
 separate RuntimeNode device credential.
 
+## Virtual view and Agent Sim
+
+The virtual view mounts the Agent Sim engine only on entitled deployments:
+official desktop builds pack the engine at build time
+(`release-assets.yml` checks out the private `agent-sim` repo when
+`AGENT_SIM_REF`/`AGENT_SIM_DEPLOY_TOKEN` are configured), and local builds can
+do the same by pointing `ADEA_AGENT_SIM_DIST` at a local engine pack before
+`shell:build`. Builds without a pack — including any fork's — render the
+offline fallback and never fetch engine code.
+
 Signed desktop updates are published to the repository's GitHub Releases.
 The Tauri updater polls the release channel directly at
 `https://github.com/adea-ai/adea/releases/latest/download/latest.json` and

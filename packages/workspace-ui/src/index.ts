@@ -1,6 +1,15 @@
 export { ConventionalWorkspaceShell } from './conventional-workspace-shell'
+export { SidebarToggleButton } from './sidebar-toggle-button'
 export { WorkspaceViewToggle, type WorkspaceView } from './workspace-view-toggle'
 export { VirtualRoomControls } from './virtual-room-controls'
+export {
+  isDesktopRuntime,
+  loadAgentSimEngine,
+  resolveAgentSimEngine,
+  type AgentSimEntitlement,
+  type AgentSimRuntimeGlobal,
+} from './agent-sim-engine'
+export { VirtualView } from './virtual-view'
 export { VirtualUnavailable } from './virtual-unavailable'
 export { GlobalWorkspaceRail } from './global-workspace-rail'
 export { WorkspaceAboutDialog } from './workspace-about-dialog'

@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
 
 const contractVersion = { major: 2, minor: 0 } as const
+// The service principal the Control Plane registered for this shell. One
+// spelling; a mismatch makes the Control Plane reject marketplace calls.
+const servicePrincipalId = 'svc_agent-hq'
 
 export async function proxyMarketplaceCatalog(
   input: Readonly<{ workspaceId: string; userId: string }>
@@ -10,7 +13,7 @@ export async function proxyMarketplaceCatalog(
   return proxyControlPlane(
     '/v1/marketplace/catalog',
     {
-      caller: { servicePrincipalId: 'svc_agent-hq' },
+      caller: { servicePrincipalId },
       contractVersion,
       correlation: { traceId },
       operation: 'marketplace.catalog.read',
@@ -39,7 +42,7 @@ export async function proxyMarketplaceInstallPlan(
   return proxyControlPlane(
     '/v1/marketplace/install-plan',
     {
-      caller: { servicePrincipalId: 'svc_agent_hq' },
+      caller: { servicePrincipalId },
       commandId,
       contractVersion,
       correlation: { traceId },
@@ -73,7 +76,7 @@ export async function proxyMarketplaceInstall(
   return proxyControlPlane(
     '/v1/marketplace/install',
     {
-      caller: { servicePrincipalId: 'svc_agent-hq' },
+      caller: { servicePrincipalId },
       commandId,
       contractVersion,
       correlation: { traceId },

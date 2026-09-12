@@ -336,7 +336,18 @@
   outline-offset: -2px;
 }
 .conventional-sidebar__close {
-  display: none;
+  /* Absolutely positioned so the close control never becomes a grid item:
+     the sidebar keeps its title / quick-actions / scroll row rhythm at every
+     width, exactly like the large layout. */
+  position: absolute;
+  z-index: 5;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border-radius: 0.4rem;
 }
 .conventional-sidebar__title {
   padding: 0.9rem 1.25rem 0.5rem;
@@ -590,8 +601,25 @@
 .conventional-sidebar__settings {
   margin: 0.5rem 0.6rem 0.75rem;
 }
-.conventional-mobile-menu,
 .conventional-sidebar-scrim {
+  display: none;
+}
+.conventional-mobile-menu {
+  position: fixed;
+  z-index: 12;
+  top: 0.65rem;
+  left: 4.65rem;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border: 1px solid var(--cw-border, var(--border));
+  border-radius: 0.4rem;
+  background: var(--cw-surface, var(--card));
+  color: var(--cw-text, var(--foreground));
+  pointer-events: auto;
+}
+.conventional-workspace:has(> .conventional-sidebar--open) .conventional-mobile-menu {
   display: none;
 }
 
@@ -2738,15 +2766,6 @@
   .conventional-sidebar--open {
     transform: none;
   }
-  .conventional-sidebar__close {
-    display: grid;
-    justify-self: end;
-    width: 2.5rem;
-    height: 2.5rem;
-    margin: 0.5rem 0.5rem 0;
-    place-items: center;
-    border-radius: 0.4rem;
-  }
   .conventional-sidebar-scrim {
     position: fixed;
     z-index: 39;
@@ -2760,20 +2779,6 @@
   }
   .conventional-conversation__header {
     padding-left: 4.2rem;
-  }
-  .conventional-mobile-menu {
-    position: fixed;
-    z-index: 12;
-    top: 0.65rem;
-    left: 4.65rem;
-    display: grid;
-    width: 2.75rem;
-    height: 2.75rem;
-    place-items: center;
-    border: 1px solid var(--cw-border);
-    border-radius: 0.4rem;
-    background: var(--cw-surface);
-    color: var(--cw-text);
   }
   .conventional-header-menu {
     display: grid !important;
@@ -2843,4 +2848,14 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* Sidebar collapse works at every width: a closed navigation aside collapses
+   its grid column instead of only sliding off-canvas on small screens. */
+.conventional-workspace:has(> .conventional-sidebar:not(.conventional-sidebar--open)) {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+.conventional-workspace:has(> .conventional-sidebar:not(.conventional-sidebar--open))
+  .conventional-topbar {
+  grid-template-columns: 0 minmax(0, 1fr) auto auto;
 }

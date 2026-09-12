@@ -33,7 +33,9 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     collapsedRoomIds: [],
     drafts: {},
     globalPanel: null,
-    mobileSidebarOpen: false,
+    // The sidebar open/closed choice persists across workspace switches at
+    // every viewport width.
+    mobileSidebarOpen: true,
     selectedAgentId: null,
     selectedChannelId: null,
     selectedRoomId: null,

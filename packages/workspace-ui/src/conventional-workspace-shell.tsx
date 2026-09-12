@@ -92,7 +92,9 @@ export function ConventionalWorkspaceShell({
       setSearchTargetMessageId(null)
       controller.selectChannel(channelId, roomId)
       setActiveSurface('conversation')
-      setMobileSidebarOpen(false)
+      // Selecting a conversation collapses the drawer only on narrow
+      // viewports; at wider widths the sidebar stays as the user left it.
+      if (window.matchMedia('(max-width: 48rem)').matches) setMobileSidebarOpen(false)
     },
     [controller.selectChannel, setActiveSurface, setMobileSidebarOpen]
   )
