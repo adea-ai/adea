@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/adea-ai/adea/compare/v0.18.5...v0.19.0) (2026-09-12)
+
+
+### Features
+
+* **db:** durable workspace event log with per-workspace sequences and publication records ([#357](https://github.com/adea-ai/adea/issues/357)) ([4fe594f](https://github.com/adea-ai/adea/commit/4fe594f4e3db843449da72bf5c57ff8ee7cc9f6e))
+
 ## [0.18.5](https://github.com/adea-ai/adea/compare/v0.18.4...v0.18.5) (2026-09-12)
 
 
