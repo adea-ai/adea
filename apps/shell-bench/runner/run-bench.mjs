@@ -33,6 +33,7 @@ const candidates = [
   {
     name: 'electron',
     kind: 'primary',
+    preKill: 'shell-bench-electron.app',
     launch: () => ({
       cmd: join(BENCH_ROOT, 'electron/node_modules/.bin/electron'),
       args: ['.'],
@@ -53,6 +54,7 @@ const candidates = [
   {
     name: 'tauri',
     kind: 'baseline',
+    preKill: 'shell-bench-tauri',
     launch: () => {
       const bin = join(
         BENCH_ROOT,
@@ -94,6 +96,7 @@ const candidates = [
   {
     name: 'electrobun-bun',
     kind: 'longshot',
+    preKill: 'hello-world.app',
     launch: () => {
       const bin = join(
         BENCH_ROOT,
@@ -219,7 +222,7 @@ function injectIndex(html) {
 // The client bundle bakes the cloud origin at build time; rewrite it to
 // same-origin so the bench server can proxy it (the CP rejects foreign origins).
 function rewriteCloudOrigin(js) {
-  return js.split(CLOUD_ORIGIN).join('')
+  return js.split(CLOUD_ORIGIN).join(`http://127.0.0.1:${PORT}`)
 }
 
 async function proxyToCloud(req, res, url) {
@@ -234,12 +237,35 @@ async function proxyToCloud(req, res, url) {
     if (Array.isArray(value)) headers[key] = value.join(', ')
     else headers[key] = value
   }
+  // Bench-only: the hosted CP rejects desktop-client bootstrap without a device
+  // credential (real app mints one via keyring — M5.3 item). Bench shells run
+  // as browser-type clients for the workspace service.
+  if (headers['x-adea-client'] === 'desktop') headers['x-adea-client'] = 'browser'
   try {
     const upstream = await fetch(`${CLOUD_ORIGIN}${url.pathname}${url.search}`, {
       method: req.method,
       headers,
       body: chunks.length ? Buffer.concat(chunks) : undefined,
     })
+    console.log(
+      `[proxy] ${req.method} ${url.pathname} -> ${upstream.status} (${state.currentRun?.candidate ?? '-'}/${state.currentRun?.phase ?? '-'})`
+    )
+    if (upstream.status >= 400) {
+      const errBody = Buffer.from(await upstream.arrayBuffer())
+      console.log(
+        `[proxy] error body: ${errBody.toString('utf8').slice(0, 300)} | req headers: ${JSON.stringify(headers).slice(0, 400)}`
+      )
+      for (const [key, value] of upstream.headers) {
+        const k = key.toLowerCase()
+        if (['content-encoding', 'content-length', 'transfer-encoding', 'connection'].includes(k))
+          continue
+        responseHeaders[key] = value
+      }
+      responseHeaders['content-length'] = String(errBody.length)
+      res.writeHead(upstream.status, responseHeaders)
+      res.end(errBody)
+      return
+    }
     const responseHeaders = {}
     for (const [key, value] of upstream.headers) {
       const k = key.toLowerCase()
@@ -396,9 +422,20 @@ function treeRss(rows, rootPid) {
 }
 
 function killTree(pid) {
+  // detached spawn creates a new process group: the negative pid signals the
+  // whole group. Electron/Electrobun child trees would otherwise survive and
+  // poison later runs via single-instance handoff.
+  try {
+    process.kill(-pid, 'SIGKILL')
+  } catch {
+    try {
+      spawn('kill', ['-9', String(pid)])
+    } catch {
+      /* already gone */
+    }
+  }
   try {
     spawn('pkill', ['-9', '-P', String(pid)])
-    spawn('kill', ['-9', String(pid)])
   } catch {
     /* best effort */
   }
@@ -455,6 +492,7 @@ function stopSampling() {
 }
 
 async function runPhase(candidate, phase, url) {
+  if (candidate.preKill) spawn('pkill', ['-9', '-f', candidate.preKill])
   if (candidate.prepare) await candidate.prepare(url)
   const { cmd, args: baseArgs, cwd } = candidate.launch()
   const spawnEnv = candidate.envUrl ? { ...process.env, [candidate.envUrl]: url } : undefined
@@ -513,6 +551,7 @@ async function runIpc(candidate) {
   if (candidate.ipc === false)
     return { bridge: null, note: 'no shell bridge (N/A for this candidate)' }
   if (candidate.prepare) await candidate.prepare(PROBE_URL)
+  if (candidate.preKill) spawn('pkill', ['-9', '-f', candidate.preKill])
   const { cmd, args: baseArgs, cwd } = candidate.launch()
   const spawnEnv = candidate.envUrl ? { ...process.env, [candidate.envUrl]: PROBE_URL } : undefined
   const urlArg = candidate.envUrl ? null : (candidate.urlArg?.(PROBE_URL) ?? null)
