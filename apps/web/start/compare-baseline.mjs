@@ -7,6 +7,7 @@ import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createLoopbackCertificate } from './loopback-tls.mjs'
 
 // Builds both hosts must already exist:
 //   apps/web/dist (this repository, TanStack Start) and the baseline checkout's
@@ -21,6 +22,7 @@ if (process.platform === 'win32') throw new Error('Local Worker checks require m
 const baselineWeb = resolve(baselineRoot, 'apps/web')
 await mkdir(resolve(start, '.checks'), { recursive: true })
 const evidence = await mkdtemp(resolve(start, '.checks/comparison-'))
+const tls = createLoopbackCertificate(evidence)
 const project = `adea-compare-${process.pid}`
 const workers = []
 const environment = Object.fromEntries(
@@ -68,6 +70,10 @@ function startWorker(config, port, inspector, cwd) {
       resolve(evidence, `state-${port}`),
       '--local-protocol',
       'https',
+      '--https-cert-path',
+      tls.certPath,
+      '--https-key-path',
+      tls.keyPath,
     ],
     { cwd, env: environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }
   )
@@ -78,9 +84,11 @@ function startWorker(config, port, inspector, cwd) {
   return child
 }
 function localHttps(url, method = 'GET') {
+  // This helper is only called with the loopback URLs allocated by this
+  // process, and only trusts the certificate minted for this run.
   assert.equal(new URL(url).hostname, '127.0.0.1')
   return new Promise((ok, fail) => {
-    const request = httpsRequest(url, { method, rejectUnauthorized: false }, (response) => {
+    const request = httpsRequest(url, { method, ca: tls.certificate }, (response) => {
       response.resume()
       response.once('end', () => ok({ status: response.statusCode }))
     })

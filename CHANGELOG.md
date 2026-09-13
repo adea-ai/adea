@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.22.2](https://github.com/adea-ai/adea/compare/v0.22.1...v0.22.2) (2026-09-13)
+
+
+### Maintenance
+
+* **deps:** bump the github-actions group with 2 updates ([#375](https://github.com/adea-ai/adea/issues/375)) ([5345b81](https://github.com/adea-ai/adea/commit/5345b81caa77be4a23e004c8c3527388e0b28bf5))
+
+## [0.22.1](https://github.com/adea-ai/adea/compare/v0.22.0...v0.22.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **web:** keep TLS verification on for loopback Worker checks ([#377](https://github.com/adea-ai/adea/issues/377)) ([0f2ff96](https://github.com/adea-ai/adea/commit/0f2ff96b0778ca5c0869cd582e49884336309e4a))
+
+## [0.22.0](https://github.com/adea-ai/adea/compare/v0.21.2...v0.22.0) (2026-09-13)
+
+
+### Features
+
+* **desktop:** M5 closeout — browser-lane decision (M5.1) and shell benchmark scope (M5.2) ([#373](https://github.com/adea-ai/adea/issues/373)) ([ad6d832](https://github.com/adea-ai/adea/commit/ad6d8323449cd62c631215bb37f90ff605695e0a))
+
+
+### Maintenance
+
+* **deps:** bump the npm-dependencies group with 4 updates ([#376](https://github.com/adea-ai/adea/issues/376)) ([211c594](https://github.com/adea-ai/adea/commit/211c5941d7ba1f4cab468e9af418ca7d60495280))
+
 ## [0.21.2](https://github.com/adea-ai/adea/compare/v0.21.1...v0.21.2) (2026-09-12)
 
 

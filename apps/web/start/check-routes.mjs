@@ -7,6 +7,7 @@ import { createServer } from 'node:net'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createLoopbackCertificate } from './loopback-tls.mjs'
 
 // Focused boot check: without provider configuration the auth proxy must fail
 // closed (503) rather than 404, proving the route is mounted.
@@ -14,6 +15,7 @@ const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
 await mkdir(resolve(start, '.checks'), { recursive: true })
 const evidence = await mkdtemp(resolve(start, '.checks/routes-'))
+const tls = createLoopbackCertificate(evidence)
 const environment = Object.fromEntries(
   ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'CI']
     .filter((key) => process.env[key] !== undefined)
@@ -32,8 +34,11 @@ async function availablePort() {
   return port
 }
 function localHttps(url, method = 'GET') {
+  // This helper is only called with the loopback URLs allocated by this
+  // process, and only trusts the certificate minted for this run.
+  assert.equal(new URL(url).hostname, '127.0.0.1')
   return new Promise((ok, fail) => {
-    const request = httpsRequest(url, { method, rejectUnauthorized: false }, (response) => {
+    const request = httpsRequest(url, { method, ca: tls.certificate }, (response) => {
       response.resume()
       response.once('end', () => ok({ status: response.statusCode, headers: response.headers }))
     })
@@ -89,6 +94,10 @@ const child = spawn(
     resolve(evidence, 'state'),
     '--local-protocol',
     'https',
+    '--https-cert-path',
+    tls.certPath,
+    '--https-key-path',
+    tls.keyPath,
   ],
   { cwd: web, env: environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] }
 )
@@ -112,7 +121,7 @@ try {
   const asset = await new Promise((ok, fail) => {
     const request = httpsRequest(
       `${baseURL}/start-assets/index-CCRMjL6_.css`,
-      { rejectUnauthorized: false },
+      { ca: tls.certificate },
       (response) => {
         response.resume()
         response.once('end', () => ok({ status: response.statusCode, headers: response.headers }))
