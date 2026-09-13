@@ -6,6 +6,10 @@ import { createComponent } from 'solid-js/web'
  * The owning Start route is browser-only. Load on mount, never during SSR;
  * the module-level promise deduplicates imports without nested Suspense
  * reveal delays.
+ *
+ * A failed import is re-thrown from a reactive branch, so the route's error
+ * component takes over (a throw in the component body would only be evaluated
+ * once, before the import has settled).
  */
 export default function lazyComponent<Props extends object>(
   load: () => Promise<Component<Props>>,
@@ -30,10 +34,18 @@ export default function lazyComponent<Props extends object>(
         )
     })
 
-    if (failure()) throw failure()
     return (
-      <Show when={component()} fallback={options.loading?.() ?? null}>
-        {(loaded) => createComponent(loaded(), props)}
+      <Show
+        when={failure()}
+        fallback={
+          <Show when={component()} fallback={options.loading?.() ?? null}>
+            {(loaded) => createComponent(loaded(), props)}
+          </Show>
+        }
+      >
+        {(error) => {
+          throw error()
+        }}
       </Show>
     )
   }
