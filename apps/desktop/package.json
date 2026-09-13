@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/desktop",
-  "version": "0.21.2",
+  "version": "0.22.0",
   "private": true,
   "description": "Adea desktop lane: the Electrobun shell plus the single-UI client build it serves",
   "type": "module",
