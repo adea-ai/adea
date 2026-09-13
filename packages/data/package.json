@@ -34,7 +34,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "@tanstack/react-query": "^5.66.8",
-    "react": "19.2.8"
+    "react": "19.3.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.18"
