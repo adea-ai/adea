@@ -8,8 +8,14 @@ import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { createCommandSurface } from '../commands'
 
+// The client is copied into the bundle (`electrobun.config.ts` build.copy), so
+// the packaged app serves `Resources/app/client`. Running from the repo
+// (`bun run shell:dev`) falls back to the web app's build output.
 const CLIENT_ROOT =
-  process.env.ADEA_CLIENT_ROOT ?? join(import.meta.dir, '../../../../web/dist-desktop/client')
+  process.env.ADEA_CLIENT_ROOT ??
+  (existsSync(join(import.meta.dir, '../client'))
+    ? join(import.meta.dir, '../client')
+    : join(import.meta.dir, '../../../../web/dist-desktop/client'))
 const DATA_DIR =
   process.env.ADEA_DATA_DIR ?? join(process.env.HOME ?? '.', 'Library/Application Support/Adea')
 const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)

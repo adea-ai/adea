@@ -11,6 +11,12 @@ export default {
   build: {
     mainProcess: 'bun',
     views: {},
+    // The single-UI client (apps/web's SPA build) is copied into the bundle so
+    // the packaged app is self-contained; the shell resolves it next to the
+    // bundled main process. Staged by apps/desktop/scripts/client.mjs.
+    copy: {
+      '../../web/dist-desktop/client': 'client',
+    },
     mac: {
       bundleCEF: true,
     },

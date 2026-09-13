@@ -8,7 +8,17 @@ const shellRoot = join(root, 'apps/desktop/shell')
 const entry = join(shellRoot, 'src/bun/index.ts')
 
 const SHELL_EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js']
-const SKIP = new Set(['node_modules', 'dist', '.turbo'])
+// Electrobun's build output (and the client copy inside it) is not shell
+// source; scanning it would read the whole bundled client.
+const SKIP = new Set([
+  'node_modules',
+  'dist',
+  'dist-desktop',
+  '.hutch',
+  'build',
+  'artifacts',
+  '.turbo',
+])
 
 async function shellSources(): Promise<Array<{ path: string; source: string }>> {
   const files: string[] = []
@@ -90,7 +100,9 @@ describe('desktop shell boot', () => {
     const source = await readFile(entry, 'utf8')
 
     // The shell serves the web app's TanStack Start SPA output; there is no
-    // second desktop client pipeline.
+    // second desktop client pipeline. The packaged app resolves the copy
+    // Electrobun stages next to the bundled main process.
+    expect(source).toContain("join(import.meta.dir, '../client')")
     expect(source).toContain("'../../../../web/dist-desktop/client'")
     expect(existsSync(join(root, 'apps/desktop/vite.config.ts'))).toBe(false)
     expect(existsSync(join(root, 'apps/desktop/src'))).toBe(false)
@@ -98,6 +110,14 @@ describe('desktop shell boot', () => {
     const clientBuild = await readFile(join(root, 'apps/desktop/scripts/client.mjs'), 'utf8')
     expect(clientBuild).toContain('@adea-ai/web^...')
     expect(clientBuild).toContain("'desktop:build'")
+
+    // The client ships inside the bundle; a packaged app that only read the
+    // repo path would serve nothing.
+    const electrobunConfig = await readFile(
+      join(root, 'apps/desktop/shell/electrobun.config.ts'),
+      'utf8'
+    )
+    expect(electrobunConfig).toContain("'../../web/dist-desktop/client': 'client'")
   })
 
   test('confines the served client root to the bundled client directory', async () => {

@@ -32,7 +32,15 @@ const SCAN_ROOTS = [
 ]
 const SCAN_EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.json', '.html']
 /** Build output and dependency trees never ship as source. */
-const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'dist-desktop', '.turbo'])
+const SKIP_DIRECTORIES = new Set([
+  'node_modules',
+  'dist',
+  'dist-desktop',
+  '.hutch',
+  'build',
+  'artifacts',
+  '.turbo',
+])
 
 /** The one module allowed to name the canonical cloud origin. */
 export const CLOUD_ORIGIN_SOURCE = 'apps/desktop/scripts/cloud-config.mjs'

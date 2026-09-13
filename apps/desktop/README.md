@@ -29,8 +29,13 @@ bun run shell:dev
 `ADEA_DESKTOP_CLOUD_ORIGIN` set from the canonical
 `scripts/cloud-config.mjs` value (release default `https://adea.dev`). The
 shell itself never restates the cloud origin; `scripts/check-desktop-origins.mjs`
-enforces that. The shell serves `apps/web/dist-desktop/client` by default
-(`ADEA_CLIENT_ROOT` overrides it) and opens a window at
+enforces that.
+
+`shell:build` copies the SPA output into the application bundle
+(`build.copy` in `electrobun.config.ts` → `Resources/app/client`), so the
+packaged app is self-contained; the shell resolves that copy first and falls
+back to the repo path (`apps/web/dist-desktop/client`) when run from a checkout.
+`ADEA_CLIENT_ROOT` overrides both. The window opens at
 `http://127.0.0.1:4789`.
 
 ## Why the shell serves the web app's build

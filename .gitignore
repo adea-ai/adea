@@ -117,6 +117,9 @@ htmlcov/
 .coverage*
 /.artifacts/
 test-results/
+# Electrobun/Hutch devkit cache and bundles
+.hutch/
+artifacts/
 # Cloudflare Workers (OpenNext)
 .wrangler/
 .dev.vars
