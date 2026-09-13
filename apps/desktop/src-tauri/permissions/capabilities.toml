@@ -1,6 +1,0 @@
-"$schema" = "../gen/schemas/schema.json"
-
-[[permission]]
-identifier = "allow-desktop-capabilities"
-description = "Allows only the bundled main window to read the typed status of local capabilities (encrypted content store, system dictation, Agent Sim engine)."
-commands.allow = ["capability_snapshot"]

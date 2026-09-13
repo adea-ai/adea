@@ -10,8 +10,8 @@
     "client:prepare": "bun ../../scripts/sync-assets.mjs && bunx turbo run build --filter=@adea-ai/desktop^...",
     "shell:client:build": "bun run client:prepare && bun run client:build",
     "shell:client:dev": "bun run client:prepare && bun run client:dev",
-    "shell:dev": "bun scripts/tauri.mjs dev",
-    "shell:build": "bun scripts/tauri.mjs build",
+    "shell:dev": "bun scripts/shell.mjs dev",
+    "shell:build": "bun scripts/shell.mjs build",
     "lint": "oxlint",
     "test": "bun test tests/unit",
     "typecheck": "tsc --noEmit"
@@ -24,15 +24,12 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/ui": "workspace:*",
     "@adea-ai/workspace-ui": "workspace:*",
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-updater": "^2.10.1",
     "lucide-react": "^1.33.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@tauri-apps/cli": "^2.5.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "vite": "^8.2.2"

@@ -1,11 +1,14 @@
 # Browser Lanes and the Engine-Bundling Desktop Shell
 
-- Status: Accepted for M5.1 (2026-09-12). The final shell selection (Electron
-  vs CEF-based candidates) is deferred to the M5.2 benchmarks and will be
-  recorded here alongside the measured scores.
+- Status: Accepted (2026-09-12). **Final shell selection: Electrobun 2.0.1 +
+  Bun 1.4 + bundled CEF** — measured in M5.2 and locked here; see "Final
+  selection" below.
 - Date: 2026-09-12
 - Tracks: #368 (this decision), #369 (shell benchmark), #370 (implementation),
-  #371 (cleanup) — milestone M5, Desktop Shell Re-evaluation.
+  #371 (cleanup) — milestone M5, Desktop Shell Re-evaluation. The M5.2
+  benchmark harness and its raw runs live only in PR #373's history
+  (<https://github.com/adea-ai/adea/pull/373>); the milestone's final commit
+  removes them, and this page is the durable record.
 - Scope: desktop browser capability — agent browser-use, previews, screenshots,
   and the surface they render in. Supersedes the implicit assumption that the
   OS webview can host product browsing. The web stack in
@@ -66,6 +69,47 @@ candidates (Electrobun, NW.js, Deno-based, Chrome `--app`) stay in the M5.2
 benchmark as longshots. Tauri is measured as the baseline that anchors the
 rejection record. The measured selection lands in #370, which extends this
 document with the scores rather than adding a second doc.
+
+## Final selection (M5.2 measurements, 2026-09-12)
+
+**Selected shell: Electrobun 2.0.1 with `mainProcess: "bun"` (Bun 1.4) and
+`bundleCEF: true`.** Every candidate booted the unmodified client against the
+production control plane with a real desktop session; the command surface was
+served identically for every shell, so the numbers compare engine, window,
+boot, and rendering cost. Same machine, same client build, cold + warm.
+
+| Shell | Ready | Workspace | Loaded RSS (chat) | **Loaded RSS + Agent Sim scene** | App bundle |
+| --- | --- | --- | --- | --- | --- |
+| **Electrobun + Bun + CEF** | **1.0 s** | +1.0 s | **350–358 MB** | **356 MB** | 370 MB |
+| Electron 44 | 4.3 s | +1.5 s | 533 MB | 1,052 MB | 313 MB |
+| CEF-in-Rust (cef-rs) | 0.7 s | +1.5 s | 905 MB | not run | 330 MB |
+| NW.js | 0.7 s | +1.1 s | 970 MB | not run | 404 MB |
+| Deno Desktop + CEF | 4.0 s | — | 709 MB | not run | 314 MB |
+| Chrome `--app` (floor) | 0.5 s | +1.6 s | 1,435–1,700 MB | not run | 0 |
+| Tauri 2 (no engine, reference) | 0.5 s | can't host the scene¹ | 105 MB | — | 8.9 MB |
+
+Why Electrobun: with the full Agent Sim world mounted it uses ~⅓ of Electron's
+memory and reaches ready ~4× faster, on our own runtime (Bun is already the
+repo's runtime and package manager) with an embedded Chromium. Bun 1.4's
+`Bun.WebView` (which drives macOS WebKit or a local Chromium over CDP) and
+`Bun.Terminal` cover the browser-use and terminal lanes from the same runtime.
+The scene adds ~0 MB to its footprint and +518 MB to Electron's.
+
+Rejected: **Electron** (fallback; scene doubles its memory, slowest first
+paint), **CEF-in-Rust** (native control but 905 MB), **NW.js** (Electron's
+slot, heavier), **Deno Desktop** (4.0 s startup for the same CEF cost), **Chrome
+`--app`** (no shell bridge by definition), **Electrobun + Rust** (wgpu-native
+surface — structurally cannot host the web client). ¹ **Tauri cannot serve the
+Agent Sim pack**: desktop entitlement requires the engine manifest and entry at
+the page origin (same-origin guard in `@adea-ai/spatial-protocol`) and the
+engine resolves ~300 MB of world assets relative to `engine.js`; an embedded
+`frontendDist` origin cannot provide them without baking the world into the
+binary.
+
+Benchmark methodology and raw runs: PR #373 history (harness deleted at
+milestone closeout). Session handling used the bench's browser-type transport;
+the desktop device-credential flow is implementation work shared by every
+candidate and is unaffected by this selection.
 
 ## Prior art (verified against installed apps, 2026-09-12)
 

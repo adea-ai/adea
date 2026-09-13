@@ -1,9 +1,0 @@
-{
-  "identifier": "default",
-  "description": "bench shell default capability (incl. bench-server remote context)",
-  "windows": ["main"],
-  "permissions": ["core:default"],
-  "remote": {
-    "urls": ["http://127.0.0.1:14209/*"]
-  }
-}

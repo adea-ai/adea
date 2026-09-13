@@ -1,0 +1,14 @@
+{
+  "name": "@adea-ai/desktop-shell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Adea desktop shell — Electrobun (Bun main process, bundled CEF)",
+  "scripts": {
+    "dev": "electrobun dev",
+    "build": "electrobun build"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "electrobun": "2.0.1"
+  }
+}

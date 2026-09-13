@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from './platform/bridge'
 
 export type DesktopUpdate = Readonly<{
   available_version: string | null

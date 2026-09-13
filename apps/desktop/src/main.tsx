@@ -11,9 +11,7 @@ import {
   type DesktopSession,
   type DesktopSessionVault,
 } from '@adea-ai/auth/desktop'
-import { invoke } from '@tauri-apps/api/core'
-import { getVersion } from '@tauri-apps/api/app'
-import { listen } from '@tauri-apps/api/event'
+import { getVersion, invoke, listen } from './platform/bridge'
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { useWorkspaceStore } from '@adea-ai/state'

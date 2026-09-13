@@ -1,5 +1,5 @@
 import type { TranscriptionProvider, TranscriptionSession } from '@adea-ai/workspace-ui'
-import { Channel, invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from './platform/bridge'
 
 import { desktopSettingsProvider } from './preferences'
 

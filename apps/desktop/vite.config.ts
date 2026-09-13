@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/postcss'
 
-import { DEFAULT_CLOUD_ORIGIN, normalizeDesktopCloudOrigin } from './scripts/tauri-cloud-config.mjs'
+import { DEFAULT_CLOUD_ORIGIN, normalizeDesktopCloudOrigin } from './scripts/cloud-config.mjs'
 
 // The packaged client reads the cloud origin from the same source as the
 // packaged CSP and the native authorization allowlist (see

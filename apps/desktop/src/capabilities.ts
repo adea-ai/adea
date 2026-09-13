@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from './platform/bridge'
 import type { CapabilityProvider, CapabilitySnapshot } from '@adea-ai/workspace-ui'
 
 /**

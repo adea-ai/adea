@@ -1,7 +1,0 @@
-{
-  "name": "shell-bench-electrobun",
-  "version": "0.1.0",
-  "dependencies": {
-    "electrobun": "^2.0.1"
-  }
-}
