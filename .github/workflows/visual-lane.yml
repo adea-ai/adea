@@ -35,6 +35,11 @@ on:
 
 permissions: {}
 
+# The container's default shell is `sh`; the lane's guards use bash.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: visual-lane-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
