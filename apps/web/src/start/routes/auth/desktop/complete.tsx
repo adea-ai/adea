@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 
 import { DesktopAuthComplete } from '../../../../components/desktop-auth-complete'
 
@@ -9,8 +9,8 @@ export const Route = createFileRoute('/auth/desktop/complete')({
 
 function DesktopAuthCompletePage() {
   return (
-    <main className="auth-shell">
-      <section className="auth-panel" aria-labelledby="desktop-auth-complete-title">
+    <main class="auth-shell">
+      <section class="auth-panel" aria-labelledby="desktop-auth-complete-title">
         <DesktopAuthComplete />
       </section>
     </main>

@@ -24,7 +24,7 @@
     "start:test": "bun test test/start-host.test.ts",
     "start:test:local": "node start/test-local.mjs",
     "start:verify": "bun run start:test && bun run build && bun run typecheck && bun run start:check-bundle",
-    "test": "bun test test/*.test.ts",
+    "test": "bun test --conditions=browser test/*.test.ts",
     "typecheck": "bun run cf-typegen && tsc --noEmit",
     "upload": "bun run build:cloudflare && bun x wrangler versions upload"
   },

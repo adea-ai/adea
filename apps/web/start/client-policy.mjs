@@ -16,7 +16,14 @@ export function forbiddenClientModule(id) {
       path
     ) ||
     /\/@neondatabase\/auth\/(?:dist\/)?(?:next\/|server\/|server\.)/.test(path) ||
-    /\/apps\/web\/src\/start\/worker\.ts/.test(path)
+    /\/apps\/web\/src\/start\/worker\.ts/.test(path) ||
+    // One Solid UI stack: the React runtime and the React-only libraries it
+    // replaced must never re-enter the browser graph.
+    /\/node_modules\/(?:react|react-dom|scheduler)\//.test(path) ||
+    /\/node_modules\/@types\/react(?:-dom)?\//.test(path) ||
+    /\/node_modules\/@(?:radix-ui|base-ui)\//.test(path) ||
+    /\/node_modules\/(?:next-themes|nuqs|lucide-react)\//.test(path) ||
+    /\/node_modules\/@tanstack\/react-(?:query|router|start|store)\//.test(path)
   )
 }
 

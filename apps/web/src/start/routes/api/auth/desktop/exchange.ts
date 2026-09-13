@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../server/request-scope'
 import { desktopCorsPreflight, desktopExchangeResponse } from '../../../../../server/desktop-auth'
 async function post(request: Request) {

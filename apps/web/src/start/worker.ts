@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers'
-import handler, { createServerEntry } from '@tanstack/react-start/server-entry'
+import handler, { createServerEntry } from '@tanstack/solid-start/server-entry'
 
 import { readWorkspaceEntryAccess } from '../server/workspace-entry-access'
 import { captureWorkerBindings } from '../server/worker-bindings'

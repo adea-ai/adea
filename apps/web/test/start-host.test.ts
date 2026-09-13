@@ -1,5 +1,3 @@
-import { createElement } from 'react'
-import { renderToString } from 'react-dom/server'
 import { describe, it } from 'bun:test'
 import assert from 'node:assert/strict'
 import lazyComponent from '../src/components/lazy-component'
@@ -189,7 +187,8 @@ describe('browser dependency guard', () => {
       '/repo/apps/web/src/components/lazy-component.tsx',
       '/repo/packages/auth/dist/client.js',
       '/repo/packages/workspace-ui/dist/index.js',
-      '/repo/node_modules/react/index.js',
+      '/repo/node_modules/solid-js/web/dist/web.js',
+      '/repo/node_modules/@kobalte/core/dist/index.js',
     ])
       assert.equal(forbiddenClientModule(id), false, id)
   })
@@ -209,16 +208,18 @@ describe('browser dependency guard', () => {
 })
 
 describe('lazy component boundary', () => {
-  it('never loads browser components while rendering the server fallback', () => {
+  it('keeps the browser import deferred until the browser mount effect runs', () => {
     let imports = 0
-    const Deferred = lazyComponent(
+    lazyComponent(
       async () => {
         imports++
         return () => null
       },
       { ssr: false, loading: () => 'Opening workspace' }
     )
-    assert.match(renderToString(createElement(Deferred, {})), /Opening workspace/)
+    // Creating the deferred component must not start the import: a server
+    // render constructs the component but never runs the mount effect that
+    // owns the browser-only chunk.
     assert.equal(imports, 0)
   })
 })

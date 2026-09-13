@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { SoundProvider } from '@adea-ai/audio'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import { ThemeProvider } from '@adea-ai/ui/components/theme-provider'
@@ -8,46 +7,42 @@ import {
   isPlausibleCharacterId,
   readSceneStartPosition,
 } from '@adea-ai/spatial-protocol'
-import { NuqsAdapter } from 'nuqs/adapters/react'
 import { WorkspaceEntry } from '../components/workspace-entry'
 import { parseWorkspaceSearch } from './search-codec.mjs'
 import { workspaceSelection } from './workspace-selection.mjs'
 
 /**
- * Mounted only inside ClientOnly. The documented TanStack nuqs adapter does
- * not cover Start; use the React SPA adapter inside this browser-only subtree.
+ * Mounted only inside ClientOnly. Search state is owned by the Start router
+ * (see `search-codec.mjs`); this browser-only subtree reads the initial
+ * selection once and provides the app-level providers.
  * Auth documents are served by the same Start host at /auth/*.
  */
 export default function WorkspaceMount() {
-  const [initial] = useState(() => {
-    const params = parseWorkspaceSearch(window.location.search)
-    const selection = workspaceSelection(params)
-    return {
-      ...selection,
-      virtualProps: {
-        initialScene: hqSceneFromSearchParams(params),
-        initialCharacter: isPlausibleCharacterId(selection.character)
-          ? selection.character!
-          : configurableCharacterId,
-        startPosition: readSceneStartPosition(params.spawn),
-        cameraViewMode: selection.cameraViewMode,
-      },
-    }
-  })
+  const params = parseWorkspaceSearch(window.location.search)
+  const selection = workspaceSelection(params)
+  const initial = {
+    ...selection,
+    virtualProps: {
+      initialScene: hqSceneFromSearchParams(params),
+      initialCharacter: isPlausibleCharacterId(selection.character)
+        ? selection.character!
+        : configurableCharacterId,
+      startPosition: readSceneStartPosition(params.spawn),
+      cameraViewMode: selection.cameraViewMode,
+    },
+  }
   return (
     <ThemeProvider>
-      <NuqsAdapter>
-        <AgentHqQueryProvider>
-          <SoundProvider>
-            <WorkspaceEntry
-              virtual={initial.virtual}
-              virtualProps={initial.virtualProps}
-              characterDesigner={initial.characterDesigner}
-              roomDesigner={initial.roomDesigner}
-            />
-          </SoundProvider>
-        </AgentHqQueryProvider>
-      </NuqsAdapter>
+      <AgentHqQueryProvider>
+        <SoundProvider>
+          <WorkspaceEntry
+            virtual={initial.virtual}
+            virtualProps={initial.virtualProps}
+            characterDesigner={initial.characterDesigner}
+            roomDesigner={initial.roomDesigner}
+          />
+        </SoundProvider>
+      </AgentHqQueryProvider>
     </ThemeProvider>
   )
 }

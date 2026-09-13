@@ -1,8 +1,27 @@
-import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
+import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/solid-router'
+import type { JSX } from 'solid-js'
+import { ThemeScript } from '@adea-ai/ui/components/theme-provider'
 import '../globals.css'
 
+/**
+ * The workspace search contract. Values keep their URLSearchParams string
+ * semantics (see `search-codec.mjs`); unknown keys pass through untouched so
+ * deep links survive a view or scene switch.
+ */
+export type WorkspaceSearch = {
+  channel?: string
+  message?: string
+  roomDesigner?: string
+  scene?: 'home' | 'work'
+  spawn?: string
+  task?: string
+  thread?: string
+  view?: 'chat' | 'virtual'
+  workspace?: string
+}
+
 export const Route = createRootRoute({
+  validateSearch: (search: Record<string, unknown>): WorkspaceSearch => search as WorkspaceSearch,
   head: () => ({
     links: [{ rel: 'icon', type: 'image/svg+xml', href: '/icon.svg' }],
     meta: [
@@ -34,14 +53,15 @@ export const Route = createRootRoute({
   ),
 })
 
-function Document({ children }: { children: ReactNode }) {
+function Document(props: { children: JSX.Element }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
         <HeadContent />
+        <ThemeScript />
       </head>
-      <body suppressHydrationWarning>
-        {children}
+      <body>
+        {props.children}
         <Scripts />
       </body>
     </html>

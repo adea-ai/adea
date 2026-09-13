@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../server/request-scope'
 import type { ApiContentRefResponse } from '@adea-ai/api-client'
 import { getContentRefForUser, updateContentRef } from '@adea-ai/db'

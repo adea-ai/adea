@@ -2,8 +2,6 @@
 
 import { VirtualUnavailable } from '@adea-ai/workspace-ui'
 
-export function CharacterDesignerEntry({
-  initialCharacter: _initialCharacter,
-}: Readonly<{ initialCharacter: string }>) {
+export function CharacterDesignerEntry(_props: { initialCharacter: string }) {
   return <VirtualUnavailable sceneLabel="Character designer" />
 }

@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../server/request-scope'
 import { createNeonServerAdapter, parseDesktopAuthorizationRequest } from '@adea-ai/auth/server'
 import { createStartRequestContext } from '../../../../../server/auth-request-context'

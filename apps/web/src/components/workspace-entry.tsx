@@ -15,7 +15,7 @@ const CharacterDesignerEntry = lazyComponent(
 
 function WorkspaceEntryLoading() {
   return (
-    <main className="conventional-workspace conventional-workspace--loading" aria-busy="true">
+    <main class="conventional-workspace conventional-workspace--loading" aria-busy="true">
       <p>Opening workspace…</p>
     </main>
   )

@@ -6,24 +6,19 @@ import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 
-export function ConventionalWorkspaceEntry({
-  client,
-  manageSettings = true,
-  onViewChange,
-  services,
-}: Readonly<{
+export function ConventionalWorkspaceEntry(props: {
   client: AgentHqApiClient
   manageSettings?: boolean
   onViewChange: (view: WorkspaceView) => void
   services: WorkspacePlatformServices
-}>) {
+}) {
   return (
     <TooltipProvider>
       <ConventionalWorkspaceShell
-        manageSettings={manageSettings}
-        onViewChange={onViewChange}
+        manageSettings={props.manageSettings ?? true}
+        onViewChange={props.onViewChange}
         view="chat"
-        services={{ ...services, client }}
+        services={{ ...props.services, client: props.client }}
       />
     </TooltipProvider>
   )

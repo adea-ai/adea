@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import { handleDesktopWorkspacePreflight } from '../../../../../../../../server/desktop-workspace'
 import { handleTaskAction } from '../../../../../../../../server/task-request'

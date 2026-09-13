@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { handleNeonAuthRequest } from '@adea-ai/auth/server'
 
 import { withRequestScope } from '../../../../server/request-scope'

@@ -1,7 +1,7 @@
 'use client'
 
 import { createAuthClient } from '@neondatabase/auth'
-import { BetterAuthReactAdapter } from '@neondatabase/auth/react'
+import { BetterAuthVanillaAdapter } from '@neondatabase/auth/vanilla'
 
 import { createAuthAdapter } from './adapter'
 import { createNeonAuthDriver, type NeonSdk } from './neon-driver'
@@ -11,12 +11,14 @@ export { AUTH_ERROR_CODES, AuthProviderError, authErrorCode, type AuthErrorCode 
 
 export function createNeonClientAdapter() {
   // The framework-neutral entry types its url parameter as string, but the
-  // shipped Next adapter passes undefined for the same same-origin relative
-  // resolution; keep that behavior rather than pinning a baseURL.
+  // shipped adapters pass undefined for the same same-origin relative
+  // resolution; keep that behavior rather than pinning a baseURL. The vanilla
+  // adapter is the framework-neutral one: this client only calls the SDK's
+  // promise API from the Solid UI.
   return createAuthAdapter(
     createNeonAuthDriver(
       createAuthClient(undefined as unknown as string, {
-        adapter: BetterAuthReactAdapter(),
+        adapter: BetterAuthVanillaAdapter(),
       }) as unknown as NeonSdk
     )
   )
