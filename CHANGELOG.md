@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.1](https://github.com/adea-ai/adea/compare/v0.22.0...v0.22.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **web:** keep TLS verification on for loopback Worker checks ([#377](https://github.com/adea-ai/adea/issues/377)) ([0f2ff96](https://github.com/adea-ai/adea/commit/0f2ff96b0778ca5c0869cd582e49884336309e4a))
+
 ## [0.22.0](https://github.com/adea-ai/adea/compare/v0.21.2...v0.22.0) (2026-09-13)
 
 
