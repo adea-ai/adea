@@ -118,20 +118,26 @@ export function ConversationSurface(props: {
     () => props.channel?.id ?? ''
   )
 
+  // Channel bookkeeping and page application are deliberately one effect. Two
+  // effects race: Solid applies a cached query's result to the store before the
+  // sibling reset effect runs, so returning to an already-loaded channel could
+  // apply the cached page and then have the reset clear it, leaving the
+  // transcript on the loading surface with no further update to recover it.
+  // One effect makes the order explicit: reset first when the channel changes,
+  // then accept whatever the query currently holds.
+  let loadedChannelId: string | undefined
   createEffect(() => {
     const channel = props.channel
-    void channel?.id
-    setCursor(undefined)
-    setMessages([])
-    setOptimisticMessage(null)
-    setPageBelongsToChannel(false)
-    requestAnimationFrame(() => {
-      if (transcript() && channel) transcript()!.scrollTop = scrollPositions.get(channel.id) ?? 0
-    })
-  })
-
-  createEffect(() => {
-    const channel = props.channel
+    if (channel?.id !== loadedChannelId) {
+      loadedChannelId = channel?.id
+      setCursor(undefined)
+      setMessages([])
+      setOptimisticMessage(null)
+      setPageBelongsToChannel(false)
+      requestAnimationFrame(() => {
+        if (transcript() && channel) transcript()!.scrollTop = scrollPositions.get(channel.id) ?? 0
+      })
+    }
     const data = settledData(messageQuery)
     if (!channel || !data) return
     const all = data.messages

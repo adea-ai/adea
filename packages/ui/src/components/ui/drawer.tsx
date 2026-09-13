@@ -12,11 +12,17 @@ type DrawerProps = ComponentProps<typeof DrawerPrimitive> & {
   showSwipeHandle?: boolean
 }
 
+// Side drawers honor `--drawer-content-width` (the contract the pre-Solid
+// drawer exposed) and fall back to the default width. Task detail sets the
+// variable to `min(29rem, 94vw)`; without the variable here the class below
+// would win and the panel would render narrower than its committed baseline.
+const SIDE_DRAWER_WIDTH = 'w-[var(--drawer-content-width,min(24rem,90vw))]'
+
 const SIDE_CLASSES: Record<DrawerSide, string> = {
   bottom: 'inset-x-0 bottom-0 max-h-[calc(100dvh-2rem)] rounded-t-xl border-t',
   top: 'inset-x-0 top-0 max-h-[calc(100dvh-2rem)] rounded-b-xl border-b',
-  left: 'inset-y-0 left-0 h-full w-[min(24rem,90vw)] rounded-r-xl border-r',
-  right: 'inset-y-0 right-0 h-full w-[min(24rem,90vw)] rounded-l-xl border-l',
+  left: `inset-y-0 left-0 h-full ${SIDE_DRAWER_WIDTH} rounded-r-xl border-r`,
+  right: `inset-y-0 right-0 h-full ${SIDE_DRAWER_WIDTH} rounded-l-xl border-l`,
 }
 
 function Drawer(props: DrawerProps) {
@@ -47,8 +53,10 @@ function DrawerOverlay(props: ComponentProps<typeof DrawerPrimitive.Overlay>) {
   return (
     <DrawerPrimitive.Overlay
       data-slot="drawer-overlay"
+      // The scrim keeps the pre-Solid 10% black the committed screenshots
+      // were taken against; 25% dimmed the page behind every drawer.
       class={cn(
-        'fixed inset-0 z-[110] bg-black/25 backdrop-blur-xs transition-opacity duration-300 data-closed:opacity-0',
+        'fixed inset-0 z-[110] bg-black/10 backdrop-blur-xs transition-opacity duration-300 data-closed:opacity-0',
         local.class
       )}
       {...rest}
@@ -85,7 +93,7 @@ function DrawerContent(props: DrawerContentProps) {
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         class={cn(
-          'group/drawer-content fixed z-[110] flex flex-col overflow-hidden border bg-popover text-sm text-popover-foreground shadow-lg outline-none transition-transform duration-300 ease-out',
+          'group/drawer-content fixed z-[110] flex flex-col overflow-hidden bg-popover text-sm text-popover-foreground shadow-lg outline-none transition-transform duration-300 ease-out will-change-transform',
           SIDE_CLASSES[side()],
           local.class
         )}

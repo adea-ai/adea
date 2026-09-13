@@ -19,7 +19,7 @@ import {
   Users,
   X,
 } from 'lucide-solid'
-import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js'
+import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
 import { Button, buttonVariants } from '@adea-ai/ui/components/ui/button'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
@@ -31,9 +31,22 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 
 import type { WorkspaceNavigation } from './workspace-model'
-import { EditRoomDialog, RenameConversationDialog } from './create-workspace-dialogs'
 import { RoomIcon } from './room-icon'
 import { SidebarToggleButton } from './sidebar-toggle-button'
+
+// The dialogs stay in their own dynamically imported module. A static import
+// here pulled `create-workspace-dialogs` (and the dialog primitives it shares)
+// into the workspace shell chunk, which silently defeated the lazy imports in
+// `conventional-workspace-shell.tsx`: Rolldown reported the ineffective
+// dynamic-import boundary in every build (see docs/decisions/0008).
+const EditRoomDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.EditRoomDialog }))
+)
+const RenameConversationDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.RenameConversationDialog,
+  }))
+)
 
 const SIDEBAR_WIDTH_STORAGE_KEY = 'adea:workspace-sidebar-width'
 const SIDEBAR_MIN_WIDTH = 208

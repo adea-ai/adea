@@ -506,37 +506,49 @@ export function ConventionalWorkspaceShell(props: {
               </Show>
             </section>
             <Suspense fallback={null}>
-              <CreateRoomDialog
-                busy={controller.createRoomBusy}
-                onClose={() => setDialog(null)}
-                onCreate={controller.createRoom}
-                open={dialog() === 'create-room'}
-                template={controller.activeWorkspace!.scene}
-              />
-              <CreateGroupDialog
-                busy={controller.createGroupBusy}
-                onClose={() => setDialog(null)}
-                onCreate={controller.createGroup}
-                open={dialog() === 'create-group'}
-              />
-              <WorkspaceSearchDialog
-                agents={controller.agents}
-                artifacts={controller.artifacts}
-                channels={controller.channels}
-                client={controller.client}
-                onClose={() => setDialog(null)}
-                online={online()}
-                onSelect={selectSearchResult}
-                open={dialog() === 'search' || dialog() === 'conversation-search'}
-                privateContent={services()?.privateContent}
-                rooms={controller.rooms}
-                scopeChannelId={
-                  dialog() === 'conversation-search' ? controller.selectedChannel?.id : undefined
-                }
-                tasks={controller.tasks}
-                workspaceId={controller.workspaceId!}
-              />
-              <Show when={props.manageSettings ?? true}>
+              {/* Dialogs mount only while their id is active. Rendering every
+                  lazy dialog unconditionally asks the browser for each chunk on
+                  workspace mount (settings alone is ~108 KB raw), which is the
+                  load-time half of the dynamic-import boundary. The dialog
+                  primitives already mount only while open, so opening and
+                  closing behaves exactly as before. */}
+              <Show when={dialog() === 'create-room'}>
+                <CreateRoomDialog
+                  busy={controller.createRoomBusy}
+                  onClose={() => setDialog(null)}
+                  onCreate={controller.createRoom}
+                  open
+                  template={controller.activeWorkspace!.scene}
+                />
+              </Show>
+              <Show when={dialog() === 'create-group'}>
+                <CreateGroupDialog
+                  busy={controller.createGroupBusy}
+                  onClose={() => setDialog(null)}
+                  onCreate={controller.createGroup}
+                  open
+                />
+              </Show>
+              <Show when={dialog() === 'search' || dialog() === 'conversation-search'}>
+                <WorkspaceSearchDialog
+                  agents={controller.agents}
+                  artifacts={controller.artifacts}
+                  channels={controller.channels}
+                  client={controller.client}
+                  onClose={() => setDialog(null)}
+                  online={online()}
+                  onSelect={selectSearchResult}
+                  open
+                  privateContent={services()?.privateContent}
+                  rooms={controller.rooms}
+                  scopeChannelId={
+                    dialog() === 'conversation-search' ? controller.selectedChannel?.id : undefined
+                  }
+                  tasks={controller.tasks}
+                  workspaceId={controller.workspaceId!}
+                />
+              </Show>
+              <Show when={(props.manageSettings ?? true) && dialog() === 'settings'}>
                 <WorkspaceSettingsDialog
                   accountAuthenticated={accountAuthenticated()}
                   accountLabel={accountLabel()}
@@ -549,36 +561,38 @@ export function ConventionalWorkspaceShell(props: {
                   }}
                   onSignIn={() => services()?.account?.onSignIn()}
                   onSignOut={() => void signOut()}
-                  open={dialog() === 'settings'}
+                  open
                   services={services()}
                   workspace={controller.activeWorkspace!}
                 />
               </Show>
-              <ModalDialog
-                open={dialog() === 'details'}
-                onClose={() => setDialog(null)}
-                title="Conversation details"
-                description="Canonical Adea identity and scope."
-              >
-                <div class="conventional-conversation-details">
-                  <p>
-                    <span>Kind</span>
-                    <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
-                  </p>
-                  <p>
-                    <span>Visibility</span>
-                    <strong>{controller.selectedChannel?.visibility}</strong>
-                  </p>
-                  <p>
-                    <span>Participants</span>
-                    <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
-                  </p>
-                  <p>
-                    <span>Task link</span>
-                    <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
-                  </p>
-                </div>
-              </ModalDialog>
+              <Show when={dialog() === 'details'}>
+                <ModalDialog
+                  open
+                  onClose={() => setDialog(null)}
+                  title="Conversation details"
+                  description="Canonical Adea identity and scope."
+                >
+                  <div class="conventional-conversation-details">
+                    <p>
+                      <span>Kind</span>
+                      <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
+                    </p>
+                    <p>
+                      <span>Visibility</span>
+                      <strong>{controller.selectedChannel?.visibility}</strong>
+                    </p>
+                    <p>
+                      <span>Participants</span>
+                      <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
+                    </p>
+                    <p>
+                      <span>Task link</span>
+                      <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
+                    </p>
+                  </div>
+                </ModalDialog>
+              </Show>
             </Suspense>
             <div class="visually-hidden" aria-live="polite">
               {online() ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}

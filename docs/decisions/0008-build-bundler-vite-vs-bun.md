@@ -224,8 +224,9 @@ workflows: Validation 102–188 s, TanStack Start Host 129 s, Desktop shell 47 s
 ## Measured tradeoff: the ineffective dynamic-import boundary
 
 #304 asks for the desktop dynamic-import boundary to be resolved or documented.
-It is documented, with the measurement: Rolldown reports it in both the web and
-desktop builds —
+
+At M7 the boundary was **documented, not resolved**. Rolldown reported it in both
+the web and desktop builds —
 
 ```
 [INEFFECTIVE_DYNAMIC_IMPORT] ../../packages/workspace-ui/src/create-workspace-dialogs.tsx
@@ -233,18 +234,37 @@ is dynamically imported by conventional-workspace-shell.tsx but also statically
 imported by ../../packages/workspace-ui/src/workspace-sidebar.tsx
 ```
 
-— and the emitted chunk confirms it. `conventional-workspace-shell-*.js`
-(147.95 KB, gzip 40.49) contains both the sidebar's markup and the dialogs'
-code, and no `import(` remains in that chunk: the lazy dialogs load eagerly with
-the shell because `workspace-sidebar.tsx` imports them statically, so the module
-cannot be hoisted into its own chunk. The dynamic import costs nothing and saves
-nothing.
+— and the emitted chunk confirmed it. `conventional-workspace-shell-*.js`
+(147.99 KB, gzip 40.52) contained both the sidebar's markup and the dialogs'
+code, and no `import(` remained in that chunk: the lazy dialogs loaded eagerly
+with the shell because `workspace-sidebar.tsx` imported them statically, so the
+module could not be hoisted into its own chunk. The dynamic import cost nothing
+and saved nothing.
 
-Resolving it means removing the static import in `workspace-sidebar.tsx` (a UI
-change with its own reactivity and render-path consequences), not choosing a
-different bundler — both Rolldown and Rollup make the same call for the same
-graph. That work belongs to the performance-remediation milestone, and this page
-records the tradeoff so it is not misread as a bundler defect.
+**M8 (issue #305) resolved it with two shared-UI changes; the bundler is
+unchanged.** The measurement below is from `bun run --cwd apps/web build` and
+`bun run --cwd apps/desktop shell:client:build` on the same machine, before and
+after the change in the same checkout:
+
+| Change                                                                                              | Measured effect                                                                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace-sidebar.tsx` `lazy()`-imports `EditRoomDialog` / `RenameConversationDialog`              | Rolldown emits `create-workspace-dialogs-*.js` (9.24 KB, gzip 2.62); the shell chunk shrinks to 139.39 KB (gzip 38.73); the `INEFFECTIVE_DYNAMIC_IMPORT` warning disappears from the web and desktop builds                                         |
+| the shell mounts each lazy dialog only while its id is active (it previously rendered them eagerly) | the workspace mount path no longer fetches `create-workspace-dialogs` (9,247 B / 2.62 KB gzip) or `workspace-utility-dialogs` (7,294 B / 3.11 KB gzip); the shell's reachable JS drops from 838.3 KiB to 827.5 KiB raw (242.0 → 238.6 KiB gzip-sum) |
+
+Evidence that the split is real rather than nominal: `create-workspace-dialogs`'
+UI strings appear in the M7 shell chunk and no longer appear in it, the shell
+chunk now carries `import(` for its remaining lazy dialogs, and the dev server
+serves `create-workspace-dialogs.tsx` and `workspace-utility-dialogs.tsx` on the
+workspace mount path before the change and not after it. The desktop client
+(`dist-desktop`) shows the same shell-chunk reduction, 147.99 KB → 139.39 KB
+(gzip 40.52 → 38.74). Total `dist` bytes are approximately unchanged (a split
+adds files and re-distributes shared modules); the win is that dialog code is no
+longer parsed or fetched before a dialog is opened.
+
+Resolving it meant changing shared UI code (the sidebar's import, the shell's
+dialog mount condition, and the drawer component the dialogs share), not
+choosing a different bundler — both Rolldown and Rollup make the same call for
+the same graph.
 
 ## What would change this decision
 
