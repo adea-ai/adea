@@ -156,6 +156,12 @@ subscribes to the router history in `src/start/router.tsx`.
   required before any app traffic). `AUTH_TRUSTED_ORIGINS` must therefore
   list every public origin: the `workers.dev` URL and the `adea.dev`
   custom domain.
+- The desktop workspace boundary trusts exactly `http://127.0.0.1:4789` (the
+  Electrobun shell's page origin) plus the fixed development origin
+  (`src/server/desktop-workspace.ts`). If the Worker environment defines
+  `DESKTOP_AUTH_TRUSTED_ORIGINS`, it must include
+  `http://127.0.0.1:4789`; the previous shell's `tauri://localhost` value is
+  rejected by validation and must be removed from the Cloudflare environment.
 - `src/start/routes/api/scene-editor.ts` is dev-only (404s outside
   `NODE_ENV=development`) and imports `node:fs` lazily so it never enters the
   Worker bundle for production requests.
