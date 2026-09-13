@@ -103,6 +103,39 @@ production bundle template-optimized.
 plugin emits DOM-transformed code in the SSR environment, and the router's
 module-scope template calls fail on the server.
 
+## Solid runtime notes
+
+Four integration details are load-bearing and easy to regress:
+
+- **Hydration needs both halves.** `src/start/client.tsx` calls
+  `hydrateStart()` (router state) and then `hydrate(() => <StartClient
+router={router} />, document)`; the root document renders
+  `<HydrationScript />` from `solid-js/web` in its head. Without the first the
+  app never mounts, without the second Solid cannot hydrate.
+- **Queries suspend on pending `data` reads.** `@tanstack/solid-query` backs
+  `data` with a resource, and Solid's router wraps the app in a Suspense
+  boundary, so any render-path read of an unresolved `data` blanks the app
+  instead of showing the loading surface. Reads are gated on the query's
+  settled state (`isSuccess`) in the workspace entry, the workspace controller,
+  and the virtual room controls. The same query behaviour means a page fetched
+  for the previous query key must not be rendered as the current
+  conversation's history: `ConversationSurface` tracks whether the loaded page
+  belongs to the open channel and shows the loading surface until it does.
+- **Dialog modality is owned by `ModalDialog`** (`packages/workspace-ui`), which
+  marks the rest of the document `inert` while a dialog is open and restores
+  exactly the nodes that were not already inert. Kobalte's own modal layer hides
+  the document with `aria-hidden` and can leave that attribute behind when a
+  dialog closes as a side effect of an async action, which would hide the whole
+  workspace from assistive technology. Tooltips are informational and are kept
+  out of the pointer path in `packages/ui/src/styles/base.css`, because
+  Kobalte's layer stack writes `pointer-events: auto` inline on the active
+  layer.
+- **The switch input is the control.** `Switch` gives Kobalte's visually-hidden
+  input a full-size transparent hit area over the styled track (including
+  `clip: auto` and `clip-path: none`), and forwards `aria-label` /
+  `aria-describedby` to it, so pointer, keyboard, and automated interaction all
+  target the real control.
+
 ## Known, documented React presence
 
 `@neondatabase/auth` (the hosted Neon Auth SDK) ships a React UI kit

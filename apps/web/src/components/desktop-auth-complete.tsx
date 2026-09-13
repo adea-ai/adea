@@ -1,7 +1,7 @@
 'use client'
 
 import { Check, ExternalLink } from 'lucide-solid'
-import { createSignal, Match, Switch } from 'solid-js'
+import { createSignal, Match, onMount, Switch } from 'solid-js'
 
 import { parseDesktopCallbackFragment } from '../lib/desktop-auth-navigation'
 
@@ -9,7 +9,6 @@ type CompletionStatus = 'opening' | 'opened' | 'invalid' | 'early_access'
 
 export function DesktopAuthComplete() {
   let callbackUrl: string | null = null
-  let attempted = false
   const [status, setStatus] = createSignal<CompletionStatus>('opening')
 
   function openDesktopApp() {
@@ -18,9 +17,10 @@ export function DesktopAuthComplete() {
     setStatus('opened')
   }
 
-  if (!attempted) {
-    attempted = true
-
+  // Client-only: the callback fragment, the history cleanup, and the
+  // `adea://` handoff all need the browser. A server render shows the
+  // in-progress state until hydration runs this.
+  onMount(() => {
     const fragment = window.location.hash
     const errorParams = new URLSearchParams(fragment.startsWith('#') ? fragment.slice(1) : '')
     if (errorParams.get('error') === 'early_access') {
@@ -29,13 +29,17 @@ export function DesktopAuthComplete() {
       callbackUrl = 'adea://auth/callback?error=early_access'
       openDesktopApp()
       setStatus('early_access')
-    } else {
-      callbackUrl = parseDesktopCallbackFragment(window.location.hash)
-      window.history.replaceState(null, '', window.location.pathname)
-      if (!callbackUrl) setStatus('invalid')
-      else openDesktopApp()
+      return
     }
-  }
+
+    callbackUrl = parseDesktopCallbackFragment(fragment)
+    window.history.replaceState(null, '', window.location.pathname)
+    if (!callbackUrl) {
+      setStatus('invalid')
+      return
+    }
+    openDesktopApp()
+  })
 
   return (
     <Switch>

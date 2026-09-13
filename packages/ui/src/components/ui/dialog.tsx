@@ -5,7 +5,13 @@ import { splitProps, type ComponentProps } from 'solid-js'
 import { cn } from '#lib/utils'
 
 function Dialog(props: ComponentProps<typeof DialogPrimitive>) {
-  return <DialogPrimitive data-slot="dialog" {...props} />
+  // Background inertness is owned by `ModalDialog` (see
+  // packages/workspace-ui), which marks the rest of the document `inert` while
+  // a dialog is open. Kobalte's own modal layer hides the document with
+  // `aria-hidden` and can leave that attribute behind when a dialog closes as
+  // a side effect of an async action, which would hide the whole workspace
+  // from assistive technology.
+  return <DialogPrimitive data-slot="dialog" modal={false} {...props} />
 }
 
 function DialogTrigger(props: ComponentProps<typeof DialogPrimitive.Trigger>) {
@@ -25,10 +31,7 @@ function DialogOverlay(props: ComponentProps<typeof DialogPrimitive.Overlay>) {
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      class={cn(
-        'fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-[2px] data-closed:animate-out data-closed:fade-out-0 data-expanded:animate-in data-expanded:fade-in-0',
-        local.class
-      )}
+      class={cn('fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-[2px]', local.class)}
       {...rest}
     />
   )
@@ -41,25 +44,29 @@ function DialogContent(
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        class={cn(
-          'fixed top-1/2 left-1/2 z-[120] grid max-h-[min(44rem,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 gap-0 overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl outline-none data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-expanded:animate-in data-expanded:fade-in-0 data-expanded:zoom-in-95',
-          local.class
-        )}
-        {...rest}
-      >
-        {local.children}
-        {(local.showCloseButton ?? true) ? (
-          <DialogPrimitive.CloseButton
-            data-slot="dialog-close"
-            class="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-            aria-label="Close dialog"
-          >
-            <X class="size-4" aria-hidden="true" />
-          </DialogPrimitive.CloseButton>
-        ) : null}
-      </DialogPrimitive.Content>
+      {/* Flex centering keeps the dialog on whole pixels; a translate-based
+          center can land on a half pixel and shift every edge. */}
+      <div class="fixed inset-0 z-[120] flex items-center justify-center p-4">
+        <DialogPrimitive.Content
+          data-slot="dialog-content"
+          class={cn(
+            'relative grid max-h-[min(44rem,calc(100dvh-2rem))] w-full max-w-2xl gap-0 overflow-hidden rounded-2xl border bg-card text-card-foreground shadow-2xl outline-none',
+            local.class
+          )}
+          {...rest}
+        >
+          {local.children}
+          {(local.showCloseButton ?? true) ? (
+            <DialogPrimitive.CloseButton
+              data-slot="dialog-close"
+              class="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
+              aria-label="Close dialog"
+            >
+              <X class="size-4" aria-hidden="true" />
+            </DialogPrimitive.CloseButton>
+          ) : null}
+        </DialogPrimitive.Content>
+      </div>
     </DialogPortal>
   )
 }

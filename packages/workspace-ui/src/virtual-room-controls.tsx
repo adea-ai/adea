@@ -17,9 +17,13 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const selectedRoomId = useWorkspaceState((state) => state.selectedRoomId)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
+  // Solid Query backs `data` with a resource: a read while the resource is
+  // unresolved suspends the consumer, and query option accessors run during
+  // render. Read `data` only once the query reports success.
+  const bootstrapData = () => (bootstrap.isSuccess ? bootstrap.data : undefined)
   const activeWorkspace = () =>
-    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
-    bootstrap.data?.activeWorkspace
+    bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
+    bootstrapData()?.activeWorkspace
   const rooms = useRoomListQuery(client(), () => activeWorkspace()?.id)
   const channels = useChannelListQuery(client(), () => activeWorkspace()?.id)
   const navigation = createMemo(() =>
@@ -27,7 +31,7 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
   )
 
   createEffect(() => {
-    if (!persistenceReady || !bootstrap.data || selectedWorkspaceId()) return
+    if (!persistenceReady() || !bootstrap.data || selectedWorkspaceId()) return
     workspaceStore.getState().setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
   })
 

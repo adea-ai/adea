@@ -1,4 +1,5 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/solid-router'
+import { HydrationScript } from 'solid-js/web'
 import type { JSX } from 'solid-js'
 import { ThemeScript } from '@adea-ai/ui/components/theme-provider'
 import '../globals.css'
@@ -57,6 +58,8 @@ function Document(props: { children: JSX.Element }) {
   return (
     <html lang="en">
       <head>
+        {/* Solid hydration bookkeeping; without it the client cannot hydrate. */}
+        <HydrationScript />
         <HeadContent />
         <ThemeScript />
       </head>

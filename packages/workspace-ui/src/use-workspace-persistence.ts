@@ -1,6 +1,6 @@
 'use client'
 
-import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js'
 import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
 
 import { createWorkspaceStatePersister } from './workspace-state-persister'
@@ -33,7 +33,12 @@ function persistedState(state: WorkspaceState): PersistedState {
   }
 }
 
-export function useWorkspacePersistence() {
+/**
+ * Restores the persisted workspace state once, then keeps it written back.
+ * Returns an accessor: callers must read it inside a reactive scope so the
+ * workspace waits for the restore (and writes) to arm before rendering.
+ */
+export function useWorkspacePersistence(): Accessor<boolean> {
   const [ready, setReady] = createSignal(false)
 
   createEffect(() => {
@@ -48,14 +53,17 @@ export function useWorkspacePersistence() {
 
   createEffect(() => {
     if (!ready()) return
-    const persister = createWorkspaceStatePersister((state) => {
+    const persister = createWorkspaceStatePersister<PersistedState>((state) => {
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedState(state)))
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
       } catch {
         // Private browsing or storage pressure must not break the workspace.
       }
     })
-    const writeNow = (state: WorkspaceState) => persister.save(state)
+    // Reading the persisted fields inside the subscription is what makes the
+    // subscription track them; passing the raw store only captures a live
+    // proxy whose later reads would not retrigger the write.
+    const writeNow = (state: WorkspaceState) => persister.save(persistedState(state))
     writeNow(workspaceStore.getState())
     const unsubscribe = workspaceStore.subscribe(writeNow)
     // The debounced write must not lose the latest state when the app goes
@@ -73,5 +81,5 @@ export function useWorkspacePersistence() {
     })
   })
 
-  return ready()
+  return ready
 }

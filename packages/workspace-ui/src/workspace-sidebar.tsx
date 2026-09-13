@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-solid'
 import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js'
-import { buttonVariants } from '@adea-ai/ui/components/ui/button'
+import { Button, buttonVariants } from '@adea-ai/ui/components/ui/button'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
   DropdownMenu,
@@ -97,14 +97,15 @@ function ConversationChannelRow(props: {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <button
+        <Button
           type="button"
-          class={buttonVariants({ variant: 'destructive', size: 'icon' })}
+          variant="destructive"
+          size="icon"
           aria-label={`Delete ${props.label}`}
           onClick={() => props.onArchive(props.channel)}
         >
           <X aria-hidden="true" />
-        </button>
+        </Button>
       </span>
     </li>
   )

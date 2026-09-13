@@ -73,11 +73,15 @@ function WebNavigationEntry(props: {
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
       ? new URLSearchParams(window.location.search).get('scene')
       : undefined
+  // Solid Query backs `data` with a resource: a read while the resource is
+  // unresolved suspends the consumer, and query option accessors run during
+  // render. Read `data` only once the query reports success.
+  const bootstrapData = () => (bootstrap.isSuccess ? bootstrap.data : undefined)
   const activeWorkspace = () =>
-    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
-    bootstrap.data?.workspaces.find(({ scene }) => scene === requestedScene()) ??
-    bootstrap.data?.activeWorkspace
-  const principal = () => bootstrap.data?.principal
+    bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
+    bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??
+    bootstrapData()?.activeWorkspace
+  const principal = () => bootstrapData()?.principal
   const accountAuthenticated = () => Boolean(principal() && !principal()!.temporary)
   const accountLabel = () =>
     accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Not signed in'
@@ -103,7 +107,7 @@ function WebNavigationEntry(props: {
       services={services}
       virtual={props.virtual}
       virtualProps={props.virtualProps}
-      workspaces={bootstrap.data?.workspaces ?? []}
+      workspaces={bootstrapData()?.workspaces ?? []}
     />
   )
 }

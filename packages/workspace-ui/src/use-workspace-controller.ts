@@ -60,9 +60,13 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
+  // Solid Query backs `data` with a resource: a read while the resource is
+  // unresolved suspends the consumer, and query option accessors run during
+  // render. Read `data` only once the query reports success.
+  const bootstrapData = () => (bootstrap.isSuccess ? bootstrap.data : undefined)
   const activeWorkspace = () =>
-    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
-    bootstrap.data?.activeWorkspace
+    bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
+    bootstrapData()?.activeWorkspace
   const workspaceId = () => activeWorkspace()?.id
   useWorkspaceEventStream({
     headers: () => client().eventStreamHeaders(),
@@ -112,7 +116,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const archiveChannel = useArchiveChannelMutation(client(), () => workspaceId() ?? '')
 
   createEffect(() => {
-    if (!persistenceReady || !bootstrap.data || activeWorkspace()) return
+    if (!persistenceReady() || !bootstrap.data || activeWorkspace()) return
     workspaceStore.getState().setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
   })
 
@@ -255,7 +259,9 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       const result = await createDirect.mutateAsync(agentId)
       selectChannel(result.channel.id)
     },
-    persistenceReady,
+    get persistenceReady() {
+      return persistenceReady()
+    },
     get rooms() {
       return rooms.data ?? []
     },

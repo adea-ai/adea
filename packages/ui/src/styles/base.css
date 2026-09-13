@@ -22,6 +22,18 @@
   }
 }
 
+/* A tooltip is informational: neither its popper positioner nor its content may
+   intercept the pointer and block the control the tooltip describes. The layer
+   stack writes `pointer-events: auto` inline on the active layer, so the
+   content needs `!important` to stay out of the pointer path. */
+[data-popper-positioner]:has(> [data-slot='tooltip-content']) {
+  pointer-events: none;
+}
+
+[data-slot='tooltip-content'] {
+  pointer-events: none !important;
+}
+
 /* Custom variants */
 @custom-variant data-open {
   &:where([data-state='open']),

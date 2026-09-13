@@ -95,6 +95,11 @@ export function ConversationSurface(props: {
 }) {
   const [cursor, setCursor] = createSignal<number | undefined>()
   const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
+  // Whether the loaded page belongs to this conversation. Solid Query keeps the
+  // previous result while the next key is in flight, so a page that only holds
+  // another channel's messages must not render as this conversation's history
+  // (nor as an empty transcript). A genuinely empty page does belong here.
+  const [pageBelongsToChannel, setPageBelongsToChannel] = createSignal(false)
   const [optimisticMessage, setOptimisticMessage] = createSignal<MessageSummary | null>(null)
   const [transcript, setTranscript] = createSignal<HTMLDivElement>()
   let lastMarkedRead = ''
@@ -119,6 +124,7 @@ export function ConversationSurface(props: {
     setCursor(undefined)
     setMessages([])
     setOptimisticMessage(null)
+    setPageBelongsToChannel(false)
     requestAnimationFrame(() => {
       if (transcript() && channel) transcript()!.scrollTop = scrollPositions.get(channel.id) ?? 0
     })
@@ -127,7 +133,11 @@ export function ConversationSurface(props: {
   createEffect(() => {
     const channel = props.channel
     if (!channel || !messageQuery.data) return
-    const page = messageQuery.data.messages.filter((message) => message.channelId === channel.id)
+    const all = messageQuery.data.messages
+    const page = all.filter((message) => message.channelId === channel.id)
+    const belongs = page.length > 0 || all.length === 0
+    setPageBelongsToChannel(belongs)
+    if (!belongs) return
     setMessages((current) => {
       const merged = new Map(current.map((message) => [message.id, message]))
       for (const message of page) merged.set(message.id, message)
@@ -316,7 +326,7 @@ export function ConversationSurface(props: {
             aria-label={`${channel().title} message history`}
             onScroll={(event) => scrollPositions.set(channel().id, event.currentTarget.scrollTop)}
           >
-            <Show when={messageQuery.isPending && !messages().length}>
+            <Show when={(messageQuery.isPending || !pageBelongsToChannel()) && !messages().length}>
               <WorkspaceSkeleton label="Loading messages" />
             </Show>
             <Show when={messageQuery.isError && !messages().length}>
@@ -325,7 +335,14 @@ export function ConversationSurface(props: {
                 retry={() => void messageQuery.refetch()}
               />
             </Show>
-            <Show when={!messageQuery.isPending && !messageQuery.isError && !rootMessages().length}>
+            <Show
+              when={
+                !messageQuery.isPending &&
+                !messageQuery.isError &&
+                pageBelongsToChannel() &&
+                !rootMessages().length
+              }
+            >
               <WorkspaceEmpty
                 title={
                   directAgent()

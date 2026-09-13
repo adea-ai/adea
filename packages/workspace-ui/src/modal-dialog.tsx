@@ -1,4 +1,4 @@
-import { Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 import {
   Dialog,
   DialogContent,
@@ -7,6 +7,31 @@ import {
   DialogTitle,
 } from '@adea-ai/ui/components/ui/dialog'
 import { cn } from '@adea-ai/ui/lib/utils'
+
+/**
+ * Marks everything outside the dialog `inert` for as long as it is mounted, and
+ * restores exactly the elements that did not start out inert. `inert` keeps the
+ * background out of the tab order and the accessibility tree without relying on
+ * Kobalte's modal layer, whose `aria-hidden` bookkeeping can outlive a dialog
+ * that closes as a side effect of an async action.
+ */
+function useBackgroundInert(open: () => boolean, content: () => HTMLElement | undefined) {
+  createEffect(() => {
+    if (!open()) return
+    const element = content()
+    if (!element) return
+    const background = [...document.body.children].filter(
+      (child): child is HTMLElement => child instanceof HTMLElement && !child.contains(element)
+    )
+    const wasInert = background.map((node) => node.hasAttribute('inert'))
+    for (const node of background) node.setAttribute('inert', '')
+    onCleanup(() => {
+      background.forEach((node, index) => {
+        if (!wasInert[index]) node.removeAttribute('inert')
+      })
+    })
+  })
+}
 
 export function ModalDialog(props: {
   children: JSX.Element
@@ -17,36 +42,47 @@ export function ModalDialog(props: {
   open: boolean
   title: string
 }) {
+  // Mount the dialog only while it is open. Kobalte's modal layer hides the
+  // rest of the document with `aria-hidden` and restores it on cleanup; an
+  // always-mounted dialog that closes as a side effect of an async action can
+  // leave that attribute behind, which hides the whole workspace from
+  // assistive tech. Unmounting the whole dialog owner makes the cleanup the
+  // only way the layer can end.
+  const [content, setContent] = createSignal<HTMLElement>()
+  useBackgroundInert(() => props.open, content)
+
   return (
-    <Dialog open={props.open} onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
-      <DialogContent class={cn('conventional-dialog', props.class)}>
-        <DialogHeader class="conventional-dialog__header">
-          <Show
-            when={props.headerLeading}
-            fallback={
-              <>
-                <DialogTitle>{props.title}</DialogTitle>
-                <Show when={props.description}>
-                  {(description) => <DialogDescription>{description()}</DialogDescription>}
-                </Show>
-              </>
-            }
-          >
-            {(headerLeading) => (
-              <div class="conventional-dialog__heading">
-                {headerLeading()}
-                <div>
+    <Show when={props.open}>
+      <Dialog open onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
+        <DialogContent ref={setContent} class={cn('conventional-dialog', props.class)}>
+          <DialogHeader class="conventional-dialog__header">
+            <Show
+              when={props.headerLeading}
+              fallback={
+                <>
                   <DialogTitle>{props.title}</DialogTitle>
                   <Show when={props.description}>
                     {(description) => <DialogDescription>{description()}</DialogDescription>}
                   </Show>
+                </>
+              }
+            >
+              {(headerLeading) => (
+                <div class="conventional-dialog__heading">
+                  {headerLeading()}
+                  <div>
+                    <DialogTitle>{props.title}</DialogTitle>
+                    <Show when={props.description}>
+                      {(description) => <DialogDescription>{description()}</DialogDescription>}
+                    </Show>
+                  </div>
                 </div>
-              </div>
-            )}
-          </Show>
-        </DialogHeader>
-        {props.children}
-      </DialogContent>
-    </Dialog>
+              )}
+            </Show>
+          </DialogHeader>
+          {props.children}
+        </DialogContent>
+      </Dialog>
+    </Show>
   )
 }

@@ -16,6 +16,7 @@ import type {
 } from '@adea-ai/workspace-ui/platform'
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
+import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
@@ -37,14 +38,6 @@ const SpatialWorkspace = lazyComponent(
 const RoomDesignerWorkspace = lazyComponent(
   () => import('./room-designer-entry').then(({ RoomDesignerEntry }) => RoomDesignerEntry),
   { loading: () => <WorkspaceEntryLoading /> }
-)
-
-const GlobalWorkspaceRail = lazyComponent(
-  () =>
-    import('@adea-ai/workspace-ui/global-workspace-rail').then(
-      ({ GlobalWorkspaceRail: Rail }) => Rail
-    ),
-  { loading: () => <WorkspaceRailLoading />, ssr: false }
 )
 
 const WorkspaceAboutDialog = lazyComponent(
@@ -74,10 +67,6 @@ function WorkspaceEntryLoading() {
       <p>Opening workspace…</p>
     </main>
   )
-}
-
-function WorkspaceRailLoading() {
-  return <nav class="global-rail global-rail--loading" aria-hidden="true" />
 }
 
 function WorkspaceSettingsOverlay(props: {
@@ -177,7 +166,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // custom codec preserves it verbatim, so a patch is written through one
   // typed seam instead of restating the generated search schema.
   const applySearch = (patch: Partial<WorkspaceSearch>) =>
-    void navigate({ search: { ...currentSearch(), ...patch } as never, replace: true })
+    void navigate({
+      search: { ...currentSearch(), ...patch } as never,
+      // Carry the hash through: a search update must not drop a deep link such
+      // as `#settings/privacy-data` while the dialog it opened is mounting.
+      hash: window.location.hash.replace(/^#/, ''),
+      replace: true,
+    })
   const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
 

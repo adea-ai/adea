@@ -1,12 +1,8 @@
 'use client'
 
 import lazyComponent from './lazy-component'
+import { WorkspaceNavigationEntry } from './workspace-navigation-entry'
 import type { WorkspaceShellProps } from './workspace-shell'
-
-const WorkspaceNavigationEntry = lazyComponent(
-  () => import('./workspace-navigation-entry').then(({ WorkspaceNavigationEntry: Entry }) => Entry),
-  { loading: () => <WorkspaceEntryLoading /> }
-)
 
 const CharacterDesignerEntry = lazyComponent(
   () => import('./character-designer-entry').then(({ CharacterDesignerEntry: Entry }) => Entry),
