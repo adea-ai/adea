@@ -16,8 +16,6 @@ async function sourceFiles(directory: string): Promise<string[]> {
         if (
           entry.isDirectory() &&
           [
-            '.next',
-            '.open-next',
             '.turbo',
             '.wrangler',
             'artifacts',
