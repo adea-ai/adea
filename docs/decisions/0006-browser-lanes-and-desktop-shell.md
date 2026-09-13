@@ -117,7 +117,12 @@ own TanStack Start SPA build from loopback (`apps/web/vite.desktop.config.ts` â†
 desktop-only surfaces are `isDesktopRuntime()` flags in `apps/web`, not a second
 client. Variant rationale and rejected alternatives: `apps/desktop/README.md`.
 That single client is Solid as of M6 ([0007](./0007-solid-tanstack-start.md));
-the pipeline, origins, and the no-second-client rule are unchanged.
+the pipeline, origins, and the no-second-client rule are unchanged. The shell
+also fronts the client's cloud traffic: `/api/*` is proxied same-origin to the
+canonical cloud origin (`apps/desktop/shell/src/cloud-proxy.ts`), and an
+optional Agent Sim engine pack (`ADEA_AGENT_SIM_DIST`,
+`apps/desktop/shell/src/agent-sim-assets.ts`) is served at
+`/assets/agent-sim/*` so the entitlement gate resolves outside packaged builds.
 
 ## Prior art (verified against installed apps, 2026-09-12)
 

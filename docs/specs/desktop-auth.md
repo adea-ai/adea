@@ -17,9 +17,11 @@ the contract to read before touching the desktop flows in
 > runs in the shell through `apps/web/src/lib/desktop-runtime.ts` and
 > `apps/web/src/components/desktop-workspace-entry.tsx`; the shell serves the
 > web app's SPA build on loopback
-> (`apps/desktop/scripts/client.mjs` → `apps/web/dist-desktop/client`).
-> Deep-link/URL-scheme registration for the `adea://` auth callback is not yet
-> carried by the shell; release-pipeline registration is tracked in #370.
+> (`apps/desktop/scripts/client.mjs` → `apps/web/dist-desktop/client`), and
+> the client's in-app cloud calls ride the shell's same-origin `/api` proxy
+> (`apps/desktop/shell/src/cloud-proxy.ts`). Deep-link/URL-scheme registration
+> for the `adea://` auth callback is not yet carried by the shell;
+> release-pipeline registration is tracked in #370.
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
@@ -30,9 +32,18 @@ same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 plus `normalizeDesktopCloudOrigin()`. `apps/desktop/scripts/client.mjs`
 validates it and passes it into the web app's desktop build, which injects it as
 the `__ADEA_DESKTOP_CLOUD_ORIGIN__` build constant that
-`apps/web/src/lib/desktop-runtime.ts` reads for the API base and the
-browser-safe session broker. `scripts/check-desktop-origins.mjs` fails the build
-on any other origin literal in the scanned desktop client files.
+`apps/web/src/lib/desktop-runtime.ts` reads for the authorize URL the system
+browser opens. `scripts/check-desktop-origins.mjs` fails the build on any other
+origin literal in the scanned desktop client files.
+
+Inside the app the client never talks to the cloud cross-origin: the API client
+and session broker target the shell's own loopback origin, and the shell
+forwards `/api/*` to the canonical cloud origin
+(`apps/desktop/shell/src/cloud-proxy.ts`, overridable with
+`ADEA_CLOUD_ORIGIN` for a local stack). The proxy forwards the request's
+credential headers untouched and states the loopback origin the cloud's desktop
+lane already trusts, so the webview stays on one origin and the cloud keeps a
+single trusted desktop origin.
 
 `validate_authorization_url` accepts a URL only when the scheme, host, and port
 equal the cloud origin's, the path is exactly `/api/auth/desktop/authorize`,
@@ -105,3 +116,5 @@ exercises the family round-trips.
 - `scripts/desktop-origin-boundary.test.ts`: the canonical constant, the derived
   call sites, and no stray origin literal.
 - `scripts/desktop-ipc-boundary.test.ts`: the command surface above.
+- `apps/desktop/tests/shell-server.test.ts`: the proxy targets the canonical
+  origin, presents the trusted shell origin, and drops ambient headers.

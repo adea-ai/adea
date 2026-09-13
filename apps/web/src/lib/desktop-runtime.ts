@@ -20,8 +20,10 @@ import { invoke } from './desktop-bridge'
  * The desktop shell's cloud origin. Injected by
  * `apps/web/vite.desktop.config.ts` from `ADEA_DESKTOP_CLOUD_ORIGIN`, which
  * `apps/desktop/scripts/client.mjs` fills from the canonical
- * `apps/desktop/scripts/cloud-config.mjs` value. The web build defines it as an
- * empty string and never reads it.
+ * `apps/desktop/scripts/cloud-config.mjs` value. Used only for the authorize
+ * URL the system browser opens; the in-app client reaches the same origin
+ * through the shell's loopback `/api` proxy instead, so the webview never
+ * issues a cross-origin API call.
  */
 declare const __ADEA_DESKTOP_CLOUD_ORIGIN__: string
 
@@ -69,13 +71,17 @@ function createDesktopRuntime(cloudOrigin: string): DesktopRuntime {
     },
   })
   const sessionManager = createDesktopSessionManager({
-    broker: createDesktopHttpSessionBroker({ cloudOrigin }),
+    // Session requests ride the shell's same-origin `/api` proxy like every
+    // other cloud call; the loopback origin satisfies the broker's origin
+    // validation the same way the packaged shell origin does on the cloud.
+    broker: createDesktopHttpSessionBroker({ cloudOrigin: window.location.origin }),
     vault: sessionVault,
   })
 
   function createClient(session?: DesktopSession, temporaryCredential?: string) {
     return createApiClient({
-      baseUrl: `${cloudOrigin}/api`,
+      // Same-origin through the shell's cloud proxy (apps/desktop/shell/src/cloud-proxy.ts).
+      baseUrl: '/api',
       client: 'desktop',
       getDesktopSession: session
         ? () => ({ credential: session.credential, sessionId: session.sessionId })
