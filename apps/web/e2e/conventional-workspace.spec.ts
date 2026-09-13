@@ -1,25 +1,16 @@
 // Workspace visual and flow gate.
 //
-// The committed baselines are macOS snapshots (`-darwin`), so this spec runs
-// through `bun run test:e2e:visual` on a workstation instead of the Linux CI
-// lane, which has no baselines to compare against. The same flows are asserted
-// without pixels in CI by workspace-guest.spec.ts, sidebar-resize.spec.ts, and
-// cursor-check.spec.ts.
+// Baselines are committed per platform: `-darwin` snapshots for the
+// hardware-backed workstation lane (`bun run test:e2e:visual` on macOS) and
+// `-linux` snapshots for the `Workspace visual lane` workflow, which runs
+// inside the pinned Playwright container so the rendering stays reproducible.
+// A UI change that moves pixels updates both sets with `--update-snapshots`.
+// The spec mocks every workspace API response, so no database is needed.
 import { createHash } from 'node:crypto'
 
 import { expect, test, type Page } from '@playwright/test'
 
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
-
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    window.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style')
-      style.textContent = 'nextjs-portal { display: none !important; }'
-      document.head.append(style)
-    })
-  })
-})
 
 const timestamp = '2026-08-30T12:00:00.000Z'
 const workspace = { id: 'workspace-e2e', name: 'Work', scene: 'work', updatedAt: timestamp }

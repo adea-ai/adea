@@ -1,0 +1,43 @@
+name: Visual lane baseline generation (temporary)
+
+# Temporary helper used once to render the -linux baselines inside the pinned
+# Playwright container. Removed before the M9 pull request merges.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  generate:
+    name: Generate -linux baselines
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+    env:
+      DATABASE_URL: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+      DATABASE_URL_UNPOOLED: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+      DATABASE_MIGRATION_URL: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile
+      - run: bunx turbo run build --filter=@adea-ai/web^...
+      - run: |
+          set -euo pipefail
+          bunx playwright test --config=playwright.config.ts \
+            apps/web/e2e/conventional-workspace.spec.ts --update-snapshots
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-lane-linux-baselines
+          path: apps/web/e2e/conventional-workspace.spec.ts-snapshots/*-linux.png
+          if-no-files-found: error
+          retention-days: 7

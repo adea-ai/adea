@@ -54,6 +54,7 @@ bun install --frozen-lockfile
 bunx turbo run build --filter=@adea-ai/web^...
 bun run --cwd apps/web start:verify   # unit tests, build, typecheck, client guard
 bun run build:cloudflare
+bun run --cwd apps/web start:check-routes  # URL surface and hashed-asset caching gate
 bunx playwright install chromium
 bun run --cwd apps/web start:test:local
 ```
@@ -93,6 +94,15 @@ adds host-specific checks (`start/browser/`): the document is really served by
 Start, unknown paths cannot become an unguarded workspace shell, a failed
 workspace import produces a recoverable route error, view switching preserves
 query state, and guest cookies/durable writes/tenant isolation hold.
+
+### Visual regression
+
+`bun run test:e2e:visual` runs `apps/web/e2e/conventional-workspace.spec.ts`
+with the committed `-darwin` pixel baselines on a workstation. The same spec
+runs per pull request in the `Workspace visual lane` workflow against the
+`-linux` baselines, inside the pinned Playwright container so the rendering
+stays reproducible. A UI change that moves pixels refreshes both sets with
+`--update-snapshots`; the spec mocks every API response and needs no database.
 
 ### Hosted acceptance
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
 import { request as httpsRequest } from 'node:https'
 import { createServer } from 'node:net'
 import { resolve } from 'node:path'
@@ -62,6 +62,16 @@ async function waitFor(probe) {
 const [port, inspector] = await Promise.all([availablePort(), availablePort()])
 const baseURL = `https://127.0.0.1:${port}`
 const built = JSON.parse(await readFile(resolve(web, 'dist/server/wrangler.json'), 'utf8'))
+const assetsDirectory = resolve(web, 'dist/server', built.assets.directory)
+// The build emits content-hashed files under the configured assets directory
+// (`start-assets` in vite.config.ts); the check asks for the file the current
+// build actually produced so a renamed or restyled asset keeps the assertion
+// real instead of silently requesting a stale name.
+const hashedStylesheets = (await readdir(resolve(assetsDirectory, 'start-assets'))).filter((name) =>
+  /-[A-Za-z0-9_-]{8}\.css$/.test(name)
+)
+assert.ok(hashedStylesheets.length > 0, 'the build emitted no hashed stylesheet to check')
+const hashedStylesheet = `/start-assets/${hashedStylesheets.sort().at(-1)}`
 const config = resolve(evidence, 'host.json')
 await writeFile(
   config,
@@ -72,7 +82,7 @@ await writeFile(
     main: resolve(web, 'dist/server', built.main),
     rules: built.rules,
     no_bundle: true,
-    assets: { ...built.assets, directory: resolve(web, 'dist/server', built.assets.directory) },
+    assets: { ...built.assets, directory: assetsDirectory },
     vars: { AUTH_TRUSTED_ORIGINS: baseURL },
   })
 )
@@ -116,11 +126,13 @@ try {
     entryGate: (await localHttps(`${baseURL}/api/web-entry`)).status,
     unknownApi: (await localHttps(`${baseURL}/api/not-a-route`)).status,
     unknownPage: (await localHttps(`${baseURL}/not-a-route`)).status,
+    hashedAsset: hashedStylesheet,
+    hashedAssetStatus: null,
     hashedAssetCaching: null,
   }
   const asset = await new Promise((ok, fail) => {
     const request = httpsRequest(
-      `${baseURL}/start-assets/index-CCRMjL6_.css`,
+      `${baseURL}${hashedStylesheet}`,
       { ca: tls.certificate },
       (response) => {
         response.resume()
@@ -130,6 +142,7 @@ try {
     request.once('error', fail)
     request.end()
   })
+  checks.hashedAssetStatus = asset.status
   checks.hashedAssetCaching = asset.headers['cache-control'] ?? null
   await writeFile(resolve(evidence, 'result.json'), JSON.stringify(checks, null, 2))
   console.log(JSON.stringify(checks, null, 2))
@@ -141,6 +154,16 @@ try {
   assert.equal(checks.entryGate, 200)
   assert.equal(checks.unknownApi, 404)
   assert.equal(checks.unknownPage, 404)
+  assert.equal(
+    checks.hashedAssetStatus,
+    200,
+    'the asset layer must serve the content-hashed stylesheet'
+  )
+  assert.match(
+    String(checks.hashedAssetCaching),
+    /immutable/,
+    'content-hashed assets must carry an immutable Cache-Control'
+  )
 } finally {
   if (child.pid && child.exitCode === null) {
     try {

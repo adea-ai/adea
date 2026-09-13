@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import {
   CLOUD_ORIGIN_SOURCE,
@@ -11,7 +12,7 @@ import {
   scanSource,
 } from './check-desktop-origins.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 // The desktop client talks only to the exact cloud origin baked in at build
 // time. These assertions keep that a single fact: one literal in

@@ -8,13 +8,14 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // The workspace package is not linked into the root's node_modules, so this
 // reads the permission map from its source. The map is the fact under test;
 // importing a build output would only prove dist is up to date.
 import { workspaceRolePermissions } from '../packages/auth/src/authorization'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const EVENTS_ROUTE = 'apps/web/src/start/routes/api/v1/workspaces/$workspaceId/events.ts'
 const STREAM_DECISIONS = 'apps/web/src/server/workspace-event-stream.ts'
 

@@ -1,15 +1,5 @@
 import { expect, test } from '../start/browser/fixtures'
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    window.addEventListener('DOMContentLoaded', () => {
-      const style = document.createElement('style')
-      style.textContent = 'nextjs-portal { display: none !important; }'
-      document.head.append(style)
-    })
-  })
-})
-
 const workspace = {
   id: 'workspace-guest-e2e',
   name: 'My Adea',

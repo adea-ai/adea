@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { fileURLToPath } from 'node:url'
 
 import { ROUTER, SPEC_DIRECTORY, brokenLinks, specCoverage } from './check-docs.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 // Spec pages only stay current if the path to them stays intact: reachable from
 // the router, linked from prose that resolves, and never orphaned by a move.

@@ -19,7 +19,6 @@
     "start:check-bundle": "node start/check-client.mjs",
     "start:check-routes": "node start/check-routes.mjs",
     "start:compare": "node start/compare-hosts.mjs",
-    "start:compare:baseline": "node start/compare-baseline.mjs",
     "start:e2e": "playwright test --config start/playwright.config.ts",
     "start:test": "bun test test/start-host.test.ts",
     "start:test:local": "node start/test-local.mjs",

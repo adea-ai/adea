@@ -116,7 +116,8 @@ desktop sessions share one path, and the cursor travels explicitly.
   never faster than the server asks.
 - One subscription is mounted in the shared workspace controller, so
   conventional and spatial surfaces read the same query state, and transient UI
-  coordination stays in Zustand.
+  coordination stays in the Solid workspace store (`solid-js/store`; decision
+  [0007](../decisions/0007-solid-tanstack-start.md)).
 
 ## Pinned by
 

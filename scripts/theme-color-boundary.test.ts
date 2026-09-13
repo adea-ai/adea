@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
+import { fileURLToPath } from 'node:url'
 
 import { BASELINE, TOKEN_FILES, scanSource, scanThemeColors } from './check-theme-colors.mjs'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 // CSS custom properties are the only legal color surface: a component that
 // hardcodes a color cannot be rethemed, and the same color reappears with a

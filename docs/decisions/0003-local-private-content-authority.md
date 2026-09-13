@@ -3,6 +3,10 @@
 - Status: Accepted
 - Date: 2026-08-30
 - Issue: #184
+- Superseding note (2026-09-12, M5): the desktop shell is Electrobun (Bun +
+  CEF), not Tauri; the command family now lives in
+  `apps/desktop/shell/src/commands.ts`. The authority model below is unchanged.
+  See [0006](./0006-browser-lanes-and-desktop-shell.md).
 
 ## Decision
 

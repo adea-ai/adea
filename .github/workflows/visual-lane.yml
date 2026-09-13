@@ -1,0 +1,119 @@
+name: Workspace visual lane
+
+# Pixel regression gate for apps/web/e2e/conventional-workspace.spec.ts.
+#
+# The committed `-linux` baselines were rendered by the pinned Playwright
+# container's own Chromium build, so the lane runs inside that same image: a
+# floating runner image would silently change fonts, compositing, or the
+# browser revision and make the pixel comparison nondeterministic. The
+# workstation lane keeps the `-darwin` baselines; both sets must be refreshed
+# together when a UI change moves pixels.
+#
+# The spec mocks every workspace API response in the browser and was verified
+# to pass with an unreachable database, so this lane needs no Postgres service
+# (the desktop/mobile host suite in `tanstack-start.yml` keeps the
+# database-backed lane).
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'scripts/**'
+      - 'bun.lock'
+      - 'package.json'
+      - '.github/workflows/visual-lane.yml'
+  workflow_dispatch:
+    inputs:
+      update-snapshots:
+        description: Regenerate the -linux baselines in the pinned container and upload them.
+        required: false
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: visual-lane-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  visual:
+    name: Visual workspace
+    # A draft pull request cannot merge, so it allocates no runner.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+    env:
+      # The spec mocks every API response and never opens a database
+      # connection; these values only keep the app's configuration explicit.
+      DATABASE_URL: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+      DATABASE_URL_UNPOOLED: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+      DATABASE_MIGRATION_URL: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: '1.4.0'
+
+      - run: bun install --frozen-lockfile
+
+      # The image tag and the dependency move together: the image ships the
+      # browser revision the Playwright CLI resolves. A mismatch would make the
+      # lane test a different Chromium than the one the baselines were made
+      # with, so fail loudly and tell the maintainer what to update.
+      - name: Pin check
+        run: |
+          set -euo pipefail
+          installed="$(node -p "require('@playwright/test/package.json').version")"
+          image='mcr.microsoft.com/playwright:v1.63.0-noble'
+          pinned="${image#*:v}"
+          pinned="${pinned%-noble}"
+          if [[ "$installed" != "$pinned" ]]; then
+            echo "::error::@playwright/test ${installed} does not match the lane image ${image}. Bump the image tag and regenerate the -linux baselines with the dependency bump."
+            exit 1
+          fi
+
+      # The workspace packages ship `dist` (their exports point at it) and the
+      # dev server reads it, so the client is prepared before Playwright starts.
+      - name: Build workspace dependencies
+        run: bunx turbo run build --filter=@adea-ai/web^...
+
+      - name: Visual regression lane
+        run: bun run test:e2e:visual
+
+      - name: Regenerate -linux baselines
+        if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
+        run: |
+          set -euo pipefail
+          bunx playwright test --config=playwright.config.ts \
+            apps/web/e2e/conventional-workspace.spec.ts --update-snapshots
+
+      - name: Upload regenerated baselines
+        if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-lane-linux-baselines
+          path: apps/web/e2e/conventional-workspace.spec.ts-snapshots/*-linux.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: visual-lane-evidence
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
