@@ -123,7 +123,7 @@ jobs:
             exit 1
           fi
           node - <<'NODE'
-          const { chromium } = require('playwright-core')
+          const { chromium } = require('@playwright/test')
           ;(async () => {
             const browser = await chromium.launch()
             const page = await browser.newPage()
