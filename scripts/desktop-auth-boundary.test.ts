@@ -163,7 +163,7 @@ describe('desktop packaging and single-UI client boundary', () => {
       'utf8'
     )
     expect(desktopEntry).toContain('<WorkspaceNavigation')
-    expect(desktopEntry).toContain('className="auth-shell"')
+    expect(desktopEntry).toContain('class="auth-shell"')
     expect(desktopEntry).not.toContain('<style')
     expect(desktopEntry).not.toContain('.css')
   })
@@ -183,7 +183,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     )
 
     expect(client).toContain('bootstrapDesktopWorkspace')
-    expect(client).toContain('if (!workspaceState || !activeWorkspace)')
+    expect(client).toContain('<DesktopStartSurface')
     expect(client).toContain('setSession(activeSession)')
     expect(client).toContain('Try again')
     expect(navigation).toContain('<GlobalWorkspaceRail')
@@ -276,16 +276,18 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(globalRail).toContain('label="Plugins"')
     expect(accountMenu).toContain('aria-label="User settings"')
     expect(accountMenu).toContain('Updates')
-    expect(desktopEntry).toContain('onOpenUpdates: () => setUpdatesOpen(true)')
+    expect(desktopEntry).toContain('onOpenUpdates: () => props.onUpdatesOpenChange(true)')
     expect(webStyles).toContain('env(safe-area-inset-top)')
     expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
     expect(webStyles).not.toContain('max-width: calc(100vw - 2.5rem)')
   })
 
-  test('deduplicates React across the packaged spatial runtime', async () => {
+  test('deduplicates the Solid runtime across the packaged single UI', async () => {
     const viteConfig = await readFile(join(root, 'apps/web/vite.desktop.config.ts'), 'utf8')
 
-    expect(viteConfig).toContain("dedupe: ['react', 'react-dom']")
+    // One Solid runtime instance across the shell bundle; React never returns.
+    expect(viteConfig).toContain("dedupe: ['solid-js']")
+    expect(viteConfig).not.toContain('react')
   })
 
   test('registers the client half of the desktop callback handoff', async () => {
@@ -311,8 +313,8 @@ describe('desktop packaging and single-UI client boundary', () => {
     const sharedStyles = await readFile(join(root, 'packages/ui/src/styles/auth-shell.css'), 'utf8')
 
     expect(webStyles).toContain("@import '@adea-ai/ui/auth-shell.css'")
-    expect(desktop).toContain('className="auth-shell"')
-    expect(web).toContain('className="auth-shell"')
+    expect(desktop).toContain('class="auth-shell"')
+    expect(web).toContain('class="auth-shell"')
     expect(sharedStyles).toContain('.auth-panel')
     expect(sharedStyles).toContain('.auth-title')
     expect(sharedStyles).toContain('.auth-status')
@@ -360,11 +362,11 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(authorize).toContain('createDesktopCompletionUrl')
     expect(authorize).not.toContain('Authentication required')
     expect(page).toContain('normalizeDesktopAuthorizationReturnTo')
-    expect(form).toContain('htmlFor="email"')
-    expect(form).toContain('htmlFor="password"')
+    expect(form).toContain('for="email"')
+    expect(form).toContain('for="password"')
     expect(form).toContain('aria-live="polite"')
     expect(form).toContain('createNeonClientAdapter')
-    expect(completionPage).toContain('className="auth-shell"')
+    expect(completionPage).toContain('class="auth-shell"')
     expect(completionClient).toContain('You can close this tab')
     expect(completionClient).toContain('parseDesktopCallbackFragment')
     expect(completionClient).toContain('window.history.replaceState')

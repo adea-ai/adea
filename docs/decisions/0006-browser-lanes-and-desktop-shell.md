@@ -116,6 +116,8 @@ own TanStack Start SPA build from loopback (`apps/web/vite.desktop.config.ts` â†
 `apps/web/dist-desktop/client`) and injects the bridge into that document;
 desktop-only surfaces are `isDesktopRuntime()` flags in `apps/web`, not a second
 client. Variant rationale and rejected alternatives: `apps/desktop/README.md`.
+That single client is Solid as of M6 ([0007](./0007-solid-tanstack-start.md));
+the pipeline, origins, and the no-second-client rule are unchanged.
 
 ## Prior art (verified against installed apps, 2026-09-12)
 

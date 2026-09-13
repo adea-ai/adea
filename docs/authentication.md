@@ -63,7 +63,7 @@ exercise the production cloud flow; arbitrary loopback ports and wildcard origin
 PostgreSQL stores only SHA-256 digests for authorization codes and desktop credentials. Code
 consumption and credential rotation are atomic.
 
-Desktop releases package the spatial workspace and its Vite/React assets locally, served by the
+Desktop releases package the spatial workspace and its Vite/Solid assets locally, served by the
 shell on loopback. The shell injects its command bridge only into the served document and sends no
 CORS headers, so remote web content receives no desktop command surface.
 Server modules and Neon Auth SDK code are excluded from the client dependency graph.

@@ -148,7 +148,7 @@
   --workspace-topbar-height: 0rem;
   --workspace-topbar-offset: env(safe-area-inset-top);
 
-  /* Keep the shadcn primitives on the shell's dark glass surface. */
+  /* Keep the shared primitives on the shell's dark glass surface. */
   --background: var(--hq-shell-background);
   --foreground: var(--hq-shell-foreground);
   --card: var(--hq-shell-surface);

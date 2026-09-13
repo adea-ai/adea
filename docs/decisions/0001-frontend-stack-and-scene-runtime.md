@@ -4,9 +4,14 @@
 - Date: 2026-08-20
 - Superseding note (2026-09-11): the web host is now TanStack Start on
   Cloudflare Workers with Vite, replacing the original Next.js/OpenNext host.
-  Everything else in this decision still holds: vanilla Three.js behind the
-  scene-runtime abstraction, TanStack Query for server state, Zustand for
-  client-only state, and shadcn/ui for UI primitives.
+- Superseding note (2026-09-13, M6): the UI stack is **SolidJS** on TanStack
+  Start. React, `@base-ui/react`, `zustand`, `nuqs`, and `next-themes` are
+  replaced by Solid, Kobalte/corvu, `solid-js/store`, the router's search
+  params, and an in-package theme provider respectively. See
+  [0007](./0007-solid-tanstack-start.md). What still holds here: vanilla Three.js
+  behind the scene-runtime abstraction, a dedicated server-state layer (now
+  TanStack Query's Solid bindings), and a separate ephemeral client state layer
+  (now `solid-js/store`).
 
 ## Decision
 

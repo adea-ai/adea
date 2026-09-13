@@ -1,7 +1,7 @@
 # Adea Mobile
 
 The mobile target is a thin Capacitor shell around the canonical web
-application. The React application, domain logic, data contracts, state, and
+application. The Solid application, domain logic, data contracts, state, and
 UI are shared with `apps/web`. The 3D scenes live in the private Agent Sim
 engine and are unavailable in this shell.
 

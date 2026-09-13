@@ -27,10 +27,10 @@ Worker setup, secrets, and caching.
   temporary-session, desktop, and marketplace code. `request-scope.ts`
   replaces Next's `after()`: per-request database connections register a
   cleanup callback and are closed once the response is produced.
-- The workspace UI is browser-only and unchanged: the same Query/Zustand
-  state, theme/audio providers, settings, plugins, conventional workspace,
-  and optional spatial entry points. `src/components/lazy-component.tsx`
-  replaces `next/dynamic` at the existing import sites.
+- The workspace UI is browser-only: the same shared state (TanStack Query's
+  Solid bindings plus the Solid workspace store), theme/audio providers,
+  settings, plugins, conventional workspace, and optional spatial entry
+  points. `src/components/lazy-component.tsx` keeps those entries deferred.
 
 ## Entry policy
 
@@ -129,7 +129,7 @@ cleanup is required. Do not reset or delete user data.
 
 ## References
 
-- [TanStack Start Next.js migration guide](https://tanstack.com/start/latest/docs/framework/react/migrate-from-next-js)
-- [TanStack Start Cloudflare example](https://github.com/TanStack/router/tree/main/examples/react/start-basic-cloudflare)
+- [TanStack Start](https://tanstack.com/start/latest/docs/framework/solid/overview)
+- [TanStack Solid Router search params](https://tanstack.com/router/latest/docs/framework/solid/guide/search-params)
 - [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/)
-- [nuqs adapter limitations](https://nuqs.dev/docs/adapters)
+- [Decision 0007: SolidJS on TanStack Start](../../docs/decisions/0007-solid-tanstack-start.md)
