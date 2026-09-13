@@ -1,132 +1,116 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
-const shell = join(root, 'apps/desktop/src-tauri')
+const registrySource = join(root, 'apps/desktop/shell/src/commands.ts')
 const client = join(root, 'apps/desktop/src')
+const packages = join(root, 'packages')
 
-// The shell defines an app ACL manifest, so Tauri rejects any command that is
-// registered but not granted, and any privilege granted for a command that no
-// longer exists stays in the ACL forever. `apps/desktop/src-tauri/src/ipc_contract.rs`
-// asserts the same contract for `cargo test`; these assertions are the copy the
-// required validation lane runs, and they add the direction the Rust test cannot
-// see: which commands the packaged client actually calls.
+/** Commands the shell registers. The shell's `invoke` rejects anything else. */
 async function registeredCommands(): Promise<Set<string>> {
-  const main = await readFile(join(shell, 'src/main.rs'), 'utf8')
-  const start = main.indexOf('generate_handler![')
+  const source = await readFile(registrySource, 'utf8')
+  const start = source.indexOf('const handlers')
   expect(start).toBeGreaterThan(-1)
-  const body = main.slice(start, main.indexOf(']', start))
-  return new Set(
-    body
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(
-        (line) => line.length > 0 && !line.startsWith('#') && !line.includes('generate_handler')
-      )
-      .map((line) => line.replace(/,$/, '').split('::').at(-1)!)
+  const body = source.slice(start, source.indexOf('return function invoke', start))
+  const registry = new Set(
+    [...body.matchAll(/^\s{4}([a-z][a-z0-9_]*):\s*\(/gm)].map((match) => match[1]!)
   )
+  expect(registry.size).toBeGreaterThan(0)
+  return registry
 }
 
-type Grant = { identifier: string; description: string; commands: string[] }
+async function* typescriptSources(directory: string) {
+  if (!existsSync(directory)) return
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      yield* typescriptSources(join(directory, entry.name))
+      continue
+    }
+    if (entry.isFile() && /\.tsx?$/.test(entry.name)) yield join(directory, entry.name)
+  }
+}
 
-// Permission files are TOML; the schema is regular enough to read the three
-// fields the contract cares about without a parser dependency.
-async function permissionGrants(): Promise<Grant[]> {
-  const directory = join(shell, 'permissions')
-  const files = (await readdir(directory)).filter((file) => file.endsWith('.toml')).sort()
-  expect(files.length).toBeGreaterThan(0)
+/** Every client-side source the command contract covers. */
+async function coveredSources(): Promise<string[]> {
+  const roots = [client, ...(await readdir(packages)).map((name) => join(packages, name, 'src'))]
+  const files: string[] = []
+  for (const directory of roots) {
+    for await (const path of typescriptSources(directory)) files.push(path)
+  }
+  return files.sort()
+}
 
-  return Promise.all(
-    files.map(async (file) => {
-      const raw = await readFile(join(directory, file), 'utf8')
-      const identifier = /identifier\s*=\s*"([^"]+)"/.exec(raw)?.[1]
-      const description = /description\s*=\s*"([^"]+)"/.exec(raw)?.[1]
-      const allow = /commands\.allow\s*=\s*\[([\s\S]*?)\]/.exec(raw)?.[1]
-      expect(identifier).toBeDefined()
-      expect(description).toBeDefined()
-      expect(allow).toBeDefined()
-      return {
-        identifier: identifier!,
-        description: description!,
-        commands: [...allow!.matchAll(/"([^"]+)"/g)].map((match) => match[1]!),
-      }
-    })
-  )
+/** Command names the client and the shared packages pass to the bridge. */
+async function invokedCommands(): Promise<Set<string>> {
+  const invoked = new Set<string>()
+  for (const path of await coveredSources()) {
+    const source = await readFile(path, 'utf8')
+    for (const match of source.matchAll(/invoke(?:<[\s\S]*?>)?\(\s*['"]([a-z0-9_]+)['"]/g)) {
+      invoked.add(match[1]!)
+    }
+  }
+  return invoked
 }
 
 function difference(left: Set<string>, right: Set<string>) {
   return [...left].filter((value) => !right.has(value)).sort()
 }
 
+/**
+ * Commands the shell may expose without a client call site. Keep this empty
+ * when possible: every entry is a promise the shell makes that nothing uses.
+ */
+const SHELL_ONLY_COMMANDS = new Set<string>()
+
+// The shell has no ACL manifest: its `invoke` is the whole command surface, so
+// a name the client calls but the registry does not know fails at runtime, and
+// a registry entry no client calls is dead surface the shell still carries.
+// This is the cross-check the previous per-command ACL gave the Rust lane.
 describe('desktop IPC contract', () => {
-  test('grants exactly the commands that are registered', async () => {
+  test('routes every client command through the platform bridge', async () => {
+    const bridge = await readFile(join(root, 'apps/desktop/src/platform/bridge.ts'), 'utf8')
+
+    expect(bridge).toContain('window.__adeaDesktop')
+    expect(bridge).toContain('shell().invoke(cmd, args)')
+    // The client must not reach back to the previous shell's API.
+    const traces: string[] = []
+    for (const path of await coveredSources()) {
+      const source = await readFile(path, 'utf8')
+      if (/@tauri-apps|__TAURI/.test(source)) traces.push(path)
+    }
+    expect(traces).toEqual([])
+  })
+
+  test('calls only commands the shell registers', async () => {
     const registered = await registeredCommands()
-    const grants = await permissionGrants()
-    const granted = new Set(grants.flatMap((grant) => grant.commands))
-
-    // A registered command with no grant is a feature that fails at runtime;
-    // a grant with no command is a privilege nobody can use and everybody keeps.
-    expect(difference(registered, granted)).toEqual([])
-    expect(difference(granted, registered)).toEqual([])
-  })
-
-  test('grants every command through exactly one permission', async () => {
-    const grants = await permissionGrants()
-    const duplicates = grants
-      .flatMap((grant) => grant.commands.map((command) => [command, grant.identifier] as const))
-      .reduce<Record<string, string[]>>((accumulator, [command, identifier]) => {
-        accumulator[command] = [...(accumulator[command] ?? []), identifier]
-        return accumulator
-      }, {})
-    const overGranted = Object.entries(duplicates)
-      .filter(([, identifiers]) => identifiers.length > 1)
-      .map(([command, identifiers]) => `${command}: ${identifiers.join(', ')}`)
-
-    expect(overGranted).toEqual([])
-    for (const grant of grants) {
-      expect(grant.commands.length).toBeGreaterThan(0)
-      expect(grant.description.length).toBeGreaterThan(0)
-    }
-  })
-
-  test('wires every app permission into the main-window capability', async () => {
-    const grants = await permissionGrants()
-    const capability = JSON.parse(
-      await readFile(join(shell, 'capabilities/default.json'), 'utf8')
-    ) as {
-      identifier: string
-      windows: string[]
-      permissions: string[]
-      remote?: unknown
-    }
-    // App-owned permissions have no plugin namespace; plugin permissions are
-    // validated by their own crates.
-    const referenced = new Set(
-      capability.permissions.filter((permission) => !permission.includes(':'))
-    )
-
-    expect(difference(referenced, new Set(grants.map((grant) => grant.identifier)))).toEqual([])
-    expect(difference(new Set(grants.map((grant) => grant.identifier)), referenced)).toEqual([])
-    expect(capability.windows).toEqual(['main'])
-    expect(capability.remote).toBeUndefined()
-  })
-
-  test('calls only commands the bundled client is granted', async () => {
-    const registered = await registeredCommands()
-    const granted = new Set((await permissionGrants()).flatMap((grant) => grant.commands))
-    const invoked = new Set<string>()
-
-    for (const file of await readdir(client, { recursive: true })) {
-      if (!/\.tsx?$/.test(file)) continue
-      const source = await readFile(join(client, file), 'utf8')
-      for (const match of source.matchAll(/invoke(?:<[\s\S]*?>)?\(\s*['"]([a-z0-9_]+)['"]/g)) {
-        invoked.add(match[1]!)
-      }
-    }
+    const invoked = await invokedCommands()
 
     expect(invoked.size).toBeGreaterThan(0)
     expect(difference(invoked, registered)).toEqual([])
-    expect(difference(invoked, granted)).toEqual([])
+  })
+
+  test('registers no command without a client call site', async () => {
+    const registered = await registeredCommands()
+    const invoked = await invokedCommands()
+
+    expect(
+      difference(registered, invoked).filter((command) => !SHELL_ONLY_COMMANDS.has(command))
+    ).toEqual([])
+    for (const command of SHELL_ONLY_COMMANDS) {
+      expect(registered.has(command)).toBe(true)
+    }
+  })
+
+  test('scans the invoke strings the client actually uses', async () => {
+    const invoked = await invokedCommands()
+
+    // The parser has to see multi-line generics (`invoke<\n  Readonly<…>\n>('x')`)
+    // or the cross-check passes by finding nothing.
+    expect(invoked.has('local_content_health')).toBe(true)
+    expect(invoked.has('local_content_rotate_key')).toBe(true)
+    expect(invoked.has('desktop_auth_take_callback')).toBe(true)
+    expect(invoked.has('adea_app_version')).toBe(true)
   })
 })

@@ -1,17 +1,17 @@
 # Adea Desktop
 
-The desktop target is a Tauri 2 application that ships its React client as
-packaged local assets. It never loads the Adea web deployment as the
-privileged top-level WebView. Shared browser-safe packages remain reusable,
-while Next.js handlers, `/auth/server`, `/db`, provider SDKs,
-and other server-only modules stay out of the bundle.
+The desktop target is an Electrobun (Bun + CEF) application that ships its React
+client as packaged local assets. The shell's Bun main process serves the built
+client on loopback and never loads the Adea web deployment as the privileged
+top-level view. Shared browser-safe packages remain reusable, while Next.js
+handlers, `/auth/server`, `/db`, provider SDKs, and other server-only modules
+stay out of the bundle.
 
-Run `bun run shell:dev` from this directory to start the local Vite client and
-open it in Tauri. `bun run client:build` produces the assets embedded by Tauri.
-The public `VITE_ADEA_CLOUD_ORIGIN` build setting may select an approved
-Adea deployment; native code reads that same compile-time value when it
-allowlists the authorization origin. Release builds default to
-`https://adea.dev`.
+Run `bun run shell:dev` from this directory to build the client and launch the
+shell against it. `bun run client:build` produces the assets the shell serves
+from disk. The public `VITE_ADEA_CLOUD_ORIGIN` build setting may select an
+approved Adea deployment; `scripts/cloud-config.mjs` validates that value for
+every consumer. Release builds default to `https://adea.dev`.
 
 First launch opens directly into the bundled Home or Work workspace scene. The cloud workspace service
 creates a temporary canonical user, owner membership, and default Home and Work workspaces without requiring
@@ -21,13 +21,11 @@ offers optional sign-in at any time to claim and persist the same workspaces.
 
 Desktop sign-in starts in the system browser and returns through the registered
 `adea://auth/callback` scheme. The local client creates state, nonce, and a
-PKCE verifier; the native launcher accepts only the fixed desktop authorization
-endpoint; and the callback carries only a short-lived one-time code. The
-pending PKCE attempt is kept in the operating-system credential vault until it
-is consumed, so a callback that launches a new desktop process can still finish
-without weakening state or nonce verification. The packaged CSP permits HTTPS
-API connections only to the exact origin selected by the desktop build wrapper;
-the browser-safe broker and native launcher pin requests to that same origin.
+PKCE verifier; the shell accepts only the fixed desktop authorization endpoint;
+and the callback carries only a short-lived one-time code. The pending PKCE
+attempt is kept in the shell's encrypted state directory until it is consumed.
+The client build injects the exact origin selected by `scripts/cloud-config.mjs`;
+the browser-safe broker pins requests to that same origin.
 The provider-neutral code exchange and session lifecycle live in
 `/auth/desktop`, while one-time consumption and credential rotation
 belong to the server-side `/auth/server` broker. Codes and user-session
@@ -52,7 +50,6 @@ do the same by pointing `ADEA_AGENT_SIM_DIST` at a local engine pack before
 `shell:build`. Builds without a pack — including any fork's — render the
 offline fallback and never fetch engine code.
 
-Signed desktop updates are published to the repository's GitHub Releases.
-The Tauri updater polls the release channel directly at
-`https://github.com/adea-ai/adea/releases/latest/download/latest.json` and
-verifies packages against the baked-in public key.
+There is no auto-update lane in the Electrobun shell yet: the client's update
+surface reports up to date, and release-lane work (including `adea://`
+URL-scheme registration for the auth callback) is tracked in #370.

@@ -196,26 +196,26 @@ Keep pull requests focused and reviewable. Include screenshots or recordings for
 
 ## Workflow and check behavior
 
-| Event                                              | Expected automation                                                                          |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Draft pull request targeting `main`                | No runner-heavy validation; run local checks before requesting review                        |
-| Ready pull request targeting `main`                | Audit validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`        |
-| Ready pull request that touches the desktop shell  | The row above, plus `Rust shell`: format, clippy with warnings denied, and the crate's tests |
-| Exact Release Please pull request targeting `main` | Full validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`         |
-| Scheduled or manual validation                     | Full audit tier                                                                              |
-| Push to a working branch                           | Draft PR workflow                                                                            |
-| Push to `main`                                     | Release workflow plus default-branch CodeQL scan; validation ran on the merged PR            |
+| Event                                              | Expected automation                                                                                |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Draft pull request targeting `main`                | No runner-heavy validation; run local checks before requesting review                              |
+| Ready pull request targeting `main`                | Audit validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`              |
+| Ready pull request that touches the desktop shell  | The row above, plus `Desktop shell`: client build, typecheck, lint, and the desktop boundary gates |
+| Exact Release Please pull request targeting `main` | Full validation: CI, full tests, Security, and CodeQL, ending in `Validation / Gate`               |
+| Scheduled or manual validation                     | Full audit tier                                                                                    |
+| Push to a working branch                           | Draft PR workflow                                                                                  |
+| Push to `main`                                     | Release workflow plus default-branch CodeQL scan; validation ran on the merged PR                  |
 
-`Validation / Gate` and `Rust shell` are the required status checks on `main`.
-`Rust shell` covers the Tauri crate, which the Code Foundry validation lanes
-cannot reach: their Rust steps only engage for a repository-root `Cargo.toml`,
-and this repository keeps its only crate at `apps/desktop/src-tauri`.
+`Validation / Gate` and `Desktop shell` are the required status checks on
+`main`. `Desktop shell` covers `apps/desktop` — the Electrobun (Bun + CEF)
+shell, its command surface, and the client it bundles — which the Code Foundry
+validation lanes do not build or typecheck on their own.
 
-A required check must report on **every** pull request, so `Rust shell` runs
-unconditionally: it detects whether the shell changed and skips the Rust steps
-when it did not, concluding successfully in seconds. Requiring a path-filtered
-workflow instead would leave every pull request that touches none of its paths
-waiting for a check that never runs.
+A required check must report on **every** pull request, so `Desktop shell` runs
+unconditionally: it detects whether the desktop workspace changed and skips the
+build steps when it did not, concluding successfully in seconds. Requiring a
+path-filtered workflow instead would leave every pull request that touches none
+of its paths waiting for a check that never runs.
 
 Draft pull requests do not start validation unless `draft_protection: false` is configured. The lightweight Draft Guard converts ordinary pull requests opened or reopened while ready back to draft; it never checks out pull-request code and it excludes Release Please version heads, whose release workflow owns their state. Marking a pull request ready for review starts the applicable validation tier, and each new commit on a ready pull request reruns that tier for the current head. Draft updates allocate no validation runner while protection is enabled. Converting a pull request to draft runs only the lightweight cancellation control.
 

@@ -39,6 +39,9 @@ export async function getVersion(): Promise<string> {
 /** Streaming channel stub for transcription parity with the previous shell. */
 export class Channel<T> {
   onmessage: ((message: T) => void) | null = null
+  constructor(onmessage?: (message: T) => void) {
+    this.onmessage = onmessage ?? null
+  }
   send(): void {
     throw new Error('channels are not supported by this shell yet')
   }

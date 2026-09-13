@@ -29,7 +29,6 @@
     "apps/mobile/ios/App/App/Assets.xcassets",
     "apps/mobile/ios/App/App/public",
     "apps/mobile/**/capacitor.config.json",
-    "apps/desktop/src-tauri/gen",
     "vendor/**"
   ]
 }

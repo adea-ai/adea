@@ -40,8 +40,9 @@ import './styles.css'
 
 const packageVersion = packageJson.version
 
-// Injected by `vite.config.ts` from the same validated value the packaged CSP
-// and the native authorization allowlist use (see `src-tauri/src/cloud.rs`).
+// Injected by `vite.config.ts` from the single cloud-origin module
+// (`scripts/cloud-config.mjs`), which `scripts/desktop-origin-boundary.test.ts`
+// pins.
 const cloudOrigin = __ADEA_CLOUD_ORIGIN__
 
 const SpatialDesktopWorkspace = lazy(() =>

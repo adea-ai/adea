@@ -12,7 +12,9 @@ const desktopUpdateAdapter: VersionDialogAdapter = {
   check: checkDesktopUpdate,
   getStatus: getDesktopUpdateStatus,
   install: installDesktopUpdate,
-  isDesktopRuntime: () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
+  // The shell injects `window.__adeaDesktop` before the client boots; its
+  // presence is what makes this the desktop runtime.
+  isDesktopRuntime: () => typeof window !== 'undefined' && '__adeaDesktop' in window,
 }
 
 export function VersionDialog({

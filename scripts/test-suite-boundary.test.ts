@@ -94,20 +94,11 @@ describe('test suite boundaries', () => {
     const extraFiles = new Set(
       releaseConfig['extra-files'].map((entry: { path: string }) => entry.path)
     )
-    const cargoLockUpdater = releaseConfig['extra-files'].find(
-      (entry: { path: string }) => entry.path === 'apps/desktop/src-tauri/Cargo.lock'
-    )
-    const tauriConfig = JSON.parse(
-      readFileSync(resolve(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')
-    )
 
-    expect(tauriConfig.version).toBe('../package.json')
-    expect(extraFiles.has('apps/desktop/src-tauri/tauri.conf.json')).toBeFalse()
-    expect(cargoLockUpdater).toEqual({
-      type: 'toml',
-      path: 'apps/desktop/src-tauri/Cargo.lock',
-      jsonpath: "$.package[?(@.name.value=='adea-desktop')].version",
-    })
+    // The previous Rust crate's Cargo manifests are gone; a release-please
+    // updater that still points at them would silently stop versioning a file.
+    expect([...extraFiles].filter((path: string) => path.includes('src-tauri'))).toEqual([])
+    expect([...extraFiles].filter((path: string) => /Cargo\.(toml|lock)$/.test(path))).toEqual([])
 
     for (const workspaceGroup of ['apps', 'packages']) {
       for (const workspace of readdirSync(resolve(root, workspaceGroup))) {

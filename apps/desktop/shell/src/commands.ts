@@ -225,7 +225,15 @@ export function createCommandSurface(dataDir: string) {
       throw new Error('transcription is not available in this shell yet')
     },
     desktop_transcription_cancel: () => null,
-    // App metadata (replaces @tauri-apps/api/app getVersion)
+    // Local capability health. The shell has no native prerequisites to probe
+    // in this lane yet, so the snapshot is an honest empty result.
+    capability_snapshot: () => ({
+      ageMs: 0,
+      capabilities: [],
+      reProbeFloorMs: 30_000,
+      servedFromCache: false,
+    }),
+    // App metadata for the client's version surface.
     adea_app_version: () => process.env.ADEA_APP_VERSION ?? '0.0.0',
   }
 

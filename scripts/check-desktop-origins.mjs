@@ -1,61 +1,40 @@
 // Cloud-origin scan for the desktop shell.
 //
 // The desktop's core security invariant is that the app talks only to the
-// exact cloud origin baked in at build time. Three places have to agree on it:
-// the packaged CSP, the native authorization allowlist, and the browser-safe
-// broker pinning. A fourth, stray `https://…` literal anywhere in the shell is
-// a silent widening of that invariant, so this scanner fails the build on any
-// origin that is not the canonical constant or an explicitly baselined
-// exception. Test code and comment lines are out of scope.
+// exact cloud origin baked in at build time. One JavaScript module owns the
+// literal (`apps/desktop/scripts/cloud-config.mjs`); the client build injects it
+// through `__ADEA_CLOUD_ORIGIN__`, and the shell never restates it. Any other
+// `https://…` literal in the scanned trees is a silent widening of that
+// invariant, so this scanner fails the build on every origin that is not the
+// owning module's canonical constant or an explicitly baselined exception. Test
+// code and comment lines are out of scope.
 
 import { readFile, readdir } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { join, relative, resolve, sep } from 'node:path'
 
 /** Files whose origin literals are part of the scan. */
-const SCAN_ROOTS = ['apps/desktop/src-tauri', 'apps/desktop/src', 'apps/desktop/scripts']
-const SCAN_EXTENSIONS = ['.rs', '.ts', '.tsx', '.mjs', '.js', '.json', '.html']
+const SCAN_ROOTS = ['apps/desktop/shell', 'apps/desktop/src', 'apps/desktop/scripts']
+const SCAN_EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.json', '.html']
 /** Build output and dependency trees never ship as source. */
-const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'target', 'gen', '.turbo'])
+const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', '.turbo'])
 
-/** The canonical constant in native code. */
-export const CLOUD_ORIGIN_SOURCE = 'apps/desktop/src-tauri/src/cloud.rs'
-/** The canonical constant in the build wrapper that writes the packaged CSP. */
-export const CLOUD_BUILD_SOURCE = 'apps/desktop/scripts/tauri-cloud-config.mjs'
+/** The one module allowed to name the canonical cloud origin. */
+export const CLOUD_ORIGIN_SOURCE = 'apps/desktop/scripts/cloud-config.mjs'
 
 const ORIGIN_LITERAL = /https?:\/\/[A-Za-z0-9.-]+(?::\d+)?/g
 
 /**
- * Origins that are allowed to appear literally, each with the reason it cannot
- * come from the canonical constant. Keep this list short: every entry is an
- * exception to the single-origin invariant.
+ * Origins that are allowed to appear literally outside the owning module, each
+ * with the reason it cannot come from the canonical constant. Keep this list
+ * short: every entry is an exception to the single-origin invariant.
  */
-export const BASELINED_ORIGINS = [
-  {
-    origin: 'https://github.com',
-    reason: 'signed desktop update release channel (tauri.conf.json updater endpoint)',
-  },
-  {
-    origin: 'https://raw.githubusercontent.com',
-    reason: 'marketplace plugin logo images (CSP img-src)',
-  },
-  {
-    origin: 'https://cdn.simpleicons.org',
-    reason: 'marketplace plugin logo images (CSP img-src)',
-  },
-  {
-    origin: 'https://www.google.com',
-    reason: 'marketplace favicon lookups (CSP img-src)',
-  },
-]
+export const BASELINED_ORIGINS = []
 
-/** Read the canonical origin from the two places that must agree on it. */
-export async function canonicalCloudOrigins(root) {
-  const rust = await readFile(join(root, CLOUD_ORIGIN_SOURCE), 'utf8')
-  const build = await readFile(join(root, CLOUD_BUILD_SOURCE), 'utf8')
-  return {
-    rust: /const\s+DEFAULT_CLOUD_ORIGIN:\s*&str\s*=\s*"([^"]+)"/.exec(rust)?.[1],
-    build: /const\s+DEFAULT_CLOUD_ORIGIN\s*=\s*'([^']+)'/.exec(build)?.[1],
-  }
+/** Read the canonical origin from the module that owns it. */
+export async function canonicalCloudOrigin(root) {
+  const source = await readFile(join(root, CLOUD_ORIGIN_SOURCE), 'utf8')
+  return /const\s+DEFAULT_CLOUD_ORIGIN\s*=\s*'([^']+)'/.exec(source)?.[1]
 }
 
 function originOf(literal) {
@@ -63,22 +42,35 @@ function originOf(literal) {
 }
 
 /**
- * Origins that are not cloud origins at all: the loopback dev server and the
- * Tauri IPC channel. `normalizeDesktopCloudOrigin` permits loopback origins for
- * local development, and `tauri://localhost` / `http://ipc.localhost` are how
- * the packaged webview reaches its own embedded assets and IPC bridge. A JSON
- * `$schema` key is tooling metadata, not a request target.
+ * Origins that are not cloud origins at all: the shell's own loopback server
+ * and the loopback development server the client is built against.
  */
-function isInfrastructureOrigin(origin) {
+export function isLoopbackOrigin(origin) {
   const { hostname, protocol } = new URL(origin)
   return (
     protocol === 'http:' &&
     (hostname === '127.0.0.1' ||
       hostname === 'localhost' ||
       hostname === '[::1]' ||
-      hostname === 'ipc.localhost' ||
       hostname.endsWith('.localhost'))
   )
+}
+
+/**
+ * The allowlist that applies to one scanned file. The canonical cloud origin is
+ * only allowed where it is defined; every other file has to import it.
+ */
+export function allowedOriginsFor(file, canonical) {
+  if (file === CLOUD_ORIGIN_SOURCE) {
+    return [
+      {
+        origin: canonical,
+        reason: 'the canonical cloud origin, defined in this module',
+      },
+      ...BASELINED_ORIGINS,
+    ]
+  }
+  return [...BASELINED_ORIGINS]
 }
 
 /**
@@ -88,15 +80,8 @@ function isInfrastructureOrigin(origin) {
 export function scanSource(source, file, allowedOrigins) {
   const allowed = new Set(allowedOrigins.map((entry) => originOf(entry.origin)))
   const violations = []
-  let inRustTestModule = false
 
   for (const [index, line] of source.split('\n').entries()) {
-    // Rust unit tests deliberately name hostile origins to prove they are
-    // rejected; they are not part of the shipped surface.
-    if (file.endsWith('.rs')) {
-      if (line.includes('#[cfg(test)]')) inRustTestModule = true
-      if (inRustTestModule) continue
-    }
     const trimmed = line.trim()
     if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue
     if (trimmed.startsWith('"$schema"')) continue
@@ -108,7 +93,7 @@ export function scanSource(source, file, allowedOrigins) {
       } catch {
         continue
       }
-      if (allowed.has(origin) || isInfrastructureOrigin(origin)) continue
+      if (allowed.has(origin) || isLoopbackOrigin(origin)) continue
       violations.push({ file, line: index + 1, origin, literal: literal.trim() })
     }
   }
@@ -136,7 +121,7 @@ async function* sourceFiles(directory) {
 }
 
 /** Scan the desktop shell for origin literals outside the allowlist. */
-export async function scanDesktopOrigins(root, allowedOrigins) {
+export async function scanDesktopOrigins(root, canonical) {
   const violations = []
   for (const scanRoot of SCAN_ROOTS) {
     for await (const path of sourceFiles(join(root, scanRoot))) {
@@ -150,10 +135,27 @@ export async function scanDesktopOrigins(root, allowedOrigins) {
       ) {
         continue
       }
+      const file = segments.join('/')
       violations.push(
-        ...scanSource(await readFile(path, 'utf8'), segments.join('/'), allowedOrigins)
+        ...scanSource(await readFile(path, 'utf8'), file, allowedOriginsFor(file, canonical))
       )
     }
   }
   return violations
+}
+
+// `node scripts/check-desktop-origins.mjs` runs the scan; importing the module
+// from the boundary gate only reads its exports.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = resolve(fileURLToPath(import.meta.url), '../..')
+  const canonical = await canonicalCloudOrigin(root)
+  const violations = await scanDesktopOrigins(root, canonical)
+  if (violations.length > 0) {
+    for (const violation of violations) {
+      console.error(`${violation.file}:${violation.line} ${violation.literal}`)
+    }
+    console.error(`check-desktop-origins: ${violations.length} origin violation(s)`)
+    process.exit(1)
+  }
+  console.log(`check-desktop-origins: ok (canonical origin ${canonical})`)
 }

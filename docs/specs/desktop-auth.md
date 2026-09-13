@@ -6,6 +6,15 @@ storage) lives in [Authentication boundary](../authentication.md); this page is
 the contract to read before touching `apps/desktop/src-tauri/src/auth.rs`,
 `cloud.rs`, or the desktop flows in `packages/auth/src/desktop.ts`.
 
+> **Implementation note (2026-09-12):** the desktop shell is now Electrobun
+> (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
+> Rust module paths below refer to the previous shell. Documented replacements:
+> the shell implements the auth command family in
+> `apps/desktop/shell/src/commands.ts` (`desktop_auth_start` opens the URL in the
+> system browser; `desktop_auth_take_callback` is a single read-and-clear).
+> Deep-link/URL-scheme registration for the `adea://` auth callback is not yet
+> carried by the shell; release-pipeline registration is tracked in #370.
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 

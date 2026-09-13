@@ -14,20 +14,18 @@ describe('desktop local content boundary', () => {
     expect(source).not.toMatch(/sqlite|databasePath|masterKey|ciphertext|nonce/i)
   })
 
-  test('registers the command family only for the bundled main window capability', async () => {
-    const capability = JSON.parse(
-      await readFile(new URL('../../src-tauri/capabilities/default.json', import.meta.url), 'utf8')
-    ) as { permissions: string[]; windows: string[] }
-    const permission = await readFile(
-      new URL('../../src-tauri/permissions/local-content.toml', import.meta.url),
-      'utf8'
-    )
-    expect(capability.windows).toEqual(['main'])
-    expect(capability.permissions).toContain('allow-local-content')
-    expect(permission).toContain('local_content_authorize_workspace')
-    expect(permission).toContain('local_content_read')
-    expect(permission).toContain('local_content_search')
-    expect(permission).not.toContain('filesystem')
+  test('registers the command family in the shell command surface', async () => {
+    const commands = await readFile(new URL('../../shell/src/commands.ts', import.meta.url), 'utf8')
+
+    // The shell registry is the only place these commands exist; the client can
+    // reach nothing the registry does not name.
+    expect(commands).toContain('local_content_authorize_workspace')
+    expect(commands).toContain('local_content_read')
+    expect(commands).toContain('local_content_search')
+    // The surface stays content operations only: no database path or raw key.
+    expect(commands).not.toContain('sqlite')
+    expect(commands).not.toContain('masterKey')
+    expect(commands).not.toContain('databasePath')
   })
 
   test('keeps private-content implementation out of browser and cloud packages', async () => {

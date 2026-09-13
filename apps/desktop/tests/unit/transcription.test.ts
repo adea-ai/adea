@@ -31,23 +31,16 @@ function harness(permission: 'denied' | 'granted' | 'unavailable' = 'granted') {
 }
 
 describe('desktop native transcription provider', () => {
-  test('limits native commands to the bundled window and declares both macOS usages', async () => {
-    const capability = JSON.parse(
-      await readFile(new URL('../../src-tauri/capabilities/default.json', import.meta.url), 'utf8')
-    ) as { permissions: string[]; windows: string[] }
-    const permission = await readFile(
-      new URL('../../src-tauri/permissions/transcription.toml', import.meta.url),
-      'utf8'
-    )
-    const info = await readFile(new URL('../../src-tauri/Info.plist', import.meta.url), 'utf8')
+  test('routes native transcription through the shell command surface', async () => {
+    const commands = await readFile(new URL('../../shell/src/commands.ts', import.meta.url), 'utf8')
 
-    expect(capability.windows).toEqual(['main'])
-    expect(capability.permissions).toContain('allow-desktop-transcription')
-    expect(permission).toContain('desktop_transcription_permission')
-    expect(permission).toContain('desktop_transcription_start')
-    expect(permission).toContain('desktop_transcription_cancel')
-    expect(info).toContain('NSMicrophoneUsageDescription')
-    expect(info).toContain('NSSpeechRecognitionUsageDescription')
+    expect(commands).toContain('desktop_transcription_permission')
+    expect(commands).toContain('desktop_transcription_start')
+    expect(commands).toContain('desktop_transcription_cancel')
+    // The shell reports its own permission result; no raw microphone or speech
+    // API is exposed to the client.
+    expect(commands).not.toContain('microphone')
+    expect(commands).not.toContain('SpeechRecognition')
   })
 
   test('reports the native permission result', async () => {
