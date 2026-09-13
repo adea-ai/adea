@@ -1,16 +1,27 @@
 name: Release assets
 
 # TODO(#370): signing, notarization, and the auto-update lane for the Electrobun
-# shell are not wired yet; this job builds unsigned.
+# shell are not wired yet; this job builds unsigned and must stay unsigned.
 #
-# The previous lane built the Rust shell with platform installers and an update
-# manifest. This lane builds the Electrobun (Bun + CEF) shell instead: it
-# prepares and builds the bundled client, validates the desktop workspace, then
-# attempts the shell bundle from `apps/desktop/shell` the same way
-# `apps/desktop/scripts/shell.mjs` does. The engine pack download may not be
-# available on a bare runner yet, so the bundle step is allowed to fail;
-# `verify-assets` still fails a release that publishes no Adea desktop
-# artifacts or claims an unsigned update manifest.
+# This lane builds the Electrobun (Bun + CEF) shell in stable/release mode
+# (`electrobun build --env=stable`, the same flag the hutch template's `build`
+# task maps to). A stable build stages the distributables under
+# `apps/desktop/shell/artifacts/`: a macOS disk image (`*-Adea.dmg`), the
+# self-contained app archive (`*-Adea.app.tar.zst`, whose payload carries the
+# full bundle: the shell binaries, the bundled CEF framework, and the packaged
+# single-UI client), and an unsigned `*-update.json` update manifest that this
+# lane deliberately does NOT publish because no signed update channel exists
+# yet. Dev-mode builds (`electrobun build` without `--env`) only ever produce
+# `build/dev-*` bundles and never release assets.
+#
+# Only macOS ARM64 ships today. Windows and Linux `electrobun` stable packaging
+# has no CI-verified installer story yet and is tracked with the signing work in
+# #370; the verify gate below asserts the macOS bundle structure, so those
+# platforms stay out of the lane rather than shipping unverified archives.
+#
+# workflow_dispatch can drive the lane without a tag: pass an existing release
+# `tag` to package that release, or leave it empty and set `ref` to build from
+# any ref; the artifacts then attach to the workflow run instead of a release.
 
 on:
   release:
@@ -18,14 +29,18 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing GitHub release tag to package (for example, v0.2.0).
-        required: true
+        description: Existing GitHub release tag to package (for example, v0.23.2). Leave empty to build from ref without attaching assets.
+        required: false
+        type: string
+      ref:
+        description: Git ref to build when no tag is given (defaults to the branch the lane is dispatched from).
+        required: false
         type: string
 
 permissions: {}
 
 concurrency:
-  group: adea-release-assets-${{ github.event.release.tag_name || inputs.tag }}
+  group: adea-release-assets-${{ github.event.release.tag_name || inputs.tag || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -40,6 +55,7 @@ jobs:
     name: Validate release
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: ${{ (github.event.release.tag_name || inputs.tag) != '' }}
     permissions:
       contents: read
     outputs:
@@ -86,27 +102,11 @@ jobs:
           node scripts/release-notes.mjs "$RELEASE_VERSION" >/dev/null
 
   desktop:
-    name: Desktop / ${{ matrix.platform }}
+    name: Desktop / macOS ARM64
     needs: validate-release
-    if: needs.validate-release.outputs.desktop_release == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-14
-            platform: macOS ARM64
-            target: aarch64-apple-darwin
-            timeout_minutes: 45
-          - runner: ubuntu-24.04
-            platform: Linux x64
-            target: x86_64-unknown-linux-gnu
-            timeout_minutes: 120
-          - runner: windows-latest
-            platform: Windows x64
-            target: x86_64-pc-windows-msvc
-            timeout_minutes: 45
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.timeout_minutes }}
+    if: ${{ !cancelled() && (needs.validate-release.outputs.desktop_release == 'true' || needs.validate-release.result == 'skipped') }}
+    runs-on: macos-14
+    timeout-minutes: 45
     permissions:
       contents: write
     env:
@@ -115,7 +115,7 @@ jobs:
       - name: Checkout release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG || inputs.ref || github.ref }}
           persist-credentials: false
 
       - name: Install Bun
@@ -150,20 +150,6 @@ jobs:
           fi
           echo "ADEA_AGENT_SIM_DIST=$RUNNER_TEMP/agent-sim/export" >> "$GITHUB_ENV"
 
-      - name: Load release notes
-        id: release_notes
-        env:
-          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          delimiter="release-notes-${RANDOM}-${RANDOM}"
-          {
-            echo "body<<$delimiter"
-            bun scripts/release-notes.mjs "$RELEASE_VERSION"
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -192,47 +178,93 @@ jobs:
             scripts/test-suite-boundary.test.ts
           node scripts/check-desktop-origins.mjs
 
-      # Same sequence `apps/desktop/scripts/shell.mjs` uses: install the shell
-      # workspace, then bundle with Electrobun. The engine pack is large, so the
-      # step is allowed to fail until #370 wires the supported release path.
-      - name: Build shell bundle (unsigned)
-        id: desktop_bundle
-        continue-on-error: true
+      # Same sequence `apps/desktop/scripts/shell.mjs` uses, but in
+      # stable/release mode so the distributables land in
+      # `apps/desktop/shell/artifacts/`. A failure fails the lane: a release
+      # without real desktop artifacts must not publish silently (the verify
+      # gate below still double-checks the release).
+      - name: Build shell bundle (unsigned, stable)
         working-directory: apps/desktop/shell
         run: |
           set -euo pipefail
-          bun install
-          bunx --bun electrobun build
+          bunx --bun electrobun build --env=stable
 
-      - name: Retry desktop bundle build
-        if: steps.desktop_bundle.outcome == 'failure'
-        continue-on-error: true
+      - name: Verify stable bundle structure
         working-directory: apps/desktop/shell
         run: |
           set -euo pipefail
-          bun install
-          bunx --bun electrobun build
+          app="build/stable-macos-arm64/Adea.app"
+          payload="$(find "$app/Contents/Resources" -maxdepth 1 -name '*.tar.zst' -print -quit)"
+          if [[ -z "$payload" ]]; then
+            echo "No packed payload inside the stable app bundle." >&2
+            exit 1
+          fi
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
+          test -x "$app/Contents/MacOS/$executable"
+          listing="$(tar --zstd -tf "$payload")"
+          echo "$listing" | grep -qx "Adea.app/Contents/MacOS/$executable"
+          echo "$listing" | grep -qx 'Adea.app/Contents/MacOS/bun'
+          echo "$listing" | grep -qx 'Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework'
+          echo "$listing" | grep -qx 'Adea.app/Contents/Resources/app/client/index.html'
+          if echo "$listing" | grep -Eq '\-update\.json$'; then
+            echo "The bundle payload must not carry an updater manifest (TODO(#370))." >&2
+            exit 1
+          fi
+          echo "Stable bundle verified: shell binary, bundled CEF framework, and packaged client are present (unsigned)."
 
-      # Upload every artifact Electrobun produced. When the bundle step could
-      # not run, the release stays asset-free here; `verify-assets` then fails
-      # the release with an explicit message instead of shipping silently.
-      - name: Upload desktop artifacts
+      - name: Stage desktop artifacts
+        id: stage
+        working-directory: apps/desktop/shell
         run: |
           set -euo pipefail
           shopt -s nullglob
-          artifacts=(apps/desktop/shell/artifacts/*)
-          if (( ${#artifacts[@]} == 0 )); then
-            echo "::warning::No Electrobun artifacts were produced (TODO(#370): signing and update lane)."
-            exit 0
+          dmgs=(artifacts/*-Adea.dmg)
+          archives=(artifacts/*-Adea.app.tar.zst)
+          if (( ${#dmgs[@]} != 1 || ${#archives[@]} != 1 )); then
+            echo "Expected exactly one stable dmg and app archive; found ${#dmgs[@]} and ${#archives[@]}." >&2
+            ls artifacts/ >&2 || true
+            exit 1
           fi
-          gh release upload "$RELEASE_TAG" "${artifacts[@]}" \
+          if compgen -G 'artifacts/*-update.json' >/dev/null; then
+            echo "An updater manifest was staged; the update lane is not wired (TODO(#370)) and it must not ship." >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/staged"
+          if [[ -n "$RELEASE_TAG" ]]; then
+            cp "${dmgs[0]}" "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64.dmg"
+            cp "${archives[0]}" "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64.app.tar.zst"
+          else
+            cp "${dmgs[0]}" "$RUNNER_TEMP/staged/$(basename "${dmgs[0]}")"
+            cp "${archives[0]}" "$RUNNER_TEMP/staged/$(basename "${archives[0]}")"
+          fi
+          echo "path=$RUNNER_TEMP/staged" >> "$GITHUB_OUTPUT"
+
+      # Tagged runs (release event or an explicit tag input) attach the
+      # distributables to the release. A dispatch without a tag has no release
+      # to update, so the same files attach to the workflow run instead; the
+      # unsigned-with-documentation state is unchanged either way.
+      - name: Upload desktop artifacts to release
+        if: ${{ env.RELEASE_TAG != '' }}
+        env:
+          STAGED: ${{ steps.stage.outputs.path }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" "$STAGED"/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+
+      - name: Upload desktop artifacts to workflow run
+        if: ${{ env.RELEASE_TAG == '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: desktop-shell-stable-macos-arm64
+          path: ${{ steps.stage.outputs.path }}/*
+          if-no-files-found: error
 
   publish-release-notes:
     name: Publish release notes
     needs: [validate-release, desktop]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' }}
+    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -258,7 +290,7 @@ jobs:
   verify-assets:
     name: Verify desktop assets
     needs: [validate-release, desktop, publish-release-notes]
-    if: ${{ needs.validate-release.outputs.desktop_release == 'true' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
+    if: ${{ (github.event.release.tag_name || inputs.tag) != '' && needs.desktop.result == 'success' && needs.publish-release-notes.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -269,28 +301,58 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          count="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("adea"; "i"))] | length')"
-          if [ "$count" -lt 3 ]; then
-            echo "Expected at least one Adea desktop artifact per target; found $count." >&2
-            echo "The Electrobun shell bundle is unsigned and its signing/update lane is tracked in #370." >&2
+          mkdir assets
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Adea-*-macos-arm64.dmg' \
+            --pattern 'Adea-*-macos-arm64.app.tar.zst' \
+            --dir assets
+          shopt -s nullglob
+          dmgs=(assets/Adea-*-macos-arm64.dmg)
+          archives=(assets/Adea-*-macos-arm64.app.tar.zst)
+          if (( ${#dmgs[@]} != 1 || ${#archives[@]} != 1 )); then
+            echo "Expected exactly one macOS dmg and one app archive on the release; found ${#dmgs[@]} and ${#archives[@]}." >&2
             gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' >&2
             exit 1
           fi
-          echo "Verified $count unsigned Adea desktop release artifact(s) (TODO(#370): signing, notarization, auto-update)."
+
+          # The dmg is a UDIF image; its koly trailer sits in the last 512
+          # bytes, and a bare CEF bundle never compresses anywhere near this
+          # small, so a truncated upload cannot pass.
+          dmg_size="$(stat -c %s "${dmgs[0]}")"
+          if (( dmg_size < 50 * 1024 * 1024 )); then
+            echo "The dmg is only ${dmg_size} bytes; a real bundle is far larger." >&2
+            exit 1
+          fi
+          if ! tail -c 512 "${dmgs[0]}" | head -c 4 | grep -q 'koly'; then
+            echo "The dmg has no UDIF koly trailer; it is not a complete disk image." >&2
+            exit 1
+          fi
+
+          # The app archive payload must carry the full bundle: the shell
+          # binaries under Contents/MacOS, the bundled CEF framework, and the
+          # packaged single-UI client.
+          listing="$(tar --zstd -tf "${archives[0]}")"
+          echo "$listing" | grep -qx 'Adea.app/Contents/MacOS/launcher'
+          echo "$listing" | grep -qx 'Adea.app/Contents/MacOS/bun'
+          echo "$listing" | grep -qx 'Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework'
+          echo "$listing" | grep -qx 'Adea.app/Contents/Resources/app/client/index.html'
+          echo "Release assets verified: unsigned macOS dmg plus self-contained app archive (shell binary, bundled CEF, packaged client)."
 
       - name: Verify no updater manifest is published
-        # The updater manifest (latest.json) went away with the Rust lane.
-        # Reject a release that reintroduces an unsigned update channel before
-        # the signing work in #370 lands.
+        # The updater manifest (latest.json) went away with the Rust lane, and
+        # the Electrobun stable build stages its own unsigned *-update.json.
+        # Neither may ship before the signing work in #370 lands.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if gh release view "$RELEASE_TAG" \
+          manifest="$(gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --json assets \
-            --jq '.assets[].name' | grep -Fx 'latest.json'; then
-            echo "latest.json is present but the Electrobun update lane is not wired (TODO(#370))." >&2
+            --jq '.assets[].name' | grep -E '^(latest\.json|.*-update\.json)$' || true)"
+          if [[ -n "$manifest" ]]; then
+            echo "Updater manifest(s) present but no update lane is wired (TODO(#370)): $manifest" >&2
             exit 1
           fi
           echo "No updater manifest published; the release stays unsigned."

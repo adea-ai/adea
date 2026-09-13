@@ -73,21 +73,27 @@ describe('test suite boundaries', () => {
     // Bash-syntax steps must not fall back to the Windows default shell.
     expect(workflow).toContain('defaults:')
     expect(workflow).toContain('shell: bash')
-    expect(workflow).toContain('runner: macos-14')
-    expect(workflow).toContain('runner: ubuntu-24.04')
-    expect(workflow).toContain('runner: windows-latest')
-    expect(workflow).toContain('bun scripts/release-notes.mjs')
+    // The Electrobun lane ships macOS ARM64. Windows and Linux stable
+    // packaging has no CI-verified installer story yet (TODO(#370)) and stays
+    // out of the matrix instead of shipping unverified archives.
+    expect(workflow).toContain('runs-on: macos-14')
+    expect(workflow).not.toContain('runner: ubuntu-24.04')
+    expect(workflow).not.toContain('runner: windows-latest')
+    expect(workflow).toContain('node scripts/release-notes.mjs')
     expect(workflow).toContain('bun run --cwd packages/types build')
     expect(workflow).toContain('bun run shell:client:build')
-    expect(workflow).toContain('bunx --bun electrobun build')
+    // Release bundles build in stable mode; the default dev env only ever
+    // produces build/dev-* bundles, which must never reach a release.
+    expect(workflow).toContain('bunx --bun electrobun build --env=stable')
     expect(workflow).toContain('apps/desktop/shell/artifacts/')
     expect(workflow).toContain('TODO(#370)')
-    expect(workflow).toContain('timeout_minutes: 120')
-    expect(workflow).toContain('timeout-minutes: ${{ matrix.timeout_minutes }}')
-    expect(workflow).toContain('id: desktop_bundle')
-    expect(workflow).toContain('continue-on-error: true')
-    expect(workflow).toContain("steps.desktop_bundle.outcome == 'failure'")
-    expect(workflow).toContain('Retry desktop bundle build')
+    // A failed shell build fails the lane; no retry-and-continue pattern may
+    // soften it back into shipping asset-free releases.
+    expect(workflow).not.toContain('continue-on-error')
+    expect(workflow).not.toContain('Retry desktop bundle build')
+    // The verify gate asserts the bundle structure, not just an asset count.
+    expect(workflow).toContain('Chromium Embedded Framework.framework/Chromium Embedded Framework')
+    expect(workflow).toContain('Adea.app/Contents/Resources/app/client/index.html')
     expect(workflow).toContain('Verify no updater manifest is published')
     // The Rust lane is gone: no tauri action, signing secrets, or updater
     // channel may come back without the #370 signing work. The verify step may
