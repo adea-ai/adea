@@ -256,7 +256,8 @@ jobs:
               --tag "$RELEASE_TAG"
               --out "$RUNNER_TEMP/staged/latest.json"
             )
-            NOTES_FILE="$RUNNER_TEMP/staged/notes.txt"
+            NOTES_FILE="$RUNNER_TEMP/notes/notes.txt"
+            mkdir -p "$RUNNER_TEMP/notes"
             if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
               awk '/^## /{if (seen) exit; seen=1} seen{print}' "$REPO_ROOT/CHANGELOG.md" | sed '1d' > "$NOTES_FILE"
               if [[ -s "$NOTES_FILE" ]]; then
@@ -370,20 +371,23 @@ jobs:
           grep -qx 'Adea.app/Contents/Resources/app/client/index.html' <<<"$listing"
           echo "Release assets verified: unsigned macOS dmg plus self-contained app archive (shell binary, bundled CEF, packaged client)."
 
-      - name: Verify no updater manifest is published
-        # The updater manifest (latest.json) went away with the Rust lane, and
-        # the Electrobun stable build stages its own unsigned *-update.json.
-        # Neither may ship before the signing work in #370 lands.
+      - name: Verify the signed update feed is published
+        # The update channel is the signed latest.json; the Electrobun stable
+        # build's own unsigned *-update.json must still never ship.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          manifest="$(gh release view "$RELEASE_TAG" \
+          assets="$(gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --json assets \
-            --jq '.assets[].name' | grep -E '^(latest\.json|.*-update\.json)$' || true)"
-          if [[ -n "$manifest" ]]; then
-            echo "Updater manifest(s) present but no update lane is wired (TODO(#370)): $manifest" >&2
+            --jq '[.assets[].name] | join("\n")')"
+          if grep -Eq '.*-update\.json$' <<<"$assets"; then
+            echo "An unsigned electrobun updater manifest was published; the update channel is latest.json." >&2
             exit 1
           fi
-          echo "No updater manifest published; the release stays unsigned."
+          if ! grep -qx 'latest\.json' <<<"$assets"; then
+            echo "The signed update feed (latest.json) is missing from the release." >&2
+            exit 1
+          fi
+          echo "Signed update feed published alongside the desktop artifacts."
