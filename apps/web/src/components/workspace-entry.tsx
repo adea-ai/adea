@@ -1,8 +1,14 @@
 'use client'
 
 import lazyComponent from './lazy-component'
-import { WorkspaceNavigationEntry } from './workspace-navigation-entry'
 import type { WorkspaceShellProps } from './workspace-shell'
+
+// The workspace entry stays a deferred chunk: a failed import surfaces as the
+// route's recoverable error component (pinned by start/browser/entry.e2e.ts).
+const WorkspaceNavigationEntry = lazyComponent(
+  () => import('./workspace-navigation-entry').then(({ WorkspaceNavigationEntry: Entry }) => Entry),
+  { loading: () => <WorkspaceEntryLoading /> }
+)
 
 const CharacterDesignerEntry = lazyComponent(
   () => import('./character-designer-entry').then(({ CharacterDesignerEntry: Entry }) => Entry),
