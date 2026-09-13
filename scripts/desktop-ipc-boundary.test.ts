@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const registrySource = join(root, 'apps/desktop/shell/src/commands.ts')
 // The desktop client is the web app now; every browser-safe source in the web
 // app and the shared packages can reach the shell through the bridge.

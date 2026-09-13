@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 describe('cloudflare worker build boundary', () => {
   test('stamps the deployment commit SHA for telemetry without a hosting provider', async () => {

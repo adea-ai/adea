@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 /** Build output and dependency trees are not source. */
 const SKIP_DIRECTORIES = new Set([

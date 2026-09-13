@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { fileURLToPath } from 'node:url'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 
 const forbiddenExtensions = new Set(['.glb', '.gltf', '.fbx', '.obj', '.blend'])
 

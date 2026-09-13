@@ -37,6 +37,10 @@ jobs:
       - run: bunx turbo run build --filter=@adea-ai/web^...
       - run: bun run --cwd apps/web start:verify
       - run: bun run build:cloudflare
+      # Route surface and asset-caching gate against the production build
+      # (`start:check-routes` boots the built Worker on its own).
+      - name: Route surface check
+        run: bun run --cwd apps/web start:check-routes
       - run: bunx playwright install --with-deps chromium
       - name: Isolated Worker and browser suite
         run: bun run --cwd apps/web start:test:local

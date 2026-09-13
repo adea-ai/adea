@@ -20,6 +20,18 @@ describe('test suite boundaries', () => {
     expect(integrationRunner).toContain("'tests'")
     expect(integrationRunner).toContain("'integration'")
     expect(packageJson.scripts['test:e2e']).toContain('playwright')
+    // The visual pixel lane is a durable gate: the CI workflow must keep
+    // running the workstation command against the committed baselines, and the
+    // route/asset gate must keep booting the production build.
+    expect(packageJson.scripts['test:e2e:visual']).toContain('conventional-workspace.spec.ts')
+    const visualLane = readFileSync(resolve(root, '.github/workflows/visual-lane.yml'), 'utf8')
+    expect(visualLane).toContain('bun run test:e2e:visual')
+    expect(visualLane).toContain('mcr.microsoft.com/playwright:v1.63.0-noble')
+    const startHostLane = readFileSync(
+      resolve(root, '.github/workflows/tanstack-start.yml'),
+      'utf8'
+    )
+    expect(startHostLane).toContain('start:check-routes')
     const playwrightConfig = readFileSync(resolve(root, 'playwright.config.ts'), 'utf8')
     expect(playwrightConfig).toContain("'--use-angle=metal'")
     expect(playwrightConfig).toContain('const headless = process.env.PLAYWRIGHT_HEADLESS')

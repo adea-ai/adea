@@ -3,10 +3,11 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { readdir, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { createCommandSurface } from '../apps/desktop/shell/src/commands'
 
-const root = new URL('..', import.meta.url).pathname
+const root = fileURLToPath(new URL('..', import.meta.url))
 const authModule = join(root, 'packages/auth/src/desktop.ts')
 const shellCommands = join(root, 'apps/desktop/shell/src/commands.ts')
 

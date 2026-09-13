@@ -40,12 +40,10 @@ fails on browser exceptions or failed workspace API responses.
 | Resource transfer excluding HTML     |     345,655 B |      300,182 B | −13.2% |
 | Bootstrap requests                   |             1 |              1 |      — |
 
-Reconstruct with:
-
-```sh
-# after building the baseline checkout's OpenNext Worker and this branch
-ADEA_BASELINE_ROOT=/path/to/baseline bun run --cwd apps/web start:compare:baseline
-```
+The migration-only baseline wrapper (`start:compare:baseline`, which rebuilt a
+Next/OpenNext checkout for comparison) was removed when M9 closed the migration
+arc; the table above is the durable record. `start:compare` remains for
+measuring any two built loopback hosts.
 
 Interpretation limits:
 
