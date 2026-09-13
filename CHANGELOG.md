@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.25.1](https://github.com/adea-ai/adea/compare/v0.25.0...v0.25.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **desktop:** clear handoff when installing with no signed update pending ([#406](https://github.com/adea-ai/adea/issues/406)) ([ba78deb](https://github.com/adea-ai/adea/commit/ba78deb2abe53a8d9280f25d10d6fb4f318a13d5))
+* **release:** pass the update signing key into the staging step ([#403](https://github.com/adea-ai/adea/issues/403)) ([8347814](https://github.com/adea-ai/adea/commit/834781421639f65b1a50891ec635748a431f6016))
+* **release:** verify the signed update feed instead of banning it ([#405](https://github.com/adea-ai/adea/issues/405)) ([334d763](https://github.com/adea-ai/adea/commit/334d7636be650fc7d866d1db00ad023d54463aae))
+
 ## [0.25.0](https://github.com/adea-ai/adea/compare/v0.24.0...v0.25.0) (2026-09-13)
 
 
