@@ -222,6 +222,8 @@ jobs:
       - name: Stage desktop artifacts
         id: stage
         working-directory: apps/desktop/shell
+        env:
+          DESKTOP_UPDATE_SIGNING_KEY: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}
         run: |
           set -euo pipefail
           shopt -s nullglob
