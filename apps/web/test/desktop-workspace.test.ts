@@ -8,7 +8,8 @@ import {
   trustedDesktopWorkspaceRequest,
 } from '../src/server/desktop-workspace'
 
-const trustedOrigins = ['tauri://localhost', 'http://127.0.0.1:1420']
+const SHELL_ORIGIN = 'http://127.0.0.1:4789'
+const trustedOrigins = [SHELL_ORIGIN, 'http://127.0.0.1:1420']
 
 function request(origin: string, client = 'desktop') {
   return new Request('https://hq.example/api/workspaces/bootstrap', {
@@ -18,18 +19,33 @@ function request(origin: string, client = 'desktop') {
 }
 
 describe('desktop workspace HTTP boundary', () => {
-  test('allows the fixed local Tauri development origin against the production cloud', () => {
-    expect(desktopTrustedOrigins({ NODE_ENV: 'production' })).toContain('http://127.0.0.1:1420')
+  test('trusts the shell loopback origin and the fixed local development origin', () => {
+    const origins = desktopTrustedOrigins({ NODE_ENV: 'production' })
+
+    // The Electrobun shell's page origin comes first as the live desktop origin.
+    expect(origins[0]).toBe(SHELL_ORIGIN)
+    expect(origins).toContain('http://127.0.0.1:1420')
+    // The previous shell's URL scheme is a clean slate.
+    expect(origins).not.toContain('tauri://localhost')
     expect(
       desktopTrustedOrigins({
-        DESKTOP_AUTH_TRUSTED_ORIGINS: 'tauri://localhost',
+        DESKTOP_AUTH_TRUSTED_ORIGINS: SHELL_ORIGIN,
         NODE_ENV: 'production',
       })
     ).toContain('http://127.0.0.1:1420')
   })
 
+  test('refuses the previous shell URL scheme in configured origins', () => {
+    expect(() =>
+      desktopTrustedOrigins({
+        DESKTOP_AUTH_TRUSTED_ORIGINS: 'tauri://localhost',
+        NODE_ENV: 'production',
+      })
+    ).toThrow('Desktop auth trusted origins are invalid')
+  })
+
   test('recognizes only an explicitly marked request from a trusted packaged origin', () => {
-    expect(trustedDesktopWorkspaceRequest(request('tauri://localhost'), trustedOrigins)).toBe(true)
+    expect(trustedDesktopWorkspaceRequest(request(SHELL_ORIGIN), trustedOrigins)).toBe(true)
     expect(
       trustedDesktopWorkspaceRequest(request('https://hq.example', 'browser'), trustedOrigins)
     ).toBe(false)
@@ -39,9 +55,7 @@ describe('desktop workspace HTTP boundary', () => {
   })
 
   test('rejects untrusted desktop markers before workspace provisioning', async () => {
-    expect(
-      rejectUntrustedDesktopWorkspaceRequest(request('tauri://localhost'), trustedOrigins)
-    ).toBeNull()
+    expect(rejectUntrustedDesktopWorkspaceRequest(request(SHELL_ORIGIN), trustedOrigins)).toBeNull()
     const rejected = rejectUntrustedDesktopWorkspaceRequest(
       request('https://evil.example'),
       trustedOrigins
@@ -55,19 +69,19 @@ describe('desktop workspace HTTP boundary', () => {
   })
 
   test('limits preflight and response CORS to trusted desktop origins', () => {
-    const preflight = desktopWorkspacePreflight(request('tauri://localhost'), trustedOrigins)
+    const preflight = desktopWorkspacePreflight(request(SHELL_ORIGIN), trustedOrigins)
     expect(preflight.status).toBe(204)
-    expect(preflight.headers.get('access-control-allow-origin')).toBe('tauri://localhost')
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(SHELL_ORIGIN)
     expect(preflight.headers.get('access-control-allow-headers')).toContain(
       'X-Adea-Temporary-Session'
     )
 
     const response = applyDesktopWorkspaceCors(
       Response.json({ ok: true }),
-      request('tauri://localhost'),
+      request(SHELL_ORIGIN),
       trustedOrigins
     )
-    expect(response.headers.get('access-control-allow-origin')).toBe('tauri://localhost')
+    expect(response.headers.get('access-control-allow-origin')).toBe(SHELL_ORIGIN)
     expect(response.headers.get('vary')).toContain('Origin')
 
     const untrustedPreflight = desktopWorkspacePreflight(

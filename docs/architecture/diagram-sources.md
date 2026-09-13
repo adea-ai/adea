@@ -457,7 +457,7 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor U as User
-    participant D as Packaged Tauri Desktop
+    participant D as Packaged Electrobun Desktop
     participant B as System Browser
     participant A as Adea Auth Broker
     participant N as Neon Auth

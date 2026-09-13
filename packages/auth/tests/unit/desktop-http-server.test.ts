@@ -7,7 +7,7 @@ import {
   parseDesktopSessionRequest,
 } from '../../src/desktop-http-server'
 
-const trustedOrigins = ['tauri://localhost', 'http://tauri.localhost']
+const trustedOrigins = ['http://127.0.0.1:4789', 'http://127.0.0.1:1420']
 
 describe('desktop HTTP boundary', () => {
   test('accepts one exact authorization request', () => {
@@ -30,7 +30,7 @@ describe('desktop HTTP boundary', () => {
     expect(() => parseDesktopAuthorizationRequest(new Request(url))).toThrow('invalid')
   })
 
-  test('requires a trusted packaged-app origin and bounded exchange body', async () => {
+  test('requires a trusted shell origin and bounded exchange body', async () => {
     const body = {
       code: 'one-time-code',
       codeVerifier: 'v'.repeat(64),
@@ -39,7 +39,7 @@ describe('desktop HTTP boundary', () => {
     }
     const request = new Request('https://agent-hq.example/api/auth/desktop/exchange', {
       body: JSON.stringify(body),
-      headers: { 'content-type': 'application/json', origin: 'tauri://localhost' },
+      headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:4789' },
       method: 'POST',
     })
     await expect(parseDesktopExchangeRequest(request, trustedOrigins)).resolves.toEqual(body)
@@ -58,7 +58,7 @@ describe('desktop HTTP boundary', () => {
     const request = new Request('https://agent-hq.example/api/auth/desktop/refresh', {
       headers: {
         authorization: `Desktop ${'x'.repeat(43)}`,
-        origin: 'http://tauri.localhost',
+        origin: 'http://127.0.0.1:1420',
         'x-adea-desktop-session': '018fc7c8-4a45-7e7c-9b92-3e5eafca4ed1',
       },
       method: 'POST',
@@ -70,8 +70,8 @@ describe('desktop HTTP boundary', () => {
   })
 
   test('never reflects an untrusted origin in CORS headers', () => {
-    expect(desktopCorsHeaders('tauri://localhost', trustedOrigins)).toMatchObject({
-      'access-control-allow-origin': 'tauri://localhost',
+    expect(desktopCorsHeaders('http://127.0.0.1:4789', trustedOrigins)).toMatchObject({
+      'access-control-allow-origin': 'http://127.0.0.1:4789',
     })
     expect(desktopCorsHeaders('https://evil.example', trustedOrigins)).not.toHaveProperty(
       'access-control-allow-origin'

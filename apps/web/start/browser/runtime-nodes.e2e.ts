@@ -405,16 +405,17 @@ test('runtime node pairing refuses an untrusted desktop origin', async ({
       ).status()
     ).toBe(403)
 
-    const trusted = await context.get(nodesUrl, { headers: desktop('http://tauri.localhost') })
+    const shellOrigin = 'http://127.0.0.1:4789'
+    const trusted = await context.get(nodesUrl, { headers: desktop(shellOrigin) })
     expect(trusted.status()).toBe(200)
-    expect(trusted.headers()['access-control-allow-origin']).toBe('http://tauri.localhost')
+    expect(trusted.headers()['access-control-allow-origin']).toBe(shellOrigin)
     expect(trusted.headers()['set-cookie']).toBeUndefined()
     const preflight = await context.fetch(nodesUrl, {
-      headers: desktop('http://tauri.localhost'),
+      headers: desktop(shellOrigin),
       method: 'OPTIONS',
     })
     expect(preflight.status()).toBe(204)
-    expect(preflight.headers()['access-control-allow-origin']).toBe('http://tauri.localhost')
+    expect(preflight.headers()['access-control-allow-origin']).toBe(shellOrigin)
   } finally {
     await context.dispose()
   }

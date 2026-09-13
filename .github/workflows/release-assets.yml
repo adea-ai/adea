@@ -1,5 +1,17 @@
 name: Release assets
 
+# TODO(#370): signing, notarization, and the auto-update lane for the Electrobun
+# shell are not wired yet; this job builds unsigned.
+#
+# The previous lane built the Rust shell with platform installers and an update
+# manifest. This lane builds the Electrobun (Bun + CEF) shell instead: it
+# prepares and builds the bundled client, validates the desktop workspace, then
+# attempts the shell bundle from `apps/desktop/shell` the same way
+# `apps/desktop/scripts/shell.mjs` does. The engine pack download may not be
+# available on a bare runner yet, so the bundle step is allowed to fail;
+# `verify-assets` still fails a release that publishes no Adea desktop
+# artifacts or claims an unsigned update manifest.
+
 on:
   release:
     types: [published]
@@ -83,21 +95,14 @@ jobs:
         include:
           - runner: macos-14
             platform: macOS ARM64
-            args: --target aarch64-apple-darwin
             target: aarch64-apple-darwin
             timeout_minutes: 45
           - runner: ubuntu-24.04
             platform: Linux x64
-            # Tauri 2.11's in-process RPM bundler can hang indefinitely after
-            # rendering the desktop file. Keep RPM out of the release matrix
-            # until the upstream rpm-rs update lands; DEB + AppImage provide
-            # the Linux install and updater artifacts we publish.
-            args: --bundles deb,appimage
             target: x86_64-unknown-linux-gnu
             timeout_minutes: 120
           - runner: windows-latest
             platform: Windows x64
-            args: ''
             target: x86_64-pc-windows-msvc
             timeout_minutes: 45
     runs-on: ${{ matrix.runner }}
@@ -106,8 +111,6 @@ jobs:
       contents: write
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - name: Checkout release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -161,46 +164,64 @@ jobs:
             echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Install Tauri system dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf
-
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build desktop workspace dependencies
         run: bun run --cwd packages/types build
 
-      - name: Build and upload desktop bundle
+      - name: Build bundled client
+        working-directory: apps/desktop
+        run: bun run shell:client:build
+
+      - name: Typecheck and desktop boundary gates
+        run: |
+          set -euo pipefail
+          (cd apps/desktop && bun run typecheck)
+          bun test \
+            scripts/desktop-boot-boundary.test.ts \
+            scripts/desktop-ipc-boundary.test.ts \
+            scripts/desktop-auth-boundary.test.ts \
+            scripts/desktop-origin-boundary.test.ts \
+            scripts/test-suite-boundary.test.ts
+          node scripts/check-desktop-origins.mjs
+
+      # Same sequence `apps/desktop/scripts/shell.mjs` uses: install the shell
+      # workspace, then bundle with Electrobun. The engine pack is large, so the
+      # step is allowed to fail until #370 wires the supported release path.
+      - name: Build shell bundle (unsigned)
         id: desktop_bundle
         continue-on-error: true
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macOS ARM64' && '-' || '' }}
-        with:
-          projectPath: apps/desktop
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseBody: ${{ steps.release_notes.outputs.body }}
-          tauriScript: bun scripts/tauri.mjs
-          args: ${{ matrix.args }}
+        working-directory: apps/desktop/shell
+        run: |
+          set -euo pipefail
+          bun install
+          bunx --bun electrobun build
 
-      - name: Retry desktop bundle upload
+      - name: Retry desktop bundle build
         if: steps.desktop_bundle.outcome == 'failure'
-        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macOS ARM64' && '-' || '' }}
-        with:
-          projectPath: apps/desktop
-          tagName: ${{ env.RELEASE_TAG }}
-          releaseBody: ${{ steps.release_notes.outputs.body }}
-          tauriScript: bun scripts/tauri.mjs
-          args: ${{ matrix.args }}
+        continue-on-error: true
+        working-directory: apps/desktop/shell
+        run: |
+          set -euo pipefail
+          bun install
+          bunx --bun electrobun build
+
+      # Upload every artifact Electrobun produced. When the bundle step could
+      # not run, the release stays asset-free here; `verify-assets` then fails
+      # the release with an explicit message instead of shipping silently.
+      - name: Upload desktop artifacts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          artifacts=(apps/desktop/shell/artifacts/*)
+          if (( ${#artifacts[@]} == 0 )); then
+            echo "::warning::No Electrobun artifacts were produced (TODO(#370): signing and update lane)."
+            exit 0
+          fi
+          gh release upload "$RELEASE_TAG" "${artifacts[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
 
   publish-release-notes:
     name: Publish release notes
@@ -244,34 +265,26 @@ jobs:
           set -euo pipefail
           count="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '[.assets[].name | select(test("adea"; "i"))] | length')"
           if [ "$count" -lt 3 ]; then
-            echo "Expected at least one Adea desktop asset per target; found $count." >&2
+            echo "Expected at least one Adea desktop artifact per target; found $count." >&2
+            echo "The Electrobun shell bundle is unsigned and its signing/update lane is tracked in #370." >&2
             gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' >&2
             exit 1
           fi
-          echo "Verified $count Adea desktop release asset(s)."
+          echo "Verified $count unsigned Adea desktop release artifact(s) (TODO(#370): signing, notarization, auto-update)."
 
-      - name: Verify updater channel
-        # The Tauri updater polls the release's latest.json directly
-        # (releases/latest/download/latest.json); tauri-action aggregates the
-        # matrix entries into it. Reject the release unless every target is
-        # present, signed, and pointing at this repository's assets.
+      - name: Verify no updater manifest is published
+        # The updater manifest (latest.json) went away with the Rust lane.
+        # Reject a release that reintroduces an unsigned update channel before
+        # the signing work in #370 lands.
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_VERSION: ${{ needs.validate-release.outputs.release_version }}
         run: |
           set -euo pipefail
-          manifest="$RUNNER_TEMP/latest.json"
-          gh release download "$RELEASE_TAG" \
+          if gh release view "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern latest.json \
-            --output "$manifest"
-          jq -e --arg version "$RELEASE_VERSION" \
-            '. as $manifest |
-              .version == $version and
-              (["darwin-aarch64", "linux-x86_64", "windows-x86_64"] | all(
-                . as $platform |
-                ($manifest.platforms[$platform].signature | type == "string" and length > 0) and
-                ($manifest.platforms[$platform].url | test("^https://(api\\.)?github\\.com/repos/adea-ai/adea/releases/"))
-              ))' \
-            "$manifest" >/dev/null
-          echo "Updater channel verified for $RELEASE_VERSION."
+            --json assets \
+            --jq '.assets[].name' | grep -Fx 'latest.json'; then
+            echo "latest.json is present but the Electrobun update lane is not wired (TODO(#370))." >&2
+            exit 1
+          fi
+          echo "No updater manifest published; the release stays unsigned."
