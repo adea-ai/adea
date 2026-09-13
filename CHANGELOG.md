@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.2](https://github.com/adea-ai/adea/compare/v0.22.1...v0.22.2) (2026-09-13)
+
+
+### Maintenance
+
+* **deps:** bump the github-actions group with 2 updates ([#375](https://github.com/adea-ai/adea/issues/375)) ([5345b81](https://github.com/adea-ai/adea/commit/5345b81caa77be4a23e004c8c3527388e0b28bf5))
+
 ## [0.22.1](https://github.com/adea-ai/adea/compare/v0.22.0...v0.22.1) (2026-09-13)
 
 
