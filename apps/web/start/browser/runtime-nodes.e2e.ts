@@ -1,4 +1,5 @@
-import { expect, test, type APIResponse } from '@playwright/test'
+import { type APIResponse } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 import { Client } from './request-client'
 

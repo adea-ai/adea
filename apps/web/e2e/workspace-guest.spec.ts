@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from '../start/browser/fixtures'
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('view switches, query preservation and browser history keep the workspace usable', async ({
   page,
