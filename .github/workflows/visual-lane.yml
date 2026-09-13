@@ -61,6 +61,10 @@ jobs:
       DATABASE_URL: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
       DATABASE_URL_UNPOOLED: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
       DATABASE_MIGRATION_URL: postgresql://visual-lane:visual-lane@127.0.0.1:1/visual_lane?sslmode=disable
+      # The lane runs against the warmed server started below instead of
+      # letting Playwright boot a cold one, so the first test never races the
+      # dev-server transport (see the warm-up step).
+      PERF_BASE_URL: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -96,6 +100,56 @@ jobs:
       # dev server reads it, so the client is prepared before Playwright starts.
       - name: Build workspace dependencies
         run: bunx turbo run build --filter=@adea-ai/web^...
+
+      # Cold dev servers abort most module requests on the first load while
+      # Vite finishes dependency optimization (the documented dev-server
+      # transport flake: ~1,000 aborted requests, the page stuck at "Opening
+      # workspace…"). The server is started once, warmed with a real browser
+      # load, and then reused through PERF_BASE_URL, so the lane never races
+      # the cold start. Assertions and retries are untouched.
+      - name: Start and warm the dev server
+        run: |
+          set -euo pipefail
+          (cd apps/web && exec bun run dev) >/tmp/visual-lane-dev.log 2>&1 &
+          for _ in $(seq 1 120); do
+            if node -e "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+              break
+            fi
+            sleep 1
+          done
+          if ! node -e "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+            echo "::error::the dev server did not answer on 127.0.0.1:3000"
+            cat /tmp/visual-lane-dev.log
+            exit 1
+          fi
+          node - <<'NODE'
+          const { chromium } = require('playwright-core')
+          ;(async () => {
+            const browser = await chromium.launch()
+            const page = await browser.newPage()
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              try {
+                await page.goto('http://127.0.0.1:3000/', {
+                  waitUntil: 'domcontentloaded',
+                  timeout: 60_000,
+                })
+                // Let Vite finish optimizing and serving the module graph; the
+                // loading state may never settle without API mocks, so this
+                // warm-up only waits, it never asserts.
+                await page.waitForTimeout(15_000)
+                console.log(`dev server module graph warm after attempt ${attempt}`)
+                break
+              } catch (error) {
+                console.log(`warm-up attempt ${attempt}: ${error.message}`)
+                await page.waitForTimeout(2_000)
+              }
+            }
+            await browser.close()
+          })().catch((error) => {
+            console.error(error)
+            process.exit(1)
+          })
+          NODE
 
       - name: Visual regression lane
         run: bun run test:e2e:visual
