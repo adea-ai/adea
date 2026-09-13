@@ -105,12 +105,18 @@ describe('signed update flow', () => {
     ])
     if (tar.exitCode !== 0) throw new Error('test archive could not be created')
     archiveBytes = new Uint8Array(await Bun.file(archivePath).arrayBuffer())
-    const manifest = await signDesktopUpdate({
-      archivePath,
-      tag: 'v99.0.0',
-      notes: 'A test release',
-      outPath: join(workspace, 'latest.json'),
-    })
+    const manifest = {
+      ...(await signDesktopUpdate({
+        archivePath,
+        tag: 'v99.0.0',
+        notes: 'A test release',
+        outPath: join(workspace, 'latest.json'),
+      })),
+      // The lane targets macOS; CI runners are linux. The signature covers
+      // version + digest only, so re-pointing the platform here stays valid.
+      platform: process.platform,
+      arch: process.arch,
+    }
 
     server = Bun.serve({
       port: 0,
