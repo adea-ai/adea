@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/adea-ai/adea/compare/v0.21.2...v0.22.0) (2026-09-13)
+
+
+### Features
+
+* **desktop:** M5 closeout — browser-lane decision (M5.1) and shell benchmark scope (M5.2) ([#373](https://github.com/adea-ai/adea/issues/373)) ([ad6d832](https://github.com/adea-ai/adea/commit/ad6d8323449cd62c631215bb37f90ff605695e0a))
+
 ## [0.21.2](https://github.com/adea-ai/adea/compare/v0.21.1...v0.21.2) (2026-09-12)
 
 
