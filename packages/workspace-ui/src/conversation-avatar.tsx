@@ -1,25 +1,29 @@
-import { useEffect, useState } from 'react'
-import { BotMessageSquare, CircleUserRound } from 'lucide-react'
+import { BotMessageSquare, CircleUserRound } from 'lucide-solid'
+import { createEffect, createSignal, Show } from 'solid-js'
 
-export function ConversationAvatar({
-  avatarRef,
-  kind,
-}: Readonly<{
+export function ConversationAvatar(props: {
   avatarRef?: string
   kind: 'agent' | 'system' | 'user'
-}>) {
-  const [imageFailed, setImageFailed] = useState(false)
+}) {
+  const [imageFailed, setImageFailed] = createSignal(false)
 
-  useEffect(() => {
+  createEffect(() => {
+    void props.avatarRef
     setImageFailed(false)
-  }, [avatarRef])
+  })
 
-  if (avatarRef && !imageFailed)
-    return <img src={avatarRef} alt="" onError={() => setImageFailed(true)} />
-
-  return kind === 'user' ? (
-    <CircleUserRound aria-hidden="true" />
-  ) : (
-    <BotMessageSquare aria-hidden="true" />
+  return (
+    <Show
+      when={props.avatarRef && !imageFailed()}
+      fallback={
+        props.kind === 'user' ? (
+          <CircleUserRound aria-hidden="true" />
+        ) : (
+          <BotMessageSquare aria-hidden="true" />
+        )
+      }
+    >
+      <img src={props.avatarRef} alt="" onError={() => setImageFailed(true)} />
+    </Show>
   )
 }

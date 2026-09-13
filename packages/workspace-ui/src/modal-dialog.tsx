@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Show, type JSX } from 'solid-js'
 import {
   Dialog,
   DialogContent,
@@ -8,43 +8,44 @@ import {
 } from '@adea-ai/ui/components/ui/dialog'
 import { cn } from '@adea-ai/ui/lib/utils'
 
-export function ModalDialog({
-  children,
-  className,
-  description,
-  headerLeading,
-  onClose,
-  open,
-  title,
-}: Readonly<{
-  children: ReactNode
-  className?: string
+export function ModalDialog(props: {
+  children: JSX.Element
+  class?: string
   description?: string
-  headerLeading?: ReactNode
+  headerLeading?: JSX.Element
   onClose: () => void
   open: boolean
   title: string
-}>) {
+}) {
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
-      <DialogContent className={cn('conventional-dialog', className)}>
-        <DialogHeader className="conventional-dialog__header">
-          {headerLeading ? (
-            <div className="conventional-dialog__heading">
-              {headerLeading}
-              <div>
-                <DialogTitle>{title}</DialogTitle>
-                {description ? <DialogDescription>{description}</DialogDescription> : null}
+    <Dialog open={props.open} onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
+      <DialogContent class={cn('conventional-dialog', props.class)}>
+        <DialogHeader class="conventional-dialog__header">
+          <Show
+            when={props.headerLeading}
+            fallback={
+              <>
+                <DialogTitle>{props.title}</DialogTitle>
+                <Show when={props.description}>
+                  {(description) => <DialogDescription>{description()}</DialogDescription>}
+                </Show>
+              </>
+            }
+          >
+            {(headerLeading) => (
+              <div class="conventional-dialog__heading">
+                {headerLeading()}
+                <div>
+                  <DialogTitle>{props.title}</DialogTitle>
+                  <Show when={props.description}>
+                    {(description) => <DialogDescription>{description()}</DialogDescription>}
+                  </Show>
+                </div>
               </div>
-            </div>
-          ) : (
-            <>
-              <DialogTitle>{title}</DialogTitle>
-              {description ? <DialogDescription>{description}</DialogDescription> : null}
-            </>
-          )}
+            )}
+          </Show>
         </DialogHeader>
-        {children}
+        {props.children}
       </DialogContent>
     </Dialog>
   )

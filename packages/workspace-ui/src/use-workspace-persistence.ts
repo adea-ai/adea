@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useWorkspaceStore, type WorkspaceState } from '@adea-ai/state'
+import { createEffect, createSignal, onCleanup } from 'solid-js'
+import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
 
 import { createWorkspaceStatePersister } from './workspace-state-persister'
 
@@ -34,21 +34,20 @@ function persistedState(state: WorkspaceState): PersistedState {
 }
 
 export function useWorkspacePersistence() {
-  const restore = useWorkspaceStore((state) => state.restoreConventionalState)
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = createSignal(false)
 
-  useEffect(() => {
+  createEffect(() => {
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY)
-      if (saved) restore(JSON.parse(saved) as Partial<PersistedState>)
+      if (saved) workspaceStore.getState().restoreConventionalState(JSON.parse(saved))
     } catch {
       window.localStorage.removeItem(STORAGE_KEY)
     }
     setReady(true)
-  }, [restore])
+  })
 
-  useEffect(() => {
-    if (!ready) return
+  createEffect(() => {
+    if (!ready()) return
     const persister = createWorkspaceStatePersister((state) => {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistedState(state)))
@@ -57,8 +56,8 @@ export function useWorkspacePersistence() {
       }
     })
     const writeNow = (state: WorkspaceState) => persister.save(state)
-    writeNow(useWorkspaceStore.getState())
-    const unsubscribe = useWorkspaceStore.subscribe(writeNow)
+    writeNow(workspaceStore.getState())
+    const unsubscribe = workspaceStore.subscribe(writeNow)
     // The debounced write must not lose the latest state when the app goes
     // away before the timer fires.
     const flushWhenHidden = () => {
@@ -66,13 +65,13 @@ export function useWorkspacePersistence() {
     }
     window.addEventListener('pagehide', persister.flush)
     document.addEventListener('visibilitychange', flushWhenHidden)
-    return () => {
+    onCleanup(() => {
       unsubscribe()
       window.removeEventListener('pagehide', persister.flush)
       document.removeEventListener('visibilitychange', flushWhenHidden)
       persister.flush()
-    }
-  }, [ready])
+    })
+  })
 
-  return ready
+  return ready()
 }

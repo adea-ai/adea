@@ -1,62 +1,45 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { createEffect, createMemo, createSignal } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import { useChannelListQuery, useRoomListQuery, useWorkspaceBootstrapQuery } from '@adea-ai/data'
-import { useWorkspaceStore } from '@adea-ai/state'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { useWorkspacePersistence } from './use-workspace-persistence'
 import { SidebarToggleButton } from './sidebar-toggle-button'
 import { projectWorkspaceNavigation } from './workspace-model'
 
-export function VirtualRoomControls({
-  client: providedClient,
-  openChat,
-}: Readonly<{
-  client?: AgentHqApiClient
-  openChat: () => void
-}>) {
-  const [defaultClient] = useState(() => createApiClient())
-  const client = providedClient ?? defaultClient
+export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat: () => void }) {
+  const [defaultClient] = createSignal(createApiClient())
+  const client = () => props.client ?? defaultClient()
   const persistenceReady = useWorkspacePersistence()
-  const bootstrap = useWorkspaceBootstrapQuery(client)
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const selectedRoomId = useWorkspaceStore((state) => state.selectedRoomId)
-  const selectedChannelId = useWorkspaceStore((state) => state.selectedChannelId)
-  const setSelectedWorkspaceId = useWorkspaceStore((state) => state.setSelectedWorkspaceId)
-  const setSelectedRoomId = useWorkspaceStore((state) => state.setSelectedRoomId)
-  const setSelectedChannelId = useWorkspaceStore((state) => state.setSelectedChannelId)
-  const activeWorkspace =
-    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
+  const bootstrap = useWorkspaceBootstrapQuery(client())
+  const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  const selectedRoomId = useWorkspaceState((state) => state.selectedRoomId)
+  const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
+  const activeWorkspace = () =>
+    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrap.data?.activeWorkspace
-  const rooms = useRoomListQuery(client, activeWorkspace?.id)
-  const channels = useChannelListQuery(client, activeWorkspace?.id)
-  const navigation = useMemo(
-    () => projectWorkspaceNavigation(rooms.data ?? [], channels.data ?? []),
-    [channels.data, rooms.data]
+  const rooms = useRoomListQuery(client(), () => activeWorkspace()?.id)
+  const channels = useChannelListQuery(client(), () => activeWorkspace()?.id)
+  const navigation = createMemo(() =>
+    projectWorkspaceNavigation(rooms.data ?? [], channels.data ?? [])
   )
 
-  useEffect(() => {
-    if (!persistenceReady || !bootstrap.data || selectedWorkspaceId) return
-    setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
-  }, [bootstrap.data, persistenceReady, selectedWorkspaceId, setSelectedWorkspaceId])
+  createEffect(() => {
+    if (!persistenceReady || !bootstrap.data || selectedWorkspaceId()) return
+    workspaceStore.getState().setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
+  })
 
-  useEffect(() => {
-    if (!navigation.rooms.length) return
-    const selectedChannel = channels.data?.find(({ id }) => id === selectedChannelId)
-    const selectedRoom = navigation.rooms.find(({ room }) => room.id === selectedRoomId)
+  createEffect(() => {
+    if (!navigation().rooms.length) return
+    const selectedChannel = channels.data?.find(({ id }) => id === selectedChannelId())
+    const selectedRoom = navigation().rooms.find(({ room }) => room.id === selectedRoomId())
     if (selectedRoom && selectedChannel?.roomId === selectedRoom.room.id) return
-    const firstRoom = selectedRoom ?? navigation.rooms[0]!
-    setSelectedRoomId(firstRoom.room.id)
-    setSelectedChannelId(firstRoom.selectionChannelId ?? null)
-  }, [
-    channels.data,
-    navigation.rooms,
-    selectedChannelId,
-    selectedRoomId,
-    setSelectedChannelId,
-    setSelectedRoomId,
-  ])
+    const firstRoom = selectedRoom ?? navigation().rooms[0]!
+    workspaceStore.getState().setSelectedRoomId(firstRoom.room.id)
+    workspaceStore.getState().setSelectedChannelId(firstRoom.selectionChannelId ?? null)
+  })
 
-  return <SidebarToggleButton expanded={false} onToggle={() => openChat()} />
+  return <SidebarToggleButton expanded={false} onToggle={() => props.openChat()} />
 }

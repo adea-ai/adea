@@ -15,9 +15,14 @@ const ToggleGroupContext = createContext<ToggleGroupContextValue>({
   spacing: 2,
 })
 
-type ToggleGroupProps = ComponentProps<typeof ToggleGroupPrimitive> &
+type ToggleGroupProps = Omit<
+  ComponentProps<typeof ToggleGroupPrimitive>,
+  'multiple' | 'onChange' | 'value'
+> &
   VariantProps<typeof toggleVariants> & {
     spacing?: number
+    value?: string[]
+    onChange?: (value: string[]) => void
   }
 
 function ToggleGroup(props: ToggleGroupProps) {
@@ -28,6 +33,8 @@ function ToggleGroup(props: ToggleGroupProps) {
     'spacing',
     'orientation',
     'children',
+    'value',
+    'onChange',
   ])
 
   return (
@@ -37,6 +44,9 @@ function ToggleGroup(props: ToggleGroupProps) {
       data-size={local.size ?? 'default'}
       data-spacing={local.spacing ?? 2}
       data-orientation={local.orientation ?? 'horizontal'}
+      multiple
+      value={local.value}
+      onChange={local.onChange}
       style={{ '--gap': local.spacing ?? 2 }}
       class={cn(
         'group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-[orientation=vertical]:flex-col data-[orientation=vertical]:items-stretch',

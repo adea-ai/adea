@@ -8,24 +8,27 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "solid": "./src/index.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
     },
     "./provider": {
       "types": "./dist/provider.d.ts",
+      "solid": "./src/provider.tsx",
       "development": "./src/provider.tsx",
       "import": "./dist/provider.js"
     },
     "./events": {
       "types": "./dist/events.d.ts",
+      "solid": "./src/events.ts",
       "development": "./src/events.ts",
       "import": "./dist/events.js"
     }
   },
   "scripts": {
     "lint": "oxlint",
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "dev": "vite build --watch",
     "test": "bun test tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -35,5 +38,9 @@
     "@adea-ai/types": "workspace:*",
     "@tanstack/solid-query": "^5.102.8",
     "solid-js": "^1.9.15"
+  },
+  "devDependencies": {
+    "vite": "^8.0.14",
+    "vite-plugin-solid": "^2.11.14"
   }
 }

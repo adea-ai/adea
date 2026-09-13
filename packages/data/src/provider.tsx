@@ -4,6 +4,13 @@ import { createEffect, onCleanup, type ParentProps } from 'solid-js'
 
 import { createWorkspaceEventSubscription } from './events'
 
+/** A value that may be supplied as a Solid accessor so subscriptions stay reactive. */
+type MaybeAccessor<T> = T | (() => T)
+
+function resolveAccessor<T>(value: MaybeAccessor<T>): T {
+  return typeof value === 'function' ? (value as () => T)() : value
+}
+
 /**
  * Releases every cached query and in-flight request belonging to one workspace.
  * Workspaces are fully isolated contexts, so leaving one must drop its data
@@ -49,8 +56,8 @@ export function AgentHqQueryProvider(props: ParentProps) {
  */
 export function useWorkspaceEventStream(
   options: Readonly<{
-    workspaceId: string | undefined
-    url: string | undefined
+    workspaceId: MaybeAccessor<string | undefined>
+    url: MaybeAccessor<string | undefined>
     headers?: () => Record<string, string>
   }>
 ) {
@@ -60,7 +67,8 @@ export function useWorkspaceEventStream(
   // object keeps the subscription identity tied to the workspace rather than to
   // a render.
   createEffect(() => {
-    const { workspaceId, url } = options
+    const workspaceId = resolveAccessor(options.workspaceId)
+    const url = resolveAccessor(options.url)
     if (!workspaceId || !url) return
     const subscription = createWorkspaceEventSubscription({
       headers: () => options.headers?.() ?? {},

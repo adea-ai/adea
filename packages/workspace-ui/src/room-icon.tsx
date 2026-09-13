@@ -14,7 +14,7 @@ import {
   Shapes,
   Utensils,
   Wrench,
-} from 'lucide-react'
+} from 'lucide-solid'
 
 export function roomIconFor(functionKey: string) {
   const key = functionKey.toLowerCase()
@@ -35,7 +35,7 @@ export function roomIconFor(functionKey: string) {
   return Shapes
 }
 
-export function RoomIcon({ functionKey }: Readonly<{ functionKey: string }>) {
-  const Icon = roomIconFor(functionKey)
+export function RoomIcon(props: { functionKey: string }) {
+  const Icon = roomIconFor(props.functionKey)
   return <Icon aria-hidden="true" />
 }

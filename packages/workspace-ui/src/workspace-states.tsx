@@ -1,31 +1,26 @@
-import { AlertTriangle, Inbox, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Inbox, RefreshCw } from 'lucide-solid'
+import { For, Show, type JSX } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
 
-export function WorkspaceSkeleton({ label = 'Loading workspace' }: { label?: string }) {
+export function WorkspaceSkeleton(props: { label?: string }) {
   return (
-    <div className="conventional-skeleton" aria-busy="true" aria-label={label}>
-      {Array.from({ length: 6 }, (_, index) => (
-        <span key={index} />
-      ))}
+    <div
+      class="conventional-skeleton"
+      aria-busy="true"
+      aria-label={props.label ?? 'Loading workspace'}
+    >
+      <For each={Array.from({ length: 6 })}>{() => <span />}</For>
     </div>
   )
 }
 
-export function WorkspaceEmpty({
-  action,
-  detail,
-  title,
-}: {
-  action?: React.ReactNode
-  detail: string
-  title: string
-}) {
+export function WorkspaceEmpty(props: { action?: JSX.Element; detail: string; title: string }) {
   return (
-    <section className="conventional-empty" aria-labelledby="workspace-empty-title">
+    <section class="conventional-empty" aria-labelledby="workspace-empty-title">
       <Inbox aria-hidden="true" />
-      <h2 id="workspace-empty-title">{title}</h2>
-      <p>{detail}</p>
-      {action}
+      <h2 id="workspace-empty-title">{props.title}</h2>
+      <p>{props.detail}</p>
+      {props.action}
     </section>
   )
 }
@@ -43,20 +38,22 @@ function errorCopy(error: unknown) {
   return 'Adea could not load this content. Your durable workspace was not changed.'
 }
 
-export function WorkspaceError({ error, retry }: { error: unknown; retry?: () => void }) {
+export function WorkspaceError(props: { error: unknown; retry?: () => void }) {
   return (
-    <section className="conventional-error" role="alert">
+    <section class="conventional-error" role="alert">
       <AlertTriangle aria-hidden="true" />
       <div>
         <h2>Something interrupted the workspace</h2>
-        <p>{errorCopy(error)}</p>
+        <p>{errorCopy(props.error)}</p>
       </div>
-      {retry ? (
-        <button type="button" className="conventional-secondary-button" onClick={retry}>
-          <RefreshCw aria-hidden="true" />
-          Retry
-        </button>
-      ) : null}
+      <Show when={props.retry}>
+        {(retry) => (
+          <button type="button" class="conventional-secondary-button" onClick={() => retry()()}>
+            <RefreshCw aria-hidden="true" />
+            Retry
+          </button>
+        )}
+      </Show>
     </section>
   )
 }

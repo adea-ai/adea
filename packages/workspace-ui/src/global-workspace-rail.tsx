@@ -1,7 +1,7 @@
 'use client'
 
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { buttonVariants } from '@adea-ai/ui/components/ui/button'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 import {
   Tooltip,
@@ -9,68 +9,50 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@adea-ai/ui/components/ui/tooltip'
-import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { cn } from '@adea-ai/ui/lib/utils'
+import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-solid'
+import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
 import type { WorkspaceView } from './workspace-view-toggle'
 
-type RailActionProps = Readonly<{
+type RailActionProps = {
   active?: boolean
   disabled?: boolean
   icon: typeof Home
   label: string
   onClick?: () => void
-}>
+}
 
-function RailAction({
-  active = false,
-  disabled = false,
-  icon: Icon,
-  label,
-  onClick,
-}: RailActionProps) {
+function RailAction(props: RailActionProps) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            className="global-rail__button"
-            variant={active ? 'secondary' : 'ghost'}
-            size="icon-lg"
-            aria-label={label}
-            aria-pressed={active || undefined}
-            disabled={disabled}
-            onClick={onClick}
-          />
-        }
+        class={cn(
+          buttonVariants({
+            variant: props.active ? 'secondary' : 'ghost',
+            size: 'icon-lg',
+          }),
+          'global-rail__button'
+        )}
+        aria-label={props.label}
+        aria-pressed={props.active || undefined}
+        disabled={props.disabled}
+        onClick={() => props.onClick?.()}
       >
-        <Icon aria-hidden="true" />
+        <props.icon aria-hidden="true" />
       </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side="right">{props.label}</TooltipContent>
     </Tooltip>
   )
 }
 
-function WorkspaceMark({ workspace }: Readonly<{ workspace?: WorkspaceSummary }>) {
-  const Icon = workspace?.scene === 'home' ? Home : BriefcaseBusiness
+function WorkspaceMark(props: { workspace?: WorkspaceSummary }) {
+  const Icon = props.workspace?.scene === 'home' ? Home : BriefcaseBusiness
   return <Icon aria-hidden="true" />
 }
 
-export function GlobalWorkspaceRail({
-  account,
-  onOpenNotifications,
-  onOpenAbout,
-  onOpenPlugins,
-  onOpenSearch,
-  onOpenSettings,
-  onWorkspaceChange,
-  onViewChange,
-  activeWorkspace,
-  view,
-  workspaces,
-}: Readonly<{
+export function GlobalWorkspaceRail(props: {
   account: Readonly<{
     authenticated: boolean
     busy?: boolean
@@ -90,29 +72,29 @@ export function GlobalWorkspaceRail({
   onViewChange: (view: WorkspaceView) => void
   view: WorkspaceView
   workspaces: readonly WorkspaceSummary[]
-}>) {
-  const activeWorkspaceLabel = activeWorkspace?.name ?? 'Loading'
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false)
-  const workspaceMenuId = useId()
-  const workspaceMenuRef = useRef<HTMLDivElement>(null)
+}) {
+  const activeWorkspaceLabel = () => props.activeWorkspace?.name ?? 'Loading'
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] = createSignal(false)
+  const workspaceMenuId = createUniqueId()
+  const [workspaceMenu, setWorkspaceMenu] = createSignal<HTMLDivElement>()
 
-  useEffect(() => {
-    if (!workspaceMenuOpen) return
+  createEffect(() => {
+    if (!workspaceMenuOpen()) return
     const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!workspaceMenuRef.current?.contains(event.target as Node)) setWorkspaceMenuOpen(false)
+      if (!workspaceMenu()?.contains(event.target as Node)) setWorkspaceMenuOpen(false)
     }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setWorkspaceMenuOpen(false)
     }
     document.addEventListener('pointerdown', closeOnOutsidePointer)
     document.addEventListener('keydown', closeOnEscape)
-    return () => {
+    onCleanup(() => {
       document.removeEventListener('pointerdown', closeOnOutsidePointer)
       document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [workspaceMenuOpen])
+    })
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     const openSettingsWithShortcut = (event: KeyboardEvent) => {
       if (
         !(event.metaKey || event.ctrlKey) ||
@@ -129,102 +111,101 @@ export function GlobalWorkspaceRail({
         (target instanceof HTMLElement && target.isContentEditable)
       if (isEditable) return
       event.preventDefault()
-      onOpenSettings()
+      props.onOpenSettings()
     }
 
     window.addEventListener('keydown', openSettingsWithShortcut, { capture: true })
-    return () => window.removeEventListener('keydown', openSettingsWithShortcut, { capture: true })
-  }, [onOpenSettings])
+    onCleanup(() =>
+      window.removeEventListener('keydown', openSettingsWithShortcut, { capture: true })
+    )
+  })
 
   return (
     <TooltipProvider>
-      <nav className="global-rail" aria-label="Global navigation">
-        <div className="global-rail__workspace" ref={workspaceMenuRef}>
+      <nav class="global-rail" aria-label="Global navigation">
+        <div class="global-rail__workspace" ref={setWorkspaceMenu}>
           <Tooltip>
             <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  className="global-rail__workspace-trigger"
-                  variant="default"
-                  size="icon-lg"
-                  aria-controls={workspaceMenuId}
-                  aria-expanded={workspaceMenuOpen}
-                  aria-haspopup="menu"
-                  aria-label={`Switch workspace, current ${activeWorkspaceLabel}`}
-                  onClick={() => setWorkspaceMenuOpen((open) => !open)}
-                />
-              }
+              class={cn(
+                buttonVariants({ variant: 'default', size: 'icon-lg' }),
+                'global-rail__workspace-trigger'
+              )}
+              aria-controls={workspaceMenuId}
+              aria-expanded={workspaceMenuOpen()}
+              aria-haspopup="menu"
+              aria-label={`Switch workspace, current ${activeWorkspaceLabel()}`}
+              onClick={() => setWorkspaceMenuOpen((open) => !open)}
             >
-              <WorkspaceMark workspace={activeWorkspace} />
+              <WorkspaceMark workspace={props.activeWorkspace} />
             </TooltipTrigger>
             <TooltipContent side="right">Switch workspace</TooltipContent>
           </Tooltip>
-          {workspaceMenuOpen ? (
-            <div className="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
-              {workspaces.map((workspace) => (
-                <button
-                  type="button"
-                  role="menuitemradio"
-                  aria-checked={workspace.id === activeWorkspace?.id}
-                  key={workspace.id}
-                  onClick={() => {
-                    onWorkspaceChange(workspace)
-                    setWorkspaceMenuOpen(false)
-                  }}
-                >
-                  <WorkspaceMark workspace={workspace} />
-                  <span className="global-rail__workspace-name">{workspace.name}</span>
-                </button>
-              ))}
+          <Show when={workspaceMenuOpen()}>
+            <div class="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
+              <For each={props.workspaces}>
+                {(workspace) => (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={workspace.id === props.activeWorkspace?.id}
+                    onClick={() => {
+                      props.onWorkspaceChange(workspace)
+                      setWorkspaceMenuOpen(false)
+                    }}
+                  >
+                    <WorkspaceMark workspace={workspace} />
+                    <span class="global-rail__workspace-name">{workspace.name}</span>
+                  </button>
+                )}
+              </For>
             </div>
-          ) : null}
+          </Show>
         </div>
 
-        <div className="global-rail__search">
-          <RailAction icon={Search} label="Search workspace" onClick={onOpenSearch} />
+        <div class="global-rail__search">
+          <RailAction icon={Search} label="Search workspace" onClick={props.onOpenSearch} />
           <kbd aria-hidden="true">⌘ K</kbd>
         </div>
 
-        <Separator className="global-rail__separator" />
+        <Separator class="global-rail__separator" />
 
-        <div className="global-rail__views" role="group" aria-label="Workspace views">
+        <div class="global-rail__views" role="group" aria-label="Workspace views">
           <RailAction
-            active={view === 'virtual'}
+            active={props.view === 'virtual'}
             icon={Map}
             label="Virtual view"
-            onClick={() => onViewChange('virtual')}
+            onClick={() => props.onViewChange('virtual')}
           />
           <RailAction
-            active={view === 'chat'}
+            active={props.view === 'chat'}
             icon={MessageSquareText}
             label="Chat view"
-            onClick={() => onViewChange('chat')}
+            onClick={() => props.onViewChange('chat')}
           />
           <RailAction
             disabled
             icon={Bell}
             label="Notifications (coming soon)"
-            onClick={onOpenNotifications}
+            onClick={props.onOpenNotifications}
           />
         </div>
 
-        <div className="global-rail__footer">
+        <div class="global-rail__footer">
           <RailAction
-            disabled={!activeWorkspace}
+            disabled={!props.activeWorkspace}
             icon={Plug}
             label="Plugins"
-            onClick={onOpenPlugins}
+            onClick={props.onOpenPlugins}
           />
           <AccountMenu
-            authenticated={account.authenticated}
-            busy={account.busy}
-            onOpenUpdates={account.onOpenUpdates}
-            onOpenAbout={onOpenAbout}
-            onOpenSettings={onOpenSettings}
-            onSignIn={account.onSignIn}
-            onSignOut={account.onSignOut}
-            platform={account.platform}
+            authenticated={props.account.authenticated}
+            busy={props.account.busy}
+            onOpenUpdates={props.account.onOpenUpdates}
+            onOpenAbout={props.onOpenAbout}
+            onOpenSettings={props.onOpenSettings}
+            onSignIn={props.account.onSignIn}
+            onSignOut={props.account.onSignOut}
+            platform={props.account.platform}
           />
         </div>
       </nav>

@@ -611,7 +611,10 @@ export function useWorkspaceListQuery(client: AgentHqApiClient) {
   return useQuery(() => workspaceQueryOptions.list(client))
 }
 
-export function useWorkspaceQuery(client: AgentHqApiClient, workspaceId?: MaybeAccessor<string>) {
+export function useWorkspaceQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
   return useQuery(() => workspaceQueryOptions.detail(client, resolveAccessor(workspaceId)))
 }
 
@@ -630,14 +633,17 @@ export function useClaimTemporaryWorkspaceMutation(client: AgentHqApiClient) {
   return useMutation(() => workspaceMutationOptions.claim(client, queryClient))
 }
 
-export function useRoomListQuery(client: AgentHqApiClient, workspaceId?: MaybeAccessor<string>) {
+export function useRoomListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
   return useQuery(() => roomQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 
 export function useRoomQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,
-  roomId?: MaybeAccessor<string>
+  roomId?: MaybeAccessor<string | undefined>
 ) {
   return useQuery(() =>
     roomQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(roomId))
@@ -684,13 +690,16 @@ export function useReorderRoomsMutation(
   )
 }
 
-export function useAgentListQuery(client: AgentHqApiClient, workspaceId?: MaybeAccessor<string>) {
+export function useAgentListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
   return useQuery(() => agentQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 export function useAgentQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,
-  agentId?: MaybeAccessor<string>
+  agentId?: MaybeAccessor<string | undefined>
 ) {
   return useQuery(() =>
     agentQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(agentId))
@@ -737,13 +746,16 @@ export function useChangeAgentProfileMutation(
   )
 }
 
-export function useTaskListQuery(client: AgentHqApiClient, workspaceId?: MaybeAccessor<string>) {
+export function useTaskListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
   return useQuery(() => taskQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 export function useTaskQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,
-  taskId?: MaybeAccessor<string>
+  taskId?: MaybeAccessor<string | undefined>
 ) {
   return useQuery(() =>
     taskQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(taskId))
@@ -850,7 +862,7 @@ export function useSetTaskConversationMutation(
 
 export function useArtifactListQuery(
   client: AgentHqApiClient,
-  workspaceId?: MaybeAccessor<string>
+  workspaceId?: MaybeAccessor<string | undefined>
 ) {
   return useQuery(() => artifactQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
@@ -888,7 +900,10 @@ export function useDeleteArtifactMutation(
   )
 }
 
-export function useChannelListQuery(client: AgentHqApiClient, workspaceId?: MaybeAccessor<string>) {
+export function useChannelListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
   return useQuery(() => channelQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 export function useChannelQuery(
@@ -1003,7 +1018,10 @@ export function useDeleteMessageMutation(
   )
 }
 
-export function useReadStateQuery(client: AgentHqApiClient, workspaceId?: MaybeAccessor<string>) {
+export function useReadStateQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
   return useQuery(() => readStateQueryOptions.detail(client, resolveAccessor(workspaceId)))
 }
 

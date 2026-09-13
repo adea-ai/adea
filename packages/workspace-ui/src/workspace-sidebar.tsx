@@ -18,10 +18,10 @@ import {
   Plus,
   Users,
   X,
-} from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
-import { Button } from '@adea-ai/ui/components/ui/button'
+} from 'lucide-solid'
+import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js'
+import { buttonVariants } from '@adea-ai/ui/components/ui/button'
+import { cn } from '@adea-ai/ui/lib/utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,7 +44,7 @@ function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
 }
 
-function workspaceRootFor(sidebar: HTMLElement | null): HTMLElement | null {
+function workspaceRootFor(sidebar: HTMLElement | null | undefined): HTMLElement | null {
   return sidebar?.closest<HTMLElement>('.conventional-workspace') ?? null
 }
 
@@ -57,65 +57,54 @@ function applySidebarWidth(root: HTMLElement, width: number) {
   root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
 }
 
-function ConversationChannelRow({
-  channel,
-  icon,
-  label,
-  onArchive,
-  onCopyLink,
-  onRename,
-  onSelect,
-  selected,
-  unread,
-}: Readonly<{
+function ConversationChannelRow(props: {
   channel: ChannelSummary
-  icon: ReactNode
+  icon: JSX.Element
   label: string
   onArchive: (channel: ChannelSummary) => void
   onCopyLink: (channel: ChannelSummary) => void
   onRename: (channel: ChannelSummary) => void
   onSelect: () => void
   selected: boolean
-  unread: ReactNode
-}>) {
+  unread: JSX.Element
+}) {
   return (
-    <li className="conventional-channel-row">
-      <button type="button" aria-current={selected ? 'page' : undefined} onClick={onSelect}>
-        {icon}
-        <span>{label}</span>
-        {unread}
+    <li class="conventional-channel-row">
+      <button
+        type="button"
+        aria-current={props.selected ? 'page' : undefined}
+        onClick={() => props.onSelect()}
+      >
+        {props.icon}
+        <span>{props.label}</span>
+        {props.unread}
       </button>
-      <span className="conventional-channel-actions">
+      <span class="conventional-channel-actions">
         <DropdownMenu>
           <DropdownMenuTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={`Conversation options for ${label}`}
-              />
-            }
+            class={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}
+            aria-label={`Conversation options for ${props.label}`}
           >
             <EllipsisVertical aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="bottom">
-            <DropdownMenuItem onClick={() => onRename(channel)}>Rename</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onCopyLink(channel)}>
+            <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => props.onCopyLink(props.channel)}>
               <Link2 aria-hidden="true" />
               Copy link
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <Button
+        <button
           type="button"
-          variant="destructive"
-          size="icon"
-          aria-label={`Delete ${label}`}
-          onClick={() => onArchive(channel)}
+          class={buttonVariants({ variant: 'destructive', size: 'icon' })}
+          aria-label={`Delete ${props.label}`}
+          onClick={() => props.onArchive(props.channel)}
         >
           <X aria-hidden="true" />
-        </Button>
+        </button>
       </span>
     </li>
   )
@@ -148,22 +137,25 @@ type Props = Readonly<{
 }>
 
 export function WorkspaceSidebar(props: Props) {
-  const sidebarRef = useRef<HTMLElement>(null)
-  const [editingRoom, setEditingRoom] = useState<RoomSummary | null>(null)
-  const [renamingChannel, setRenamingChannel] = useState<ChannelSummary | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
-  const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
-  const readStateByChannel = new Map(props.readState.map((state) => [state.channelId, state]))
-  const hasUnread = props.readState.some(
-    (state) =>
-      (state.topLevelUnreadCount ?? 0) + (state.threadUnreadCount ?? 0) > 0 ||
-      Boolean(state.manuallyUnread)
+  const [sidebar, setSidebar] = createSignal<HTMLElement>()
+  const [editingRoom, setEditingRoom] = createSignal<RoomSummary | null>(null)
+  const [renamingChannel, setRenamingChannel] = createSignal<ChannelSummary | null>(null)
+  const [actionError, setActionError] = createSignal<string | null>(null)
+  const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
+  const readStateByChannel = createMemo(
+    () => new Map(props.readState.map((state) => [state.channelId, state]))
   )
+  const hasUnread = () =>
+    props.readState.some(
+      (state) =>
+        (state.topLevelUnreadCount ?? 0) + (state.threadUnreadCount ?? 0) > 0 ||
+        Boolean(state.manuallyUnread)
+    )
   const unreadBadge = (channelId: string) => {
-    const state = readStateByChannel.get(channelId)
+    const state = readStateByChannel().get(channelId)
     const count = (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
     return count || state?.manuallyUnread ? (
-      <span className="conventional-unread-badge" aria-label={`${count || 1} unread`}>
+      <span class="conventional-unread-badge" aria-label={`${count || 1} unread`}>
         {count > 99 ? '99+' : count || '•'}
       </span>
     ) : null
@@ -185,15 +177,15 @@ export function WorkspaceSidebar(props: Props) {
   }
 
   // Restore the persisted sidebar width before first paint of the layout.
-  useEffect(() => {
+  onMount(() => {
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
     if (!Number.isFinite(stored) || stored <= 0) return
-    const root = workspaceRootFor(sidebarRef.current)
+    const root = workspaceRootFor(sidebar())
     if (root) applySidebarWidth(root, stored)
-  }, [])
+  })
 
-  const startResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const root = workspaceRootFor(sidebarRef.current)
+  const startResize = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    const root = workspaceRootFor(sidebar())
     const handle = event.currentTarget
     if (!root) return
     const startWidth = currentSidebarWidth(root)
@@ -201,8 +193,8 @@ export function WorkspaceSidebar(props: Props) {
     let width = startWidth
     handle.setPointerCapture(event.pointerId)
 
-    // The element is captured in a closure because React nulls
-    // event.currentTarget once the synthetic handler returns.
+    // The element is captured in a closure because the pointer target is only
+    // valid for the duration of the event.
     const onMove = (moveEvent: PointerEvent) => {
       width = clampSidebarWidth(startWidth + (moveEvent.clientX - startX))
       applySidebarWidth(root, width)
@@ -217,46 +209,44 @@ export function WorkspaceSidebar(props: Props) {
     handle.addEventListener('pointermove', onMove)
     handle.addEventListener('pointerup', onEnd)
     handle.addEventListener('pointercancel', onEnd)
-  }, [])
+  }
 
-  const resizeByKeyboard = useCallback((delta: number) => {
-    const root = workspaceRootFor(sidebarRef.current)
+  const resizeByKeyboard = (delta: number) => {
+    const root = workspaceRootFor(sidebar())
     if (!root) return
     const width = clampSidebarWidth(currentSidebarWidth(root) + delta)
     applySidebarWidth(root, width)
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
-  }, [])
+  }
 
-  const onResizeKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault()
-        resizeByKeyboard(-16)
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault()
-        resizeByKeyboard(16)
-      }
-    },
-    [resizeByKeyboard]
-  )
+  const onResizeKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      resizeByKeyboard(-16)
+    } else if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      resizeByKeyboard(16)
+    }
+  }
+
   return (
     <>
       <SidebarToggleButton expanded={props.mobileOpen} onToggle={props.onToggleMobile} />
-      {props.mobileOpen ? (
+      <Show when={props.mobileOpen}>
         <button
           type="button"
-          className="conventional-sidebar-scrim"
+          class="conventional-sidebar-scrim"
           aria-label="Close workspace navigation"
           onClick={() => props.onToggleMobile(false)}
         />
-      ) : null}
+      </Show>
       <aside
-        ref={sidebarRef}
-        className={`conventional-sidebar${props.mobileOpen ? ' conventional-sidebar--open' : ''}`}
+        ref={setSidebar}
+        class={`conventional-sidebar${props.mobileOpen ? ' conventional-sidebar--open' : ''}`}
         aria-label="Workspace navigation"
       >
         <div
-          className="conventional-sidebar__resize"
+          class="conventional-sidebar__resize"
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize workspace navigation"
@@ -267,34 +257,29 @@ export function WorkspaceSidebar(props: Props) {
         <button
           type="button"
           aria-label="Close workspace navigation"
-          className="conventional-sidebar__close"
+          class="conventional-sidebar__close"
           onClick={() => props.onToggleMobile(false)}
         >
           <PanelLeftClose aria-hidden="true" />
         </button>
 
-        <div className="conventional-sidebar__title">
+        <div class="conventional-sidebar__title">
           <h1>{props.workspaceName}</h1>
         </div>
-        <div className="conventional-sidebar__quick-actions">
-          <button type="button" onClick={props.onOpenTasks}>
+        <div class="conventional-sidebar__quick-actions">
+          <button type="button" onClick={() => props.onOpenTasks()}>
             <ListTodo aria-hidden="true" />
             Tasks
           </button>
-          <button type="button" onClick={props.onOpenAgents}>
+          <button type="button" onClick={() => props.onOpenAgents()}>
             <Bot aria-hidden="true" />
             Agents
           </button>
           <Tooltip>
             <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  onClick={props.onMarkAllRead}
-                  aria-label="Mark all read"
-                  disabled={!hasUnread}
-                />
-              }
+              onClick={() => props.onMarkAllRead()}
+              aria-label="Mark all read"
+              disabled={!hasUnread()}
             >
               <MessageCircle aria-hidden="true" />
               Mark all read
@@ -304,208 +289,229 @@ export function WorkspaceSidebar(props: Props) {
           </Tooltip>
         </div>
 
-        <div className="conventional-sidebar__scroll">
-          {actionError ? (
-            <p role="alert" className="conventional-sidebar-error">
-              {actionError}
-            </p>
-          ) : null}
-          <section className="conventional-sidebar-section" aria-labelledby="rooms-heading">
-            <div className="conventional-sidebar-section__heading">
+        <div class="conventional-sidebar__scroll">
+          <Show when={actionError()}>
+            {(message) => (
+              <p role="alert" class="conventional-sidebar-error">
+                {message()}
+              </p>
+            )}
+          </Show>
+          <section class="conventional-sidebar-section" aria-labelledby="rooms-heading">
+            <div class="conventional-sidebar-section__heading">
               <h2 id="rooms-heading">Rooms</h2>
-              <button type="button" aria-label="Create Room" onClick={props.onCreateRoom}>
+              <button type="button" aria-label="Create Room" onClick={() => props.onCreateRoom()}>
                 <Plus aria-hidden="true" />
               </button>
             </div>
-            {props.navigation.rooms.length ? (
-              <ul className="conventional-room-list">
-                {props.navigation.rooms.map((item) => {
-                  const collapsed = props.collapsedRoomIds.includes(item.room.id)
-                  const selected =
-                    Boolean(item.selectionChannelId) &&
-                    (props.selectedChannelId === item.selectionChannelId ||
-                      item.visibleChannels.some(({ id }) => id === props.selectedChannelId))
-                  const roomChannels = [
-                    ...(item.primaryChannel ? [item.primaryChannel] : []),
-                    ...item.visibleChannels.filter(({ id }) => id !== item.primaryChannel?.id),
-                  ]
-                  const roomUnread = roomChannels.reduce((total, channel) => {
-                    const state = readStateByChannel.get(channel.id)
+            <Show
+              when={props.navigation.rooms.length}
+              fallback={
+                <p class="conventional-sidebar-empty">Create a Room to organize the work.</p>
+              }
+            >
+              <ul class="conventional-room-list">
+                <For each={props.navigation.rooms}>
+                  {(item) => {
+                    const collapsed = () => props.collapsedRoomIds.includes(item.room.id)
+                    const selected = () =>
+                      Boolean(item.selectionChannelId) &&
+                      (props.selectedChannelId === item.selectionChannelId ||
+                        item.visibleChannels.some(({ id }) => id === props.selectedChannelId))
+                    const roomChannels = () => [
+                      ...(item.primaryChannel ? [item.primaryChannel] : []),
+                      ...item.visibleChannels.filter(({ id }) => id !== item.primaryChannel?.id),
+                    ]
+                    const roomUnread = () =>
+                      roomChannels().reduce((total, channel) => {
+                        const state = readStateByChannel().get(channel.id)
+                        return (
+                          total +
+                          (state?.topLevelUnreadCount ?? 0) +
+                          (state?.threadUnreadCount ?? 0)
+                        )
+                      }, 0)
                     return (
-                      total + (state?.topLevelUnreadCount ?? 0) + (state?.threadUnreadCount ?? 0)
-                    )
-                  }, 0)
-                  return (
-                    <li key={item.room.id}>
-                      <div className="conventional-room-row">
-                        <button
-                          type="button"
-                          className="conventional-room-select"
-                          aria-current={selected ? 'page' : undefined}
-                          onClick={() =>
-                            item.selectionChannelId &&
-                            props.onSelectChannel(item.selectionChannelId, item.room.id)
-                          }
-                        >
-                          <RoomIcon functionKey={item.room.functionKey} />
-                          <span className="conventional-room-name">{item.room.name}</span>
-                          {roomUnread ? (
-                            <span
-                              className="conventional-unread-badge"
-                              aria-label={`${roomUnread} unread in ${item.room.name}`}
-                            >
-                              {roomUnread > 99 ? '99+' : roomUnread}
-                            </span>
-                          ) : null}
-                        </button>
-                        <span className="conventional-room-actions">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger
-                              render={
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  aria-label={`Room options for ${item.room.name}`}
-                                />
-                              }
-                            >
-                              <EllipsisVertical aria-hidden="true" />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" side="bottom">
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setActionError(null)
-                                  setEditingRoom(item.room)
-                                }}
-                              >
-                                <Pencil aria-hidden="true" />
-                                Edit
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </span>
-                        {item.visibleChannels.length ? (
+                      <li>
+                        <div class="conventional-room-row">
                           <button
                             type="button"
-                            className="conventional-room-toggle"
-                            aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${item.room.name}`}
-                            aria-expanded={!collapsed}
-                            onClick={() => props.onToggleRoom(item.room.id)}
+                            class="conventional-room-select"
+                            aria-current={selected() ? 'page' : undefined}
+                            onClick={() =>
+                              item.selectionChannelId &&
+                              props.onSelectChannel(item.selectionChannelId, item.room.id)
+                            }
                           >
-                            {collapsed ? (
-                              <ChevronRight aria-hidden="true" />
-                            ) : (
-                              <ChevronDown aria-hidden="true" />
-                            )}
+                            <RoomIcon functionKey={item.room.functionKey} />
+                            <span class="conventional-room-name">{item.room.name}</span>
+                            <Show when={roomUnread()}>
+                              {(unread) => (
+                                <span
+                                  class="conventional-unread-badge"
+                                  aria-label={`${unread()} unread in ${item.room.name}`}
+                                >
+                                  {unread() > 99 ? '99+' : unread()}
+                                </span>
+                              )}
+                            </Show>
                           </button>
-                        ) : null}
-                      </div>
-                      {item.visibleChannels.length && !collapsed ? (
-                        <ul className="conventional-channel-list">
-                          {item.visibleChannels.map((channel) => (
-                            <li key={channel.id}>
-                              <button
-                                type="button"
-                                aria-current={
-                                  channel.id === props.selectedChannelId ? 'page' : undefined
-                                }
-                                onClick={() => props.onSelectChannel(channel.id, item.room.id)}
+                          <span class="conventional-room-actions">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                class={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}
+                                aria-label={`Room options for ${item.room.name}`}
                               >
-                                <Hash aria-hidden="true" />
-                                <span>{channel.title}</span>
-                                {unreadBadge(channel.id)}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </li>
-                  )
-                })}
+                                <EllipsisVertical aria-hidden="true" />
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" side="bottom">
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setActionError(null)
+                                    setEditingRoom(item.room)
+                                  }}
+                                >
+                                  <Pencil aria-hidden="true" />
+                                  Edit
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </span>
+                          <Show when={item.visibleChannels.length}>
+                            <button
+                              type="button"
+                              class="conventional-room-toggle"
+                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item.room.name}`}
+                              aria-expanded={!collapsed()}
+                              onClick={() => props.onToggleRoom(item.room.id)}
+                            >
+                              <Show
+                                when={!collapsed()}
+                                fallback={<ChevronRight aria-hidden="true" />}
+                              >
+                                <ChevronDown aria-hidden="true" />
+                              </Show>
+                            </button>
+                          </Show>
+                        </div>
+                        <Show when={item.visibleChannels.length && !collapsed()}>
+                          <ul class="conventional-channel-list">
+                            <For each={item.visibleChannels}>
+                              {(channel) => (
+                                <li>
+                                  <button
+                                    type="button"
+                                    aria-current={
+                                      channel.id === props.selectedChannelId ? 'page' : undefined
+                                    }
+                                    onClick={() => props.onSelectChannel(channel.id, item.room.id)}
+                                  >
+                                    <Hash aria-hidden="true" />
+                                    <span>{channel.title}</span>
+                                    {unreadBadge(channel.id)}
+                                  </button>
+                                </li>
+                              )}
+                            </For>
+                          </ul>
+                        </Show>
+                      </li>
+                    )
+                  }}
+                </For>
               </ul>
-            ) : (
-              <p className="conventional-sidebar-empty">Create a Room to organize the work.</p>
-            )}
+            </Show>
           </section>
 
-          <section className="conventional-sidebar-section" aria-labelledby="conversations-heading">
-            <div className="conventional-sidebar-section__heading">
+          <section class="conventional-sidebar-section" aria-labelledby="conversations-heading">
+            <div class="conventional-sidebar-section__heading">
               <h2 id="conversations-heading">Conversations</h2>
               <button
                 type="button"
                 aria-label="Create group conversation"
-                onClick={props.onCreateGroup}
+                onClick={() => props.onCreateGroup()}
               >
                 <Plus aria-hidden="true" />
               </button>
             </div>
-            <ul className="conventional-channel-list conventional-channel-list--standalone">
-              {props.navigation.directAgentChannels.map((channel) => (
-                <ConversationChannelRow
-                  key={channel.id}
-                  channel={channel}
-                  icon={<Bot aria-hidden="true" />}
-                  label={
-                    channel.agentId ? (agentById.get(channel.agentId)?.name ?? 'Agent') : 'Agent'
-                  }
-                  onArchive={archiveChannel}
-                  onCopyLink={copyChannelLink}
-                  onRename={setRenamingChannel}
-                  onSelect={() => props.onSelectChannel(channel.id)}
-                  selected={channel.id === props.selectedChannelId}
-                  unread={unreadBadge(channel.id)}
-                />
-              ))}
-              {props.navigation.groupChannels.map((channel) => (
-                <ConversationChannelRow
-                  key={channel.id}
-                  channel={channel}
-                  icon={<Users aria-hidden="true" />}
-                  label={channel.title}
-                  onArchive={archiveChannel}
-                  onCopyLink={copyChannelLink}
-                  onRename={setRenamingChannel}
-                  onSelect={() => props.onSelectChannel(channel.id)}
-                  selected={channel.id === props.selectedChannelId}
-                  unread={unreadBadge(channel.id)}
-                />
-              ))}
+            <ul class="conventional-channel-list conventional-channel-list--standalone">
+              <For each={props.navigation.directAgentChannels}>
+                {(channel) => (
+                  <ConversationChannelRow
+                    channel={channel}
+                    icon={<Bot aria-hidden="true" />}
+                    label={
+                      channel.agentId
+                        ? (agentById().get(channel.agentId)?.name ?? 'Agent')
+                        : 'Agent'
+                    }
+                    onArchive={archiveChannel}
+                    onCopyLink={copyChannelLink}
+                    onRename={setRenamingChannel}
+                    onSelect={() => props.onSelectChannel(channel.id)}
+                    selected={channel.id === props.selectedChannelId}
+                    unread={unreadBadge(channel.id)}
+                  />
+                )}
+              </For>
+              <For each={props.navigation.groupChannels}>
+                {(channel) => (
+                  <ConversationChannelRow
+                    channel={channel}
+                    icon={<Users aria-hidden="true" />}
+                    label={channel.title}
+                    onArchive={archiveChannel}
+                    onCopyLink={copyChannelLink}
+                    onRename={setRenamingChannel}
+                    onSelect={() => props.onSelectChannel(channel.id)}
+                    selected={channel.id === props.selectedChannelId}
+                    unread={unreadBadge(channel.id)}
+                  />
+                )}
+              </For>
             </ul>
-            {!props.navigation.directAgentChannels.length &&
-            !props.navigation.groupChannels.length ? (
+            <Show
+              when={
+                !props.navigation.directAgentChannels.length &&
+                !props.navigation.groupChannels.length
+              }
+            >
               <button
                 type="button"
-                className="conventional-sidebar-empty-action"
-                onClick={props.onOpenAgents}
+                class="conventional-sidebar-empty-action"
+                onClick={() => props.onOpenAgents()}
               >
                 <MessageCircle aria-hidden="true" />
                 Start with an Agent
               </button>
-            ) : null}
+            </Show>
           </section>
         </div>
       </aside>
-      {editingRoom ? (
-        <EditRoomDialog
-          busy={props.roomBusy}
-          initialFunctionKey={editingRoom.functionKey}
-          initialName={editingRoom.name}
-          onClose={() => setEditingRoom(null)}
-          onSave={(input) => props.onUpdateRoom(editingRoom.id, input)}
-          open
-          roomName={editingRoom.name}
-        />
-      ) : null}
-      {renamingChannel ? (
-        <RenameConversationDialog
-          busy={props.channelBusy}
-          initialTitle={renamingChannel.title}
-          onClose={() => setRenamingChannel(null)}
-          onSave={(title) => props.onRenameChannel(renamingChannel, title)}
-          open
-        />
-      ) : null}
+      <Show when={editingRoom()}>
+        {(room) => (
+          <EditRoomDialog
+            busy={props.roomBusy}
+            initialFunctionKey={room().functionKey}
+            initialName={room().name}
+            onClose={() => setEditingRoom(null)}
+            onSave={(input) => props.onUpdateRoom(room().id, input)}
+            open
+            roomName={room().name}
+          />
+        )}
+      </Show>
+      <Show when={renamingChannel()}>
+        {(channel) => (
+          <RenameConversationDialog
+            busy={props.channelBusy}
+            initialTitle={channel().title}
+            onClose={() => setRenamingChannel(null)}
+            onSave={(title) => props.onRenameChannel(channel(), title)}
+            open
+          />
+        )}
+      </Show>
     </>
   )
 }

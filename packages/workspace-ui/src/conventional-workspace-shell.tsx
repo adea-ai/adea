@@ -1,8 +1,8 @@
 'use client'
 
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, X } from 'lucide-react'
-import { useWorkspaceStore } from '@adea-ai/state'
+import { AlertTriangle, X } from 'lucide-solid'
+import { createEffect, createSignal, lazy, Show, Suspense } from 'solid-js'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { AgentRoster } from './agent-roster'
 import { ArtifactDetail } from './artifact-detail'
@@ -42,81 +42,73 @@ type DialogId =
   | 'settings'
   | null
 
-export function ConventionalWorkspaceShell({
-  manageSettings = true,
-  services,
-}: Readonly<{
+export function ConventionalWorkspaceShell(props: {
   manageSettings?: boolean
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
-}> = {}) {
-  const controller = useWorkspaceController(services?.client)
-  const [dialog, setDialog] = useState<DialogId>(null)
-  const [accountBusy, setAccountBusy] = useState(false)
-  const [online, setOnline] = useState(true)
-  const [searchTargetMessageId, setSearchTargetMessageId] = useState<string | null>(null)
-  const [selectedArtifactId, setSelectedArtifactId] = useState<string | null>(null)
-  const [sessionNoticeDismissed, setSessionNoticeDismissed] = useState(false)
-  const activeSurface = useWorkspaceStore((state) => state.activeSurface)
-  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
-  const collapsedRoomIds = useWorkspaceStore((state) => state.collapsedRoomIds)
-  const drafts = useWorkspaceStore((state) => state.drafts)
-  const mobileSidebarOpen = useWorkspaceStore((state) => state.mobileSidebarOpen)
-  const selectedAgentId = useWorkspaceStore((state) => state.selectedAgentId)
-  const selectedChannelId = useWorkspaceStore((state) => state.selectedChannelId)
-  const selectedTaskId = useWorkspaceStore((state) => state.selectedTaskId)
-  const threadRootMessageId = useWorkspaceStore((state) => state.threadRootMessageId)
-  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface)
-  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
-  const setDraft = useWorkspaceStore((state) => state.setDraft)
-  const setMobileSidebarOpen = useWorkspaceStore((state) => state.setMobileSidebarOpen)
-  const setSelectedAgentId = useWorkspaceStore((state) => state.setSelectedAgentId)
-  const setSelectedTaskId = useWorkspaceStore((state) => state.setSelectedTaskId)
-  const setThreadRootMessageId = useWorkspaceStore((state) => state.setThreadRootMessageId)
-  const toggleRoomCollapsed = useWorkspaceStore((state) => state.toggleRoomCollapsed)
-  const sessionRotated = controller.bootstrap.data?.sessionRotated ?? false
-  const sessionIdentity = controller.bootstrap.data?.principal.userId
-  useEffect(() => {
+}) {
+  const services = () => props.services
+  const controller = useWorkspaceController(services()?.client)
+  const [dialog, setDialog] = createSignal<DialogId>(null)
+  const [accountBusy, setAccountBusy] = createSignal(false)
+  const [online, setOnline] = createSignal(true)
+  const [searchTargetMessageId, setSearchTargetMessageId] = createSignal<string | null>(null)
+  const [selectedArtifactId, setSelectedArtifactId] = createSignal<string | null>(null)
+  const [sessionNoticeDismissed, setSessionNoticeDismissed] = createSignal(false)
+  const activeSurface = useWorkspaceState((state) => state.activeSurface)
+  const globalPanel = useWorkspaceState((state) => state.globalPanel)
+  const collapsedRoomIds = useWorkspaceState((state) => state.collapsedRoomIds)
+  const drafts = useWorkspaceState((state) => state.drafts)
+  const mobileSidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
+  const selectedAgentId = useWorkspaceState((state) => state.selectedAgentId)
+  const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
+  const selectedTaskId = useWorkspaceState((state) => state.selectedTaskId)
+  const threadRootMessageId = useWorkspaceState((state) => state.threadRootMessageId)
+  const sessionRotated = () => controller.bootstrap.data?.sessionRotated ?? false
+  const sessionIdentity = () => controller.bootstrap.data?.principal.userId
+  const principal = () => controller.bootstrap.data?.principal
+  const accountAuthenticated = () =>
+    services()?.account?.authenticated ?? Boolean(principal() && !principal()?.temporary)
+  const accountLabel = () =>
+    services()?.account?.label ??
+    (accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Sign in')
+
+  createEffect(() => {
+    void sessionIdentity()
     setSessionNoticeDismissed(false)
-  }, [sessionIdentity])
-  const principal = controller.bootstrap.data?.principal
-  const accountAuthenticated =
-    services?.account?.authenticated ?? Boolean(principal && !principal.temporary)
-  const accountLabel =
-    services?.account?.label ??
-    (accountAuthenticated ? (principal?.displayName ?? 'Account') : 'Sign in')
-  const selectChannel = useCallback(
-    (channelId: string, roomId?: string) => {
-      setSelectedArtifactId(null)
-      setSearchTargetMessageId(null)
-      controller.selectChannel(channelId, roomId)
-      setActiveSurface('conversation')
-      // Selecting a conversation collapses the drawer only on narrow
-      // viewports; at wider widths the sidebar stays as the user left it.
-      if (window.matchMedia('(max-width: 48rem)').matches) setMobileSidebarOpen(false)
-    },
-    [controller.selectChannel, setActiveSurface, setMobileSidebarOpen]
-  )
+  })
 
-  useEffect(() => {
-    if (globalPanel === 'settings' && !manageSettings) return
-    if (globalPanel !== 'search' && globalPanel !== 'settings') return
-    setDialog(globalPanel)
-    setGlobalPanel(null)
-  }, [globalPanel, manageSettings, setGlobalPanel])
+  const selectChannel = (channelId: string, roomId?: string) => {
+    setSelectedArtifactId(null)
+    setSearchTargetMessageId(null)
+    controller.selectChannel(channelId, roomId)
+    workspaceStore.getState().setActiveSurface('conversation')
+    // Selecting a conversation collapses the drawer only on narrow
+    // viewports; at wider widths the sidebar stays as the user left it.
+    if (window.matchMedia('(max-width: 48rem)').matches)
+      workspaceStore.getState().setMobileSidebarOpen(false)
+  }
 
-  useEffect(() => {
-    if (!manageSettings) return
+  createEffect(() => {
+    const panel = globalPanel()
+    if (panel === 'settings' && !(props.manageSettings ?? true)) return
+    if (panel !== 'search' && panel !== 'settings') return
+    setDialog(panel)
+    workspaceStore.getState().setGlobalPanel(null)
+  })
+
+  createEffect(() => {
+    if (!(props.manageSettings ?? true)) return
     const openDeepLinkedSettings = () => {
       if (window.location.hash.startsWith('#settings')) setDialog('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
     return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
-  }, [manageSettings])
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     const updateOnlineStatus = () => setOnline(navigator.onLine)
     updateOnlineStatus()
     window.addEventListener('online', updateOnlineStatus)
@@ -125,16 +117,16 @@ export function ConventionalWorkspaceShell({
       window.removeEventListener('online', updateOnlineStatus)
       window.removeEventListener('offline', updateOnlineStatus)
     }
-  }, [])
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const editableTarget =
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
         (event.target instanceof HTMLElement && event.target.isContentEditable)
       const targetInClosingDialog =
-        dialog === null &&
+        dialog() === null &&
         event.target instanceof HTMLElement &&
         Boolean(event.target.closest('[role="dialog"]'))
       const editable = editableTarget && !targetInClosingDialog
@@ -179,7 +171,7 @@ export function ConventionalWorkspaceShell({
         if (destinations.length) {
           event.preventDefault()
           const current = Math.max(
-            destinations.findIndex(({ id }) => id === selectedChannelId),
+            destinations.findIndex(({ id }) => id === selectedChannelId()),
             0
           )
           const direction = event.key === 'ArrowDown' ? 1 : -1
@@ -187,33 +179,23 @@ export function ConventionalWorkspaceShell({
           selectChannel(destinations[next]!.id, destinations[next]!.roomId)
         }
       }
-      if (event.key === 'Escape' && threadRootMessageId) setThreadRootMessageId(null)
-      if (event.key === 'Escape' && selectedArtifactId) setSelectedArtifactId(null)
+      if (event.key === 'Escape' && threadRootMessageId())
+        workspaceStore.getState().setThreadRootMessageId(null)
+      if (event.key === 'Escape' && selectedArtifactId()) setSelectedArtifactId(null)
     }
     // Capture workspace shortcuts before a portalled dialog's focus trap can
     // stop propagation while it restores focus after closing.
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [
-    activeSurface,
-    controller.channels,
-    controller.readStateActions,
-    controller.selectedChannel,
-    dialog,
-    selectedChannelId,
-    selectedArtifactId,
-    selectChannel,
-    setThreadRootMessageId,
-    threadRootMessageId,
-  ])
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     document.title = controller.activeWorkspace
       ? `${controller.activeWorkspace.name} | Adea`
       : 'Adea'
-  }, [controller.activeWorkspace])
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     if (!controller.workspaceId || !controller.channels.length) return
     const query = new URLSearchParams(window.location.search)
     const requestedWorkspace = query.get('workspace')
@@ -223,40 +205,14 @@ export function ConventionalWorkspaceShell({
     if (channelId && controller.channels.some(({ id }) => id === channelId)) {
       const channel = controller.channels.find(({ id }) => id === channelId)!
       selectChannel(channel.id, channel.roomId)
-      setThreadRootMessageId(query.get('thread'))
+      workspaceStore.getState().setThreadRootMessageId(query.get('thread'))
       setSearchTargetMessageId(query.get('message'))
     } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
-      setSelectedTaskId(taskId)
-      setActiveSurface('tasks')
+      workspaceStore.getState().setSelectedTaskId(taskId)
+      workspaceStore.getState().setActiveSurface('tasks')
     }
-  }, [
-    controller.channels,
-    controller.tasks,
-    controller.workspaceId,
-    selectChannel,
-    setActiveSurface,
-    setSelectedTaskId,
-    setThreadRootMessageId,
-  ])
+  })
 
-  if (controller.bootstrap.isPending || !controller.persistenceReady)
-    return (
-      <main className="conventional-workspace conventional-workspace--loading">
-        <WorkspaceSkeleton />
-      </main>
-    )
-  if (controller.bootstrap.isError)
-    return (
-      <main className="conventional-workspace conventional-workspace--loading">
-        <WorkspaceError
-          error={controller.bootstrap.error}
-          retry={() => void controller.bootstrap.refetch()}
-        />
-      </main>
-    )
-  if (!controller.activeWorkspace || !controller.workspaceId) return null
-  const queryError = controller.workspaceQueries.find(({ isError }) => isError)
-  const selectedArtifact = controller.artifacts.find(({ id }) => id === selectedArtifactId)
   const selectSearchResult = (result: SearchResult) => {
     if (result.kind === 'settings') {
       setDialog('settings')
@@ -268,19 +224,19 @@ export function ConventionalWorkspaceShell({
     }
     if (result.kind === 'channel') return selectChannel(result.id)
     if (result.kind === 'room') {
-      const item = controller.navigation.rooms.find(({ room }) => room.id === result.id)
+      const item = controller.navigation().rooms.find(({ room }) => room.id === result.id)
       if (item?.selectionChannelId) selectChannel(item.selectionChannelId, item.room.id)
       return
     }
     if (result.kind === 'agent') {
       setSelectedArtifactId(null)
-      setSelectedAgentId(result.id)
-      setActiveSurface('agents')
+      workspaceStore.getState().setSelectedAgentId(result.id)
+      workspaceStore.getState().setActiveSurface('agents')
       return
     }
     if (result.kind === 'message' && result.channelId) {
       selectChannel(result.channelId, result.roomId)
-      setThreadRootMessageId(result.threadRootMessageId ?? null)
+      workspaceStore.getState().setThreadRootMessageId(result.threadRootMessageId ?? null)
       setSearchTargetMessageId(result.messageId ?? result.id)
       return
     }
@@ -288,284 +244,350 @@ export function ConventionalWorkspaceShell({
       setSelectedArtifactId(result.id)
       return
     }
-    setSelectedTaskId(result.id)
+    workspaceStore.getState().setSelectedTaskId(result.id)
     setSelectedArtifactId(null)
-    setActiveSurface('tasks')
+    workspaceStore.getState().setActiveSurface('tasks')
   }
+
   const signOut = async () => {
     setAccountBusy(true)
     try {
-      await services?.account?.onSignOut()
+      await services()?.account?.onSignOut()
     } finally {
       setAccountBusy(false)
     }
   }
 
   return (
-    <main className="conventional-workspace">
-      <a className="conventional-skip-link" href="#workspace-main">
-        Skip to workspace content
-      </a>
-      <WorkspaceSidebar
-        agents={controller.agents}
-        channelBusy={controller.channelBusy}
-        collapsedRoomIds={collapsedRoomIds}
-        mobileOpen={mobileSidebarOpen}
-        navigation={controller.navigation}
-        onArchiveChannel={controller.channelActions.archive}
-        onCreateGroup={() => setDialog('create-group')}
-        onCreateRoom={() => setDialog('create-room')}
-        onRenameChannel={controller.channelActions.rename}
-        onOpenAgents={() => {
-          setSelectedArtifactId(null)
-          setActiveSurface('agents')
-        }}
-        onOpenTasks={() => {
-          setSelectedArtifactId(null)
-          setActiveSurface('tasks')
-        }}
-        onMarkAllRead={() => void controller.readStateActions.markAllRead()}
-        onSelectChannel={selectChannel}
-        onToggleMobile={setMobileSidebarOpen}
-        onToggleRoom={toggleRoomCollapsed}
-        onUpdateRoom={controller.roomActions.update}
-        roomBusy={controller.roomBusy}
-        selectedChannelId={selectedChannelId}
-        readState={controller.readState}
-        workspaceName={controller.activeWorkspace.name}
-      />
-      <section id="workspace-main" className="conventional-main" tabIndex={-1}>
-        {sessionRotated && !sessionNoticeDismissed ? (
-          <section className="conventional-session-notice" role="alert">
-            <AlertTriangle aria-hidden="true" />
-            <div>
-              <h2>Your previous session wasn&apos;t recognized</h2>
-              <p>
-                You&apos;re in a new temporary workspace, so earlier tasks and conversations
-                aren&apos;t visible here. Use the workspace switcher to return to your previous
-                workspace if it&apos;s still available.
-              </p>
+    <Show
+      when={!controller.bootstrap.isPending && controller.persistenceReady}
+      fallback={
+        <main class="conventional-workspace conventional-workspace--loading">
+          <WorkspaceSkeleton />
+        </main>
+      }
+    >
+      <Show
+        when={!controller.bootstrap.isError}
+        fallback={
+          <main class="conventional-workspace conventional-workspace--loading">
+            <WorkspaceError
+              error={controller.bootstrap.error}
+              retry={() => void controller.bootstrap.refetch()}
+            />
+          </main>
+        }
+      >
+        <Show when={controller.activeWorkspace && controller.workspaceId}>
+          <main class="conventional-workspace">
+            <a class="conventional-skip-link" href="#workspace-main">
+              Skip to workspace content
+            </a>
+            <WorkspaceSidebar
+              agents={controller.agents}
+              channelBusy={controller.channelBusy}
+              collapsedRoomIds={collapsedRoomIds()}
+              mobileOpen={mobileSidebarOpen()}
+              navigation={controller.navigation()}
+              onArchiveChannel={controller.channelActions.archive}
+              onCreateGroup={() => setDialog('create-group')}
+              onCreateRoom={() => setDialog('create-room')}
+              onRenameChannel={controller.channelActions.rename}
+              onOpenAgents={() => {
+                setSelectedArtifactId(null)
+                workspaceStore.getState().setActiveSurface('agents')
+              }}
+              onOpenTasks={() => {
+                setSelectedArtifactId(null)
+                workspaceStore.getState().setActiveSurface('tasks')
+              }}
+              onMarkAllRead={() => void controller.readStateActions.markAllRead()}
+              onSelectChannel={selectChannel}
+              onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
+              onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}
+              onUpdateRoom={controller.roomActions.update}
+              roomBusy={controller.roomBusy}
+              selectedChannelId={selectedChannelId()}
+              readState={controller.readState}
+              workspaceName={controller.activeWorkspace!.name}
+            />
+            <section id="workspace-main" class="conventional-main" tabIndex={-1}>
+              <Show when={sessionRotated() && !sessionNoticeDismissed()}>
+                <section class="conventional-session-notice" role="alert">
+                  <AlertTriangle aria-hidden="true" />
+                  <div>
+                    <h2>Your previous session wasn&apos;t recognized</h2>
+                    <p>
+                      You&apos;re in a new temporary workspace, so earlier tasks and conversations
+                      aren&apos;t visible here. Use the workspace switcher to return to your
+                      previous workspace if it&apos;s still available.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="Dismiss session notice"
+                    onClick={() => setSessionNoticeDismissed(true)}
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </section>
+              </Show>
+              <Show
+                when={!controller.workspaceQueries.find(({ isError }) => isError)}
+                fallback={(() => {
+                  const queryError = controller.workspaceQueries.find(({ isError }) => isError)!
+                  return (
+                    <WorkspaceError
+                      error={queryError.error}
+                      retry={() => void queryError.refetch()}
+                    />
+                  )
+                })()}
+              >
+                <Show
+                  when={controller.artifacts.find(({ id }) => id === selectedArtifactId())}
+                  fallback={
+                    <Show
+                      when={activeSurface() === 'conversation'}
+                      fallback={
+                        <Show
+                          when={activeSurface() === 'agents'}
+                          fallback={
+                            <TaskBoard
+                              agents={controller.agents}
+                              busy={controller.taskBusy}
+                              onArchive={controller.taskActions.archive}
+                              onAssign={controller.taskActions.assign}
+                              onCancel={controller.taskActions.cancel}
+                              onComplete={controller.taskActions.complete}
+                              onCreate={controller.taskActions.create}
+                              onDependencies={controller.taskActions.dependencies}
+                              onMoveRoom={controller.taskActions.moveRoom}
+                              onUpdate={controller.taskActions.update}
+                              onOpenConversation={(task) =>
+                                void controller.taskActions
+                                  .openConversation(task)
+                                  .then(() =>
+                                    workspaceStore.getState().setActiveSurface('conversation')
+                                  )
+                              }
+                              onQueue={controller.taskActions.queue}
+                              onReview={controller.taskActions.review}
+                              onSelect={(taskId) =>
+                                workspaceStore.getState().setSelectedTaskId(taskId)
+                              }
+                              onStart={controller.taskActions.start}
+                              privateContent={services()?.privateContent}
+                              rooms={controller.rooms}
+                              selectedTaskId={selectedTaskId()}
+                              tasks={controller.tasks}
+                            />
+                          }
+                        >
+                          <AgentRoster
+                            agents={controller.agents}
+                            busy={controller.createAgentBusy || controller.agentBusy}
+                            onArchive={controller.agentActions.archive}
+                            onCreate={controller.createAgent}
+                            onMessage={async (agentId) => {
+                              await controller.openAgentConversation(agentId)
+                              workspaceStore.getState().setActiveSurface('conversation')
+                            }}
+                            onUpdate={async (agent, input) => {
+                              if (
+                                input.name.trim() !== agent.name ||
+                                input.roleSummary !== (agent.roleSummary ?? null) ||
+                                input.avatarRef !== (agent.avatarRef ?? null) ||
+                                input.characterRef !== (agent.characterRef ?? null)
+                              )
+                                await controller.agentActions.presentation(agent.id, {
+                                  avatarRef: input.avatarRef,
+                                  characterRef: input.characterRef,
+                                  name: input.name,
+                                  roleSummary: input.roleSummary,
+                                })
+                              if (input.roomId !== (agent.roomId ?? null))
+                                await controller.agentActions.assignRoom(agent.id, input.roomId)
+                              if (
+                                input.profileId.trim() !== agent.profile.id ||
+                                input.profileVersion.trim() !== agent.profile.version
+                              )
+                                await controller.agentActions.profile(agent.id, {
+                                  profileId: input.profileId,
+                                  profileVersion: input.profileVersion,
+                                })
+                            }}
+                            rooms={controller.rooms}
+                          />
+                        </Show>
+                      }
+                    >
+                      <ConversationSurface
+                        agents={controller.agents}
+                        artifacts={controller.artifacts}
+                        channel={controller.selectedChannel}
+                        client={controller.client}
+                        draft={selectedChannelId() ? (drafts()[selectedChannelId()!] ?? '') : ''}
+                        onDraftChange={(value) =>
+                          selectedChannelId() &&
+                          workspaceStore.getState().setDraft(selectedChannelId()!, value)
+                        }
+                        onOpenDetails={() => setDialog('details')}
+                        onOpenSearch={() => setDialog('conversation-search')}
+                        onMarkRead={(lastReadSequence) =>
+                          controller.readStateActions.markChannel({
+                            action: 'read',
+                            channelId: controller.selectedChannel!.id,
+                            lastReadSequence,
+                          })
+                        }
+                        onMarkThreadRead={(rootId, lastReadSequence) =>
+                          controller.readStateActions.markThread({
+                            action: 'read',
+                            channelId: controller.selectedChannel!.id,
+                            lastReadSequence,
+                            threadRootMessageId: rootId,
+                          })
+                        }
+                        onMarkThreadUnread={(rootId) =>
+                          controller.readStateActions.markThread({
+                            action: 'unread',
+                            channelId: controller.selectedChannel!.id,
+                            threadRootMessageId: rootId,
+                          })
+                        }
+                        onMarkUnread={() =>
+                          controller.readStateActions.markChannel({
+                            action: 'unread',
+                            channelId: controller.selectedChannel!.id,
+                          })
+                        }
+                        onOpenTask={(taskId) => {
+                          workspaceStore.getState().setSelectedTaskId(taskId)
+                          workspaceStore.getState().setActiveSurface('tasks')
+                        }}
+                        privateContent={services()?.privateContent}
+                        onThreadChange={(messageId) =>
+                          workspaceStore.getState().setThreadRootMessageId(messageId)
+                        }
+                        onThreadDraftChange={(value) =>
+                          threadRootMessageId() &&
+                          workspaceStore
+                            .getState()
+                            .setDraft(`thread:${threadRootMessageId()}`, value)
+                        }
+                        tasks={controller.tasks}
+                        searchTargetMessageId={searchTargetMessageId()}
+                        threadDraft={
+                          threadRootMessageId()
+                            ? (drafts()[`thread:${threadRootMessageId()}`] ?? '')
+                            : ''
+                        }
+                        threadRootMessageId={threadRootMessageId()}
+                        transcription={services()?.transcription}
+                        workspaceId={controller.workspaceId!}
+                      />
+                    </Show>
+                  }
+                >
+                  {(artifact) => (
+                    <ArtifactDetail
+                      artifact={artifact()}
+                      dismiss={() => setSelectedArtifactId(null)}
+                      openTask={(taskId) => {
+                        workspaceStore.getState().setSelectedTaskId(taskId)
+                        workspaceStore.getState().setActiveSurface('tasks')
+                        setSelectedArtifactId(null)
+                      }}
+                    />
+                  )}
+                </Show>
+              </Show>
+            </section>
+            <Suspense fallback={null}>
+              <CreateRoomDialog
+                busy={controller.createRoomBusy}
+                onClose={() => setDialog(null)}
+                onCreate={controller.createRoom}
+                open={dialog() === 'create-room'}
+                template={controller.activeWorkspace!.scene}
+              />
+              <CreateGroupDialog
+                busy={controller.createGroupBusy}
+                onClose={() => setDialog(null)}
+                onCreate={controller.createGroup}
+                open={dialog() === 'create-group'}
+              />
+              <WorkspaceSearchDialog
+                agents={controller.agents}
+                artifacts={controller.artifacts}
+                channels={controller.channels}
+                client={controller.client}
+                onClose={() => setDialog(null)}
+                online={online()}
+                onSelect={selectSearchResult}
+                open={dialog() === 'search' || dialog() === 'conversation-search'}
+                privateContent={services()?.privateContent}
+                rooms={controller.rooms}
+                scopeChannelId={
+                  dialog() === 'conversation-search' ? controller.selectedChannel?.id : undefined
+                }
+                tasks={controller.tasks}
+                workspaceId={controller.workspaceId!}
+              />
+              <Show when={props.manageSettings ?? true}>
+                <WorkspaceSettingsDialog
+                  accountAuthenticated={accountAuthenticated()}
+                  accountLabel={accountLabel()}
+                  agents={controller.agents}
+                  busy={services()?.account?.busy ?? accountBusy()}
+                  onClose={() => setDialog(null)}
+                  onOpenAgents={() => {
+                    setSelectedArtifactId(null)
+                    workspaceStore.getState().setActiveSurface('agents')
+                  }}
+                  onSignIn={() => services()?.account?.onSignIn()}
+                  onSignOut={() => void signOut()}
+                  open={dialog() === 'settings'}
+                  services={services()}
+                  workspace={controller.activeWorkspace!}
+                />
+              </Show>
+              <ModalDialog
+                open={dialog() === 'details'}
+                onClose={() => setDialog(null)}
+                title="Conversation details"
+                description="Canonical Adea identity and scope."
+              >
+                <div class="conventional-conversation-details">
+                  <p>
+                    <span>Kind</span>
+                    <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
+                  </p>
+                  <p>
+                    <span>Visibility</span>
+                    <strong>{controller.selectedChannel?.visibility}</strong>
+                  </p>
+                  <p>
+                    <span>Participants</span>
+                    <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
+                  </p>
+                  <p>
+                    <span>Task link</span>
+                    <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
+                  </p>
+                </div>
+              </ModalDialog>
+            </Suspense>
+            <div class="visually-hidden" aria-live="polite">
+              {online() ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}
             </div>
-            <button
-              type="button"
-              aria-label="Dismiss session notice"
-              onClick={() => setSessionNoticeDismissed(true)}
-            >
-              <X aria-hidden="true" />
-            </button>
-          </section>
-        ) : null}
-        {queryError ? (
-          <WorkspaceError error={queryError.error} retry={() => void queryError.refetch()} />
-        ) : selectedArtifact ? (
-          <ArtifactDetail
-            artifact={selectedArtifact}
-            dismiss={() => setSelectedArtifactId(null)}
-            openTask={(taskId) => {
-              setSelectedTaskId(taskId)
-              setActiveSurface('tasks')
-              setSelectedArtifactId(null)
-            }}
-          />
-        ) : activeSurface === 'conversation' ? (
-          <ConversationSurface
-            agents={controller.agents}
-            artifacts={controller.artifacts}
-            channel={controller.selectedChannel}
-            client={controller.client}
-            draft={selectedChannelId ? (drafts[selectedChannelId] ?? '') : ''}
-            onDraftChange={(value) => selectedChannelId && setDraft(selectedChannelId, value)}
-            onOpenDetails={() => setDialog('details')}
-            onOpenSearch={() => setDialog('conversation-search')}
-            onMarkRead={(lastReadSequence) =>
-              controller.readStateActions.markChannel({
-                action: 'read',
-                channelId: controller.selectedChannel!.id,
-                lastReadSequence,
-              })
-            }
-            onMarkThreadRead={(rootId, lastReadSequence) =>
-              controller.readStateActions.markThread({
-                action: 'read',
-                channelId: controller.selectedChannel!.id,
-                lastReadSequence,
-                threadRootMessageId: rootId,
-              })
-            }
-            onMarkThreadUnread={(rootId) =>
-              controller.readStateActions.markThread({
-                action: 'unread',
-                channelId: controller.selectedChannel!.id,
-                threadRootMessageId: rootId,
-              })
-            }
-            onMarkUnread={() =>
-              controller.readStateActions.markChannel({
-                action: 'unread',
-                channelId: controller.selectedChannel!.id,
-              })
-            }
-            onOpenTask={(taskId) => {
-              setSelectedTaskId(taskId)
-              setActiveSurface('tasks')
-            }}
-            privateContent={services?.privateContent}
-            onThreadChange={setThreadRootMessageId}
-            onThreadDraftChange={(value) =>
-              threadRootMessageId && setDraft(`thread:${threadRootMessageId}`, value)
-            }
-            tasks={controller.tasks}
-            searchTargetMessageId={searchTargetMessageId}
-            threadDraft={threadRootMessageId ? (drafts[`thread:${threadRootMessageId}`] ?? '') : ''}
-            threadRootMessageId={threadRootMessageId}
-            transcription={services?.transcription}
-            workspaceId={controller.workspaceId}
-          />
-        ) : activeSurface === 'agents' ? (
-          <AgentRoster
-            agents={controller.agents}
-            busy={controller.createAgentBusy || controller.agentBusy}
-            onArchive={controller.agentActions.archive}
-            onCreate={controller.createAgent}
-            onMessage={async (agentId) => {
-              await controller.openAgentConversation(agentId)
-              setActiveSurface('conversation')
-            }}
-            onUpdate={async (agent, input) => {
-              if (
-                input.name.trim() !== agent.name ||
-                input.roleSummary !== (agent.roleSummary ?? null) ||
-                input.avatarRef !== (agent.avatarRef ?? null) ||
-                input.characterRef !== (agent.characterRef ?? null)
-              )
-                await controller.agentActions.presentation(agent.id, {
-                  avatarRef: input.avatarRef,
-                  characterRef: input.characterRef,
-                  name: input.name,
-                  roleSummary: input.roleSummary,
-                })
-              if (input.roomId !== (agent.roomId ?? null))
-                await controller.agentActions.assignRoom(agent.id, input.roomId)
-              if (
-                input.profileId.trim() !== agent.profile.id ||
-                input.profileVersion.trim() !== agent.profile.version
-              )
-                await controller.agentActions.profile(agent.id, {
-                  profileId: input.profileId,
-                  profileVersion: input.profileVersion,
-                })
-            }}
-            rooms={controller.rooms}
-          />
-        ) : (
-          <TaskBoard
-            agents={controller.agents}
-            busy={controller.taskBusy}
-            onArchive={controller.taskActions.archive}
-            onAssign={controller.taskActions.assign}
-            onCancel={controller.taskActions.cancel}
-            onComplete={controller.taskActions.complete}
-            onCreate={controller.taskActions.create}
-            onDependencies={controller.taskActions.dependencies}
-            onMoveRoom={controller.taskActions.moveRoom}
-            onUpdate={controller.taskActions.update}
-            onOpenConversation={(task) =>
-              void controller.taskActions
-                .openConversation(task)
-                .then(() => setActiveSurface('conversation'))
-            }
-            onQueue={controller.taskActions.queue}
-            onReview={controller.taskActions.review}
-            onSelect={setSelectedTaskId}
-            onStart={controller.taskActions.start}
-            privateContent={services?.privateContent}
-            rooms={controller.rooms}
-            selectedTaskId={selectedTaskId}
-            tasks={controller.tasks}
-          />
-        )}
-      </section>
-      <Suspense fallback={null}>
-        <CreateRoomDialog
-          busy={controller.createRoomBusy}
-          onClose={() => setDialog(null)}
-          onCreate={controller.createRoom}
-          open={dialog === 'create-room'}
-          template={controller.activeWorkspace.scene}
-        />
-        <CreateGroupDialog
-          busy={controller.createGroupBusy}
-          onClose={() => setDialog(null)}
-          onCreate={controller.createGroup}
-          open={dialog === 'create-group'}
-        />
-        <WorkspaceSearchDialog
-          agents={controller.agents}
-          artifacts={controller.artifacts}
-          channels={controller.channels}
-          client={controller.client}
-          onClose={() => setDialog(null)}
-          online={online}
-          onSelect={selectSearchResult}
-          open={dialog === 'search' || dialog === 'conversation-search'}
-          privateContent={services?.privateContent}
-          rooms={controller.rooms}
-          scopeChannelId={
-            dialog === 'conversation-search' ? controller.selectedChannel?.id : undefined
-          }
-          tasks={controller.tasks}
-          workspaceId={controller.workspaceId}
-        />
-        {manageSettings ? (
-          <WorkspaceSettingsDialog
-            accountAuthenticated={accountAuthenticated}
-            accountLabel={accountLabel}
-            agents={controller.agents}
-            busy={services?.account?.busy ?? accountBusy}
-            onClose={() => setDialog(null)}
-            onOpenAgents={() => {
-              setSelectedArtifactId(null)
-              setActiveSurface('agents')
-            }}
-            onSignIn={() => services?.account?.onSignIn()}
-            onSignOut={() => void signOut()}
-            open={dialog === 'settings'}
-            services={services}
-            workspace={controller.activeWorkspace}
-          />
-        ) : null}
-        <ModalDialog
-          open={dialog === 'details'}
-          onClose={() => setDialog(null)}
-          title="Conversation details"
-          description="Canonical Adea identity and scope."
-        >
-          <div className="conventional-conversation-details">
-            <p>
-              <span>Kind</span>
-              <strong>{controller.selectedChannel?.kind.replace('_', ' ')}</strong>
-            </p>
-            <p>
-              <span>Visibility</span>
-              <strong>{controller.selectedChannel?.visibility}</strong>
-            </p>
-            <p>
-              <span>Participants</span>
-              <strong>{controller.selectedChannel?.participants.length ?? 0}</strong>
-            </p>
-            <p>
-              <span>Task link</span>
-              <strong>{controller.selectedChannel?.taskId ? 'Linked' : 'None'}</strong>
-            </p>
-          </div>
-        </ModalDialog>
-      </Suspense>
-      <div className="visually-hidden" aria-live="polite">
-        {online ? 'Workspace online' : 'Workspace offline. Drafts remain on this device.'}
-      </div>
-      {selectedAgentId ? (
-        <span className="visually-hidden">Selected Agent {selectedAgentId}</span>
-      ) : null}
-    </main>
+            <Show when={selectedAgentId()}>
+              <span class="visually-hidden">Selected Agent {selectedAgentId()}</span>
+            </Show>
+          </main>
+        </Show>
+      </Show>
+    </Show>
   )
 }
