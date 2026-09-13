@@ -1,23 +1,38 @@
-// Cloud-origin scan for the desktop shell.
+// Cloud-origin scan for the desktop lane.
 //
 // The desktop's core security invariant is that the app talks only to the
 // exact cloud origin baked in at build time. One JavaScript module owns the
-// literal (`apps/desktop/scripts/cloud-config.mjs`); the client build injects it
-// through `__ADEA_CLOUD_ORIGIN__`, and the shell never restates it. Any other
-// `https://…` literal in the scanned trees is a silent widening of that
-// invariant, so this scanner fails the build on every origin that is not the
-// owning module's canonical constant or an explicitly baselined exception. Test
-// code and comment lines are out of scope.
+// literal (`apps/desktop/scripts/cloud-config.mjs`); `scripts/client.mjs`
+// validates it and passes it into the web app's desktop build, which injects it
+// as `__ADEA_DESKTOP_CLOUD_ORIGIN__`. The shell never restates it. Any other
+// `https://…` literal in the scanned desktop client files is a silent widening
+// of that invariant, so this scanner fails the build on every origin that is
+// not the owning module's canonical constant or an explicitly baselined
+// exception. Test code and comment lines are out of scope.
 
-import { readFile, readdir } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join, relative, resolve, sep } from 'node:path'
 
-/** Files whose origin literals are part of the scan. */
-const SCAN_ROOTS = ['apps/desktop/shell', 'apps/desktop/src', 'apps/desktop/scripts']
+/** Files and directories whose origin literals are part of the scan. */
+const SCAN_ROOTS = [
+  'apps/desktop/shell',
+  'apps/desktop/scripts',
+  'apps/web/vite.desktop.config.ts',
+  'apps/web/src/lib/desktop-bridge.ts',
+  'apps/web/src/lib/desktop-local-content.ts',
+  'apps/web/src/lib/desktop-platform-services.ts',
+  'apps/web/src/lib/desktop-private-content.ts',
+  'apps/web/src/lib/desktop-runtime.ts',
+  'apps/web/src/lib/desktop-update.ts',
+  'apps/web/src/lib/desktop-workspace-session.ts',
+  'apps/web/src/components/desktop-workspace-entry.tsx',
+  'apps/web/src/components/workspace-navigation.tsx',
+  'apps/web/src/components/workspace-navigation-entry.tsx',
+]
 const SCAN_EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js', '.json', '.html']
 /** Build output and dependency trees never ship as source. */
-const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', '.turbo'])
+const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'dist-desktop', '.turbo'])
 
 /** The one module allowed to name the canonical cloud origin. */
 export const CLOUD_ORIGIN_SOURCE = 'apps/desktop/scripts/cloud-config.mjs'
@@ -105,6 +120,15 @@ async function* sourceFiles(directory) {
   try {
     entries = await readdir(directory, { withFileTypes: true })
   } catch {
+    // A scanned path may be a file rather than a directory.
+    try {
+      const info = await stat(directory)
+      if (info.isFile() && SCAN_EXTENSIONS.some((extension) => directory.endsWith(extension))) {
+        yield directory
+      }
+    } catch {
+      /* absent */
+    }
     return
   }
   for (const entry of entries) {

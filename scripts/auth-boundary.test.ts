@@ -12,9 +12,15 @@ async function sourceFiles(directory: string): Promise<string[]> {
         const path = join(directory, entry.name)
         if (
           entry.isDirectory() &&
-          ['.next', '.open-next', '.turbo', '.wrangler', 'dist', 'node_modules'].includes(
-            entry.name
-          )
+          [
+            '.next',
+            '.open-next',
+            '.turbo',
+            '.wrangler',
+            'dist',
+            'dist-desktop',
+            'node_modules',
+          ].includes(entry.name)
         ) {
           return []
         }

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -83,6 +84,20 @@ describe('desktop shell boot', () => {
     // a remote page read command results.
     expect(source).toContain("html.replace('<head>'")
     expect(source).not.toContain('access-control-allow-origin')
+  })
+
+  test('serves the web app single-UI build without a desktop client build', async () => {
+    const source = await readFile(entry, 'utf8')
+
+    // The shell serves the web app's TanStack Start SPA output; there is no
+    // second desktop client pipeline.
+    expect(source).toContain("'../../../../web/dist-desktop/client'")
+    expect(existsSync(join(root, 'apps/desktop/vite.config.ts'))).toBe(false)
+    expect(existsSync(join(root, 'apps/desktop/src'))).toBe(false)
+    expect(existsSync(join(root, 'apps/desktop/index.html'))).toBe(false)
+    const clientBuild = await readFile(join(root, 'apps/desktop/scripts/client.mjs'), 'utf8')
+    expect(clientBuild).toContain('@adea-ai/web^...')
+    expect(clientBuild).toContain("'desktop:build'")
   })
 
   test('confines the served client root to the bundled client directory', async () => {

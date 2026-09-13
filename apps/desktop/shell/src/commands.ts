@@ -82,7 +82,7 @@ export function createCommandSurface(dataDir: string) {
     writeFileSync(contentIndexFile, JSON.stringify(index), { mode: 0o600 })
   }
 
-  const handlers: Record<string, (args?: Record<string, unknown>) => BridgeResult['value']> = {
+  const handlers: Record<string, (args?: Record<string, unknown>) => unknown> = {
     desktop_user_session_load: () => readSecret('session.sealed'),
     desktop_user_session_save: (args) => {
       writeSecret('session.sealed', args?.session)
@@ -135,7 +135,7 @@ export function createCommandSurface(dataDir: string) {
       const now = new Date().toISOString()
       const ref = {
         id,
-        workspaceId: input.workspaceId,
+        workspaceId: String(input.workspaceId ?? ''),
         contentType: input.contentType,
         taskId: input.taskId,
         messageId: input.messageId,

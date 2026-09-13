@@ -10,7 +10,8 @@ contract to read before touching
 > Rust module paths below refer to the previous shell. The shell implements the
 > `local_content_*` commands in `apps/desktop/shell/src/commands.ts` over a
 > file-backed AES-GCM store; the client reaches them through
-> `apps/desktop/src/platform/bridge.ts`.
+> `apps/web/src/lib/desktop-bridge.ts` (module
+> `apps/web/src/lib/desktop-local-content.ts`).
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).

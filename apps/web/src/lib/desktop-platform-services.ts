@@ -1,7 +1,37 @@
-import type { TranscriptionProvider, TranscriptionSession } from '@adea-ai/workspace-ui'
-import { Channel, invoke } from './platform/bridge'
+// Desktop platform services for the single web UI: the shell-backed
+// capabilities, preferences, and dictation providers. Everything here is
+// browser-safe and only resolves through the injected `window.__adeaDesktop`
+// bridge, so the web lane never constructs them.
+import type {
+  CapabilityProvider,
+  CapabilitySnapshot,
+  TranscriptionProvider,
+  TranscriptionSession,
+  WorkspacePreferences,
+  WorkspaceSettingsProvider,
+} from '@adea-ai/workspace-ui'
 
-import { desktopSettingsProvider } from './preferences'
+import { Channel, invoke } from './desktop-bridge'
+
+/**
+ * Local capability health as the native shell reports it. The shell caches the
+ * snapshot behind a re-probe floor, so `force` is a user-visible refresh rather
+ * than something a poll should pass.
+ */
+export const desktopCapabilityProvider: CapabilityProvider = Object.freeze({
+  snapshot(options) {
+    return invoke<CapabilitySnapshot>('capability_snapshot', { force: options?.force ?? false })
+  },
+})
+
+export const desktopSettingsProvider: WorkspaceSettingsProvider = Object.freeze({
+  load() {
+    return invoke<WorkspacePreferences>('desktop_preferences_load')
+  },
+  save(preferences) {
+    return invoke<WorkspacePreferences>('desktop_preferences_save', { preferences })
+  },
+})
 
 type NativeTranscriptionEvent =
   | Readonly<{ type: 'complete'; text: string }>
@@ -69,7 +99,7 @@ export const systemTranscriptionProvider = createNativeTranscriptionProvider({
     return new Channel<NativeTranscriptionEvent>(onEvent)
   },
   getLocale: async () => (await desktopSettingsProvider.load()).dictationLocale,
-  language: navigator.language,
+  language: typeof navigator === 'undefined' ? 'en-US' : navigator.language,
   requestPermission: () => invoke('desktop_transcription_permission'),
   start: (locale, events) => invoke('desktop_transcription_start', { events, locale }),
 })

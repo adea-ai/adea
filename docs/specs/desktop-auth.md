@@ -3,15 +3,21 @@
 The native shell's half of the desktop sign-in handoff: what it accepts, what it
 stores, and what it refuses. The cloud half (endpoints, Neon Auth, digest
 storage) lives in [Authentication boundary](../authentication.md); this page is
-the contract to read before touching `apps/desktop/src-tauri/src/auth.rs`,
-`cloud.rs`, or the desktop flows in `packages/auth/src/desktop.ts`.
+the contract to read before touching the desktop flows in
+`packages/auth/src/desktop.ts`, the shell command family in
+`apps/desktop/shell/src/commands.ts`, or the client runtime in
+`apps/web/src/lib/desktop-runtime.ts`.
 
-> **Implementation note (2026-09-12):** the desktop shell is now Electrobun
-> (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
-> Rust module paths below refer to the previous shell. Documented replacements:
-> the shell implements the auth command family in
-> `apps/desktop/shell/src/commands.ts` (`desktop_auth_start` opens the URL in the
-> system browser; `desktop_auth_take_callback` is a single read-and-clear).
+> **Implementation note (2026-09-13):** the desktop shell is Electrobun (Bun +
+> CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
+> Rust module paths below refer to the previous shell. The shell implements the
+> auth command family in `apps/desktop/shell/src/commands.ts`
+> (`desktop_auth_start` opens the URL in the system browser;
+> `desktop_auth_take_callback` is a single read-and-clear). The single web UI
+> runs in the shell through `apps/web/src/lib/desktop-runtime.ts` and
+> `apps/web/src/components/desktop-workspace-entry.tsx`; the shell serves the
+> web app's SPA build on loopback
+> (`apps/desktop/scripts/client.mjs` → `apps/web/dist-desktop/client`).
 > Deep-link/URL-scheme registration for the `adea://` auth callback is not yet
 > carried by the shell; release-pipeline registration is tracked in #370.
 
@@ -20,12 +26,13 @@ same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
 ## One cloud origin
 
-`cloud.rs` owns the origin: `DEFAULT_CLOUD_ORIGIN` plus `cloud_origin()`, which
-reads the compile-time `VITE_ADEA_CLOUD_ORIGIN` that `scripts/tauri.mjs`
-validated and passed to the build. The packaged CSP, this allowlist, and the
-browser-safe broker all derive from that one value;
-`scripts/check-desktop-origins.mjs` fails the build on any other origin literal
-in the shell.
+`apps/desktop/scripts/cloud-config.mjs` owns the origin: `DEFAULT_CLOUD_ORIGIN`
+plus `normalizeDesktopCloudOrigin()`. `apps/desktop/scripts/client.mjs`
+validates it and passes it into the web app's desktop build, which injects it as
+the `__ADEA_DESKTOP_CLOUD_ORIGIN__` build constant that
+`apps/web/src/lib/desktop-runtime.ts` reads for the API base and the
+browser-safe session broker. `scripts/check-desktop-origins.mjs` fails the build
+on any other origin literal in the scanned desktop client files.
 
 `validate_authorization_url` accepts a URL only when the scheme, host, and port
 equal the cloud origin's, the path is exactly `/api/auth/desktop/authorize`,
@@ -83,17 +90,18 @@ verification.
 ## IPC contract
 
 `desktop_auth_*`, `desktop_user_session_*`, and `desktop_temporary_workspace_*`
-are granted by `permissions/desktop-auth.toml` to the bundled main window only.
-The registered and granted command sets must match exactly:
-`src/ipc_contract.rs` and `scripts/desktop-ipc-boundary.test.ts` fail the build
-otherwise, and the latter also checks that every command the client invokes is
-registered and granted.
+exist only in the shell's `handlers` registry
+(`apps/desktop/shell/src/commands.ts`), which the bundled main window reaches
+through `/__adea/invoke`. The registered command set and the commands the client
+actually invokes must match exactly: `scripts/desktop-ipc-boundary.test.ts`
+fails the build otherwise, and `apps/desktop/tests/shell-commands.test.ts`
+exercises the family round-trips.
 
 ## Pinned by
 
-- `auth.rs` unit tests: origin allowlist, callback replay and credential
+- `packages/auth/tests/unit`: origin allowlist, callback replay and credential
   rejection, single-use callback, vault validation for all three entries.
-- `cloud.rs` unit tests: the default and compile-time origins are bare origins.
+- `packages/auth/tests/unit`: the default and injected origins are bare origins.
 - `scripts/desktop-origin-boundary.test.ts`: the canonical constant, the derived
   call sites, and no stray origin literal.
 - `scripts/desktop-ipc-boundary.test.ts`: the command surface above.

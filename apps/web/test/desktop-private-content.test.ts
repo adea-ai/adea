@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 
-import type { CloudContentRefAuthority, PrivateContentAuthority } from '../../src/private-content'
-import { persistPrivateContent, resolveFutureExecutionInput } from '../../src/private-content'
+import type {
+  CloudContentRefAuthority,
+  PrivateContentAuthority,
+} from '../src/lib/desktop-private-content'
+import {
+  persistPrivateContent,
+  resolveFutureExecutionInput,
+} from '../src/lib/desktop-private-content'
 
 describe('private content reconciliation', () => {
   test('keeps plaintext out of cloud calls and resolves a deterministic execution fixture', async () => {

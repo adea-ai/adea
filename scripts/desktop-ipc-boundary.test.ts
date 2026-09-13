@@ -5,7 +5,9 @@ import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
 const registrySource = join(root, 'apps/desktop/shell/src/commands.ts')
-const client = join(root, 'apps/desktop/src')
+// The desktop client is the web app now; every browser-safe source in the web
+// app and the shared packages can reach the shell through the bridge.
+const client = join(root, 'apps/web/src')
 const packages = join(root, 'packages')
 
 /** Commands the shell registers. The shell's `invoke` rejects anything else. */
@@ -70,11 +72,11 @@ const SHELL_ONLY_COMMANDS = new Set<string>()
 // This is the cross-check the previous per-command ACL gave the Rust lane.
 describe('desktop IPC contract', () => {
   test('routes every client command through the platform bridge', async () => {
-    const bridge = await readFile(join(root, 'apps/desktop/src/platform/bridge.ts'), 'utf8')
+    const bridge = await readFile(join(root, 'apps/web/src/lib/desktop-bridge.ts'), 'utf8')
 
     expect(bridge).toContain('window.__adeaDesktop')
     expect(bridge).toContain('shell().invoke(cmd, args)')
-    // The client must not reach back to the previous shell's API.
+    // No client source may reach back to the previous shell's API.
     const traces: string[] = []
     for (const path of await coveredSources()) {
       const source = await readFile(path, 'utf8')

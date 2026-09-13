@@ -8,6 +8,7 @@
     "build:cloudflare": "bun run --cwd ../.. build:cloudflare",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "deploy": "bun run build:cloudflare && bun x wrangler deploy",
+    "desktop:build": "bun ../../scripts/sync-assets.mjs && vite build --config vite.desktop.config.ts",
     "dev": "bun ../../scripts/sync-assets.mjs && vite",
     "lint": "oxlint",
     "preview": "bun run build && bun x wrangler dev --local",

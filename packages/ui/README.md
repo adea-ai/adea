@@ -26,7 +26,7 @@ property.
 ```
 
 `scripts/check-theme-colors.mjs` enforces the rule across `packages/ui`,
-`packages/workspace-ui`, `apps/desktop/src`, and `apps/web/src`;
+`packages/workspace-ui` and `apps/web/src`;
 `scripts/theme-color-boundary.test.ts` runs the scan in the validation lane.
 
 The rule is a gate with a burn-down, not a rewrite:

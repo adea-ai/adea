@@ -1,4 +1,4 @@
-import { invoke } from './platform/bridge'
+import { invoke } from './desktop-bridge'
 
 export type LocalContentType = 'message_body' | 'private_field' | 'task_input' | 'task_objective'
 

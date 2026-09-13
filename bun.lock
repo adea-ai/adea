@@ -20,24 +20,6 @@
     "apps/desktop": {
       "name": "@adea-ai/desktop",
       "version": "0.21.2",
-      "dependencies": {
-        "@adea-ai/api-client": "workspace:*",
-        "@adea-ai/audio": "workspace:*",
-        "@adea-ai/auth": "workspace:*",
-        "@adea-ai/data": "workspace:*",
-        "@adea-ai/state": "workspace:*",
-        "@adea-ai/ui": "workspace:*",
-        "@adea-ai/workspace-ui": "workspace:*",
-        "lucide-react": "^1.33.0",
-        "react": "19.2.8",
-        "react-dom": "19.2.8",
-      },
-      "devDependencies": {
-        "@tailwindcss/postcss": "^4.3.3",
-        "@types/react": "^19.2.18",
-        "@types/react-dom": "^19.2.4",
-        "vite": "^8.2.2",
-      },
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",

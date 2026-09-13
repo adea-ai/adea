@@ -78,15 +78,15 @@ production control plane with a real desktop session; the command surface was
 served identically for every shell, so the numbers compare engine, window,
 boot, and rendering cost. Same machine, same client build, cold + warm.
 
-| Shell | Ready | Workspace | Loaded RSS (chat) | **Loaded RSS + Agent Sim scene** | App bundle |
-| --- | --- | --- | --- | --- | --- |
-| **Electrobun + Bun + CEF** | **1.0 s** | +1.0 s | **350–358 MB** | **356 MB** | 370 MB |
-| Electron 44 | 4.3 s | +1.5 s | 533 MB | 1,052 MB | 313 MB |
-| CEF-in-Rust (cef-rs) | 0.7 s | +1.5 s | 905 MB | not run | 330 MB |
-| NW.js | 0.7 s | +1.1 s | 970 MB | not run | 404 MB |
-| Deno Desktop + CEF | 4.0 s | — | 709 MB | not run | 314 MB |
-| Chrome `--app` (floor) | 0.5 s | +1.6 s | 1,435–1,700 MB | not run | 0 |
-| Tauri 2 (no engine, reference) | 0.5 s | can't host the scene¹ | 105 MB | — | 8.9 MB |
+| Shell                          | Ready     | Workspace             | Loaded RSS (chat) | **Loaded RSS + Agent Sim scene** | App bundle |
+| ------------------------------ | --------- | --------------------- | ----------------- | -------------------------------- | ---------- |
+| **Electrobun + Bun + CEF**     | **1.0 s** | +1.0 s                | **350–358 MB**    | **356 MB**                       | 370 MB     |
+| Electron 44                    | 4.3 s     | +1.5 s                | 533 MB            | 1,052 MB                         | 313 MB     |
+| CEF-in-Rust (cef-rs)           | 0.7 s     | +1.5 s                | 905 MB            | not run                          | 330 MB     |
+| NW.js                          | 0.7 s     | +1.1 s                | 970 MB            | not run                          | 404 MB     |
+| Deno Desktop + CEF             | 4.0 s     | —                     | 709 MB            | not run                          | 314 MB     |
+| Chrome `--app` (floor)         | 0.5 s     | +1.6 s                | 1,435–1,700 MB    | not run                          | 0          |
+| Tauri 2 (no engine, reference) | 0.5 s     | can't host the scene¹ | 105 MB            | —                                | 8.9 MB     |
 
 Why Electrobun: with the full Agent Sim world mounted it uses ~⅓ of Electron's
 memory and reaches ready ~4× faster, on our own runtime (Bun is already the
@@ -110,6 +110,12 @@ Benchmark methodology and raw runs: PR #373 history (harness deleted at
 milestone closeout). Session handling used the bench's browser-type transport;
 the desktop device-credential flow is implementation work shared by every
 candidate and is unaffected by this selection.
+
+**Single-UI follow-through (2026-09-13, #370):** the shell serves the web app's
+own TanStack Start SPA build from loopback (`apps/web/vite.desktop.config.ts` →
+`apps/web/dist-desktop/client`) and injects the bridge into that document;
+desktop-only surfaces are `isDesktopRuntime()` flags in `apps/web`, not a second
+client. Variant rationale and rejected alternatives: `apps/desktop/README.md`.
 
 ## Prior art (verified against installed apps, 2026-09-12)
 

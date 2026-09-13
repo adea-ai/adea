@@ -11,10 +11,11 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "vite.config.ts",
+    "vite.desktop.config.ts",
     "start/**/*.ts",
     "start/**/*.tsx"
   ],
   // Bun-run tests and Playwright specs compile under their own runners, so tsc
   // covers application and build-config sources only.
-  "exclude": ["node_modules", "dist", "start/routeTree.gen.ts", "e2e", "test"]
+  "exclude": ["node_modules", "dist", "dist-desktop", "start/routeTree.gen.ts", "e2e", "test"]
 }

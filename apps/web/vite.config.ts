@@ -65,12 +65,18 @@ export default defineConfig({
   },
   // Never stringify process.env or expose server credentials through VITE_*.
   // Read only explicitly allowlisted, already-public variables supplied by CI.
-  define: Object.fromEntries(
-    PUBLIC_ENV_NAMES.map((key) => [
-      `process.env.${key}`,
-      JSON.stringify(process.env[key]) ?? 'undefined',
-    ])
-  ),
+  // The desktop cloud origin is deliberately empty here: the deployed web app
+  // must never read it (the desktop runtime is the only consumer, and the
+  // desktop build lane injects the approved value in vite.desktop.config.ts).
+  define: {
+    ...Object.fromEntries(
+      PUBLIC_ENV_NAMES.map((key) => [
+        `process.env.${key}`,
+        JSON.stringify(process.env[key]) ?? 'undefined',
+      ])
+    ),
+    __ADEA_DESKTOP_CLOUD_ORIGIN__: JSON.stringify(''),
+  },
   css: { postcss: { plugins: [tailwindcss()] } },
   build: { assetsDir: 'start-assets', sourcemap: false },
   plugins: [

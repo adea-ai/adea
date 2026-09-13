@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 
-import { createNativeTranscriptionProvider } from '../../src/transcription'
+import { createNativeTranscriptionProvider } from '../src/lib/desktop-platform-services'
 
 type Event =
   | Readonly<{ type: 'complete'; text: string }>
@@ -32,7 +32,10 @@ function harness(permission: 'denied' | 'granted' | 'unavailable' = 'granted') {
 
 describe('desktop native transcription provider', () => {
   test('routes native transcription through the shell command surface', async () => {
-    const commands = await readFile(new URL('../../shell/src/commands.ts', import.meta.url), 'utf8')
+    const commands = await readFile(
+      new URL('../../desktop/shell/src/commands.ts', import.meta.url),
+      'utf8'
+    )
 
     expect(commands).toContain('desktop_transcription_permission')
     expect(commands).toContain('desktop_transcription_start')

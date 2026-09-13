@@ -6,7 +6,7 @@ import {
   bootstrapDesktopWorkspace,
   createWorkspaceRequestGuard,
   loadTemporaryWorkspaceCredential,
-} from '../../src/workspace-session'
+} from '../src/lib/desktop-workspace-session'
 
 const workspace = {
   id: 'workspace-1',

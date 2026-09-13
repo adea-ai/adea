@@ -1,13 +1,15 @@
 // Adea desktop shell — Electrobun 2.x (Bun main process, bundled CEF view).
-// Serves the built client from disk on a loopback port, injects the bridge
-// script into the client document, and hosts the desktop command surface.
+// Serves the single UI (apps/web's TanStack Start SPA output, built by
+// apps/desktop/scripts/client.mjs) from disk on a loopback port, injects the
+// bridge script into the document, and hosts the desktop command surface.
 // The view is pinned to the loopback origin: no remote navigation.
 import { BrowserWindow } from 'electrobun/main'
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { createCommandSurface } from '../commands'
 
-const CLIENT_ROOT = process.env.ADEA_CLIENT_ROOT ?? join(import.meta.dir, '../../../../dist')
+const CLIENT_ROOT =
+  process.env.ADEA_CLIENT_ROOT ?? join(import.meta.dir, '../../../../web/dist-desktop/client')
 const DATA_DIR =
   process.env.ADEA_DATA_DIR ?? join(process.env.HOME ?? '.', 'Library/Application Support/Adea')
 const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
@@ -65,18 +67,18 @@ Bun.serve({
       }
       if (url.pathname === '/__adea/events') {
         // Long-lived SSE channel for shell events (auth callback readiness).
+        let heartbeat: ReturnType<typeof setInterval> | undefined
         const stream = new ReadableStream({
           start(controller) {
             const encoder = new TextEncoder()
             controller.enqueue(encoder.encode(': connected\n\n'))
-            const timer = setInterval(() => {
+            heartbeat = setInterval(() => {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ at: Date.now() })}\n\n`))
             }, 30_000)
-            // @ts-expect-error cancel is available on the underlying source
-            this.cancel = () => clearInterval(timer)
           },
           cancel() {
-            /* client disconnected */
+            // Client disconnected: stop the heartbeat.
+            if (heartbeat) clearInterval(heartbeat)
           },
         })
         return new Response(stream, {

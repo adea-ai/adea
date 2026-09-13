@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 
-const root = new URL('../../../../', import.meta.url)
+const root = new URL('../../../', import.meta.url)
 
 describe('desktop local content boundary', () => {
   test('exposes only narrow content operations without a database path or key API', async () => {
-    const source = await readFile(new URL('../../src/local-content.ts', import.meta.url), 'utf8')
+    const source = await readFile(
+      new URL('../src/lib/desktop-local-content.ts', import.meta.url),
+      'utf8'
+    )
     expect(source).toContain('invoke<LocalContentRef>(')
     expect(source).toContain('local_content_create')
     expect(source).toContain('local_content_read')
@@ -15,7 +18,10 @@ describe('desktop local content boundary', () => {
   })
 
   test('registers the command family in the shell command surface', async () => {
-    const commands = await readFile(new URL('../../shell/src/commands.ts', import.meta.url), 'utf8')
+    const commands = await readFile(
+      new URL('../../desktop/shell/src/commands.ts', import.meta.url),
+      'utf8'
+    )
 
     // The shell registry is the only place these commands exist; the client can
     // reach nothing the registry does not name.

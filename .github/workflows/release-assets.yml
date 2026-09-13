@@ -174,6 +174,12 @@ jobs:
         working-directory: apps/desktop
         run: bun run shell:client:build
 
+      # The shell's own workspace ships the Electrobun types the shell
+      # typecheck resolves.
+      - name: Install shell dependencies
+        working-directory: apps/desktop/shell
+        run: bun install
+
       - name: Typecheck and desktop boundary gates
         run: |
           set -euo pipefail

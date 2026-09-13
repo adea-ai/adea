@@ -8,7 +8,7 @@ import {
   localContentAuthority,
   type LocalContentCreateInput,
   type LocalContentRef,
-} from './local-content'
+} from './desktop-local-content'
 
 export type CloudContentRefAuthority = Readonly<{
   createContentRef(

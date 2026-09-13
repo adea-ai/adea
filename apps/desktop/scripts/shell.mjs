@@ -1,5 +1,6 @@
 // Builds and runs the desktop shell (Electrobun 2.x: Bun main process + CEF).
-// The client is built first, then the shell bundles it with the engine pack.
+// The single-UI client is built first (apps/web's TanStack Start SPA output),
+// then the shell bundles it.
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -21,8 +22,11 @@ if (!existsSync(join(shellRoot, 'node_modules', 'electrobun'))) {
   if (install.status !== 0) process.exit(install.status ?? 1)
 }
 
-// The client must exist before the shell bundles it.
-const client = spawnSync('bun', ['run', 'client:build'], { cwd: desktopRoot, stdio: 'inherit' })
+// The single-UI client must exist before the shell bundles it.
+const client = spawnSync('bun', ['run', 'shell:client:build'], {
+  cwd: desktopRoot,
+  stdio: 'inherit',
+})
 if (client.status !== 0) process.exit(client.status ?? 1)
 
 const run = spawnSync('bunx', ['--bun', 'electrobun', mode === 'dev' ? 'dev' : 'build'], {

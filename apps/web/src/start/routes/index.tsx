@@ -3,6 +3,7 @@ import { createServerOnlyFn } from '@tanstack/react-start'
 import { getRequestHeader } from '@tanstack/react-start/server'
 
 import lazyComponent from '../../components/lazy-component'
+import { isDesktopRuntime } from '../../lib/desktop-bridge'
 import { ENTRY_ACCESS_HEADER } from '../http-policy.mjs'
 
 function Loading() {
@@ -48,6 +49,10 @@ function EarlyAccessNotice() {
  * internal header; a denied account keeps the original early-access document
  * instead of an invented authorization UX. In-app client navigations were
  * admitted with the document and therefore render the workspace.
+ *
+ * The desktop shell serves this same route from loopback and authenticates
+ * through the desktop principal instead of the browser allowlist, so the
+ * server-only check is skipped there.
  */
 const readEntryAccess = createServerOnlyFn(() => {
   const value = getRequestHeader(ENTRY_ACCESS_HEADER)
@@ -55,7 +60,10 @@ const readEntryAccess = createServerOnlyFn(() => {
 })
 
 export const Route = createFileRoute('/')({
-  loader: () => (readEntryAccess() === 'denied' ? { denied: true } : { denied: false }),
+  loader: () => {
+    if (isDesktopRuntime()) return { denied: false }
+    return readEntryAccess() === 'denied' ? { denied: true } : { denied: false }
+  },
   component: WorkspaceRoute,
 })
 
