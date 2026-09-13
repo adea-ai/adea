@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/adea-ai/adea/compare/v0.23.3...v0.24.0) (2026-09-13)
+
+
+### Features
+
+* **desktop:** same-origin cloud proxy, Agent Sim mount, live update check ([#392](https://github.com/adea-ai/adea/issues/392)) ([f4dbb9c](https://github.com/adea-ai/adea/commit/f4dbb9ccae24eed1ce097a529965006bbb060b06))
+
 ## [0.23.3](https://github.com/adea-ai/adea/compare/v0.23.2...v0.23.3) (2026-09-13)
 
 
