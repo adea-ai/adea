@@ -33,10 +33,7 @@
     "@adea-ai/api-client": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@tanstack/react-query": "^5.66.8",
-    "react": "19.2.8"
-  },
-  "devDependencies": {
-    "@types/react": "^19.2.18"
+    "@tanstack/solid-query": "^5.102.8",
+    "solid-js": "^1.9.15"
   }
 }

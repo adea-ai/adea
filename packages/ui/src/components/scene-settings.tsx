@@ -1,8 +1,7 @@
-'use client'
+import { Box, Camera, Focus, Grid3X3, UserRoundPen } from 'lucide-solid'
+import { createEffect, createSignal, Show, type JSX } from 'solid-js'
+import { Portal } from 'solid-js/web'
 
-import { createPortal } from 'react-dom'
-import { useEffect, useState, type ReactNode } from 'react'
-import { Box, Camera, Focus, Grid3X3, UserRoundPen } from 'lucide-react'
 import { AccountDrawer } from './account-drawer'
 import { Button } from '#components/ui/button'
 
@@ -22,7 +21,7 @@ export type SceneSettingsProps = {
   accountLabel?: string
   accountAuthenticated?: boolean
   accountBusy?: boolean
-  accountMusicControl?: ReactNode
+  accountMusicControl?: JSX.Element
   onAccountSignIn?: () => void
   onAccountSignOut?: () => void
   showAccountDrawer?: boolean
@@ -37,59 +36,39 @@ export type SceneSettingsProps = {
   onSceneEditorChange?: (value: boolean) => void
 }
 
-function usePortalTarget(targetId?: string) {
-  const [target, setTarget] = useState<HTMLElement | null>(null)
+function usePortalTarget(targetId: () => string | undefined) {
+  const [target, setTarget] = createSignal<HTMLElement | null>(null)
 
-  useEffect(() => {
-    setTarget(targetId ? document.getElementById(targetId) : null)
-  }, [targetId])
+  createEffect(() => {
+    const id = targetId()
+    setTarget(id ? document.getElementById(id) : null)
+  })
 
   return target
 }
 
-function renderInTarget(content: ReactNode, target: HTMLElement | null) {
-  return target ? createPortal(content, target) : content
+function renderInTarget(content: JSX.Element, target: HTMLElement | null) {
+  return target ? <Portal mount={target}>{content}</Portal> : content
 }
 
 /** Compact scene controls shared by the HQ shell and other scene hosts. */
-export function SceneSettings({
-  cameraViewMode,
-  onCameraViewModeChange,
-  allowCameraViewModeChange = true,
-  characterDesignerEnabled,
-  onCharacterDesignerChange,
-  characterDesignerTargetId,
-  onOpenRoomDesigner,
-  accountTargetId,
-  accountLabel,
-  accountAuthenticated,
-  accountBusy,
-  accountMusicControl,
-  onAccountSignIn,
-  onAccountSignOut,
-  showAccountDrawer = true,
-  cameraTargetId,
-  roomDesignerTargetId,
-  sceneEditorTargetId,
-  sceneEditorEnabled,
-  onSceneEditorChange,
-}: SceneSettingsProps) {
-  const cameraTarget = usePortalTarget(cameraTargetId)
-  const characterDesignerTarget = usePortalTarget(characterDesignerTargetId)
-  const roomDesignerTarget = usePortalTarget(roomDesignerTargetId)
-  const sceneEditorTarget = usePortalTarget(sceneEditorTargetId)
+export function SceneSettings(props: SceneSettingsProps) {
+  const cameraTarget = usePortalTarget(() => props.cameraTargetId)
+  const characterDesignerTarget = usePortalTarget(() => props.characterDesignerTargetId)
+  const roomDesignerTarget = usePortalTarget(() => props.roomDesignerTargetId)
+  const sceneEditorTarget = usePortalTarget(() => props.sceneEditorTargetId)
 
   const cameraControl = (
-    <div className="workspace-camera-control" role="group" aria-label="Camera view">
+    <div class="workspace-camera-control" role="group" aria-label="Camera view">
       <Button
         type="button"
         size="sm"
-        variant={cameraViewMode === 'perspective' ? 'default' : 'outline'}
-        className="workspace-camera-button"
+        variant={props.cameraViewMode === 'perspective' ? 'default' : 'outline'}
+        class="workspace-camera-button"
         aria-label="Perspective camera"
         title="Perspective camera"
-        aria-pressed={cameraViewMode === 'perspective'}
-        onClick={() => onCameraViewModeChange('perspective')}
+        aria-pressed={props.cameraViewMode === 'perspective'}
+        onClick={() => props.onCameraViewModeChange('perspective')}
       >
         <Camera aria-hidden="true" />
         Perspective
@@ -97,12 +76,12 @@ export function SceneSettings({
       <Button
         type="button"
         size="sm"
-        variant={cameraViewMode === 'orthographic' ? 'default' : 'outline'}
-        className="workspace-camera-button"
+        variant={props.cameraViewMode === 'orthographic' ? 'default' : 'outline'}
+        class="workspace-camera-button"
         aria-label="Top-down camera"
         title="Top-down camera"
-        aria-pressed={cameraViewMode === 'orthographic'}
-        onClick={() => onCameraViewModeChange('orthographic')}
+        aria-pressed={props.cameraViewMode === 'orthographic'}
+        onClick={() => props.onCameraViewModeChange('orthographic')}
       >
         <Focus aria-hidden="true" />
         Top-down
@@ -113,16 +92,20 @@ export function SceneSettings({
   const characterDesignerControl = (
     <Button
       type="button"
-      variant={characterDesignerEnabled ? 'default' : 'outline'}
+      variant={props.characterDesignerEnabled ? 'default' : 'outline'}
       size="sm"
       aria-haspopup="dialog"
-      aria-label={characterDesignerEnabled ? 'Close character designer' : 'Open character designer'}
-      title={characterDesignerEnabled ? 'Close character designer' : 'Open character designer'}
-      aria-pressed={characterDesignerEnabled}
-      onClick={() => onCharacterDesignerChange?.(!characterDesignerEnabled)}
+      aria-label={
+        props.characterDesignerEnabled ? 'Close character designer' : 'Open character designer'
+      }
+      title={
+        props.characterDesignerEnabled ? 'Close character designer' : 'Open character designer'
+      }
+      aria-pressed={props.characterDesignerEnabled}
+      onClick={() => props.onCharacterDesignerChange?.(!props.characterDesignerEnabled)}
     >
-      <UserRoundPen className="size-4" aria-hidden="true" />
-      <span className="workspace-character-designer-label">Character</span>
+      <UserRoundPen class="size-4" aria-hidden="true" />
+      <span class="workspace-character-designer-label">Character</span>
     </Button>
   )
 
@@ -134,69 +117,83 @@ export function SceneSettings({
       aria-haspopup="dialog"
       aria-label="Open room designer"
       title="Open room designer"
-      onClick={onOpenRoomDesigner}
+      onClick={() => props.onOpenRoomDesigner?.()}
     >
-      <Grid3X3 className="size-4" aria-hidden="true" />
-      <span className="workspace-room-designer-label">Room designer</span>
+      <Grid3X3 class="size-4" aria-hidden="true" />
+      <span class="workspace-room-designer-label">Room designer</span>
     </Button>
   )
 
   const sceneEditorControl = (
     <Button
       type="button"
-      variant={sceneEditorEnabled ? 'default' : 'outline'}
+      variant={props.sceneEditorEnabled ? 'default' : 'outline'}
       size="sm"
       aria-haspopup="dialog"
-      aria-label={sceneEditorEnabled ? 'Close scene editor' : 'Open scene editor'}
-      title={sceneEditorEnabled ? 'Close scene editor' : 'Open scene editor'}
-      aria-pressed={sceneEditorEnabled}
-      onClick={() => onSceneEditorChange?.(!sceneEditorEnabled)}
+      aria-label={props.sceneEditorEnabled ? 'Close scene editor' : 'Open scene editor'}
+      title={props.sceneEditorEnabled ? 'Close scene editor' : 'Open scene editor'}
+      aria-pressed={props.sceneEditorEnabled}
+      onClick={() => props.onSceneEditorChange?.(!props.sceneEditorEnabled)}
     >
-      <Box className="size-4" aria-hidden="true" />
-      <span className="workspace-scene-editor-label">Scene editor</span>
+      <Box class="size-4" aria-hidden="true" />
+      <span class="workspace-scene-editor-label">Scene editor</span>
     </Button>
   )
 
+  const showCharacterDesignerControl = () =>
+    props.characterDesignerEnabled != null &&
+    !props.characterDesignerEnabled &&
+    Boolean(props.onCharacterDesignerChange)
+
+  const showRoomDesignerControl = () =>
+    Boolean(props.onOpenRoomDesigner) && props.cameraViewMode === 'orthographic'
+
+  const showSceneEditorControl = () =>
+    props.sceneEditorEnabled != null &&
+    !props.sceneEditorEnabled &&
+    Boolean(props.onSceneEditorChange) &&
+    props.cameraViewMode === 'perspective'
+
   return (
     <>
-      {showAccountDrawer ? (
+      <Show when={props.showAccountDrawer ?? true}>
         <AccountDrawer
-          accountLabel={accountLabel}
-          authenticated={accountAuthenticated}
-          busy={accountBusy}
-          musicControl={accountMusicControl}
-          triggerTargetId={accountTargetId}
-          onSignIn={onAccountSignIn}
-          onSignOut={onAccountSignOut}
+          accountLabel={props.accountLabel}
+          authenticated={props.accountAuthenticated}
+          busy={props.accountBusy}
+          musicControl={props.accountMusicControl}
+          triggerTargetId={props.accountTargetId}
+          onSignIn={props.onAccountSignIn}
+          onSignOut={props.onAccountSignOut}
         />
-      ) : null}
-      {allowCameraViewModeChange ? renderInTarget(cameraControl, cameraTarget) : null}
-      {characterDesignerEnabled != null &&
-      !characterDesignerEnabled &&
-      onCharacterDesignerChange ? (
-        characterDesignerTarget ? (
-          createPortal(characterDesignerControl, characterDesignerTarget)
-        ) : (
-          <div className="fixed right-4 top-16 z-40">{characterDesignerControl}</div>
-        )
-      ) : null}
-      {onOpenRoomDesigner && cameraViewMode === 'orthographic' ? (
-        roomDesignerTarget ? (
-          createPortal(roomDesignerControl, roomDesignerTarget)
-        ) : (
-          <div className="fixed right-4 top-16 z-40">{roomDesignerControl}</div>
-        )
-      ) : null}
-      {sceneEditorEnabled != null &&
-      !sceneEditorEnabled &&
-      onSceneEditorChange &&
-      cameraViewMode === 'perspective' ? (
-        sceneEditorTarget ? (
-          createPortal(sceneEditorControl, sceneEditorTarget)
-        ) : (
-          <div className="fixed right-4 top-16 z-40">{sceneEditorControl}</div>
-        )
-      ) : null}
+      </Show>
+      <Show when={props.allowCameraViewModeChange ?? true}>
+        {renderInTarget(cameraControl, cameraTarget())}
+      </Show>
+      <Show when={showCharacterDesignerControl()}>
+        <Show
+          when={characterDesignerTarget()}
+          fallback={<div class="fixed right-4 top-16 z-40">{characterDesignerControl}</div>}
+        >
+          {(target) => <Portal mount={target()}>{characterDesignerControl}</Portal>}
+        </Show>
+      </Show>
+      <Show when={showRoomDesignerControl()}>
+        <Show
+          when={roomDesignerTarget()}
+          fallback={<div class="fixed right-4 top-16 z-40">{roomDesignerControl}</div>}
+        >
+          {(target) => <Portal mount={target()}>{roomDesignerControl}</Portal>}
+        </Show>
+      </Show>
+      <Show when={showSceneEditorControl()}>
+        <Show
+          when={sceneEditorTarget()}
+          fallback={<div class="fixed right-4 top-16 z-40">{sceneEditorControl}</div>}
+        >
+          {(target) => <Portal mount={target()}>{sceneEditorControl}</Portal>}
+        </Show>
+      </Show>
     </>
   )
 }

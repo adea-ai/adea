@@ -38,10 +38,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "lucide-react": "^1.33.0",
-    "react": "19.2.8"
-  },
-  "devDependencies": {
-    "@types/react": "^19.2.18"
+    "lucide-solid": "^1.45.0",
+    "solid-js": "^1.9.15"
   }
 }

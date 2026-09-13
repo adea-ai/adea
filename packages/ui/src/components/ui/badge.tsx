@@ -1,6 +1,5 @@
-import { mergeProps } from '@base-ui/react/merge-props'
-import { useRender } from '@base-ui/react/use-render'
 import { cva, type VariantProps } from 'class-variance-authority'
+import { splitProps, type ComponentProps } from 'solid-js'
 
 import { cn } from '#lib/utils'
 
@@ -24,26 +23,18 @@ const badgeVariants = cva(
   }
 )
 
-function Badge({
-  className,
-  variant = 'default',
-  render,
-  ...props
-}: useRender.ComponentProps<'span'> & VariantProps<typeof badgeVariants>) {
-  return useRender({
-    defaultTagName: 'span',
-    props: mergeProps<'span'>(
-      {
-        className: cn(badgeVariants({ variant }), className),
-      },
-      props
-    ),
-    render,
-    state: {
-      slot: 'badge',
-      variant,
-    },
-  })
+type BadgeProps = ComponentProps<'span'> & VariantProps<typeof badgeVariants>
+
+function Badge(props: BadgeProps) {
+  const [local, rest] = splitProps(props, ['class', 'variant'])
+  return (
+    <span
+      data-slot="badge"
+      data-variant={local.variant ?? 'default'}
+      class={cn(badgeVariants({ variant: local.variant }), local.class)}
+      {...rest}
+    />
+  )
 }
 
-export { Badge, badgeVariants }
+export { Badge, badgeVariants, type BadgeProps }

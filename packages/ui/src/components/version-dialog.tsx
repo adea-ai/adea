@@ -1,6 +1,3 @@
-'use client'
-
-import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Check,
   Download,
@@ -9,10 +6,11 @@ import {
   LoaderCircle,
   RefreshCw,
   Sparkles,
-} from 'lucide-react'
+} from 'lucide-solid'
+import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 
 import { formatReleaseDate, plainTextFromMarkdown } from '#lib/version-notes'
-import { Button } from '#components/ui/button'
+import { Button, buttonVariants } from '#components/ui/button'
 import {
   Dialog,
   DialogClose,
@@ -80,74 +78,67 @@ function isUpdateBusy(update: SharedDesktopUpdate | null): boolean {
   )
 }
 
-export function VersionDialog({
-  adapter,
-  fallbackVersion = '0.1.0',
-  onOpenChange,
-  open: controlledOpen,
-}: Readonly<{
+export function VersionDialog(props: {
   adapter: VersionDialogAdapter
   fallbackVersion?: string
   onOpenChange?: (open: boolean) => void
   open?: boolean
-}>) {
-  const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
-  const open = controlledOpen ?? uncontrolledOpen
-  const setOpen = useCallback(
-    (nextOpen: boolean) => {
-      if (controlledOpen === undefined) setUncontrolledOpen(nextOpen)
-      onOpenChange?.(nextOpen)
-    },
-    [controlledOpen, onOpenChange]
-  )
-  const [desktopRuntime, setDesktopRuntime] = useState(false)
-  const [update, setUpdate] = useState<SharedDesktopUpdate | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+}) {
+  const [uncontrolledOpen, setUncontrolledOpen] = createSignal(false)
+  const open = () => props.open ?? uncontrolledOpen()
+  const setOpen = (nextOpen: boolean) => {
+    if (props.open === undefined) setUncontrolledOpen(nextOpen)
+    props.onOpenChange?.(nextOpen)
+  }
 
-  useEffect(() => setDesktopRuntime(adapter.isDesktopRuntime()), [adapter])
+  const [desktopRuntime, setDesktopRuntime] = createSignal(false)
+  const [update, setUpdate] = createSignal<SharedDesktopUpdate | null>(null)
+  const [busy, setBusy] = createSignal(false)
+  const [error, setError] = createSignal('')
 
-  const loadCurrentStatus = useCallback(async () => {
-    if (!desktopRuntime) return
+  const loadCurrentStatus = async () => {
+    if (!desktopRuntime()) return
     try {
-      setUpdate(await adapter.getStatus())
+      setUpdate(await props.adapter.getStatus())
     } catch (caught) {
       setError(errorMessage(caught, 'Version status is unavailable'))
     }
-  }, [adapter, desktopRuntime])
+  }
 
-  useEffect(() => {
-    if (desktopRuntime) void loadCurrentStatus()
-  }, [desktopRuntime, loadCurrentStatus])
+  createEffect(() => setDesktopRuntime(props.adapter.isDesktopRuntime()))
 
-  const checkForUpdates = useCallback(async () => {
-    if (!desktopRuntime) {
+  createEffect(() => {
+    if (desktopRuntime()) void loadCurrentStatus()
+  })
+
+  const checkForUpdates = async () => {
+    if (!desktopRuntime()) {
       setError('Update checks are available from the desktop app.')
       return
     }
     setBusy(true)
     setError('')
     try {
-      setUpdate(await adapter.check())
+      setUpdate(await props.adapter.check())
     } catch (caught) {
       setError(errorMessage(caught, 'Could not check for updates'))
       await loadCurrentStatus()
     } finally {
       setBusy(false)
     }
-  }, [adapter, desktopRuntime, loadCurrentStatus])
+  }
 
-  useEffect(() => {
-    if (!open || !desktopRuntime) return
+  createEffect(() => {
+    if (!open() || !desktopRuntime()) return
     let active = true
     setError('')
     setBusy(true)
     void (async () => {
       try {
-        const current = await adapter.getStatus()
+        const current = await props.adapter.getStatus()
         if (!active) return
         setUpdate(current)
-        const checked = await adapter.check()
+        const checked = await props.adapter.check()
         if (active) setUpdate(checked)
       } catch (caught) {
         if (active) setError(errorMessage(caught, 'Could not check for updates'))
@@ -158,15 +149,15 @@ export function VersionDialog({
     return () => {
       active = false
     }
-  }, [adapter, desktopRuntime, open])
+  })
 
   const install = async () => {
-    const version = update?.available_version
+    const version = update()?.available_version
     if (!version) return
     setBusy(true)
     setError('')
     try {
-      setUpdate(await adapter.install(version))
+      setUpdate(await props.adapter.install(version))
     } catch (caught) {
       setError(errorMessage(caught, 'Update installation failed'))
       await loadCurrentStatus()
@@ -175,42 +166,36 @@ export function VersionDialog({
     }
   }
 
-  const currentChangelog = useMemo(
-    () => plainTextFromMarkdown(update?.changelog || 'Changelog is loading…'),
-    [update?.changelog]
+  const currentChangelog = createMemo(() =>
+    plainTextFromMarkdown(update()?.changelog || 'Changelog is loading…')
   )
-  const releaseNotes = update?.release_notes ? plainTextFromMarkdown(update.release_notes) : ''
-  const busyFromSnapshot = isUpdateBusy(update)
+  const releaseNotes = () => {
+    const notes = update()?.release_notes
+    return notes ? plainTextFromMarkdown(notes) : ''
+  }
+  const busyFromSnapshot = () => isUpdateBusy(update())
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {controlledOpen === undefined ? (
+    <Dialog open={open()} onOpenChange={setOpen}>
+      <Show when={props.open === undefined}>
         <DialogTrigger
-          render={
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              aria-label="Open version and updates dialog"
-              aria-haspopup="dialog"
-              onClick={() => setOpen(true)}
-            />
-          }
+          class={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          aria-label="Open version and updates dialog"
+          aria-haspopup="dialog"
+          onClick={() => setOpen(true)}
         >
-          {update?.phase === 'available' ? (
+          <Show when={update()?.phase === 'available'} fallback={<FileText aria-hidden="true" />}>
             <Sparkles aria-hidden="true" />
-          ) : (
-            <FileText aria-hidden="true" />
-          )}
-          {phaseLabel(update, fallbackVersion)}
+          </Show>
+          {phaseLabel(update(), props.fallbackVersion ?? '0.1.0')}
         </DialogTrigger>
-      ) : null}
+      </Show>
 
-      <DialogContent className="max-w-3xl">
+      <DialogContent class="max-w-3xl">
         <DialogHeader>
-          <div className="flex items-center gap-3">
-            <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Sparkles className="size-5" aria-hidden="true" />
+          <div class="flex items-center gap-3">
+            <span class="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <Sparkles class="size-5" aria-hidden="true" />
             </span>
             <div>
               <DialogTitle>Version & updates</DialogTitle>
@@ -221,142 +206,157 @@ export function VersionDialog({
           </div>
         </DialogHeader>
 
-        <div className="min-h-0 space-y-5 overflow-y-auto p-6">
-          <section className="rounded-xl border bg-background/45 p-4" aria-label="Version status">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <div class="min-h-0 space-y-5 overflow-y-auto p-6">
+          <section class="rounded-xl border bg-background/45 p-4" aria-label="Version status">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div class="space-y-1">
+                <p class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   Installed version
                 </p>
-                <p className="text-xl font-semibold tracking-tight">
-                  v{update?.current_version || fallbackVersion}
+                <p class="text-xl font-semibold tracking-tight">
+                  v{update()?.current_version || props.fallbackVersion || '0.1.0'}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  {update?.phase === 'current'
-                    ? 'You are running the latest desktop release.'
-                    : update?.phase === 'available' && update.available_version
-                      ? `A newer desktop release, v${update.available_version}, is ready.`
-                      : desktopRuntime
-                        ? 'Check the release channel for the latest signed build.'
-                        : 'Open this dialog inside the desktop app to check for updates.'}
+                <p class="text-sm text-muted-foreground">
+                  <Show
+                    when={update()?.phase === 'current'}
+                    fallback={
+                      <Show
+                        when={update()?.phase === 'available' && update()?.available_version}
+                        fallback={
+                          desktopRuntime()
+                            ? 'Check the release channel for the latest signed build.'
+                            : 'Open this dialog inside the desktop app to check for updates.'
+                        }
+                      >
+                        {`A newer desktop release, v${update()?.available_version}, is ready.`}
+                      </Show>
+                    }
+                  >
+                    You are running the latest desktop release.
+                  </Show>
                 </p>
               </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={!desktopRuntime || busy || busyFromSnapshot}
+                disabled={!desktopRuntime() || busy() || busyFromSnapshot()}
                 onClick={() => void checkForUpdates()}
               >
-                {busy || busyFromSnapshot ? (
-                  <LoaderCircle className="animate-spin" aria-hidden="true" />
-                ) : (
-                  <RefreshCw aria-hidden="true" />
-                )}
+                <Show
+                  when={busy() || busyFromSnapshot()}
+                  fallback={<RefreshCw aria-hidden="true" />}
+                >
+                  <LoaderCircle class="animate-spin" aria-hidden="true" />
+                </Show>
                 Check latest version
               </Button>
             </div>
           </section>
 
-          {update?.phase === 'available' && update.available_version ? (
+          <Show when={update()?.phase === 'available' && update()?.available_version}>
             <section
-              className="rounded-xl border border-primary/35 bg-primary/8 p-4"
+              class="rounded-xl border border-primary/35 bg-primary/8 p-4"
               aria-label="Available update"
             >
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="space-y-1">
-                  <p className="flex items-center gap-2 text-sm font-semibold">
-                    <Sparkles className="size-4 text-primary" aria-hidden="true" />
-                    Version {update.available_version} is ready
+              <div class="flex flex-wrap items-start justify-between gap-4">
+                <div class="space-y-1">
+                  <p class="flex items-center gap-2 text-sm font-semibold">
+                    <Sparkles class="size-4 text-primary" aria-hidden="true" />
+                    Version {update()?.available_version} is ready
                   </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p class="text-sm text-muted-foreground">
                     The signed installer will be verified before Adea restarts.
                   </p>
-                  {formatReleaseDate(update.release_date) ? (
-                    <p className="text-xs text-muted-foreground">
-                      Released {formatReleaseDate(update.release_date)}
-                    </p>
-                  ) : null}
+                  <Show when={formatReleaseDate(update()?.release_date ?? null)}>
+                    {(released) => (
+                      <p class="text-xs text-muted-foreground">Released {released()}</p>
+                    )}
+                  </Show>
                 </div>
                 <Button
                   type="button"
                   size="sm"
-                  disabled={busy || busyFromSnapshot}
+                  disabled={busy() || busyFromSnapshot()}
                   onClick={() => void install()}
                 >
-                  {busy || busyFromSnapshot ? (
-                    <LoaderCircle className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <Download aria-hidden="true" />
-                  )}
+                  <Show
+                    when={busy() || busyFromSnapshot()}
+                    fallback={<Download aria-hidden="true" />}
+                  >
+                    <LoaderCircle class="animate-spin" aria-hidden="true" />
+                  </Show>
                   Install and restart
                 </Button>
               </div>
             </section>
-          ) : null}
+          </Show>
 
-          {update?.phase === 'current' ? (
+          <Show when={update()?.phase === 'current'}>
             <p
-              className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"
+              class="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"
               role="status"
             >
-              <Check className="size-4" aria-hidden="true" />
+              <Check class="size-4" aria-hidden="true" />
               Adea is up to date.
             </p>
-          ) : null}
-          {error ? (
+          </Show>
+
+          <Show when={error()}>
             <p
-              className="rounded-lg border border-destructive/35 bg-destructive/8 px-3 py-2 text-sm text-destructive"
+              class="rounded-lg border border-destructive/35 bg-destructive/8 px-3 py-2 text-sm text-destructive"
               role="alert"
             >
-              {error}
+              {error()}
             </p>
-          ) : null}
+          </Show>
 
-          {releaseNotes ? (
-            <section className="space-y-2" aria-labelledby="adea-release-notes">
+          <Show when={releaseNotes()}>
+            <section class="space-y-2" aria-labelledby="adea-release-notes">
               <div>
-                <h2 id="adea-release-notes" className="text-sm font-semibold">
+                <h2 id="adea-release-notes" class="text-sm font-semibold">
                   What changed in this release
                 </h2>
-                <p className="text-xs text-muted-foreground">
+                <p class="text-xs text-muted-foreground">
                   Release notes are shown as readable text.
                 </p>
               </div>
-              <div className="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-xl border bg-background/45 p-4 font-mono text-xs leading-5 text-muted-foreground">
-                {releaseNotes}
+              <div class="max-h-52 overflow-y-auto whitespace-pre-wrap rounded-xl border bg-background/45 p-4 font-mono text-xs leading-5 text-muted-foreground">
+                {releaseNotes()}
               </div>
             </section>
-          ) : null}
+          </Show>
 
-          <section className="space-y-2" aria-labelledby="agent-hq-changelog">
+          <section class="space-y-2" aria-labelledby="agent-hq-changelog">
             <div>
-              <h2 id="agent-hq-changelog" className="text-sm font-semibold">
+              <h2 id="agent-hq-changelog" class="text-sm font-semibold">
                 Installed changelog
               </h2>
-              <p className="text-xs text-muted-foreground">
+              <p class="text-xs text-muted-foreground">
                 A plain-text history of the installed channel.
               </p>
             </div>
-            <div className="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border bg-background/45 p-4 font-mono text-xs leading-5 text-muted-foreground">
-              {currentChangelog}
+            <div class="max-h-72 overflow-y-auto whitespace-pre-wrap rounded-xl border bg-background/45 p-4 font-mono text-xs leading-5 text-muted-foreground">
+              {currentChangelog()}
             </div>
           </section>
         </div>
 
         <DialogFooter>
-          {update?.github_url ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => window.open(update.github_url, '_blank', 'noopener,noreferrer')}
-            >
-              <ExternalLink aria-hidden="true" />
-              View releases
-            </Button>
-          ) : null}
-          <DialogClose render={<Button type="button" variant="outline" size="sm" />}>
+          <Show when={update()?.github_url}>
+            {(githubUrl) => (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => window.open(githubUrl(), '_blank', 'noopener,noreferrer')}
+              >
+                <ExternalLink aria-hidden="true" />
+                View releases
+              </Button>
+            )}
+          </Show>
+          <DialogClose class={buttonVariants({ variant: 'outline', size: 'sm' })}>
             Close
           </DialogClose>
         </DialogFooter>

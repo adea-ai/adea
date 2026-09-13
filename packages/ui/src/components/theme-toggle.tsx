@@ -1,73 +1,48 @@
-'use client'
+import { Monitor, Moon, Sun } from 'lucide-solid'
+import { For } from 'solid-js'
 
-import { useSyncExternalStore } from 'react'
-import { Monitor, Moon, Sun } from 'lucide-react'
-import { useTheme } from 'next-themes'
 import { Button } from '#components/ui/button'
 import { cn } from '#lib/utils'
+import { useTheme, type Theme } from './theme-provider'
+
+const THEMES: ReadonlyArray<{ value: Theme; label: string; icon: typeof Sun }> = [
+  { value: 'system', label: 'System theme', icon: Monitor },
+  { value: 'light', label: 'Light theme', icon: Sun },
+  { value: 'dark', label: 'Dark theme', icon: Moon },
+]
 
 /**
- * Compact sun/moon theme selector. Wired to the next-themes provider so the
+ * Compact sun/moon theme selector. Wired to the shared theme provider so the
  * choice persists across the app (localStorage) and applies to every scene.
  */
-export function ThemeToggle({ className }: { className?: string }) {
+export function ThemeToggle(props: { class?: string }) {
   const { theme, setTheme } = useTheme()
-  const mounted = useSyncExternalStore(
-    () => () => undefined,
-    () => true,
-    () => false
-  )
-
-  // next-themes resolves the saved/system theme after mount. Use the stable
-  // light presentation for both SSR and the first client render so the
-  // aria/class attributes cannot mismatch during hydration.
-  const selectedTheme = mounted ? theme : 'system'
 
   return (
     <div
-      className={cn(
+      class={cn(
         'inline-flex items-center gap-2 rounded-full border border-input bg-background p-2',
-        className
+        props.class
       )}
       role="radiogroup"
       aria-label="Theme"
     >
-      <Button
-        type="button"
-        role="radio"
-        aria-checked={selectedTheme === 'system'}
-        aria-label="System theme"
-        variant={selectedTheme === 'system' ? 'default' : 'ghost'}
-        size="icon-sm"
-        onClick={() => setTheme('system')}
-        className="rounded-full"
-      >
-        <Monitor className="size-4" aria-hidden="true" />
-      </Button>
-      <Button
-        type="button"
-        role="radio"
-        aria-checked={selectedTheme === 'light'}
-        aria-label="Light theme"
-        variant={selectedTheme === 'light' ? 'default' : 'ghost'}
-        size="icon-sm"
-        onClick={() => setTheme('light')}
-        className="rounded-full"
-      >
-        <Sun className="size-4" aria-hidden="true" />
-      </Button>
-      <Button
-        type="button"
-        role="radio"
-        aria-checked={selectedTheme === 'dark'}
-        aria-label="Dark theme"
-        variant={selectedTheme === 'dark' ? 'default' : 'ghost'}
-        size="icon-sm"
-        onClick={() => setTheme('dark')}
-        className="rounded-full"
-      >
-        <Moon className="size-4" aria-hidden="true" />
-      </Button>
+      <For each={THEMES}>
+        {(option) => (
+          <Button
+            type="button"
+            role="radio"
+            aria-checked={theme() === option.value}
+            aria-label={option.label}
+            variant={theme() === option.value ? 'default' : 'ghost'}
+            size="icon-sm"
+            onClick={() => setTheme(option.value)}
+            class="rounded-full"
+          >
+            <option.icon class="size-4" aria-hidden="true" />
+          </Button>
+        )}
+      </For>
     </div>
   )
 }
