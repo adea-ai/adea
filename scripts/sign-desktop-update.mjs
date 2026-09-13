@@ -12,7 +12,7 @@
 //     --tag v0.25.0 --notes-file notes.txt --out "$RUNNER_TEMP/staged/latest.json"
 import { createHash, createPrivateKey, sign as cryptoSign } from 'node:crypto'
 import { readFile, writeFile } from 'node:fs/promises'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
 const REPO = 'adea-ai/adea'
 

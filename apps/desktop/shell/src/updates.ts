@@ -176,10 +176,17 @@ export function createUpdateManager(input: {
       return failed(new Error('the update was not approved'))
     }
     const manifest = pendingManifest
-    if (
-      !manifest ||
-      (typeof args.expectedVersion === 'string' && args.expectedVersion !== manifest.version)
-    ) {
+    if (!manifest) {
+      // No signed feed entry (forks, releases older than the lane): hand the
+      // user to the releases page instead of a dead-end error.
+      try {
+        Bun.spawn(['open', 'https://github.com/adea-ai/adea/releases'])
+      } catch {
+        /* best effort */
+      }
+      return failed(new Error('no in-app update is pending; download the latest release manually'))
+    }
+    if (typeof args.expectedVersion === 'string' && args.expectedVersion !== manifest.version) {
       return failed(new Error('the pending update has changed; check for updates again'))
     }
     try {
