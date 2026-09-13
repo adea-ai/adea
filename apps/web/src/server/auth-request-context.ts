@@ -2,7 +2,7 @@ import 'server-only'
 
 import { createStartRequestContext as createContext } from '@adea-ai/auth/start'
 import type { RequestContext } from '@adea-ai/auth/start'
-import { getRequest, setCookie } from '@tanstack/react-start/server'
+import { getRequest, setCookie } from '@tanstack/solid-start/server'
 
 /**
  * Binds the framework-neutral Neon Auth Start adapter to this app's request

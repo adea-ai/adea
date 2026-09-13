@@ -1,6 +1,6 @@
-import { ClientOnly, createFileRoute } from '@tanstack/react-router'
-import { createServerOnlyFn } from '@tanstack/react-start'
-import { getRequestHeader } from '@tanstack/react-start/server'
+import { ClientOnly, createFileRoute } from '@tanstack/solid-router'
+import { createServerOnlyFn } from '@tanstack/solid-start'
+import { getRequestHeader } from '@tanstack/solid-start/server'
 
 import lazyComponent from '../../components/lazy-component'
 import { isDesktopRuntime } from '../../lib/desktop-bridge'
@@ -8,7 +8,7 @@ import { ENTRY_ACCESS_HEADER } from '../http-policy.mjs'
 
 function Loading() {
   return (
-    <main className="conventional-workspace conventional-workspace--loading" aria-busy="true">
+    <main class="conventional-workspace conventional-workspace--loading" aria-busy="true">
       <p>Opening workspace…</p>
     </main>
   )
@@ -21,17 +21,17 @@ const WorkspaceMount = lazyComponent(() => import('../workspace-mount').then((m)
 
 function EarlyAccessNotice() {
   return (
-    <main className="auth-shell">
-      <section className="auth-panel" aria-labelledby="early-access-title">
-        <p className="auth-eyebrow">Adea</p>
-        <h1 className="auth-title" id="early-access-title">
+    <main class="auth-shell">
+      <section class="auth-panel" aria-labelledby="early-access-title">
+        <p class="auth-eyebrow">Adea</p>
+        <h1 class="auth-title" id="early-access-title">
           Adea is in early access
         </h1>
-        <p className="auth-introduction" role="status">
+        <p class="auth-introduction" role="status">
           Please reach out on github if you&apos;d like to contribute.
         </p>
         <a
-          className="browser-auth-submit browser-auth-open-app"
+          class="browser-auth-submit browser-auth-open-app"
           href="https://github.com/adea-ai/adea"
           target="_blank"
           rel="noreferrer"
@@ -68,8 +68,8 @@ export const Route = createFileRoute('/')({
 })
 
 function WorkspaceRoute() {
-  const { denied } = Route.useLoaderData()
-  if (denied) return <EarlyAccessNotice />
+  const denied = () => Route.useLoaderData()().denied
+  if (denied()) return <EarlyAccessNotice />
   return (
     <ClientOnly fallback={<Loading />}>
       <WorkspaceMount />

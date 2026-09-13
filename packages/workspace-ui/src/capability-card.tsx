@@ -1,5 +1,6 @@
 'use client'
 
+import { For, Show } from 'solid-js'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
@@ -16,19 +17,19 @@ const toneBadge = {
  * One capability's status. The shell reports every local prerequisite through
  * this shape, so a new capability needs no new rendering.
  */
-export function CapabilityCard({ status }: Readonly<{ status: CapabilityStatus }>) {
-  const capability = presentCapability(status)
+export function CapabilityCard(props: { status: CapabilityStatus }) {
+  const capability = () => presentCapability(props.status)
   return (
-    <div className="conventional-settings-row" data-capability={capability.id}>
+    <div class="conventional-settings-row" data-capability={capability().id}>
       <div>
-        <h4>{capability.title}</h4>
-        <p>{capability.hint ?? 'This capability is ready on this device.'}</p>
+        <h4>{capability().title}</h4>
+        <p>{capability().hint ?? 'This capability is ready on this device.'}</p>
       </div>
       <Badge
-        variant={toneBadge[capability.tone]}
-        aria-label={`${capability.title}: ${capability.label}`}
+        variant={toneBadge[capability().tone]}
+        aria-label={`${capability().title}: ${capability().label}`}
       >
-        {capability.label}
+        {capability().label}
       </Badge>
     </div>
   )
@@ -38,37 +39,33 @@ export function CapabilityCard({ status }: Readonly<{ status: CapabilityStatus }
  * The capability surface: every registered capability, plus the age of the
  * report, because the shell answers from a cached snapshot.
  */
-export function CapabilityList({
-  busy,
-  onRefresh,
-  snapshot,
-}: Readonly<{
+export function CapabilityList(props: {
   busy?: boolean
   onRefresh?: () => void
   snapshot: CapabilitySnapshot
-}>) {
+}) {
   return (
     <div role="group" aria-label="Local capabilities" data-local-capabilities="true">
-      {snapshot.capabilities.map((status) => (
-        <CapabilityCard key={status.id} status={status} />
-      ))}
-      <div className="conventional-settings-note">
+      <For each={props.snapshot.capabilities}>{(status) => <CapabilityCard status={status} />}</For>
+      <div class="conventional-settings-note">
         <p>
-          {capabilitySnapshotAge(snapshot)}
-          {snapshot.servedFromCache ? ' (cached)' : ''}
+          {capabilitySnapshotAge(props.snapshot)}
+          {props.snapshot.servedFromCache ? ' (cached)' : ''}
         </p>
-        {onRefresh ? (
-          <Button
-            aria-label="Refresh local capability status"
-            disabled={busy}
-            onClick={onRefresh}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            Refresh
-          </Button>
-        ) : null}
+        <Show when={props.onRefresh}>
+          {(onRefresh) => (
+            <Button
+              aria-label="Refresh local capability status"
+              disabled={props.busy}
+              onClick={() => onRefresh()()}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Refresh
+            </Button>
+          )}
+        </Show>
       </div>
     </div>
   )

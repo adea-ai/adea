@@ -2,8 +2,8 @@ import { fileURLToPath } from 'node:url'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { defineConfig, type Plugin } from 'vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-import viteReact from '@vitejs/plugin-react'
+import { tanstackStart } from '@tanstack/solid-start/plugin/vite'
+import viteSolid from 'vite-plugin-solid'
 import tailwindcss from '@tailwindcss/postcss'
 import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.mjs'
 
@@ -50,7 +50,7 @@ export default defineConfig({
   publicDir: 'public',
   server: { host: '127.0.0.1', port: Number(process.env.PORT ?? 3000), strictPort: false },
   resolve: {
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['solid-js'],
     // `server-only` throws from its default entry; only Next's react-server
     // condition resolves it to an empty module, so the Workers SSR build would
     // crash at startup. Import specifiers stay in place as documentation, and
@@ -91,7 +91,7 @@ export default defineConfig({
       remoteBindings: false,
     }),
     tanstackStart({ srcDirectory: './src/start' }),
-    viteReact(),
+    viteSolid({ ssr: true }),
     protectClientGraph(),
   ],
 })

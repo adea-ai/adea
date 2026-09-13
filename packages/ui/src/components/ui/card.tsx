@@ -1,18 +1,21 @@
-import type { HTMLAttributes } from 'react'
+import { splitProps, type ComponentProps } from 'solid-js'
+
 import { cn } from '#lib/utils'
 
-function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+function Card(props: ComponentProps<'div'>) {
+  const [local, rest] = splitProps(props, ['class'])
   return (
     <div
       data-slot="card"
-      className={cn('rounded-xl border bg-card text-card-foreground shadow-sm', className)}
-      {...props}
+      class={cn('rounded-xl border bg-card text-card-foreground shadow-sm', local.class)}
+      {...rest}
     />
   )
 }
 
-function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div data-slot="card-content" className={cn('p-4', className)} {...props} />
+function CardContent(props: ComponentProps<'div'>) {
+  const [local, rest] = splitProps(props, ['class'])
+  return <div data-slot="card-content" class={cn('p-4', local.class)} {...rest} />
 }
 
 export { Card, CardContent }

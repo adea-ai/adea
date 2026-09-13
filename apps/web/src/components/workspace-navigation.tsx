@@ -4,10 +4,11 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { useEffect, useState } from 'react'
+import { createEffect, createSignal, Show } from 'solid-js'
+import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { useAgentListQuery } from '@adea-ai/data'
-import { useWorkspaceStore } from '@adea-ai/state'
+import { settledData, useAgentListQuery } from '@adea-ai/data'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
   WorkspacePlatformServices,
@@ -15,7 +16,8 @@ import type {
 } from '@adea-ai/workspace-ui/platform'
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
-import { parseAsStringLiteral, useQueryState } from 'nuqs'
+import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
+import type { WorkspaceSearch } from '../start/routes/__root'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -36,14 +38,6 @@ const SpatialWorkspace = lazyComponent(
 const RoomDesignerWorkspace = lazyComponent(
   () => import('./room-designer-entry').then(({ RoomDesignerEntry }) => RoomDesignerEntry),
   { loading: () => <WorkspaceEntryLoading /> }
-)
-
-const GlobalWorkspaceRail = lazyComponent(
-  () =>
-    import('@adea-ai/workspace-ui/global-workspace-rail').then(
-      ({ GlobalWorkspaceRail: Rail }) => Rail
-    ),
-  { loading: () => <WorkspaceRailLoading />, ssr: false }
 )
 
 const WorkspaceAboutDialog = lazyComponent(
@@ -69,29 +63,13 @@ const WorkspaceSettingsDialog = lazyComponent(
 
 function WorkspaceEntryLoading() {
   return (
-    <main className="conventional-workspace conventional-workspace--loading" aria-busy="true">
+    <main class="conventional-workspace conventional-workspace--loading" aria-busy="true">
       <p>Opening workspace…</p>
     </main>
   )
 }
 
-function WorkspaceRailLoading() {
-  return <nav className="global-rail global-rail--loading" aria-hidden="true" />
-}
-
-function WorkspaceSettingsOverlay({
-  accountAuthenticated,
-  accountLabel,
-  busy,
-  client,
-  onClose,
-  onOpenAgents,
-  onSignIn,
-  onSignOut,
-  open,
-  services,
-  workspace,
-}: Readonly<{
+function WorkspaceSettingsOverlay(props: {
   accountAuthenticated: boolean
   accountLabel: string
   busy: boolean
@@ -103,21 +81,21 @@ function WorkspaceSettingsOverlay({
   open: boolean
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
-}>) {
-  const agentsQuery = useAgentListQuery(client, workspace.id)
+}) {
+  const agentsQuery = useAgentListQuery(props.client, () => props.workspace.id)
   return (
     <WorkspaceSettingsDialog
-      accountAuthenticated={accountAuthenticated}
-      accountLabel={accountLabel}
-      agents={agentsQuery.data ?? []}
-      busy={busy}
-      onClose={onClose}
-      onOpenAgents={onOpenAgents}
-      onSignIn={onSignIn}
-      onSignOut={onSignOut}
-      open={open}
-      services={services}
-      workspace={workspace}
+      accountAuthenticated={props.accountAuthenticated}
+      accountLabel={props.accountLabel}
+      agents={settledData(agentsQuery) ?? []}
+      busy={props.busy}
+      onClose={props.onClose}
+      onOpenAgents={props.onOpenAgents}
+      onSignIn={props.onSignIn}
+      onSignOut={props.onSignOut}
+      open={props.open}
+      services={props.services}
+      workspace={props.workspace}
     />
   )
 }
@@ -167,68 +145,60 @@ export type WorkspaceNavigationProps = Readonly<{
   workspaces: readonly WorkspaceSummary[]
 }>
 
-export function WorkspaceNavigation({
-  account,
-  activeWorkspace,
-  client,
-  onAuthorizeWorkspace,
-  platform,
-  roomDesigner = false,
-  services,
-  updates,
-  virtual,
-  virtualProps,
-  workspaces,
-}: WorkspaceNavigationProps) {
-  const [roomDesignerEnabled, setRoomDesignerEnabled] = useState(roomDesigner)
-  const globalPanel = useWorkspaceStore((state) => state.globalPanel)
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const setActiveSurface = useWorkspaceStore((state) => state.setActiveSurface)
-  const setGlobalPanel = useWorkspaceStore((state) => state.setGlobalPanel)
-  const setSelectedScene = useWorkspaceStore((state) => state.setSelectedScene)
-  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace)
-  const [viewParam, setViewParam] = useQueryState(
-    'view',
-    parseAsStringLiteral(['chat', 'virtual'] as const)
-      .withDefault(virtual ? 'virtual' : 'chat')
-      .withOptions({ clearOnDefault: false, history: 'replace' })
-  )
-  const [sceneParam, setScene] = useQueryState(
-    'scene',
-    parseAsStringLiteral(['home', 'work'] as const)
-      .withDefault(virtualProps.initialScene)
-      .withOptions({ clearOnDefault: false, history: 'replace' })
-  )
-  const view: WorkspaceView = viewParam
-  const scene = activeWorkspace?.scene ?? sceneParam
-  const hashSettingsOpen =
-    typeof window !== 'undefined' && window.location.hash.startsWith('#settings')
-  const settingsOpen = globalPanel === 'settings' || hashSettingsOpen
+export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
+  const globalPanel = useWorkspaceState((state) => state.globalPanel)
+  const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
 
-  useEffect(() => {
+  const view = (): WorkspaceView => {
+    const value = currentSearch().view
+    if (value === 'chat' || value === 'virtual') return value
+    return props.virtual ? 'virtual' : 'chat'
+  }
+  const scene = () => {
+    const value = currentSearch().scene
+    return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
+  }
+  const currentSearch = () => search() as WorkspaceSearch
+  // The workspace search contract lives on the root route and the router's
+  // custom codec preserves it verbatim, so a patch is written through one
+  // typed seam instead of restating the generated search schema.
+  const applySearch = (patch: Partial<WorkspaceSearch>) =>
+    void navigate({
+      search: { ...currentSearch(), ...patch } as never,
+      // Carry the hash through: a search update must not drop a deep link such
+      // as `#settings/privacy-data` while the dialog it opened is mounting.
+      hash: window.location.hash.replace(/^#/, ''),
+      replace: true,
+    })
+  const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
+  const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
+
+  const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
+  const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
+
+  createEffect(() => {
+    const activeWorkspace = props.activeWorkspace
     if (!activeWorkspace) return
-    if (selectedWorkspaceId !== activeWorkspace.id)
-      switchWorkspace(activeWorkspace.id, activeWorkspace.scene)
-    setSelectedScene(activeWorkspace.scene)
-    if (sceneParam !== activeWorkspace.scene) void setScene(activeWorkspace.scene)
-  }, [
-    activeWorkspace?.id,
-    activeWorkspace?.scene,
-    sceneParam,
-    selectedWorkspaceId,
-    setScene,
-    setSelectedScene,
-    switchWorkspace,
-  ])
+    if (selectedWorkspaceId() !== activeWorkspace.id)
+      workspaceStore.getState().switchWorkspace(activeWorkspace.id, activeWorkspace.scene)
+    workspaceStore.getState().setSelectedScene(activeWorkspace.scene)
+    const currentScene = (search() as WorkspaceSearch).scene
+    if (currentScene !== activeWorkspace.scene) void setScene(activeWorkspace.scene)
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     const openDeepLinkedSettings = () => {
-      if (window.location.hash.startsWith('#settings')) setGlobalPanel('settings')
+      setHashSettingsOpen(window.location.hash.startsWith('#settings'))
+      if (window.location.hash.startsWith('#settings'))
+        workspaceStore.getState().setGlobalPanel('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
     return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
-  }, [setGlobalPanel])
+  })
 
   const changeView = (nextView: WorkspaceView) => {
     void setViewParam(nextView)
@@ -239,112 +209,122 @@ export function WorkspaceNavigation({
     nextUrl.searchParams.set('roomDesigner', enabled ? '1' : '0')
     if (enabled) nextUrl.searchParams.set('view', 'virtual')
     window.history.replaceState(null, '', nextUrl)
-    if (enabled && view !== 'virtual') void setViewParam('virtual')
+    if (enabled && view() !== 'virtual') void setViewParam('virtual')
   }
   const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
     window.history.replaceState(null, '', `#settings/${section}`)
+    setHashSettingsOpen(true)
     // Settings is a global overlay. Keep the current surface mounted so the
     // virtual scene does not disappear before its dialog can open.
-    setGlobalPanel('settings')
+    workspaceStore.getState().setGlobalPanel('settings')
   }
   const openSearch = () => {
-    setGlobalPanel('search')
-    if (view !== 'chat') changeView('chat')
+    workspaceStore.getState().setGlobalPanel('search')
+    if (view() !== 'chat') changeView('chat')
   }
 
   return (
-    <div className={`workspace-frame workspace-frame--${view}`}>
+    <div class={`workspace-frame workspace-frame--${view()}`}>
       <GlobalWorkspaceRail
         account={{
-          authenticated: account.authenticated,
-          busy: account.busy,
-          label: account.label,
-          onSignIn: account.onSignIn,
-          onSignOut: () => void account.onSignOut(),
-          ...(account.onOpenUpdates ? { onOpenUpdates: account.onOpenUpdates } : {}),
-          platform,
+          authenticated: props.account.authenticated,
+          busy: props.account.busy,
+          label: props.account.label,
+          onSignIn: props.account.onSignIn,
+          onSignOut: () => void props.account.onSignOut(),
+          ...(props.account.onOpenUpdates ? { onOpenUpdates: props.account.onOpenUpdates } : {}),
+          platform: props.platform,
         }}
         onOpenNotifications={() => openSettings('input-notifications')}
-        onOpenAbout={() => setGlobalPanel('about')}
-        onOpenPlugins={() => setGlobalPanel('plugins')}
+        onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
+        onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
         onOpenSearch={openSearch}
         onOpenSettings={() => openSettings('account')}
-        activeWorkspace={activeWorkspace}
+        activeWorkspace={props.activeWorkspace}
         onWorkspaceChange={(workspace) => {
-          if (workspace.id === activeWorkspace?.id) return
-          void Promise.resolve(onAuthorizeWorkspace?.(workspace.id))
+          if (workspace.id === props.activeWorkspace?.id) return
+          void Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
             .then(() => {
-              switchWorkspace(workspace.id, workspace.scene)
+              workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
               void setScene(workspace.scene)
             })
             .catch(() => undefined)
         }}
         onViewChange={changeView}
-        view={view}
-        workspaces={workspaces}
+        view={view()}
+        workspaces={props.workspaces}
       />
-      <div className="workspace-frame__surface">
-        {view === 'virtual' ? (
-          roomDesignerEnabled ? (
+      <div class="workspace-frame__surface">
+        <Show
+          when={view() === 'virtual'}
+          fallback={
+            <ConventionalWorkspace
+              client={props.client}
+              manageSettings={false}
+              onViewChange={changeView}
+              services={props.services}
+            />
+          }
+        >
+          <Show
+            when={roomDesignerEnabled()}
+            fallback={
+              <SpatialWorkspace
+                {...props.virtualProps}
+                apiClient={props.client}
+                initialScene={scene()}
+                onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
+                onWorkspaceViewChange={changeView}
+                services={props.services}
+                workspaceView={view()}
+              />
+            }
+          >
             <RoomDesignerWorkspace
-              key={activeWorkspace?.id ?? scene}
-              initialCharacter={virtualProps.initialCharacter}
-              initialScene={scene}
+              initialCharacter={props.virtualProps.initialCharacter}
+              initialScene={scene()}
               onClose={() => setRoomDesignerRoute(false)}
             />
-          ) : (
-            <SpatialWorkspace
-              key={activeWorkspace?.id ?? scene}
-              {...virtualProps}
-              apiClient={client}
-              initialScene={scene}
-              onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
-              onWorkspaceViewChange={changeView}
-              services={services}
-              workspaceView={view}
-            />
-          )
-        ) : (
-          <ConventionalWorkspace
-            client={client}
-            manageSettings={false}
-            onViewChange={changeView}
-            services={services}
-          />
-        )}
+          </Show>
+        </Show>
       </div>
-      {activeWorkspace && settingsOpen ? (
+      <Show when={props.activeWorkspace && settingsOpen()}>
         <WorkspaceSettingsOverlay
-          accountAuthenticated={account.authenticated}
-          accountLabel={account.label}
-          busy={account.busy}
-          client={client}
-          onClose={() => setGlobalPanel(null)}
+          accountAuthenticated={props.account.authenticated}
+          accountLabel={props.account.label}
+          busy={props.account.busy}
+          client={props.client}
+          onClose={() => {
+            setHashSettingsOpen(false)
+            workspaceStore.getState().setGlobalPanel(null)
+          }}
           onOpenAgents={() => {
-            setActiveSurface('agents')
-            setGlobalPanel(null)
+            workspaceStore.getState().setActiveSurface('agents')
+            workspaceStore.getState().setGlobalPanel(null)
             changeView('chat')
           }}
-          onSignIn={account.onSignIn}
-          onSignOut={() => void account.onSignOut()}
+          onSignIn={props.account.onSignIn}
+          onSignOut={() => void props.account.onSignOut()}
           open
-          services={services}
-          workspace={activeWorkspace}
+          services={props.services}
+          workspace={props.activeWorkspace!}
         />
-      ) : null}
+      </Show>
       <PluginsDialog
-        open={globalPanel === 'plugins' && Boolean(activeWorkspace)}
-        onClose={() => setGlobalPanel(null)}
-        provider={services.plugins}
+        open={globalPanel() === 'plugins' && Boolean(props.activeWorkspace)}
+        onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+        provider={props.services.plugins}
       />
       <WorkspaceAboutDialog
-        appName={services.app?.name}
-        open={globalPanel === 'about'}
-        onClose={() => setGlobalPanel(null)}
-        platform={platform}
-        version={services.app?.version}
+        appName={props.services.app?.name}
+        open={globalPanel() === 'about'}
+        onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+        platform={props.platform}
+        version={props.services.app?.version}
       />
-      {updates ? <VersionDialog open={updates.open} onOpenChange={updates.onOpenChange} /> : null}
+      <Show when={props.updates}>
+        {(updates) => <VersionDialog open={updates().open} onOpenChange={updates().onOpenChange} />}
+      </Show>
     </div>
   )
 }

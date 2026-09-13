@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { findRuntimeNodeChallenge, rotateRuntimeNodeKeys, RuntimeNodeError } from '@adea-ai/db'
 
 import { applicationDatabase } from '../../../../../../../../server/database'

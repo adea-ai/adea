@@ -1,7 +1,15 @@
-'use client'
-
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Music, Music2 } from 'lucide-react'
+import { Music, Music2 } from 'lucide-solid'
+import {
+  createContext,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  createEffect,
+  useContext,
+  type ParentProps,
+} from 'solid-js'
 import { soundController, type MusicOptions } from './controller'
 import { musicForScene } from './scene-music'
 import type { MusicId } from './config'
@@ -16,11 +24,11 @@ export type SoundContextValue = {
 
 const SoundContext = createContext<SoundContextValue | null>(null)
 
-export function SoundProvider({ children }: { children: ReactNode }) {
-  const [musicMuted, setMusicMuted] = useState(false)
-  const [ready, setReady] = useState(false)
+export function SoundProvider(props: ParentProps) {
+  const [musicMuted, setMusicMuted] = createSignal(false)
+  const [ready, setReady] = createSignal(false)
 
-  useEffect(() => {
+  onMount(() => {
     let mounted = true
     queueMicrotask(() => {
       if (mounted) setMusicMuted(soundController.musicMuted)
@@ -38,26 +46,23 @@ export function SoundProvider({ children }: { children: ReactNode }) {
       ;(window as unknown as { __agentHqSound?: typeof soundController }).__agentHqSound =
         soundController
     }
-    return () => {
+    onCleanup(() => {
       mounted = false
       window.removeEventListener('pointerdown', onGesture, { capture: true })
       window.removeEventListener('keydown', onGesture, { capture: true })
       window.removeEventListener('touchstart', onGesture, { capture: true })
-    }
-  }, [])
+    })
+  })
 
-  const value = useMemo<SoundContextValue>(
-    () => ({
-      controller: soundController,
-      ready,
-      musicMuted,
-      toggleMusicMute: () => setMusicMuted(soundController.toggleMusicMute()),
-      playMusic: (id, options) => soundController.playMusic(id, options),
-    }),
-    [musicMuted, ready]
-  )
+  const value = createMemo<SoundContextValue>(() => ({
+    controller: soundController,
+    ready: ready(),
+    musicMuted: musicMuted(),
+    toggleMusicMute: () => setMusicMuted(soundController.toggleMusicMute()),
+    playMusic: (id, options) => soundController.playMusic(id, options),
+  }))
 
-  return <SoundContext.Provider value={value}>{children}</SoundContext.Provider>
+  return <SoundContext.Provider value={value()}>{props.children}</SoundContext.Provider>
 }
 
 export function useSound(): SoundContextValue {
@@ -67,27 +72,32 @@ export function useSound(): SoundContextValue {
 }
 
 export function useSceneMusic(sceneId: string | null | undefined): void {
-  useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      soundController.playMusic(musicForScene(sceneId))
-    }, 1500)
-    return () => window.clearTimeout(timeout)
-  }, [sceneId])
+  createEffect(
+    on(
+      () => sceneId,
+      (scene) => {
+        const timeout = window.setTimeout(() => {
+          soundController.playMusic(musicForScene(scene))
+        }, 1500)
+        onCleanup(() => window.clearTimeout(timeout))
+      }
+    )
+  )
 }
 
-function MusicButton({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
+function MusicButton(props: { muted: boolean; onToggle: () => void }) {
   return (
     <button
       type="button"
-      aria-label={muted ? 'Unmute music' : 'Mute music'}
-      aria-pressed={muted}
-      onClick={onToggle}
-      className={`inline-flex size-9 items-center justify-center rounded-lg border border-input bg-background transition-colors ${muted ? 'text-muted-foreground hover:text-foreground' : 'bg-primary text-primary-foreground'}`}
+      aria-label={props.muted ? 'Unmute music' : 'Mute music'}
+      aria-pressed={props.muted}
+      onClick={() => props.onToggle()}
+      class={`inline-flex size-9 items-center justify-center rounded-lg border border-input bg-background transition-colors ${props.muted ? 'text-muted-foreground hover:text-foreground' : 'bg-primary text-primary-foreground'}`}
     >
-      {muted ? (
-        <Music className="size-5" aria-hidden="true" />
+      {props.muted ? (
+        <Music class="size-5" aria-hidden="true" />
       ) : (
-        <Music2 className="size-5" aria-hidden="true" />
+        <Music2 class="size-5" aria-hidden="true" />
       )}
     </button>
   )

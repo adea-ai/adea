@@ -1,4 +1,3 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AgentSummary,
   ArtifactSummary,
@@ -7,8 +6,9 @@ import type {
   TaskSummary,
 } from '@adea-ai/types'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
-import { Info, MailOpen, MessagesSquare, Search } from 'lucide-react'
+import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
+import { Info, MailOpen, MessagesSquare, Search } from 'lucide-solid'
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { MessageComposer, type ComposerSubmission } from './message-composer'
@@ -69,30 +69,7 @@ function formatMessageDay(value: string): string {
   )
 }
 
-export function ConversationSurface({
-  agents,
-  artifacts,
-  channel,
-  client,
-  draft,
-  onDraftChange,
-  onOpenDetails,
-  onOpenSearch,
-  onOpenTask,
-  onMarkRead,
-  onMarkThreadRead,
-  onMarkThreadUnread,
-  onMarkUnread,
-  onThreadDraftChange,
-  onThreadChange,
-  privateContent,
-  searchTargetMessageId,
-  tasks,
-  threadDraft,
-  threadRootMessageId,
-  transcription,
-  workspaceId,
-}: Readonly<{
+export function ConversationSurface(props: {
   agents: readonly AgentSummary[]
   artifacts: readonly ArtifactSummary[]
   channel?: ChannelSummary
@@ -115,89 +92,122 @@ export function ConversationSurface({
   threadRootMessageId: string | null
   transcription?: TranscriptionProvider
   workspaceId: string
-}>) {
-  const [cursor, setCursor] = useState<number | undefined>()
-  const [messages, setMessages] = useState<readonly MessageSummary[]>([])
-  const [optimisticMessage, setOptimisticMessage] = useState<MessageSummary | null>(null)
-  const transcriptRef = useRef<HTMLDivElement>(null)
-  const lastMarkedReadRef = useRef('')
-  const messageQuery = useMessageListQuery(client, workspaceId, channel?.id, {
-    ...(cursor !== undefined ? { afterSequence: cursor } : {}),
-    limit: 100,
-  })
-  const createMessage = useCreateMessageMutation(client, workspaceId, channel?.id ?? '')
+}) {
+  const [cursor, setCursor] = createSignal<number | undefined>()
+  const [messages, setMessages] = createSignal<readonly MessageSummary[]>([])
+  // Whether the loaded page belongs to this conversation. Solid Query keeps the
+  // previous result while the next key is in flight, so a page that only holds
+  // another channel's messages must not render as this conversation's history
+  // (nor as an empty transcript). A genuinely empty page does belong here.
+  const [pageBelongsToChannel, setPageBelongsToChannel] = createSignal(false)
+  const [optimisticMessage, setOptimisticMessage] = createSignal<MessageSummary | null>(null)
+  const [transcript, setTranscript] = createSignal<HTMLDivElement>()
+  let lastMarkedRead = ''
+  const messageQuery = useMessageListQuery(
+    props.client,
+    () => props.workspaceId,
+    () => props.channel?.id,
+    {
+      ...(cursor() !== undefined ? { afterSequence: cursor() } : {}),
+      limit: 100,
+    }
+  )
+  const createMessage = useCreateMessageMutation(
+    props.client,
+    () => props.workspaceId,
+    () => props.channel?.id ?? ''
+  )
 
-  useEffect(() => {
+  createEffect(() => {
+    const channel = props.channel
+    void channel?.id
     setCursor(undefined)
     setMessages([])
     setOptimisticMessage(null)
+    setPageBelongsToChannel(false)
     requestAnimationFrame(() => {
-      if (transcriptRef.current && channel)
-        transcriptRef.current.scrollTop = scrollPositions.get(channel.id) ?? 0
+      if (transcript() && channel) transcript()!.scrollTop = scrollPositions.get(channel.id) ?? 0
     })
-  }, [channel])
+  })
 
-  useEffect(() => {
-    if (!channel || !messageQuery.data) return
-    const page = messageQuery.data.messages.filter((message) => message.channelId === channel.id)
+  createEffect(() => {
+    const channel = props.channel
+    const data = settledData(messageQuery)
+    if (!channel || !data) return
+    const all = data.messages
+    const page = all.filter((message) => message.channelId === channel.id)
+    const belongs = page.length > 0 || all.length === 0
+    setPageBelongsToChannel(belongs)
+    if (!belongs) return
     setMessages((current) => {
       const merged = new Map(current.map((message) => [message.id, message]))
       for (const message of page) merged.set(message.id, message)
       return [...merged.values()].sort((left, right) => left.sequence - right.sequence)
     })
-  }, [channel, messageQuery.data])
+  })
 
-  useEffect(() => {
-    if (!searchTargetMessageId) return
+  createEffect(() => {
+    const target = props.searchTargetMessageId
+    if (!target) return
+    void messages()
+    void props.threadRootMessageId
     requestAnimationFrame(() =>
-      transcriptRef.current
-        ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(searchTargetMessageId)}"]`)
+      transcript()
+        ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(target)}"]`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     )
-  }, [messages, searchTargetMessageId, threadRootMessageId])
+  })
 
-  const rootMessages = useMemo(
-    () => messages.filter(({ threadRootMessageId }) => !threadRootMessageId),
-    [messages]
+  const rootMessages = createMemo(() =>
+    messages().filter(({ threadRootMessageId }) => !threadRootMessageId)
   )
-  useEffect(() => {
-    if (!channel || messageQuery.isPending || !rootMessages.length) return
-    const lastReadSequence = Math.max(...rootMessages.map(({ sequence }) => sequence))
+
+  createEffect(() => {
+    const channel = props.channel
+    if (!channel || messageQuery.isPending || !rootMessages().length) return
+    const lastReadSequence = Math.max(...rootMessages().map(({ sequence }) => sequence))
     const markVisible = () => {
       const key = `${channel.id}:${lastReadSequence}`
-      if (
-        document.visibilityState !== 'visible' ||
-        !document.hasFocus() ||
-        lastMarkedReadRef.current === key
-      )
+      if (document.visibilityState !== 'visible' || !document.hasFocus() || lastMarkedRead === key)
         return
-      lastMarkedReadRef.current = key
-      void onMarkRead(lastReadSequence).catch(() => {
-        if (lastMarkedReadRef.current === key) lastMarkedReadRef.current = ''
+      lastMarkedRead = key
+      void props.onMarkRead(lastReadSequence).catch(() => {
+        if (lastMarkedRead === key) lastMarkedRead = ''
       })
     }
     markVisible()
     window.addEventListener('focus', markVisible)
     document.addEventListener('visibilitychange', markVisible)
-    return () => {
+    onCleanup(() => {
       window.removeEventListener('focus', markVisible)
       document.removeEventListener('visibilitychange', markVisible)
-    }
-  }, [channel, messageQuery.isPending, onMarkRead, rootMessages])
-  const root = threadRootMessageId
-    ? rootMessages.find(({ id }) => id === threadRootMessageId)
-    : undefined
-  const artifactById = new Map(artifacts.map((artifact) => [artifact.id, artifact]))
-  const taskById = new Map(tasks.map((task) => [task.id, task]))
-  const directAgent = channel?.agentId ? agents.find(({ id }) => id === channel.agentId) : undefined
-  const conversationPeople = channel ? peopleForConversation(channel, agents, directAgent) : []
+    })
+  })
+
+  const root = createMemo(() =>
+    props.threadRootMessageId
+      ? rootMessages().find(({ id }) => id === props.threadRootMessageId)
+      : undefined
+  )
+  const artifactById = createMemo(
+    () => new Map(props.artifacts.map((artifact) => [artifact.id, artifact]))
+  )
+  const taskById = createMemo(() => new Map(props.tasks.map((task) => [task.id, task])))
+  const directAgent = createMemo(() =>
+    props.channel?.agentId
+      ? props.agents.find(({ id }) => id === props.channel?.agentId)
+      : undefined
+  )
+  const conversationPeople = createMemo(() =>
+    props.channel ? peopleForConversation(props.channel, props.agents, directAgent()) : []
+  )
 
   const submit = async (submission: ComposerSubmission) => {
     const createdAt = new Date().toISOString()
     setOptimisticMessage({
       artifactIds: submission.artifactIds,
       bodyText: submission.bodyText,
-      channelId: channel?.id ?? '',
+      channelId: props.channel?.id ?? '',
       createdAt,
       deleted: false,
       id: 'optimistic-message',
@@ -206,7 +216,7 @@ export function ConversationSurface({
       sequence: Number.MAX_SAFE_INTEGER,
       updatedAt: createdAt,
       version: 0,
-      workspaceId,
+      workspaceId: props.workspaceId,
     })
     try {
       await createMessage.mutateAsync(submission)
@@ -215,204 +225,227 @@ export function ConversationSurface({
     }
   }
 
-  if (!channel)
-    return (
-      <WorkspaceEmpty
-        title="Choose a Room or conversation"
-        detail="Rooms keep durable work, Agents, Tasks, and conversation history together."
-      />
-    )
+  const messagesWithDividers = createMemo(() => {
+    const list = rootMessages()
+    return list.map((message, index) => {
+      const previousMessage = list[index - 1]
+      return {
+        message,
+        showDayDivider: Boolean(
+          previousMessage &&
+          formatMessageDay(previousMessage.createdAt) !== formatMessageDay(message.createdAt)
+        ),
+      }
+    })
+  })
 
   return (
-    <section
-      className={`conventional-conversation${root ? ' conventional-conversation--thread-open' : ''}`}
-    >
-      <header className="conventional-conversation__header">
-        <div className="conventional-conversation__header-top">
-          <div className="conventional-conversation__identity">
-            <span>
-              {channel.kind === 'room'
-                ? 'Room conversation'
-                : channel.kind === 'direct_agent'
-                  ? 'Direct Conversation'
-                  : 'Group conversation'}
-            </span>
-            <h1>{directAgent ? directAgent.name : channel.title}</h1>
-          </div>
-          <div className="conventional-conversation__actions">
-            {directAgent ? <AgentStatusBadge agent={directAgent} /> : null}
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label="Search this conversation"
-                    onClick={onOpenSearch}
-                  />
-                }
-              >
-                <Search aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent>Search this conversation (Mod+F)</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label="Mark conversation unread"
-                    onClick={() => void onMarkUnread()}
-                  />
-                }
-              >
-                <MailOpen aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent>Mark conversation unread (Mod+Shift+U)</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    type="button"
-                    aria-label="Open conversation details"
-                    onClick={onOpenDetails}
-                  />
-                }
-              >
-                <Info aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent>Open conversation details</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
-        <nav className="conventional-conversation__people" aria-label="People in this conversation">
-          <ul>
-            {conversationPeople.map((person) => (
-              <li
-                key={person.id}
-                className={person.active ? 'conventional-conversation__person--active' : undefined}
-                aria-label={person.label}
-                title={person.label}
-              >
-                <span
-                  className={`conventional-conversation__person-avatar conventional-conversation__person-avatar--${person.kind}`}
-                >
-                  <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
-                </span>
-                {person.active ? (
-                  <span className="conventional-conversation__person-presence" />
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </header>
-      <div
-        ref={transcriptRef}
-        className="conventional-transcript"
-        aria-label={`${channel.title} message history`}
-        onScroll={(event) => scrollPositions.set(channel.id, event.currentTarget.scrollTop)}
-      >
-        {messageQuery.isPending && !messages.length ? (
-          <WorkspaceSkeleton label="Loading messages" />
-        ) : null}
-        {messageQuery.isError && !messages.length ? (
-          <WorkspaceError error={messageQuery.error} retry={() => void messageQuery.refetch()} />
-        ) : null}
-        {!messageQuery.isPending && !messageQuery.isError && !rootMessages.length ? (
-          <WorkspaceEmpty
-            title={
-              directAgent
-                ? `Start a direct conversation with ${directAgent.name}`
-                : `Start the ${channel.title} conversation`
-            }
-            detail="Messages here are canonical Adea history and remain stable across runtime sessions."
-          />
-        ) : null}
-        {rootMessages.map((message, index) => {
-          const previousMessage = rootMessages[index - 1]
-          const showDayDivider =
-            previousMessage &&
-            formatMessageDay(previousMessage.createdAt) !== formatMessageDay(message.createdAt)
-          return (
-            <Fragment key={message.id}>
-              {showDayDivider ? (
-                <div className="conventional-date-divider" role="separator">
-                  <span>{formatMessageDay(message.createdAt)}</span>
-                </div>
-              ) : null}
-              <MessageRow
-                agents={agents}
-                artifacts={artifactById}
-                message={message}
-                highlighted={message.id === searchTargetMessageId}
-                onOpenTask={onOpenTask}
-                onOpenThread={onThreadChange}
-                privateContent={privateContent}
-                task={message.taskId ? taskById.get(message.taskId) : undefined}
-              />
-            </Fragment>
-          )
-        })}
-        {optimisticMessage ? (
-          <MessageRow
-            agents={agents}
-            artifacts={artifactById}
-            message={optimisticMessage}
-            onOpenTask={onOpenTask}
-            onOpenThread={onThreadChange}
-            pending
-            privateContent={privateContent}
-          />
-        ) : null}
-        {messageQuery.data?.nextAfterSequence ? (
-          <button
-            type="button"
-            className="conventional-load-more"
-            disabled={messageQuery.isFetching}
-            onClick={() => setCursor(messageQuery.data?.nextAfterSequence)}
-          >
-            {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
-          </button>
-        ) : null}
-      </div>
-      <MessageComposer
-        agents={agents}
-        artifacts={artifacts}
-        channelId={channel.id}
-        draft={draft}
-        onDraftChange={onDraftChange}
-        onSubmit={submit}
-        transcription={transcription}
-      />
-      {root ? (
-        <ThreadPanel
-          agents={agents}
-          artifacts={artifacts}
-          channelId={channel.id}
-          client={client}
-          draft={threadDraft}
-          onClose={() => onThreadChange(null)}
-          onDraftChange={onThreadDraftChange}
-          onOpenTask={onOpenTask}
-          onMarkRead={(sequence) => onMarkThreadRead(root.id, sequence)}
-          onMarkUnread={() => onMarkThreadUnread(root.id)}
-          privateContent={privateContent}
-          root={root}
-          searchTargetMessageId={searchTargetMessageId}
-          tasks={tasks}
-          transcription={transcription}
-          workspaceId={workspaceId}
+    <Show
+      when={props.channel}
+      fallback={
+        <WorkspaceEmpty
+          title="Choose a Room or conversation"
+          detail="Rooms keep durable work, Agents, Tasks, and conversation history together."
         />
-      ) : threadRootMessageId ? (
-        <aside className="conventional-thread conventional-thread--missing" role="status">
-          <MessagesSquare aria-hidden="true" />
-          <p>This thread is outside the loaded history window.</p>
-          <button type="button" onClick={() => onThreadChange(null)}>
-            Close thread
-          </button>
-        </aside>
-      ) : null}
-    </section>
+      }
+    >
+      {(channel) => (
+        <section
+          class={`conventional-conversation${root() ? ' conventional-conversation--thread-open' : ''}`}
+        >
+          <header class="conventional-conversation__header">
+            <div class="conventional-conversation__header-top">
+              <div class="conventional-conversation__identity">
+                <span>
+                  {channel().kind === 'room'
+                    ? 'Room conversation'
+                    : channel().kind === 'direct_agent'
+                      ? 'Direct Conversation'
+                      : 'Group conversation'}
+                </span>
+                <h1>{directAgent() ? directAgent()!.name : channel().title}</h1>
+              </div>
+              <div class="conventional-conversation__actions">
+                <Show when={directAgent()}>{(agent) => <AgentStatusBadge agent={agent()} />}</Show>
+                <Tooltip>
+                  <TooltipTrigger
+                    aria-label="Search this conversation"
+                    onClick={() => props.onOpenSearch()}
+                  >
+                    <Search aria-hidden="true" />
+                  </TooltipTrigger>
+                  <TooltipContent>Search this conversation (Mod+F)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    aria-label="Mark conversation unread"
+                    onClick={() => void props.onMarkUnread()}
+                  >
+                    <MailOpen aria-hidden="true" />
+                  </TooltipTrigger>
+                  <TooltipContent>Mark conversation unread (Mod+Shift+U)</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    aria-label="Open conversation details"
+                    onClick={() => props.onOpenDetails()}
+                  >
+                    <Info aria-hidden="true" />
+                  </TooltipTrigger>
+                  <TooltipContent>Open conversation details</TooltipContent>
+                </Tooltip>
+              </div>
+            </div>
+            <nav class="conventional-conversation__people" aria-label="People in this conversation">
+              <ul>
+                <For each={conversationPeople()}>
+                  {(person) => (
+                    <li
+                      class={
+                        person.active ? 'conventional-conversation__person--active' : undefined
+                      }
+                      aria-label={person.label}
+                      title={person.label}
+                    >
+                      <span
+                        class={`conventional-conversation__person-avatar conventional-conversation__person-avatar--${person.kind}`}
+                      >
+                        <ConversationAvatar kind={person.kind} avatarRef={person.avatarRef} />
+                      </span>
+                      <Show when={person.active}>
+                        <span class="conventional-conversation__person-presence" />
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </nav>
+          </header>
+          <div
+            ref={setTranscript}
+            class="conventional-transcript"
+            aria-label={`${channel().title} message history`}
+            onScroll={(event) => scrollPositions.set(channel().id, event.currentTarget.scrollTop)}
+          >
+            <Show when={(messageQuery.isPending || !pageBelongsToChannel()) && !messages().length}>
+              <WorkspaceSkeleton label="Loading messages" />
+            </Show>
+            <Show when={messageQuery.isError && !messages().length}>
+              <WorkspaceError
+                error={messageQuery.error}
+                retry={() => void messageQuery.refetch()}
+              />
+            </Show>
+            <Show
+              when={
+                !messageQuery.isPending &&
+                !messageQuery.isError &&
+                pageBelongsToChannel() &&
+                !rootMessages().length
+              }
+            >
+              <WorkspaceEmpty
+                title={
+                  directAgent()
+                    ? `Start a direct conversation with ${directAgent()!.name}`
+                    : `Start the ${channel().title} conversation`
+                }
+                detail="Messages here are canonical Adea history and remain stable across runtime sessions."
+              />
+            </Show>
+            <For each={messagesWithDividers()}>
+              {(entry) => (
+                <>
+                  <Show when={entry.showDayDivider}>
+                    <div class="conventional-date-divider" role="separator">
+                      <span>{formatMessageDay(entry.message.createdAt)}</span>
+                    </div>
+                  </Show>
+                  <MessageRow
+                    agents={props.agents}
+                    artifacts={artifactById()}
+                    message={entry.message}
+                    highlighted={entry.message.id === props.searchTargetMessageId}
+                    onOpenTask={props.onOpenTask}
+                    onOpenThread={props.onThreadChange}
+                    privateContent={props.privateContent}
+                    task={entry.message.taskId ? taskById().get(entry.message.taskId) : undefined}
+                  />
+                </>
+              )}
+            </For>
+            <Show when={optimisticMessage()}>
+              {(message) => (
+                <MessageRow
+                  agents={props.agents}
+                  artifacts={artifactById()}
+                  message={message()}
+                  onOpenTask={props.onOpenTask}
+                  onOpenThread={props.onThreadChange}
+                  pending
+                  privateContent={props.privateContent}
+                />
+              )}
+            </Show>
+            <Show when={settledData(messageQuery)?.nextAfterSequence}>
+              {(nextSequence) => (
+                <button
+                  type="button"
+                  class="conventional-load-more"
+                  disabled={messageQuery.isFetching}
+                  onClick={() => setCursor(nextSequence())}
+                >
+                  {messageQuery.isFetching ? 'Loading…' : 'Load newer messages'}
+                </button>
+              )}
+            </Show>
+          </div>
+          <MessageComposer
+            agents={props.agents}
+            artifacts={props.artifacts}
+            channelId={channel().id}
+            draft={props.draft}
+            onDraftChange={props.onDraftChange}
+            onSubmit={submit}
+            transcription={props.transcription}
+          />
+          <Show
+            when={root()}
+            fallback={
+              <Show when={props.threadRootMessageId}>
+                <aside class="conventional-thread conventional-thread--missing" role="status">
+                  <MessagesSquare aria-hidden="true" />
+                  <p>This thread is outside the loaded history window.</p>
+                  <button type="button" onClick={() => props.onThreadChange(null)}>
+                    Close thread
+                  </button>
+                </aside>
+              </Show>
+            }
+          >
+            {(rootMessage) => (
+              <ThreadPanel
+                agents={props.agents}
+                artifacts={props.artifacts}
+                channelId={channel().id}
+                client={props.client}
+                draft={props.threadDraft}
+                onClose={() => props.onThreadChange(null)}
+                onDraftChange={props.onThreadDraftChange}
+                onOpenTask={props.onOpenTask}
+                onMarkRead={(sequence) => props.onMarkThreadRead(rootMessage().id, sequence)}
+                onMarkUnread={() => props.onMarkThreadUnread(rootMessage().id)}
+                privateContent={props.privateContent}
+                root={rootMessage()}
+                searchTargetMessageId={props.searchTargetMessageId}
+                tasks={props.tasks}
+                transcription={props.transcription}
+                workspaceId={props.workspaceId}
+              />
+            )}
+          </Show>
+        </section>
+      )}
+    </Show>
   )
 }

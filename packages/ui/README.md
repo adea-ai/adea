@@ -1,8 +1,11 @@
 # Shared UI
 
-Reusable Base UI/shadcn primitives and React controls for the HQ shell, scene
-controls, room authoring, themes, drawers, loading states, and overlays. Scene
-branding and Three.js runtime behavior stay in their owning packages.
+Reusable shadcn-style Solid controls for the HQ shell, scene controls, room
+authoring, themes, drawers, loading states, and overlays. Primitives come from
+Kobalte (headless) and corvu (the swipeable drawer); the component layer is one
+Solid codebase. Scene branding and Three.js runtime behavior stay in their
+owning packages. The primitive selection is recorded in
+[decision 0007](../../docs/decisions/0007-solid-tanstack-start.md).
 
 ## Theming contract: CSS custom properties are the only color surface
 

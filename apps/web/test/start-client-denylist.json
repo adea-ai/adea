@@ -9,5 +9,13 @@
   "/repo/apps/web/src/start/worker.ts",
   "/repo/node_modules/server-only/index.js",
   "/repo/apps/web/src/server/event-cursor.ts",
-  "/repo/apps/web/src/server/workspace-event-stream.ts"
+  "/repo/apps/web/src/server/workspace-event-stream.ts",
+  "/repo/node_modules/react/jsx-runtime.js",
+  "/repo/node_modules/react-dom/client.js",
+  "/repo/node_modules/@radix-ui/react-dialog/dist/index.js",
+  "/repo/node_modules/@base-ui/react/dialog/index.js",
+  "/repo/node_modules/next-themes/dist/index.js",
+  "/repo/node_modules/nuqs/dist/index.js",
+  "/repo/node_modules/lucide-react/dist/lucide-react.js",
+  "/repo/node_modules/@tanstack/react-query/build/index.js"
 ]

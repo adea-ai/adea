@@ -1,7 +1,7 @@
 /**
  * Preserve Next/URLSearchParams string semantics. TanStack's default JSON
  * parser would turn ?roomDesigner=0 into a number, changing Adea's flag logic.
- * Unknown fields and repeated keys must survive nuqs updates as well.
+ * Unknown fields and repeated keys must survive a router search update too.
  * @param {string} input
  * @returns {Record<string, string | string[]>}
  */

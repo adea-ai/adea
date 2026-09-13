@@ -1,8 +1,8 @@
 import { fileURLToPath } from 'node:url'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { defineConfig, type Plugin } from 'vite'
-import { tanstackStart } from '@tanstack/react-start/plugin/vite'
-import viteReact from '@vitejs/plugin-react'
+import { tanstackStart } from '@tanstack/solid-start/plugin/vite'
+import viteSolid from 'vite-plugin-solid'
 import tailwindcss from '@tailwindcss/postcss'
 import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.mjs'
 
@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => {
     // setting that plugin applies), or CSS `@import` resolution fails.
     ssr: { noExternal: true },
     resolve: {
-      dedupe: ['react', 'react-dom'],
+      dedupe: ['solid-js'],
       alias: [
         {
           find: /^server-only$/,
@@ -103,7 +103,7 @@ export default defineConfig(({ mode }) => {
         srcDirectory: './src/start',
         spa: { enabled: true, maskPath: '/', prerender: { enabled: true, outputPath: '/index' } },
       }),
-      viteReact(),
+      viteSolid({ ssr: true }),
       protectClientGraph(),
     ],
   }

@@ -1,7 +1,32 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
+
+/** A value that may be supplied as a Solid accessor so queries stay reactive. */
+export type MaybeAccessor<T> = T | (() => T)
+
+function resolveAccessor<T>(value: MaybeAccessor<T>): T {
+  return typeof value === 'function' ? (value as () => T)() : value
+}
+
+/**
+ * Reads settled query data.
+ *
+ * Solid Query backs every result's `data` with a resource. A read while the
+ * query has not settled registers the nearest `Suspense` boundary, which
+ * replaces that boundary's content with its fallback (the Start route has none,
+ * so the workspace disappears), and a read of a query that failed throws its
+ * error at the reader. Going through this guard makes a pending or failed query
+ * render as "no data" — the behavior the workspace was built against — instead
+ * of tearing the workspace down.
+ */
+export function settledData<TData>(result: {
+  readonly isSuccess: boolean
+  readonly data: TData | undefined
+}): TData | undefined {
+  return result.isSuccess ? result.data : undefined
+}
 
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
@@ -597,228 +622,466 @@ export const workspaceMutationOptions = {
 }
 
 export function useWorkspaceBootstrapQuery(client: AgentHqApiClient) {
-  return useQuery(workspaceQueryOptions.bootstrap(client))
+  return useQuery(() => workspaceQueryOptions.bootstrap(client))
 }
 
 export function useWorkspaceListQuery(client: AgentHqApiClient) {
-  return useQuery(workspaceQueryOptions.list(client))
+  return useQuery(() => workspaceQueryOptions.list(client))
 }
 
-export function useWorkspaceQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(workspaceQueryOptions.detail(client, workspaceId))
+export function useWorkspaceQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => workspaceQueryOptions.detail(client, resolveAccessor(workspaceId)))
 }
 
 export function useCreateWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
-  return useMutation(workspaceMutationOptions.create(client, queryClient))
+  return useMutation(() => workspaceMutationOptions.create(client, queryClient))
 }
 
 export function useReopenWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
-  return useMutation(workspaceMutationOptions.reopen(client, queryClient))
+  return useMutation(() => workspaceMutationOptions.reopen(client, queryClient))
 }
 
 export function useClaimTemporaryWorkspaceMutation(client: AgentHqApiClient) {
   const queryClient = useQueryClient()
-  return useMutation(workspaceMutationOptions.claim(client, queryClient))
+  return useMutation(() => workspaceMutationOptions.claim(client, queryClient))
 }
 
-export function useRoomListQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(roomQueryOptions.list(client, workspaceId))
+export function useRoomListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => roomQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 
-export function useRoomQuery(client: AgentHqApiClient, workspaceId?: string, roomId?: string) {
-  return useQuery(roomQueryOptions.detail(client, workspaceId, roomId))
+export function useRoomQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>,
+  roomId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() =>
+    roomQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(roomId))
+  )
 }
 
-export function useCreateRoomMutation(client: AgentHqApiClient, workspaceId: string) {
+export function useCreateRoomMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
   const queryClient = useQueryClient()
-  return useMutation(roomMutationOptions.create(client, queryClient, workspaceId))
+  return useMutation(() =>
+    roomMutationOptions.create(client, queryClient, resolveAccessor(workspaceId))
+  )
 }
 
-export function useUpdateRoomMutation(client: AgentHqApiClient, workspaceId: string) {
+export function useUpdateRoomMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
   const queryClient = useQueryClient()
-  return useMutation(roomMutationOptions.update(client, queryClient, workspaceId))
+  return useMutation(() =>
+    roomMutationOptions.update(client, queryClient, resolveAccessor(workspaceId))
+  )
 }
 
-export function useArchiveRoomMutation(client: AgentHqApiClient, workspaceId: string) {
+export function useArchiveRoomMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
   const queryClient = useQueryClient()
-  return useMutation(roomMutationOptions.archive(client, queryClient, workspaceId))
+  return useMutation(() =>
+    roomMutationOptions.archive(client, queryClient, resolveAccessor(workspaceId))
+  )
 }
 
-export function useReorderRoomsMutation(client: AgentHqApiClient, workspaceId: string) {
+export function useReorderRoomsMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
   const queryClient = useQueryClient()
-  return useMutation(roomMutationOptions.reorder(client, queryClient, workspaceId))
+  return useMutation(() =>
+    roomMutationOptions.reorder(client, queryClient, resolveAccessor(workspaceId))
+  )
 }
 
-export function useAgentListQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(agentQueryOptions.list(client, workspaceId))
+export function useAgentListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => agentQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
-export function useAgentQuery(client: AgentHqApiClient, workspaceId?: string, agentId?: string) {
-  return useQuery(agentQueryOptions.detail(client, workspaceId, agentId))
+export function useAgentQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>,
+  agentId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() =>
+    agentQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(agentId))
+  )
 }
-export function useCreateAgentMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(agentMutationOptions.create(client, useQueryClient(), workspaceId))
+export function useCreateAgentMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    agentMutationOptions.create(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useArchiveAgentMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(agentMutationOptions.archive(client, useQueryClient(), workspaceId))
+export function useArchiveAgentMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    agentMutationOptions.archive(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useAssignAgentRoomMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(agentMutationOptions.assignRoom(client, useQueryClient(), workspaceId))
+export function useAssignAgentRoomMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    agentMutationOptions.assignRoom(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useUpdateAgentPresentationMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(agentMutationOptions.presentation(client, useQueryClient(), workspaceId))
+export function useUpdateAgentPresentationMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    agentMutationOptions.presentation(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useChangeAgentProfileMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(agentMutationOptions.profile(client, useQueryClient(), workspaceId))
-}
-
-export function useTaskListQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(taskQueryOptions.list(client, workspaceId))
-}
-export function useTaskQuery(client: AgentHqApiClient, workspaceId?: string, taskId?: string) {
-  return useQuery(taskQueryOptions.detail(client, workspaceId, taskId))
-}
-export function useCreateTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.create(client, useQueryClient(), workspaceId))
-}
-export function useUpdateTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.update(client, useQueryClient(), workspaceId))
-}
-export function useAssignTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.assign(client, useQueryClient(), workspaceId))
-}
-export function useMoveTaskRoomMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.moveRoom(client, useQueryClient(), workspaceId))
-}
-export function useQueueTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.queue(client, useQueryClient(), workspaceId))
-}
-export function useReviewTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.review(client, useQueryClient(), workspaceId))
-}
-export function useStartTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.start(client, useQueryClient(), workspaceId))
-}
-export function useCompleteTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.complete(client, useQueryClient(), workspaceId))
-}
-export function useCancelTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.cancel(client, useQueryClient(), workspaceId))
-}
-export function useArchiveTaskMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.archive(client, useQueryClient(), workspaceId))
-}
-export function useSetTaskDependenciesMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.dependencies(client, useQueryClient(), workspaceId))
-}
-export function useSetTaskArtifactsMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.artifacts(client, useQueryClient(), workspaceId))
-}
-export function useSetTaskConversationMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(taskMutationOptions.conversation(client, useQueryClient(), workspaceId))
+export function useChangeAgentProfileMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    agentMutationOptions.profile(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
 
-export function useArtifactListQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(artifactQueryOptions.list(client, workspaceId))
+export function useTaskListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => taskQueryOptions.list(client, resolveAccessor(workspaceId)))
+}
+export function useTaskQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>,
+  taskId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() =>
+    taskQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(taskId))
+  )
+}
+export function useCreateTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.create(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useUpdateTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.update(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useAssignTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.assign(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useMoveTaskRoomMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.moveRoom(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useQueueTaskMutation(client: AgentHqApiClient, workspaceId: MaybeAccessor<string>) {
+  return useMutation(() =>
+    taskMutationOptions.queue(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useReviewTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.review(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useStartTaskMutation(client: AgentHqApiClient, workspaceId: MaybeAccessor<string>) {
+  return useMutation(() =>
+    taskMutationOptions.start(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useCompleteTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.complete(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useCancelTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.cancel(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useArchiveTaskMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.archive(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useSetTaskDependenciesMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.dependencies(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useSetTaskArtifactsMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.artifacts(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+export function useSetTaskConversationMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    taskMutationOptions.conversation(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+
+export function useArtifactListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => artifactQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 export function useArtifactQuery(
   client: AgentHqApiClient,
-  workspaceId?: string,
-  artifactId?: string
+  workspaceId?: MaybeAccessor<string | undefined>,
+  artifactId?: MaybeAccessor<string | undefined>
 ) {
-  return useQuery(artifactQueryOptions.detail(client, workspaceId, artifactId))
+  return useQuery(() =>
+    artifactQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(artifactId))
+  )
 }
-export function useCreateArtifactMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(artifactMutationOptions.create(client, useQueryClient(), workspaceId))
+export function useCreateArtifactMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    artifactMutationOptions.create(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useSetArtifactAvailabilityMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(artifactMutationOptions.availability(client, useQueryClient(), workspaceId))
+export function useSetArtifactAvailabilityMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    artifactMutationOptions.availability(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useDeleteArtifactMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(artifactMutationOptions.delete(client, useQueryClient(), workspaceId))
+export function useDeleteArtifactMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    artifactMutationOptions.delete(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
 
-export function useChannelListQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(channelQueryOptions.list(client, workspaceId))
+export function useChannelListQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => channelQueryOptions.list(client, resolveAccessor(workspaceId)))
 }
 export function useChannelQuery(
   client: AgentHqApiClient,
-  workspaceId?: string,
-  channelId?: string
+  workspaceId?: MaybeAccessor<string | undefined>,
+  channelId?: MaybeAccessor<string | undefined>
 ) {
-  return useQuery(channelQueryOptions.detail(client, workspaceId, channelId))
+  return useQuery(() =>
+    channelQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(channelId))
+  )
 }
-export function useCreateRoomChannelMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(channelMutationOptions.room(client, useQueryClient(), workspaceId))
+export function useCreateRoomChannelMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.room(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useCreateDirectChannelMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(channelMutationOptions.direct(client, useQueryClient(), workspaceId))
+export function useCreateDirectChannelMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.direct(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useCreateGroupChannelMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(channelMutationOptions.group(client, useQueryClient(), workspaceId))
+export function useCreateGroupChannelMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.group(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useUpdateChannelMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(channelMutationOptions.update(client, useQueryClient(), workspaceId))
+export function useUpdateChannelMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.update(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useArchiveChannelMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(channelMutationOptions.archive(client, useQueryClient(), workspaceId))
+export function useArchiveChannelMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.archive(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useSetChannelParticipantsMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(channelMutationOptions.participants(client, useQueryClient(), workspaceId))
+export function useSetChannelParticipantsMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.participants(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
 export function useMessageListQuery(
   client: AgentHqApiClient,
-  workspaceId?: string,
-  channelId?: string,
+  workspaceId?: MaybeAccessor<string | undefined>,
+  channelId?: MaybeAccessor<string | undefined>,
   options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {}
 ) {
-  return useQuery(messageQueryOptions.list(client, workspaceId, channelId, options))
+  return useQuery(() =>
+    messageQueryOptions.list(
+      client,
+      resolveAccessor(workspaceId),
+      resolveAccessor(channelId),
+      options
+    )
+  )
 }
 export function useMessageQuery(
   client: AgentHqApiClient,
-  workspaceId?: string,
-  messageId?: string
+  workspaceId?: MaybeAccessor<string | undefined>,
+  messageId?: MaybeAccessor<string | undefined>
 ) {
-  return useQuery(messageQueryOptions.detail(client, workspaceId, messageId))
+  return useQuery(() =>
+    messageQueryOptions.detail(client, resolveAccessor(workspaceId), resolveAccessor(messageId))
+  )
 }
 export function useCreateMessageMutation(
   client: AgentHqApiClient,
-  workspaceId: string,
-  channelId: string
+  workspaceId: MaybeAccessor<string>,
+  channelId: MaybeAccessor<string>
 ) {
-  return useMutation(
-    messageMutationOptions.create(client, useQueryClient(), workspaceId, channelId)
+  return useMutation(() =>
+    messageMutationOptions.create(
+      client,
+      useQueryClient(),
+      resolveAccessor(workspaceId),
+      resolveAccessor(channelId)
+    )
   )
 }
-export function useEditMessageMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(messageMutationOptions.edit(client, useQueryClient(), workspaceId))
+export function useEditMessageMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    messageMutationOptions.edit(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
-export function useDeleteMessageMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(messageMutationOptions.delete(client, useQueryClient(), workspaceId))
-}
-
-export function useReadStateQuery(client: AgentHqApiClient, workspaceId?: string) {
-  return useQuery(readStateQueryOptions.detail(client, workspaceId))
-}
-
-export function useMarkAllReadMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(readStateMutationOptions.all(client, useQueryClient(), workspaceId))
-}
-
-export function useMarkChannelReadMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(readStateMutationOptions.channel(client, useQueryClient(), workspaceId))
+export function useDeleteMessageMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    messageMutationOptions.delete(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
 
-export function useMarkThreadReadMutation(client: AgentHqApiClient, workspaceId: string) {
-  return useMutation(readStateMutationOptions.thread(client, useQueryClient(), workspaceId))
+export function useReadStateQuery(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  return useQuery(() => readStateQueryOptions.detail(client, resolveAccessor(workspaceId)))
+}
+
+export function useMarkAllReadMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    readStateMutationOptions.all(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+
+export function useMarkChannelReadMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    readStateMutationOptions.channel(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+
+export function useMarkThreadReadMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    readStateMutationOptions.thread(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
 }
 
 export function useWorkspaceSearchQuery(
   client: AgentHqApiClient,
-  workspaceId?: string,
-  query = '',
-  channelId?: string
+  workspaceId?: MaybeAccessor<string | undefined>,
+  query: MaybeAccessor<string> = '',
+  channelId?: MaybeAccessor<string | undefined>
 ) {
-  return useQuery(workspaceSearchQueryOptions.search(client, workspaceId, query, channelId))
+  return useQuery(() =>
+    workspaceSearchQueryOptions.search(
+      client,
+      resolveAccessor(workspaceId),
+      resolveAccessor(query),
+      resolveAccessor(channelId)
+    )
+  )
 }

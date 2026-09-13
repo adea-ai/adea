@@ -47,6 +47,12 @@ export const BASELINE = [
     reason:
       'browser theme-color meta tags take a color value rather than a custom property, so the light and dark page background have to be written out',
   },
+  {
+    file: 'packages/ui/src/styles/base.css',
+    literals: 26,
+    reason:
+      'scroll-fade masks use #000 as an opaque alpha stop in a mask-image gradient, which composites alpha rather than painting a color',
+  },
 ]
 
 /** A color literal outside the token layer. Exported so the gate's own

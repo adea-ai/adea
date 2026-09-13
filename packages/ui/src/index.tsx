@@ -4,7 +4,13 @@ export { Toggle } from './components/ui/toggle'
 export { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group'
 export { RadioGroup, RadioGroupItem } from './components/ui/radio-group'
 export { ThemeToggle } from './components/theme-toggle'
-export { ThemeProvider } from './components/theme-provider'
+export {
+  ThemeProvider,
+  ThemeScript,
+  useTheme,
+  type ResolvedTheme,
+  type Theme,
+} from './components/theme-provider'
 export {
   Drawer,
   DrawerClose,

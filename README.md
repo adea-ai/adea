@@ -9,12 +9,14 @@ state wherever the virtual view mounts.
 
 ## Stack
 
-- Turborepo, TanStack Start, React, and TypeScript
+- Turborepo, TanStack Start, SolidJS, and TypeScript
 - Bun for installation, scripts, and tests
 - Scene manifests and telemetry schema via `@adea-ai/spatial-protocol`
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
-- TanStack Query for server state and Zustand for client-only coordination
-- shadcn/ui primitives backed by Base UI
+- TanStack Query's Solid bindings for server state and `solid-js/store` for
+  client-only coordination
+- shadcn-style primitives backed by Kobalte and corvu
+  ([decision 0007](docs/decisions/0007-solid-tanstack-start.md))
 
 ## Local development
 

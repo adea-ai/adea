@@ -5,11 +5,12 @@
 // shell session bootstrap (guest credential, PKCE sign-in) and the start
 // surface; the workspace itself renders through the shared
 // `WorkspaceNavigation`.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createEffect, createSignal, Show } from 'solid-js'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
-import { useWorkspaceStore } from '@adea-ai/state'
+import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
+import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
 import { localContentAuthority } from '../lib/desktop-local-content'
 import {
@@ -46,104 +47,94 @@ const statusMark: Record<AppStatus, string> = {
   waiting: 'active',
 }
 
-export function DesktopWorkspaceEntry({
-  virtual,
-  virtualProps,
-  roomDesigner = false,
-}: Readonly<{
+export function DesktopWorkspaceEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
   roomDesigner?: boolean
-}>) {
+}) {
   const runtime = desktopRuntime()
-  const [status, setStatus] = useState<AppStatus>('loading')
-  const [message, setMessage] = useState('Opening your workspace…')
-  const [workspaceState, setWorkspaceState] = useState<DesktopWorkspaceBootstrap | null>(null)
-  const [session, setSession] = useState<DesktopSession | undefined>()
-  const [appVersion, setAppVersion] = useState('0.0.0')
-  const [updatesOpen, setUpdatesOpen] = useState(false)
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const switchWorkspace = useWorkspaceStore((state) => state.switchWorkspace)
-  const temporaryCredentialRef = useRef<string | null>(null)
-  const sessionRef = useRef<DesktopSession | undefined>(undefined)
-  const workspaceIdRef = useRef<string | undefined>(undefined)
-  const userIdRef = useRef<string | undefined>(undefined)
-  const clientRef = useRef<AgentHqApiClient | undefined>(undefined)
-  const workspaceRequestGuardRef = useRef(createWorkspaceRequestGuard())
-  const authCallbackObservedRef = useRef(false)
-  const [plugins] = useState(() =>
-    createDeferredPluginsProvider({
-      client: () => clientRef.current!,
-      getWorkspaceId: () => workspaceIdRef.current,
-      getUserId: () => userIdRef.current,
-      requestedHarness: 'codex',
-    })
-  )
+  const [status, setStatus] = createSignal<AppStatus>('loading')
+  const [message, setMessage] = createSignal('Opening your workspace…')
+  const [workspaceState, setWorkspaceState] = createSignal<DesktopWorkspaceBootstrap | null>(null)
+  const [session, setSession] = createSignal<DesktopSession | undefined>()
+  const [appVersion, setAppVersion] = createSignal('0.0.0')
+  const [updatesOpen, setUpdatesOpen] = createSignal(false)
+  const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  let temporaryCredential: string | null = null
+  let workspaceId: string | undefined
+  let userId: string | undefined
+  let clientRef: AgentHqApiClient | undefined
+  const workspaceRequestGuard = createWorkspaceRequestGuard()
+  let authCallbackObserved = false
+  const plugins = createDeferredPluginsProvider({
+    client: () => clientRef!,
+    getWorkspaceId: () => workspaceId,
+    getUserId: () => userId,
+    requestedHarness: 'codex',
+  })
 
-  useEffect(() => {
+  createEffect(() => {
     void runtime
       .getUserVersion()
-      .then(setAppVersion)
+      .then((version) => setAppVersion(version))
       .catch(() => undefined)
-  }, [runtime])
+  })
 
-  const openWorkspace = useCallback(
-    async (activeSession?: DesktopSession) => {
-      const requestIsCurrent = workspaceRequestGuardRef.current.begin()
-      setSession(activeSession)
-      sessionRef.current = activeSession
-      setStatus('loading')
-      setMessage(
-        activeSession ? 'Opening your saved workspace…' : 'Opening a private guest workspace…'
-      )
-      try {
-        let storedTemporaryCredential = temporaryCredentialRef.current
-        if (!storedTemporaryCredential) {
-          storedTemporaryCredential = await loadTemporaryWorkspaceCredential(
-            runtime.temporaryVault.load
-          )
-        }
-        const nextWorkspace = await bootstrapDesktopWorkspace({
-          createClient: ({ session: clientSession, temporaryCredential }) =>
-            runtime.createClient(clientSession, temporaryCredential),
-          session: activeSession,
-          storedTemporaryCredential,
-          onTemporaryCredentialClaimed: () => {
-            temporaryCredentialRef.current = null
-          },
-          temporaryVault: runtime.temporaryVault,
-        })
-        if (!requestIsCurrent()) return
-        await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
-        if (!requestIsCurrent()) return
-        switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
-        temporaryCredentialRef.current = nextWorkspace.temporaryCredential
-        workspaceIdRef.current = nextWorkspace.workspace.id
-        userIdRef.current = nextWorkspace.userId
-        setWorkspaceState(nextWorkspace)
-        setStatus(activeSession ? 'authenticated' : 'guest')
-        setMessage(
-          activeSession
-            ? 'Your workspace is saved to your Adea account.'
-            : nextWorkspace.temporaryCredentialPersisted
-              ? 'You can use this workspace now. Sign in whenever you want to save it to an account.'
-              : 'You can use this workspace now. Sign in before closing the app to save it to an account.'
+  const openWorkspace = async (activeSession?: DesktopSession) => {
+    const requestIsCurrent = workspaceRequestGuard.begin()
+    setSession(activeSession)
+    setStatus('loading')
+    setMessage(
+      activeSession ? 'Opening your saved workspace…' : 'Opening a private guest workspace…'
+    )
+    try {
+      let storedTemporaryCredential = temporaryCredential
+      if (!storedTemporaryCredential) {
+        storedTemporaryCredential = await loadTemporaryWorkspaceCredential(
+          runtime.temporaryVault.load
         )
-      } catch {
-        if (!requestIsCurrent()) return
-        setStatus('offline')
-        setMessage('Adea could not reach the workspace service. Your local credentials are safe.')
       }
-    },
-    [runtime, switchWorkspace]
-  )
+      const nextWorkspace = await bootstrapDesktopWorkspace({
+        createClient: ({ session: clientSession, temporaryCredential: guestCredential }) =>
+          runtime.createClient(clientSession, guestCredential),
+        session: activeSession,
+        storedTemporaryCredential,
+        onTemporaryCredentialClaimed: () => {
+          temporaryCredential = null
+        },
+        temporaryVault: runtime.temporaryVault,
+      })
+      if (!requestIsCurrent()) return
+      await localContentAuthority.authorizeWorkspace(nextWorkspace.workspace.id)
+      if (!requestIsCurrent()) return
+      workspaceStore
+        .getState()
+        .switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
+      temporaryCredential = nextWorkspace.temporaryCredential
+      workspaceId = nextWorkspace.workspace.id
+      userId = nextWorkspace.userId
+      setWorkspaceState(nextWorkspace)
+      setStatus(activeSession ? 'authenticated' : 'guest')
+      setMessage(
+        activeSession
+          ? 'Your workspace is saved to your Adea account.'
+          : nextWorkspace.temporaryCredentialPersisted
+            ? 'You can use this workspace now. Sign in whenever you want to save it to an account.'
+            : 'You can use this workspace now. Sign in before closing the app to save it to an account.'
+      )
+    } catch {
+      if (!requestIsCurrent()) return
+      setStatus('offline')
+      setMessage('Adea could not reach the workspace service. Your local credentials are safe.')
+    }
+  }
 
-  useEffect(() => {
+  createEffect(() => {
     let disposed = false
     let unlisten: (() => void) | undefined
 
     void runtime.sessionManager.restore().then((sessionState) => {
-      if (disposed || authCallbackObservedRef.current) return
+      if (disposed || authCallbackObserved) return
       void openWorkspace(sessionState.status === 'authenticated' ? sessionState.session : undefined)
     })
 
@@ -155,8 +146,8 @@ export function DesktopWorkspaceEntry({
         return
       }
       if (!callbackUrl || disposed) return
-      authCallbackObservedRef.current = true
-      workspaceRequestGuardRef.current.invalidate()
+      authCallbackObserved = true
+      workspaceRequestGuard.invalidate()
       try {
         const exchange = await runtime.consumeAuthorization(callbackUrl)
         const sessionState = await runtime.sessionManager.completeSignIn(exchange)
@@ -181,26 +172,31 @@ export function DesktopWorkspaceEntry({
       disposed = true
       unlisten?.()
     }
-  }, [openWorkspace, runtime])
+  })
 
-  const activeWorkspace = workspaceState
-    ? (workspaceState.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
-      workspaceState.workspace)
-    : undefined
+  const activeWorkspace = (): WorkspaceSummary | undefined => {
+    const state = workspaceState()
+    return state
+      ? (state.workspaces.find(({ id }) => id === selectedWorkspaceId()) ?? state.workspace)
+      : undefined
+  }
 
-  useEffect(() => {
-    if (!activeWorkspace) return
-    workspaceIdRef.current = activeWorkspace.id
-    void localContentAuthority.authorizeWorkspace(activeWorkspace.id).catch(() => undefined)
-  }, [activeWorkspace?.id])
+  createEffect(() => {
+    const workspace = activeWorkspace()
+    if (!workspace) return
+    workspaceId = workspace.id
+    void localContentAuthority.authorizeWorkspace(workspace.id).catch(() => undefined)
+  })
 
-  const client = useMemo(
-    () => runtime.createClient(session, workspaceState?.temporaryCredential ?? undefined),
-    [runtime, session, workspaceState?.temporaryCredential]
-  )
-  useEffect(() => {
-    clientRef.current = client
-  }, [client])
+  const client = () => {
+    if (!workspaceState()) return clientRef
+    const nextClient = runtime.createClient(
+      session(),
+      workspaceState()?.temporaryCredential ?? undefined
+    )
+    clientRef = nextClient
+    return nextClient
+  }
 
   async function beginSignIn() {
     setStatus('opening')
@@ -216,7 +212,7 @@ export function DesktopWorkspaceEntry({
       )
     } catch {
       await runtime.cancelAuthorization().catch(() => undefined)
-      setStatus(workspaceState?.temporary ? 'guest' : 'failed')
+      setStatus(workspaceState()?.temporary ? 'guest' : 'failed')
       setMessage('Adea could not open the trusted sign-in page. Your workspace is unchanged.')
     }
   }
@@ -229,116 +225,150 @@ export function DesktopWorkspaceEntry({
     await openWorkspace()
   }
 
-  const busy = status === 'loading' || status === 'opening' || status === 'waiting'
+  const busy = () => status() === 'loading' || status() === 'opening' || status() === 'waiting'
 
-  if (!workspaceState || !activeWorkspace) {
-    return (
-      <DesktopStartSurface
-        busy={busy}
-        message={message}
-        onRetry={() => void openWorkspace(session)}
-        onSignIn={() => void beginSignIn()}
-        showSignIn={!session && status !== 'waiting' && status !== 'opening'}
-        status={status}
-      />
-    )
-  }
+  return (
+    <Show
+      when={activeWorkspace()}
+      fallback={
+        <DesktopStartSurface
+          busy={busy()}
+          message={message()}
+          onRetry={() => void openWorkspace(session())}
+          onSignIn={() => void beginSignIn()}
+          showSignIn={!session() && status() !== 'waiting' && status() !== 'opening'}
+          status={status()}
+        />
+      }
+    >
+      {(workspace) => (
+        <DesktopWorkspace
+          accountLabel={workspaceState()?.accountLabel ?? undefined}
+          activeWorkspace={workspace()}
+          appVersion={appVersion()}
+          busy={busy()}
+          client={client()!}
+          plugins={plugins}
+          roomDesigner={props.roomDesigner ?? false}
+          session={session()}
+          onBeginSignIn={beginSignIn}
+          onSignOut={signOut}
+          onUpdatesOpenChange={setUpdatesOpen}
+          updatesOpen={updatesOpen()}
+          virtual={props.virtual}
+          virtualProps={props.virtualProps}
+          workspaces={workspaceState()?.workspaces ?? []}
+        />
+      )}
+    </Show>
+  )
+}
 
-  const services: WorkspacePlatformServices = {
+function DesktopWorkspace(props: {
+  accountLabel?: string
+  activeWorkspace: WorkspaceSummary
+  appVersion: string
+  busy: boolean
+  client: AgentHqApiClient
+  plugins: ReturnType<typeof createDeferredPluginsProvider>
+  roomDesigner: boolean
+  session: DesktopSession | undefined
+  onBeginSignIn: () => Promise<void>
+  onSignOut: () => Promise<void>
+  onUpdatesOpenChange: (open: boolean) => void
+  updatesOpen: boolean
+  virtual: boolean
+  virtualProps: WorkspaceShellProps
+  workspaces: readonly WorkspaceSummary[]
+}) {
+  const signedIn = () => Boolean(props.session)
+  const accountLabel = () => (signedIn() ? (props.accountLabel ?? 'Account') : 'Not signed in')
+  const services = (): WorkspacePlatformServices => ({
     account: {
-      authenticated: Boolean(session),
-      busy,
-      label: session ? (workspaceState.accountLabel ?? 'Account') : 'Not signed in',
-      onSignIn: () => void beginSignIn(),
-      onSignOut: () => void signOut(),
+      authenticated: signedIn(),
+      busy: props.busy,
+      label: accountLabel(),
+      onSignIn: () => void props.onBeginSignIn(),
+      onSignOut: () => void props.onSignOut(),
     },
-    app: { name: 'Adea', platform: 'desktop', version: appVersion },
+    app: { name: 'Adea', platform: 'desktop', version: props.appVersion },
     capabilities: desktopCapabilityProvider,
-    client,
+    client: props.client,
     privateContent: localContentAuthority,
-    plugins,
+    plugins: props.plugins,
     settings: desktopSettingsProvider,
     transcription: systemTranscriptionProvider,
-  }
+  })
 
   return (
     <WorkspaceNavigation
       account={{
-        authenticated: Boolean(session),
-        busy,
-        label: session ? (workspaceState.accountLabel ?? 'Account') : 'Not signed in',
-        onOpenUpdates: () => setUpdatesOpen(true),
-        onSignIn: () => void beginSignIn(),
-        onSignOut: () => void signOut(),
+        authenticated: signedIn(),
+        busy: props.busy,
+        label: accountLabel(),
+        onOpenUpdates: () => props.onUpdatesOpenChange(true),
+        onSignIn: () => void props.onBeginSignIn(),
+        onSignOut: () => void props.onSignOut(),
       }}
-      activeWorkspace={activeWorkspace}
-      client={client}
+      activeWorkspace={props.activeWorkspace}
+      client={props.client}
       onAuthorizeWorkspace={(workspaceId) => localContentAuthority.authorizeWorkspace(workspaceId)}
       platform="desktop"
-      roomDesigner={roomDesigner}
-      services={services}
-      updates={{ open: updatesOpen, onOpenChange: setUpdatesOpen }}
-      virtual={virtual}
-      virtualProps={virtualProps}
-      workspaces={workspaceState.workspaces}
+      roomDesigner={props.roomDesigner}
+      services={services()}
+      updates={{ open: props.updatesOpen, onOpenChange: props.onUpdatesOpenChange }}
+      virtual={props.virtual}
+      virtualProps={props.virtualProps}
+      workspaces={props.workspaces}
     />
   )
 }
 
-function DesktopStartSurface({
-  busy,
-  message,
-  onRetry,
-  onSignIn,
-  showSignIn,
-  status,
-}: Readonly<{
+function DesktopStartSurface(props: {
   busy: boolean
   message: string
   onRetry(): void
   onSignIn(): void
   showSignIn: boolean
   status: AppStatus
-}>) {
+}) {
   return (
-    <main className="auth-shell">
-      <section className="auth-panel" aria-labelledby="desktop-title" aria-busy={busy}>
-        <p className="auth-eyebrow">Adea desktop</p>
-        <h1 className="auth-title" id="desktop-title">
+    <main class="auth-shell">
+      <section class="auth-panel" aria-labelledby="desktop-title" aria-busy={props.busy}>
+        <p class="auth-eyebrow">Adea desktop</p>
+        <h1 class="auth-title" id="desktop-title">
           Your workspace, ready when you are.
         </h1>
-        <p className="auth-introduction">
+        <p class="auth-introduction">
           Start immediately without an account. Sign in later to keep this workspace across devices.
         </p>
 
-        <div className="auth-status" role="status" aria-live="polite">
+        <div class="auth-status" role="status" aria-live="polite">
           <span
-            className={`auth-status__mark auth-status__mark--${statusMark[status]}`}
+            class={`auth-status__mark auth-status__mark--${statusMark[props.status]}`}
             aria-hidden="true"
           />
-          <p>{message}</p>
+          <p>{props.message}</p>
         </div>
 
-        <div className="auth-actions">
-          {(status === 'offline' || status === 'failed') && (
-            <>
-              <button type="button" className="auth-action" onClick={onRetry}>
-                Try again
+        <div class="auth-actions">
+          <Show when={props.status === 'offline' || props.status === 'failed'}>
+            <button type="button" class="auth-action" onClick={() => props.onRetry()}>
+              Try again
+            </button>
+            <Show when={props.showSignIn}>
+              <button
+                type="button"
+                class="auth-action auth-action-secondary"
+                onClick={() => props.onSignIn()}
+              >
+                Sign in
               </button>
-              {showSignIn ? (
-                <button
-                  type="button"
-                  className="auth-action auth-action-secondary"
-                  onClick={onSignIn}
-                >
-                  Sign in
-                </button>
-              ) : null}
-            </>
-          )}
+            </Show>
+          </Show>
         </div>
 
-        <p className="auth-note">
+        <p class="auth-note">
           Guest access is protected by a device-only keychain credential. Optional sign-in uses
           PKCE; no session token is placed in the browser callback URL.
         </p>

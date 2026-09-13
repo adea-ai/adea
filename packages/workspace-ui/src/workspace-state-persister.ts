@@ -1,8 +1,9 @@
-import type { WorkspaceState } from '@adea-ai/state'
+/** The subset of workspace state that is persisted between sessions. */
+export type PersistedWorkspaceState = Readonly<Record<string, unknown>>
 
-export type WorkspaceStatePersister = {
+export type WorkspaceStatePersister<State extends PersistedWorkspaceState> = {
   /** Coalesces bursts of store changes into one trailing write. */
-  save: (state: WorkspaceState) => void
+  save: (state: State) => void
   /** Writes any pending state immediately (tab hide, page hide, unmount). */
   flush: () => void
 }
@@ -15,11 +16,11 @@ export type WorkspaceStatePersister = {
  * once the burst settles, and `flush` covers the moments the process may go
  * away before the timer fires (tab hidden, page hidden, unmount).
  */
-export function createWorkspaceStatePersister(
-  write: (state: WorkspaceState) => void,
+export function createWorkspaceStatePersister<State extends PersistedWorkspaceState>(
+  write: (state: State) => void,
   delayMs = 300
-): WorkspaceStatePersister {
-  let pendingState: WorkspaceState | null = null
+): WorkspaceStatePersister<State> {
+  let pendingState: State | null = null
   let timer: ReturnType<typeof setTimeout> | null = null
 
   const flush = () => {

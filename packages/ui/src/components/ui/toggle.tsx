@@ -1,12 +1,11 @@
-'use client'
-
-import { Toggle as TogglePrimitive } from '@base-ui/react/toggle'
+import { ToggleButton as TogglePrimitive } from '@kobalte/core/toggle-button'
 import { cva, type VariantProps } from 'class-variance-authority'
+import { splitProps, type ComponentProps } from 'solid-js'
 
 import { cn } from '#lib/utils'
 
 const toggleVariants = cva(
-  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted data-[state=on]:bg-muted dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/toggle inline-flex items-center justify-center gap-1 rounded-lg text-sm font-medium whitespace-nowrap transition-all outline-none hover:bg-muted hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 aria-pressed:bg-muted data-pressed:bg-muted dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -27,17 +26,15 @@ const toggleVariants = cva(
   }
 )
 
-function Toggle({
-  className,
-  variant = 'default',
-  size = 'default',
-  ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
+type ToggleProps = ComponentProps<typeof TogglePrimitive> & VariantProps<typeof toggleVariants>
+
+function Toggle(props: ToggleProps) {
+  const [local, rest] = splitProps(props, ['class', 'variant', 'size'])
   return (
     <TogglePrimitive
       data-slot="toggle"
-      className={cn(toggleVariants({ variant, size, className }))}
-      {...props}
+      class={cn(toggleVariants({ variant: local.variant, size: local.size }), local.class)}
+      {...rest}
     />
   )
 }

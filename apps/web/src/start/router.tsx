@@ -1,4 +1,4 @@
-import { createRouter } from '@tanstack/react-router'
+import { createRouter } from '@tanstack/solid-router'
 import { onRouterTransitionStart } from '@adea-ai/spatial-protocol'
 import { routeTree } from './routeTree.gen'
 import { parseWorkspaceSearch, stringifyWorkspaceSearch } from './search-codec.mjs'
@@ -30,7 +30,7 @@ export function getRouter() {
   return router
 }
 
-declare module '@tanstack/react-router' {
+declare module '@tanstack/solid-router' {
   interface Register {
     router: ReturnType<typeof getRouter>
   }

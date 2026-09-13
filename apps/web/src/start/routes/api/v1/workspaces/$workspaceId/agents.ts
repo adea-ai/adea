@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiAgentCreateInput, ApiAgentResponse } from '@adea-ai/api-client'
 import { createAgent, listAgentsForUser } from '@adea-ai/db'

@@ -1,14 +1,18 @@
-import { LoaderCircle } from 'lucide-react'
-import type { ComponentProps } from 'react'
+import { LoaderCircle } from 'lucide-solid'
+import { splitProps, type ComponentProps } from 'solid-js'
+
 import { cn } from '#lib/utils'
 
-function Spinner({ className, ...props }: ComponentProps<typeof LoaderCircle>) {
+type SpinnerProps = ComponentProps<typeof LoaderCircle>
+
+function Spinner(props: SpinnerProps) {
+  const [local, rest] = splitProps(props, ['class'])
   return (
     <LoaderCircle
       role="status"
       aria-label="Loading"
-      className={cn('animate-spin', className)}
-      {...props}
+      class={cn('animate-spin', local.class)}
+      {...rest}
     />
   )
 }

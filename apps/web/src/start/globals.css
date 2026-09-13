@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import 'shadcn/tailwind.css';
+@import '@adea-ai/ui/base.css';
 @import '@adea-ai/ui/theme.css';
 @import '@adea-ai/ui/auth-shell.css';
 @import '@adea-ai/ui/workspace-shell.css';
@@ -148,7 +148,7 @@
   --workspace-topbar-height: 0rem;
   --workspace-topbar-offset: env(safe-area-inset-top);
 
-  /* Keep the shadcn primitives on the shell's dark glass surface. */
+  /* Keep the shared primitives on the shell's dark glass surface. */
   --background: var(--hq-shell-background);
   --foreground: var(--hq-shell-foreground);
   --card: var(--hq-shell-surface);

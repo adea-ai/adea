@@ -1,43 +1,63 @@
-import { useEffect, useSyncExternalStore, type ComponentType, type ReactNode } from 'react'
+import { createSignal, onMount, Show, type Component, type JSX } from 'solid-js'
+import { createComponent } from 'solid-js/web'
+
+type DeferredState<Props extends object> = {
+  component?: Component<Props>
+  failure?: unknown
+}
 
 /**
  * Deferred component loader for the workspace entry points.
  * The owning Start route is browser-only. Load on mount, never during SSR;
- * shared snapshots deduplicate imports without nested Suspense reveal delays.
+ * the module-level promise deduplicates imports without nested Suspense
+ * reveal delays.
+ *
+ * The resolved state lives at module scope with the promise it belongs to. A
+ * second mount (the route can remount its component subtree while router state
+ * settles) must observe the finished import instead of waiting on its own,
+ * per-instance, never-to-be-resolved copy of that promise.
+ *
+ * A failed import is re-thrown from a reactive branch, so the route's error
+ * component takes over (a throw in the component body would only be evaluated
+ * once, before the import has settled).
  */
 export default function lazyComponent<Props extends object>(
-  load: () => Promise<ComponentType<Props>>,
-  options: { loading?: () => ReactNode; ssr?: boolean } = {}
-): ComponentType<Props> {
-  type Snapshot = { component?: ComponentType<Props>; error?: unknown; failed: boolean }
-  const empty: Snapshot = { failed: false }
-  let snapshot = empty
+  load: () => Promise<Component<Props>>,
+  options: { loading?: () => JSX.Element; ssr?: boolean } = {}
+): Component<Props> {
+  const [state, setState] = createSignal<DeferredState<Props>>({})
   let loading: Promise<void> | undefined
-  const listeners = new Set<() => void>()
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener)
-    return () => {
-      listeners.delete(listener)
-    }
+
+  function start() {
+    loading ??= Promise.resolve()
+      .then(load)
+      .then(
+        (loaded) => {
+          setState((current) => ({ ...current, component: loaded }))
+        },
+        (error: unknown) => {
+          setState((current) => ({ ...current, failure: error }))
+        }
+      )
   }
-  const read = () => snapshot
-  const readServer = () => empty
-  const publish = (next: Snapshot) => {
-    snapshot = next
-    for (const listener of listeners) listener()
-  }
+
   return function DeferredComponent(props: Props) {
-    const current = useSyncExternalStore(subscribe, read, readServer)
-    useEffect(() => {
-      loading ??= Promise.resolve()
-        .then(load)
-        .then(
-          (component) => publish({ component, failed: false }),
-          (error: unknown) => publish({ error, failed: true })
-        )
-    }, [])
-    if (current.failed) throw current.error
-    const Component = current.component
-    return Component ? <Component {...props} /> : (options.loading?.() ?? null)
+    // Mount-only: a server render never starts the browser import.
+    onMount(start)
+
+    return (
+      <Show
+        when={state().failure}
+        fallback={
+          <Show when={state().component} fallback={options.loading?.() ?? null}>
+            {(loaded) => createComponent(loaded(), props)}
+          </Show>
+        }
+      >
+        {(error) => {
+          throw error()
+        }}
+      </Show>
+    )
   }
 }

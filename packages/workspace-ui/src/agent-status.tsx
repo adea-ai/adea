@@ -1,19 +1,16 @@
 import type { AgentSummary } from '@adea-ai/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 
-function StatusChip({
-  detail,
-  label,
-  tone,
-}: Readonly<{ detail: string; label: string; tone: string }>) {
+function StatusChip(props: { detail: string; label: string; tone: string }) {
   return (
     <Tooltip>
       <TooltipTrigger
-        render={<span className={`conventional-status-chip conventional-status-chip--${tone}`} />}
+        as="span"
+        class={`conventional-status-chip conventional-status-chip--${props.tone}`}
       >
-        {label}
+        {props.label}
       </TooltipTrigger>
-      <TooltipContent>{detail}</TooltipContent>
+      <TooltipContent>{props.detail}</TooltipContent>
     </Tooltip>
   )
 }
@@ -40,8 +37,8 @@ export function agentStatusModel(agent: AgentSummary) {
   })
 }
 
-export function AgentStatusBadge({ agent }: { agent: AgentSummary }) {
-  const status = agentStatusModel(agent)
+export function AgentStatusBadge(props: { agent: AgentSummary }) {
+  const status = agentStatusModel(props.agent)
   return (
     <StatusChip
       detail="Persisted Agent lifecycle and AgentProfile configuration"
@@ -51,17 +48,11 @@ export function AgentStatusBadge({ agent }: { agent: AgentSummary }) {
   )
 }
 
-export function AgentStatus({
-  agent,
-  compact = false,
-}: {
-  agent: AgentSummary
-  compact?: boolean
-}) {
-  const status = agentStatusModel(agent)
+export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {
+  const status = agentStatusModel(props.agent)
   return (
     <div
-      className={`conventional-agent-status${compact ? ' conventional-agent-status--compact' : ''}`}
+      class={`conventional-agent-status${props.compact ? ' conventional-agent-status--compact' : ''}`}
     >
       <StatusChip
         detail="Persisted Agent lifecycle and AgentProfile configuration"

@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../../server/request-scope'
 import type { ApiRoomResponse, ApiRoomUpdateInput } from '@adea-ai/api-client'
 import { archiveRoom, getRoomForUser, updateRoom } from '@adea-ai/db'

@@ -4,10 +4,10 @@
 // navigation component from the shell session bootstrap; the browser renders
 // it from the cookie bootstrap. See
 // docs/decisions/0006-browser-lanes-and-desktop-shell.md.
-import { useEffect, useRef, useState } from 'react'
+import { createEffect, createSignal } from 'solid-js'
 import { createApiClient } from '@adea-ai/api-client'
-import { useWorkspaceBootstrapQuery } from '@adea-ai/data'
-import { useWorkspaceStore } from '@adea-ai/state'
+import { settledData, useWorkspaceBootstrapQuery } from '@adea-ai/data'
+import { useWorkspaceState } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import { createBrowserSettingsProvider } from '@adea-ai/workspace-ui/preferences'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
@@ -18,42 +18,38 @@ import packageJson from '../../package.json'
 
 const appVersion = packageJson.version
 
-export function WorkspaceNavigationEntry({
-  virtual,
-  virtualProps,
-  roomDesigner = false,
-}: Readonly<{
+export function WorkspaceNavigationEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
   roomDesigner?: boolean
-}>) {
+}) {
   if (isDesktopRuntime()) {
     return (
       <DesktopWorkspaceEntry
-        roomDesigner={roomDesigner}
-        virtual={virtual}
-        virtualProps={virtualProps}
+        roomDesigner={props.roomDesigner ?? false}
+        virtual={props.virtual}
+        virtualProps={props.virtualProps}
       />
     )
   }
   return (
-    <WebNavigationEntry roomDesigner={roomDesigner} virtual={virtual} virtualProps={virtualProps} />
+    <WebNavigationEntry
+      roomDesigner={props.roomDesigner ?? false}
+      virtual={props.virtual}
+      virtualProps={props.virtualProps}
+    />
   )
 }
 
-function WebNavigationEntry({
-  virtual,
-  virtualProps,
-  roomDesigner = false,
-}: Readonly<{
+function WebNavigationEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
   roomDesigner?: boolean
-}>) {
-  const [client] = useState(() => createApiClient())
-  const workspaceIdRef = useRef<string | undefined>(undefined)
-  const userIdRef = useRef<string | undefined>(undefined)
-  const [services] = useState<WorkspacePlatformServices>(() => ({
+}) {
+  const [client] = createSignal(createApiClient())
+  let workspaceId: string | undefined
+  let userId: string | undefined
+  const services: WorkspacePlatformServices = {
     account: {
       onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
       onSignOut: async () => {
@@ -64,51 +60,51 @@ function WebNavigationEntry({
     },
     app: { name: 'Adea', platform: 'web', version: appVersion },
     plugins: createDeferredPluginsProvider({
-      client,
-      getWorkspaceId: () => workspaceIdRef.current,
-      getUserId: () => userIdRef.current,
+      client: client(),
+      getWorkspaceId: () => workspaceId,
+      getUserId: () => userId,
       requestedHarness: 'codex',
     }),
     settings: createBrowserSettingsProvider(),
-  }))
-  const bootstrap = useWorkspaceBootstrapQuery(client)
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const requestedScene =
+  }
+  const bootstrap = useWorkspaceBootstrapQuery(client())
+  const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  const requestedScene = () =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
       ? new URLSearchParams(window.location.search).get('scene')
       : undefined
-  const activeWorkspace =
-    bootstrap.data?.workspaces.find(({ id }) => id === selectedWorkspaceId) ??
-    bootstrap.data?.workspaces.find(({ scene }) => scene === requestedScene) ??
-    bootstrap.data?.activeWorkspace
-  const principal = bootstrap.data?.principal
-  const accountAuthenticated = Boolean(principal && !principal.temporary)
-  const accountLabel = accountAuthenticated
-    ? (principal?.displayName ?? 'Account')
-    : 'Not signed in'
+  const bootstrapData = () => settledData(bootstrap)
+  const activeWorkspace = () =>
+    bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
+    bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??
+    bootstrapData()?.activeWorkspace
+  const principal = () => bootstrapData()?.principal
+  const accountAuthenticated = () => Boolean(principal() && !principal()!.temporary)
+  const accountLabel = () =>
+    accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Not signed in'
 
-  useEffect(() => {
-    workspaceIdRef.current = activeWorkspace?.id
-    userIdRef.current = principal?.userId
-  }, [activeWorkspace?.id, principal?.userId])
+  createEffect(() => {
+    workspaceId = activeWorkspace()?.id
+    userId = principal()?.userId
+  })
 
   return (
     <WorkspaceNavigation
       account={{
-        authenticated: accountAuthenticated,
+        authenticated: accountAuthenticated(),
         busy: services.account?.busy ?? false,
-        label: accountLabel,
+        label: accountLabel(),
         onSignIn: () => services.account?.onSignIn(),
         onSignOut: () => services.account?.onSignOut(),
       }}
-      activeWorkspace={activeWorkspace}
-      client={client}
+      activeWorkspace={activeWorkspace()}
+      client={client()}
       platform="web"
-      roomDesigner={roomDesigner}
+      roomDesigner={props.roomDesigner ?? false}
       services={services}
-      virtual={virtual}
-      virtualProps={virtualProps}
-      workspaces={bootstrap.data?.workspaces ?? []}
+      virtual={props.virtual}
+      virtualProps={props.virtualProps}
+      workspaces={bootstrapData()?.workspaces ?? []}
     />
   )
 }

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 // These requests use the actual isolated backend and PostgreSQL, not route mocks.
 test('guest cookies, durable writes and tenant isolation survive the host', async ({

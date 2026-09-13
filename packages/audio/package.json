@@ -1,11 +1,11 @@
 {
   "name": "@adea-ai/audio",
   "version": "0.22.2",
-  "description": "Optional, lazy music controller and React bindings for Adea. Audio is non-blocking so scene loading never waits on sound assets.",
+  "description": "Optional, lazy music controller and Solid bindings for Adea. Audio is non-blocking so scene loading never waits on sound assets.",
   "keywords": [
     "audio",
     "music",
-    "react",
+    "solid",
     "threejs",
     "workspace"
   ],
@@ -27,21 +27,23 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "solid": "./src/index.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
     }
   },
   "scripts": {
     "lint": "oxlint",
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
+    "dev": "vite build --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "lucide-react": "^1.33.0",
-    "react": "19.3.0"
+    "lucide-solid": "^1.45.0",
+    "solid-js": "^1.9.15"
   },
   "devDependencies": {
-    "@types/react": "^19.2.18"
+    "vite": "^8.0.14",
+    "vite-plugin-solid": "^2.11.14"
   }
 }

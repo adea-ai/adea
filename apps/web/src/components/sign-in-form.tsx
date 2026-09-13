@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { createSignal, Show } from 'solid-js'
 
 type AuthMode = 'sign-in' | 'sign-up'
 
@@ -44,12 +44,12 @@ function messageForFailure(code: string | null, mode: AuthMode): string {
   }
 }
 
-export function SignInForm({ returnTo }: { returnTo: string }) {
-  const [mode, setMode] = useState<AuthMode>('sign-in')
-  const [error, setError] = useState('')
-  const [pending, setPending] = useState(false)
+export function SignInForm(props: { returnTo: string }) {
+  const [mode, setMode] = createSignal<AuthMode>('sign-in')
+  const [error, setError] = createSignal('')
+  const [pending, setPending] = createSignal(false)
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault()
     setError('')
     setPending(true)
@@ -61,7 +61,7 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
 
     try {
       const authentication = createNeonClientAdapter()
-      if (mode === 'sign-up') {
+      if (mode() === 'sign-up') {
         await authentication.signUp({
           email,
           name: String(data.get('name') ?? '').trim(),
@@ -70,9 +70,9 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
       } else {
         await authentication.signIn({ email, password })
       }
-      window.location.assign(returnTo)
+      window.location.assign(props.returnTo)
     } catch (failure) {
-      setError(messageForFailure(authErrorCode(failure), mode))
+      setError(messageForFailure(authErrorCode(failure), mode()))
       setPending(false)
     }
   }
@@ -84,67 +84,67 @@ export function SignInForm({ returnTo }: { returnTo: string }) {
 
   return (
     <>
-      <div className="browser-auth-mode" aria-label="Choose authentication mode">
+      <div class="browser-auth-mode" aria-label="Choose authentication mode">
         <button
           type="button"
-          aria-pressed={mode === 'sign-in'}
+          aria-pressed={mode() === 'sign-in'}
           onClick={() => changeMode('sign-in')}
         >
           Sign in
         </button>
         <button
           type="button"
-          aria-pressed={mode === 'sign-up'}
+          aria-pressed={mode() === 'sign-up'}
           onClick={() => changeMode('sign-up')}
         >
           Create account
         </button>
       </div>
 
-      <form className="browser-auth-form" onSubmit={submit}>
-        {mode === 'sign-up' ? (
-          <label htmlFor="name">
+      <form class="browser-auth-form" onSubmit={submit}>
+        <Show when={mode() === 'sign-up'}>
+          <label for="name">
             Display name
-            <input id="name" name="name" autoComplete="name" required disabled={pending} />
+            <input id="name" name="name" autocomplete="name" required disabled={pending()} />
           </label>
-        ) : null}
+        </Show>
 
-        <label htmlFor="email">
+        <label for="email">
           Email
           <input
             id="email"
             name="email"
             type="email"
-            autoComplete="email"
-            inputMode="email"
+            autocomplete="email"
+            inputmode="email"
             required
-            disabled={pending}
+            disabled={pending()}
           />
         </label>
 
-        <label htmlFor="password">
+        <label for="password">
           Password
           <input
             id="password"
             name="password"
             type="password"
-            autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'}
+            autocomplete={mode() === 'sign-up' ? 'new-password' : 'current-password'}
             minLength={8}
             required
-            disabled={pending}
+            disabled={pending()}
           />
         </label>
 
-        <p className="browser-auth-error" role="status" aria-live="polite">
-          {error}
+        <p class="browser-auth-error" role="status" aria-live="polite">
+          {error()}
         </p>
 
-        <button className="browser-auth-submit" type="submit" disabled={pending}>
-          {pending
-            ? mode === 'sign-up'
+        <button class="browser-auth-submit" type="submit" disabled={pending()}>
+          {pending()
+            ? mode() === 'sign-up'
               ? 'Creating account…'
               : 'Signing in…'
-            : mode === 'sign-up'
+            : mode() === 'sign-up'
               ? 'Create account and continue'
               : 'Sign in and continue'}
         </button>

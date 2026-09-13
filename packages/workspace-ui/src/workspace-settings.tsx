@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
-import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-react'
+import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-solid'
+import { createEffect, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
 import { ModalDialog } from './modal-dialog'
@@ -32,35 +32,19 @@ const sectionIcons = {
   integrations: Link2,
 } satisfies Record<SettingsSection, typeof UserRound>
 
-function SettingsRow({
-  children,
-  detail,
-  title,
-}: Readonly<{ children?: ReactNode; detail: string; title: string }>) {
+function SettingsRow(props: { children?: JSX.Element; detail: string; title: string }) {
   return (
-    <div className="conventional-settings-row">
+    <div class="conventional-settings-row">
       <div>
-        <h4>{title}</h4>
-        <p>{detail}</p>
+        <h4>{props.title}</h4>
+        <p>{props.detail}</p>
       </div>
-      {children}
+      {props.children}
     </div>
   )
 }
 
-export function WorkspaceSettingsDialog({
-  accountAuthenticated,
-  accountLabel,
-  agents,
-  busy,
-  onClose,
-  onOpenAgents,
-  onSignIn,
-  onSignOut,
-  open,
-  services,
-  workspace,
-}: Readonly<{
+export function WorkspaceSettingsDialog(props: {
   accountAuthenticated: boolean
   accountLabel: string
   agents: readonly AgentSummary[]
@@ -72,58 +56,27 @@ export function WorkspaceSettingsDialog({
   open: boolean
   services?: WorkspacePlatformServices
   workspace: WorkspaceSummary
-}>) {
-  const [section, setSection] = useState<SettingsSection>('account')
-  const [preferences, setPreferences] = useState(defaultWorkspacePreferences)
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [permissionState, setPermissionState] = useState<
+}) {
+  const [section, setSection] = createSignal<SettingsSection>('account')
+  const [preferences, setPreferences] = createSignal<WorkspacePreferences>(
+    defaultWorkspacePreferences
+  )
+  const [saveState, setSaveState] = createSignal<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [permissionState, setPermissionState] = createSignal<
     'denied' | 'granted' | 'idle' | 'prompt' | 'unavailable'
   >('idle')
-  const [privateHealth, setPrivateHealth] = useState<'available' | 'checking' | 'unavailable'>(
-    services?.privateContent ? 'checking' : 'unavailable'
+  const [privateHealth, setPrivateHealth] = createSignal<'available' | 'checking' | 'unavailable'>(
+    props.services?.privateContent ? 'checking' : 'unavailable'
   )
-  const [capabilities, setCapabilities] = useState<CapabilitySnapshot | undefined>()
-  const [capabilitiesBusy, setCapabilitiesBusy] = useState(false)
-  const navigationRefs = useRef(new Map<SettingsSection, HTMLButtonElement>())
+  const [capabilities, setCapabilities] = createSignal<CapabilitySnapshot | undefined>()
+  const [capabilitiesBusy, setCapabilitiesBusy] = createSignal(false)
+  const navigationRefs = new Map<SettingsSection, HTMLButtonElement>()
 
-  useEffect(() => {
-    if (!open) return
-    const next = settingsSectionFromHash(window.location.hash)
-    setSection(next)
-    let active = true
-    void services?.settings
-      ?.load()
-      .then((loaded) => active && setPreferences(loaded))
-      .catch(() => active && setSaveState('error'))
-    void refreshCapabilities(false)
-    if (services?.privateContent?.health) {
-      setPrivateHealth('checking')
-      void services.privateContent
-        .health(workspace.id)
-        .then(
-          ({ available }) => active && setPrivateHealth(available ? 'available' : 'unavailable')
-        )
-        .catch(() => active && setPrivateHealth('unavailable'))
-    }
-    return () => {
-      active = false
-    }
-  }, [open, services?.capabilities, services?.privateContent, services?.settings, workspace.id])
-
-  useEffect(() => {
-    if (!open) return
-    const revealSelected = () =>
-      navigationRefs.current.get(section)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    revealSelected()
-    window.addEventListener('resize', revealSelected)
-    return () => window.removeEventListener('resize', revealSelected)
-  }, [open, section])
-
-  async function refreshCapabilities(force: boolean) {
-    if (!services?.capabilities) return
+  const refreshCapabilities = async (force: boolean) => {
+    if (!props.services?.capabilities) return
     setCapabilitiesBusy(true)
     try {
-      setCapabilities(await services.capabilities.snapshot({ force }))
+      setCapabilities(await props.services.capabilities.snapshot({ force }))
     } catch {
       setCapabilities(undefined)
     } finally {
@@ -131,92 +84,131 @@ export function WorkspaceSettingsDialog({
     }
   }
 
+  createEffect(() => {
+    if (!props.open) return
+    const next = settingsSectionFromHash(window.location.hash)
+    setSection(next)
+    let active = true
+    void props.services?.settings
+      ?.load()
+      .then((loaded) => {
+        if (active) setPreferences(loaded)
+      })
+      .catch(() => {
+        if (active) setSaveState('error')
+      })
+    void refreshCapabilities(false)
+    if (props.services?.privateContent?.health) {
+      setPrivateHealth('checking')
+      void props.services.privateContent
+        .health(props.workspace.id)
+        .then(({ available }) => {
+          if (active) setPrivateHealth(available ? 'available' : 'unavailable')
+        })
+        .catch(() => {
+          if (active) setPrivateHealth('unavailable')
+        })
+    }
+    onCleanup(() => {
+      active = false
+    })
+  })
+
+  createEffect(() => {
+    if (!props.open) return
+    const current = section()
+    const revealSelected = () =>
+      navigationRefs.get(current)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    revealSelected()
+    window.addEventListener('resize', revealSelected)
+    onCleanup(() => window.removeEventListener('resize', revealSelected))
+  })
+
   const selectSection = (next: SettingsSection, focus = false) => {
     setSection(next)
     window.history.replaceState(null, '', `#settings/${next}`)
-    if (focus) requestAnimationFrame(() => navigationRefs.current.get(next)?.focus())
+    if (focus) requestAnimationFrame(() => navigationRefs.get(next)?.focus())
   }
   const close = () => {
     if (window.location.hash.startsWith('#settings'))
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
-    onClose()
+    props.onClose()
   }
   const save = async (next: WorkspacePreferences) => {
     setPreferences(next)
-    if (!services?.settings) return
+    if (!props.services?.settings) return
     setSaveState('saving')
     try {
-      setPreferences(await services.settings.save(next))
+      setPreferences(await props.services.settings.save(next))
       setSaveState('saved')
     } catch {
       setSaveState('error')
     }
   }
   const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
-    void save({ ...preferences, [key]: !preferences[key] })
+    void save({ ...preferences(), [key]: !preferences()[key] })
 
   return (
     <ModalDialog
-      className="conventional-settings-dialog"
-      open={open}
+      class="conventional-settings-dialog"
+      open={props.open}
       onClose={close}
       headerLeading={
-        <WorkspaceLogo
-          aria-hidden="true"
-          className="conventional-settings-logo"
-          role="presentation"
-        />
+        <WorkspaceLogo aria-hidden="true" class="conventional-settings-logo" role="presentation" />
       }
       title="Settings"
       description="Product preferences and boundaries for this Adea workspace."
     >
-      <div className="conventional-settings-shell">
-        <nav aria-label="Settings sections" className="conventional-settings-nav">
-          {settingsSectionGroups.map((group) => (
-            <div className="conventional-settings-nav__group" key={group.label}>
-              <p className="conventional-settings-nav__label">{group.label}</p>
-              {group.items.map((item) => {
-                const Icon = sectionIcons[item]
-                return (
-                  <button
-                    key={item}
-                    ref={(element) => {
-                      if (element) navigationRefs.current.set(item, element)
-                      else navigationRefs.current.delete(item)
-                    }}
-                    type="button"
-                    role="tab"
-                    aria-selected={section === item}
-                    aria-controls={`settings-panel-${item}`}
-                    tabIndex={section === item ? 0 : -1}
-                    onClick={() => selectSection(item)}
-                    onKeyDown={(event) => {
-                      if (!['ArrowDown', 'ArrowUp', 'End', 'Home'].includes(event.key)) return
-                      event.preventDefault()
-                      selectSection(
-                        nextSettingsSection(
-                          item,
-                          event.key as 'ArrowDown' | 'ArrowUp' | 'End' | 'Home'
-                        ),
-                        true
-                      )
-                    }}
-                  >
-                    <Icon aria-hidden="true" />
-                    <span>{settingsSectionLabels[item]}</span>
-                  </button>
-                )
-              })}
-            </div>
-          ))}
+      <div class="conventional-settings-shell">
+        <nav aria-label="Settings sections" class="conventional-settings-nav">
+          <For each={settingsSectionGroups}>
+            {(group) => (
+              <div class="conventional-settings-nav__group">
+                <p class="conventional-settings-nav__label">{group.label}</p>
+                <For each={group.items}>
+                  {(item) => {
+                    const Icon = sectionIcons[item]
+                    return (
+                      <button
+                        ref={(element) => {
+                          if (element) navigationRefs.set(item, element)
+                          else navigationRefs.delete(item)
+                        }}
+                        type="button"
+                        role="tab"
+                        aria-selected={section() === item}
+                        aria-controls={`settings-panel-${item}`}
+                        tabIndex={section() === item ? 0 : -1}
+                        onClick={() => selectSection(item)}
+                        onKeyDown={(event) => {
+                          if (!['ArrowDown', 'ArrowUp', 'End', 'Home'].includes(event.key)) return
+                          event.preventDefault()
+                          selectSection(
+                            nextSettingsSection(
+                              item,
+                              event.key as 'ArrowDown' | 'ArrowUp' | 'End' | 'Home'
+                            ),
+                            true
+                          )
+                        }}
+                      >
+                        <Icon aria-hidden="true" />
+                        <span>{settingsSectionLabels[item]}</span>
+                      </button>
+                    )
+                  }}
+                </For>
+              </div>
+            )}
+          </For>
         </nav>
         <section
-          id={`settings-panel-${section}`}
-          className="conventional-settings-panel"
+          id={`settings-panel-${section()}`}
+          class="conventional-settings-panel"
           role="tabpanel"
-          aria-label={settingsSectionLabels[section]}
+          aria-label={settingsSectionLabels[section()]}
         >
-          {section === 'account' ? (
+          <Show when={section() === 'account'}>
             <>
               <header>
                 <UserRound aria-hidden="true" />
@@ -226,24 +218,24 @@ export function WorkspaceSettingsDialog({
                 </div>
               </header>
               <SettingsRow
-                title={accountAuthenticated ? accountLabel : 'Guest workspace'}
+                title={props.accountAuthenticated ? props.accountLabel : 'Guest workspace'}
                 detail={
-                  accountAuthenticated
+                  props.accountAuthenticated
                     ? 'This workspace is saved to your account.'
                     : 'Sign in when you want to keep this workspace across devices.'
                 }
               >
                 <button
                   type="button"
-                  disabled={busy}
-                  onClick={accountAuthenticated ? onSignOut : onSignIn}
+                  disabled={props.busy}
+                  onClick={props.accountAuthenticated ? props.onSignOut : props.onSignIn}
                 >
-                  {accountAuthenticated ? 'Sign out' : 'Sign in'}
+                  {props.accountAuthenticated ? 'Sign out' : 'Sign in'}
                 </button>
               </SettingsRow>
               <SettingsRow
-                title={services?.app?.name ?? 'Adea'}
-                detail={`${services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${services?.app?.version ? ` · v${services.app.version}` : ''}`}
+                title={props.services?.app?.name ?? 'Adea'}
+                detail={`${props.services?.app?.platform === 'desktop' ? 'Desktop application' : 'Web application'}${props.services?.app?.version ? ` · v${props.services.app.version}` : ''}`}
               />
               <SettingsRow
                 title="Virtual preview"
@@ -252,7 +244,8 @@ export function WorkspaceSettingsDialog({
                 <a href="/?view=virtual">Open preview</a>
               </SettingsRow>
             </>
-          ) : section === 'appearance' ? (
+          </Show>
+          <Show when={section() === 'appearance'}>
             <>
               <header>
                 <MonitorCog aria-hidden="true" />
@@ -274,7 +267,8 @@ export function WorkspaceSettingsDialog({
                 <MusicToggle />
               </SettingsRow>
             </>
-          ) : section === 'workspace' ? (
+          </Show>
+          <Show when={section() === 'workspace'}>
             <>
               <header>
                 <MonitorCog aria-hidden="true" />
@@ -284,15 +278,16 @@ export function WorkspaceSettingsDialog({
                 </div>
               </header>
               <SettingsRow
-                title={workspace.name}
-                detail={`${workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
+                title={props.workspace.name}
+                detail={`${props.workspace.scene === 'work' ? 'Work' : 'Home'} scene · Rooms remain the primary navigation.`}
               />
               <SettingsRow
                 title="Room defaults"
                 detail="Primary Channels stay implicit; additional Channels are progressively disclosed. Arbitrary sidebar sections are intentionally unavailable in M2."
               />
             </>
-          ) : section === 'agents' ? (
+          </Show>
+          <Show when={section() === 'agents'}>
             <>
               <header>
                 <Bot aria-hidden="true" />
@@ -301,25 +296,27 @@ export function WorkspaceSettingsDialog({
                   <p>Durable identity and explicit profile references.</p>
                 </div>
               </header>
-              {agents.slice(0, 5).map((agent) => (
-                <SettingsRow
-                  key={agent.id}
-                  title={agent.name}
-                  detail={`${agent.profile.id} · v${agent.profile.version} · ${agent.lifecycleState.replace('_', ' ')}`}
-                />
-              ))}
+              <For each={props.agents.slice(0, 5)}>
+                {(agent) => (
+                  <SettingsRow
+                    title={agent.name}
+                    detail={`${agent.profile.id} · v${agent.profile.version} · ${agent.lifecycleState.replace('_', ' ')}`}
+                  />
+                )}
+              </For>
               <button
                 type="button"
-                className="conventional-primary-button"
+                class="conventional-primary-button"
                 onClick={() => {
                   close()
-                  onOpenAgents()
+                  props.onOpenAgents()
                 }}
               >
                 Customize Agents
               </button>
             </>
-          ) : section === 'input-notifications' ? (
+          </Show>
+          <Show when={section() === 'input-notifications'}>
             <>
               <header>
                 <Mic aria-hidden="true" />
@@ -331,19 +328,21 @@ export function WorkspaceSettingsDialog({
               <SettingsRow
                 title="Composer dictation"
                 detail={
-                  services?.transcription
-                    ? `Uses ${services.transcription.label}; text stays editable and is never auto-sent.`
+                  props.services?.transcription
+                    ? `Uses ${props.services.transcription.label}; text stays editable and is never auto-sent.`
                     : 'Install Adea Desktop to use system dictation.'
                 }
               >
                 <button
                   type="button"
-                  disabled={!services?.transcription}
+                  disabled={!props.services?.transcription}
                   onClick={() =>
-                    void services?.transcription?.requestPermission().then(setPermissionState)
+                    void props.services?.transcription
+                      ?.requestPermission()
+                      .then((state) => setPermissionState(state))
                   }
                 >
-                  {permissionState === 'idle' ? 'Check microphone' : permissionState}
+                  {permissionState() === 'idle' ? 'Check microphone' : permissionState()}
                 </button>
               </SettingsRow>
               <SettingsRow
@@ -352,13 +351,16 @@ export function WorkspaceSettingsDialog({
               >
                 <input
                   aria-label="Dictation language"
-                  value={preferences.dictationLocale}
+                  value={preferences().dictationLocale}
                   placeholder="System default"
                   maxLength={35}
-                  onChange={(event) =>
-                    setPreferences({ ...preferences, dictationLocale: event.target.value })
+                  onInput={(event) =>
+                    setPreferences({
+                      ...preferences(),
+                      dictationLocale: event.currentTarget.value,
+                    })
                   }
-                  onBlur={() => void save(preferences)}
+                  onBlur={() => void save(preferences())}
                 />
               </SettingsRow>
               <SettingsRow
@@ -366,8 +368,8 @@ export function WorkspaceSettingsDialog({
                 detail="Save the preference now; live event delivery arrives with M3."
               >
                 <Switch
-                  checked={preferences.notifyMentions}
-                  onCheckedChange={() => toggle('notifyMentions')}
+                  checked={preferences().notifyMentions}
+                  onChange={() => toggle('notifyMentions')}
                   aria-label="Mention notifications"
                 />
               </SettingsRow>
@@ -376,17 +378,18 @@ export function WorkspaceSettingsDialog({
                 detail="Save the preference now; live event delivery arrives with M3."
               >
                 <Switch
-                  checked={preferences.notifyTasks}
-                  onCheckedChange={() => toggle('notifyTasks')}
+                  checked={preferences().notifyTasks}
+                  onChange={() => toggle('notifyTasks')}
                   aria-label="Task notifications"
                 />
               </SettingsRow>
-              <p className="conventional-settings-note">
+              <p class="conventional-settings-note">
                 <Bell aria-hidden="true" /> Notification clicks will use canonical Room, Channel,
                 Message, and Task identities when live events are wired in M3.
               </p>
             </>
-          ) : section === 'privacy-data' ? (
+          </Show>
+          <Show when={section() === 'privacy-data'}>
             <>
               <header>
                 <Database aria-hidden="true" />
@@ -400,9 +403,9 @@ export function WorkspaceSettingsDialog({
               <SettingsRow
                 title="Local/private content"
                 detail={
-                  privateHealth === 'checking'
+                  privateHealth() === 'checking'
                     ? 'Checking this device…'
-                    : privateHealth === 'available'
+                    : privateHealth() === 'available'
                       ? 'Available on this authorized desktop device.'
                       : 'Unavailable in this app or on this device.'
                 }
@@ -412,17 +415,18 @@ export function WorkspaceSettingsDialog({
                 detail="Off by default. Enabling is explicit authorization to show private plaintext in desktop notification previews once M3 delivery exists."
               >
                 <Switch
-                  checked={preferences.privateNotificationPreviews}
-                  onCheckedChange={() => toggle('privateNotificationPreviews')}
+                  checked={preferences().privateNotificationPreviews}
+                  onChange={() => toggle('privateNotificationPreviews')}
                   aria-label="Private notification previews"
                 />
               </SettingsRow>
-              <p className="conventional-settings-note">
+              <p class="conventional-settings-note">
                 <EyeOff aria-hidden="true" /> Private bodies are never sent to cloud search, logs,
                 telemetry, or WorkspaceEvents.
               </p>
             </>
-          ) : (
+          </Show>
+          <Show when={section() === 'integrations'}>
             <>
               <header>
                 <Link2 aria-hidden="true" />
@@ -431,41 +435,45 @@ export function WorkspaceSettingsDialog({
                   <p>Control Plane-owned descriptors, not a second plugin system.</p>
                 </div>
               </header>
-              {agents.length ? (
-                agents
-                  .slice(0, 5)
-                  .map((agent) => (
+              <Show
+                when={props.agents.length}
+                fallback={
+                  <SettingsRow
+                    title="No AgentProfile descriptors"
+                    detail="Create an Agent to establish an authoritative profile reference."
+                  />
+                }
+              >
+                <For each={props.agents.slice(0, 5)}>
+                  {(agent) => (
                     <SettingsRow
-                      key={agent.id}
                       title={`${agent.profile.id} v${agent.profile.version}`}
                       detail={`AgentProfile reference for ${agent.name}; execution availability is not implied.`}
                     />
-                  ))
-              ) : (
-                <SettingsRow
-                  title="No AgentProfile descriptors"
-                  detail="Create an Agent to establish an authoritative profile reference."
-                />
-              )}
-              {capabilities ? (
-                <CapabilityList
-                  busy={capabilitiesBusy}
-                  onRefresh={() => void refreshCapabilities(true)}
-                  snapshot={capabilities}
-                />
-              ) : null}
+                  )}
+                </For>
+              </Show>
+              <Show when={capabilities()}>
+                {(snapshot) => (
+                  <CapabilityList
+                    busy={capabilitiesBusy()}
+                    onRefresh={() => void refreshCapabilities(true)}
+                    snapshot={snapshot()}
+                  />
+                )}
+              </Show>
               <SettingsRow
                 title="Plugin runtime connections"
                 detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
               />
             </>
-          )}
-          <div className="visually-hidden" aria-live="polite">
-            {saveState === 'saving'
+          </Show>
+          <div class="visually-hidden" aria-live="polite">
+            {saveState() === 'saving'
               ? 'Saving settings'
-              : saveState === 'saved'
+              : saveState() === 'saved'
                 ? 'Settings saved'
-                : saveState === 'error'
+                : saveState() === 'error'
                   ? 'Settings could not be saved'
                   : ''}
           </div>

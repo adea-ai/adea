@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { AgentSummary, RoomSummary, TaskSummary } from '@adea-ai/types'
 import {
   ArrowDown,
@@ -13,7 +12,8 @@ import {
   Sparkles,
   Wrench,
   X,
-} from 'lucide-react'
+} from 'lucide-solid'
+import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
@@ -107,34 +107,31 @@ const kindIconFor = {
   feature: Sparkles,
 } as const
 
-function PriorityTag({ priority }: Readonly<{ priority: TaskSummary['priority'] }>) {
-  const Icon = priorityIconFor[priority]
+function PriorityTag(props: { priority: TaskSummary['priority'] }) {
+  const Icon = priorityIconFor[props.priority]
   return (
     <Tooltip>
       <TooltipTrigger
-        render={
-          <span
-            className={`conventional-priority conventional-priority--${priority}`}
-            aria-label={`Priority: ${priority}`}
-          />
-        }
+        as="span"
+        class={`conventional-priority conventional-priority--${props.priority}`}
+        aria-label={`Priority: ${props.priority}`}
       >
         <Icon aria-hidden="true" />
       </TooltipTrigger>
-      <TooltipContent>{priority}</TooltipContent>
+      <TooltipContent>{props.priority}</TooltipContent>
     </Tooltip>
   )
 }
 
 export function TaskBoard(props: Props) {
-  const [creating, setCreating] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [boardError, setBoardError] = useState<string | null>(null)
-  const [dragTaskId, setDragTaskId] = useState<string | null>(null)
-  const [dropColumnId, setDropColumnId] = useState<string | null>(null)
-  const selected = props.tasks.find(({ id }) => id === props.selectedTaskId)
-  const agentById = new Map(props.agents.map((agent) => [agent.id, agent]))
-  const roomById = new Map(props.rooms.map((room) => [room.id, room]))
+  const [creating, setCreating] = createSignal(false)
+  const [error, setError] = createSignal<string | null>(null)
+  const [boardError, setBoardError] = createSignal<string | null>(null)
+  const [dragTaskId, setDragTaskId] = createSignal<string | null>(null)
+  const [dropColumnId, setDropColumnId] = createSignal<string | null>(null)
+  const selected = createMemo(() => props.tasks.find(({ id }) => id === props.selectedTaskId))
+  const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
+  const roomById = createMemo(() => new Map(props.rooms.map((room) => [room.id, room])))
   const dropActions = {
     cancelled: props.onCancel,
     completed: props.onComplete,
@@ -142,6 +139,9 @@ export function TaskBoard(props: Props) {
     in_review: props.onReview,
     queued: props.onQueue,
   } as const
+  const tasksFor = (columnId: TaskSummary['lifecycleState']) =>
+    props.tasks.filter(({ lifecycleState }) => lifecycleState === columnId)
+
   const queueFromCard = async (task: TaskSummary) => {
     setBoardError(null)
     try {
@@ -150,8 +150,9 @@ export function TaskBoard(props: Props) {
       setBoardError('Task could not be queued. It may have changed elsewhere; reload and retry.')
     }
   }
+
   const dropOnColumn = async (columnId: TaskSummary['lifecycleState']) => {
-    const task = props.tasks.find(({ id }) => id === dragTaskId)
+    const task = props.tasks.find(({ id }) => id === dragTaskId())
     setDragTaskId(null)
     setDropColumnId(null)
     if (!task) return
@@ -172,27 +173,24 @@ export function TaskBoard(props: Props) {
       setBoardError('Task could not be moved. It may have changed elsewhere; reload and retry.')
     }
   }
+
   return (
-    <section className="conventional-tasks" aria-labelledby="task-board-title">
-      <header className="conventional-surface-header">
+    <section class="conventional-tasks" aria-labelledby="task-board-title">
+      <header class="conventional-surface-header">
         <div>
           <span>Durable product work</span>
           <h1 id="task-board-title">Tasks</h1>
           <p>Execution status is intentionally separate from these durable planning records.</p>
         </div>
-        <button
-          type="button"
-          className="conventional-primary-button"
-          onClick={() => setCreating(true)}
-        >
+        <button type="button" class="conventional-primary-button" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Task
           <ListTodo aria-hidden="true" />
         </button>
       </header>
-      {creating ? (
+      <Show when={creating()}>
         <form
-          className="conventional-inline-form"
+          class="conventional-inline-form"
           onSubmit={async (event) => {
             event.preventDefault()
             const form = new FormData(event.currentTarget)
@@ -210,7 +208,7 @@ export function TaskBoard(props: Props) {
             }
           }}
         >
-          <div className="conventional-inline-form__header">
+          <div class="conventional-inline-form__header">
             <h2>Create Task</h2>
             <button
               type="button"
@@ -230,7 +228,7 @@ export function TaskBoard(props: Props) {
           </label>
           <label>
             Priority
-            <select name="priority" defaultValue="normal">
+            <select name="priority" value="normal">
               <option value="low">Low</option>
               <option value="normal">Normal</option>
               <option value="high">High</option>
@@ -239,147 +237,148 @@ export function TaskBoard(props: Props) {
           </label>
           <label>
             Type
-            <select name="kind" defaultValue="feature">
+            <select name="kind" value="feature">
               <option value="bug">Bug</option>
               <option value="feature">Feature</option>
               <option value="chore">Chore</option>
             </select>
           </label>
-          {error ? <p role="alert">{error}</p> : null}
-          <button type="submit" className="conventional-primary-button" disabled={props.busy}>
+          <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
+          <button type="submit" class="conventional-primary-button" disabled={props.busy}>
             {props.busy ? 'Creating…' : 'Create Task'}
           </button>
         </form>
-      ) : null}
-      {boardError ? (
-        <p role="alert" className="conventional-task-board__error">
-          {boardError}
-        </p>
-      ) : null}
-      {props.tasks.length ? (
-        <div className="conventional-task-board" aria-label="Task board">
-          {columns.map((column) => {
-            const tasks = props.tasks.filter(({ lifecycleState }) => lifecycleState === column.id)
-            return (
-              <section
-                key={column.id}
-                aria-labelledby={`task-column-${column.id}`}
-                onDragOver={(event) => {
-                  if (dragTaskId) event.preventDefault()
-                }}
-                onDragEnter={() => setDropColumnId(column.id)}
-                onDragLeave={() =>
-                  setDropColumnId((current) => (current === column.id ? null : current))
-                }
-                onDrop={(event) => {
-                  event.preventDefault()
-                  void dropOnColumn(column.id)
-                }}
-              >
-                <header>
-                  <h2 id={`task-column-${column.id}`}>{column.label}</h2>
-                  <span>{tasks.length}</span>
-                </header>
-                <div
-                  className={`conventional-task-column${dropColumnId === column.id ? ' conventional-task-column--drop-target' : ''}`}
+      </Show>
+      <Show when={boardError()}>
+        {(message) => (
+          <p role="alert" class="conventional-task-board__error">
+            {message()}
+          </p>
+        )}
+      </Show>
+      <Show
+        when={props.tasks.length}
+        fallback={
+          <WorkspaceEmpty
+            title="No Tasks yet"
+            detail="Create a durable Task and link its discussion to a Room thread when useful."
+          />
+        }
+      >
+        <div class="conventional-task-board" aria-label="Task board">
+          <For each={columns}>
+            {(column) => {
+              const tasks = () => tasksFor(column.id)
+              return (
+                <section
+                  aria-labelledby={`task-column-${column.id}`}
+                  onDragOver={(event) => {
+                    if (dragTaskId()) event.preventDefault()
+                  }}
+                  onDragEnter={() => setDropColumnId(column.id)}
+                  onDragLeave={() =>
+                    setDropColumnId((current) => (current === column.id ? null : current))
+                  }
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    void dropOnColumn(column.id)
+                  }}
                 >
-                  {tasks.map((task) => (
-                    <article
-                      key={task.id}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={task.title}
-                      className={`conventional-task-card${dragTaskId === task.id ? ' conventional-task-card--dragging' : ''}`}
-                      draggable
-                      onClick={() => {
-                        setBoardError(null)
-                        props.onSelect(task.id)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault()
-                          setBoardError(null)
-                          props.onSelect(task.id)
-                        }
-                      }}
-                      onDragStart={(event) => {
-                        event.dataTransfer.setData('text/plain', task.id)
-                        event.dataTransfer.effectAllowed = 'move'
-                        setDragTaskId(task.id)
-                      }}
-                      onDragEnd={() => {
-                        setDragTaskId(null)
-                        setDropColumnId(null)
-                      }}
-                    >
-                      <div className="conventional-task-card__header">
-                        <span className="conventional-task-card__kind">
-                          {(() => {
-                            const KindIcon = kindIconFor[task.kind ?? 'feature']
-                            return <KindIcon aria-hidden="true" />
-                          })()}
-                        </span>
-                        <strong>{task.title}</strong>
-                        <PriorityTag priority={task.priority} />
-                      </div>
-                      <p>
-                        <TaskObjective privateContent={props.privateContent} task={task} />
-                      </p>
-                      <footer>
-                        <span>
-                          <Bot aria-hidden="true" />
-                          {task.agentId
-                            ? (agentById.get(task.agentId)?.name ?? 'Unavailable Agent')
-                            : 'Unassigned'}
-                        </span>
-                        <span>
-                          {(() => {
-                            const room = task.roomId ? roomById.get(task.roomId) : undefined
-                            return room ? <RoomIcon functionKey={room.functionKey} /> : null
-                          })()}
-                          {task.roomId
-                            ? (roomById.get(task.roomId)?.name ?? 'Unavailable Room')
-                            : 'No Room'}
-                        </span>
-                        {task.lifecycleState === 'created' ? (
-                          <Button
-                            type="button"
-                            variant="success"
-                            size="xs"
-                            className="conventional-task-card__footer-action"
-                            disabled={props.busy}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              void queueFromCard(task)
+                  <header>
+                    <h2 id={`task-column-${column.id}`}>{column.label}</h2>
+                    <span>{tasks().length}</span>
+                  </header>
+                  <div
+                    class={`conventional-task-column${dropColumnId() === column.id ? ' conventional-task-column--drop-target' : ''}`}
+                  >
+                    <For each={tasks()}>
+                      {(task) => {
+                        const KindIcon = kindIconFor[task.kind ?? 'feature']
+                        return (
+                          <article
+                            role="button"
+                            tabIndex={0}
+                            aria-label={task.title}
+                            class={`conventional-task-card${dragTaskId() === task.id ? ' conventional-task-card--dragging' : ''}`}
+                            draggable
+                            onClick={() => {
+                              setBoardError(null)
+                              props.onSelect(task.id)
                             }}
-                            onKeyDown={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                setBoardError(null)
+                                props.onSelect(task.id)
+                              }
+                            }}
+                            onDragStart={(event) => {
+                              event.dataTransfer?.setData('text/plain', task.id)
+                              if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+                              setDragTaskId(task.id)
+                            }}
+                            onDragEnd={() => {
+                              setDragTaskId(null)
+                              setDropColumnId(null)
+                            }}
                           >
-                            <Play aria-hidden="true" />
-                            Start
-                          </Button>
-                        ) : null}
-                      </footer>
-                    </article>
-                  ))}
-                </div>
-              </section>
-            )
-          })}
+                            <div class="conventional-task-card__header">
+                              <span class="conventional-task-card__kind">
+                                <KindIcon aria-hidden="true" />
+                              </span>
+                              <strong>{task.title}</strong>
+                              <PriorityTag priority={task.priority} />
+                            </div>
+                            <p>
+                              <TaskObjective privateContent={props.privateContent} task={task} />
+                            </p>
+                            <footer>
+                              <span>
+                                <Bot aria-hidden="true" />
+                                {task.agentId
+                                  ? (agentById().get(task.agentId)?.name ?? 'Unavailable Agent')
+                                  : 'Unassigned'}
+                              </span>
+                              <span>
+                                <Show when={task.roomId ? roomById().get(task.roomId) : undefined}>
+                                  {(room) => <RoomIcon functionKey={room().functionKey} />}
+                                </Show>
+                                {task.roomId
+                                  ? (roomById().get(task.roomId)?.name ?? 'Unavailable Room')
+                                  : 'No Room'}
+                              </span>
+                              <Show when={task.lifecycleState === 'created'}>
+                                <Button
+                                  type="button"
+                                  variant="success"
+                                  size="xs"
+                                  class="conventional-task-card__footer-action"
+                                  disabled={props.busy}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void queueFromCard(task)
+                                  }}
+                                  onKeyDown={(event) => event.stopPropagation()}
+                                >
+                                  <Play aria-hidden="true" />
+                                  Start
+                                </Button>
+                              </Show>
+                            </footer>
+                          </article>
+                        )
+                      }}
+                    </For>
+                  </div>
+                </section>
+              )
+            }}
+          </For>
         </div>
-      ) : (
-        <WorkspaceEmpty
-          title="No Tasks yet"
-          detail="Create a durable Task and link its discussion to a Room thread when useful."
-        />
-      )}
-      {selected ? (
-        <TaskDetail
-          {...props}
-          key={selected.id}
-          task={selected}
-          onClose={() => props.onSelect(null)}
-        />
-      ) : null}
+      </Show>
+      <Show when={selected()}>
+        {(task) => <TaskDetail {...props} task={task()} onClose={() => props.onSelect(null)} />}
+      </Show>
     </section>
   )
 }

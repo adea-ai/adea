@@ -1,10 +1,9 @@
-import { StrictMode } from 'react'
-import { hydrateRoot } from 'react-dom/client'
-import { StartClient } from '@tanstack/react-start/client'
+import { hydrate } from 'solid-js/web'
+import { StartClient, hydrateStart } from '@tanstack/solid-start/client'
 
-hydrateRoot(
-  document,
-  <StrictMode>
-    <StartClient />
-  </StrictMode>
-)
+// Rehydrate the router's server state, then hydrate the document Solid rendered
+// on the server. Both steps are required: hydrateStart only restores router
+// data, it does not mount the app.
+void hydrateStart().then((router) => {
+  hydrate(() => <StartClient router={router} />, document)
+})

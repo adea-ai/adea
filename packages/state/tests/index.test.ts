@@ -1,15 +1,15 @@
 import { afterEach, expect, test } from 'bun:test'
 
-import { useWorkspaceStore } from '../src'
+import { workspaceStore } from '../src'
 
-const initialState = useWorkspaceStore.getState()
+const initialState = workspaceStore.getState()
 
 afterEach(() => {
-  useWorkspaceStore.setState(initialState, true)
+  workspaceStore.setState(initialState, true)
 })
 
 test('switchWorkspace starts a fresh workspace context with its configured scene', () => {
-  useWorkspaceStore.setState({
+  workspaceStore.setState({
     activeSurface: 'tasks',
     cameraViewMode: 'perspective',
     collapsedRoomIds: ['room-work'],
@@ -25,9 +25,9 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     threadRootMessageId: 'thread-work',
   })
 
-  useWorkspaceStore.getState().switchWorkspace('workspace-home', 'home')
+  workspaceStore.getState().switchWorkspace('workspace-home', 'home')
 
-  expect(useWorkspaceStore.getState()).toMatchObject({
+  expect(workspaceStore.getState()).toMatchObject({
     activeSurface: 'conversation',
     cameraViewMode: 'orthographic',
     collapsedRoomIds: [],

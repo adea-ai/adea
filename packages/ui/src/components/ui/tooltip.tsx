@@ -1,54 +1,59 @@
-'use client'
-
-import * as React from 'react'
-import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
+import { Tooltip as TooltipPrimitive } from '@kobalte/core/tooltip'
+import {
+  createContext,
+  splitProps,
+  useContext,
+  type ComponentProps,
+  type ParentProps,
+} from 'solid-js'
 
 import { cn } from '#lib/utils'
 
 const TOOLTIP_DELAY = 200
 
-function TooltipProvider({ delay = TOOLTIP_DELAY, ...props }: TooltipPrimitive.Provider.Props) {
-  return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />
+const TooltipDelayContext = createContext<number>(TOOLTIP_DELAY)
+
+function TooltipProvider(props: ParentProps<{ delay?: number }>) {
+  return (
+    <TooltipDelayContext.Provider value={props.delay ?? TOOLTIP_DELAY}>
+      {props.children}
+    </TooltipDelayContext.Provider>
+  )
 }
 
-function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+function Tooltip(props: ComponentProps<typeof TooltipPrimitive>) {
+  const delay = useContext(TooltipDelayContext)
+  return <TooltipPrimitive openDelay={delay} data-slot="tooltip" {...props} />
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
+function TooltipTrigger(props: ComponentProps<typeof TooltipPrimitive.Trigger>) {
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
-function TooltipContent({
-  className,
-  side = 'top',
-  sideOffset = 4,
-  align,
-  alignOffset,
-  children,
-  ...props
-}: TooltipPrimitive.Popup.Props &
-  Pick<TooltipPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+type TooltipContentProps = ComponentProps<typeof TooltipPrimitive.Content> & {
+  side?: 'top' | 'right' | 'bottom' | 'left'
+  sideOffset?: number
+  align?: 'start' | 'center' | 'end'
+}
+
+function TooltipContent(props: TooltipContentProps) {
+  const [local, rest] = splitProps(props, ['class', 'side', 'sideOffset', 'align', 'children'])
+  const placement = () => `${local.side ?? 'top'}${local.align ? `-${local.align}` : ''}`
+
   return (
     <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
-        className="isolate z-[160] outline-none"
-        align={align}
-        alignOffset={alignOffset}
-        side={side}
-        sideOffset={sideOffset}
+      <TooltipPrimitive.Content
+        data-slot="tooltip-content"
+        placement={placement()}
+        gutter={local.sideOffset ?? 4}
+        class={cn(
+          'z-[160] max-w-72 rounded-md bg-popover px-2.5 py-1.5 text-sm leading-5 text-popover-foreground shadow-md ring-1 ring-foreground/10 data-closed:animate-out data-closed:fade-out-0 data-expanded:animate-in data-expanded:fade-in-0',
+          local.class
+        )}
+        {...rest}
       >
-        <TooltipPrimitive.Popup
-          data-slot="tooltip-content"
-          className={cn(
-            'max-w-72 rounded-md bg-popover px-2.5 py-1.5 text-sm leading-5 text-popover-foreground shadow-md ring-1 ring-foreground/10',
-            className
-          )}
-          {...props}
-        >
-          {children}
-        </TooltipPrimitive.Popup>
-      </TooltipPrimitive.Positioner>
+        {local.children}
+      </TooltipPrimitive.Content>
     </TooltipPrimitive.Portal>
   )
 }

@@ -8,9 +8,12 @@ Date: 2026-08-21
 
 Agent HQ uses the Code Foundry-managed `.prettierrc` as its single Prettier
 configuration. The older duplicate `.prettierrc.json` and the superseded root
-shadcn configuration are removed. shadcn configuration is scoped to the
-consumers that own it: `apps/web/components.json` and
-`packages/ui/components.json`.
+shadcn configuration are removed. shadcn configuration was scoped to the
+consumers that owned it (`apps/web/components.json` and
+`packages/ui/components.json`); the M6 Solid migration retired the shadcn CLI
+and both files with the React component workflow
+([0007](./0007-solid-tanstack-start.md)). The neutral Tailwind base layer the
+components relied on is vendored as `packages/ui/src/styles/base.css`.
 
 The repository is licensed under Apache License 2.0. The root package metadata
 uses the SPDX identifier `Apache-2.0`, Code Foundry is configured with
@@ -22,8 +25,8 @@ maintenance policy are intentionally provisioned later.
 
 Bun remains the repository package manager and test runner. Repository guidance
 uses the actual Bun scripts (`bun run format:check`, `bun run lint`,
-`bun run typecheck`, and `bun run test`). The shared UI shadcn configuration
-uses Base UI, not Radix. Home and Work are selected through the unified root
+`bun run typecheck`, and `bun run test`). The shared UI kit is Kobalte-backed,
+not Radix or Base UI ([0007](./0007-solid-tanstack-start.md)). Home and Work are selected through the unified root
 route with `?scene=home` and `?scene=work`; legacy `/scenes/*` links are not
 supported.
 
@@ -40,7 +43,8 @@ explicitly treated as binary by Git attributes.
 - Keeping both equivalent Prettier files, which creates unnecessary config
   ambiguity and allows future changes to drift.
 - Keeping the root shadcn file alongside the app and package configs, even
-  though it describes the superseded app layout.
+  though it describes the superseded app layout. (Both scoped files are now
+  gone too: the shadcn CLI is React-only tooling.)
 - Retaining GPL/AGPL licensing metadata from the initial Code Foundry
   baseline.
 - Continuing to document npm, Vitest, or the removed scene routes.
@@ -49,8 +53,9 @@ explicitly treated as binary by Git attributes.
 ## Rationale
 
 One formatter source avoids resolution ambiguity and follows the configuration
-that Code Foundry will maintain. Scoped shadcn files match the monorepo package
-boundaries and make the Base UI choice explicit where components are authored.
+that Code Foundry will maintain. Scoped shadcn files matched the monorepo package
+boundaries while React owned the component workflow; the Solid kit keeps the
+same class/data-slot contract without the CLI.
 Apache-2.0 is the requested permissive project license and must be consistent
 across machine-readable metadata and human-readable notices. The root route,
 Bun commands, and active Code Foundry policy reflect the current application
@@ -58,8 +63,6 @@ shape rather than the repository's superseded initializer state.
 
 ## Consequences
 
-- Run shadcn commands from the owning app or package so the correct scoped
-  `components.json` is used.
 - Future Code Foundry syncs should retain the single `.prettierrc` baseline.
 - New model formats should be added to `.gitattributes` when they are not
   safely recognized as text or binary automatically.

@@ -1,36 +1,57 @@
-import { useEffect, useState } from 'react'
 import type { TaskSummary } from '@adea-ai/types'
+import { createEffect, createSignal, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 
-export function TaskObjective({
-  privateContent,
-  task,
-}: Readonly<{ privateContent?: PrivateContentResolver; task: TaskSummary }>) {
-  const [resolved, setResolved] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  useEffect(() => {
+export function TaskObjective(props: {
+  privateContent?: PrivateContentResolver
+  task: TaskSummary
+}) {
+  const [resolved, setResolved] = createSignal<string | null>(null)
+  const [failed, setFailed] = createSignal(false)
+
+  createEffect(() => {
     let active = true
     setResolved(null)
     setFailed(false)
-    if (!task.objectiveContentRefId || task.objective || !privateContent) return
-    void privateContent
-      .read({ contentId: task.objectiveContentRefId, workspaceId: task.workspaceId })
-      .then(({ plaintext }) => active && setResolved(plaintext))
-      .catch(() => active && setFailed(true))
+    const contentRefId = props.task.objectiveContentRefId
+    if (!contentRefId || props.task.objective || !props.privateContent) return
+    void props.privateContent
+      .read({ contentId: contentRefId, workspaceId: props.task.workspaceId })
+      .then(({ plaintext }) => {
+        if (active) setResolved(plaintext)
+      })
+      .catch(() => {
+        if (active) setFailed(true)
+      })
     return () => {
       active = false
     }
-  }, [privateContent, task.objective, task.objectiveContentRefId, task.workspaceId])
-  if (task.objective) return <>{task.objective}</>
-  if (!task.objectiveContentRefId) return <>Objective unavailable</>
-  if (resolved) return <>{resolved}</>
-  if (failed) return <>Private objective unavailable on this authorized device</>
+  })
+
   return (
-    <>
-      {privateContent
-        ? 'Opening private objective…'
-        : 'Private objective unavailable on this device'}
-    </>
+    <Show when={!props.task.objective} fallback={<>{props.task.objective}</>}>
+      <Show when={props.task.objectiveContentRefId} fallback={<>Objective unavailable</>}>
+        <Show
+          when={resolved()}
+          fallback={
+            <Show
+              when={failed()}
+              fallback={
+                <>
+                  {props.privateContent
+                    ? 'Opening private objective…'
+                    : 'Private objective unavailable on this device'}
+                </>
+              }
+            >
+              <>Private objective unavailable on this authorized device</>
+            </Show>
+          }
+        >
+          <>{resolved()}</>
+        </Show>
+      </Show>
+    </Show>
   )
 }

@@ -1,44 +1,43 @@
-import { useEffect, useRef, useState } from 'react'
-import { Sparkles } from 'lucide-react'
+import { Sparkles } from 'lucide-solid'
+import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 
-export function PluginLogo({
-  iconUrl,
-  name,
-}: Readonly<{ iconKey?: string; iconUrl?: string; name: string }>) {
-  const [failed, setFailed] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const source = safeIconUrl(iconUrl)
+export function PluginLogo(props: { iconKey?: string; iconUrl?: string; name: string }) {
+  const [failed, setFailed] = createSignal(false)
+  let timeout: ReturnType<typeof setTimeout> | null = null
+  const source = () => safeIconUrl(props.iconUrl)
   const clearFallbackTimer = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
+    if (timeout) {
+      clearTimeout(timeout)
+      timeout = null
     }
   }
 
-  useEffect(() => {
+  createEffect(() => {
+    const current = source()
     setFailed(false)
     clearFallbackTimer()
-    if (source) {
-      timeoutRef.current = setTimeout(() => setFailed(true), 5_000)
+    if (current) {
+      timeout = setTimeout(() => setFailed(true), 5_000)
     }
-    return clearFallbackTimer
-  }, [source])
+    onCleanup(clearFallbackTimer)
+  })
 
   return (
-    <span aria-hidden="true" className="plugin-logo" data-plugin-name={name}>
-      {source && !failed ? (
+    <span aria-hidden="true" class="plugin-logo" data-plugin-name={props.name}>
+      <Show
+        when={source() && !failed()}
+        fallback={<span class="plugin-logo__fallback">{initials(props.name) || <Sparkles />}</span>}
+      >
         <img
           alt=""
-          src={source}
+          src={source()}
           onError={() => {
             clearFallbackTimer()
             setFailed(true)
           }}
           onLoad={clearFallbackTimer}
         />
-      ) : (
-        <span className="plugin-logo__fallback">{initials(name) || <Sparkles />}</span>
-      )}
+      </Show>
     </span>
   )
 }

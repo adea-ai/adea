@@ -10,9 +10,10 @@ import {
   Settings2,
   Smartphone,
   UserRound,
-} from 'lucide-react'
+} from 'lucide-solid'
+import { For, Show } from 'solid-js'
 
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { buttonVariants } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,10 +23,11 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
+import { cn } from '@adea-ai/ui/lib/utils'
 
 import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
 
-type AccountMenuProps = Readonly<{
+type AccountMenuProps = {
   authenticated: boolean
   busy?: boolean
   onOpenUpdates?: () => void
@@ -34,7 +36,7 @@ type AccountMenuProps = Readonly<{
   onSignIn: () => void
   onSignOut: () => void
   platform: 'desktop' | 'web'
-}>
+}
 
 const icons = {
   mobile: Smartphone,
@@ -45,62 +47,56 @@ const icons = {
   updates: RefreshCw,
 } as const
 
-export function AccountMenu({
-  authenticated,
-  busy = false,
-  onOpenUpdates,
-  onOpenAbout,
-  onOpenSettings,
-  onSignIn,
-  onSignOut,
-  platform,
-}: AccountMenuProps) {
-  const sessionItem = accountSessionItem(authenticated)
-  const visibleMenuItems = accountMenuItemsForPlatform(platform)
+export function AccountMenu(props: AccountMenuProps) {
+  const sessionItem = () => accountSessionItem(props.authenticated)
+  const visibleMenuItems = () => accountMenuItemsForPlatform(props.platform)
 
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
-        render={
-          <Button
-            type="button"
-            className="global-rail__button global-rail__account-trigger"
-            variant="ghost"
-            size="icon-lg"
-            aria-label="User settings"
-          />
-        }
+        class={cn(
+          buttonVariants({ variant: 'ghost', size: 'icon-lg' }),
+          'global-rail__button global-rail__account-trigger'
+        )}
+        aria-label="User settings"
       >
         <UserRound aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="global-account-menu" side="top" align="start" sideOffset={0}>
+      <DropdownMenuContent class="global-account-menu" side="top" align="start" sideOffset={0}>
         <DropdownMenuGroup>
-          {visibleMenuItems.map((item) => {
-            const Icon = icons[item.id]
-            const onSelect =
-              item.id === 'settings'
-                ? onOpenSettings
-                : item.id === 'about'
-                  ? onOpenAbout
-                  : item.id === 'updates'
-                    ? onOpenUpdates
-                    : undefined
-            return (
-              <DropdownMenuItem key={item.id} disabled={item.disabled} onClick={onSelect}>
-                <Icon aria-hidden="true" />
-                <span>{item.label}</span>
-                {item.id === 'settings' ? (
-                  <DropdownMenuShortcut aria-hidden="true">⌘,</DropdownMenuShortcut>
-                ) : null}
-              </DropdownMenuItem>
-            )
-          })}
+          <For each={visibleMenuItems()}>
+            {(item) => {
+              const Icon = icons[item.id]
+              const onSelect = () =>
+                item.id === 'settings'
+                  ? props.onOpenSettings()
+                  : item.id === 'about'
+                    ? props.onOpenAbout()
+                    : item.id === 'updates'
+                      ? props.onOpenUpdates?.()
+                      : undefined
+              return (
+                <DropdownMenuItem disabled={item.disabled} onSelect={onSelect}>
+                  <Icon aria-hidden="true" />
+                  <span>{item.label}</span>
+                  <Show when={item.id === 'settings'}>
+                    <DropdownMenuShortcut aria-hidden="true">⌘,</DropdownMenuShortcut>
+                  </Show>
+                </DropdownMenuItem>
+              )
+            }}
+          </For>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem disabled={busy} onClick={authenticated ? onSignOut : onSignIn}>
-            {authenticated ? <LogOut aria-hidden="true" /> : <LogIn aria-hidden="true" />}
-            <span>{sessionItem.label}</span>
+          <DropdownMenuItem
+            disabled={props.busy}
+            onSelect={props.authenticated ? props.onSignOut : props.onSignIn}
+          >
+            <Show when={props.authenticated} fallback={<LogIn aria-hidden="true" />}>
+              <LogOut aria-hidden="true" />
+            </Show>
+            <span>{sessionItem().label}</span>
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

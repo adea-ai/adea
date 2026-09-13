@@ -1,6 +1,6 @@
-import { useState } from 'react'
 import type { AgentSummary, RoomSummary } from '@adea-ai/types'
-import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-react'
+import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
+import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
 import { WorkspaceEmpty } from './workspace-states'
@@ -32,144 +32,129 @@ type Props = Readonly<{
   rooms: readonly RoomSummary[]
 }>
 
-export function AgentRoster({
-  agents,
-  busy,
-  onArchive,
-  onCreate,
-  onMessage,
-  onUpdate,
-  rooms,
-}: Props) {
-  const [creating, setCreating] = useState(false)
-  const [editingAgentId, setEditingAgentId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const roomById = new Map(rooms.map((room) => [room.id, room]))
-  const editingAgent = agents.find(({ id }) => id === editingAgentId)
+export function AgentRoster(props: Props) {
+  const [creating, setCreating] = createSignal(false)
+  const [editingAgentId, setEditingAgentId] = createSignal<string | null>(null)
+  const [error, setError] = createSignal<string | null>(null)
+  const roomById = createMemo(() => new Map(props.rooms.map((room) => [room.id, room])))
+  const editingAgent = createMemo(() => props.agents.find(({ id }) => id === editingAgentId()))
+
   return (
-    <section className="conventional-directory" aria-labelledby="agent-roster-title">
-      <header className="conventional-surface-header">
+    <section class="conventional-directory" aria-labelledby="agent-roster-title">
+      <header class="conventional-surface-header">
         <div>
           <span>Durable identities</span>
           <h1 id="agent-roster-title">Agents</h1>
           <p>Status reflects configuration only. Runtime availability arrives later.</p>
         </div>
-        <button
-          type="button"
-          className="conventional-primary-button"
-          onClick={() => setCreating(true)}
-        >
+        <button type="button" class="conventional-primary-button" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New Agent
           <Bot aria-hidden="true" />
         </button>
       </header>
-      {creating ? (
+      <Show when={creating()}>
         <AgentCreateForm
-          busy={busy}
-          error={error}
+          busy={props.busy}
+          error={error()}
           onCancel={() => setCreating(false)}
           onSubmit={async (input) => {
             setError(null)
             try {
-              await onCreate(input)
+              await props.onCreate(input)
               setCreating(false)
             } catch {
               setError('Agent could not be created. Check the fields and retry.')
             }
           }}
         />
-      ) : null}
-      {editingAgent ? (
-        <AgentCustomizationForm
-          agent={editingAgent}
-          busy={busy}
-          error={error}
-          onArchive={async (agent) => {
-            setError(null)
-            try {
-              await onArchive(agent.id)
-              setEditingAgentId(null)
-            } catch {
-              setError('Agent could not be archived. Resolve linked constraints and retry.')
-            }
-          }}
-          onCancel={() => setEditingAgentId(null)}
-          onSubmit={async (agent, input) => {
-            setError(null)
-            try {
-              await onUpdate(agent, input)
-              setEditingAgentId(null)
-            } catch {
-              setError('Agent changes could not be saved. Review the fields and retry.')
-            }
-          }}
-          rooms={rooms}
-        />
-      ) : null}
-      <div className="conventional-agent-grid">
-        {agents.map((agent) => (
-          <article key={agent.id} className="conventional-agent-card">
-            <div className="conventional-agent-card__avatar" aria-hidden="true">
-              <Bot />
-            </div>
-            <div className="conventional-agent-card__identity">
-              <h2>{agent.name}</h2>
-            </div>
-            <div className="conventional-agent-card__status">
-              <AgentStatus agent={agent} compact />
-            </div>
-            <p>{agent.roleSummary ?? 'No role summary yet.'}</p>
-            <div className="conventional-agent-card__metadata">
-              <p>
-                <span>Profile</span>
-                <strong>
-                  {agent.profile.id} · v{agent.profile.version}
-                </strong>
-              </p>
-              <p>
-                <span>Room</span>
-                <strong>
-                  {agent.roomId
-                    ? (roomById.get(agent.roomId)?.name ?? 'Unavailable Room')
-                    : 'Unassigned'}
-                </strong>
-              </p>
-              <p>
-                <span>Profile state</span>
-                <strong>{agent.profile.state}</strong>
-              </p>
-            </div>
-            <button type="button" onClick={() => void onMessage(agent.id)}>
-              <MessageCircle aria-hidden="true" />
-              Open conversation
-            </button>
-            <button type="button" onClick={() => setEditingAgentId(agent.id)}>
-              <Pencil aria-hidden="true" />
-              Customize
-            </button>
-          </article>
-        ))}
+      </Show>
+      <Show when={editingAgent()}>
+        {(agent) => (
+          <AgentCustomizationForm
+            agent={agent()}
+            busy={props.busy}
+            error={error()}
+            onArchive={async (target) => {
+              setError(null)
+              try {
+                await props.onArchive(target.id)
+                setEditingAgentId(null)
+              } catch {
+                setError('Agent could not be archived. Resolve linked constraints and retry.')
+              }
+            }}
+            onCancel={() => setEditingAgentId(null)}
+            onSubmit={async (target, input) => {
+              setError(null)
+              try {
+                await props.onUpdate(target, input)
+                setEditingAgentId(null)
+              } catch {
+                setError('Agent changes could not be saved. Review the fields and retry.')
+              }
+            }}
+            rooms={props.rooms}
+          />
+        )}
+      </Show>
+      <div class="conventional-agent-grid">
+        <For each={props.agents}>
+          {(agent) => (
+            <article class="conventional-agent-card">
+              <div class="conventional-agent-card__avatar" aria-hidden="true">
+                <Bot />
+              </div>
+              <div class="conventional-agent-card__identity">
+                <h2>{agent.name}</h2>
+              </div>
+              <div class="conventional-agent-card__status">
+                <AgentStatus agent={agent} compact />
+              </div>
+              <p>{agent.roleSummary ?? 'No role summary yet.'}</p>
+              <div class="conventional-agent-card__metadata">
+                <p>
+                  <span>Profile</span>
+                  <strong>
+                    {agent.profile.id} · v{agent.profile.version}
+                  </strong>
+                </p>
+                <p>
+                  <span>Room</span>
+                  <strong>
+                    {agent.roomId
+                      ? (roomById().get(agent.roomId)?.name ?? 'Unavailable Room')
+                      : 'Unassigned'}
+                  </strong>
+                </p>
+                <p>
+                  <span>Profile state</span>
+                  <strong>{agent.profile.state}</strong>
+                </p>
+              </div>
+              <button type="button" onClick={() => void props.onMessage(agent.id)}>
+                <MessageCircle aria-hidden="true" />
+                Open conversation
+              </button>
+              <button type="button" onClick={() => setEditingAgentId(agent.id)}>
+                <Pencil aria-hidden="true" />
+                Customize
+              </button>
+            </article>
+          )}
+        </For>
       </div>
-      {!agents.length ? (
+      <Show when={!props.agents.length}>
         <WorkspaceEmpty
           title="No Agents yet"
           detail="Create a durable Agent identity, then start a direct conversation."
         />
-      ) : null}
+      </Show>
     </section>
   )
 }
 
-function AgentCustomizationForm({
-  agent,
-  busy,
-  error,
-  onArchive,
-  onCancel,
-  onSubmit,
-  rooms,
-}: Readonly<{
+function AgentCustomizationForm(props: {
   agent: AgentSummary
   busy: boolean
   error: string | null
@@ -177,15 +162,15 @@ function AgentCustomizationForm({
   onCancel: () => void
   onSubmit: (agent: AgentSummary, input: AgentCustomizationInput) => Promise<void>
   rooms: readonly RoomSummary[]
-}>) {
-  const [archiveConfirmation, setArchiveConfirmation] = useState(false)
+}) {
+  const [archiveConfirmation, setArchiveConfirmation] = createSignal(false)
   return (
     <form
-      className="conventional-inline-form conventional-agent-customization"
+      class="conventional-inline-form conventional-agent-customization"
       onSubmit={(event) => {
         event.preventDefault()
         const form = new FormData(event.currentTarget)
-        void onSubmit(agent, {
+        void props.onSubmit(props.agent, {
           avatarRef: String(form.get('avatarRef') ?? '').trim() || null,
           characterRef: String(form.get('characterRef') ?? '').trim() || null,
           name: String(form.get('name') ?? ''),
@@ -196,39 +181,39 @@ function AgentCustomizationForm({
         })
       }}
     >
-      <div className="conventional-inline-form__header">
+      <div class="conventional-inline-form__header">
         <div>
-          <h2>Customize {agent.name}</h2>
-          <p>Stable identity · {agent.id}</p>
+          <h2>Customize {props.agent.name}</h2>
+          <p>Stable identity · {props.agent.id}</p>
         </div>
-        <button type="button" aria-label="Close Agent customization" onClick={onCancel}>
+        <button
+          type="button"
+          aria-label="Close Agent customization"
+          onClick={() => props.onCancel()}
+        >
           <X aria-hidden="true" />
         </button>
       </div>
-      <AgentStatus agent={agent} />
-      <div className="conventional-form-grid">
+      <AgentStatus agent={props.agent} />
+      <div class="conventional-form-grid">
         <label>
           Name
-          <input name="name" required maxLength={120} defaultValue={agent.name} />
+          <input name="name" required maxLength={120} value={props.agent.name} />
         </label>
         <label>
           Room
-          <select name="roomId" defaultValue={agent.roomId ?? ''}>
+          <select name="roomId" value={props.agent.roomId ?? ''}>
             <option value="">Unassigned</option>
-            {rooms.map((room) => (
-              <option key={room.id} value={room.id}>
-                {room.name}
-              </option>
-            ))}
+            <For each={props.rooms}>{(room) => <option value={room.id}>{room.name}</option>}</For>
           </select>
         </label>
-        <label className="conventional-form-grid__wide">
+        <label class="conventional-form-grid__wide">
           Role or persona
           <textarea
             name="roleSummary"
             rows={3}
             maxLength={500}
-            defaultValue={agent.roleSummary ?? ''}
+            value={props.agent.roleSummary ?? ''}
           />
         </label>
         <label>
@@ -236,7 +221,7 @@ function AgentCustomizationForm({
           <input
             name="avatarRef"
             maxLength={500}
-            defaultValue={agent.avatarRef ?? ''}
+            value={props.agent.avatarRef ?? ''}
             placeholder="Optional stable asset reference"
           />
         </label>
@@ -245,13 +230,13 @@ function AgentCustomizationForm({
           <input
             name="characterRef"
             maxLength={500}
-            defaultValue={agent.characterRef ?? ''}
+            value={props.agent.characterRef ?? ''}
             placeholder="Optional M4 character reference"
           />
         </label>
         <label>
           AgentProfile ID
-          <input name="profileId" required maxLength={120} defaultValue={agent.profile.id} />
+          <input name="profileId" required maxLength={120} value={props.agent.profile.id} />
         </label>
         <label>
           AgentProfile version
@@ -259,49 +244,56 @@ function AgentCustomizationForm({
             name="profileVersion"
             required
             maxLength={64}
-            defaultValue={agent.profile.version}
+            value={props.agent.profile.version}
           />
         </label>
       </div>
-      <p className="conventional-settings-note">
+      <p class="conventional-settings-note">
         Profile changes are explicit and create auditable Adea events. Model, runtime, tool policy,
         and credentials remain Control Plane-owned.
       </p>
-      {error ? <p role="alert">{error}</p> : null}
-      <div className="conventional-agent-customization__actions">
-        <button type="submit" className="conventional-primary-button" disabled={busy}>
-          {busy ? 'Saving…' : 'Save changes'}
+      <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
+      <div class="conventional-agent-customization__actions">
+        <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+          {props.busy ? 'Saving…' : 'Save changes'}
         </button>
-        {!archiveConfirmation ? (
-          <button
-            type="button"
-            className="conventional-danger-button"
-            disabled={busy}
-            onClick={() => setArchiveConfirmation(true)}
-          >
-            Archive Agent
-          </button>
-        ) : (
+        <Show
+          when={archiveConfirmation()}
+          fallback={
+            <button
+              type="button"
+              class="conventional-danger-button"
+              disabled={props.busy}
+              onClick={() => setArchiveConfirmation(true)}
+            >
+              Archive Agent
+            </button>
+          }
+        >
           <div
-            className="conventional-destructive-confirmation"
+            class="conventional-destructive-confirmation"
             role="alertdialog"
-            aria-label={`Archive ${agent.name}`}
+            aria-label={`Archive ${props.agent.name}`}
           >
             <ShieldAlert aria-hidden="true" />
             <p>
               Archive this Agent? Durable conversations and history remain linked to its stable
               identity.
             </p>
-            <button type="button" disabled={busy} onClick={() => void onArchive(agent)}>
+            <button
+              type="button"
+              disabled={props.busy}
+              onClick={() => void props.onArchive(props.agent)}
+            >
               Confirm archive
             </button>
             <button type="button" onClick={() => setArchiveConfirmation(false)}>
               Cancel
             </button>
           </div>
-        )}
+        </Show>
       </div>
-      <p className="conventional-agent-delete-note">
+      <p class="conventional-agent-delete-note">
         Permanent deletion is unavailable because it would break durable identity and conversation
         references.
       </p>
@@ -309,24 +301,19 @@ function AgentCustomizationForm({
   )
 }
 
-function AgentCreateForm({
-  busy,
-  error,
-  onCancel,
-  onSubmit,
-}: Readonly<{
+function AgentCreateForm(props: {
   busy: boolean
   error: string | null
   onCancel: () => void
   onSubmit: Props['onCreate']
-}>) {
+}) {
   return (
     <form
-      className="conventional-inline-form"
+      class="conventional-inline-form"
       onSubmit={(event) => {
         event.preventDefault()
         const form = new FormData(event.currentTarget)
-        void onSubmit({
+        void props.onSubmit({
           name: String(form.get('name') ?? ''),
           profileId: String(form.get('profileId') ?? ''),
           profileVersion: String(form.get('profileVersion') ?? ''),
@@ -334,9 +321,9 @@ function AgentCreateForm({
         })
       }}
     >
-      <div className="conventional-inline-form__header">
+      <div class="conventional-inline-form__header">
         <h2>Create Agent</h2>
-        <button type="button" aria-label="Cancel Agent creation" onClick={onCancel}>
+        <button type="button" aria-label="Cancel Agent creation" onClick={() => props.onCancel()}>
           <X aria-hidden="true" />
         </button>
       </div>
@@ -350,15 +337,15 @@ function AgentCreateForm({
       </label>
       <label>
         Profile ID
-        <input name="profileId" required defaultValue="general" maxLength={120} />
+        <input name="profileId" required value="general" maxLength={120} />
       </label>
       <label>
         Profile version
-        <input name="profileVersion" required defaultValue="1" maxLength={64} />
+        <input name="profileVersion" required value="1" maxLength={64} />
       </label>
-      {error ? <p role="alert">{error}</p> : null}
-      <button type="submit" className="conventional-primary-button" disabled={busy}>
-        {busy ? 'Creating…' : 'Create Agent'}
+      <Show when={props.error}>{(error) => <p role="alert">{error()}</p>}</Show>
+      <button type="submit" class="conventional-primary-button" disabled={props.busy}>
+        {props.busy ? 'Creating…' : 'Create Agent'}
       </button>
     </form>
   )

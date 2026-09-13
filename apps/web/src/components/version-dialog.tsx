@@ -22,16 +22,13 @@ const desktopUpdateAdapter: VersionDialogAdapter = {
   isDesktopRuntime,
 }
 
-export function VersionDialog({
-  onOpenChange,
-  open,
-}: Readonly<{ onOpenChange?: (open: boolean) => void; open?: boolean }> = {}) {
+export function VersionDialog(props: { onOpenChange?: (open: boolean) => void; open?: boolean }) {
   return (
     <SharedVersionDialog
       adapter={desktopUpdateAdapter}
       fallbackVersion={packageVersion}
-      onOpenChange={onOpenChange}
-      open={open}
+      onOpenChange={props.onOpenChange}
+      open={props.open}
     />
   )
 }
