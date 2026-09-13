@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.0](https://github.com/adea-ai/adea/compare/v0.24.0...v0.25.0) (2026-09-13)
+
+
+### Features
+
+* **desktop:** signed in-app auto-update for the Electrobun shell ([#401](https://github.com/adea-ai/adea/issues/401)) ([931a915](https://github.com/adea-ai/adea/commit/931a915e376e24660d9f597aa4fb6cb1e5dee031))
+
 ## [0.24.0](https://github.com/adea-ai/adea/compare/v0.23.3...v0.24.0) (2026-09-13)
 
 
