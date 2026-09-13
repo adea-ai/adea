@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/adea-ai/adea/compare/v0.23.0...v0.23.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* **ci:** wire the visual and route regression gates for M9 ([#384](https://github.com/adea-ai/adea/issues/384)) ([15c8f0e](https://github.com/adea-ai/adea/commit/15c8f0ef4190beb80b5ce7588fb1aec07f2dae87))
+
 ## [0.23.0](https://github.com/adea-ai/adea/compare/v0.22.2...v0.23.0) (2026-09-13)
 
 
