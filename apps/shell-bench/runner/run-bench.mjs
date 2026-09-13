@@ -62,7 +62,7 @@ const candidates = [
       )
       return { cmd: bin, args: [], cwd: dirname(bin) }
     },
-    urlArg: (url) => `--url=${url}`,
+    // no urlArg: the baked client page (tauri://localhost) is the invoke surface
     sizes: async () => {
       const app = join(
         BENCH_ROOT,
@@ -262,6 +262,7 @@ async function proxyToCloud(req, res, url) {
         responseHeaders[key] = value
       }
       responseHeaders['content-length'] = String(errBody.length)
+      responseHeaders['access-control-allow-origin'] = '*'
       res.writeHead(upstream.status, responseHeaders)
       res.end(errBody)
       return
@@ -273,6 +274,7 @@ async function proxyToCloud(req, res, url) {
         continue
       responseHeaders[key] = value
     }
+    responseHeaders['access-control-allow-origin'] = '*'
     res.writeHead(upstream.status, responseHeaders)
     if (upstream.body) {
       const reader = upstream.body.getReader()
@@ -296,13 +298,27 @@ async function serveFile(res, filePath, inject) {
   } else if (inject && filePath.endsWith('.js')) {
     body = Buffer.from(rewriteCloudOrigin(body.toString('utf8')))
   }
-  res.writeHead(200, { 'content-type': MIME[extname(filePath)] || 'application/octet-stream' })
+  res.writeHead(200, {
+    'content-type': MIME[extname(filePath)] || 'application/octet-stream',
+    'access-control-allow-origin': '*',
+  })
   res.end(body)
 }
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   try {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-origin': '*',
+        'access-control-allow-headers':
+          'content-type, authorization, x-adea-client, x-adea-desktop-session',
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+      })
+      res.end()
+      return
+    }
+    const corsHeaders = { 'access-control-allow-origin': '*' }
     if (url.pathname === '/__bench/ready' && req.method === 'POST') {
       const chunks = []
       for await (const c of req) chunks.push(c)
@@ -316,7 +332,7 @@ const server = createServer(async (req, res) => {
         state.currentRun.phase = 'settling'
         state.currentRun.resolve?.()
       }
-      res.writeHead(204)
+      res.writeHead(204, corsHeaders)
       res.end()
       return
     }
@@ -329,7 +345,7 @@ const server = createServer(async (req, res) => {
         state.currentRun.phase = 'loaded-wait'
         state.currentRun.workspaceResolve?.()
       }
-      res.writeHead(204)
+      res.writeHead(204, corsHeaders)
       res.end()
       return
     }
@@ -337,7 +353,7 @@ const server = createServer(async (req, res) => {
       const chunks = []
       for await (const c of req) chunks.push(c)
       state.ipcResult = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
-      res.writeHead(204)
+      res.writeHead(204, corsHeaders)
       res.end()
       return
     }
@@ -491,8 +507,17 @@ function stopSampling() {
   clearInterval(sampler)
 }
 
+async function preKillSweep(pattern) {
+  // Await pkill completion + grace so a still-scanning pkill cannot kill the
+  // freshly spawned app (its path matches the sweep pattern).
+  await new Promise((resolve) => {
+    const proc = spawn('pkill', ['-9', '-f', pattern])
+    proc.on('exit', () => setTimeout(resolve, 400))
+  })
+}
+
 async function runPhase(candidate, phase, url) {
-  if (candidate.preKill) spawn('pkill', ['-9', '-f', candidate.preKill])
+  if (candidate.preKill) await preKillSweep(candidate.preKill)
   if (candidate.prepare) await candidate.prepare(url)
   const { cmd, args: baseArgs, cwd } = candidate.launch()
   const spawnEnv = candidate.envUrl ? { ...process.env, [candidate.envUrl]: url } : undefined
@@ -505,7 +530,7 @@ async function runPhase(candidate, phase, url) {
   const rootPid = proc.pid
   startSampling(rootPid)
 
-  const readyPromise = waitForReady(45_000)
+  const readyPromise = waitForReady(90_000)
   const ready = await readyPromise
   if (!ready) {
     stopSampling()
@@ -550,8 +575,8 @@ async function runPhase(candidate, phase, url) {
 async function runIpc(candidate) {
   if (candidate.ipc === false)
     return { bridge: null, note: 'no shell bridge (N/A for this candidate)' }
+  if (candidate.preKill) await preKillSweep(candidate.preKill)
   if (candidate.prepare) await candidate.prepare(PROBE_URL)
-  if (candidate.preKill) spawn('pkill', ['-9', '-f', candidate.preKill])
   const { cmd, args: baseArgs, cwd } = candidate.launch()
   const spawnEnv = candidate.envUrl ? { ...process.env, [candidate.envUrl]: PROBE_URL } : undefined
   const urlArg = candidate.envUrl ? null : (candidate.urlArg?.(PROBE_URL) ?? null)

@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.adea.bench.tauri",
   "build": {
-    "frontendDist": "./dist"
+    "beforeBuildCommand": "bun ../runner/prep-client.mjs",
+    "frontendDist": "./dist-client"
   },
   "app": {
     "withGlobalTauri": true,
@@ -15,7 +16,12 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.icns", "icons/icon.png"]
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.png"
+    ]
   }
 }
