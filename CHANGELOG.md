@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.23.0](https://github.com/adea-ai/adea/compare/v0.22.2...v0.23.0) (2026-09-13)
+
+
+### Features
+
+* **ui:** migrate the UI stack to SolidJS on TanStack Start (M6) ([#380](https://github.com/adea-ai/adea/issues/380)) ([5102661](https://github.com/adea-ai/adea/commit/5102661cf5cb00b2a7bce9cb818f209ed288c750))
+
+
+### Bug Fixes
+
+* **workspace-ui:** restore cached-channel transcripts and split dialog chunks ([#383](https://github.com/adea-ai/adea/issues/383)) ([89aafbd](https://github.com/adea-ai/adea/commit/89aafbd05bd39b26cb22c150f4555106450dc3f1))
+
+
+### Documentation
+
+* **build:** settle Vite vs Bun with M7 measurements (decision 0008) ([#382](https://github.com/adea-ai/adea/issues/382)) ([fd3f5e2](https://github.com/adea-ai/adea/commit/fd3f5e2e9eff6c429e97194f90df162c199a875b)), closes [#304](https://github.com/adea-ai/adea/issues/304)
+
 ## [0.22.2](https://github.com/adea-ai/adea/compare/v0.22.1...v0.22.2) (2026-09-13)
 
 
