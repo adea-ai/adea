@@ -79,19 +79,25 @@ describe('desktop shell command surface', () => {
     }
   })
 
-  test('compares the running version against the latest GitHub release', async () => {
+  test('compares the running version against the signed update feed', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     const original = globalThis.fetch
     try {
       const invoke = createCommandSurface(dataDir)
       const manifest = JSON.parse(readFileSync(join(import.meta.dir, '../package.json'), 'utf8'))
       const bumped = bumpPatch(manifest.version)
+      // A well-formed feed entry (the shell validates the manifest before it
+      // ever considers the GitHub API fallback).
       globalThis.fetch = (async () =>
         Response.json({
-          tag_name: `v${bumped}`,
-          body: 'A release',
-          html_url: `https://github.com/adea-ai/adea/releases/tag/v${bumped}`,
-          published_at: '2026-09-13T00:00:00Z',
+          version: bumped,
+          platform: process.platform,
+          arch: process.arch,
+          url: `https://github.com/adea-ai/adea/releases/download/v${bumped}/Adea-v${bumped}-macos-arm64.app.tar.zst`,
+          sha256: 'a'.repeat(64),
+          signature: 'c2ln',
+          notes: 'A release',
+          publishedAt: '2026-09-13T00:00:00Z',
         })) as typeof fetch
       const available = (await invoke('desktop_update_check')) as {
         ok: true
@@ -108,8 +114,12 @@ describe('desktop shell command surface', () => {
 
       globalThis.fetch = (async () =>
         Response.json({
-          tag_name: `v${manifest.version}`,
-          html_url: 'https://github.com/x',
+          version: manifest.version,
+          platform: process.platform,
+          arch: process.arch,
+          url: 'https://github.com/adea-ai/adea/releases/download/v0/Adea.app.tar.zst',
+          sha256: 'a'.repeat(64),
+          signature: 'c2ln',
         })) as typeof fetch
       const current = (await invoke('desktop_update_check')) as {
         ok: true
@@ -126,7 +136,7 @@ describe('desktop shell command surface', () => {
     }
   })
 
-  test('reports an explicit failed phase when the release feed is unreachable', async () => {
+  test('reports an explicit failed phase when the update feed is unreachable', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     const original = globalThis.fetch
     try {
@@ -145,36 +155,6 @@ describe('desktop shell command surface', () => {
       })
     } finally {
       globalThis.fetch = original
-      rmSync(dataDir, { force: true, recursive: true })
-    }
-  })
-
-  test('hands the install off to the releases page for http(s) URLs only', async () => {
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
-    const original = Bun.spawn
-    const opened: string[] = []
-    try {
-      Bun.spawn = ((command: string[]) => {
-        opened.push(String(command[1]))
-        return {} as ReturnType<typeof Bun.spawn>
-      }) as typeof Bun.spawn
-      const invoke = createCommandSurface(dataDir)
-      const releaseUrl = 'https://github.com/adea-ai/adea/releases'
-      expect(invoke('desktop_update_install', { github_url: releaseUrl })).toEqual({
-        ok: true,
-        value: null,
-      })
-      expect(invoke('desktop_update_install', { github_url: 'file:///etc/passwd' })).toEqual({
-        ok: true,
-        value: null,
-      })
-      expect(invoke('desktop_update_install', { github_url: 'javascript:alert(1)' })).toEqual({
-        ok: true,
-        value: null,
-      })
-      expect(opened).toEqual([releaseUrl])
-    } finally {
-      Bun.spawn = original
       rmSync(dataDir, { force: true, recursive: true })
     }
   })
