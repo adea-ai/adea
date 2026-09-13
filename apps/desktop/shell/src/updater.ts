@@ -233,12 +233,10 @@ export function stageUpdateSwap(input: {
       '  exit 1',
       'fi',
       `rm -rf ${JSON.stringify(previous)}`,
-      // Direct exec of the launcher, with its log captured: LaunchServices
-      // `open` can be swallowed by stale single-instance state mid-update,
-      // and the launcher's own output is the only window into its install.
-      `nohup ${JSON.stringify(join(target, 'Contents', 'MacOS', 'launcher'))} >> ${JSON.stringify(
-        join(input.dataDir, 'updates', 'relaunch.log')
-      )} 2>&1 &`,
+      // -n forces a fresh LaunchServices instance: every old-bundle process
+      // is gone by this point, so there is nothing to "activate" and the new
+      // launcher bootstraps into the user's GUI session cleanly.
+      `open -n ${JSON.stringify(target)}`,
       '',
     ].join('\n'),
     { mode: 0o755 }
