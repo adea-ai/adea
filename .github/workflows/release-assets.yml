@@ -391,5 +391,3 @@ jobs:
             exit 1
           fi
           echo "Signed update feed published alongside the desktop artifacts."
-          fi
-          echo "No updater manifest published; the release stays unsigned."

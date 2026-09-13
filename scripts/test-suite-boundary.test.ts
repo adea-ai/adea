@@ -94,10 +94,10 @@ describe('test suite boundaries', () => {
     // The verify gate asserts the bundle structure, not just an asset count.
     expect(workflow).toContain('Chromium Embedded Framework.framework/Chromium Embedded Framework')
     expect(workflow).toContain('Adea.app/Contents/Resources/app/client/index.html')
-    expect(workflow).toContain('Verify no updater manifest is published')
+    expect(workflow).toContain('Verify the signed update feed is published')
     // The Rust lane is gone: no tauri action, signing secrets, or updater
-    // channel may come back without the #370 signing work. The verify step may
-    // name the manifest to reject it, but the lane must not poll it.
+    // channel may come back. The lane publishes and signs the latest.json
+    // feed, but it must not poll it (the shell does that at runtime).
     expect(workflow).not.toContain('tauri')
     expect(workflow).not.toContain('cargo')
     expect(workflow).not.toContain('Verify updater channel')
