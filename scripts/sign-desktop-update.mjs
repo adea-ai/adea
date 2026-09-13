@@ -23,14 +23,14 @@ function arg(name) {
 }
 
 export async function buildUpdateManifest({ archivePath, tag, notes }) {
-  const version = tag.replace(/^v/, '')
-  const url = `https://github.com/${REPO}/releases/download/${tag}/Adea-${tag}-macos-arm64.app.tar.zst`
-  const archive = await readFile(archivePath)
-  const sha256 = createHash('sha256').update(archive).digest('hex')
   const signingKey = process.env.DESKTOP_UPDATE_SIGNING_KEY
   if (!signingKey) {
     throw new Error('DESKTOP_UPDATE_SIGNING_KEY is not set; refusing to publish an unsigned feed')
   }
+  const version = tag.replace(/^v/, '')
+  const url = `https://github.com/${REPO}/releases/download/${tag}/Adea-${tag}-macos-arm64.app.tar.zst`
+  const archive = await readFile(archivePath)
+  const sha256 = createHash('sha256').update(archive).digest('hex')
   const signature = cryptoSign(
     null,
     Buffer.from(`adea-desktop-update/v${version}/${sha256}`),
