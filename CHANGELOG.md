@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.2](https://github.com/adea-ai/adea/compare/v0.23.1...v0.23.2) (2026-09-13)
+
+
+### Maintenance
+
+* **repo:** drop dead Next build directories from the boundary walkers ([#386](https://github.com/adea-ai/adea/issues/386)) ([085951b](https://github.com/adea-ai/adea/commit/085951b45ae965125174f5724c08e4a918a9870f))
+
 ## [0.23.1](https://github.com/adea-ai/adea/compare/v0.23.0...v0.23.1) (2026-09-13)
 
 
