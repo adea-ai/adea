@@ -1,4 +1,4 @@
-// Desktop command surface (the shell side of `apps/desktop/src/platform/bridge`).
+// Desktop command surface (the shell side of `apps/web/src/lib/desktop-bridge`).
 // File-backed state under the app data directory; AES-GCM for anything that was
 // keyring-protected under the previous shell. The observable command contract is
 // unchanged — see docs/specs/desktop-auth.md and docs/specs/local-content.md for
