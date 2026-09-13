@@ -1,72 +1,97 @@
 # Spec: desktop updater
 
-How the desktop shell keeps itself current. This page is the contract to read
-before touching `apps/desktop/shell/src/commands.ts` (the
-`desktop_update_*` command family) or the desktop release lane
-(`.github/workflows/release-assets.yml`).
+How the desktop shell keeps itself current: a signed in-app update lane. This
+page is the contract to read before touching `apps/desktop/shell/src/commands.ts`
+(the `desktop_update_*` command family), `apps/desktop/shell/src/updater.ts`,
+`scripts/sign-desktop-update.mjs`, or `.github/workflows/release-assets.yml`.
 
 > **Implementation note (2026-09-13):** the desktop shell is Electrobun
 > (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
-> There is no signed auto-update lane in the shell yet: `desktop_update_check`
-> / `desktop_update_status` compare the running version against the latest
-> GitHub release, and `desktop_update_install` hands off to the releases page
-> for a manual download. Release-lane work (signed artifacts, updater
-> manifests) is tracked in #370.
+> The shell downloads, verifies, and installs newer releases in place and
+> relaunches. Apple code signing and notarization are still TODO(#370): the
+> build is unsigned upstream and locally signed with the machine's
+> `adea-local-codesign` identity.
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
-## Release channel
+## Release channel and feed
 
-Updates are published to this repository's GitHub Releases; there is no separate
-update server. The shell polls
+Updates are published to this repository's GitHub Releases. The release lane
+attaches the disk image, the self-contained app archive
+(`Adea-<tag>-macos-arm64.app.tar.zst`), and a signed `latest.json`:
 
+```json
+{
+  "version": "0.25.0",
+  "platform": "darwin",
+  "arch": "arm64",
+  "url": "https://github.com/adea-ai/adea/releases/download/v0.25.0/Adea-v0.25.0-macos-arm64.app.tar.zst",
+  "sha256": "…",
+  "signature": "…",
+  "notes": "…",
+  "publishedAt": "…"
+}
 ```
-https://api.github.com/repos/adea-ai/adea/releases/latest
-```
 
-from the shell process (never the webview) and compares the release tag against
-the running version, which comes from `apps/desktop/package.json` — the version
-Release Please bumps — with an `ADEA_APP_VERSION` override for local runs. The
-GitHub origins (`api.github.com`, `github.com`) are baselined exceptions in
-`scripts/check-desktop-origins.mjs`: the only origins the app talks to besides
-the cloud origin are the ones it updates from.
+The shell polls `https://github.com/adea-ai/adea/releases/latest/download/latest.json`
+from the shell process (never the webview). `version` is compared against the
+running version, which comes from `apps/desktop/package.json` — the version
+Release Please bumps — with an `ADEA_APP_VERSION` override for local runs.
+Releases without a feed (forks, releases older than the lane) fall back to a
+GitHub-API availability check plus a releases-page handoff.
 
 ## Trust chain
 
-- The shell performs a read-only, unauthenticated release lookup; it downloads
-  and installs nothing. A malicious or stale feed can at worst misreport
-  availability and open the releases page.
-- Installation is the user dragging the downloaded build into `/Applications`
-  (or running the DMG), so no update payload is ever executed from inside the
-  app and there is no update signing key to protect yet. When the signed
-  auto-update lane lands (#370), verification keys will be baked in at build
-  time and the feed will carry signed manifests.
-- macOS builds are signed locally with the machine's stable
-  `adea-local-codesign` identity so keychain grants survive rebuilds; release
-  builds are still unsigned upstream (#370).
+- `signature` is Ed25519 over `adea-desktop-update/v<version>/<sha256>` made
+  with the private half in the `DESKTOP_UPDATE_SIGNING_KEY` repository secret
+  (`scripts/sign-desktop-update.mjs` signs; the key never touches disk in the
+  lane). The shell verifies with the public half baked into
+  `apps/desktop/shell/src/updater.ts`.
+- The archive must match the manifest's SHA-256 exactly and carry a valid
+  signature before anything is extracted, and the extracted bundle must be a
+  complete `Adea.app` (launcher + main-process entry) before anything is
+  swapped. A hostile feed can at worst fail the install.
+- The feed URL must be `https://github.com/adea-ai/adea/releases/download/…`;
+  `ADEA_UPDATE_FEED`, `ADEA_UPDATE_ASSET_BASE`, and `ADEA_UPDATE_PUBLIC_KEY`
+  re-point the channel for tests and staging — hash and signature checks are
+  never skipped, so an override cannot install code we did not sign.
+- `ADEA_UPDATE_SKIP_APPLY=1` stops short of the real bundle swap (tests).
+- macOS builds are signed locally with the stable `adea-local-codesign`
+  identity so keychain grants survive rebuilds; release builds remain unsigned
+  upstream until notarization lands (#370).
 
 ## User-visible policy
 
-- The version dialog reports the running version, phase, release notes, and the
-  release page (`github_url`), and auto-checks when it opens.
-- `desktop_update_install` opens the release page in the default browser after
-  confirming the URL is http(s); it refuses anything else and installs nothing
-  itself.
-- Network failure produces the explicit `failed` phase with the error message;
-  it is never reported as current.
+- The version dialog reports the running version, phase, release notes, and
+  the release page, and auto-checks when it opens.
+- `desktop_update_install` requires `approved: true` and an `expectedVersion`
+  matching the pending release, so a stale confirmation cannot install a
+  different release. Installation downloads and verifies the archive, swaps
+  the running `.app` (keeping no part of the old bundle), relaunches, and
+  reports `installed` with `restart_required` while the swap script waits for
+  the process to exit.
+- If the running process is not a packaged bundle (a repo run), install hands
+  off to the releases page instead of swapping.
+- Network, checksum, and signature failures produce the explicit `failed`
+  phase with the error message; they are never reported as current.
 
 ## State machine
 
-`checking → available | current | failed`. There are no download, install, or
-restart phases while installation is manual; the phase set matches
-`DesktopUpdate` in `apps/web/src/lib/desktop-update.ts`.
+`checking → available | current | failed`, then
+`available → downloading → installing → installed | failed`. Progress reports
+`downloaded_bytes`/`total_bytes` during the download; `installed` sets
+`restart_required` and the app relaunches into the new bundle.
 
 ## Pinned by
 
-- `apps/desktop/tests/shell-commands.test.ts`: available/current/failed
-  comparisons against a stubbed release feed, the packaged version reporting,
-  and the http(s)-only install handoff.
+- `apps/desktop/tests/shell-updates.test.ts`: manifest validation (platform,
+  host, digest), Ed25519 signature verification and tampering, the full
+  check → download → verify → extract → staged-install flow against a local
+  signed feed, install guards (approval, expected version), and the
+  releases-page fallback.
+- `apps/desktop/tests/shell-commands.test.ts`: feed availability phases and
+  the packaged-version reporting.
 - `scripts/desktop-ipc-boundary.test.ts`: the `desktop_update_*` command
   surface and its grant.
 - `scripts/desktop-origin-boundary.test.ts` and

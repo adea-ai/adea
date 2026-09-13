@@ -1,7 +1,10 @@
 name: Release assets
 
-# TODO(#370): signing, notarization, and the auto-update lane for the Electrobun
-# shell are not wired yet; this job builds unsigned and must stay unsigned.
+# The desktop auto-update lane: this job builds the stable bundle, publishes
+# it to the release, and signs `latest.json` (Ed25519, private half in the
+# DESKTOP_UPDATE_SIGNING_KEY secret) so installed shells verify and apply
+# updates in place (apps/desktop/shell/src/updater.ts). Still TODO(#370):
+# Apple code signing and notarization — the build itself stays unsigned.
 #
 # This lane builds the Electrobun (Bun + CEF) shell in stable/release mode
 # (`electrobun build --env=stable`, the same flag the hutch template's `build`
@@ -10,9 +13,10 @@ name: Release assets
 # self-contained app archive (`*-Adea.app.tar.zst`, whose payload carries the
 # full bundle: the shell binaries, the bundled CEF framework, and the packaged
 # single-UI client), and an unsigned `*-update.json` update manifest that this
-# lane deliberately does NOT publish because no signed update channel exists
-# yet. Dev-mode builds (`electrobun build` without `--env`) only ever produce
-# `build/dev-*` bundles and never release assets.
+# lane deliberately does NOT publish (the update channel is the signed
+# `latest.json` staged next to the archive). Dev-mode builds (`electrobun
+# build` without `--env`) only ever produce `build/dev-*` bundles and never
+# release assets.
 #
 # Only macOS ARM64 ships today. Windows and Linux `electrobun` stable packaging
 # has no CI-verified installer story yet and is tracked with the signing work in
@@ -228,9 +232,9 @@ jobs:
             ls artifacts/ >&2 || true
             exit 1
           fi
-          # The electrobun artifacts dir always carries the stable build's own
-          # unsigned *-update.json; only the dmg and app archive are staged, so
-          # the guard inspects what will actually ship, not that directory.
+          # Electrobun's own unsigned `*-update.json` still must not ship: the
+          # update channel is the signed `latest.json` this lane generates
+          # below, not the manifest format bundled inside the build.
           mkdir -p "$RUNNER_TEMP/staged"
           if [[ -n "$RELEASE_TAG" ]]; then
             cp "${dmgs[0]}" "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64.dmg"
@@ -240,8 +244,24 @@ jobs:
             cp "${archives[0]}" "$RUNNER_TEMP/staged/$(basename "${archives[0]}")"
           fi
           if compgen -G "$RUNNER_TEMP/staged/*-update.json" >/dev/null; then
-            echo "An updater manifest was staged; the update lane is not wired (TODO(#370)) and it must not ship." >&2
+            echo "An electrobun updater manifest was staged; the update channel is the signed latest.json instead." >&2
             exit 1
+          fi
+          if [[ -n "$RELEASE_TAG" ]]; then
+            REPO_ROOT="${{ github.workspace }}"
+            SIGN_ARGS=(
+              --archive "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64.app.tar.zst"
+              --tag "$RELEASE_TAG"
+              --out "$RUNNER_TEMP/staged/latest.json"
+            )
+            NOTES_FILE="$RUNNER_TEMP/staged/notes.txt"
+            if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
+              awk '/^## /{if (seen) exit; seen=1} seen{print}' "$REPO_ROOT/CHANGELOG.md" | sed '1d' > "$NOTES_FILE"
+              if [[ -s "$NOTES_FILE" ]]; then
+                SIGN_ARGS+=(--notes-file "$NOTES_FILE")
+              fi
+            fi
+            bun "$REPO_ROOT/scripts/sign-desktop-update.mjs" "${SIGN_ARGS[@]}"
           fi
           echo "path=$RUNNER_TEMP/staged" >> "$GITHUB_OUTPUT"
 

@@ -66,72 +66,93 @@ function injectBridge(html: string): string {
   return html.replace('<head>', '<head><script src="/__adea/bridge.js"></script>')
 }
 
-Bun.serve({
-  hostname: '127.0.0.1',
-  port: PORT,
-  async fetch(request) {
-    const url = new URL(request.url)
-    try {
-      if (url.pathname === '/__adea/bridge.js') {
-        return new Response(BRIDGE_JS, { headers: { 'content-type': 'text/javascript' } })
-      }
-      if (url.pathname === '/__adea/invoke' && request.method === 'POST') {
-        const payload = (await request.json()) as { cmd?: string; args?: Record<string, unknown> }
-        const result = await invoke(String(payload.cmd ?? ''), payload.args)
-        return Response.json(result)
-      }
-      if (url.pathname === '/__adea/events') {
-        // Long-lived SSE channel for shell events (auth callback readiness).
-        let heartbeat: ReturnType<typeof setInterval> | undefined
-        const stream = new ReadableStream({
-          start(controller) {
-            const encoder = new TextEncoder()
-            controller.enqueue(encoder.encode(': connected\n\n'))
-            heartbeat = setInterval(() => {
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ at: Date.now() })}\n\n`))
-            }, 30_000)
-          },
-          cancel() {
-            // Client disconnected: stop the heartbeat.
-            if (heartbeat) clearInterval(heartbeat)
-          },
-        })
-        return new Response(stream, {
-          headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
-        })
-      }
-      // The client's cloud traffic rides the same-origin proxy; the cloud's
-      // desktop lane sees the trusted shell origin on every forwarded call.
-      if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-        return proxyCloudRequest(request, CLOUD_ORIGIN, SHELL_ORIGIN)
-      }
-      if (AGENT_SIM_DIST && url.pathname.startsWith('/assets/agent-sim/')) {
-        return agentSimResponse(url.pathname, AGENT_SIM_DIST)
-      }
-      const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
-      let filePath = join(CLIENT_ROOT, rel)
-      if (!filePath.startsWith(CLIENT_ROOT)) return new Response(null, { status: 403 })
-      if (existsSync(filePath) && !extname(filePath)) filePath = join(filePath, 'index.html')
-      if (!existsSync(filePath)) {
-        // Static asset paths never fall back to the SPA shell; a missing
-        // asset (e.g. an unpacked Agent Sim) is a plain 404 for the client.
-        if (rel === '/assets' || rel.startsWith('/assets/')) {
-          return new Response(null, { status: 404 })
+// The post-update relaunch can race the old bundle's socket release, so the
+// bind is retried for a bounded window instead of dying inside the launcher.
+let server: ReturnType<typeof Bun.serve> | undefined
+for (let attempt = 0; attempt < 30 && !server; attempt++) {
+  if (attempt > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+  try {
+    server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: PORT,
+      async fetch(request) {
+        const url = new URL(request.url)
+        try {
+          if (url.pathname === '/__adea/bridge.js') {
+            return new Response(BRIDGE_JS, { headers: { 'content-type': 'text/javascript' } })
+          }
+          if (url.pathname === '/__adea/invoke' && request.method === 'POST') {
+            const payload = (await request.json()) as {
+              cmd?: string
+              args?: Record<string, unknown>
+            }
+            const result = await invoke(String(payload.cmd ?? ''), payload.args)
+            return Response.json(result)
+          }
+          if (url.pathname === '/__adea/events') {
+            // Long-lived SSE channel for shell events (auth callback readiness).
+            let heartbeat: ReturnType<typeof setInterval> | undefined
+            const stream = new ReadableStream({
+              start(controller) {
+                const encoder = new TextEncoder()
+                controller.enqueue(encoder.encode(': connected\n\n'))
+                heartbeat = setInterval(() => {
+                  controller.enqueue(
+                    encoder.encode(`data: ${JSON.stringify({ at: Date.now() })}\n\n`)
+                  )
+                }, 30_000)
+              },
+              cancel() {
+                // Client disconnected: stop the heartbeat.
+                if (heartbeat) clearInterval(heartbeat)
+              },
+            })
+            return new Response(stream, {
+              headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+            })
+          }
+          // The client's cloud traffic rides the same-origin proxy; the cloud's
+          // desktop lane sees the trusted shell origin on every forwarded call.
+          if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+            return proxyCloudRequest(request, CLOUD_ORIGIN, SHELL_ORIGIN)
+          }
+          if (AGENT_SIM_DIST && url.pathname.startsWith('/assets/agent-sim/')) {
+            return agentSimResponse(url.pathname, AGENT_SIM_DIST)
+          }
+          const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
+          let filePath = join(CLIENT_ROOT, rel)
+          if (!filePath.startsWith(CLIENT_ROOT)) return new Response(null, { status: 403 })
+          if (existsSync(filePath) && !extname(filePath)) filePath = join(filePath, 'index.html')
+          if (!existsSync(filePath)) {
+            // Static asset paths never fall back to the SPA shell; a missing
+            // asset (e.g. an unpacked Agent Sim) is a plain 404 for the client.
+            if (rel === '/assets' || rel.startsWith('/assets/')) {
+              return new Response(null, { status: 404 })
+            }
+            filePath = join(CLIENT_ROOT, 'index.html')
+          }
+          let body = new Uint8Array(await Bun.file(filePath).arrayBuffer())
+          if (filePath.endsWith('.html')) {
+            body = new TextEncoder().encode(injectBridge(new TextDecoder().decode(body)))
+          }
+          return new Response(body, {
+            headers: { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' },
+          })
+        } catch {
+          return new Response(null, { status: 500 })
         }
-        filePath = join(CLIENT_ROOT, 'index.html')
-      }
-      let body = new Uint8Array(await Bun.file(filePath).arrayBuffer())
-      if (filePath.endsWith('.html')) {
-        body = new TextEncoder().encode(injectBridge(new TextDecoder().decode(body)))
-      }
-      return new Response(body, {
-        headers: { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' },
-      })
-    } catch {
-      return new Response(null, { status: 500 })
-    }
-  },
-})
+      },
+    })
+  } catch {
+    // The port was still held; the loop retries.
+  }
+}
+if (!server) {
+  console.error(`desktop shell: could not bind http://127.0.0.1:${PORT}`)
+  process.exit(1)
+}
 
 new BrowserWindow({
   title: 'Adea',
