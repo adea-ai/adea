@@ -74,7 +74,11 @@ real guest session and durable writes. Logs and evidence stay under ignored
 `start/.checks/local-*`; production credentials are never inherited.
 
 Local HTTPS is required because production-built sessions use `Secure`
-cookies; do not strip that attribute to make HTTP tests pass.
+cookies; do not strip that attribute to make HTTP tests pass. The checks keep
+certificate verification on: each run mints an ephemeral loopback certificate
+with `openssl` (`start/loopback-tls.mjs`), hands it to `wrangler dev`, and
+trusts exactly that certificate for loopback requests. No other origin is
+affected, so nothing needs `rejectUnauthorized: false`.
 
 `start:check-routes` boots the built Worker on its own and asserts the URL
 surface against a real HTTP client: the root document (200) and its method
