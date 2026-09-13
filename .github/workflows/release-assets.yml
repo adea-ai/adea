@@ -225,10 +225,9 @@ jobs:
             ls artifacts/ >&2 || true
             exit 1
           fi
-          if compgen -G 'artifacts/*-update.json' >/dev/null; then
-            echo "An updater manifest was staged; the update lane is not wired (TODO(#370)) and it must not ship." >&2
-            exit 1
-          fi
+          # The electrobun artifacts dir always carries the stable build's own
+          # unsigned *-update.json; only the dmg and app archive are staged, so
+          # the guard inspects what will actually ship, not that directory.
           mkdir -p "$RUNNER_TEMP/staged"
           if [[ -n "$RELEASE_TAG" ]]; then
             cp "${dmgs[0]}" "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64.dmg"
@@ -236,6 +235,10 @@ jobs:
           else
             cp "${dmgs[0]}" "$RUNNER_TEMP/staged/$(basename "${dmgs[0]}")"
             cp "${archives[0]}" "$RUNNER_TEMP/staged/$(basename "${archives[0]}")"
+          fi
+          if compgen -G "$RUNNER_TEMP/staged/*-update.json" >/dev/null; then
+            echo "An updater manifest was staged; the update lane is not wired (TODO(#370)) and it must not ship." >&2
+            exit 1
           fi
           echo "path=$RUNNER_TEMP/staged" >> "$GITHUB_OUTPUT"
 
