@@ -9,4 +9,4 @@ export {
   useSceneMusic,
   useSound,
   type SoundContextValue,
-} from './react'
+} from './sound'

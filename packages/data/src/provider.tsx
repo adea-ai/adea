@@ -1,8 +1,6 @@
-'use client'
-
-import { useWorkspaceStore } from '@adea-ai/state'
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { workspaceStore } from '@adea-ai/state'
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/solid-query'
+import { createEffect, onCleanup, type ParentProps } from 'solid-js'
 
 import { createWorkspaceEventSubscription } from './events'
 
@@ -19,29 +17,28 @@ export function releaseWorkspaceCache(queryClient: QueryClient, workspaceId: str
   queryClient.removeQueries({ queryKey: ['workspaces', workspaceId] })
 }
 
-export function AgentHqQueryProvider({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 30_000,
-            refetchOnWindowFocus: false,
-          },
-        },
-      })
-  )
-  const selectedWorkspaceId = useWorkspaceStore((state) => state.selectedWorkspaceId)
-  const previousWorkspaceIdRef = useRef<string | null>(null)
+export function AgentHqQueryProvider(props: ParentProps) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        staleTime: 30_000,
+        refetchOnWindowFocus: false,
+      },
+    },
+  })
+  let previousWorkspaceId: string | null = null
 
-  useEffect(() => {
-    const previousWorkspaceId = previousWorkspaceIdRef.current
-    previousWorkspaceIdRef.current = selectedWorkspaceId
-    if (previousWorkspaceId && selectedWorkspaceId && previousWorkspaceId !== selectedWorkspaceId)
+  createEffect(() => {
+    const selectedWorkspaceId = workspaceStore.getState().selectedWorkspaceId
+    if (previousWorkspaceId && selectedWorkspaceId && previousWorkspaceId !== selectedWorkspaceId) {
       releaseWorkspaceCache(queryClient, previousWorkspaceId)
-  }, [queryClient, selectedWorkspaceId])
+    }
+    previousWorkspaceId = selectedWorkspaceId
+  })
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  onCleanup(() => queryClient.clear())
+
+  return <QueryClientProvider client={queryClient}>{props.children}</QueryClientProvider>
 }
 
 /**
@@ -58,19 +55,19 @@ export function useWorkspaceEventStream(
   }>
 ) {
   const queryClient = useQueryClient()
-  const { headers, url, workspaceId } = options
-  // Callers build the header callback inline; holding it in a ref keeps the
-  // subscription identity tied to the workspace rather than to a render.
-  const headersRef = useRef(headers)
-  headersRef.current = headers
-  useEffect(() => {
+
+  // Callers build the header callback inline; reading it through the options
+  // object keeps the subscription identity tied to the workspace rather than to
+  // a render.
+  createEffect(() => {
+    const { workspaceId, url } = options
     if (!workspaceId || !url) return
     const subscription = createWorkspaceEventSubscription({
-      headers: () => headersRef.current?.() ?? {},
+      headers: () => options.headers?.() ?? {},
       queryClient,
       url,
       workspaceId,
     })
-    return () => subscription.stop()
-  }, [queryClient, url, workspaceId])
+    onCleanup(() => subscription.stop())
+  })
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/solid-query'
 
 import { taskMutationOptions, taskQueryKeys, taskQueryOptions } from '../../src'
 
