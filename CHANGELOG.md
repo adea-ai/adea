@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.23.3](https://github.com/adea-ai/adea/compare/v0.23.2...v0.23.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* **release:** build and verify real desktop artifacts in the release lane ([#388](https://github.com/adea-ai/adea/issues/388)) ([5c9d82d](https://github.com/adea-ai/adea/commit/5c9d82d8907b0077d247df3c2d80b2a377878dc4))
+* **release:** check the staged set for updater manifests, not the electrobun dir ([#390](https://github.com/adea-ai/adea/issues/390)) ([bd29c8e](https://github.com/adea-ai/adea/commit/bd29c8e306f759f2fe6eb1feccd9da2f96ea8228))
+* **release:** read the payload listing through herestrings, not pipes ([#391](https://github.com/adea-ai/adea/issues/391)) ([2d3dfd4](https://github.com/adea-ai/adea/commit/2d3dfd403e096a1add81784f9c75702e5e998e0d))
+
 ## [0.23.2](https://github.com/adea-ai/adea/compare/v0.23.1...v0.23.2) (2026-09-13)
 
 
