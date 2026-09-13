@@ -7,6 +7,7 @@ import { createServer } from 'node:net'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
+import { createLoopbackCertificate } from './loopback-tls.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -14,6 +15,7 @@ const root = resolve(web, '../..')
 if (process.platform === 'win32') throw new Error('Local Worker checks require macOS or Linux')
 await mkdir(resolve(start, '.checks'), { recursive: true })
 const evidence = await mkdtemp(resolve(start, '.checks/local-'))
+const tls = createLoopbackCertificate(evidence)
 const project = `adea-start-check-${process.pid}`
 const workers = []
 // Do not inherit production service credentials or database URLs into test processes.
@@ -65,7 +67,15 @@ function startWorker(config, port, inspector, secure = false) {
     '--persist-to',
     resolve(evidence, `state-${port}`),
   ]
-  if (secure) args.push('--local-protocol', 'https')
+  if (secure)
+    args.push(
+      '--local-protocol',
+      'https',
+      '--https-cert-path',
+      tls.certPath,
+      '--https-key-path',
+      tls.keyPath
+    )
   const child = spawn('bun', args, {
     cwd: web,
     env: environment,
@@ -79,10 +89,11 @@ function startWorker(config, port, inspector, secure = false) {
   return child
 }
 function localHttps(url, method = 'GET') {
-  // This helper is only called with the loopback URLs allocated by this process.
+  // This helper is only called with the loopback URLs allocated by this
+  // process, and only trusts the certificate minted for this run.
   assert.equal(new URL(url).hostname, '127.0.0.1')
   return new Promise((ok, fail) => {
-    const request = httpsRequest(url, { method, rejectUnauthorized: false }, (response) => {
+    const request = httpsRequest(url, { method, ca: tls.certificate }, (response) => {
       response.resume()
       response.once('end', () => ok({ status: response.statusCode, headers: response.headers }))
     })
