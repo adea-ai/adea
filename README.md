@@ -17,6 +17,8 @@ state wherever the virtual view mounts.
   client-only coordination
 - shadcn-style primitives backed by Kobalte and corvu
   ([decision 0007](docs/decisions/0007-solid-tanstack-start.md))
+- Vite 8 (Rolldown) for the app and library builds, `tsc` for declarations and
+  type-only packages ([decision 0008](docs/decisions/0008-build-bundler-vite-vs-bun.md))
 
 ## Local development
 
