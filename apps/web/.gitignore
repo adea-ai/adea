@@ -1,4 +1,5 @@
 /dist/
+/dist-desktop/
 /.wrangler/
 /node_modules/
 /.dev.vars

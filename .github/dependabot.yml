@@ -32,15 +32,3 @@ updates:
       npm-dependencies:
         applies-to: version-updates
         patterns: ['*']
-
-  - package-ecosystem: cargo
-    directory: /apps/desktop/src-tauri
-    target-branch: main
-    schedule:
-      interval: weekly
-      day: sunday
-    open-pull-requests-limit: 99
-    groups:
-      cargo-dependencies:
-        applies-to: version-updates
-        patterns: ['*']

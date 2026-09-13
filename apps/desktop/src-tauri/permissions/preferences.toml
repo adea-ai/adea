@@ -1,6 +1,0 @@
-"$schema" = "../gen/schemas/schema.json"
-
-[[permission]]
-identifier = "allow-desktop-preferences"
-description = "Allows only the bundled main window to load and save non-secret product preferences."
-commands.allow = ["desktop_preferences_load", "desktop_preferences_save"]

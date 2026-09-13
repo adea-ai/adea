@@ -1,4 +1,8 @@
-import { invoke } from '@tauri-apps/api/core'
+// Desktop update surface for the browser app. On desktop the page is served by
+// the Adea shell, which injects `window.__adeaDesktop` before the client boots
+// (see apps/desktop/shell/src/bun/index.ts). The shell's command surface
+// reports up to date until the signed update lane lands (#370).
+import { invoke, isDesktopRuntime } from './desktop-bridge'
 
 export type DesktopUpdatePhase =
   | 'idle'
@@ -24,9 +28,7 @@ export type DesktopUpdate = {
   restart_required: boolean
 }
 
-export function isDesktopRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-}
+export { isDesktopRuntime }
 
 export function getDesktopUpdateStatus(): Promise<DesktopUpdate> {
   return invoke<DesktopUpdate>('desktop_update_status')

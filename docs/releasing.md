@@ -24,27 +24,17 @@ duplicate package-level changelogs.
 Releases run entirely on GitHub-hosted runners; no self-hosted runner or local
 orchestration is involved. When a Release Please version pull request is
 merged, the tagged GitHub Release triggers
-`.github/workflows/release-assets.yml`, which builds the Tauri desktop shell
-for macOS ARM64, Linux x64, and Windows x64 on hosted `macos-14`,
-`ubuntu-24.04`, and `windows-latest` runners, uploads the bundles to the
-release, and verifies both the release assets and the updater channel.
+`.github/workflows/release-assets.yml`, which builds the bundled desktop client
+and attempts the Electrobun (Bun + CEF) shell bundle for macOS ARM64, Linux x64,
+and Windows x64 on hosted `macos-14`, `ubuntu-24.04`, and `windows-latest`
+runners, uploads whatever artifacts the shell build produced, and verifies the
+release assets.
 
-The Tauri updater polls the release channel directly on GitHub:
-`https://github.com/adea-ai/adea/releases/latest/download/latest.json`. The
-`tauri-action` aggregates the matrix builds into that manifest, and the
-verify-assets gate rejects the release unless every target is present,
-signed, and pointing at this repository's release assets. The channel
-follows the latest stable release automatically and ignores prereleases.
-
-The Linux lane excludes the RPM bundle because Tauri 2.11's in-process RPM
-bundler can hang indefinitely after rendering the desktop file; DEB + AppImage
-provide the Linux install and updater artifacts we publish.
-
-Tauri updater packages are signed using repository secrets and the public
-channel is rejected unless all three target entries contain signatures.
-Platform-native code signing and notarization remain separate follow-ups:
-macOS currently uses an ad-hoc identity and the Windows NSIS installer is not
-Authenticode-signed.
+The Electrobun shell is unsigned: signing, notarization, and the auto-update
+lane are not wired yet (tracked in #370). The verify-assets gate therefore
+rejects a release with no Adea desktop artifacts, and rejects any release that
+publishes an updater manifest before that work lands. macOS and Windows
+code-signing remain follow-ups in the same issue.
 
 The mobile shells remain covered by the repository build gate. Android and iOS
 store distribution should be added as a separate release lane once signing,

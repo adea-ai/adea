@@ -33,7 +33,7 @@ export type AgentSimRuntimeGlobal = {
 }
 
 export function isDesktopRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  return typeof window !== 'undefined' && '__adeaDesktop' in window
 }
 
 async function fetchEngineManifest(

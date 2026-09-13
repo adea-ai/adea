@@ -30,7 +30,7 @@ describe('Agent Sim engine entitlement', () => {
   test('entitles desktop builds whenever the engine is packed', async () => {
     const outcome = await resolveAgentSimEngine(
       'desktop',
-      'tauri://localhost',
+      'http://127.0.0.1:4789',
       fetchReturning(200, OFFICIAL_MANIFEST)
     )
     expect(outcome.state).toBe('entitled')

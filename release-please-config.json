@@ -129,16 +129,6 @@
       "jsonpath": "$.version"
     },
     {
-      "type": "toml",
-      "path": "apps/desktop/src-tauri/Cargo.toml",
-      "jsonpath": "$.package.version"
-    },
-    {
-      "type": "toml",
-      "path": "apps/desktop/src-tauri/Cargo.lock",
-      "jsonpath": "$.package[?(@.name.value=='adea-desktop')].version"
-    },
-    {
       "type": "json",
       "path": "packages/spatial-protocol/package.json",
       "jsonpath": "$.version"

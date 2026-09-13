@@ -1,29 +1,34 @@
 name: Desktop shell
 
-# Rust validation for the Tauri shell.
+# Desktop validation for the Electrobun shell in `apps/desktop`.
 #
-# The Code Foundry validation lanes lint, type-check, test, and scan the
-# JavaScript workspaces; their Rust steps only engage for a repository-root
-# `Cargo.toml`, which this repository does not have. This workflow closes that
-# gap for `apps/desktop/src-tauri` — format, clippy with warnings denied, and the
-# crate's own unit tests (boot taxonomy and launch log, IPC contract parity,
-# preference migrations, window geometry, capability policies).
+# The Code Foundry validation lanes lint, type-check, and test the JavaScript
+# workspaces, but they do not build the desktop client or run the desktop
+# boundary gates. This workflow closes that gap: it builds the client the shell
+# serves, type-checks the workspace, lints it, and runs the gates that pin the
+# loopback boot, the command registry, the auth callback handling, and the
+# single cloud origin.
 #
 # The job always runs so this check can be required: a path-filtered workflow
 # never reports on a pull request that touches none of its paths, which would
-# leave such a pull request permanently blocked. Instead the job detects whether
-# the shell changed and skips the expensive steps when it did not, so a
-# non-desktop pull request costs seconds and still reports a result.
+# leave such a pull request permanently blocked. Instead the job detects
+# whether the desktop workspace changed and skips the expensive steps when it
+# did not, so a non-desktop pull request costs seconds and still reports a
+# result.
 
 on:
   push:
     branches: [main]
     paths:
-      - 'apps/desktop/src-tauri/**'
-      - 'vendor/**'
-      - 'apps/desktop/package.json'
-      - 'apps/desktop/scripts/**'
-      - 'apps/desktop/vite.config.ts'
+      - 'apps/desktop/**'
+      - 'apps/web/vite.desktop.config.ts'
+      - 'apps/web/src/lib/desktop-*.ts'
+      - 'apps/web/src/components/desktop-*.tsx'
+      - 'apps/web/src/components/workspace-navigation*.tsx'
+      - 'apps/web/src/components/version-dialog.tsx'
+      - 'scripts/desktop-*.test.ts'
+      - 'scripts/check-desktop-origins.mjs'
+      - 'scripts/test-suite-boundary.test.ts'
       - '.github/workflows/desktop-shell.yml'
   pull_request:
     branches: [main]
@@ -48,17 +53,17 @@ defaults:
 
 jobs:
   shell:
-    name: Rust shell
+    name: Desktop shell
     # A draft pull request cannot merge, so it allocates no runner; the check
     # reports when the pull request is ready.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: read
     steps:
-      - name: Detect shell changes
+      - name: Detect desktop changes
         id: changes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,75 +72,68 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            echo "shell=true" >> "$GITHUB_OUTPUT"
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')"
-          if grep -qE '^(apps/desktop/src-tauri/|vendor/|apps/desktop/package\.json$|apps/desktop/scripts/|apps/desktop/vite\.config\.ts$|\.github/workflows/desktop-shell\.yml$)' <<< "$changed"; then
-            echo "shell=true" >> "$GITHUB_OUTPUT"
+          if grep -qE '^(apps/desktop/|apps/web/(vite\.desktop\.config\.ts|src/lib/desktop-.*\.ts|src/components/(desktop-.*\.tsx|workspace-navigation.*\.tsx|version-dialog\.tsx))|scripts/(desktop-[a-z-]*\.test\.ts|check-desktop-origins\.mjs|test-suite-boundary\.test\.ts)$|bun\.lock$|\.github/workflows/desktop-shell\.yml$)' <<< "$changed"; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
           else
-            echo "shell=false" >> "$GITHUB_OUTPUT"
-            echo "No shell changes in this pull request; the Rust steps are skipped."
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+            echo "No desktop changes in this pull request; the desktop steps are skipped."
           fi
 
       - name: Checkout
-        if: steps.changes.outputs.shell == 'true'
+        if: steps.changes.outputs.desktop == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - name: Install Bun
-        if: steps.changes.outputs.shell == 'true'
+        if: steps.changes.outputs.desktop == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.0
           no-cache: true
 
-      # `tauri::generate_context!` embeds the frontend bundle at compile time
-      # and refuses to build when it is missing, so the client comes first.
-      - name: Build bundled client assets
-        if: steps.changes.outputs.shell == 'true'
-        working-directory: .
-        run: |
-          set -euo pipefail
-          bun install --frozen-lockfile
-          bun run --cwd apps/desktop shell:client:build
+      - name: Install dependencies
+        if: steps.changes.outputs.desktop == 'true'
+        run: bun install --frozen-lockfile
 
-      - name: Install Tauri system dependencies
-        if: steps.changes.outputs.shell == 'true'
-        working-directory: .
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
+      # The workspace packages ship `dist` (their exports point at it) and the
+      # client build reads the staged public assets, so the client is prepared
+      # before it is bundled for the shell. The client is the web app's own
+      # SPA build; there is no desktop-only client pipeline.
+      - name: Build client
+        if: steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop
+        run: bun run shell:client:build
 
-      - name: Install Rust toolchain
-        if: steps.changes.outputs.shell == 'true'
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
+      # The shell's own workspace ships the Electrobun types the shell
+      # typecheck resolves.
+      - name: Install shell dependencies
+        if: steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop/shell
+        run: bun install
 
-      - name: Cache cargo build
-        if: steps.changes.outputs.shell == 'true'
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: apps/desktop/src-tauri
-
-      - name: Format
-        if: steps.changes.outputs.shell == 'true'
-        working-directory: apps/desktop/src-tauri
-        run: cargo fmt --check
+      - name: Typecheck
+        if: steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop
+        run: bun run typecheck
 
       - name: Lint
-        if: steps.changes.outputs.shell == 'true'
-        working-directory: apps/desktop/src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        if: steps.changes.outputs.desktop == 'true'
+        working-directory: apps/desktop
+        run: bun run lint
 
-      - name: Test
-        if: steps.changes.outputs.shell == 'true'
-        working-directory: apps/desktop/src-tauri
-        run: cargo test
+      - name: Desktop boundary gates
+        if: steps.changes.outputs.desktop == 'true'
+        run: |
+          set -euo pipefail
+          bun test \
+            scripts/desktop-boot-boundary.test.ts \
+            scripts/desktop-ipc-boundary.test.ts \
+            scripts/desktop-auth-boundary.test.ts \
+            scripts/desktop-origin-boundary.test.ts \
+            scripts/test-suite-boundary.test.ts
+          node scripts/check-desktop-origins.mjs

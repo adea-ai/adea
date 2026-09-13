@@ -15,7 +15,6 @@
     ".github/ISSUE_TEMPLATE/feature_request.yml",
     ".github/actions",
     ".agents",
-    "vendor/glib-0.18.5/README.md",
     ".next",
     "dist",
     "cloudflare-env.d.ts",
@@ -28,8 +27,6 @@
     "apps/mobile/android/app/src/main/assets",
     "apps/mobile/ios/App/App/Assets.xcassets",
     "apps/mobile/ios/App/App/public",
-    "apps/mobile/**/capacitor.config.json",
-    "apps/desktop/src-tauri/gen",
-    "vendor/**"
+    "apps/mobile/**/capacitor.config.json"
   ]
 }

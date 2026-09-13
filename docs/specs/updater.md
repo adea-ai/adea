@@ -4,6 +4,13 @@ How the desktop shell receives signed updates. This page is the contract to read
 before touching `apps/desktop/src-tauri/src/updater.rs`, the updater block in
 `tauri.conf.json`, or `.github/workflows/release-assets.yml`.
 
+> **Implementation note (2026-09-12):** the desktop shell is now Electrobun
+> (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
+> Rust module paths below refer to the previous shell. There is no auto-update
+> lane in the shell yet: `desktop_update_check` / `desktop_update_status` in
+> `apps/desktop/shell/src/commands.ts` return `upToDate`, and release-lane work
+> is tracked in #370.
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 

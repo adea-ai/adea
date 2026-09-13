@@ -1,9 +1,9 @@
 const DESKTOP_CLIENT = 'desktop'
-const PRODUCTION_DESKTOP_ORIGINS = Object.freeze([
-  'http://tauri.localhost',
-  'https://tauri.localhost',
-  'tauri://localhost',
-])
+// The Electrobun shell serves the client from a fixed loopback port; that page
+// origin is the live desktop origin. The Vite dev-server origin stays trusted
+// for local development.
+const DESKTOP_SHELL_ORIGIN = 'http://127.0.0.1:4789'
+const PRODUCTION_DESKTOP_ORIGINS = Object.freeze([DESKTOP_SHELL_ORIGIN])
 const DEVELOPMENT_DESKTOP_ORIGIN = 'http://127.0.0.1:1420'
 
 export function desktopTrustedOrigins(environment: NodeJS.ProcessEnv = process.env) {
@@ -19,7 +19,7 @@ export function desktopTrustedOrigins(environment: NodeJS.ProcessEnv = process.e
         origin.includes('*') ||
         origin.includes('@') ||
         origin.endsWith('/') ||
-        !/^(?:https?:\/\/|tauri:\/\/)[A-Za-z0-9.:[\]-]+$/u.test(origin)
+        !/^https?:\/\/[A-Za-z0-9.:[\]-]+$/u.test(origin)
     )
   ) {
     throw new Error('Desktop auth trusted origins are invalid')

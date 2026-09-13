@@ -14,12 +14,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 
 /** Where components and app styles live. */
-const SCAN_ROOTS = [
-  'packages/ui/src',
-  'packages/workspace-ui/src',
-  'apps/desktop/src',
-  'apps/web/src',
-]
+const SCAN_ROOTS = ['packages/ui/src', 'packages/workspace-ui/src', 'apps/web/src']
 const SCAN_EXTENSIONS = ['.ts', '.tsx', '.css']
 const SKIP_DIRECTORIES = new Set(['node_modules', 'dist', 'target', '.turbo'])
 

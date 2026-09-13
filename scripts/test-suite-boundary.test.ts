@@ -66,14 +66,24 @@ describe('test suite boundaries', () => {
     expect(workflow).toContain('runner: windows-latest')
     expect(workflow).toContain('bun scripts/release-notes.mjs')
     expect(workflow).toContain('bun run --cwd packages/types build')
+    expect(workflow).toContain('bun run shell:client:build')
+    expect(workflow).toContain('bunx --bun electrobun build')
+    expect(workflow).toContain('apps/desktop/shell/artifacts/')
+    expect(workflow).toContain('TODO(#370)')
     expect(workflow).toContain('timeout_minutes: 120')
     expect(workflow).toContain('timeout-minutes: ${{ matrix.timeout_minutes }}')
     expect(workflow).toContain('id: desktop_bundle')
     expect(workflow).toContain('continue-on-error: true')
     expect(workflow).toContain("steps.desktop_bundle.outcome == 'failure'")
-    expect(workflow).toContain('Retry desktop bundle upload')
-    expect(workflow).toContain('Verify updater channel')
-    expect(workflow).toContain('releases/latest/download/latest.json')
+    expect(workflow).toContain('Retry desktop bundle build')
+    expect(workflow).toContain('Verify no updater manifest is published')
+    // The Rust lane is gone: no tauri action, signing secrets, or updater
+    // channel may come back without the #370 signing work. The verify step may
+    // name the manifest to reject it, but the lane must not poll it.
+    expect(workflow).not.toContain('tauri')
+    expect(workflow).not.toContain('cargo')
+    expect(workflow).not.toContain('Verify updater channel')
+    expect(workflow).not.toContain('releases/latest/download/latest.json')
     expect(workflow).not.toContain('r2.cloudflarestorage.com')
     expect(workflow).not.toContain('updates.adea.dev')
     expect(workflow).not.toContain('name: desktop-updater-pages')
@@ -94,20 +104,11 @@ describe('test suite boundaries', () => {
     const extraFiles = new Set(
       releaseConfig['extra-files'].map((entry: { path: string }) => entry.path)
     )
-    const cargoLockUpdater = releaseConfig['extra-files'].find(
-      (entry: { path: string }) => entry.path === 'apps/desktop/src-tauri/Cargo.lock'
-    )
-    const tauriConfig = JSON.parse(
-      readFileSync(resolve(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')
-    )
 
-    expect(tauriConfig.version).toBe('../package.json')
-    expect(extraFiles.has('apps/desktop/src-tauri/tauri.conf.json')).toBeFalse()
-    expect(cargoLockUpdater).toEqual({
-      type: 'toml',
-      path: 'apps/desktop/src-tauri/Cargo.lock',
-      jsonpath: "$.package[?(@.name.value=='adea-desktop')].version",
-    })
+    // The previous Rust crate's Cargo manifests are gone; a release-please
+    // updater that still points at them would silently stop versioning a file.
+    expect([...extraFiles].filter((path: string) => path.includes('src-tauri'))).toEqual([])
+    expect([...extraFiles].filter((path: string) => /Cargo\.(toml|lock)$/.test(path))).toEqual([])
 
     for (const workspaceGroup of ['apps', 'packages']) {
       for (const workspace of readdirSync(resolve(root, workspaceGroup))) {

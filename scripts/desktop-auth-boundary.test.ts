@@ -1,72 +1,206 @@
 import { describe, expect, test } from 'bun:test'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { readdir, readFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  createTauriCloudConfig,
-  normalizeDesktopCloudOrigin,
-} from '../apps/desktop/scripts/tauri-cloud-config.mjs'
+import { createCommandSurface } from '../apps/desktop/shell/src/commands'
 
 const root = new URL('..', import.meta.url).pathname
+const authModule = join(root, 'packages/auth/src/desktop.ts')
+const shellCommands = join(root, 'apps/desktop/shell/src/commands.ts')
 
-describe('desktop packaging and privilege boundary', () => {
-  test('packages local frontend assets instead of loading a remote application', async () => {
-    const config = JSON.parse(
-      await readFile(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')
-    )
-    const main = await readFile(join(root, 'apps/desktop/src-tauri/src/main.rs'), 'utf8')
+// The PKCE handoff is implemented once in `packages/auth/src/desktop.ts` and is
+// shared by the browser and the shell; these assertions pin the parts of that
+// contract the shell has to honour, and the shell-side commands that carry it
+// (`desktop_auth_start` opens the system browser, `desktop_auth_take_callback`
+// is a single read-and-clear).
+describe('desktop authorization PKCE and callback invariants', () => {
+  test('binds the callback to the adea scheme with a single-use S256 attempt', async () => {
+    const source = await readFile(authModule, 'utf8')
 
-    expect(config.build.frontendDist).toBe('../dist')
-    expect(config.build.beforeBuildCommand).toBe('bun run shell:client:build')
-    const prepareScript = manifestScript(
-      await readFile(join(root, 'apps/desktop/package.json'), 'utf8')
+    expect(source).toContain("const DESKTOP_CALLBACK_URI = 'adea://auth/callback'")
+    expect(source).toContain("url.searchParams.set('code_challenge_method', 'S256')")
+    expect(source).toContain("url.searchParams.set('response_type', 'code')")
+    expect(source).toContain("url.searchParams.set('redirect_uri', attempt.redirectUri)")
+    // Single use: a consumed attempt cannot be replayed.
+    expect(source).toContain(
+      "if (attempt.used) throw new Error('Desktop authorization was already consumed')"
     )
-    expect(prepareScript).toContain('turbo run build --filter=@adea-ai/desktop^...')
-    expect(prepareScript).not.toContain('scenes/hq build')
-    expect(main).not.toContain('WebviewUrl::External')
-    expect(main).not.toContain('ADEA_WEB_URL')
+    expect(source).toContain('attempt.used = true')
+    expect(source).toContain('await vault.clear()')
   })
 
-  test('enters the bundled spatial workspace after guest bootstrap', async () => {
-    const manifest = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8'))
-    const client = await readFile(join(root, 'apps/desktop/src/main.tsx'), 'utf8')
-    const workspace = await readFile(join(root, 'apps/desktop/src/desktop-workspace.tsx'), 'utf8')
+  test('refuses callbacks that carry credentials, duplicates, or a mismatched state', async () => {
+    const source = await readFile(authModule, 'utf8')
 
-    expect(manifest.dependencies['@adea-ai/hq-scenes']).toBeUndefined()
-    expect(manifest.dependencies['@adea-ai/room-designer-scene']).toBeUndefined()
-    expect(manifest.dependencies['@adea-ai/character-designer-scene']).toBeUndefined()
-    expect(client).toContain('<DesktopWorkspace')
-    expect(client).toContain('if (workspaceState)')
+    for (const parameter of [
+      'access_token',
+      'id_token',
+      'refresh_token',
+      'session',
+      'session_token',
+    ]) {
+      expect(source).toContain(`'${parameter}'`)
+    }
+    expect(source).toContain('FORBIDDEN_CALLBACK_PARAMETERS.some')
+    expect(source).toContain('constantTimeEqual(attempt.state, state)')
+    expect(source).toContain('constantTimeEqual(attempt.nonce, nonce)')
+    expect(source).toContain('new Set(parameterNames).size !== parameterNames.length')
+    expect(source).toContain('Desktop authorization callback is not trusted')
+  })
+
+  test('pins the authorization origin to HTTPS or loopback', async () => {
+    const source = await readFile(authModule, 'utf8')
+
+    expect(source).toContain("url.protocol !== 'https:'")
+    expect(source).toContain("url.protocol === 'http:' && loopback")
+    expect(source).toContain("throw new Error('Desktop auth origin must use HTTPS')")
+    // The shared module never carries an origin literal of its own; the cloud
+    // origin arrives as an argument from the client build.
+    expect(source).not.toMatch(/https:\/\/[a-z0-9.-]+/i)
+  })
+})
+
+describe('desktop shell auth commands', () => {
+  test('implements the auth command family with one read-and-clear callback', async () => {
+    const source = await readFile(shellCommands, 'utf8')
+
+    expect(source).toContain('desktop_auth_start:')
+    expect(source).toContain('desktop_auth_take_callback:')
+    expect(source).toContain('desktop_auth_attempt_load')
+    expect(source).toContain('desktop_auth_attempt_save')
+    expect(source).toContain('desktop_auth_attempt_clear')
+    // A missing authorization URL is refused before the browser is opened.
+    expect(source).toContain("if (!url) throw new Error('missing authorization url')")
+    // The sign-in page opens in the system browser, never in the shell window.
+    expect(source).toContain("Bun.spawn(['open', url])")
+    // The callback is read once and cleared in the same handler.
+    expect(source.match(/clear\('auth-callback\.json'\)/g)).toHaveLength(1)
+  })
+
+  test('consumes the stored callback exactly once', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-auth-'))
+    try {
+      const callback = 'adea://auth/callback?code=code-123&nonce=nonce-123&state=state-123'
+      mkdirSync(join(dataDir, 'desktop-state'), { recursive: true })
+      writeFileSync(join(dataDir, 'desktop-state', 'auth-callback.json'), JSON.stringify(callback))
+      const invoke = createCommandSurface(dataDir)
+
+      expect(invoke('desktop_auth_take_callback')).toEqual({ ok: true, value: callback })
+      expect(existsSync(join(dataDir, 'desktop-state', 'auth-callback.json'))).toBe(false)
+      // The second read has nothing to hand out.
+      expect(invoke('desktop_auth_take_callback')).toEqual({ ok: true, value: null })
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('refuses unknown commands instead of evaluating them', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-auth-'))
+    try {
+      const invoke = createCommandSurface(dataDir)
+
+      expect(invoke('desktop_auth_surprise')).toEqual({
+        error: 'unknown command: desktop_auth_surprise',
+        ok: false,
+      })
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+})
+
+describe('desktop packaging and single-UI client boundary', () => {
+  test('builds the single UI from the web workspace before the shell bundles it', async () => {
+    const manifest = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8'))
+    const clientBuild = await readFile(join(root, 'apps/desktop/scripts/client.mjs'), 'utf8')
+    const shellRunner = await readFile(join(root, 'apps/desktop/scripts/shell.mjs'), 'utf8')
+    const webBuild = await readFile(join(root, 'apps/web/vite.desktop.config.ts'), 'utf8')
+
+    expect(manifest.scripts['shell:client:build']).toBe('bun scripts/client.mjs')
+    expect(manifest.scripts['shell:build']).toBe('bun scripts/shell.mjs build')
+    // The desktop lane no longer owns a client dependency graph.
+    expect(manifest.dependencies).toBeUndefined()
+    expect(manifest.devDependencies).toBeUndefined()
+    // The client build is the web app's own build pipeline, filtered to build
+    // the workspace packages the web app consumes first.
+    expect(clientBuild).toContain("'turbo', 'run', 'build', '--filter=@adea-ai/web^...'")
+    expect(clientBuild).toContain("'desktop:build'")
+    expect(clientBuild).toContain('ADEA_DESKTOP_CLOUD_ORIGIN')
+    // The SPA output is what the shell's static server serves; no second client.
+    expect(webBuild).toContain('spa: { enabled: true')
+    expect(webBuild).toContain("outDir: 'dist-desktop'")
+    expect(webBuild).toContain('forbiddenClientModule')
+    // The client build runs before the shell bundling step.
+    expect(shellRunner).toContain("['run', 'shell:client:build']")
+    expect(shellRunner.indexOf("['run', 'shell:client:build']")).toBeLessThan(
+      shellRunner.indexOf("['--bun', 'electrobun'")
+    )
+    // The client is always served from the bundle; no remote application URL.
+    expect(shellRunner).not.toContain('ADEA_WEB_URL')
+    expect(clientBuild).not.toContain('ADEA_WEB_URL')
+  })
+
+  test('has no desktop-only component or stylesheet fork', async () => {
+    expect(existsSync(join(root, 'apps/desktop/src'))).toBe(false)
+    expect(existsSync(join(root, 'apps/desktop/vite.config.ts'))).toBe(false)
+    expect(existsSync(join(root, 'apps/desktop/index.html'))).toBe(false)
+
+    // The scene shell rules the deleted desktop stylesheet duplicated live in
+    // the one shared stylesheet the web app loads.
+    const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
+    expect(webStyles).toContain('.workspace-scene-viewport [data-agent-hq-on-screen-controls]')
+    expect(webStyles).toContain('- 0.45rem')
+    expect(webStyles).toContain('env(safe-area-inset-top)')
+    expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
+    expect(webStyles).not.toContain('width: 100vw')
+
+    // The desktop runtime renders the shared navigation; only the start
+    // surface is flag-guarded, and it uses shared auth-shell classes.
+    const desktopEntry = await readFile(
+      join(root, 'apps/web/src/components/desktop-workspace-entry.tsx'),
+      'utf8'
+    )
+    expect(desktopEntry).toContain('<WorkspaceNavigation')
+    expect(desktopEntry).toContain('className="auth-shell"')
+    expect(desktopEntry).not.toContain('<style')
+    expect(desktopEntry).not.toContain('.css')
+  })
+
+  test('enters the single-UI workspace after guest bootstrap', async () => {
+    const client = await readFile(
+      join(root, 'apps/web/src/components/desktop-workspace-entry.tsx'),
+      'utf8'
+    )
+    const navigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation.tsx'),
+      'utf8'
+    )
+    const workspace = await readFile(
+      join(root, 'apps/web/src/components/workspace-shell.tsx'),
+      'utf8'
+    )
+
+    expect(client).toContain('bootstrapDesktopWorkspace')
+    expect(client).toContain('if (!workspaceState || !activeWorkspace)')
     expect(client).toContain('setSession(activeSession)')
-    expect(client).toContain('<GlobalWorkspaceRail')
+    expect(client).toContain('Try again')
+    expect(navigation).toContain('<GlobalWorkspaceRail')
+    expect(navigation).toContain('<SpatialWorkspace')
     expect(workspace).toContain('<VirtualUnavailable')
     expect(workspace).toContain('aria-label="Adea workspace controls"')
-    expect(client).toContain('Try again')
-  })
-
-  test('keeps desktop scene controls inside the canvas group without a status bar', async () => {
-    const workspace = await readFile(join(root, 'apps/desktop/src/desktop-workspace.tsx'), 'utf8')
-    const styles = await readFile(join(root, 'apps/desktop/src/styles.css'), 'utf8')
-
-    expect(workspace).toContain('<VirtualUnavailable')
-    expect(workspace).not.toContain('workspace-camera-slot')
-    expect(workspace).not.toContain('workspace-scene-tools-slot')
-    expect(workspace).not.toContain('HqRoomScene')
-    expect(workspace).not.toContain('workspace-statusbar')
-    expect(workspace).not.toContain('<VersionDialog')
-    expect(styles).toContain('.workspace-scene-viewport [data-agent-hq-on-screen-controls]')
-    expect(styles).toContain('left: 50%')
-    expect(styles).toContain('transform: translateX(-50%)')
-    expect(styles).not.toContain('--workspace-statusbar-height')
-    expect(styles).toContain('.workspace-scene-tools button')
-    expect(styles).toContain('width: 100%')
-    expect(styles).toContain('max-width: calc(100% - 2.5rem)')
-    expect(styles).not.toContain('width: 100vw')
-    expect(styles).not.toContain('.workspace-status__dot')
   })
 
   test('puts optional authentication and identity settings behind the global rail', async () => {
-    const desktop = await readFile(join(root, 'apps/desktop/src/main.tsx'), 'utf8')
+    const desktop = await readFile(
+      join(root, 'apps/web/src/components/desktop-workspace-entry.tsx'),
+      'utf8'
+    )
+    const navigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation.tsx'),
+      'utf8'
+    )
     const rail = await readFile(
       join(root, 'packages/workspace-ui/src/global-workspace-rail.tsx'),
       'utf8'
@@ -79,14 +213,17 @@ describe('desktop packaging and privilege boundary', () => {
     expect(desktop).toContain('account: {')
     expect(desktop).toContain('onSignIn:')
     expect(desktop).toContain('onSignOut:')
-    expect(desktop).toContain("openSettings('account')")
+    expect(navigation).toContain("openSettings('account')")
     expect(rail).toContain('<AccountMenu')
     expect(rail).toContain('label="Notifications (coming soon)"')
     expect(bootstrapRoute).toContain('getUserDisplayName')
   })
 
   test('shares the complete version and changelog dialog across web and desktop', async () => {
-    const desktopVersion = await readFile(join(root, 'apps/desktop/src/version-dialog.tsx'), 'utf8')
+    const navigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation.tsx'),
+      'utf8'
+    )
     const webVersion = await readFile(
       join(root, 'apps/web/src/components/version-dialog.tsx'),
       'utf8'
@@ -96,25 +233,30 @@ describe('desktop packaging and privilege boundary', () => {
       'utf8'
     )
 
-    expect(desktopVersion).toContain('@adea-ai/ui/components/version-dialog')
+    // One dialog: the desktop update surface is the flag-guarded adapter on the
+    // same component the web app renders.
     expect(webVersion).toContain('@adea-ai/ui/components/version-dialog')
+    expect(webVersion).toContain('isDesktopRuntime')
+    expect(navigation).toContain('<VersionDialog')
     expect(sharedVersion).toContain('What changed in this release')
     expect(sharedVersion).toContain('Installed changelog')
     expect(sharedVersion).toContain('View releases')
+    expect(existsSync(join(root, 'apps/desktop/src/version-dialog.tsx'))).toBe(false)
   })
 
   test('shares the global workspace rail and keeps account controls in settings', async () => {
-    const desktopMain = await readFile(join(root, 'apps/desktop/src/main.tsx'), 'utf8')
-    const desktopStyles = await readFile(join(root, 'apps/desktop/src/styles.css'), 'utf8')
-    const webWorkspace = await readFile(
-      join(root, 'apps/web/src/components/workspace-shell.tsx'),
+    const navigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation.tsx'),
       'utf8'
     )
-    const webNavigation = await readFile(
-      join(root, 'apps/web/src/components/workspace-navigation-entry.tsx'),
+    const desktopEntry = await readFile(
+      join(root, 'apps/web/src/components/desktop-workspace-entry.tsx'),
       'utf8'
     )
-    const webLayout = await readFile(join(root, 'apps/web/src/start/routes/__root.tsx'), 'utf8')
+    const workspaceMount = await readFile(
+      join(root, 'apps/web/src/start/workspace-mount.tsx'),
+      'utf8'
+    )
     const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
     const globalRail = await readFile(
       join(root, 'packages/workspace-ui/src/global-workspace-rail.tsx'),
@@ -125,115 +267,57 @@ describe('desktop packaging and privilege boundary', () => {
       'utf8'
     )
 
-    expect(desktopMain).toContain('<SoundProvider>')
-    expect(desktopMain).toContain('<ThemeProvider>')
-    expect(webNavigation).toContain('accountLabel=')
+    expect(workspaceMount).toContain('<SoundProvider>')
+    expect(workspaceMount).toContain('<ThemeProvider>')
+    expect(navigation).toContain('WorkspaceSettingsOverlay')
     expect(globalRail).toContain('aria-label="Global navigation"')
     expect(globalRail).toContain('label="Virtual view"')
     expect(globalRail).toContain('label="Chat view"')
     expect(globalRail).toContain('label="Plugins"')
     expect(accountMenu).toContain('aria-label="User settings"')
     expect(accountMenu).toContain('Updates')
-    expect(desktopMain).toContain('onOpenUpdates: () => setUpdatesOpen(true)')
-    expect(webWorkspace).not.toContain('workspace-statusbar')
-    expect(desktopStyles).toContain('- 0.45rem')
-    expect(desktopStyles).toContain('env(safe-area-inset-top)')
+    expect(desktopEntry).toContain('onOpenUpdates: () => setUpdatesOpen(true)')
     expect(webStyles).toContain('env(safe-area-inset-top)')
     expect(webStyles).toContain('max-width: calc(100% - 2.5rem)')
     expect(webStyles).not.toContain('max-width: calc(100vw - 2.5rem)')
-    expect(webLayout).toContain("name: 'theme-color'")
-    expect(webWorkspace).toContain('<VirtualUnavailable')
-  })
-
-  test('grants privileged commands only to bundled application code', async () => {
-    const capability = JSON.parse(
-      await readFile(join(root, 'apps/desktop/src-tauri/capabilities/default.json'), 'utf8')
-    )
-
-    expect(capability.remote).toBeUndefined()
-    expect(capability.local).not.toBe(false)
-  })
-
-  test('pins packaged network access to the configured cloud origin', () => {
-    const configured = 'https://staging.agent-hq.example'
-    const csp = createTauriCloudConfig(configured).app.security.csp
-
-    expect(csp).toContain(`connect-src 'self' blob: ipc: http://ipc.localhost ${configured} `)
-    expect(csp).not.toContain("connect-src 'self' https:")
-    expect(csp).not.toContain('https://agent-hq-site.vercel.app')
-    expect(normalizeDesktopCloudOrigin()).toBe('https://adea.dev')
-    expect(normalizeDesktopCloudOrigin('http://127.0.0.1:4305')).toBe('http://127.0.0.1:4305')
-    expect(() => normalizeDesktopCloudOrigin('https://evil.example/path')).toThrow(
-      'Desktop cloud origin'
-    )
-  })
-
-  test('permits the bundled 3D runtime to compile trusted WebAssembly', async () => {
-    const config = JSON.parse(
-      await readFile(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')
-    )
-    const csp = config.app.security.csp as string
-
-    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval'")
-    expect(csp).not.toContain("script-src 'self' 'unsafe-eval'")
-    expect(csp).toContain("connect-src 'self' blob:")
-    expect(csp).toContain("img-src 'self' asset: data: blob:")
-    expect(csp).toContain('https://raw.githubusercontent.com')
-    expect(csp).not.toContain("img-src 'self' https:")
   })
 
   test('deduplicates React across the packaged spatial runtime', async () => {
-    const viteConfig = await readFile(join(root, 'apps/desktop/vite.config.ts'), 'utf8')
+    const viteConfig = await readFile(join(root, 'apps/web/vite.desktop.config.ts'), 'utf8')
 
     expect(viteConfig).toContain("dedupe: ['react', 'react-dom']")
   })
 
-  test('registers the exact desktop callback scheme and keeps server modules out of the client', async () => {
-    const config = JSON.parse(
-      await readFile(join(root, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8')
-    )
-    const manifest = JSON.parse(await readFile(join(root, 'apps/desktop/package.json'), 'utf8'))
-    const client = await readFile(join(root, 'apps/desktop/src/main.tsx'), 'utf8')
+  test('registers the client half of the desktop callback handoff', async () => {
+    const manifest = JSON.parse(await readFile(join(root, 'apps/web/package.json'), 'utf8'))
+    const runtime = await readFile(join(root, 'apps/web/src/lib/desktop-runtime.ts'), 'utf8')
 
-    expect(config.plugins['deep-link'].desktop.schemes).toEqual(['agent-hq'])
+    // URL-scheme registration is a release-pipeline concern (documented in
+    // docs/specs/desktop-auth.md); the client half stands on its own here.
     expect(manifest.dependencies['@adea-ai/auth']).toBe('workspace:*')
-    expect(client).not.toContain('@adea-ai/auth/server')
-    expect(client).not.toContain('server-only')
-    expect(client).toContain('createDesktopHttpSessionBroker')
-    expect(client).toContain('desktop_user_session_save')
-  })
-
-  test('reveals and focuses the desktop window whenever a callback reaches a running app', async () => {
-    // The callback channel lives with the rest of the auth boundary; the entry
-    // point only hands single-instance arguments to it.
-    const main = await readFile(join(root, 'apps/desktop/src-tauri/src/main.rs'), 'utf8')
-    const auth = await readFile(join(root, 'apps/desktop/src-tauri/src/auth.rs'), 'utf8')
-
-    expect(auth).toContain('fn reveal_main_window')
-    expect(auth).toContain('window.show()')
-    expect(auth).toContain('window.unminimize()')
-    expect(auth).toContain('window.set_focus()')
-    expect(main).toContain('auth::receive_auth_callback(app, &argument)')
-    expect(`${main}${auth}`.match(/receive_auth_callback/g)).toHaveLength(3)
+    expect(runtime).not.toContain('@adea-ai/auth/server')
+    expect(runtime).not.toContain('server-only')
+    expect(runtime).toContain('createDesktopHttpSessionBroker')
+    expect(runtime).toContain('desktop_user_session_save')
   })
 
   test('uses one shared visual shell for browser and desktop authentication', async () => {
-    const desktop = await readFile(join(root, 'apps/desktop/src/main.tsx'), 'utf8')
-    const desktopStyles = await readFile(join(root, 'apps/desktop/src/styles.css'), 'utf8')
+    const desktop = await readFile(
+      join(root, 'apps/web/src/components/desktop-workspace-entry.tsx'),
+      'utf8'
+    )
     const web = await readFile(join(root, 'apps/web/src/start/routes/auth/sign-in.tsx'), 'utf8')
     const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
     const sharedStyles = await readFile(join(root, 'packages/ui/src/styles/auth-shell.css'), 'utf8')
 
-    expect(desktopStyles).toContain("@import '@adea-ai/ui/auth-shell.css'")
     expect(webStyles).toContain("@import '@adea-ai/ui/auth-shell.css'")
     expect(desktop).toContain('className="auth-shell"')
     expect(web).toContain('className="auth-shell"')
     expect(sharedStyles).toContain('.auth-panel')
     expect(sharedStyles).toContain('.auth-title')
+    expect(sharedStyles).toContain('.auth-status')
     expect(sharedStyles).toContain('--auth-accent: var(--hq-shell-accent)')
     expect(sharedStyles).toContain('--auth-background: var(--hq-shell-background)')
-    expect(desktopStyles).toContain('color: var(--hq-shell-foreground)')
-    expect(desktopStyles).toContain('background: var(--hq-shell-background)')
   })
 
   test('provides cloud authorization, exchange, refresh, logout, and revocation handlers', async () => {
@@ -286,21 +370,32 @@ describe('desktop packaging and privilege boundary', () => {
     expect(completionClient).toContain('window.history.replaceState')
   })
 
-  test('keeps provider and server-only modules out of the packaged JavaScript', async () => {
-    const assets = join(root, 'apps/desktop/dist/assets')
-    const scripts = (await readdir(assets)).filter((file) => file.endsWith('.js'))
-    expect(scripts.length).toBeGreaterThan(0)
-    const bundle = (
-      await Promise.all(scripts.map((file) => readFile(join(assets, file), 'utf8')))
-    ).join('\n')
-    expect(bundle).not.toContain('@neondatabase/auth')
-    expect(bundle).not.toContain('node:crypto')
-    expect(bundle).not.toContain('server-only')
-    expect(bundle).not.toContain('@adea-ai/db')
+  test('keeps provider and server-only modules out of the desktop client graph', async () => {
+    const sources = [
+      'apps/web/src/lib/desktop-bridge.ts',
+      'apps/web/src/lib/desktop-local-content.ts',
+      'apps/web/src/lib/desktop-platform-services.ts',
+      'apps/web/src/lib/desktop-private-content.ts',
+      'apps/web/src/lib/desktop-runtime.ts',
+      'apps/web/src/lib/desktop-update.ts',
+      'apps/web/src/lib/desktop-workspace-session.ts',
+      'apps/web/src/components/desktop-workspace-entry.tsx',
+      'apps/web/src/components/workspace-navigation.tsx',
+      'apps/web/src/components/workspace-navigation-entry.tsx',
+    ]
+    const violations: string[] = []
+    for (const file of sources) {
+      const source = await readFile(join(root, file), 'utf8')
+      for (const token of ['@neondatabase/auth', 'node:crypto', 'server-only', '@adea-ai/db']) {
+        if (source.includes(token)) violations.push(`${file}: ${token}`)
+      }
+    }
+    expect(violations).toEqual([])
+
+    // The desktop build enforces the same boundary mechanically; this test
+    // pins the plugin wiring in the build that produces the shell's client.
+    const webBuild = await readFile(join(root, 'apps/web/vite.desktop.config.ts'), 'utf8')
+    expect(webBuild).toContain('protectClientGraph')
+    expect(webBuild).toContain('Server-only or framework-server module in client')
   })
 })
-
-function manifestScript(rawManifest: string) {
-  const manifest = JSON.parse(rawManifest)
-  return manifest.scripts['client:prepare'] as string
-}

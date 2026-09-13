@@ -142,9 +142,3 @@ engine in Agent Sim.
 Native compiler checks skip platforms whose toolchains are unavailable on the
 current host; set `NATIVE_SMOKE_STRICT=1` in a platform-specific CI job to make
 an unavailable or missing platform fail the gate.
-
-The desktop shell currently reports the upstream GTK3/glib advisory from
-`cargo audit` because Tauri's Linux webview stack still depends on the
-unmaintained GTK3 bindings. The current Tauri release has no compatible GTK4
-replacement, so this remains an explicit dependency follow-up rather than a
-silenced audit exception.

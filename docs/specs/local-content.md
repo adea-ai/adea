@@ -5,6 +5,14 @@ contract to read before touching
 `apps/desktop/src-tauri/src/local_content.rs`; the decision behind it is
 [ADR 0003](../decisions/0003-local-private-content-authority.md).
 
+> **Implementation note (2026-09-12):** the desktop shell is now Electrobun
+> (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
+> Rust module paths below refer to the previous shell. The shell implements the
+> `local_content_*` commands in `apps/desktop/shell/src/commands.ts` over a
+> file-backed AES-GCM store; the client reaches them through
+> `apps/web/src/lib/desktop-bridge.ts` (module
+> `apps/web/src/lib/desktop-local-content.ts`).
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 

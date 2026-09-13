@@ -13,7 +13,6 @@
     "dist/**",
     "out/**",
     "build/**",
-    "coverage/**",
-    "apps/desktop/src-tauri/gen/**"
+    "coverage/**"
   ]
 }

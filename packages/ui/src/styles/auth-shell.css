@@ -56,6 +56,104 @@
   line-height: 1.6;
 }
 
+/* Auth-surface status and actions. Shared by the desktop start surface and
+   available to any auth document; the marks carry the theme's state colors. */
+.auth-status {
+  --auth-status-warning: #e7c77d;
+  --auth-status-error: #f1aaa2;
+
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  min-height: 4.5rem;
+  margin: 0 0 1.25rem;
+  padding: 1rem;
+  border-left: 2px solid var(--auth-border-subtle);
+  background: var(--auth-surface-strong);
+}
+
+.auth-status p {
+  margin: 0;
+  color: var(--auth-foreground);
+  line-height: 1.5;
+}
+
+.auth-status__mark {
+  flex: 0 0 auto;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-top: 0.4rem;
+  border: 2px solid var(--auth-muted-strong);
+  border-radius: 50%;
+}
+
+.auth-status__mark--active {
+  border-color: var(--auth-accent);
+  background: var(--auth-accent);
+}
+
+.auth-status__mark--ready {
+  border-color: var(--hq-shell-active);
+  background: var(--hq-shell-active);
+}
+
+.auth-status__mark--warning {
+  border-color: var(--auth-status-warning);
+  background: var(--auth-status-warning);
+}
+
+.auth-status__mark--error {
+  border-color: var(--auth-status-error);
+  background: var(--auth-status-error);
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.auth-action {
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 0.45rem;
+  color: var(--auth-accent-foreground);
+  background: var(--auth-accent);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.auth-action:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.auth-action:focus-visible {
+  outline: 3px solid var(--auth-foreground);
+  outline-offset: 2px;
+}
+
+.auth-action-secondary {
+  border: 1px solid var(--auth-border-subtle);
+  color: var(--auth-foreground);
+  background: transparent;
+}
+
+.auth-action-secondary:hover:not(:disabled) {
+  border-color: var(--auth-muted-strong);
+  background: var(--auth-surface-strong);
+}
+
+.auth-note {
+  max-width: 56ch;
+  margin: 1.25rem 0 0;
+  color: var(--auth-muted-strong);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
 @media (max-width: 30rem) {
   .auth-shell {
     padding: 0;

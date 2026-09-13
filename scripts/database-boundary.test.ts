@@ -4,13 +4,26 @@ import { join } from 'node:path'
 
 const root = new URL('..', import.meta.url).pathname
 
+/** Build output and dependency trees are not source. */
+const SKIP_DIRECTORIES = new Set([
+  'node_modules',
+  'dist',
+  'dist-desktop',
+  '.hutch',
+  'build',
+  'artifacts',
+  '.turbo',
+])
+
 async function sourceFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true })
   return (
     await Promise.all(
       entries.map(async (entry) => {
         const path = join(directory, entry.name)
-        if (entry.isDirectory()) return sourceFiles(path)
+        if (entry.isDirectory()) {
+          return SKIP_DIRECTORIES.has(entry.name) ? [] : sourceFiles(path)
+        }
         return /\.[cm]?[jt]sx?$/.test(entry.name) ? [path] : []
       })
     )
