@@ -25,16 +25,25 @@ Releases run entirely on GitHub-hosted runners; no self-hosted runner or local
 orchestration is involved. When a Release Please version pull request is
 merged, the tagged GitHub Release triggers
 `.github/workflows/release-assets.yml`, which builds the bundled desktop client
-and attempts the Electrobun (Bun + CEF) shell bundle for macOS ARM64, Linux x64,
-and Windows x64 on hosted `macos-14`, `ubuntu-24.04`, and `windows-latest`
-runners, uploads whatever artifacts the shell build produced, and verifies the
-release assets.
+and the Electrobun (Bun + CEF) shell in stable mode
+(`electrobun build --env=stable`) on a hosted `macos-14` runner. A stable build
+stages the distributables under `apps/desktop/shell/artifacts/`: a macOS disk
+image (`*-Adea.dmg`) and the self-contained app archive
+(`*-Adea.app.tar.zst`) whose payload carries the full bundle — the shell
+binaries, the bundled CEF framework, and the packaged single-UI client. The
+lane uploads both to the release, then verifies their structure. The lane can
+also run without a tag via `workflow_dispatch`: pass an existing release tag to
+package it, or leave the tag empty and set a ref to attach the artifacts to the
+workflow run instead.
 
-The Electrobun shell is unsigned: signing, notarization, and the auto-update
-lane are not wired yet (tracked in #370). The verify-assets gate therefore
-rejects a release with no Adea desktop artifacts, and rejects any release that
-publishes an updater manifest before that work lands. macOS and Windows
-code-signing remain follow-ups in the same issue.
+Only macOS ARM64 ships today; Windows and Linux desktop packaging has no
+CI-verified installer story yet and stays out of the lane until it does. The
+Electrobun shell is unsigned: signing, notarization, and the auto-update lane
+are not wired yet (tracked in #370). The verify-assets gate therefore rejects a
+release without a complete macOS bundle, and rejects any release that publishes
+an updater manifest — the stable build's own unsigned `*-update.json` included
+— before that work lands. macOS and Windows code-signing remain follow-ups in
+the same issue.
 
 The mobile shells remain covered by the repository build gate. Android and iOS
 store distribution should be added as a separate release lane once signing,
