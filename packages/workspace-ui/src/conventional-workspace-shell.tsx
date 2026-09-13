@@ -2,6 +2,7 @@
 
 import { AlertTriangle, X } from 'lucide-solid'
 import { createEffect, createSignal, lazy, Show, Suspense } from 'solid-js'
+import { settledData } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { AgentRoster } from './agent-roster'
@@ -65,9 +66,9 @@ export function ConventionalWorkspaceShell(props: {
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
   const selectedTaskId = useWorkspaceState((state) => state.selectedTaskId)
   const threadRootMessageId = useWorkspaceState((state) => state.threadRootMessageId)
-  const sessionRotated = () => controller.bootstrap.data?.sessionRotated ?? false
-  const sessionIdentity = () => controller.bootstrap.data?.principal.userId
-  const principal = () => controller.bootstrap.data?.principal
+  const sessionRotated = () => settledData(controller.bootstrap)?.sessionRotated ?? false
+  const sessionIdentity = () => settledData(controller.bootstrap)?.principal.userId
+  const principal = () => settledData(controller.bootstrap)?.principal
   const accountAuthenticated = () =>
     services()?.account?.authenticated ?? Boolean(principal() && !principal()?.temporary)
   const accountLabel = () =>

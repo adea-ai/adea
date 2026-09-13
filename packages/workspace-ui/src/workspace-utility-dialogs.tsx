@@ -1,5 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { useWorkspaceSearchQuery } from '@adea-ai/data'
+import { settledData, useWorkspaceSearchQuery } from '@adea-ai/data'
 import type {
   AgentSummary,
   ArtifactSummary,
@@ -205,7 +205,7 @@ export function WorkspaceSearchDialog(props: {
         fuzzySearchMatch(`${result.label} ${result.secondary}`, debounced)
     )
     if (debounced.length >= 2)
-      return [...paletteMatches, ...localResults(), ...(remote.data?.results ?? [])]
+      return [...paletteMatches, ...localResults(), ...(settledData(remote)?.results ?? [])]
     if (props.scopeChannelId) return []
     if (debounced)
       return quickResults().filter((result) =>
@@ -314,7 +314,7 @@ export function WorkspaceSearchDialog(props: {
           Searching…
         </p>
       </Show>
-      <Show when={remote.data?.privateResultsUnavailable}>
+      <Show when={settledData(remote)?.privateResultsUnavailable}>
         <p class="conventional-dialog-empty" role="status">
           {props.privateContent?.search
             ? 'Cloud results exclude private bodies; this authorized device was searched separately.'

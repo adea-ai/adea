@@ -1,6 +1,6 @@
 import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from '@adea-ai/types'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
+import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
 import { MailOpen, X } from 'lucide-solid'
 import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 
@@ -42,7 +42,7 @@ export function ThreadPanel(props: {
   })
 
   createEffect(() => {
-    const messages = replies.data?.messages ?? []
+    const messages = settledData(replies)?.messages ?? []
     if (!messages.length) return
     const lastReadSequence = Math.max(...messages.map(({ sequence }) => sequence))
     const markVisible = () => {
@@ -69,7 +69,7 @@ export function ThreadPanel(props: {
   createEffect(() => {
     const target = props.searchTargetMessageId
     if (!target) return
-    void replies.data?.messages
+    void settledData(replies)?.messages
     requestAnimationFrame(() =>
       panel()
         ?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(target)}"]`)
@@ -124,7 +124,7 @@ export function ThreadPanel(props: {
           task={props.root.taskId ? taskById().get(props.root.taskId) : undefined}
         />
         <div class="conventional-thread__divider" role="separator">
-          {replies.data?.messages.length ?? 0} replies
+          {settledData(replies)?.messages.length ?? 0} replies
         </div>
         <Show when={replies.isPending}>
           <WorkspaceSkeleton label="Loading thread replies" />
@@ -132,7 +132,7 @@ export function ThreadPanel(props: {
         <Show when={replies.isError}>
           <WorkspaceError error={replies.error} retry={() => void replies.refetch()} />
         </Show>
-        <For each={replies.data?.messages ?? []}>
+        <For each={settledData(replies)?.messages ?? []}>
           {(message) => (
             <MessageRow
               agents={props.agents}

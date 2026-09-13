@@ -10,6 +10,24 @@ function resolveAccessor<T>(value: MaybeAccessor<T>): T {
   return typeof value === 'function' ? (value as () => T)() : value
 }
 
+/**
+ * Reads settled query data.
+ *
+ * Solid Query backs every result's `data` with a resource. A read while the
+ * query has not settled registers the nearest `Suspense` boundary, which
+ * replaces that boundary's content with its fallback (the Start route has none,
+ * so the workspace disappears), and a read of a query that failed throws its
+ * error at the reader. Going through this guard makes a pending or failed query
+ * render as "no data" — the behavior the workspace was built against — instead
+ * of tearing the workspace down.
+ */
+export function settledData<TData>(result: {
+  readonly isSuccess: boolean
+  readonly data: TData | undefined
+}): TData | undefined {
+  return result.isSuccess ? result.data : undefined
+}
+
 export const workspaceQueryKeys = {
   all: ['workspaces'] as const,
   bootstrap: ['workspaces', 'bootstrap'] as const,

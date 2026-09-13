@@ -2,7 +2,12 @@
 
 import { createEffect, createMemo, createSignal } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
-import { useChannelListQuery, useRoomListQuery, useWorkspaceBootstrapQuery } from '@adea-ai/data'
+import {
+  settledData,
+  useChannelListQuery,
+  useRoomListQuery,
+  useWorkspaceBootstrapQuery,
+} from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { useWorkspacePersistence } from './use-workspace-persistence'
@@ -17,27 +22,25 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const selectedRoomId = useWorkspaceState((state) => state.selectedRoomId)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
-  // Solid Query backs `data` with a resource: a read while the resource is
-  // unresolved suspends the consumer, and query option accessors run during
-  // render. Read `data` only once the query reports success.
-  const bootstrapData = () => (bootstrap.isSuccess ? bootstrap.data : undefined)
+  const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.activeWorkspace
   const rooms = useRoomListQuery(client(), () => activeWorkspace()?.id)
   const channels = useChannelListQuery(client(), () => activeWorkspace()?.id)
   const navigation = createMemo(() =>
-    projectWorkspaceNavigation(rooms.data ?? [], channels.data ?? [])
+    projectWorkspaceNavigation(settledData(rooms) ?? [], settledData(channels) ?? [])
   )
 
   createEffect(() => {
-    if (!persistenceReady() || !bootstrap.data || selectedWorkspaceId()) return
-    workspaceStore.getState().setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
+    const data = bootstrapData()
+    if (!persistenceReady() || !data || selectedWorkspaceId()) return
+    workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace.id)
   })
 
   createEffect(() => {
     if (!navigation().rooms.length) return
-    const selectedChannel = channels.data?.find(({ id }) => id === selectedChannelId())
+    const selectedChannel = settledData(channels)?.find(({ id }) => id === selectedChannelId())
     const selectedRoom = navigation().rooms.find(({ room }) => room.id === selectedRoomId())
     if (selectedRoom && selectedChannel?.roomId === selectedRoom.room.id) return
     const firstRoom = selectedRoom ?? navigation().rooms[0]!

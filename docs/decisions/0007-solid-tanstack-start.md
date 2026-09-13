@@ -105,7 +105,7 @@ module-scope template calls fail on the server.
 
 ## Solid runtime notes
 
-Four integration details are load-bearing and easy to regress:
+These integration details are load-bearing and easy to regress:
 
 - **Hydration needs both halves.** `src/start/client.tsx` calls
   `hydrateStart()` (router state) and then `hydrate(() => <StartClient
@@ -114,13 +114,19 @@ router={router} />, document)`; the root document renders
   app never mounts, without the second Solid cannot hydrate.
 - **Queries suspend on pending `data` reads.** `@tanstack/solid-query` backs
   `data` with a resource, and Solid's router wraps the app in a Suspense
-  boundary, so any render-path read of an unresolved `data` blanks the app
-  instead of showing the loading surface. Reads are gated on the query's
-  settled state (`isSuccess`) in the workspace entry, the workspace controller,
-  and the virtual room controls. The same query behaviour means a page fetched
-  for the previous query key must not be rendered as the current
-  conversation's history: `ConversationSurface` tracks whether the loaded page
-  belongs to the open channel and shows the loading surface until it does.
+  boundary: a render-path read of a query without data _registers that
+  boundary_, which then replaces its content with a fallback the router does not
+  define — the whole workspace disappears while the query is pending and stays
+  gone when it fails, because a read of a failed query throws its error at the
+  reader. The workspace therefore reads query data only through `settledData()`
+  (`@adea-ai/data`), which returns `undefined` until a query reports success;
+  that keeps the React-era "loading renders as no data" behaviour. Ungated reads
+  are what turned a locally failing API call (`/api/v1/...` 401 in the isolated
+  lane) into a blank page instead of an empty workspace.
+  The same query behaviour means a page fetched for the previous query key must
+  not be rendered as the current conversation's history: `ConversationSurface`
+  tracks whether the loaded page belongs to the open channel and shows the
+  loading surface until it does.
 - **Dialog modality is owned by `ModalDialog`** (`packages/workspace-ui`), which
   marks the rest of the document `inert` while a dialog is open and restores
   exactly the nodes that were not already inert. Kobalte's own modal layer hides

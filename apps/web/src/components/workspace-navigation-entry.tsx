@@ -6,7 +6,7 @@
 // docs/decisions/0006-browser-lanes-and-desktop-shell.md.
 import { createEffect, createSignal } from 'solid-js'
 import { createApiClient } from '@adea-ai/api-client'
-import { useWorkspaceBootstrapQuery } from '@adea-ai/data'
+import { settledData, useWorkspaceBootstrapQuery } from '@adea-ai/data'
 import { useWorkspaceState } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import { createBrowserSettingsProvider } from '@adea-ai/workspace-ui/preferences'
@@ -73,10 +73,7 @@ function WebNavigationEntry(props: {
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
       ? new URLSearchParams(window.location.search).get('scene')
       : undefined
-  // Solid Query backs `data` with a resource: a read while the resource is
-  // unresolved suspends the consumer, and query option accessors run during
-  // render. Read `data` only once the query reports success.
-  const bootstrapData = () => (bootstrap.isSuccess ? bootstrap.data : undefined)
+  const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??

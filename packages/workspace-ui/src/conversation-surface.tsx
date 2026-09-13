@@ -6,7 +6,7 @@ import type {
   TaskSummary,
 } from '@adea-ai/types'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
+import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
 import { Info, MailOpen, MessagesSquare, Search } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
@@ -132,8 +132,9 @@ export function ConversationSurface(props: {
 
   createEffect(() => {
     const channel = props.channel
-    if (!channel || !messageQuery.data) return
-    const all = messageQuery.data.messages
+    const data = settledData(messageQuery)
+    if (!channel || !data) return
+    const all = data.messages
     const page = all.filter((message) => message.channelId === channel.id)
     const belongs = page.length > 0 || all.length === 0
     setPageBelongsToChannel(belongs)
@@ -386,7 +387,7 @@ export function ConversationSurface(props: {
                 />
               )}
             </Show>
-            <Show when={messageQuery.data?.nextAfterSequence}>
+            <Show when={settledData(messageQuery)?.nextAfterSequence}>
               {(nextSequence) => (
                 <button
                   type="button"

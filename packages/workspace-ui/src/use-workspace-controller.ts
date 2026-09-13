@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { ChannelSummary, TaskSummary } from '@adea-ai/types'
 import {
+  settledData,
   useAgentListQuery,
   useArchiveAgentMutation,
   useArchiveChannelMutation,
@@ -60,10 +61,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
-  // Solid Query backs `data` with a resource: a read while the resource is
-  // unresolved suspends the consumer, and query option accessors run during
-  // render. Read `data` only once the query reports success.
-  const bootstrapData = () => (bootstrap.isSuccess ? bootstrap.data : undefined)
+  const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.activeWorkspace
@@ -83,7 +81,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const artifacts = useArtifactListQuery(client(), workspaceId)
   const readState = useReadStateQuery(client(), workspaceId)
   const navigation = createMemo(() =>
-    projectWorkspaceNavigation(rooms.data ?? [], channels.data ?? [])
+    projectWorkspaceNavigation(settledData(rooms) ?? [], settledData(channels) ?? [])
   )
   const createRoom = useCreateRoomMutation(client(), () => workspaceId() ?? '')
   const createGroup = useCreateGroupChannelMutation(client(), () => workspaceId() ?? '')
@@ -116,13 +114,14 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   const archiveChannel = useArchiveChannelMutation(client(), () => workspaceId() ?? '')
 
   createEffect(() => {
-    if (!persistenceReady() || !bootstrap.data || activeWorkspace()) return
-    workspaceStore.getState().setSelectedWorkspaceId(bootstrap.data.activeWorkspace.id)
+    const data = bootstrapData()
+    if (!persistenceReady() || !data || activeWorkspace()) return
+    workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace.id)
   })
 
   let explicitSelection: string | null = null
   createEffect(() => {
-    const channelList = channels.data
+    const channelList = settledData(channels)
     if (!channelList?.length || channelList.some(({ id }) => id === selectedChannelId())) {
       if (explicitSelection && channelList?.some(({ id }) => id === selectedChannelId()))
         explicitSelection = null
@@ -144,7 +143,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
   })
 
   const selectWorkspace = (nextWorkspaceId: string) => {
-    const nextWorkspace = bootstrap.data?.workspaces.find(({ id }) => id === nextWorkspaceId)
+    const nextWorkspace = bootstrapData()?.workspaces.find(({ id }) => id === nextWorkspaceId)
     if (!nextWorkspace || nextWorkspace.id === activeWorkspace()?.id) return
     workspaceStore.getState().switchWorkspace(nextWorkspace.id, nextWorkspace.scene)
   }
@@ -162,10 +161,10 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       return activeWorkspace()
     },
     get agents() {
-      return agents.data ?? []
+      return settledData(agents) ?? []
     },
     get artifacts() {
-      return artifacts.data ?? []
+      return settledData(artifacts) ?? []
     },
     agentActions: {
       archive: (agentId: string) => archiveAgent.mutateAsync(agentId).then(() => undefined),
@@ -187,7 +186,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     bootstrap,
     get channels() {
-      return channels.data ?? []
+      return settledData(channels) ?? []
     },
     client: client(),
     createAgent: (input: Parameters<typeof createAgent.mutateAsync>[0]) =>
@@ -208,7 +207,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     createRoom: async (input: Readonly<{ functionKey: string; name: string }>) => {
       const result = await createRoom.mutateAsync(input)
       const refreshedChannels = await channels.refetch()
-      const primaryChannel = refreshedChannels.data?.find(
+      const primaryChannel = settledData(refreshedChannels)?.find(
         (channel) =>
           channel.kind === 'room' &&
           channel.roomId === result.room.id &&
@@ -246,7 +245,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     },
     navigation,
     get readState() {
-      return readState.data?.readState ?? []
+      return settledData(readState)?.readState ?? []
     },
     readStateActions: {
       markAllRead: () => markAllRead.mutateAsync().then(() => undefined),
@@ -263,12 +262,12 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       return persistenceReady()
     },
     get rooms() {
-      return rooms.data ?? []
+      return settledData(rooms) ?? []
     },
     selectChannel,
     selectWorkspace,
     get selectedChannel() {
-      return channels.data?.find(({ id }) => id === selectedChannelId())
+      return settledData(channels)?.find(({ id }) => id === selectedChannelId())
     },
     taskActions: {
       archive: (task: TaskSummary) =>
@@ -348,7 +347,7 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
       ].some(({ isPending }) => isPending)
     },
     get tasks() {
-      return tasks.data ?? []
+      return settledData(tasks) ?? []
     },
     get workspaceId() {
       return workspaceId()

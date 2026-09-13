@@ -7,7 +7,7 @@
 import { createEffect, createSignal, Show } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { useAgentListQuery } from '@adea-ai/data'
+import { settledData, useAgentListQuery } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
@@ -87,7 +87,7 @@ function WorkspaceSettingsOverlay(props: {
     <WorkspaceSettingsDialog
       accountAuthenticated={props.accountAuthenticated}
       accountLabel={props.accountLabel}
-      agents={agentsQuery.data ?? []}
+      agents={settledData(agentsQuery) ?? []}
       busy={props.busy}
       onClose={props.onClose}
       onOpenAgents={props.onOpenAgents}
