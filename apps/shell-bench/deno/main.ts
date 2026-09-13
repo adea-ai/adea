@@ -4,30 +4,13 @@
 
 const UPSTREAM = 'http://127.0.0.1:1420'
 
-Deno.serve(async (req: Request) => {
+Deno.serve((req: Request) => {
   const incoming = new URL(req.url)
-  const target = `${UPSTREAM}${incoming.pathname}${incoming.search}`
-  const headers = new Headers(req.headers)
-  headers.delete('host')
-  headers.delete('origin')
-  headers.delete('referer')
-  try {
-    const upstream = await fetch(target, {
-      method: req.method,
-      headers,
-      body: req.method === 'GET' || req.method === 'HEAD' ? undefined : req.body,
-      // @ts-ignore duplex is required by undici for streaming request bodies
-      duplex: 'half',
-    })
-    const responseHeaders = new Headers(upstream.headers)
-    responseHeaders.delete('content-encoding')
-    responseHeaders.delete('content-length')
-    responseHeaders.delete('transfer-encoding')
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: responseHeaders,
-    })
-  } catch {
-    return new Response('bench upstream unavailable', { status: 502 })
+  // Navigations go straight to the bench origin (the window is the shell; the
+  // bench server owns the page, shim, and endpoints). Subresources that arrive
+  // here are proxied.
+  if (incoming.pathname === '/' || incoming.pathname === '/index.html') {
+    return Response.redirect(`${UPSTREAM}/`, 302)
   }
+  return Response.redirect(`${UPSTREAM}${incoming.pathname}${incoming.search}`, 307)
 })

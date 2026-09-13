@@ -15,7 +15,10 @@ fn state_dir() -> PathBuf {
 }
 
 fn trace(cmd: &str) {
-    let _ = fs::write(format!("/tmp/tauri-shim-{}.log", cmd), "invoked");
+    use std::io::Write;
+    if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open("/tmp/tauri-shim-trace.log") {
+        let _ = writeln!(f, "{}", cmd);
+    }
 }
 
 fn read_state(name: &str) -> Option<Value> {
@@ -55,42 +58,50 @@ fn ping() -> &'static str {
 #[tauri::command]
 fn desktop_user_session_load() -> Option<Value> {
     trace("desktop_user_session_load");
+    trace("desktop_user_session_load");
     read_state("session.json")
 }
 
 #[tauri::command]
 fn desktop_user_session_save(session: Value) {
+    trace("desktop_user_session_save");
     write_state("session.json", &session);
 }
 
 #[tauri::command]
 fn desktop_user_session_clear() {
+    trace("desktop_user_session_clear");
     clear_state("session.json");
 }
 
 #[tauri::command]
 fn desktop_auth_attempt_load() -> Option<Value> {
     trace("desktop_auth_attempt_load");
+    trace("desktop_auth_attempt_load");
     read_state("auth-attempt.json")
 }
 
 #[tauri::command]
 fn desktop_auth_attempt_save(attempt: Value) {
+    trace("desktop_auth_attempt_save");
     write_state("auth-attempt.json", &attempt);
 }
 
 #[tauri::command]
 fn desktop_auth_attempt_clear() {
+    trace("desktop_auth_attempt_clear");
     clear_state("auth-attempt.json");
 }
 
 #[tauri::command]
 fn desktop_auth_start(authorization_url: String) {
+    trace("desktop_auth_start");
     write_text("auth-url.txt", &authorization_url);
 }
 
 #[tauri::command]
 fn desktop_auth_take_callback() -> Option<String> {
+    trace("desktop_auth_take_callback");
     trace("desktop_auth_take_callback");
     let callback = read_text("callback.txt");
     if callback.is_some() {
@@ -101,26 +112,31 @@ fn desktop_auth_take_callback() -> Option<String> {
 
 #[tauri::command]
 fn desktop_temporary_workspace_load() -> Option<String> {
+    trace("desktop_temporary_workspace_load");
     read_text("temporary-workspace.txt")
 }
 
 #[tauri::command]
 fn desktop_temporary_workspace_save(credential: String) {
+    trace("desktop_temporary_workspace_save");
     write_text("temporary-workspace.txt", &credential);
 }
 
 #[tauri::command]
 fn desktop_temporary_workspace_clear() {
+    trace("desktop_temporary_workspace_clear");
     clear_state("temporary-workspace.txt");
 }
 
 #[tauri::command]
 fn desktop_preferences_load() -> Option<Value> {
+    trace("desktop_preferences_load");
     read_state("preferences.json")
 }
 
 #[tauri::command]
 fn desktop_preferences_save(preferences: Value) {
+    trace("desktop_preferences_save");
     write_state("preferences.json", &preferences);
 }
 

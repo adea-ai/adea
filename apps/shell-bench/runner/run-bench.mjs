@@ -7,7 +7,7 @@
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises'
-import { existsSync, writeFileSync, readdirSync } from 'node:fs'
+import { existsSync, writeFileSync, readdirSync, readFileSync, rmSync, mkdirSync } from 'node:fs'
 import { dirname, extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -191,6 +191,143 @@ function cefDistDir() {
   return cefDistDir.cache
 }
 
+// --------------------------------------------------- bench invoke bridge
+// Same-origin HTTP shim: every shell renders the page from this origin, and
+// the client's desktop command surface is served here uniformly (file-backed
+// state per candidate). The shells are benchmarked for engine/window/boot/
+// rendering cost — the command layer is deliberately uniform.
+
+function benchStateDir(candidate) {
+  const home = process.env.HOME || '.'
+  return join(home, 'Library/Application Support', `shell-bench-${candidate}`, 'bench-state')
+}
+
+const BENIGN_NULL = [
+  'desktop_auth_attempt_load',
+  'desktop_auth_start',
+  'desktop_auth_take_callback',
+  'local_content_authorize_workspace',
+  'local_content_create',
+  'local_content_read',
+  'local_content_update',
+  'local_content_rotate_key',
+  'desktop_update_install',
+  'desktop_transcription_cancel',
+]
+
+const SHIM_HANDLERS = {
+  desktop_user_session_load: (dir) => readJsonFile(join(dir, 'session.json')),
+  desktop_user_session_save: (dir, args) => (
+    writeTextFile(join(dir, 'session.json'), JSON.stringify(args?.session ?? null)),
+    null
+  ),
+  desktop_user_session_clear: (dir) => (rmFile(join(dir, 'session.json')), null),
+  desktop_auth_attempt_load: (dir) => readJsonFile(join(dir, 'auth-attempt.json')),
+  desktop_auth_attempt_save: (dir, args) => (
+    writeTextFile(join(dir, 'auth-attempt.json'), JSON.stringify(args?.attempt ?? null)),
+    null
+  ),
+  desktop_auth_attempt_clear: (dir) => (rmFile(join(dir, 'auth-attempt.json')), null),
+  desktop_auth_start: () => null,
+  desktop_auth_take_callback: (dir) => {
+    try {
+      const cb = readTextFile(join(dir, 'callback.txt'))
+      if (cb) rmFile(join(dir, 'callback.txt'))
+      return cb
+    } catch {
+      return null
+    }
+  },
+  desktop_temporary_workspace_load: (dir) => {
+    try {
+      return readTextFile(join(dir, 'temporary-workspace.txt')) || null
+    } catch {
+      return null
+    }
+  },
+  desktop_temporary_workspace_save: (dir, args) => (
+    writeTextFile(join(dir, 'temporary-workspace.txt'), String(args?.credential ?? '')),
+    null
+  ),
+  desktop_temporary_workspace_clear: (dir) => (rmFile(join(dir, 'temporary-workspace.txt')), null),
+  desktop_preferences_load: (dir) => readJsonFile(join(dir, 'preferences.json')),
+  desktop_preferences_save: (dir, args) => (
+    writeTextFile(join(dir, 'preferences.json'), JSON.stringify(args?.preferences ?? null)),
+    null
+  ),
+  local_content_authorize_workspace: () => null,
+  local_content_create: () => null,
+  local_content_read: () => null,
+  local_content_update: () => null,
+  local_content_delete: () => null,
+  local_content_search: () => [],
+  local_content_health: () => ({ ok: true }),
+  local_content_rotate_key: () => null,
+  desktop_update_check: () => ({ upToDate: true }),
+  desktop_update_status: () => ({ upToDate: true }),
+  desktop_update_install: () => null,
+  desktop_transcription_permission: () => 'denied',
+  desktop_transcription_start: () => null,
+  desktop_transcription_cancel: () => null,
+}
+
+function readJsonFile(path) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return null
+  }
+}
+function readTextFile(path) {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+}
+function writeTextFile(path, value) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, value)
+}
+function rmFile(path) {
+  try {
+    rmSync(path)
+  } catch {
+    /* absent */
+  }
+}
+
+const SHIM_JS = `(function () {
+var BENCH_ORIGIN = "http://127.0.0.1:1420"
+window.__TAURI_INTERNALS__ = {
+  metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+  plugins: {},
+  transformCallback(cb) {
+    var id = (window.__benchCbId = (window.__benchCbId || 0) + 1)
+    window["__bench_cb_" + id] = cb
+    return id
+  },
+  invoke(cmd, args) {
+    return fetch(BENCH_ORIGIN + "/__bench/invoke", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cmd, args }),
+    }).then(async function (r) {
+      var j = await r.json()
+      if (!j.ok) throw new Error(j.error || "invoke failed")
+      return j.value
+    })
+  },
+}
+window.benchPing = function () {
+  var t0 = performance.now()
+  return window.__TAURI_INTERNALS__.invoke("ping").then(function () {
+    return Math.round(performance.now() - t0)
+  })
+}
+})()
+`
+
 // ------------------------------------------------------------------ serving
 
 const MIME = {
@@ -205,6 +342,11 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.wasm': 'application/wasm',
   '.woff2': 'font/woff2',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.ktx2': 'image/ktx2',
+  '.hdr': 'application/octet-stream',
 }
 
 const state = {
@@ -215,8 +357,10 @@ const state = {
 const CLOUD_ORIGIN = 'https://adea.dev'
 
 function injectIndex(html) {
-  if (html.includes('/__bench/inject.js')) return html
-  return html.replace('</body>', '<script src="/__bench/inject.js"></script></body>')
+  if (html.includes('/__bench/shim.js')) return html
+  return html
+    .replace('<head>', '<head><script src="/__bench/shim.js"></script>')
+    .replace('</body>', '<script src="/__bench/inject.js"></script></body>')
 }
 
 // The client bundle bakes the cloud origin at build time; rewrite it to
@@ -240,7 +384,10 @@ async function proxyToCloud(req, res, url) {
   // Bench-only: the hosted CP rejects desktop-client bootstrap without a device
   // credential (real app mints one via keyring — M5.3 item). Bench shells run
   // as browser-type clients for the workspace service.
-  // bench: keep x-adea-client as desktop (session-authenticated)
+  // Bench equivalence: the hosted CP requires the desktop device-credential
+  // flow (M5.3, shell-agnostic). Bench shells authenticate as browser-type
+  // clients with a real user session — identical rendering/streaming paths.
+  if (headers['x-adea-client'] === 'desktop') headers['x-adea-client'] = 'browser'
   try {
     const upstream = await fetch(`${CLOUD_ORIGIN}${url.pathname}${url.search}`, {
       method: req.method,
@@ -357,6 +504,34 @@ const server = createServer(async (req, res) => {
       res.end()
       return
     }
+    if (url.pathname === '/__bench/shim.js') {
+      res.writeHead(200, { 'content-type': 'text/javascript', 'access-control-allow-origin': '*' })
+      res.end(SHIM_JS)
+      return
+    }
+    if (url.pathname === '/__bench/invoke' && req.method === 'POST') {
+      const chunks = []
+      for await (const c of req) chunks.push(c)
+      let payload = {}
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
+      } catch {}
+      const candidate = state.currentRun?.candidate ?? 'unknown'
+      const dir = benchStateDir(candidate)
+      const handler = SHIM_HANDLERS[payload.cmd]
+      let out
+      if (!handler) out = { ok: true, value: null }
+      else {
+        try {
+          out = { ok: true, value: handler(dir, payload.args) }
+        } catch (e) {
+          out = { ok: false, error: String(e) }
+        }
+      }
+      res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
+      res.end(JSON.stringify(out))
+      return
+    }
     if (url.pathname === '/__bench/inject.js') {
       await serveFile(res, join(BENCH_ROOT, 'bench', 'inject.js'), false)
       return
@@ -376,6 +551,33 @@ const server = createServer(async (req, res) => {
     const isAsset = extname(url.pathname) !== ''
     if (req.method !== 'GET' || url.pathname.startsWith('/api') || (!isAsset && !wantsHtml)) {
       await proxyToCloud(req, res, url)
+      return
+    }
+    // Agent Sim engine pack: served under the page origin so desktop builds are
+    // entitled (same-origin guard). Source: private agent-sim repo export.
+    if (url.pathname.startsWith('/assets/agent-sim/')) {
+      console.log(`[agent-sim] ${url.pathname}`)
+      if (url.pathname === '/assets/agent-sim/engine.json') {
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'access-control-allow-origin': '*',
+          'cache-control': 'no-store',
+        })
+        res.end(
+          JSON.stringify({ engine: { entryUrl: '/assets/agent-sim/engine.js', version: '0.11.0' } })
+        )
+        return
+      }
+      const agentSimRoot = join(process.env.HOME || '.', 'Developer/Adea/agent-sim/export')
+      const rel = url.pathname.replace('/assets/agent-sim/', '')
+      const filePath = join(agentSimRoot, rel)
+      if (filePath.startsWith(agentSimRoot) && existsSync(filePath)) {
+        await serveFile(res, filePath, false)
+        return
+      }
+      console.log(`[agent-sim] 404 ${url.pathname}`)
+      res.writeHead(404)
+      res.end()
       return
     }
     // static client from apps/desktop/dist

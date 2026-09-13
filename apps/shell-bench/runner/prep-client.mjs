@@ -96,6 +96,13 @@ const beacon = `<script>
   })
 })()
 </script>`
+let index = await readFile(join(DEST, 'index.html'), 'utf8')
+if (!index.includes('__bench/shim')) {
+  index = index.replace(
+    '<head>',
+    '<head><script src="http://127.0.0.1:1420/__bench/shim.js"></script>',
+  )
+}
 if (!index.includes('__bench/ready')) {
   index = index.replace('</body>', beacon + '</body>')
 }
