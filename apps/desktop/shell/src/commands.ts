@@ -6,6 +6,90 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { version as packagedVersion } from '../../package.json'
+
+// Update check: compare this build's version against the latest published
+// GitHub release. No signed auto-update lane yet (#370) — the shell reports
+// availability and hands off to the releases page for manual install.
+// Release Please bumps the desktop lane's package version with every release.
+const APP_VERSION = process.env.ADEA_APP_VERSION ?? packagedVersion
+
+/** Mirrors `DesktopUpdate` in apps/web/src/lib/desktop-update.ts. */
+type UpdateStatus = {
+  current_version: string
+  available_version: string | null
+  release_date: string | null
+  release_notes: string | null
+  changelog: string
+  github_url: string
+  phase: 'available' | 'current' | 'failed'
+  downloaded_bytes: number
+  total_bytes: number | null
+  error: string | null
+  restart_required: boolean
+}
+
+function versionLessThan(a: string, b: string): boolean {
+  const pa = a
+    .replace(/^v/, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0)
+  const pb = b
+    .replace(/^v/, '')
+    .split('.')
+    .map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    if ((pb[i] ?? 0) !== (pa[i] ?? 0)) return (pb[i] ?? 0) > (pa[i] ?? 0)
+  }
+  return false
+}
+
+async function checkForUpdate(): Promise<UpdateStatus> {
+  try {
+    const res = await fetch('https://api.github.com/repos/adea-ai/adea/releases/latest', {
+      headers: { accept: 'application/vnd.github+json' },
+    })
+    if (!res.ok) throw new Error(`github ${res.status}`)
+    const release = (await res.json()) as {
+      tag_name?: string
+      body?: string
+      html_url?: string
+      published_at?: string
+      draft?: boolean
+      prerelease?: boolean
+    }
+    const tag = String(release.tag_name ?? '')
+    const availableVersion = tag.replace(/^v/, '')
+    const available = versionLessThan(APP_VERSION, availableVersion)
+    return {
+      current_version: APP_VERSION,
+      available_version: available ? availableVersion : null,
+      release_date: release.published_at ?? null,
+      release_notes: release.body ?? null,
+      changelog: release.body ?? '',
+      github_url: release.html_url ?? 'https://github.com/adea-ai/adea/releases',
+      phase: available ? 'available' : 'current',
+      downloaded_bytes: 0,
+      total_bytes: null,
+      error: null,
+      restart_required: false,
+    }
+  } catch (error) {
+    return {
+      current_version: APP_VERSION,
+      available_version: null,
+      release_date: null,
+      release_notes: null,
+      changelog: '',
+      github_url: 'https://github.com/adea-ai/adea/releases',
+      phase: 'failed',
+      downloaded_bytes: 0,
+      total_bytes: null,
+      error: error instanceof Error ? error.message : String(error),
+      restart_required: false,
+    }
+  }
+}
 
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: string }
 
@@ -217,9 +301,26 @@ export function createCommandSurface(dataDir: string) {
       clear('device.key')
       return null
     },
-    desktop_update_check: () => ({ upToDate: true }),
-    desktop_update_status: () => ({ upToDate: true }),
-    desktop_update_install: () => null,
+    desktop_update_check: () => checkForUpdate(),
+    desktop_update_status: () => checkForUpdate(),
+    desktop_update_install: (args) => {
+      // No signed auto-update lane yet (#370): surface the release page so the
+      // user can download and install manually. Only http(s) URLs reach the
+      // OS — the value arrives from the client surface.
+      let url: URL
+      try {
+        url = new URL(String(args?.github_url ?? '') || 'https://github.com/adea-ai/adea/releases')
+      } catch {
+        return null
+      }
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+      try {
+        Bun.spawn(['open', url.toString()])
+      } catch {
+        /* best effort */
+      }
+      return null
+    },
     desktop_transcription_permission: () => 'denied',
     desktop_transcription_start: () => {
       throw new Error('transcription is not available in this shell yet')
@@ -234,14 +335,27 @@ export function createCommandSurface(dataDir: string) {
       servedFromCache: false,
     }),
     // App metadata for the client's version surface.
-    adea_app_version: () => process.env.ADEA_APP_VERSION ?? '0.0.0',
+    adea_app_version: () => APP_VERSION,
   }
 
-  return function invoke(cmd: string, args?: Record<string, unknown>): BridgeResult {
+  return function invoke(
+    cmd: string,
+    args?: Record<string, unknown>
+  ): BridgeResult | Promise<BridgeResult> {
     const handler = handlers[cmd]
     if (!handler) return { ok: false, error: `unknown command: ${cmd}` }
     try {
-      return { ok: true, value: handler(args) ?? null }
+      const result = handler(args)
+      return result instanceof Promise
+        ? result.then(
+            (value) => ({ ok: true, value: value ?? null }) as BridgeResult,
+            (error) =>
+              ({
+                ok: false,
+                error: error instanceof Error ? error.message : String(error),
+              }) as BridgeResult
+          )
+        : { ok: true, value: result ?? null }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }

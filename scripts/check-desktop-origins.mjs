@@ -52,7 +52,16 @@ const ORIGIN_LITERAL = /https?:\/\/[A-Za-z0-9.-]+(?::\d+)?/g
  * with the reason it cannot come from the canonical constant. Keep this list
  * short: every entry is an exception to the single-origin invariant.
  */
-export const BASELINED_ORIGINS = []
+export const BASELINED_ORIGINS = [
+  {
+    origin: 'https://api.github.com',
+    reason: 'the release feed the desktop update check polls (shell process, never the webview)',
+  },
+  {
+    origin: 'https://github.com',
+    reason: 'the releases page the desktop update flow opens for manual install (shell process)',
+  },
+]
 
 /** Read the canonical origin from the module that owns it. */
 export async function canonicalCloudOrigin(root) {

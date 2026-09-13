@@ -4,6 +4,8 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { BASELINED_ORIGINS } from './check-desktop-origins.mjs'
+
 const root = fileURLToPath(new URL('..', import.meta.url))
 const shellRoot = join(root, 'apps/desktop/shell')
 const entry = join(shellRoot, 'src/bun/index.ts')
@@ -64,6 +66,10 @@ describe('desktop shell boot', () => {
   })
 
   test('serves every remote URL in the shell from loopback', async () => {
+    // The baselined non-cloud origins (the release feed the update check
+    // polls) are shell-process endpoints, documented in
+    // `check-desktop-origins.mjs`; nothing here serves them to the webview.
+    const baselined = new Set(BASELINED_ORIGINS.map((entry) => new URL(entry.origin).host))
     const violations: string[] = []
     for (const { path, source } of await shellSources()) {
       for (const [index, line] of source.split('\n').entries()) {
@@ -72,6 +78,7 @@ describe('desktop shell boot', () => {
         for (const literal of line.match(/https?:\/\/[^\s'"`)]+/g) ?? []) {
           const host = /^https?:\/\/([^/:]+)/.exec(literal)?.[1] ?? ''
           if (host === '127.0.0.1' || host === 'localhost' || host === '[::1]') continue
+          if (baselined.has(host)) continue
           violations.push(`${path}:${index + 1} ${literal}`)
         }
       }
@@ -84,7 +91,10 @@ describe('desktop shell boot', () => {
 
     expect(source).toContain('createCommandSurface')
     expect(source).toContain("'/__adea/invoke'")
-    expect(source).toContain('Response.json(invoke(')
+    // Network-backed commands (the update check) resolve asynchronously; the
+    // route still answers with exactly the command surface's result.
+    expect(source).toContain('await invoke(')
+    expect(source).toContain('Response.json(result)')
     expect(source).toContain("'/__adea/bridge.js'")
     expect(source).toContain('window.__adeaDesktop')
     expect(source).toContain('injectBridge')

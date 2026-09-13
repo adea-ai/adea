@@ -4,6 +4,7 @@
     "module": "ESNext",
     "moduleDetection": "force",
     "moduleResolution": "bundler",
+    "resolveJsonModule": true,
     "lib": ["ESNext", "DOM"],
     "types": ["bun-types"],
     "strict": true,

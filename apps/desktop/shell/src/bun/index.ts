@@ -6,6 +6,8 @@
 import { BrowserWindow } from 'electrobun/main'
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
+import { agentSimResponse } from '../agent-sim-assets'
+import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface } from '../commands'
 
 // The client is copied into the bundle (`electrobun.config.ts` build.copy), so
@@ -19,6 +21,12 @@ const CLIENT_ROOT =
 const DATA_DIR =
   process.env.ADEA_DATA_DIR ?? join(process.env.HOME ?? '.', 'Library/Application Support/Adea')
 const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
+// The canonical cloud origin the loopback `/api` proxy forwards to; a local
+// stack re-points it with ADEA_CLOUD_ORIGIN (see cloud-proxy.ts).
+const CLOUD_ORIGIN = resolveCloudOrigin()
+const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
+// Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
+const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
 
 const invoke = createCommandSurface(DATA_DIR)
 
@@ -69,7 +77,8 @@ Bun.serve({
       }
       if (url.pathname === '/__adea/invoke' && request.method === 'POST') {
         const payload = (await request.json()) as { cmd?: string; args?: Record<string, unknown> }
-        return Response.json(invoke(String(payload.cmd ?? ''), payload.args))
+        const result = await invoke(String(payload.cmd ?? ''), payload.args)
+        return Response.json(result)
       }
       if (url.pathname === '/__adea/events') {
         // Long-lived SSE channel for shell events (auth callback readiness).
@@ -91,11 +100,26 @@ Bun.serve({
           headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
         })
       }
+      // The client's cloud traffic rides the same-origin proxy; the cloud's
+      // desktop lane sees the trusted shell origin on every forwarded call.
+      if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+        return proxyCloudRequest(request, CLOUD_ORIGIN, SHELL_ORIGIN)
+      }
+      if (AGENT_SIM_DIST && url.pathname.startsWith('/assets/agent-sim/')) {
+        return agentSimResponse(url.pathname, AGENT_SIM_DIST)
+      }
       const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
       let filePath = join(CLIENT_ROOT, rel)
       if (!filePath.startsWith(CLIENT_ROOT)) return new Response(null, { status: 403 })
       if (existsSync(filePath) && !extname(filePath)) filePath = join(filePath, 'index.html')
-      if (!existsSync(filePath)) filePath = join(CLIENT_ROOT, 'index.html')
+      if (!existsSync(filePath)) {
+        // Static asset paths never fall back to the SPA shell; a missing
+        // asset (e.g. an unpacked Agent Sim) is a plain 404 for the client.
+        if (rel === '/assets' || rel.startsWith('/assets/')) {
+          return new Response(null, { status: 404 })
+        }
+        filePath = join(CLIENT_ROOT, 'index.html')
+      }
       let body = new Uint8Array(await Bun.file(filePath).arrayBuffer())
       if (filePath.endsWith('.html')) {
         body = new TextEncoder().encode(injectBridge(new TextDecoder().decode(body)))
