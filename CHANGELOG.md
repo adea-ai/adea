@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.6](https://github.com/adea-ai/adea/compare/v0.25.5...v0.25.6) (2026-09-14)
+
+
+### Bug Fixes
+
+* **desktop:** ship the app icon, resolve guest marketplace sessions, guard the sim pack ([#416](https://github.com/adea-ai/adea/issues/416)) ([dc0c395](https://github.com/adea-ai/adea/commit/dc0c395dc374909bb9db11e1cdb5a9485391ed7b))
+
 ## [0.25.5](https://github.com/adea-ai/adea/compare/v0.25.4...v0.25.5) (2026-09-14)
 
 
