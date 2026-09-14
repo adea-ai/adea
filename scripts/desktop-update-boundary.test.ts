@@ -91,7 +91,7 @@ describe('update manifest', () => {
       url: MANIFEST_URL,
       sha256: 'a'.repeat(64),
       signature: 'c2ln',
-      framework: { sha256: 'b'.repeat(64) },
+      runtime: { sha256: 'b'.repeat(64) },
       slim: {
         url: 'https://github.com/adea-ai/adea/releases/download/v99.0.0/Adea-v99.0.0-macos-arm64-update.tar.zst',
         sha256: 'c'.repeat(64),
@@ -120,8 +120,8 @@ describe('update manifest', () => {
       slim: { ...(parsed.ok ? parsed.manifest : signedSlimSig).slim, sha256: 'd'.repeat(64) },
     }
     expect(verifySlimSignature(tampered, env)).toBe(false)
-    // A slim entry without a framework hash is malformed.
-    const orphan = { ...signedSlimSig, framework: null }
+    // A slim entry without a runtime hash is malformed.
+    const orphan = { ...signedSlimSig, runtime: null }
     expect(parseUpdateManifest(orphan, { platform: 'darwin', arch: process.arch }).ok).toBe(false)
   })
 
@@ -313,8 +313,8 @@ describe('signed update flow', () => {
       'Adea.app',
     ])
     if (slimTar.exitCode !== 0) throw new Error('slim test archive could not be created')
-    const frameworkBinaryPath = join(workspace, 'cef.bin')
-    writeFileSync(frameworkBinaryPath, 'cef-binary-bytes')
+    const runtimeBinaryPath = join(workspace, 'runtime.bin')
+    writeFileSync(runtimeBinaryPath, 'cef-binary-bytes')
     slimArchiveBytes = new Uint8Array(await Bun.file(slimArchivePath).arrayBuffer())
 
     const manifest = {
@@ -324,7 +324,7 @@ describe('signed update flow', () => {
         notes: 'A test release',
         outPath: join(workspace, 'latest.json'),
         slimArchivePath,
-        frameworkBinaryPath,
+        runtimeSha256: slimFrameworkSha256,
       })),
       // The lane targets macOS; CI runners are linux. The signature covers
       // version + digest only, so re-pointing the platform here stays valid.
@@ -464,13 +464,13 @@ describe('signed update flow', () => {
       rmSync(dataDir, { force: true, recursive: true })
     }
   })
-  test('installs the slim archive when the framework hash matches', async () => {
+  test('installs the slim archive when the runtime hash matches', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-slim-'))
     try {
       const manager = createUpdateManager({
         appVersion: '0.24.0',
         dataDir,
-        frameworkSha256: slimFrameworkSha256,
+        runtimeSha256: slimFrameworkSha256,
       })
       const checked = await manager.check()
       expect(checked).toMatchObject({ phase: 'available', available_version: '99.0.0' })
@@ -491,13 +491,13 @@ describe('signed update flow', () => {
     }
   })
 
-  test('a framework hash mismatch falls back to the full archive', async () => {
+  test('a runtime hash mismatch falls back to the full archive', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-updates-slim-'))
     try {
       const manager = createUpdateManager({
         appVersion: '0.24.0',
         dataDir,
-        frameworkSha256: 'f'.repeat(64),
+        runtimeSha256: 'f'.repeat(64),
       })
       await manager.check()
       const installed = await manager.install({

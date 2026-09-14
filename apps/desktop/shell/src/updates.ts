@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import {
   downloadUpdateArchive,
   extractUpdateArchive,
-  installedFrameworkSha256,
+  installedRuntimeSha256,
   parseUpdateManifest,
   resolveUpdateAssetUrl,
   stageUpdateSwap,
@@ -64,8 +64,8 @@ export function createUpdateManager(input: {
   appVersion: string
   dataDir: string
   onExit?: (exitInMs: number) => void
-  /** Test seam: the installed CEF framework hash (otherwise computed from the running bundle). */
-  frameworkSha256?: string
+  /** Test seam: the installed runtime hash (otherwise computed from the running bundle). */
+  runtimeSha256?: string
 }) {
   const { appVersion, dataDir } = input
   const onExit = input.onExit ?? ((ms: number) => setTimeout(() => process.exit(0), ms))
@@ -84,9 +84,9 @@ export function createUpdateManager(input: {
     restart_required: false,
   }
   let pendingManifest: UpdateManifest | null = null
-  // Memoized hash of the installed CEF framework binary (computed lazily,
-  // only when a slim-capable update is on offer).
-  let frameworkHash: string | null | undefined
+  // Memoized hash of the installed runtime binaries (computed lazily, only
+  // when a slim-capable update is on offer).
+  let runtimeHash: string | null | undefined
 
   function snapshot(next: Partial<UpdateStatus>): UpdateStatus {
     update = { ...update, ...next }
@@ -208,9 +208,9 @@ export function createUpdateManager(input: {
       // this bundle already carries, only the ~1MB app layer downloads and
       // overlays — no 117MB framework re-download, no launcher reinstall.
       let useSlim = false
-      if (manifest.slim && manifest.framework) {
-        frameworkHash ??= input.frameworkSha256 ?? (await installedFrameworkSha256())
-        useSlim = frameworkHash === manifest.framework.sha256
+      if (manifest.slim && manifest.runtime) {
+        runtimeHash ??= input.runtimeSha256 ?? (await installedRuntimeSha256())
+        useSlim = runtimeHash === manifest.runtime.sha256
       }
       const updatesDir = join(dataDir, 'updates')
       const slim = useSlim ? manifest.slim : null

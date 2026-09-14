@@ -258,13 +258,20 @@ jobs:
             SLIM_STAGING="$RUNNER_TEMP/slim-extract"
             mkdir -p "$SLIM_STAGING"
             tar --zstd -xf "${archives[0]}" -C "$SLIM_STAGING"
-            FRAMEWORK_BIN="$SLIM_STAGING/Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"
-            # Hash before the framework directory is removed below.
-            FRAMEWORK_SHA="$(shasum -a 256 "$FRAMEWORK_BIN" | cut -d' ' -f1)"
-            rm -rf "$SLIM_STAGING/Adea.app/Contents/Frameworks"
-            rm -f "$SLIM_STAGING/Adea.app/Contents/Resources/"*.tar.zst \
-                  "$SLIM_STAGING/Adea.app/Contents/Resources/metadata.json"
+            APP_TREE="$SLIM_STAGING/Adea.app"
+            # Runtime identity: CEF, bun, and the launcher hashed in that fixed
+            # order (the shell streams the same order). Slim overlays are only
+            # offered when all three are unchanged; a bun/launcher/CEF bump
+            # falls back to the full archive.
+            RUNTIME_SHA="$(cat \
+              "$APP_TREE/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework" \
+              "$APP_TREE/Contents/MacOS/bun" \
+              "$APP_TREE/Contents/MacOS/launcher" | shasum -a 256 | cut -d' ' -f1)"
+            rm -f "$APP_TREE/Contents/Resources/"*.tar.zst \
+                  "$APP_TREE/Contents/Resources/metadata.json"
             tar --zstd -cf "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst" \
+              --exclude 'Adea.app/Contents/Frameworks' \
+              --exclude 'Adea.app/Contents/MacOS' \
               -C "$SLIM_STAGING" Adea.app
             rm -rf "$SLIM_STAGING"
             SIGN_ARGS=(
@@ -272,7 +279,7 @@ jobs:
               --tag "$RELEASE_TAG"
               --out "$RUNNER_TEMP/staged/latest.json"
               --slim-archive "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst"
-              --framework-sha256 "$FRAMEWORK_SHA"
+              --runtime-sha256 "$RUNTIME_SHA"
             )
             NOTES_FILE="$RUNNER_TEMP/notes/notes.txt"
             mkdir -p "$RUNNER_TEMP/notes"
