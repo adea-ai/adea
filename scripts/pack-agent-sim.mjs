@@ -10,8 +10,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 // Enabled only when ADEA_AGENT_SIM_DIST points at a prepared engine pack
 // directory: `engine.json` (`{ "version": "x.y.z" }`, entry `engine.js`) plus
 // the engine bundle and runtime assets. The official release lane produces it
-// by checking out the private agent-sim repo at the AGENT_SIM_REF variable;
-// plain checkouts, forks, and CI lanes leave the variable unset and stay
+// by downloading the checksum-verified `agent-sim-export.tar.zst` release
+// asset from the private agent-sim repo at the AGENT_SIM_REF tag; plain
+// checkouts, forks, and CI lanes leave the variable unset and stay
 // manifests-only, which is what keeps the sim out of unauthorized builds.
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))

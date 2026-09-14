@@ -137,9 +137,12 @@ jobs:
       - name: Pack Agent Sim engine
         # Official builds pack the private Agent Sim engine into the desktop
         # bundle, which is what entitles them to mount the virtual view (see
-        # packages/spatial-protocol/src/engine.ts). The pack lives in the
-        # agent-sim repo's `export/` directory at the AGENT_SIM_REF variable;
-        # AGENT_SIM_DEPLOY_TOKEN needs read access to that private repo.
+        # packages/spatial-protocol/src/engine.ts). The pack is the prebuilt
+        # `agent-sim-export.tar.zst` release asset on adea-ai/agent-sim at the
+        # AGENT_SIM_REF tag (its `export/` is gitignored there, so a clone can
+        # never contain it); AGENT_SIM_DEPLOY_TOKEN is a fine-grained PAT with
+        # contents:read on that private repo. The archive is verified against
+        # the `agent-sim-export.tar.zst.sha256` asset beside it before use.
         # Neither configured at all marks a fork or documentation-only lane and
         # stays manifests-only; either one configured alone means the release
         # credentials are broken, so the lane fails instead of publishing a
@@ -158,14 +161,42 @@ jobs:
             echo 'Agent Sim pack is half-configured: AGENT_SIM_REF and AGENT_SIM_DEPLOY_TOKEN must be set together.' >&2
             exit 1
           fi
-          git clone --depth 1 --branch "$AGENT_SIM_REF" \
-            "https://x-access-token:${AGENT_SIM_TOKEN}@github.com/adea-ai/agent-sim.git" \
-            "$RUNNER_TEMP/agent-sim"
-          if [[ ! -f "$RUNNER_TEMP/agent-sim/export/engine.json" ]]; then
-            echo "agent-sim at ${AGENT_SIM_REF} has no export/engine.json; refusing to ship a sim-less official build." >&2
+          sim_dir="$RUNNER_TEMP/agent-sim"
+          mkdir -p "$sim_dir"
+          release_json="$sim_dir/release.json"
+          # The token never reaches the logs: it is only ever consumed by curl.
+          curl -sfL --retry 3 \
+            -H "Authorization: Bearer $AGENT_SIM_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/adea-ai/agent-sim/releases/tags/$AGENT_SIM_REF" \
+            > "$release_json"
+          pack_url="$(jq -r '.assets[] | select(.name == "agent-sim-export.tar.zst") | .url' "$release_json")"
+          digest_url="$(jq -r '.assets[] | select(.name == "agent-sim-export.tar.zst.sha256") | .url' "$release_json")"
+          if [[ -z "$pack_url" || "$pack_url" == "null" || -z "$digest_url" || "$digest_url" == "null" ]]; then
+            echo "release $AGENT_SIM_REF on adea-ai/agent-sim carries no agent-sim-export.tar.zst(+.sha256); refusing to ship a sim-less official build." >&2
             exit 1
           fi
-          echo "ADEA_AGENT_SIM_DIST=$RUNNER_TEMP/agent-sim/export" >> "$GITHUB_ENV"
+          for pair in "agent-sim-export.tar.zst $pack_url" "agent-sim-export.tar.zst.sha256 $digest_url"; do
+            # shellcheck disable=SC2086 # intentional word split: name and URL
+            set -- $pair
+            curl -sfL --retry 3 \
+              -H "Authorization: Bearer $AGENT_SIM_TOKEN" \
+              -H "Accept: application/octet-stream" \
+              "$2" -o "$sim_dir/$1"
+          done
+          expected="$(cut -d' ' -f1 < "$sim_dir/agent-sim-export.tar.zst.sha256")"
+          actual="$(shasum -a 256 "$sim_dir/agent-sim-export.tar.zst" | cut -d' ' -f1)"
+          if [[ "$expected" != "$actual" ]]; then
+            echo "the downloaded Agent Sim pack failed its checksum (expected $expected, got $actual)" >&2
+            exit 1
+          fi
+          tar --zstd -xf "$sim_dir/agent-sim-export.tar.zst" -C "$sim_dir"
+          if [[ ! -f "$sim_dir/export/engine.json" ]]; then
+            echo "the Agent Sim pack has no export/engine.json; refusing to ship a sim-less official build." >&2
+            exit 1
+          fi
+          echo "Agent Sim pack ${AGENT_SIM_REF} verified (sha256 $actual)"
+          echo "ADEA_AGENT_SIM_DIST=$sim_dir/export" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
