@@ -28,8 +28,8 @@ export type UpdateManifest = Readonly<{
   publishedAt: string | null
   platform: string
   arch: string
-  /** SHA-256 of the CEF framework binary this release was built with. */
-  framework: { sha256: string } | null
+  /** SHA-256 over the runtime binaries (CEF, bun, launcher) this release was built with. */
+  runtime: { sha256: string } | null
   /** App-layer-only archive, installable when the installed CEF matches. */
   slim: { url: string; sha256: string; signature: string } | null
 }>
@@ -109,19 +109,19 @@ export function parseUpdateManifest(
   }
   // Optional slim-update entry: an app-layer-only archive usable when the
   // installed CEF framework hash matches `framework.sha256`.
-  const framework = candidate.framework
-  let frameworkSha256: string | null = null
-  if (framework !== undefined && framework !== null) {
-    const hash = (framework as Record<string, unknown>).sha256
+  const runtime = candidate.runtime
+  let runtimeSha256: string | null = null
+  if (runtime !== undefined && runtime !== null) {
+    const hash = (runtime as Record<string, unknown>).sha256
     if (typeof hash !== 'string' || !SHA256_HEX.test(hash)) {
-      return { ok: false, reason: 'framework' }
+      return { ok: false, reason: 'runtime' }
     }
-    frameworkSha256 = hash
+    runtimeSha256 = hash
   }
   let slim: UpdateManifest['slim'] = null
   const slimCandidate = candidate.slim
   if (slimCandidate !== undefined && slimCandidate !== null) {
-    if (frameworkSha256 === null) return { ok: false, reason: 'slim without framework' }
+    if (runtimeSha256 === null) return { ok: false, reason: 'slim without runtime' }
     const slimRecord = slimCandidate as Record<string, unknown>
     const slimUrl = slimRecord.url
     const slimSha256 = slimRecord.sha256
@@ -158,7 +158,7 @@ export function parseUpdateManifest(
       publishedAt: typeof candidate.publishedAt === 'string' ? candidate.publishedAt : null,
       platform,
       arch,
-      framework: frameworkSha256 === null ? null : { sha256: frameworkSha256 },
+      runtime: runtimeSha256 === null ? null : { sha256: runtimeSha256 },
       slim,
     },
   }
@@ -266,24 +266,38 @@ export async function extractUpdateArchive(
   return appPath
 }
 
-const FRAMEWORK_BINARY = join(
-  'Contents',
-  'Frameworks',
-  'Chromium Embedded Framework.framework',
-  'Chromium Embedded Framework'
-)
+/**
+ * Runtime binaries a slim overlay must not change: the CEF framework, the Bun
+ * runtime, and the launcher. Hashed in this fixed order with one stream, so
+ * the release lane and the shell compute identical digests.
+ */
+export function runtimeBinaryPaths(bundleRoot: string): string[] {
+  return [
+    join(
+      bundleRoot,
+      'Contents',
+      'Frameworks',
+      'Chromium Embedded Framework.framework',
+      'Chromium Embedded Framework'
+    ),
+    join(bundleRoot, 'Contents', 'MacOS', 'bun'),
+    join(bundleRoot, 'Contents', 'MacOS', 'launcher'),
+  ]
+}
 
-/** SHA-256 of the installed bundle's CEF framework binary, or null if absent. */
-export async function installedFrameworkSha256(
+/** SHA-256 over the installed bundle's runtime binaries, or null if absent. */
+export async function installedRuntimeSha256(
   execPath: string = process.execPath
 ): Promise<string | null> {
   const macosIndex = execPath.lastIndexOf(`${sep}Contents${sep}MacOS${sep}`)
   if (macosIndex < 0) return null
-  const frameworkPath = join(execPath.slice(0, macosIndex), FRAMEWORK_BINARY)
-  if (!existsSync(frameworkPath)) return null
+  const bundleRoot = execPath.slice(0, macosIndex)
   const hasher = new Bun.CryptoHasher('sha256')
-  const stream = Bun.file(frameworkPath).stream()
-  for await (const chunk of stream) hasher.update(chunk as Uint8Array)
+  for (const binaryPath of runtimeBinaryPaths(bundleRoot)) {
+    if (!existsSync(binaryPath)) return null
+    const stream = Bun.file(binaryPath).stream()
+    for await (const chunk of stream) hasher.update(chunk as Uint8Array)
+  }
   return hasher.digest('hex')
 }
 

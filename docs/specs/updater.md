@@ -30,9 +30,25 @@ attaches the disk image, the self-contained app archive
   "sha256": "…",
   "signature": "…",
   "notes": "…",
-  "publishedAt": "…"
+  "publishedAt": "…",
+  "runtime": { "sha256": "…" },
+  "slim": { "url": "…-update.tar.zst", "sha256": "…", "signature": "…" }
 }
 ```
+
+### Slim updates
+
+The lane also publishes `Adea-<tag>-macos-arm64-update.tar.zst`: the app layer
+(client, shell code, preloads, resources) without `Contents/MacOS` and
+`Contents/Frameworks` — no CEF framework, no Bun runtime, no launcher. The
+manifest carries a `runtime.sha256` (the CEF framework, `MacOS/bun`, and
+`MacOS/launcher` hashed together in that fixed order) and a second Ed25519
+signature over `adea-desktop-update-slim/v<version>/<slim sha256>`.
+
+When the installed bundle's runtime hash matches, the shell downloads and
+verifies the slim archive (~1MB) and overlays it onto the existing bundle, so
+no launcher reinstall runs; any mismatch — including a Bun, launcher, or CEF
+bump — falls back to the full archive and full swap.
 
 The shell polls `https://github.com/adea-ai/adea/releases/latest/download/latest.json`
 from the shell process (never the webview). `version` is compared against the
@@ -88,7 +104,7 @@ GitHub-API availability check plus a releases-page handoff.
 - `scripts/desktop-update-boundary.test.ts`: manifest validation (platform,
   host, digest), Ed25519 signature verification and tampering (full and slim),
   the full check → download → verify → extract → staged-install flow against a
-  local signed feed, slim-vs-full framework-hash selection, install guards
+  local signed feed, slim-vs-full runtime-hash selection, install guards
   (approval, expected version), and the releases-page fallback.
 - `apps/desktop/tests/shell-commands.test.ts`: feed availability phases and
   the packaged-version reporting.

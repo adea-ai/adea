@@ -27,8 +27,7 @@ export async function buildUpdateManifest({
   tag,
   notes,
   slimArchivePath,
-  frameworkBinaryPath,
-  frameworkSha256,
+  runtimeSha256,
 }) {
   const signingKey = process.env.DESKTOP_UPDATE_SIGNING_KEY
   if (!signingKey) {
@@ -54,7 +53,7 @@ export async function buildUpdateManifest({
     signature,
     notes: notes ?? null,
     publishedAt: new Date().toISOString(),
-    framework: null,
+    runtime: null,
     slim: null,
   }
   // Slim updates: when the CEF framework binary is unchanged from what an
@@ -74,11 +73,8 @@ export async function buildUpdateManifest({
       signature: slimSignature,
     }
   }
-  if (frameworkSha256) {
-    manifest.framework = { sha256: frameworkSha256 }
-  } else if (frameworkBinaryPath) {
-    const framework = await readFile(frameworkBinaryPath)
-    manifest.framework = { sha256: createHash('sha256').update(framework).digest('hex') }
+  if (runtimeSha256) {
+    manifest.runtime = { sha256: runtimeSha256 }
   }
   return manifest
 }
@@ -95,7 +91,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const outPath = arg('out')
   if (!archivePath || !tag || !outPath) {
     console.error(
-      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--framework-binary <path> | --framework-sha256 <hex>] [--notes-file <path>]'
+      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--runtime-sha256 <hex>] [--notes-file <path>]'
     )
     process.exit(1)
   }
@@ -107,8 +103,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     notes,
     outPath,
     slimArchivePath: arg('slim-archive'),
-    frameworkBinaryPath: arg('framework-binary'),
-    frameworkSha256: arg('framework-sha256'),
+    runtimeSha256: arg('runtime-sha256'),
   })
   console.log(
     `Signed update feed ${manifest.version} (${manifest.sha256.slice(0, 12)}…) → ${outPath}`
