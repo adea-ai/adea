@@ -11,7 +11,7 @@
 // relaunches; platforms or layouts where that is impossible fall back to the
 // releases-page handoff.
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join, sep } from 'node:path'
 
 /** The Ed25519 public half of the release signing key (raw 32 bytes, base64). */
@@ -215,7 +215,12 @@ export async function downloadUpdateArchive(
     throw new Error(`update download failed: ${response.status}`)
   }
   mkdirSync(join(destinationPath, '..'), { recursive: true })
-  const writer = Bun.file(destinationPath).writer()
+  // Stream into a scratch name and rename once the writer has closed: the
+  // archive path must never be visible to the extractor while it is still
+  // being written, because a partially flushed file extracts as "the
+  // downloaded update archive could not be extracted".
+  const partialPath = `${destinationPath}.partial`
+  const writer = Bun.file(partialPath).writer()
   const hasher = new Bun.CryptoHasher('sha256')
   const totalHeader = Number(response.headers.get('content-length') ?? '')
   const total = Number.isFinite(totalHeader) && totalHeader > 0 ? totalHeader : null
@@ -228,6 +233,7 @@ export async function downloadUpdateArchive(
     hooks.onProgress?.(downloaded, total)
   }
   await writer.end()
+  renameSync(partialPath, destinationPath)
   return { sha256: hasher.digest('hex'), bytes: downloaded }
 }
 
@@ -243,9 +249,21 @@ export async function extractUpdateArchive(
 ): Promise<string> {
   rmSync(extractDir, { force: true, recursive: true })
   mkdirSync(extractDir, { recursive: true })
-  const proc = Bun.spawnSync(['tar', '--zstd', '-xf', archivePath, '-C', extractDir])
+  const proc = Bun.spawnSync(['tar', '--zstd', '-xf', archivePath, '-C', extractDir], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
   if (proc.exitCode !== 0) {
-    throw new Error('the downloaded update archive could not be extracted')
+    // The shell's stdio is /dev/null, so the failing command's own words are
+    // the only evidence that can explain it; carry them into the error path.
+    const stderr = proc.stderr?.toString().trim().slice(0, 300) ?? ''
+    const signal = proc.signalCode ? ` signal=${proc.signalCode}` : ''
+    console.error(
+      `[updater] tar extraction failed: exit=${proc.exitCode}${signal} stderr=${stderr || '(empty)'} archive=${archivePath} dir=${extractDir}`
+    )
+    throw new Error(
+      `the downloaded update archive could not be extracted (tar exit ${proc.exitCode}${signal}${stderr ? `: ${stderr}` : ''})`
+    )
   }
   const appPath = join(extractDir, 'Adea.app')
   const resources = join(appPath, 'Contents', 'Resources')
