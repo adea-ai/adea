@@ -28,6 +28,7 @@ export async function buildUpdateManifest({
   notes,
   slimArchivePath,
   runtimeSha256,
+  frameworkSha256,
 }) {
   const signingKey = process.env.DESKTOP_UPDATE_SIGNING_KEY
   if (!signingKey) {
@@ -76,6 +77,11 @@ export async function buildUpdateManifest({
   if (runtimeSha256) {
     manifest.runtime = { sha256: runtimeSha256 }
   }
+  // Legacy CEF-only hash: shells from the v0.25.2 era gate slim updates on
+  // this field. Drop once no supported release reads it.
+  if (frameworkSha256) {
+    manifest.framework = { sha256: frameworkSha256 }
+  }
   return manifest
 }
 
@@ -91,7 +97,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const outPath = arg('out')
   if (!archivePath || !tag || !outPath) {
     console.error(
-      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--runtime-sha256 <hex>] [--notes-file <path>]'
+      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--runtime-sha256 <hex>] [--framework-sha256 <hex>] [--notes-file <path>]'
     )
     process.exit(1)
   }
@@ -104,6 +110,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     outPath,
     slimArchivePath: arg('slim-archive'),
     runtimeSha256: arg('runtime-sha256'),
+    frameworkSha256: arg('framework-sha256'),
   })
   console.log(
     `Signed update feed ${manifest.version} (${manifest.sha256.slice(0, 12)}…) → ${outPath}`
