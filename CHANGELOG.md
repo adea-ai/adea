@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.25.3](https://github.com/adea-ai/adea/compare/v0.25.2...v0.25.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **release:** hash the CEF framework before the slim staging removes it ([#409](https://github.com/adea-ai/adea/issues/409)) ([27ebcc3](https://github.com/adea-ai/adea/commit/27ebcc3c9d5ddee97857274184ef1594f0d41406))
+
+
+### Performance
+
+* **desktop:** gate slim updates on the runtime hash, not just CEF ([#411](https://github.com/adea-ai/adea/issues/411)) ([fe2d7f0](https://github.com/adea-ai/adea/commit/fe2d7f0799794568289e237ad74e204c4228e5cd))
+
 ## [0.25.2](https://github.com/adea-ai/adea/compare/v0.25.1...v0.25.2) (2026-09-14)
 
 
