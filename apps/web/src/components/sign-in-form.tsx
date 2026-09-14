@@ -54,10 +54,14 @@ export function SignInForm(props: { returnTo: string }) {
     setError('')
     setPending(true)
     const data = new FormData(event.currentTarget)
-    const email = String(data.get('email') ?? '').trim()
     const password = String(data.get('password') ?? '')
-    // Imported before the request so the failure mapper is available in catch.
-    const { authErrorCode, createNeonClientAdapter } = await import('@adea-ai/auth/client')
+    // Imported before the request so the failure mapper and the input
+    // normalizer are available before anything travels: invisible Unicode
+    // (non-breaking or zero-width spaces from copy-paste) reads as a valid
+    // address but the provider rejects it as invalid email.
+    const { authErrorCode, createNeonClientAdapter, normalizeEmail } =
+      await import('@adea-ai/auth/client')
+    const email = normalizeEmail(String(data.get('email') ?? ''))
 
     try {
       const authentication = createNeonClientAdapter()

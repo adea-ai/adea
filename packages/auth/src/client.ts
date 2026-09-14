@@ -6,8 +6,10 @@ import { BetterAuthVanillaAdapter } from '@neondatabase/auth/vanilla'
 import { createAuthAdapter } from './adapter'
 import { createNeonAuthDriver, type NeonSdk } from './neon-driver'
 
-// The browser needs the failure-code mapper to explain a rejected sign-in.
+// The browser needs the failure-code mapper to explain a rejected sign-in,
+// and the input normalizer so rejected input never gets submitted.
 export { AUTH_ERROR_CODES, AuthProviderError, authErrorCode, type AuthErrorCode } from './errors'
+export { normalizeEmail } from './normalize'
 
 export function createNeonClientAdapter() {
   // The framework-neutral entry types its url parameter as string, but the
