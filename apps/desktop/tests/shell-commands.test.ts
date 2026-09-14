@@ -260,7 +260,10 @@ describe('desktop shell command surface', () => {
       mkdirSync(join(workDir, 'Adea.app', 'Contents', 'MacOS'), { recursive: true })
       mkdirSync(join(workDir, 'Adea.app', 'Contents', 'Resources'), { recursive: true })
       writeFileSync(join(workDir, 'Adea.app', 'Contents', 'MacOS', 'launcher'), '')
-      writeFileSync(join(workDir, 'Adea.app', 'Contents', 'Resources', 'main.js'), 'process.exit(0)')
+      writeFileSync(
+        join(workDir, 'Adea.app', 'Contents', 'Resources', 'main.js'),
+        'process.exit(0)'
+      )
       mkdirSync(payloadDir, { recursive: true })
       writeFileSync(join(payloadDir, 'index.js'), 'export {}')
       const tarPath = join(workDir, 'archive.tar')
