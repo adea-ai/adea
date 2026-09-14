@@ -28,6 +28,10 @@ export type UpdateManifest = Readonly<{
   publishedAt: string | null
   platform: string
   arch: string
+  /** SHA-256 of the CEF framework binary this release was built with. */
+  framework: { sha256: string } | null
+  /** App-layer-only archive, installable when the installed CEF matches. */
+  slim: { url: string; sha256: string; signature: string } | null
 }>
 
 export function updateFeedUrl(env: Record<string, string | undefined> = process.env): string {
@@ -103,6 +107,46 @@ export function parseUpdateManifest(
   if (platform !== running.platform || arch !== running.arch) {
     return { ok: false, reason: 'platform' }
   }
+  // Optional slim-update entry: an app-layer-only archive usable when the
+  // installed CEF framework hash matches `framework.sha256`.
+  const framework = candidate.framework
+  let frameworkSha256: string | null = null
+  if (framework !== undefined && framework !== null) {
+    const hash = (framework as Record<string, unknown>).sha256
+    if (typeof hash !== 'string' || !SHA256_HEX.test(hash)) {
+      return { ok: false, reason: 'framework' }
+    }
+    frameworkSha256 = hash
+  }
+  let slim: UpdateManifest['slim'] = null
+  const slimCandidate = candidate.slim
+  if (slimCandidate !== undefined && slimCandidate !== null) {
+    if (frameworkSha256 === null) return { ok: false, reason: 'slim without framework' }
+    const slimRecord = slimCandidate as Record<string, unknown>
+    const slimUrl = slimRecord.url
+    const slimSha256 = slimRecord.sha256
+    const slimSignature = slimRecord.signature
+    if (
+      typeof slimUrl !== 'string' ||
+      typeof slimSha256 !== 'string' ||
+      typeof slimSignature !== 'string'
+    ) {
+      return { ok: false, reason: 'slim' }
+    }
+    try {
+      const parsed = new URL(slimUrl)
+      if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') {
+        return { ok: false, reason: 'slim url' }
+      }
+      if (!parsed.pathname.startsWith('/adea-ai/adea/releases/download/')) {
+        return { ok: false, reason: 'slim url' }
+      }
+    } catch {
+      return { ok: false, reason: 'slim url' }
+    }
+    if (!SHA256_HEX.test(slimSha256)) return { ok: false, reason: 'slim sha256' }
+    slim = { url: slimUrl, sha256: slimSha256, signature: slimSignature }
+  }
   return {
     ok: true,
     manifest: {
@@ -114,7 +158,30 @@ export function parseUpdateManifest(
       publishedAt: typeof candidate.publishedAt === 'string' ? candidate.publishedAt : null,
       platform,
       arch,
+      framework: frameworkSha256 === null ? null : { sha256: frameworkSha256 },
+      slim,
     },
+  }
+}
+
+export function slimSignatureMessage(version: string, sha256: string): string {
+  return `adea-desktop-update-slim/v${version}/${sha256}`
+}
+
+export function verifySlimSignature(
+  manifest: UpdateManifest,
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  if (!manifest.slim) return false
+  try {
+    return cryptoVerify(
+      null,
+      Buffer.from(slimSignatureMessage(manifest.version, manifest.slim.sha256)),
+      updatePublicKey(env),
+      Buffer.from(manifest.slim.signature, 'base64')
+    )
+  } catch {
+    return false
   }
 }
 
@@ -164,10 +231,15 @@ export async function downloadUpdateArchive(
   return { sha256: hasher.digest('hex'), bytes: downloaded }
 }
 
-/** Extract the staged app archive and return the extracted `.app` path. */
+/**
+ * Extract the staged app archive and return the extracted `.app` path. `full`
+ * archives carry the complete bundle; `slim` archives carry only the app layer
+ * (no CEF framework, no launcher-install inputs) and are overlaid in place.
+ */
 export async function extractUpdateArchive(
   archivePath: string,
-  extractDir: string
+  extractDir: string,
+  kind: 'full' | 'slim' = 'full'
 ): Promise<string> {
   rmSync(extractDir, { force: true, recursive: true })
   mkdirSync(extractDir, { recursive: true })
@@ -176,12 +248,43 @@ export async function extractUpdateArchive(
     throw new Error('the downloaded update archive could not be extracted')
   }
   const appPath = join(extractDir, 'Adea.app')
-  const launcher = join(appPath, 'Contents', 'MacOS', 'launcher')
-  const main = join(appPath, 'Contents', 'Resources', 'main.js')
-  if (!existsSync(launcher) || !existsSync(main)) {
+  const resources = join(appPath, 'Contents', 'Resources')
+  const main = join(resources, 'main.js')
+  if (!existsSync(main)) {
     throw new Error('the extracted update is not a complete Adea bundle')
   }
+  if (kind === 'full' && !existsSync(join(appPath, 'Contents', 'MacOS', 'launcher'))) {
+    throw new Error('the extracted update is not a complete Adea bundle')
+  }
+  if (
+    kind === 'slim' &&
+    (!existsSync(join(resources, 'app', 'client', 'index.html')) ||
+      !existsSync(join(resources, 'app', 'bun')))
+  ) {
+    throw new Error('the extracted slim update is not a complete app layer')
+  }
   return appPath
+}
+
+const FRAMEWORK_BINARY = join(
+  'Contents',
+  'Frameworks',
+  'Chromium Embedded Framework.framework',
+  'Chromium Embedded Framework'
+)
+
+/** SHA-256 of the installed bundle's CEF framework binary, or null if absent. */
+export async function installedFrameworkSha256(
+  execPath: string = process.execPath
+): Promise<string | null> {
+  const macosIndex = execPath.lastIndexOf(`${sep}Contents${sep}MacOS${sep}`)
+  if (macosIndex < 0) return null
+  const frameworkPath = join(execPath.slice(0, macosIndex), FRAMEWORK_BINARY)
+  if (!existsSync(frameworkPath)) return null
+  const hasher = new Bun.CryptoHasher('sha256')
+  const stream = Bun.file(frameworkPath).stream()
+  for await (const chunk of stream) hasher.update(chunk as Uint8Array)
+  return hasher.digest('hex')
 }
 
 /**
@@ -195,7 +298,10 @@ export function stageUpdateSwap(input: {
   dataDir: string
   execPath?: string
   skipApply?: boolean
+  /** `slim` overlays the app layer onto the existing bundle (no framework). */
+  mode?: 'full' | 'slim'
 }): { target: string; scriptPath: string } | { error: string } {
+  const mode = input.mode ?? 'full'
   const scriptPath = join(input.dataDir, 'updates', 'apply-update.sh')
   const execPath = input.execPath ?? process.execPath
   const macosIndex = execPath.lastIndexOf(`${sep}Contents${sep}MacOS${sep}`)
@@ -212,27 +318,39 @@ export function stageUpdateSwap(input: {
   // The Electrobun launcher survives its child and, left alive, consumes the
   // relaunch as a single-instance handoff and restarts nothing. Stop every
   // process of the old bundle (the shell has already exited) before swapping.
+  const stopOld = [
+    `pkill -f ${JSON.stringify(target)} 2>/dev/null || true`,
+    'i=0',
+    `while pgrep -f ${JSON.stringify(target)} >/dev/null 2>&1 && [ "$i" -lt 20 ]; do`,
+    '  sleep 0.5',
+    '  i=$((i+1))',
+    'done',
+    `pkill -9 -f ${JSON.stringify(target)} 2>/dev/null || true`,
+    'sleep 1',
+  ]
+  // A full archive replaces the bundle (one-move rollback window); a slim
+  // archive overlays the app layer onto the existing bundle, keeping the CEF
+  // framework and launcher so no multi-minute reinstall runs.
+  const apply =
+    mode === 'slim'
+      ? [`ditto ${JSON.stringify(input.newAppPath)} ${JSON.stringify(target)}`]
+      : [
+          `rm -rf ${JSON.stringify(previous)}`,
+          `mv ${JSON.stringify(target)} ${JSON.stringify(previous)}`,
+          `if ! mv ${JSON.stringify(input.newAppPath)} ${JSON.stringify(target)}; then`,
+          `  mv ${JSON.stringify(previous)} ${JSON.stringify(target)}`,
+          '  exit 1',
+          'fi',
+          `rm -rf ${JSON.stringify(previous)}`,
+        ]
   writeFileSync(
     scriptPath,
     [
       '#!/bin/sh',
       'set -u',
       `while kill -0 ${process.pid} 2>/dev/null; do sleep 0.3; done`,
-      `pkill -f ${JSON.stringify(target)} 2>/dev/null || true`,
-      'i=0',
-      `while pgrep -f ${JSON.stringify(target)} >/dev/null 2>&1 && [ "$i" -lt 20 ]; do`,
-      '  sleep 0.5',
-      '  i=$((i+1))',
-      'done',
-      `pkill -9 -f ${JSON.stringify(target)} 2>/dev/null || true`,
-      'sleep 1',
-      `rm -rf ${JSON.stringify(previous)}`,
-      `mv ${JSON.stringify(target)} ${JSON.stringify(previous)}`,
-      `if ! mv ${JSON.stringify(input.newAppPath)} ${JSON.stringify(target)}; then`,
-      `  mv ${JSON.stringify(previous)} ${JSON.stringify(target)}`,
-      '  exit 1',
-      'fi',
-      `rm -rf ${JSON.stringify(previous)}`,
+      ...stopOld,
+      ...apply,
       // -n forces a fresh LaunchServices instance: every old-bundle process
       // is gone by this point, so there is nothing to "activate" and the new
       // launcher bootstraps into the user's GUI session cleanly.

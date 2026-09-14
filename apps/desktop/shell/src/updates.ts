@@ -6,10 +6,12 @@ import { join } from 'node:path'
 import {
   downloadUpdateArchive,
   extractUpdateArchive,
+  installedFrameworkSha256,
   parseUpdateManifest,
   resolveUpdateAssetUrl,
   stageUpdateSwap,
   updateFeedUrl,
+  verifySlimSignature,
   verifyUpdateSignature,
   type UpdateManifest,
 } from './updater'
@@ -62,6 +64,8 @@ export function createUpdateManager(input: {
   appVersion: string
   dataDir: string
   onExit?: (exitInMs: number) => void
+  /** Test seam: the installed CEF framework hash (otherwise computed from the running bundle). */
+  frameworkSha256?: string
 }) {
   const { appVersion, dataDir } = input
   const onExit = input.onExit ?? ((ms: number) => setTimeout(() => process.exit(0), ms))
@@ -80,6 +84,9 @@ export function createUpdateManager(input: {
     restart_required: false,
   }
   let pendingManifest: UpdateManifest | null = null
+  // Memoized hash of the installed CEF framework binary (computed lazily,
+  // only when a slim-capable update is on offer).
+  let frameworkHash: string | null | undefined
 
   function snapshot(next: Partial<UpdateStatus>): UpdateStatus {
     update = { ...update, ...next }
@@ -197,34 +204,58 @@ export function createUpdateManager(input: {
         downloaded_bytes: 0,
         total_bytes: null,
       })
-      const updatesDir = join(dataDir, 'updates')
-      const archivePath = join(updatesDir, `Adea-${manifest.version}.app.tar.zst`)
-      const { sha256 } = await downloadUpdateArchive(
-        resolveUpdateAssetUrl(manifest.url),
-        archivePath,
-        {
-          onProgress: (downloaded, total) =>
-            snapshot({ downloaded_bytes: downloaded, total_bytes: total }),
-        }
-      )
-      if (sha256 !== manifest.sha256) {
-        rmSync(archivePath, { force: true })
-        throw new Error('the downloaded update failed its checksum')
+      // Slim path: when the release was built against the same CEF framework
+      // this bundle already carries, only the ~1MB app layer downloads and
+      // overlays — no 117MB framework re-download, no launcher reinstall.
+      let useSlim = false
+      if (manifest.slim && manifest.framework) {
+        frameworkHash ??= input.frameworkSha256 ?? (await installedFrameworkSha256())
+        useSlim = frameworkHash === manifest.framework.sha256
       }
-      if (!verifyUpdateSignature(manifest)) {
-        rmSync(archivePath, { force: true })
-        throw new Error('the downloaded update failed its signature check')
+      const updatesDir = join(dataDir, 'updates')
+      const slim = useSlim ? manifest.slim : null
+      const archivePath = join(
+        updatesDir,
+        slim ? `Adea-${manifest.version}-update.tar.zst` : `Adea-${manifest.version}.app.tar.zst`
+      )
+      const downloadTarget = slim
+        ? resolveUpdateAssetUrl(slim.url)
+        : resolveUpdateAssetUrl(manifest.url)
+      const { sha256 } = await downloadUpdateArchive(downloadTarget, archivePath, {
+        onProgress: (downloaded, total) =>
+          snapshot({ downloaded_bytes: downloaded, total_bytes: total }),
+      })
+      if (slim) {
+        if (sha256 !== slim.sha256) {
+          rmSync(archivePath, { force: true })
+          throw new Error('the downloaded update failed its checksum')
+        }
+        if (!verifySlimSignature(manifest)) {
+          rmSync(archivePath, { force: true })
+          throw new Error('the downloaded update failed its signature check')
+        }
+      } else {
+        if (sha256 !== manifest.sha256) {
+          rmSync(archivePath, { force: true })
+          throw new Error('the downloaded update failed its checksum')
+        }
+        if (!verifyUpdateSignature(manifest)) {
+          rmSync(archivePath, { force: true })
+          throw new Error('the downloaded update failed its signature check')
+        }
       }
       snapshot({ phase: 'installing' })
       const newAppPath = await extractUpdateArchive(
         archivePath,
-        join(updatesDir, `extracted-${manifest.version}`)
+        join(updatesDir, `extracted-${manifest.version}`),
+        useSlim ? 'slim' : 'full'
       )
       rmSync(archivePath, { force: true })
       const staged = stageUpdateSwap({
         newAppPath,
         dataDir,
         skipApply: process.env.ADEA_UPDATE_SKIP_APPLY === '1',
+        mode: useSlim ? 'slim' : 'full',
       })
       if ('error' in staged) {
         // In-place install is impossible here (dev run, unsupported

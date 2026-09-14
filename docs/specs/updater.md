@@ -85,11 +85,11 @@ GitHub-API availability check plus a releases-page handoff.
 
 ## Pinned by
 
-- `apps/desktop/tests/shell-updates.test.ts`: manifest validation (platform,
-  host, digest), Ed25519 signature verification and tampering, the full
-  check → download → verify → extract → staged-install flow against a local
-  signed feed, install guards (approval, expected version), and the
-  releases-page fallback.
+- `scripts/desktop-update-boundary.test.ts`: manifest validation (platform,
+  host, digest), Ed25519 signature verification and tampering (full and slim),
+  the full check → download → verify → extract → staged-install flow against a
+  local signed feed, slim-vs-full framework-hash selection, install guards
+  (approval, expected version), and the releases-page fallback.
 - `apps/desktop/tests/shell-commands.test.ts`: feed availability phases and
   the packaged-version reporting.
 - `scripts/desktop-ipc-boundary.test.ts`: the `desktop_update_*` command
