@@ -251,10 +251,26 @@ jobs:
           fi
           if [[ -n "$RELEASE_TAG" ]]; then
             REPO_ROOT="${{ github.workspace }}"
+            # Slim update archive: the app layer without the 300MB CEF
+            # framework and launcher-install inputs. Installed shells whose
+            # framework hash matches latest.json's `framework.sha256` install
+            # this instead of the full archive (~1MB vs ~120MB, no reinstall).
+            SLIM_STAGING="$RUNNER_TEMP/slim-extract"
+            mkdir -p "$SLIM_STAGING"
+            tar --zstd -xf "${archives[0]}" -C "$SLIM_STAGING"
+            FRAMEWORK_BIN="$SLIM_STAGING/Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+            rm -rf "$SLIM_STAGING/Adea.app/Contents/Frameworks"
+            rm -f "$SLIM_STAGING/Adea.app/Contents/Resources/"*.tar.zst \
+                  "$SLIM_STAGING/Adea.app/Contents/Resources/metadata.json"
+            tar --zstd -cf "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst" \
+              -C "$SLIM_STAGING" Adea.app
+            rm -rf "$SLIM_STAGING"
             SIGN_ARGS=(
               --archive "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64.app.tar.zst"
               --tag "$RELEASE_TAG"
               --out "$RUNNER_TEMP/staged/latest.json"
+              --slim-archive "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst"
+              --framework-binary "$FRAMEWORK_BIN"
             )
             NOTES_FILE="$RUNNER_TEMP/notes/notes.txt"
             mkdir -p "$RUNNER_TEMP/notes"

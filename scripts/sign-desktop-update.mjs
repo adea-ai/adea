@@ -22,7 +22,13 @@ function arg(name) {
   return process.argv[index + 1]
 }
 
-export async function buildUpdateManifest({ archivePath, tag, notes }) {
+export async function buildUpdateManifest({
+  archivePath,
+  tag,
+  notes,
+  slimArchivePath,
+  frameworkBinaryPath,
+}) {
   const signingKey = process.env.DESKTOP_UPDATE_SIGNING_KEY
   if (!signingKey) {
     throw new Error('DESKTOP_UPDATE_SIGNING_KEY is not set; refusing to publish an unsigned feed')
@@ -36,7 +42,7 @@ export async function buildUpdateManifest({ archivePath, tag, notes }) {
     Buffer.from(`adea-desktop-update/v${version}/${sha256}`),
     createPrivateKey(signingKey)
   ).toString('base64')
-  return {
+  const manifest = {
     version,
     // Node platform vocabulary — the shell compares this against
     // `process.platform`/`process.arch` before offering the update.
@@ -47,11 +53,48 @@ export async function buildUpdateManifest({ archivePath, tag, notes }) {
     signature,
     notes: notes ?? null,
     publishedAt: new Date().toISOString(),
+    framework: null,
+    slim: null,
   }
+  // Slim updates: when the CEF framework binary is unchanged from what an
+  // installed app already carries, the shell may install the app-layer-only
+  // archive instead — ~1MB instead of ~120MB, and no launcher reinstall.
+  if (slimArchivePath) {
+    const slimArchive = await readFile(slimArchivePath)
+    const slimSha256 = createHash('sha256').update(slimArchive).digest('hex')
+    const slimSignature = cryptoSign(
+      null,
+      Buffer.from(`adea-desktop-update-slim/v${version}/${slimSha256}`),
+      createPrivateKey(signingKey)
+    ).toString('base64')
+    manifest.slim = {
+      url: `https://github.com/${REPO}/releases/download/${tag}/Adea-${tag}-macos-arm64-update.tar.zst`,
+      sha256: slimSha256,
+      signature: slimSignature,
+    }
+  }
+  if (frameworkBinaryPath) {
+    const framework = await readFile(frameworkBinaryPath)
+    manifest.framework = { sha256: createHash('sha256').update(framework).digest('hex') }
+  }
+  return manifest
 }
 
-export async function signDesktopUpdate({ archivePath, tag, notes, outPath }) {
-  const manifest = await buildUpdateManifest({ archivePath, tag, notes })
+export async function signDesktopUpdate({
+  archivePath,
+  tag,
+  notes,
+  outPath,
+  slimArchivePath,
+  frameworkBinaryPath,
+}) {
+  const manifest = await buildUpdateManifest({
+    archivePath,
+    tag,
+    notes,
+    slimArchivePath,
+    frameworkBinaryPath,
+  })
   await writeFile(outPath, `${JSON.stringify(manifest, null, 2)}\n`)
   return manifest
 }
@@ -62,13 +105,20 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const outPath = arg('out')
   if (!archivePath || !tag || !outPath) {
     console.error(
-      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--notes-file <path>]'
+      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--framework-binary <path>] [--notes-file <path>]'
     )
     process.exit(1)
   }
   const notesFile = arg('notes-file')
   const notes = notesFile ? await readFile(notesFile, 'utf8') : null
-  const manifest = await signDesktopUpdate({ archivePath, tag, notes, outPath })
+  const manifest = await signDesktopUpdate({
+    archivePath,
+    tag,
+    notes,
+    outPath,
+    slimArchivePath: arg('slim-archive'),
+    frameworkBinaryPath: arg('framework-binary'),
+  })
   console.log(
     `Signed update feed ${manifest.version} (${manifest.sha256.slice(0, 12)}…) → ${outPath}`
   )
