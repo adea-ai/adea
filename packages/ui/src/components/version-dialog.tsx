@@ -157,7 +157,14 @@ export function VersionDialog(props: {
     setBusy(true)
     setError('')
     try {
-      setUpdate(await props.adapter.install(version))
+      const next = await props.adapter.install(version)
+      setUpdate(next)
+      // A refused install answers with a normal status payload whose phase is
+      // `failed` (the shell's download/extract/apply errors). Without this,
+      // clicking install looked like nothing happened at all.
+      if (next.phase === 'failed') {
+        setError(errorMessage(next.error, 'Update installation failed'))
+      }
     } catch (caught) {
       setError(errorMessage(caught, 'Update installation failed'))
       await loadCurrentStatus()
