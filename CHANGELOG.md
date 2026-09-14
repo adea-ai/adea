@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.8](https://github.com/adea-ai/adea/compare/v0.25.7...v0.25.8) (2026-09-14)
+
+
+### Bug Fixes
+
+* **workspace-ui:** offer sign-in instead of a retry loop for guest plugin browsing ([#427](https://github.com/adea-ai/adea/issues/427)) ([09ccf9c](https://github.com/adea-ai/adea/commit/09ccf9c4c074f5501077cdba56d02d8025e064c7))
+
 ## [0.25.7](https://github.com/adea-ai/adea/compare/v0.25.6...v0.25.7) (2026-09-14)
 
 
