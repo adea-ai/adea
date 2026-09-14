@@ -267,6 +267,9 @@ jobs:
               "$APP_TREE/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework" \
               "$APP_TREE/Contents/MacOS/bun" \
               "$APP_TREE/Contents/MacOS/launcher" | shasum -a 256 | cut -d' ' -f1)"
+            # Legacy CEF-only hash for v0.25.2-era shells.
+            FRAMEWORK_SHA="$(shasum -a 256 \
+              "$APP_TREE/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework" | cut -d' ' -f1)"
             rm -f "$APP_TREE/Contents/Resources/"*.tar.zst \
                   "$APP_TREE/Contents/Resources/metadata.json"
             tar --zstd -cf "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst" \
@@ -280,6 +283,7 @@ jobs:
               --out "$RUNNER_TEMP/staged/latest.json"
               --slim-archive "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst"
               --runtime-sha256 "$RUNTIME_SHA"
+              --framework-sha256 "$FRAMEWORK_SHA"
             )
             NOTES_FILE="$RUNNER_TEMP/notes/notes.txt"
             mkdir -p "$RUNNER_TEMP/notes"
