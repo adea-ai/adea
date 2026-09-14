@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.11](https://github.com/adea-ai/adea/compare/v0.25.10...v0.25.11) (2026-09-14)
+
+
+### Bug Fixes
+
+* **desktop:** extract updates with the bundle's own zig-zstd, not a PATH zstd ([#433](https://github.com/adea-ai/adea/issues/433)) ([ab4242f](https://github.com/adea-ai/adea/commit/ab4242feca93015da5e9d293ef2a05198c1d3bc0))
+
 ## [0.25.10](https://github.com/adea-ai/adea/compare/v0.25.9...v0.25.10) (2026-09-14)
 
 
