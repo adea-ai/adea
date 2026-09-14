@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.4](https://github.com/adea-ai/adea/compare/v0.25.3...v0.25.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* **release:** publish both hash fields so v0.25.2-era shells keep self-updating ([#412](https://github.com/adea-ai/adea/issues/412)) ([2ff44bb](https://github.com/adea-ai/adea/commit/2ff44bbb819c669b34e0b2c2f3b1e49c9d582d67))
+
 ## [0.25.3](https://github.com/adea-ai/adea/compare/v0.25.2...v0.25.3) (2026-09-14)
 
 
