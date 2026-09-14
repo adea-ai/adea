@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.9](https://github.com/adea-ai/adea/compare/v0.25.8...v0.25.9) (2026-09-14)
+
+
+### Bug Fixes
+
+* **release:** consume the prebuilt Agent Sim engine pack instead of a clone ([#428](https://github.com/adea-ai/adea/issues/428)) ([1118085](https://github.com/adea-ai/adea/commit/111808592d5a2e3aa375a9d0fa91c81051207527))
+
 ## [0.25.8](https://github.com/adea-ai/adea/compare/v0.25.7...v0.25.8) (2026-09-14)
 
 
