@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.10](https://github.com/adea-ai/adea/compare/v0.25.9...v0.25.10) (2026-09-14)
+
+
+### Bug Fixes
+
+* **auth:** accept email addresses carrying invisible Unicode characters ([#431](https://github.com/adea-ai/adea/issues/431)) ([05b7f9c](https://github.com/adea-ai/adea/commit/05b7f9cf2339d11b1babe979e7420e41673352d4))
+
 ## [0.25.9](https://github.com/adea-ai/adea/compare/v0.25.8...v0.25.9) (2026-09-14)
 
 
