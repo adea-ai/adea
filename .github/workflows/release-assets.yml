@@ -259,6 +259,8 @@ jobs:
             mkdir -p "$SLIM_STAGING"
             tar --zstd -xf "${archives[0]}" -C "$SLIM_STAGING"
             FRAMEWORK_BIN="$SLIM_STAGING/Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"
+            # Hash before the framework directory is removed below.
+            FRAMEWORK_SHA="$(shasum -a 256 "$FRAMEWORK_BIN" | cut -d' ' -f1)"
             rm -rf "$SLIM_STAGING/Adea.app/Contents/Frameworks"
             rm -f "$SLIM_STAGING/Adea.app/Contents/Resources/"*.tar.zst \
                   "$SLIM_STAGING/Adea.app/Contents/Resources/metadata.json"
@@ -270,7 +272,7 @@ jobs:
               --tag "$RELEASE_TAG"
               --out "$RUNNER_TEMP/staged/latest.json"
               --slim-archive "$RUNNER_TEMP/staged/Adea-${RELEASE_TAG}-macos-arm64-update.tar.zst"
-              --framework-binary "$FRAMEWORK_BIN"
+              --framework-sha256 "$FRAMEWORK_SHA"
             )
             NOTES_FILE="$RUNNER_TEMP/notes/notes.txt"
             mkdir -p "$RUNNER_TEMP/notes"

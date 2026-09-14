@@ -28,6 +28,7 @@ export async function buildUpdateManifest({
   notes,
   slimArchivePath,
   frameworkBinaryPath,
+  frameworkSha256,
 }) {
   const signingKey = process.env.DESKTOP_UPDATE_SIGNING_KEY
   if (!signingKey) {
@@ -73,29 +74,18 @@ export async function buildUpdateManifest({
       signature: slimSignature,
     }
   }
-  if (frameworkBinaryPath) {
+  if (frameworkSha256) {
+    manifest.framework = { sha256: frameworkSha256 }
+  } else if (frameworkBinaryPath) {
     const framework = await readFile(frameworkBinaryPath)
     manifest.framework = { sha256: createHash('sha256').update(framework).digest('hex') }
   }
   return manifest
 }
 
-export async function signDesktopUpdate({
-  archivePath,
-  tag,
-  notes,
-  outPath,
-  slimArchivePath,
-  frameworkBinaryPath,
-}) {
-  const manifest = await buildUpdateManifest({
-    archivePath,
-    tag,
-    notes,
-    slimArchivePath,
-    frameworkBinaryPath,
-  })
-  await writeFile(outPath, `${JSON.stringify(manifest, null, 2)}\n`)
+export async function signDesktopUpdate(options) {
+  const manifest = await buildUpdateManifest(options)
+  await writeFile(options.outPath, `${JSON.stringify(manifest, null, 2)}\n`)
   return manifest
 }
 
@@ -105,7 +95,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const outPath = arg('out')
   if (!archivePath || !tag || !outPath) {
     console.error(
-      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--framework-binary <path>] [--notes-file <path>]'
+      'usage: bun scripts/sign-desktop-update.mjs --archive <path> --tag <tag> --out <path> [--slim-archive <path>] [--framework-binary <path> | --framework-sha256 <hex>] [--notes-file <path>]'
     )
     process.exit(1)
   }
@@ -118,6 +108,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     outPath,
     slimArchivePath: arg('slim-archive'),
     frameworkBinaryPath: arg('framework-binary'),
+    frameworkSha256: arg('framework-sha256'),
   })
   console.log(
     `Signed update feed ${manifest.version} (${manifest.sha256.slice(0, 12)}…) → ${outPath}`
