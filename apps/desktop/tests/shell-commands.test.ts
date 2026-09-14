@@ -4,7 +4,7 @@
 // exercised from the desktop lane it belongs to.
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -241,8 +241,49 @@ describe('desktop shell command surface', () => {
       const archivePath = join(workDir, 'broken.tar.zst')
       Bun.write(archivePath, new TextEncoder().encode('not zstd'))
       await expect(extractUpdateArchive(archivePath, join(workDir, 'out'))).rejects.toThrow(
-        /could not be extracted/
+        /could not be (?:de)?compressed/
       )
+    } finally {
+      rmSync(workDir, { force: true, recursive: true })
+    }
+  })
+
+  test('extracts zstd archives without relying on a PATH zstd program', async () => {
+    // macOS bsdtar implements `--zstd` by executing an external `zstd`
+    // program, which the launchd PATH of a Dock-launched app does not
+    // contain — updates could never extract on machines without a Homebrew
+    // zstd. The extractor must decompress with the bundle's own zig-zstd
+    // (or an explicit zstd) and then untar the plain tar.
+    const workDir = mkdtempSync(join(tmpdir(), 'adea-update-extract-'))
+    try {
+      const payloadDir = join(workDir, 'Adea.app', 'Contents', 'Resources', 'app')
+      mkdirSync(join(workDir, 'Adea.app', 'Contents', 'MacOS'), { recursive: true })
+      mkdirSync(join(workDir, 'Adea.app', 'Contents', 'Resources'), { recursive: true })
+      writeFileSync(join(workDir, 'Adea.app', 'Contents', 'MacOS', 'launcher'), '')
+      writeFileSync(join(workDir, 'Adea.app', 'Contents', 'Resources', 'main.js'), 'process.exit(0)')
+      mkdirSync(payloadDir, { recursive: true })
+      writeFileSync(join(payloadDir, 'index.js'), 'export {}')
+      const tarPath = join(workDir, 'archive.tar')
+      const makeTar = Bun.spawnSync(['tar', '-cf', tarPath, '-C', workDir, 'Adea.app'], {
+        stderr: 'pipe',
+      })
+      expect(makeTar.exitCode).toBe(0)
+      const archivePath = join(workDir, 'archive.tar.zst')
+      const makeZst = Bun.spawnSync(['zstd', '-f', tarPath, '-o', archivePath], {
+        stderr: 'pipe',
+      })
+      if (makeZst.exitCode !== 0) {
+        // The suite pins the strategy below; decompression itself is
+        // exercised wherever a zstd implementation exists (dev and CI do).
+        console.warn('no zstd on PATH; skipping the round-trip assertion')
+      } else {
+        const out = await extractUpdateArchive(archivePath, join(workDir, 'out'))
+        expect(out).toBe(join(workDir, 'out', 'Adea.app'))
+      }
+      // The bundle-relative tool is the mechanism, not a PATH lookup.
+      const source = readFileSync(join(import.meta.dir, '../shell/src/updater.ts'), 'utf8')
+      expect(source).toContain("join(dirname(process.execPath), 'zig-zstd')")
+      expect(source).not.toContain("'tar', '--zstd'")
     } finally {
       rmSync(workDir, { force: true, recursive: true })
     }

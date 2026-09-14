@@ -12,7 +12,7 @@
 // releases-page handoff.
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 /** The Ed25519 public half of the release signing key (raw 32 bytes, base64). */
 const DESKTOP_UPDATE_PUBLIC_KEY = 'oNz1xzur8JmPA/fv4m2FI/HWEhju372i/e21aiq0cDs='
@@ -242,6 +242,43 @@ export async function downloadUpdateArchive(
  * archives carry the complete bundle; `slim` archives carry only the app layer
  * (no CEF framework, no launcher-install inputs) and are overlaid in place.
  */
+/**
+ * Decompress one zstd archive with the tool the bundle already ships next to
+ * the runtime (`Contents/MacOS/zig-zstd`, part of every full install). macOS
+ * bsdtar implements `--zstd` by executing an external `zstd` program, which
+ * the launchd PATH of a Dock-launched app (/usr/bin:/bin:/usr/sbin:/sbin)
+ * does not contain — machines without a Homebrew zstd could never extract an
+ * update at all. Returns the plain tar path.
+ */
+function decompressZstd(archivePath: string, tarPath: string): void {
+  const bundled = join(dirname(process.execPath), 'zig-zstd')
+  if (existsSync(bundled)) {
+    const proc = Bun.spawnSync([bundled, 'decompress', '-i', archivePath, '-o', tarPath], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    if (proc.exitCode !== 0) {
+      const stderr = proc.stderr?.toString().trim().slice(0, 300) ?? ''
+      throw new Error(
+        `the downloaded update archive could not be decompressed (zig-zstd exit ${proc.exitCode}${stderr ? `: ${stderr}` : ''})`
+      )
+    }
+    return
+  }
+  // Not inside an installed bundle (repo dev run): the developer's PATH is
+  // expected to carry a zstd implementation.
+  const proc = Bun.spawnSync(['zstd', '-d', '-f', archivePath, '-o', tarPath], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  if (proc.exitCode !== 0) {
+    const stderr = proc.stderr?.toString().trim().slice(0, 300) ?? ''
+    throw new Error(
+      `the downloaded update archive could not be decompressed (zstd exit ${proc.exitCode}${stderr ? `: ${stderr}` : ''})`
+    )
+  }
+}
+
 export async function extractUpdateArchive(
   archivePath: string,
   extractDir: string,
@@ -249,10 +286,15 @@ export async function extractUpdateArchive(
 ): Promise<string> {
   rmSync(extractDir, { force: true, recursive: true })
   mkdirSync(extractDir, { recursive: true })
-  const proc = Bun.spawnSync(['tar', '--zstd', '-xf', archivePath, '-C', extractDir], {
+  // Two steps, never `tar --zstd`: see decompressZstd for why the filter
+  // form cannot be relied on inside a launched app.
+  const tarPath = join(extractDir, 'archive.tar')
+  decompressZstd(archivePath, tarPath)
+  const proc = Bun.spawnSync(['tar', '-xf', tarPath, '-C', extractDir], {
     stdout: 'pipe',
     stderr: 'pipe',
   })
+  rmSync(tarPath, { force: true })
   if (proc.exitCode !== 0) {
     // The shell's stdio is /dev/null, so the failing command's own words are
     // the only evidence that can explain it; carry them into the error path.
