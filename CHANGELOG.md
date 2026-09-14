@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.2](https://github.com/adea-ai/adea/compare/v0.25.1...v0.25.2) (2026-09-14)
+
+
+### Performance
+
+* **desktop:** slim self-updates — app layer only when CEF is unchanged ([#407](https://github.com/adea-ai/adea/issues/407)) ([49406f1](https://github.com/adea-ai/adea/commit/49406f1ee65c5db75245c67d57eda340730151bf))
+
 ## [0.25.1](https://github.com/adea-ai/adea/compare/v0.25.0...v0.25.1) (2026-09-13)
 
 
