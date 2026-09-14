@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.7](https://github.com/adea-ai/adea/compare/v0.25.6...v0.25.7) (2026-09-14)
+
+
+### Bug Fixes
+
+* **desktop:** report failed updates instead of silently doing nothing ([#420](https://github.com/adea-ai/adea/issues/420)) ([c4f6e92](https://github.com/adea-ai/adea/commit/c4f6e92d7292119766b2ece05c39cc7f0dd010a2))
+
 ## [0.25.6](https://github.com/adea-ai/adea/compare/v0.25.5...v0.25.6) (2026-09-14)
 
 
