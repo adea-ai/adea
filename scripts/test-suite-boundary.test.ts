@@ -94,6 +94,7 @@ describe('test suite boundaries', () => {
     // The verify gate asserts the bundle structure, not just an asset count.
     expect(workflow).toContain('Chromium Embedded Framework.framework/Chromium Embedded Framework')
     expect(workflow).toContain('Adea.app/Contents/Resources/app/client/index.html')
+    expect(workflow).toContain('Adea.app/Contents/Resources/AppIcon.icns')
     expect(workflow).toContain('Verify the signed update feed is published')
     // The Rust lane is gone: no tauri action, signing secrets, or updater
     // channel may come back. The lane publishes and signs the latest.json
@@ -113,6 +114,20 @@ describe('test suite boundaries', () => {
     expect(existsSync(resolve(root, 'scripts/manual-release.mjs'))).toBeFalse()
     expect(existsSync(resolve(root, 'scripts/release-runners.mjs'))).toBeFalse()
     expect(existsSync(resolve(root, 'scripts/native-smoke.mjs'))).toBeFalse()
+  })
+
+  test('keeps the Electrobun icon source the release lane builds from', () => {
+    // Hutch converts `apps/desktop/shell/icon.iconset` into the bundle's
+    // AppIcon.icns while packing, so the icon reaches the app archive and the
+    // disk image instead of being stamped onto the bundle after packing.
+    // Removing the iconset silently ships an icon-less bundle again.
+    const iconset = resolve(root, 'apps/desktop/shell/icon.iconset')
+    expect(existsSync(iconset)).toBeTrue()
+    expect(existsSync(resolve(iconset, 'icon_512x512@2x.png'))).toBeTrue()
+    // The old post-build stamp workaround must not come back: it cannot reach
+    // the already-packed artifacts.
+    const shellScript = readFileSync(resolve(root, 'apps/desktop/scripts/shell.mjs'), 'utf8')
+    expect(shellScript).not.toContain('stampAppIcons')
   })
 
   test('keeps one canonical changelog and versions every private workspace in lockstep', () => {

@@ -76,7 +76,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 async function post(request: Request) {
   const rejected = guardDesktopWorkspaceRequest(request)
   if (rejected) return rejected
-  const resolution = await resolveWorkspacePrincipal(request)
+  const resolution = await resolveWorkspacePrincipal(request, { createTemporary: true })
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   let body: unknown
   try {

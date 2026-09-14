@@ -220,6 +220,22 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(bootstrapRoute).toContain('getUserDisplayName')
   })
 
+  test('resolves the guest principal on every desktop marketplace route', async () => {
+    // The desktop app boots as a temporary guest until an account signs in
+    // (desktop-workspace-entry). Bootstrap provisions that guest principal;
+    // a marketplace route that resolves without `createTemporary` answers 401
+    // for the very session bootstrap just created, which surfaces as an
+    // empty "Plugin catalog unavailable" dialog for every guest.
+    for (const route of ['catalog', 'install', 'install-plan']) {
+      const source = await readFile(
+        join(root, `apps/web/src/start/routes/api/marketplace/${route}.ts`),
+        'utf8'
+      )
+      expect(source).toContain('resolveWorkspacePrincipal(request, { createTemporary: true })')
+      expect(source).not.toContain('resolveWorkspacePrincipal(request)\n')
+    }
+  })
+
   test('shares the complete version and changelog dialog across web and desktop', async () => {
     const navigation = await readFile(
       join(root, 'apps/web/src/components/workspace-navigation.tsx'),
