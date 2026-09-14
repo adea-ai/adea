@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.12](https://github.com/adea-ai/adea/compare/v0.25.11...v0.25.12) (2026-09-14)
+
+
+### Maintenance
+
+* **release:** free runner disk space before the desktop build ([#435](https://github.com/adea-ai/adea/issues/435)) ([0a01362](https://github.com/adea-ai/adea/commit/0a01362f7713342e3af7b39427e26bf73dec3c72))
+
 ## [0.25.11](https://github.com/adea-ai/adea/compare/v0.25.10...v0.25.11) (2026-09-14)
 
 
