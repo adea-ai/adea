@@ -314,6 +314,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         open={globalPanel() === 'plugins' && Boolean(props.activeWorkspace)}
         onClose={() => workspaceStore.getState().setGlobalPanel(null)}
         provider={props.services.plugins}
+        authenticated={props.account.authenticated}
+        onSignIn={props.account.onSignIn}
       />
       <WorkspaceAboutDialog
         appName={props.services.app?.name}

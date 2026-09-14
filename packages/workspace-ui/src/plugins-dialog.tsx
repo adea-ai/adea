@@ -228,6 +228,35 @@ function PluginBrowserGroup(props: {
   )
 }
 
+/**
+ * The catalog is account-gated: the Control Plane has no grant for an
+ * unauthenticated (guest) workspace, so every catalog fetch fails for one.
+ * Saying "unavailable, retry" sent guests into a loop — offer the sign-in
+ * action that actually unblocks the marketplace.
+ */
+function PluginSignInState(props: { onSignIn?: () => void }) {
+  return (
+    <Empty role="status">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Blocks aria-hidden="true" />
+        </EmptyMedia>
+        <EmptyTitle>Sign in to browse plugins</EmptyTitle>
+        <EmptyDescription>
+          The plugin marketplace is available once you sign in to your Adea account.
+        </EmptyDescription>
+      </EmptyHeader>
+      <Show when={props.onSignIn}>
+        {(onSignIn) => (
+          <Button type="button" onClick={() => onSignIn()()}>
+            Sign in
+          </Button>
+        )}
+      </Show>
+    </Empty>
+  )
+}
+
 function PluginListState(props: {
   catalogState: 'stale' | 'unavailable' | 'verification-failure'
   status: 'error' | 'loading'
@@ -395,6 +424,9 @@ export function PluginsDialog(props: {
   onClose: () => void
   open: boolean
   provider?: WorkspacePluginsProvider
+  /** False when the session is an unauthenticated guest: the catalog is account-gated. */
+  authenticated?: boolean
+  onSignIn?: () => void
 }) {
   const previewCount = usePluginPreviewCount()
   const [expandedGroups, setExpandedGroups] = createSignal<ReadonlySet<string>>(new Set())
@@ -520,16 +552,23 @@ export function PluginsDialog(props: {
               <Show
                 when={status() !== 'loading' && status() !== 'error'}
                 fallback={
-                  <PluginListState
-                    catalogState={
-                      catalogState() === 'verification-failure'
-                        ? 'verification-failure'
-                        : catalogState() === 'stale'
-                          ? 'stale'
-                          : 'unavailable'
+                  <Show
+                    when={props.authenticated === false}
+                    fallback={
+                      <PluginListState
+                        catalogState={
+                          catalogState() === 'verification-failure'
+                            ? 'verification-failure'
+                            : catalogState() === 'stale'
+                              ? 'stale'
+                              : 'unavailable'
+                        }
+                        status={status() === 'error' ? 'error' : 'loading'}
+                      />
                     }
-                    status={status() === 'error' ? 'error' : 'loading'}
-                  />
+                  >
+                    <PluginSignInState onSignIn={() => props.onSignIn?.()} />
+                  </Show>
                 }
               >
                 <Show

@@ -236,6 +236,28 @@ describe('desktop packaging and single-UI client boundary', () => {
     }
   })
 
+  test('offers sign-in instead of a retry loop for signed-out plugin browsing', async () => {
+    // The Control Plane has no grant for a guest workspace, so its catalog
+    // call can only fail until the user signs in. The dialog must say so and
+    // hand over the same sign-in action the account menu uses, rather than
+    // telling a guest to retry.
+    const dialog = await readFile(
+      join(root, 'packages/workspace-ui/src/plugins-dialog.tsx'),
+      'utf8'
+    )
+    expect(dialog).toContain('props.authenticated === false')
+    expect(dialog).toContain('Sign in to browse plugins')
+    expect(dialog).toContain('onSignIn')
+
+    const navigation = await readFile(
+      join(root, 'apps/web/src/components/workspace-navigation.tsx'),
+      'utf8'
+    )
+    // The desktop/web shell wires the dialog to the session it already knows.
+    expect(navigation).toContain('authenticated={props.account.authenticated}')
+    expect(navigation).toContain('onSignIn={props.account.onSignIn}')
+  })
+
   test('shares the complete version and changelog dialog across web and desktop', async () => {
     const navigation = await readFile(
       join(root, 'apps/web/src/components/workspace-navigation.tsx'),
