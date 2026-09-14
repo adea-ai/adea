@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.5](https://github.com/adea-ai/adea/compare/v0.25.4...v0.25.5) (2026-09-14)
+
+
+### Documentation
+
+* **perf:** record the verified slim-update numbers ([#414](https://github.com/adea-ai/adea/issues/414)) ([c8c5cbb](https://github.com/adea-ai/adea/commit/c8c5cbbf4d9278d18f2063f19132f8f6423ee006))
+
 ## [0.25.4](https://github.com/adea-ai/adea/compare/v0.25.3...v0.25.4) (2026-09-14)
 
 
