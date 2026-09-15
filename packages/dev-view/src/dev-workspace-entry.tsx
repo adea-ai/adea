@@ -41,7 +41,7 @@ import {
   undoClosePane,
   type DevLayoutState,
 } from './layout/operations'
-import { createLayoutStorageController } from './layout/storage'
+import { createLayoutStorageController, type LayoutStorage } from './layout/storage'
 import type { DevRuntimeService } from './platform'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 
@@ -66,6 +66,7 @@ export type DevGroupFixture = Readonly<{
 export type DevWorkspaceEntryProps = Readonly<{
   runtime: DevRuntimeService
   groups?: readonly DevGroupFixture[]
+  storage?: LayoutStorage
 }>
 
 export const devViewFixtureGroups: readonly DevGroupFixture[] = [
@@ -158,9 +159,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     const runtimeSessionId = selectedSession()
     storageController?.dispose()
     storageController = undefined
-    if (!scope || typeof localStorage === 'undefined' || !projectId || !runtimeSessionId) return
+    if (!scope || !props.storage || !projectId || !runtimeSessionId) return
     const controller = createLayoutStorageController({
-      storage: localStorage,
+      storage: props.storage,
       scope,
       projectId,
       runtimeSessionId,

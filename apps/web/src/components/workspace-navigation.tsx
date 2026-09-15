@@ -32,6 +32,7 @@ const DevWorkspace = lazyComponent(
         }) => (
           <DevWorkspaceEntry
             groups={entryProps.fixture ? devViewFixtureGroups : undefined}
+            storage={typeof window === 'undefined' ? undefined : window.localStorage}
             runtime={
               entryProps.runtime ??
               createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
