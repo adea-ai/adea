@@ -26,6 +26,15 @@ const targetIdFields = {
 
 function operationDefinition([operation, definition]) {
   const resourceKind = definition.resource?.split(':')[0]
+  if (resourceKind && !targetIdFields[resourceKind])
+    throw new Error(`${operation} has unmapped resource kind ${resourceKind}`)
+  if (
+    definition.capabilities.some(
+      (capability, index) =>
+        index > 0 && capability.localeCompare(definition.capabilities[index - 1]) <= 0
+    )
+  )
+    throw new Error(`${operation} capabilities must be sorted and unique`)
   const resource = resourceKind
     ? `{ kind: ${JSON.stringify(resourceKind)}, idField: ${JSON.stringify(targetIdFields[resourceKind])} }`
     : 'null'
