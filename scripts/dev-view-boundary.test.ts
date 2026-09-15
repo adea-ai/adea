@@ -43,6 +43,11 @@ describe('Dev View dependency and bundle boundaries', () => {
     expect(desktopSeam).toContain('channel_unauthenticated')
     expect(desktopSeam).not.toContain('desktopInvoke')
     expect(desktopSeam).not.toContain("from './desktop-bridge'")
+
+    const hostSeam = read('apps/desktop/shell/src/dev-runtime/index.ts')
+    expect(hostSeam).toContain("status: 'blocked'")
+    expect(hostSeam).toContain('registeredCommands: Object.freeze([]')
+    expect(read('apps/desktop/shell/src/commands.ts')).not.toContain("'dev.runtime.execute.v1'")
   })
 
   test('pins generated decoders to the normative operation registry', () => {
