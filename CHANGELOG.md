@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.0](https://github.com/adea-ai/adea/compare/v0.25.17...v0.26.0) (2026-09-15)
+
+
+### Features
+
+* **dev-view:** add M12 foundation shell ([#447](https://github.com/adea-ai/adea/issues/447)) ([c6f8a32](https://github.com/adea-ai/adea/commit/c6f8a327fdaeb7a2b3764e4ccd8cef7e7dd12f57))
+
 ## [0.25.17](https://github.com/adea-ai/adea/compare/v0.25.16...v0.25.17) (2026-09-15)
 
 
