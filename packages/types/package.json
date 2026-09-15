@@ -10,12 +10,18 @@
       "types": "./dist/index.d.ts",
       "development": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./dev-runtime": {
+      "types": "./dist/dev-runtime.d.ts",
+      "development": "./src/dev-runtime.ts",
+      "import": "./dist/dev-runtime.js"
     }
   },
   "scripts": {
     "lint": "oxlint",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "test": "bun test tests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
 }
