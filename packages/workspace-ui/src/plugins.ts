@@ -60,14 +60,53 @@ export type RegistryPluginsProviderOptions = Readonly<{
 }>
 
 const PLUGIN_CACHE_STORAGE_KEY = 'adea:plugin-catalog-cache:v1'
+// The verified catalog itself is global (identical for every workspace), so
+// the primary snapshot persists under a workspace-independent key: guest
+// workspaces are ephemeral (a new id on every bootstrap) and would otherwise
+// never hit any workspace-keyed cache.
+const GLOBAL_CATALOG_CACHE_KEY = 'adea:plugin-catalog-global:v1'
 const PLUGIN_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
-const PLUGIN_REFRESH_INTERVAL_MS = 60_000
+const PLUGIN_REFRESH_INTERVAL_MS = 15 * 60 * 1000
 
 type PersistedPluginCache = Readonly<{
   catalogId: string
   cachedAt: number
   plugins: readonly WorkspacePlugin[]
 }>
+
+type PersistedGlobalCatalog = Readonly<{
+  catalogId: string
+  cachedAt: number
+  plugins: readonly WorkspacePlugin[]
+}>
+
+function readPersistedGlobalCatalog(): PersistedGlobalCatalog | undefined {
+  try {
+    const raw = window.localStorage.getItem(GLOBAL_CATALOG_CACHE_KEY)
+    if (!raw) return undefined
+    const entry = JSON.parse(raw) as PersistedGlobalCatalog
+    if (
+      !entry ||
+      typeof entry.catalogId !== 'string' ||
+      !Array.isArray(entry.plugins) ||
+      typeof entry.cachedAt !== 'number' ||
+      Date.now() - entry.cachedAt > PLUGIN_CACHE_MAX_AGE_MS
+    ) {
+      return undefined
+    }
+    return entry
+  } catch {
+    return undefined
+  }
+}
+
+function writePersistedGlobalCatalog(entry: PersistedGlobalCatalog): void {
+  try {
+    window.localStorage.setItem(GLOBAL_CATALOG_CACHE_KEY, JSON.stringify(entry))
+  } catch {
+    // Persistence is best-effort: private modes and full quotas simply skip it.
+  }
+}
 
 function readPersistedPlugins(workspaceId: string): PersistedPluginCache | undefined {
   try {
@@ -127,6 +166,11 @@ export function createRegistryPluginsProvider(
       cachedAt: lastFetchAt,
       plugins: mapRegistryCatalog(fresh.catalog, fresh.installations),
     })
+    writePersistedGlobalCatalog({
+      catalogId: fresh.catalog.catalogId,
+      cachedAt: lastFetchAt,
+      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations),
+    })
     return fresh
   }
 
@@ -139,6 +183,18 @@ export function createRegistryPluginsProvider(
     if (cacheWorkspaceId !== workspaceId) {
       cache = undefined
       cacheWorkspaceId = workspaceId
+    }
+    // The global snapshot renders the browser almost immediately — before the
+    // workspace-scoped cache is even consulted — because guest workspaces are
+    // ephemeral and change id on every bootstrap. A single background refresh
+    // keeps it current for subsequent loads.
+    if (!cache) {
+      const global = readPersistedGlobalCatalog()
+      if (global) {
+        state = 'ready'
+        void refresh().catch(() => undefined)
+        return global.plugins
+      }
     }
     // A persisted snapshot renders the browser almost immediately; a single
     // background refresh keeps it current for subsequent loads.

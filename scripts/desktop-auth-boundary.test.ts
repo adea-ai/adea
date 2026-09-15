@@ -236,26 +236,27 @@ describe('desktop packaging and single-UI client boundary', () => {
     }
   })
 
-  test('offers sign-in instead of a retry loop for signed-out plugin browsing', async () => {
-    // The Control Plane has no grant for a guest workspace, so its catalog
-    // call can only fail until the user signs in. The dialog must say so and
-    // hand over the same sign-in action the account menu uses, rather than
-    // telling a guest to retry.
+  test('never gates plugin browsing behind authentication', async () => {
+    // The marketplace catalog is workspace-global and loads for every
+    // session, guests included: the dialog must render the standard loading
+    // skeleton and shared error states for everyone, with no sign-in gate.
     const dialog = await readFile(
       join(root, 'packages/workspace-ui/src/plugins-dialog.tsx'),
       'utf8'
     )
-    expect(dialog).toContain('props.authenticated === false')
-    expect(dialog).toContain('Sign in to browse plugins')
-    expect(dialog).toContain('onSignIn')
+    expect(dialog).not.toContain('Sign in to browse plugins')
+    expect(dialog).not.toContain('props.authenticated')
+    expect(dialog).not.toContain('props.onSignIn')
 
     const navigation = await readFile(
       join(root, 'apps/web/src/components/workspace-navigation.tsx'),
       'utf8'
     )
-    // The desktop/web shell wires the dialog to the session it already knows.
-    expect(navigation).toContain('authenticated={props.account.authenticated}')
-    expect(navigation).toContain('onSignIn={props.account.onSignIn}')
+    // Scope the assertion to the PluginsDialog call site: the account rail
+    // legitimately keeps its own sign-in action.
+    const dialogCall = /<PluginsDialog[\\s\\S]*?\/>/.exec(navigation)?.[0] ?? ''
+    expect(dialogCall).not.toContain('authenticated=')
+    expect(dialogCall).not.toContain('onSignIn=')
   })
 
   test('shares the complete version and changelog dialog across web and desktop', async () => {
