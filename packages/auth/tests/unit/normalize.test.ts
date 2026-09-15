@@ -27,6 +27,15 @@ describe('normalizeEmail', () => {
     expect(normalizeEmail('and\u0000y@niftyleague.com')).toBe('andy@niftyleague.com')
   })
 
+  test('repairs dot damage from sentence-boundary pastes', () => {
+    // A sentence period glued to the address survives a whitespace strip and
+    // the provider rejects it (live-verified) — the reported failure.
+    expect(normalizeEmail('andy@niftyleague.com.')).toBe('andy@niftyleague.com')
+    expect(normalizeEmail('.andy@niftyleague.com')).toBe('andy@niftyleague.com')
+    expect(normalizeEmail('andy@niftyleague.com..')).toBe('andy@niftyleague.com')
+    expect(normalizeEmail('first..last@example.com')).toBe('first.last@example.com')
+  })
+
   test('folds fullwidth and lookalike forms through NFKC', () => {
     expect(normalizeEmail('\uFF41\uFF4E\uFF44\uFF59\uFF20niftyleague.com')).toBe(
       'andy@niftyleague.com'
