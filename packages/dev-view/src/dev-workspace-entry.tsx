@@ -301,13 +301,35 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               {(item) => (
                 <button
                   type="button"
+                  id={`dev-utility-tab-${item.id}`}
                   role="tab"
                   aria-selected={activeUtility() === item.id}
                   aria-controls="dev-utility-panel"
+                  tabIndex={activeUtility() === item.id ? 0 : -1}
                   class={cn('dev-utility-tab', {
                     'dev-utility-tab--selected': activeUtility() === item.id,
                   })}
                   onClick={() => setActiveUtility(item.id)}
+                  onKeyDown={(event) => {
+                    const current = utilityItems.findIndex(
+                      (candidate) => candidate.id === activeUtility()
+                    )
+                    const next =
+                      event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? utilityItems.length - 1
+                          : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+                            ? (current - 1 + utilityItems.length) % utilityItems.length
+                            : event.key === 'ArrowDown' || event.key === 'ArrowRight'
+                              ? (current + 1) % utilityItems.length
+                              : -1
+                    if (next < 0) return
+                    event.preventDefault()
+                    const nextItem = utilityItems[next]!
+                    setActiveUtility(nextItem.id)
+                    document.getElementById(`dev-utility-tab-${nextItem.id}`)?.focus()
+                  }}
                 >
                   <item.icon aria-hidden="true" />
                   <span>{item.label}</span>
@@ -315,7 +337,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               )}
             </For>
           </div>
-          <div id="dev-utility-panel" role="tabpanel" class="dev-utility-panel">
+          <div
+            id="dev-utility-panel"
+            role="tabpanel"
+            aria-labelledby={`dev-utility-tab-${activeUtility()}`}
+            class="dev-utility-panel"
+          >
             <div class="dev-utility-panel__heading">
               <h2>{utilityItems.find((item) => item.id === activeUtility())?.label}</h2>
               <button

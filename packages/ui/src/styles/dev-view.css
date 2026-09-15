@@ -501,7 +501,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dev-sidebar {
+  .dev-sidebar,
+  .dev-utility {
     transition: none;
   }
 }
