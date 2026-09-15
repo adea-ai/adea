@@ -2,6 +2,8 @@
    utilities the components rely on. Framework-neutral CSS only — no component
    runtime, no styling tokens (those live in theme.css and friends). */
 
+@import 'tw-animate-css';
+
 @theme inline {
   @keyframes accordion-down {
     from {

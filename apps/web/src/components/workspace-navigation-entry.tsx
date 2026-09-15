@@ -18,6 +18,11 @@ import packageJson from '../../package.json'
 
 const appVersion = packageJson.version
 
+const requestedScene = () =>
+  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
+    ? new URLSearchParams(window.location.search).get('scene')
+    : undefined
+
 export function WorkspaceNavigationEntry(props: {
   virtual: boolean
   virtualProps: WorkspaceShellProps
@@ -69,10 +74,6 @@ function WebNavigationEntry(props: {
   }
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
-  const requestedScene = () =>
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
-      ? new URLSearchParams(window.location.search).get('scene')
-      : undefined
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??

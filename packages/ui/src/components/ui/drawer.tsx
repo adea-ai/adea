@@ -56,7 +56,7 @@ function DrawerOverlay(props: ComponentProps<typeof DrawerPrimitive.Overlay>) {
       // The scrim keeps the pre-Solid 10% black the committed screenshots
       // were taken against; 25% dimmed the page behind every drawer.
       class={cn(
-        'fixed inset-0 z-[110] bg-black/10 backdrop-blur-xs transition-opacity duration-300 data-closed:opacity-0',
+        'fixed inset-0 z-(--z-drawer) bg-scrim/10 backdrop-blur-xs transition-opacity duration-300 data-closed:opacity-0',
         local.class
       )}
       {...rest}
@@ -93,7 +93,7 @@ function DrawerContent(props: DrawerContentProps) {
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         class={cn(
-          'group/drawer-content fixed z-[110] flex flex-col overflow-hidden bg-popover text-sm text-popover-foreground shadow-lg outline-none transition-transform duration-300 ease-out will-change-transform',
+          'group/drawer-content fixed z-(--z-drawer) flex flex-col overflow-hidden bg-popover text-sm text-popover-foreground shadow-lg outline-none transition-transform duration-300 ease-out will-change-transform',
           SIDE_CLASSES[side()],
           local.class
         )}

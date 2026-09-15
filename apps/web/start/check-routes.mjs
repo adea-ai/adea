@@ -71,7 +71,7 @@ const hashedStylesheets = (await readdir(resolve(assetsDirectory, 'start-assets'
   /-[A-Za-z0-9_-]{8}\.css$/.test(name)
 )
 assert.ok(hashedStylesheets.length > 0, 'the build emitted no hashed stylesheet to check')
-const hashedStylesheet = `/start-assets/${hashedStylesheets.sort().at(-1)}`
+const hashedStylesheet = `/start-assets/${hashedStylesheets.toSorted().at(-1)}`
 const config = resolve(evidence, 'host.json')
 await writeFile(
   config,

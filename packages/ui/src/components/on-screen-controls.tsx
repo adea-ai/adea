@@ -58,7 +58,7 @@ function ControlButton(props: ControlButtonProps) {
       type="button"
       aria-label={props.label}
       class={cn(
-        'flex size-14 touch-none select-none items-center justify-center rounded-2xl border border-white/25 bg-slate-950/65 p-2 text-white shadow-lg backdrop-blur-sm transition active:scale-95 [-webkit-touch-callout:none] [-webkit-user-select:none]',
+        'flex size-14 touch-none select-none items-center justify-center rounded-2xl border border-scrim-edge/25 bg-scrim/65 p-2 text-scrim-foreground shadow-lg backdrop-blur-sm transition active:scale-95 [-webkit-touch-callout:none] [-webkit-user-select:none]',
         props.class
       )}
       onContextMenu={(event) => event.preventDefault()}
@@ -90,7 +90,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
       class="pointer-events-none fixed inset-x-4 bottom-4 z-30 flex select-none items-end justify-between gap-4 pb-[env(safe-area-inset-bottom)] sm:inset-x-6 sm:bottom-6 [-webkit-touch-callout:none] [-webkit-user-select:none]"
     >
       <Show when={showMovementControls()}>
-        <div class="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-slate-950/20 p-2 backdrop-blur-[2px]">
+        <div class="pointer-events-auto grid grid-cols-3 gap-1.5 rounded-3xl bg-scrim/20 p-2 backdrop-blur-[2px]">
           <span />
           <ControlButton code="KeyW" label="Move forward" class="size-12 rounded-xl text-xl">
             ▲
@@ -110,7 +110,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
       <div class="pointer-events-auto ml-auto flex flex-col items-end gap-2">
         <Show when={showZoomControls()}>
           <div
-            class="flex items-center gap-1.5 rounded-2xl bg-slate-950/20 p-1.5 backdrop-blur-[2px]"
+            class="flex items-center gap-1.5 rounded-2xl bg-scrim/20 p-1.5 backdrop-blur-[2px]"
             role="group"
             aria-label="Camera zoom"
           >
@@ -120,7 +120,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               size="icon-lg"
               aria-label="Zoom out"
               title="Zoom out"
-              class="border border-white/25 bg-slate-950/65 text-white shadow-lg backdrop-blur-sm hover:bg-slate-900/80"
+              class="border border-scrim-edge/25 bg-scrim/65 text-scrim-foreground shadow-lg backdrop-blur-sm hover:bg-scrim/80"
               onClick={() => props.onZoomOut?.()}
             >
               <ZoomOut aria-hidden="true" />
@@ -131,7 +131,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               size="icon-lg"
               aria-label="Zoom in"
               title="Zoom in"
-              class="border border-white/25 bg-slate-950/65 text-white shadow-lg backdrop-blur-sm hover:bg-slate-900/80"
+              class="border border-scrim-edge/25 bg-scrim/65 text-scrim-foreground shadow-lg backdrop-blur-sm hover:bg-scrim/80"
               onClick={() => props.onZoomIn?.()}
             >
               <ZoomIn aria-hidden="true" />

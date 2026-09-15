@@ -62,8 +62,8 @@ export function createNativeTranscriptionProvider(
     async start(input = {}) {
       let settled = false
       let sessionId: string | null = null
-      let rejectCompletion: (reason?: unknown) => void = () => undefined
-      let resolveCompletion: (result: Readonly<{ text: string }>) => void = () => undefined
+      let rejectCompletion!: (reason?: unknown) => void
+      let resolveCompletion!: (result: Readonly<{ text: string }>) => void
       const completion = new Promise<Readonly<{ text: string }>>((resolve, reject) => {
         resolveCompletion = resolve
         rejectCompletion = reject

@@ -1,7 +1,7 @@
 'use client'
 
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { buttonVariants } from '@adea-ai/ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 import {
   Tooltip,
@@ -9,7 +9,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@adea-ai/ui/components/ui/tooltip'
-import { cn } from '@adea-ai/ui/lib/utils'
 import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-solid'
 import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 
@@ -28,13 +27,10 @@ function RailAction(props: RailActionProps) {
   return (
     <Tooltip>
       <TooltipTrigger
-        class={cn(
-          buttonVariants({
-            variant: props.active ? 'secondary' : 'ghost',
-            size: 'icon-lg',
-          }),
-          'global-rail__button'
-        )}
+        as={Button}
+        variant={props.active ? 'secondary' : 'ghost'}
+        size="icon-lg"
+        class="global-rail__button"
         aria-label={props.label}
         aria-pressed={props.active || undefined}
         disabled={props.disabled}
@@ -126,10 +122,10 @@ export function GlobalWorkspaceRail(props: {
         <div class="global-rail__workspace" ref={setWorkspaceMenu}>
           <Tooltip>
             <TooltipTrigger
-              class={cn(
-                buttonVariants({ variant: 'default', size: 'icon-lg' }),
-                'global-rail__workspace-trigger'
-              )}
+              as={Button}
+              variant="default"
+              size="icon-lg"
+              class="global-rail__workspace-trigger"
               aria-controls={workspaceMenuId}
               aria-expanded={workspaceMenuOpen()}
               aria-haspopup="menu"

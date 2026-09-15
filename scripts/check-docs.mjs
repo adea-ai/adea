@@ -65,10 +65,10 @@ export async function brokenLinks(root) {
 
 /** The spec files on disk and the spec paths the router table names. */
 export async function specCoverage(root) {
-  const specs = (await markdownFiles(root, SPEC_DIRECTORY)).sort()
+  const specs = (await markdownFiles(root, SPEC_DIRECTORY)).toSorted()
   const router = await readFile(join(root, ROUTER), 'utf8')
   const routed = [...router.matchAll(/docs\/specs\/[a-z0-9-]+\.md/g)].map((match) => match[0])
-  const unique = [...new Set(routed)].sort()
+  const unique = [...new Set(routed)].toSorted()
 
   return {
     orphaned: specs.filter((spec) => !unique.includes(spec)),

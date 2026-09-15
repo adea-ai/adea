@@ -42,6 +42,8 @@ function encryptionKey(seed: string) {
   return Buffer.from(seed.padEnd(32, '.').slice(0, 32)).toString('base64url')
 }
 
+const desktop = (origin: string) => ({ origin, 'x-adea-client': 'desktop' })
+
 function keys(signingPublicKey: string, encryptionSeed: string) {
   return [
     { algorithm: 'ed25519', publicKey: signingPublicKey, role: 'signing' },
@@ -388,7 +390,6 @@ test('runtime node pairing refuses an untrusted desktop origin', async ({
   try {
     const workspaceId = await guest(context)
     const nodesUrl = `/api/v1/workspaces/${workspaceId}/runtime-nodes`
-    const desktop = (origin: string) => ({ origin, 'x-adea-client': 'desktop' })
     expect(
       (
         await context.post(nodesUrl, {

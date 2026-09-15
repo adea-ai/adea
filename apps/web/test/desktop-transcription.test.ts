@@ -8,7 +8,7 @@ type Event =
   | Readonly<{ type: 'error'; code: string }>
 
 function harness(permission: 'denied' | 'granted' | 'unavailable' = 'granted') {
-  let handler: (event: Event) => void = () => undefined
+  let handler!: (event: Event) => void
   const cancelled: string[] = []
   const starts: Array<Readonly<{ events: unknown; locale: string }>> = []
   const provider = createNativeTranscriptionProvider({

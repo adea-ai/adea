@@ -69,7 +69,7 @@ describe('desktop shell boot', () => {
     // The baselined non-cloud origins (the release feed the update check
     // polls) are shell-process endpoints, documented in
     // `check-desktop-origins.mjs`; nothing here serves them to the webview.
-    const baselined = new Set(BASELINED_ORIGINS.map((entry) => new URL(entry.origin).host))
+    const baselined = new Set(BASELINED_ORIGINS.map((origin) => new URL(origin.origin).host))
     const violations: string[] = []
     for (const { path, source } of await shellSources()) {
       for (const [index, line] of source.split('\n').entries()) {

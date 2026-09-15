@@ -27,6 +27,25 @@ import type { PrivateContentResolver } from './platform'
 
 type SearchResult = WorkspaceSearchResult
 
+const searchResultIcon = (kind: SearchResult['kind']) =>
+  kind === 'agent' ? (
+    <Bot aria-hidden="true" />
+  ) : kind === 'room' ? (
+    <DoorOpen aria-hidden="true" />
+  ) : kind === 'task' ? (
+    <ListTodo aria-hidden="true" />
+  ) : kind === 'artifact' ? (
+    <FileText aria-hidden="true" />
+  ) : kind === 'message' ? (
+    <MessageSquare aria-hidden="true" />
+  ) : kind === 'action' ? (
+    <CheckCheck aria-hidden="true" />
+  ) : kind === 'settings' ? (
+    <Settings aria-hidden="true" />
+  ) : (
+    <Hash aria-hidden="true" />
+  )
+
 export function WorkspaceSearchDialog(props: {
   agents: readonly AgentSummary[]
   artifacts: readonly ArtifactSummary[]
@@ -68,15 +87,15 @@ export function WorkspaceSearchDialog(props: {
     const privateContent = props.privateContent
     const scopeChannelId = props.scopeChannelId
     const tasks = props.tasks
-    const query = debouncedQuery()
-    if (!privateContent?.search || query.length < 2) {
+    const term = debouncedQuery()
+    if (!privateContent?.search || term.length < 2) {
       setLocalResults([])
       setLocalSearching(false)
       return
     }
     setLocalSearching(true)
     void privateContent
-      .search({ limit: 20, query, workspaceId })
+      .search({ limit: 20, query: term, workspaceId })
       .then(async (matches) => {
         const resolved = await Promise.all(
           matches.map(async (match): Promise<SearchResult | null> => {
@@ -230,25 +249,6 @@ export function WorkspaceSearchDialog(props: {
     props.onClose()
   }
 
-  const icon = (kind: SearchResult['kind']) =>
-    kind === 'agent' ? (
-      <Bot aria-hidden="true" />
-    ) : kind === 'room' ? (
-      <DoorOpen aria-hidden="true" />
-    ) : kind === 'task' ? (
-      <ListTodo aria-hidden="true" />
-    ) : kind === 'artifact' ? (
-      <FileText aria-hidden="true" />
-    ) : kind === 'message' ? (
-      <MessageSquare aria-hidden="true" />
-    ) : kind === 'action' ? (
-      <CheckCheck aria-hidden="true" />
-    ) : kind === 'settings' ? (
-      <Settings aria-hidden="true" />
-    ) : (
-      <Hash aria-hidden="true" />
-    )
-
   return (
     <ModalDialog
       open={props.open}
@@ -299,7 +299,7 @@ export function WorkspaceSearchDialog(props: {
                 onMouseEnter={() => setSelectedIndex(index())}
                 onClick={() => select(result)}
               >
-                {icon(result.kind)}
+                {searchResultIcon(result.kind)}
                 <span>
                   <strong>{result.label}</strong>
                   <small>{result.secondary}</small>

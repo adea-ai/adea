@@ -31,7 +31,7 @@ function DialogOverlay(props: ComponentProps<typeof DialogPrimitive.Overlay>) {
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
-      class={cn('fixed inset-0 z-[120] bg-slate-950/55 backdrop-blur-[2px]', local.class)}
+      class={cn('fixed inset-0 z-(--z-dialog) bg-scrim/55 backdrop-blur-[2px]', local.class)}
       {...rest}
     />
   )
@@ -46,7 +46,7 @@ function DialogContent(
       <DialogOverlay />
       {/* Flex centering keeps the dialog on whole pixels; a translate-based
           center can land on a half pixel and shift every edge. */}
-      <div class="fixed inset-0 z-[120] flex items-center justify-center p-4">
+      <div class="fixed inset-0 z-(--z-dialog) flex items-center justify-center p-4">
         <DialogPrimitive.Content
           data-slot="dialog-content"
           class={cn(

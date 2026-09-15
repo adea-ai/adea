@@ -125,12 +125,10 @@ export const workspaceStore = {
    * the current state, then again whenever a read field changes.
    */
   subscribe(listener: (state: WorkspaceState) => void): () => void {
-    let dispose: () => void = () => undefined
-    createRoot((rootDispose) => {
-      dispose = rootDispose
+    return createRoot((rootDispose) => {
       createEffect(() => listener(state))
+      return rootDispose
     })
-    return dispose
   },
 }
 

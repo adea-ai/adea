@@ -56,19 +56,19 @@ describe('provider error codes', () => {
   })
 })
 
-describe('driver failures keep their cause', () => {
-  const sdk = (overrides: Partial<NeonSdk>): NeonSdk =>
-    ({
-      getSession: async () => ({ data: null, error: null }),
-      listSessions: async () => ({ data: [], error: null }),
-      refreshToken: async () => ({ data: null, error: null }),
-      revokeSession: async () => ({ data: null, error: null }),
-      signIn: { email: async () => ({ data: null, error: null }) },
-      signUp: { email: async () => ({ data: null, error: null }) },
-      signOut: async () => ({ data: null, error: null }),
-      ...overrides,
-    }) as NeonSdk
+const sdk = (overrides: Partial<NeonSdk>): NeonSdk =>
+  ({
+    getSession: async () => ({ data: null, error: null }),
+    listSessions: async () => ({ data: [], error: null }),
+    refreshToken: async () => ({ data: null, error: null }),
+    revokeSession: async () => ({ data: null, error: null }),
+    signIn: { email: async () => ({ data: null, error: null }) },
+    signUp: { email: async () => ({ data: null, error: null }) },
+    signOut: async () => ({ data: null, error: null }),
+    ...overrides,
+  }) as NeonSdk
 
+describe('driver failures keep their cause', () => {
   test('a rejected sign-in reports invalid_credentials, not a generic failure', async () => {
     const driver = createNeonAuthDriver(
       sdk({

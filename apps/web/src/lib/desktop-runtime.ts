@@ -51,6 +51,18 @@ export type DesktopRuntime = Readonly<{
 
 let runtime: DesktopRuntime | undefined
 
+function createClient(session?: DesktopSession, temporaryCredential?: string) {
+  return createApiClient({
+    // Same-origin through the shell's cloud proxy (apps/desktop/shell/src/cloud-proxy.ts).
+    baseUrl: '/api',
+    client: 'desktop',
+    getDesktopSession: session
+      ? () => ({ credential: session.credential, sessionId: session.sessionId })
+      : undefined,
+    getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
+  })
+}
+
 function createDesktopRuntime(cloudOrigin: string): DesktopRuntime {
   const sessionVault: DesktopSessionVault = {
     clear: () => invoke('desktop_user_session_clear'),
@@ -77,18 +89,6 @@ function createDesktopRuntime(cloudOrigin: string): DesktopRuntime {
     broker: createDesktopHttpSessionBroker({ cloudOrigin: window.location.origin }),
     vault: sessionVault,
   })
-
-  function createClient(session?: DesktopSession, temporaryCredential?: string) {
-    return createApiClient({
-      // Same-origin through the shell's cloud proxy (apps/desktop/shell/src/cloud-proxy.ts).
-      baseUrl: '/api',
-      client: 'desktop',
-      getDesktopSession: session
-        ? () => ({ credential: session.credential, sessionId: session.sessionId })
-        : undefined,
-      getTemporaryCredential: temporaryCredential ? () => temporaryCredential : undefined,
-    })
-  }
 
   return Object.freeze({
     beginAuthorization: () => authorizationManager.begin(),

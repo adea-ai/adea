@@ -42,7 +42,7 @@ async function coveredSources(): Promise<string[]> {
   for (const directory of roots) {
     for await (const path of typescriptSources(directory)) files.push(path)
   }
-  return files.sort()
+  return files.toSorted()
 }
 
 /** Command names the client and the shared packages pass to the bridge. */
@@ -58,7 +58,7 @@ async function invokedCommands(): Promise<Set<string>> {
 }
 
 function difference(left: Set<string>, right: Set<string>) {
-  return [...left].filter((value) => !right.has(value)).sort()
+  return [...left].filter((value) => !right.has(value)).toSorted()
 }
 
 /**

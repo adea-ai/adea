@@ -183,8 +183,8 @@ export function createWorkspaceEventSubscription(
     fetchImpl = fetch,
     headers,
     queryClient,
-    schedule = (run, delayMs) => {
-      const timer = setTimeout(run, delayMs)
+    schedule = (callback, delayMs) => {
+      const timer = setTimeout(callback, delayMs)
       return () => clearTimeout(timer)
     },
     storage,

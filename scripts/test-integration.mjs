@@ -16,7 +16,7 @@ const integrationDirectories = readdirSync(resolve(root, 'packages'), { withFile
   .filter((entry) => entry.isDirectory())
   .map((entry) => resolve(root, 'packages', entry.name, 'tests', 'integration'))
   .filter((directory) => existsSync(directory))
-  .sort()
+  .toSorted()
 
 if (integrationDirectories.length === 0) {
   throw new Error('No package integration test directories were found')

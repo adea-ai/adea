@@ -13,7 +13,7 @@ import {
 } from 'lucide-solid'
 import { For, Show } from 'solid-js'
 
-import { buttonVariants } from '@adea-ai/ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,7 +23,6 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
-import { cn } from '@adea-ai/ui/lib/utils'
 
 import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
 
@@ -54,10 +53,10 @@ export function AccountMenu(props: AccountMenuProps) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger
-        class={cn(
-          buttonVariants({ variant: 'ghost', size: 'icon-lg' }),
-          'global-rail__button global-rail__account-trigger'
-        )}
+        as={Button}
+        variant="ghost"
+        size="icon-lg"
+        class="global-rail__button global-rail__account-trigger"
         aria-label="User settings"
       >
         <UserRound aria-hidden="true" />

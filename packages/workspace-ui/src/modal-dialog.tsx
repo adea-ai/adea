@@ -54,6 +54,8 @@ export function ModalDialog(props: {
   return (
     <Show when={props.open}>
       <Dialog open onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
+        {/* oxlint-disable-next-line shadcn/require-static-classes -- ModalDialog forwards
+            the caller's class onto DialogContent by design; the contract flows through. */}
         <DialogContent ref={setContent} class={cn('conventional-dialog', props.class)}>
           <DialogHeader class="conventional-dialog__header">
             <Show

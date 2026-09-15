@@ -45,6 +45,8 @@ export async function getVersion(): Promise<string> {
 export class Channel<T> {
   onmessage: ((message: T) => void) | null = null
   constructor(onmessage?: (message: T) => void) {
+    // `onmessage` mirrors the DOM channel API this class shims; it is not an event target.
+    // oxlint-disable-next-line prefer-add-event-listener
     this.onmessage = onmessage ?? null
   }
   send(): void {

@@ -14,6 +14,8 @@ import {
 
 const workspaceId = 'aaaaaaaa-1111-4111-8111-111111111111'
 const url = `https://workspace.test/api/v1/workspaces/${workspaceId}/events`
+const noJitter = () => 0
+const fullJitter = () => 1
 
 /** Records what the subscription asks the cache to refresh. */
 function fakeQueryClient() {
@@ -134,8 +136,6 @@ describe('workspace event client', () => {
   })
 
   test('backs off exponentially with jitter and a cap', () => {
-    const noJitter = () => 0
-    const fullJitter = () => 1
     expect(reconnectDelay(1, noJitter)).toBe(INITIAL_RECONNECT_DELAY_MS / 2)
     expect(reconnectDelay(1, fullJitter)).toBe(INITIAL_RECONNECT_DELAY_MS)
     expect(reconnectDelay(2, fullJitter)).toBe(2_000)
