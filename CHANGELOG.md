@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.16](https://github.com/adea-ai/adea/compare/v0.25.15...v0.25.16) (2026-09-15)
+
+
+### Bug Fixes
+
+* **auth:** whitelist the email charset so pasted invisibles can never fail sign-in ([#443](https://github.com/adea-ai/adea/issues/443)) ([b0b17b2](https://github.com/adea-ai/adea/commit/b0b17b21c0fbc5cc31a839a6f1191f0b92a314fc))
+
 ## [0.25.15](https://github.com/adea-ai/adea/compare/v0.25.14...v0.25.15) (2026-09-15)
 
 
