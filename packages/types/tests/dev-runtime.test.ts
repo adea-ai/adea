@@ -16,6 +16,18 @@ const scope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 } as const
 
+function workspacePathRequest(relativePath: string) {
+  return devOperationDecoders['dev.files.list'].request({
+    worktreeId: 'worktree-1',
+    path: {
+      worktreeId: 'worktree-1',
+      rootIdentity: { mtimeNs: '1', size: '1' },
+      relativePath,
+    },
+    limit: 10,
+  })
+}
+
 function command(operation: keyof typeof devOperationDefinitions, body: Record<string, unknown>) {
   const definition = devOperationDefinitions[operation]
   return {
@@ -90,19 +102,9 @@ describe('Dev Runtime operation registry', () => {
   })
 
   test('rejects backslash and drive-prefixed workspace paths', () => {
-    const request = (relativePath: string) =>
-      devOperationDecoders['dev.files.list'].request({
-        worktreeId: 'worktree-1',
-        path: {
-          worktreeId: 'worktree-1',
-          rootIdentity: { mtimeNs: '1', size: '1' },
-          relativePath,
-        },
-        limit: 10,
-      })
-    expect(() => request('..\\secret')).toThrow('normalized relative path')
-    expect(() => request('C:\\secret')).toThrow('normalized relative path')
-    expect(request('src/index.ts')).toMatchObject({ limit: 10 })
+    expect(() => workspacePathRequest('..\\secret')).toThrow('normalized relative path')
+    expect(() => workspacePathRequest('C:\\secret')).toThrow('normalized relative path')
+    expect(workspacePathRequest('src/index.ts')).toMatchObject({ limit: 10 })
   })
 })
 
