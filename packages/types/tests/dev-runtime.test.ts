@@ -88,6 +88,22 @@ describe('Dev Runtime operation registry', () => {
       })
     ).toThrow('authority field')
   })
+
+  test('rejects backslash and drive-prefixed workspace paths', () => {
+    const request = (relativePath: string) =>
+      devOperationDecoders['dev.files.list'].request({
+        worktreeId: 'worktree-1',
+        path: {
+          worktreeId: 'worktree-1',
+          rootIdentity: { mtimeNs: '1', size: '1' },
+          relativePath,
+        },
+        limit: 10,
+      })
+    expect(() => request('..\\secret')).toThrow('normalized relative path')
+    expect(() => request('C:\\secret')).toThrow('normalized relative path')
+    expect(request('src/index.ts')).toMatchObject({ limit: 10 })
+  })
 })
 
 describe('Dev Runtime command envelope', () => {
@@ -112,6 +128,18 @@ describe('Dev Runtime command envelope', () => {
     ]) {
       expect(() => decodeDevCommand({ ...value, capabilities })).toThrow('capabilities')
     }
+  })
+
+  test('accepts paired commits whose immutable plan owns the target binding', () => {
+    const value = command('dev.git.discardCommit', {
+      planId: 'plan-1',
+      planDigest: '0'.repeat(64),
+    })
+    const paired = {
+      ...value,
+      resource: { kind: 'worktree', id: 'worktree-1', generation: 7 },
+    }
+    expect(decodeDevCommand(paired)).toEqual(paired)
   })
 
   test('rejects stale resource bindings and unknown envelope keys', () => {

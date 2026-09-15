@@ -497,7 +497,9 @@ function namedType(name: string, value: unknown, path: string): unknown {
     const relative = stringValue(item.relativePath, `${path}.relativePath`, 1)
     if (
       relative.includes('\0') ||
+      relative.includes('\\') ||
       relative.startsWith('/') ||
+      /^[A-Za-z]:/.test(relative) ||
       relative.split('/').some((part) => !part || part === '.' || part === '..')
     )
       fail(`${path}.relativePath`, 'expected normalized relative path')
@@ -786,6 +788,11 @@ export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
   return value as RuntimeEvent
 }
 
+function isPairedCommitOperation(operation: DevOperation): boolean {
+  if (!operation.endsWith('Commit')) return false
+  return `${operation.slice(0, -'Commit'.length)}Plan` in devOperationDefinitions
+}
+
 function decodeRequestBody(
   operation: DevOperation,
   value: unknown
@@ -847,9 +854,14 @@ export function decodeDevCommand(value: unknown): DevCommand {
     exactKeys(resource, ['kind', 'id', 'generation'], [], 'command.resource')
     if (resource.kind !== resourceDefinition.kind)
       fail('command.resource.kind', `expected ${resourceDefinition.kind}`)
+    const resourceId = stringValue(resource.id, 'command.resource.id', 1)
     const targetId = body[resourceDefinition.idField]
-    if (typeof targetId !== 'string' || resource.id !== targetId)
-      fail('command.resource.id', 'resource id does not match body target')
+    if (typeof targetId === 'string') {
+      if (resourceId !== targetId)
+        fail('command.resource.id', 'resource id does not match body target')
+    } else if (!isPairedCommitOperation(typedOperation)) {
+      fail('command.resource.id', 'body target is missing')
+    }
     integerValue(resource.generation, 'command.resource.generation', 0)
     if (body.expectedGeneration !== undefined && resource.generation !== body.expectedGeneration)
       fail('command.resource.generation', 'resource generation does not match body')
