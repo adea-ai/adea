@@ -8,7 +8,7 @@ import type { DevLayoutState } from './operations'
 export type DevLayoutViewProps = Readonly<{
   state: DevLayoutState
   unavailable: boolean
-  onClose(leafId: string): void
+  onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
 }>
@@ -17,14 +17,17 @@ function Pane(props: {
   leaf: PaneLeaf
   focused: boolean
   unavailable: boolean
-  onClose(): void
+  onClose(): string
   onFocus(): void
 }) {
   return (
     <section
       class={cn('dev-pane', { 'dev-pane--focused': props.focused })}
       data-pane-id={props.leaf.id}
-      onPointerDown={props.onFocus}
+      role="region"
+      aria-label={`${props.leaf.pane} pane`}
+      tabIndex={0}
+      onFocus={props.onFocus}
     >
       <header>
         <Show when={props.leaf.pane === 'terminal'} fallback={<Files aria-hidden="true" />}>
@@ -40,7 +43,13 @@ function Pane(props: {
           aria-label={`Close ${props.leaf.pane} pane`}
           onClick={(event) => {
             event.stopPropagation()
-            props.onClose()
+            const nextFocusId = props.onClose()
+            requestAnimationFrame(() => {
+              const target = [...document.querySelectorAll<HTMLElement>('[data-pane-id]')].find(
+                (element) => element.dataset.paneId === nextFocusId
+              )
+              target?.focus()
+            })
           }}
         >
           <X aria-hidden="true" />
@@ -74,7 +83,7 @@ function Split(props: {
   node: PaneSplit
   state: DevLayoutState
   unavailable: boolean
-  onClose(leafId: string): void
+  onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
 }) {
@@ -156,7 +165,7 @@ function LayoutNode(props: {
   node: PaneNode
   state: DevLayoutState
   unavailable: boolean
-  onClose(leafId: string): void
+  onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
 }) {

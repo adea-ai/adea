@@ -29,16 +29,29 @@ const DevWorkspace = lazyComponent(
         return (entryProps: {
           fixture: boolean
           runtime?: WorkspacePlatformServices['devRuntime']
-        }) => (
-          <DevWorkspaceEntry
-            groups={entryProps.fixture ? devViewFixtureGroups : undefined}
-            storage={typeof window === 'undefined' ? undefined : window.localStorage}
-            runtime={
-              entryProps.runtime ??
-              createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
-            }
-          />
-        )
+        }) => {
+          const unavailable =
+            entryProps.runtime ??
+            createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+          const runtime =
+            entryProps.fixture && !entryProps.runtime
+              ? {
+                  ...unavailable,
+                  preferenceScope: () => ({
+                    accountId: '00000000-0000-4000-8000-000000000001',
+                    workspaceId: '00000000-0000-4000-8000-000000000002',
+                    runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+                  }),
+                }
+              : unavailable
+          return (
+            <DevWorkspaceEntry
+              groups={entryProps.fixture ? devViewFixtureGroups : undefined}
+              storage={typeof window === 'undefined' ? undefined : window.localStorage}
+              runtime={runtime}
+            />
+          )
+        }
       }
     ),
   { loading: () => <WorkspaceEntryLoading /> }

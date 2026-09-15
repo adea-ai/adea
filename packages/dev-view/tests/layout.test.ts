@@ -90,6 +90,33 @@ describe('strict binary Dev layout', () => {
     expect(restored.focusedLeafId).toBe('two')
   })
 
+  test('a later structural change invalidates close undo instead of discarding new work', () => {
+    const initial = splitPane(createLayoutState(leaf('one')), 'one', {
+      direction: 'row',
+      placement: 'after',
+      leaf: leaf('two', 'editor'),
+      splitId: 'split',
+    })
+    const withThree = splitPane(initial, 'two', {
+      direction: 'column',
+      placement: 'after',
+      leaf: leaf('three'),
+      splitId: 'nested-split',
+    })
+    const closed = closePane(withThree, 'three', () => 'placeholder')
+    const resized = resizeSplit(closed, 'split', 0.7)
+    expect(resized.closed).toHaveLength(0)
+    expect(undoClosePane(resized)).toBe(resized)
+
+    const split = splitPane(closed, 'one', {
+      direction: 'row',
+      placement: 'after',
+      splitId: 'later-split',
+      leaf: leaf('later'),
+    })
+    expect(split.closed).toHaveLength(0)
+  })
+
   test('focuses and swaps existing leaves without changing identities', () => {
     const initial = splitPane(createLayoutState(leaf('one')), 'one', {
       direction: 'row',

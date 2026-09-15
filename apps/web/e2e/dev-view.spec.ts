@@ -47,6 +47,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await page.getByRole('button', { name: 'Split pane' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
   await page.getByRole('button', { name: 'Close terminal pane' }).last().click()
+  await expect(page.getByRole('region', { name: 'editor pane' })).toBeFocused()
   await expect(page.getByRole('button', { name: 'Undo close' })).toBeEnabled()
   await page.getByRole('button', { name: 'Undo close' }).click()
   await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
@@ -70,5 +71,13 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await expect(page).toHaveURL(/sentinel=keep/)
   await page.goBack()
   await expect(page).toHaveURL(/view=dev/)
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
+  await page.getByRole('button', { name: 'Restore utility pane' }).click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')
+  await expect(
+    page
+      .getByRole('separator', { name: 'Resize workspace panes' })
+      .and(page.locator('[aria-valuenow="55"]'))
+  ).toHaveCount(1)
 })

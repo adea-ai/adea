@@ -13,6 +13,7 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import type { DevLayoutPreferencesV1 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/ui/dev-view.css'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
@@ -89,13 +90,31 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
 ]
 
 const utilityItems = [
-  { id: 'files', label: 'Files', icon: Files },
-  { id: 'source', label: 'Source control', icon: GitBranch },
-  { id: 'browser', label: 'Browser', icon: Laptop },
-  { id: 'devices', label: 'Devices', icon: MonitorSmartphone },
-  { id: 'agents', label: 'Agents', icon: Users },
-  { id: 'history', label: 'History', icon: History },
+  { id: 'files', pane: 'files', side: 'left', label: 'Files', icon: Files },
+  {
+    id: 'source',
+    pane: 'source_control',
+    side: 'left',
+    label: 'Source control',
+    icon: GitBranch,
+  },
+  { id: 'browser', pane: 'browser', side: 'right', label: 'Browser', icon: Laptop },
+  { id: 'devices', pane: 'devices', side: 'right', label: 'Devices', icon: MonitorSmartphone },
+  { id: 'agents', pane: 'agents', side: 'right', label: 'Agents', icon: Users },
+  { id: 'history', pane: 'history', side: 'right', label: 'History', icon: History },
 ] as const
+
+type UtilityId = (typeof utilityItems)[number]['id']
+type UtilityPreference = DevLayoutPreferencesV1['utility'][number]
+
+const initialUtilityPreferences = (): readonly UtilityPreference[] =>
+  utilityItems.map((item) => ({
+    pane: item.pane,
+    side: item.side,
+    visible: item.id === 'files',
+    size: 288,
+    lastNonzeroSize: 288,
+  }))
 
 const initialLayout = () =>
   createLayoutState({
@@ -118,15 +137,25 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
   const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
-  const selectedProject = () => selectedProjectState() ?? groups()[0]?.projects[0]?.id ?? ''
-  const selectedSession = () =>
-    selectedSessionState() ?? groups()[0]?.projects[0]?.sessions[0]?.id ?? ''
+  const selectedProjectRecord = () => {
+    const projects = groups().flatMap((group) => group.projects)
+    return projects.find((project) => project.id === selectedProjectState()) ?? projects[0]
+  }
+  const selectedProject = () => selectedProjectRecord()?.id ?? ''
+  const selectedSession = () => {
+    const sessions = selectedProjectRecord()?.sessions ?? []
+    return (
+      sessions.find((session) => session.id === selectedSessionState())?.id ?? sessions[0]?.id ?? ''
+    )
+  }
   const collapsedGroups = () => new Set(collapsedGroupIds())
   const collapsedProjects = () => new Set(collapsedProjectIds())
   const [compactSidebarOpen, setCompactSidebarOpen] = createSignal(false)
   const [compactUtilityOpen, setCompactUtilityOpen] = createSignal(false)
-  const [activeUtility, setActiveUtility] =
-    createSignal<(typeof utilityItems)[number]['id']>('files')
+  const [activeUtility, setActiveUtility] = createSignal<UtilityId>('files')
+  const [utilityPreferences, setUtilityPreferences] = createSignal<readonly UtilityPreference[]>(
+    initialUtilityPreferences()
+  )
   const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
   const [utilityFullWidth, setUtilityFullWidth] = createSignal(false)
   const [announcement, setAnnouncement] = createSignal('')
@@ -141,16 +170,37 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       projectId: selectedProject(),
       runtimeSessionId: selectedSession(),
       center: state.center,
-      utility: [],
+      utility: utilityPreferences(),
       focusMode: focusMode(),
       focusTargetId: state.focusedLeafId,
     }
   }
+  const schedulePreferences = (state = layout()) => {
+    const preferences = persistedPreferences(state)
+    if (preferences) storageController?.schedule(preferences)
+  }
   const updateLayout = (update: (state: DevLayoutState) => DevLayoutState) => {
     const next = update(layout())
     setLayout(next)
-    const preferences = persistedPreferences(next)
-    if (preferences) storageController?.schedule(preferences)
+    schedulePreferences(next)
+  }
+  const showUtility = (id: UtilityId) => {
+    setActiveUtility(id)
+    const pane = utilityItems.find((item) => item.id === id)!.pane
+    setUtilityPreferences((items) =>
+      items.map((item) => ({ ...item, visible: item.pane === pane }))
+    )
+    schedulePreferences()
+  }
+  const setFullWidth = (expanded: boolean) => {
+    setUtilityFullWidth(expanded)
+    const pane = utilityItems.find((item) => item.id === activeUtility())!.pane
+    setUtilityPreferences((items) =>
+      items.map((item) =>
+        item.pane === pane ? { ...item, size: expanded ? 10_000 : item.lastNonzeroSize } : item
+      )
+    )
+    schedulePreferences()
   }
 
   createEffect(() => {
@@ -174,7 +224,21 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         ...restored,
         focusedLeafId: loaded.value.focusTargetId ?? restored.focusedLeafId,
       })
-    } else setLayout(initialLayout())
+      setUtilityPreferences(loaded.value.utility)
+      const visible = loaded.value.utility.find((item) => item.visible)
+      const active = utilityItems.find((item) => item.pane === visible?.pane)
+      if (active) {
+        setActiveUtility(active.id)
+        setUtilityFullWidth((visible?.size ?? 0) > 1_000)
+      }
+      workspaceStore.getState().setDevFocusMode(loaded.value.focusMode)
+    } else {
+      setLayout(initialLayout())
+      setUtilityPreferences(initialUtilityPreferences())
+      setActiveUtility('files')
+      setUtilityFullWidth(false)
+      workspaceStore.getState().setDevFocusMode(false)
+    }
     const visibilityChanged = () => controller.visibilityChanged(document.hidden)
     document.addEventListener('visibilitychange', visibilityChanged)
     onCleanup(() => {
@@ -199,6 +263,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       ) {
         event.preventDefault()
         workspaceStore.getState().setDevFocusMode(!focusMode())
+        schedulePreferences()
       }
     }
     window.addEventListener('keydown', handler)
@@ -271,13 +336,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           >
             Undo close
           </button>
-          <button type="button" class="dev-button" onClick={() => setActiveUtility('files')}>
+          <button type="button" class="dev-button" onClick={() => showUtility('files')}>
             <Files aria-hidden="true" /> Files / SC
           </button>
-          <button type="button" class="dev-button" onClick={() => setActiveUtility('browser')}>
+          <button type="button" class="dev-button" onClick={() => showUtility('browser')}>
             <Laptop aria-hidden="true" /> Browser / Devices
           </button>
-          <button type="button" class="dev-button" onClick={() => setActiveUtility('agents')}>
+          <button type="button" class="dev-button" onClick={() => showUtility('agents')}>
             <Users aria-hidden="true" /> Agents / History
           </button>
           <button
@@ -288,6 +353,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onClick={() => {
               const next = !focusMode()
               workspaceStore.getState().setDevFocusMode(next)
+              schedulePreferences()
               setAnnouncement(next ? 'Focus mode enabled' : 'Focus mode disabled')
             }}
           >
@@ -314,11 +380,15 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           <DevLayoutView
             state={layout()}
             unavailable={runtimeState().status === 'unavailable'}
-            onClose={(leafId) =>
-              updateLayout((state) =>
-                closePane(state, leafId, () => `dev-placeholder-${++nextPaneId}`)
-              )
-            }
+            onClose={(leafId) => {
+              let nextFocusId = layout().focusedLeafId
+              updateLayout((state) => {
+                const next = closePane(state, leafId, () => `dev-placeholder-${++nextPaneId}`)
+                nextFocusId = next.focusedLeafId
+                return next
+              })
+              return nextFocusId
+            }}
             onFocus={(leafId) => updateLayout((state) => focusPane(state, leafId))}
             onResize={(splitId, ratio) =>
               updateLayout((state) => resizeSplit(state, splitId, Math.round(ratio * 20) / 20))
@@ -343,7 +413,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                   class={cn('dev-utility-tab', {
                     'dev-utility-tab--selected': activeUtility() === item.id,
                   })}
-                  onClick={() => setActiveUtility(item.id)}
+                  onClick={() => showUtility(item.id)}
                   onKeyDown={(event) => {
                     const current = utilityItems.findIndex(
                       (candidate) => candidate.id === activeUtility()
@@ -361,7 +431,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                     if (next < 0) return
                     event.preventDefault()
                     const nextItem = utilityItems[next]!
-                    setActiveUtility(nextItem.id)
+                    showUtility(nextItem.id)
                     document.getElementById(`dev-utility-tab-${nextItem.id}`)?.focus()
                   }}
                 >
@@ -384,7 +454,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 class="dev-icon-button"
                 aria-label={utilityFullWidth() ? 'Restore utility pane' : 'Expand utility pane'}
                 aria-pressed={utilityFullWidth()}
-                onClick={() => setUtilityFullWidth((value) => !value)}
+                onClick={() => setFullWidth(!utilityFullWidth())}
               >
                 <Maximize2 aria-hidden="true" />
               </button>

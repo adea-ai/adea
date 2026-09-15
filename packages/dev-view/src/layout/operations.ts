@@ -112,7 +112,7 @@ export function splitPane(
   })
   if (layoutDepth(center) > MAX_LAYOUT_DEPTH)
     throw new Error('limit_exceeded: center layout depth exceeds eight')
-  return { ...state, center, focusedLeafId: input.leaf.id }
+  return { ...state, center, focusedLeafId: input.leaf.id, closed: [] }
 }
 
 export function closePane(
@@ -218,5 +218,5 @@ export function resizeSplit(state: DevLayoutState, splitId: string, ratio: numbe
       : { ...node, children: [first, second] }
   }
   const center = visit(state.center)
-  return found && center !== state.center ? { ...state, center } : state
+  return found && center !== state.center ? { ...state, center, closed: [] } : state
 }
