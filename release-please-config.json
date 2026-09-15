@@ -105,6 +105,11 @@
     },
     {
       "type": "json",
+      "path": "packages/dev-view/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "packages/db/package.json",
       "jsonpath": "$.version"
     },

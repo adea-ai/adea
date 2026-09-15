@@ -22,6 +22,24 @@ import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
 
+const DevWorkspace = lazyComponent(
+  () =>
+    import('@adea-ai/dev-view').then(
+      ({ DevWorkspaceEntry, createUnavailableDevRuntimeService }) => {
+        void import('@adea-ai/ui/dev-view.css')
+        return (entryProps: { runtime?: WorkspacePlatformServices['devRuntime'] }) => (
+          <DevWorkspaceEntry
+            runtime={
+              entryProps.runtime ??
+              createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+            }
+          />
+        )
+      }
+    ),
+  { loading: () => <WorkspaceEntryLoading /> }
+)
+
 const ConventionalWorkspace = lazyComponent(
   () =>
     import('./conventional-workspace-entry').then(
@@ -154,7 +172,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
   const view = (): WorkspaceView => {
     const value = currentSearch().view
-    if (value === 'chat' || value === 'virtual') return value
+    if (value === 'chat' || value === 'dev' || value === 'virtual') return value
     return props.virtual ? 'virtual' : 'chat'
   }
   const scene = () => {
@@ -165,15 +183,16 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // The workspace search contract lives on the root route and the router's
   // custom codec preserves it verbatim, so a patch is written through one
   // typed seam instead of restating the generated search schema.
-  const applySearch = (patch: Partial<WorkspaceSearch>) =>
+  const applySearch = (patch: Partial<WorkspaceSearch>, replace = true) =>
     void navigate({
       search: { ...currentSearch(), ...patch } as never,
       // Carry the hash through: a search update must not drop a deep link such
       // as `#settings/privacy-data` while the dialog it opened is mounting.
       hash: window.location.hash.replace(/^#/, ''),
-      replace: true,
+      replace,
     })
-  const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
+  const setViewParam = (nextView: WorkspaceView, replace = true) =>
+    applySearch({ view: nextView }, replace)
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
@@ -201,7 +220,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   })
 
   const changeView = (nextView: WorkspaceView) => {
-    void setViewParam(nextView)
+    void setViewParam(nextView, false)
   }
   const setRoomDesignerRoute = (enabled: boolean) => {
     setRoomDesignerEnabled(enabled)
@@ -256,35 +275,40 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       />
       <div class="workspace-frame__surface">
         <Show
-          when={view() === 'virtual'}
-          fallback={
-            <ConventionalWorkspace
-              client={props.client}
-              manageSettings={false}
-              onViewChange={changeView}
-              services={props.services}
-            />
-          }
+          when={view() !== 'dev'}
+          fallback={<DevWorkspace runtime={props.services.devRuntime} />}
         >
           <Show
-            when={roomDesignerEnabled()}
+            when={view() === 'virtual'}
             fallback={
-              <SpatialWorkspace
-                {...props.virtualProps}
-                apiClient={props.client}
-                initialScene={scene()}
-                onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
-                onWorkspaceViewChange={changeView}
+              <ConventionalWorkspace
+                client={props.client}
+                manageSettings={false}
+                onViewChange={changeView}
                 services={props.services}
-                workspaceView={view()}
               />
             }
           >
-            <RoomDesignerWorkspace
-              initialCharacter={props.virtualProps.initialCharacter}
-              initialScene={scene()}
-              onClose={() => setRoomDesignerRoute(false)}
-            />
+            <Show
+              when={roomDesignerEnabled()}
+              fallback={
+                <SpatialWorkspace
+                  {...props.virtualProps}
+                  apiClient={props.client}
+                  initialScene={scene()}
+                  onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
+                  onWorkspaceViewChange={changeView}
+                  services={props.services}
+                  workspaceView={view()}
+                />
+              }
+            >
+              <RoomDesignerWorkspace
+                initialCharacter={props.virtualProps.initialCharacter}
+                initialScene={scene()}
+                onClose={() => setRoomDesignerRoute(false)}
+              />
+            </Show>
           </Show>
         </Show>
       </div>

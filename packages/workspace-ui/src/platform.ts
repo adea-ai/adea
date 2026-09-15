@@ -1,4 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 
 export type PrivateContentResolver = Readonly<{
   health?(
@@ -198,6 +199,7 @@ export type WorkspacePlatformServices = Readonly<{
   }>
   client?: AgentHqApiClient
   capabilities?: CapabilityProvider
+  devRuntime?: DevRuntimeService
   privateContent?: PrivateContentResolver
   plugins?: WorkspacePluginsProvider
   settings?: WorkspaceSettingsProvider

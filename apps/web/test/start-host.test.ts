@@ -166,6 +166,8 @@ describe('workspace query semantics', () => {
     }
     assert.equal(workspaceSelection({ roomDesigner: ['0', '1'] }).virtual, false)
     assert.equal(workspaceSelection({ view: 'virtual' }).virtual, true)
+    assert.equal(workspaceSelection({ view: 'dev' }).dev, true)
+    assert.equal(workspaceSelection({ view: ['chat', 'dev'] }).dev, false)
   })
   it('accepts only the existing camera modes and the first character value', () => {
     assert.equal(workspaceSelection({ camera: 'invalid' }).cameraViewMode, undefined)

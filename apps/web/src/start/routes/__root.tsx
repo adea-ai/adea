@@ -17,7 +17,7 @@ export type WorkspaceSearch = {
   spawn?: string
   task?: string
   thread?: string
-  view?: 'chat' | 'virtual'
+  view?: 'chat' | 'dev' | 'virtual'
   workspace?: string
 }
 

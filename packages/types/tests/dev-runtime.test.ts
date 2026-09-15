@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   decodeDevCommand,
   decodeDevReply,
+  decodeRuntimeEvent,
   devOperationDefinitions,
   devOperationDecoders,
   devOperations,
@@ -129,6 +130,33 @@ describe('Dev Runtime command envelope', () => {
       })
     ).toThrow('resource id')
     expect(() => decodeDevCommand({ ...value, trusted: true })).toThrow('unknown key')
+  })
+})
+
+describe('Dev Runtime event envelope', () => {
+  const event = {
+    schemaVersion: 1,
+    eventId: 'event-1',
+    runtimeSessionId: 'session-1',
+    generation: 1,
+    seq: '1',
+    occurredAt: '2026-09-15T12:00:00.000Z',
+    receivedAt: '2026-09-15T12:00:01.000Z',
+    source: 'host',
+    sourceEventId: 'source-1',
+    confidence: 'authoritative',
+    classification: 'workspace_metadata',
+    kind: 'session.ready',
+    payload: { state: 'ready' },
+  } as const
+
+  test('strictly decodes bounded runtime events', () => {
+    expect(decodeRuntimeEvent(event)).toEqual(event)
+    expect(() => decodeRuntimeEvent({ ...event, extra: true })).toThrow('unknown key')
+    expect(() => decodeRuntimeEvent({ ...event, seq: '01' })).toThrow('uint64')
+    expect(() => decodeRuntimeEvent({ ...event, payload: { text: 'x'.repeat(65_537) } })).toThrow(
+      'string length'
+    )
   })
 })
 

@@ -253,6 +253,76 @@ export type Group = Readonly<{
   version: number
 }>
 
+export const runtimeEventKinds = [
+  'session.created',
+  'session.starting',
+  'session.ready',
+  'session.disconnected',
+  'session.resumed',
+  'session.completed',
+  'session.failed',
+  'session.cancelled',
+  'run.created',
+  'run.starting',
+  'run.ready',
+  'run.disconnected',
+  'run.resumed',
+  'run.completed',
+  'run.failed',
+  'run.cancelled',
+  'turn.user_input',
+  'turn.assistant_delta',
+  'turn.assistant_message',
+  'turn.result',
+  'tool.requested',
+  'tool.started',
+  'tool.progress',
+  'tool.completed',
+  'tool.failed',
+  'approval.requested',
+  'approval.resolved',
+  'approval.expired',
+  'question.requested',
+  'question.resolved',
+  'question.expired',
+  'file.observed',
+  'checkpoint.observed',
+  'subagent.observed',
+  'usage.observed',
+  'terminal.command_started',
+  'terminal.command_finished',
+  'terminal.cwd_changed',
+  'terminal.transcript_reference',
+  'capability.degraded',
+  'capability.restored',
+] as const
+export type RuntimeEventKind = (typeof runtimeEventKinds)[number]
+export const dataClassifications = [
+  'public',
+  'workspace_metadata',
+  'workspace_private',
+  'credential',
+  'restricted_local',
+] as const
+export type DataClassification = (typeof dataClassifications)[number]
+
+export type RuntimeEvent = Readonly<{
+  schemaVersion: 1
+  eventId: string
+  runtimeSessionId: string
+  harnessRunId?: string
+  generation: number
+  seq: string
+  occurredAt: string
+  receivedAt: string
+  source: 'native' | 'acp' | 'authenticated_hook' | 'terminal_fallback' | 'host'
+  sourceEventId: string
+  confidence: 'authoritative' | 'bounded_projection' | 'untrusted_hint'
+  classification: DataClassification
+  kind: RuntimeEventKind
+  payload: unknown
+}>
+
 export type DevRuntimePage<T> = Readonly<{
   items: readonly T[]
   nextCursor?: string
@@ -645,6 +715,77 @@ function decodeError(value: unknown, path = 'error'): DevError {
   return value as DevError
 }
 
+function validateEventPayload(value: unknown, path: string, depth = 0): void {
+  if (depth > 32) fail(path, 'maximum nesting depth exceeded')
+  if (typeof value === 'string') {
+    stringValue(value, path, 0, 65_536)
+    return
+  }
+  if (value === null || typeof value === 'boolean') return
+  if (typeof value === 'number') {
+    finiteNumber(value, path)
+    return
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => validateEventPayload(entry, `${path}[${index}]`, depth + 1))
+    return
+  }
+  const item = record(value, path)
+  for (const [key, entry] of Object.entries(item)) {
+    stringValue(key, `${path} key`, 1, 256)
+    validateEventPayload(entry, `${path}.${key}`, depth + 1)
+  }
+}
+
+export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
+  const item = record(value, 'event')
+  exactKeys(
+    item,
+    [
+      'schemaVersion',
+      'eventId',
+      'runtimeSessionId',
+      'generation',
+      'seq',
+      'occurredAt',
+      'receivedAt',
+      'source',
+      'sourceEventId',
+      'confidence',
+      'classification',
+      'kind',
+      'payload',
+    ],
+    ['harnessRunId'],
+    'event'
+  )
+  if (item.schemaVersion !== 1) fail('event.schemaVersion', 'expected 1')
+  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const)
+    stringValue(item[key], `event.${key}`, 1, 256)
+  if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+  integerValue(item.generation, 'event.generation', 0)
+  if (!uint64Pattern.test(stringValue(item.seq, 'event.seq')))
+    fail('event.seq', 'expected uint64 string')
+  timestamp(item.occurredAt, 'event.occurredAt')
+  timestamp(item.receivedAt, 'event.receivedAt')
+  literal(
+    item.source,
+    ['native', 'acp', 'authenticated_hook', 'terminal_fallback', 'host'],
+    'event.source'
+  )
+  literal(
+    item.confidence,
+    ['authoritative', 'bounded_projection', 'untrusted_hint'],
+    'event.confidence'
+  )
+  literal(item.classification, dataClassifications, 'event.classification')
+  literal(item.kind, runtimeEventKinds, 'event.kind')
+  validateEventPayload(item.payload, 'event.payload')
+  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
+    fail('event.payload', 'maximum encoded size exceeded')
+  return value as RuntimeEvent
+}
+
 function decodeRequestBody(
   operation: DevOperation,
   value: unknown
@@ -732,6 +873,7 @@ export function decodeDevReply(value: unknown): DevReply {
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
+    record(item.value, 'reply.value')
   } else if (item.ok === false) {
     exactKeys(item, ['schemaVersion', 'operation', 'requestId', 'ok', 'error'], [], 'reply')
     decodeError(item.error)

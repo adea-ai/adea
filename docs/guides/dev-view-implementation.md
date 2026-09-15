@@ -94,7 +94,11 @@ Create these stable seams before feature code:
 | `docs/research/dev-view-donor-audit.md` and `NOTICE`  | #394 owns policy/baseline; each reuse issue owns its issue-tagged append-only rows; #426 verifies aggregate |
 
 Create missing paths only in the issue that owns them. Do not move durable truth
-into `packages/state` or put host implementations in UI packages.
+into `packages/state` or put host implementations in UI packages. The #395
+foundation keeps `apps/web/src/lib/desktop-dev-runtime.ts` explicitly
+`channel_unauthenticated` until M10/M11 supply the production command channel;
+that truthful seam satisfies foundation integration without registering a
+privileged desktop command or using generic `invoke()` as authority.
 
 Implementation steps:
 
