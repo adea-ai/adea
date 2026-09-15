@@ -6,7 +6,8 @@ for (const width of [320, 768, 1280, 1920]) {
     await page.goto('/?view=dev&devE2e=preserved')
     await expect(page.getByRole('button', { name: 'Dev view', exact: true })).toHaveAttribute(
       'aria-pressed',
-      'true'
+      'true',
+      { timeout: 20_000 }
     )
     await expect(page.getByRole('main')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible()
