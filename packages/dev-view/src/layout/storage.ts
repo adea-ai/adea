@@ -13,11 +13,12 @@ export function createLayoutStorageController(options: {
   storage: LayoutStorage
   scope: Scope
   projectId: string
+  runtimeSessionId: string
   debounceMs?: number
   setTimer?: typeof setTimeout
   clearTimer?: typeof clearTimeout
 }) {
-  const key = layoutStorageKey(options.scope, options.projectId)
+  const key = layoutStorageKey(options.scope, options.projectId, options.runtimeSessionId)
   const setTimer = options.setTimer ?? setTimeout
   const clearTimer = options.clearTimer ?? clearTimeout
   const debounceMs = options.debounceMs ?? 250

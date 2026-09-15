@@ -29,6 +29,7 @@ test('debounces writes and flushes pending state when hidden', () => {
     storage,
     scope,
     projectId: 'project',
+    runtimeSessionId: 'session',
     setTimer: ((callback: () => void) => {
       callbacks.push(callback)
       return callbacks.length as unknown as ReturnType<typeof setTimeout>
@@ -45,7 +46,12 @@ test('debounces writes and flushes pending state when hidden', () => {
 
 test('retains an unread corrupt value before replacing it after an explicit change', () => {
   const storage = memoryStorage()
-  const controller = createLayoutStorageController({ storage, scope, projectId: 'project' })
+  const controller = createLayoutStorageController({
+    storage,
+    scope,
+    projectId: 'project',
+    runtimeSessionId: 'session',
+  })
   storage.values.set(controller.key, '{bad')
   expect(controller.load()).toEqual({ state: 'corrupt', raw: '{bad' })
 

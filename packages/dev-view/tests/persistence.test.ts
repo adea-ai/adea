@@ -37,8 +37,11 @@ describe('Dev layout persistence', () => {
       state: 'ready',
       value: preferences,
     })
-    expect(layoutStorageKey(scope, 'project-a')).toContain(
-      '00000000-0000-4000-8000-000000000003:project-a'
+    expect(layoutStorageKey(scope, 'project-a', 'session-a')).toContain(
+      '00000000-0000-4000-8000-000000000003:project-a:session-a'
+    )
+    expect(layoutStorageKey(scope, 'project-a', 'session-b')).not.toBe(
+      layoutStorageKey(scope, 'project-a', 'session-a')
     )
   })
 

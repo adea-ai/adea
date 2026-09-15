@@ -144,6 +144,10 @@ export function serializeLayoutPreferences(value: DevLayoutPreferencesV1): strin
   return JSON.stringify(decoded.value)
 }
 
-export function layoutStorageKey(scope: Scope, projectId: string): string {
-  return `adea.dev-layout.v1:${scope.accountId}:${scope.workspaceId}:${scope.runtimeNodeId}:${projectId}`
+export function layoutStorageKey(
+  scope: Scope,
+  projectId: string,
+  runtimeSessionId: string
+): string {
+  return `adea.dev-layout.v1:${scope.accountId}:${scope.workspaceId}:${scope.runtimeNodeId}:${projectId}:${runtimeSessionId}`
 }

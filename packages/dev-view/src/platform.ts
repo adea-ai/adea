@@ -13,6 +13,8 @@ export type DevRuntimeAvailability =
 
 export interface DevRuntimeService {
   state(): DevRuntimeAvailability
+  /** Authoritative preference scope, absent until a runtime channel is bound. */
+  preferenceScope?(): Scope | undefined
   capabilitySnapshot(scope: Scope): Promise<CapabilitySnapshot>
   execute(command: DevCommand): Promise<DevReply>
 }
@@ -30,6 +32,7 @@ export function createUnavailableDevRuntimeService(options?: {
 
   return {
     state: () => ({ status: 'unavailable', reason }),
+    preferenceScope: () => undefined,
     capabilitySnapshot: async (scope) => ({
       scope,
       granted: [],

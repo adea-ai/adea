@@ -28,8 +28,20 @@ import {
   TerminalSquare,
   Users,
 } from 'lucide-solid'
-import { For, Show, createMemo, createSignal, onMount } from 'solid-js'
+import { For, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
+import { DevLayoutView } from './layout/layout-view'
+import {
+  closePane,
+  countLeaves,
+  createLayoutState,
+  focusPane,
+  resizeSplit,
+  splitPane,
+  undoClosePane,
+  type DevLayoutState,
+} from './layout/operations'
+import { createLayoutStorageController } from './layout/storage'
 import type { DevRuntimeService } from './platform'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 
@@ -84,8 +96,21 @@ const utilityItems = [
   { id: 'history', label: 'History', icon: History },
 ] as const
 
+const initialLayout = () =>
+  createLayoutState({
+    kind: 'split',
+    id: 'dev-root',
+    direction: 'row',
+    ratio: 0.5,
+    children: [
+      { kind: 'leaf', id: 'dev-terminal', pane: 'terminal' },
+      { kind: 'leaf', id: 'dev-editor', pane: 'editor' },
+    ],
+  })
+
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
-  let centerElement: HTMLElement | undefined
+  let nextPaneId = 0
+  let storageController: ReturnType<typeof createLayoutStorageController> | undefined
   const groups = () => props.groups ?? fixtureGroups
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
@@ -99,19 +124,66 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const collapsedProjects = () => new Set(collapsedProjectIds())
   const [compactSidebarOpen, setCompactSidebarOpen] = createSignal(false)
   const [compactUtilityOpen, setCompactUtilityOpen] = createSignal(false)
-  const [narrow, setNarrow] = createSignal(false)
   const [activeUtility, setActiveUtility] =
     createSignal<(typeof utilityItems)[number]['id']>('files')
-  const [splitRatio, setSplitRatio] = createSignal(50)
+  const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
   const [utilityFullWidth, setUtilityFullWidth] = createSignal(false)
   const [announcement, setAnnouncement] = createSignal('')
   const runtimeState = createMemo(() => props.runtime.state())
 
+  const persistedPreferences = (state: DevLayoutState) => {
+    const scope = props.runtime.preferenceScope?.()
+    if (!scope) return undefined
+    return {
+      schemaVersion: 1 as const,
+      scope,
+      projectId: selectedProject(),
+      runtimeSessionId: selectedSession(),
+      center: state.center,
+      utility: [],
+      focusMode: focusMode(),
+      focusTargetId: state.focusedLeafId,
+    }
+  }
+  const updateLayout = (update: (state: DevLayoutState) => DevLayoutState) => {
+    const next = update(layout())
+    setLayout(next)
+    const preferences = persistedPreferences(next)
+    if (preferences) storageController?.schedule(preferences)
+  }
+
+  createEffect(() => {
+    const scope = props.runtime.preferenceScope?.()
+    const projectId = selectedProject()
+    const runtimeSessionId = selectedSession()
+    storageController?.dispose()
+    storageController = undefined
+    if (!scope || typeof localStorage === 'undefined' || !projectId || !runtimeSessionId) return
+    const controller = createLayoutStorageController({
+      storage: localStorage,
+      scope,
+      projectId,
+      runtimeSessionId,
+    })
+    storageController = controller
+    const loaded = controller.load()
+    if (loaded?.state === 'ready') {
+      const restored = createLayoutState(loaded.value.center)
+      setLayout({
+        ...restored,
+        focusedLeafId: loaded.value.focusTargetId ?? restored.focusedLeafId,
+      })
+    } else setLayout(initialLayout())
+    const visibilityChanged = () => controller.visibilityChanged(document.hidden)
+    document.addEventListener('visibilitychange', visibilityChanged)
+    onCleanup(() => {
+      document.removeEventListener('visibilitychange', visibilityChanged)
+      controller.dispose()
+      if (storageController === controller) storageController = undefined
+    })
+  })
+
   onMount(() => {
-    const narrowQuery = window.matchMedia('(max-width: 48rem)')
-    const updateNarrow = () => setNarrow(narrowQuery.matches)
-    updateNarrow()
-    narrowQuery.addEventListener('change', updateNarrow)
     const handler = (event: KeyboardEvent) => {
       const target = event.target
       const editable =
@@ -129,10 +201,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       }
     }
     window.addEventListener('keydown', handler)
-    return () => {
-      narrowQuery.removeEventListener('change', updateNarrow)
-      window.removeEventListener('keydown', handler)
-    }
+    return () => window.removeEventListener('keydown', handler)
   })
 
   return (
@@ -172,8 +241,32 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           <button type="button" class="dev-button" disabled>
             <Plus aria-hidden="true" /> New worktree
           </button>
-          <button type="button" class="dev-button" disabled>
-            <TerminalSquare aria-hidden="true" /> Terminal
+          <button
+            type="button"
+            class="dev-button"
+            disabled={countLeaves(layout().center) >= 8}
+            onClick={() => {
+              const pane = countLeaves(layout().center) % 2 === 0 ? 'terminal' : 'editor'
+              const suffix = ++nextPaneId
+              updateLayout((state) =>
+                splitPane(state, state.focusedLeafId, {
+                  direction: 'row',
+                  placement: 'after',
+                  leaf: { kind: 'leaf', id: `dev-pane-${suffix}`, pane },
+                  splitId: `dev-split-${suffix}`,
+                })
+              )
+            }}
+          >
+            <TerminalSquare aria-hidden="true" /> Split pane
+          </button>
+          <button
+            type="button"
+            class="dev-button"
+            disabled={layout().closed.length === 0}
+            onClick={() => updateLayout(undoClosePane)}
+          >
+            Undo close
           </button>
           <button type="button" class="dev-button" onClick={() => setActiveUtility('files')}>
             <Files aria-hidden="true" /> Files / SC
@@ -214,83 +307,20 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
         />
 
-        <section
-          class="dev-center"
-          id="dev-center"
-          aria-label="Developer workspace panes"
-          style={{ '--dev-split-ratio': `${splitRatio()}%` }}
-          ref={(element) => {
-            centerElement = element
-          }}
-        >
-          <div class="dev-pane dev-pane--terminal">
-            <header>
-              <TerminalSquare aria-hidden="true" />
-              <span>Terminal</span>
-              <span class="dev-pane__badge">typed seam</span>
-            </header>
-            <div class="dev-terminal-placeholder">
-              <p>$ dev runtime status</p>
-              <p class="dev-terminal-muted">
-                Authenticated terminal transport is not available in this slice.
-              </p>
-              <Show when={runtimeState().status === 'unavailable'}>
-                <p>Capability state: unavailable</p>
-              </Show>
-            </div>
-          </div>
-          <button
-            type="button"
-            class="dev-splitter"
-            role="separator"
-            aria-label="Resize terminal and editor panes"
-            aria-orientation={narrow() ? 'horizontal' : 'vertical'}
-            aria-valuemin="10"
-            aria-valuemax="90"
-            aria-valuenow={splitRatio()}
-            onPointerDown={(event) => {
-              if (!centerElement) return
-              event.currentTarget.setPointerCapture(event.pointerId)
-              const vertical = window.matchMedia('(max-width: 48rem)').matches
-              const resize = (move: PointerEvent) => {
-                const bounds = centerElement!.getBoundingClientRect()
-                const position = vertical ? move.clientY - bounds.top : move.clientX - bounds.left
-                const extent = vertical ? bounds.height : bounds.width
-                if (extent > 0)
-                  setSplitRatio(Math.min(90, Math.max(10, Math.round((position / extent) * 100))))
-              }
-              const done = () => {
-                window.removeEventListener('pointermove', resize)
-                window.removeEventListener('pointerup', done)
-                window.removeEventListener('pointercancel', done)
-              }
-              window.addEventListener('pointermove', resize)
-              window.addEventListener('pointerup', done, { once: true })
-              window.addEventListener('pointercancel', done, { once: true })
-            }}
-            onKeyDown={(event) => {
-              const delta =
-                event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-                  ? -5
-                  : event.key === 'ArrowRight' || event.key === 'ArrowDown'
-                    ? 5
-                    : 0
-              if (!delta) return
-              event.preventDefault()
-              setSplitRatio((value) => Math.min(90, Math.max(10, value + delta)))
-            }}
+        <section class="dev-center" id="dev-center" aria-label="Developer workspace panes">
+          <DevLayoutView
+            state={layout()}
+            unavailable={runtimeState().status === 'unavailable'}
+            onClose={(leafId) =>
+              updateLayout((state) =>
+                closePane(state, leafId, () => `dev-placeholder-${++nextPaneId}`)
+              )
+            }
+            onFocus={(leafId) => updateLayout((state) => focusPane(state, leafId))}
+            onResize={(splitId, ratio) =>
+              updateLayout((state) => resizeSplit(state, splitId, ratio))
+            }
           />
-          <div class="dev-pane dev-pane--editor">
-            <header>
-              <Files aria-hidden="true" />
-              <span>Editor</span>
-            </header>
-            <div class="dev-empty-state">
-              <PanelRightOpen aria-hidden="true" />
-              <h1>Choose a file to edit</h1>
-              <p>File authority will arrive through the authenticated Dev Runtime.</p>
-            </div>
-          </div>
         </section>
 
         <aside

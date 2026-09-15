@@ -33,10 +33,17 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await group.click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')
 
-  const separator = page.getByRole('separator', { name: 'Resize terminal and editor panes' })
+  const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await separator.focus()
   await page.keyboard.press('ArrowRight')
   await expect(separator).toHaveAttribute('aria-valuenow', '55')
+
+  await page.getByRole('button', { name: 'Split pane' }).click()
+  await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
+  await page.getByRole('button', { name: 'Close terminal pane' }).last().click()
+  await expect(page.getByRole('button', { name: 'Undo close' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Undo close' }).click()
+  await expect(page.getByRole('separator', { name: 'Resize workspace panes' })).toHaveCount(2)
 
   await page.getByRole('button', { name: 'Enter focus mode' }).click()
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeHidden()
