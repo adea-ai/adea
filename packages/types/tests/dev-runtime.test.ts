@@ -191,12 +191,40 @@ describe('Dev Runtime event envelope', () => {
   } as const
 
   test('strictly decodes bounded runtime events', () => {
-    expect(decodeRuntimeEvent(event)).toEqual(event)
-    expect(() => decodeRuntimeEvent({ ...event, extra: true })).toThrow('unknown key')
-    expect(() => decodeRuntimeEvent({ ...event, seq: '01' })).toThrow('uint64')
-    expect(() => decodeRuntimeEvent({ ...event, payload: { text: 'x'.repeat(65_537) } })).toThrow(
-      'string length'
+    expect(decodeRuntimeEvent(event, { source: 'host' })).toEqual(event)
+    expect(() => decodeRuntimeEvent({ ...event, extra: true }, { source: 'host' })).toThrow(
+      'unknown key'
     )
+    expect(() => decodeRuntimeEvent({ ...event, seq: '01' }, { source: 'host' })).toThrow('uint64')
+    expect(() =>
+      decodeRuntimeEvent({ ...event, payload: { text: 'x'.repeat(65_537) } }, { source: 'host' })
+    ).toThrow('string length')
+  })
+
+  test('binds provenance to the transport and limits terminal fallback projections', () => {
+    expect(() => decodeRuntimeEvent(event, { source: 'acp' })).toThrow('transport provenance')
+    expect(() =>
+      decodeRuntimeEvent(
+        {
+          ...event,
+          source: 'terminal_fallback',
+          confidence: 'authoritative',
+          kind: 'approval.resolved',
+        },
+        { source: 'terminal_fallback' }
+      )
+    ).toThrow('terminal fallback cannot be authoritative')
+    expect(
+      decodeRuntimeEvent(
+        {
+          ...event,
+          source: 'terminal_fallback',
+          confidence: 'bounded_projection',
+          kind: 'turn.assistant_delta',
+        },
+        { source: 'terminal_fallback' }
+      )
+    ).toMatchObject({ kind: 'turn.assistant_delta' })
   })
 })
 

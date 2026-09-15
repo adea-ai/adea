@@ -1410,6 +1410,10 @@ successful prompt delivery.
 
 Event constraints:
 
+- the decoder receives source provenance out-of-band from the authenticated
+  transport/adapter and rejects a JSON `source` that differs; terminal fallback
+  cannot claim `authoritative` confidence and can emit only bounded assistant
+  text or terminal-observation kinds;
 - one monotonic `seq` per runtime session generation;
 - `sourceEventId` is required on the canonical stored event. Native/ACP/hook
   adapters use the source protocol's stable ID. If the source lacks one, the

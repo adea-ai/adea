@@ -739,7 +739,15 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
   }
 }
 
-export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
+export type RuntimeEventProvenance = Readonly<{
+  /** Source derived from the authenticated transport/adapter, never event JSON. */
+  source: RuntimeEvent['source']
+}>
+
+export function decodeRuntimeEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeEvent {
   const item = record(value, 'event')
   exactKeys(
     item,
@@ -775,6 +783,8 @@ export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
     ['native', 'acp', 'authenticated_hook', 'terminal_fallback', 'host'],
     'event.source'
   )
+  if (item.source !== provenance.source)
+    fail('event.source', 'does not match authenticated transport provenance')
   literal(
     item.confidence,
     ['authoritative', 'bounded_projection', 'untrusted_hint'],
@@ -782,6 +792,20 @@ export function decodeRuntimeEvent(value: unknown): RuntimeEvent {
   )
   literal(item.classification, dataClassifications, 'event.classification')
   literal(item.kind, runtimeEventKinds, 'event.kind')
+  if (item.source === 'terminal_fallback') {
+    if (item.confidence === 'authoritative')
+      fail('event.confidence', 'terminal fallback cannot be authoritative')
+    const fallbackKinds: readonly RuntimeEventKind[] = [
+      'turn.assistant_delta',
+      'turn.assistant_message',
+      'terminal.command_started',
+      'terminal.command_finished',
+      'terminal.cwd_changed',
+      'terminal.transcript_reference',
+    ]
+    if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
+      fail('event.kind', 'terminal fallback cannot synthesize this event kind')
+  }
   validateEventPayload(item.payload, 'event.payload')
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
