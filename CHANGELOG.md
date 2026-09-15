@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.17](https://github.com/adea-ai/adea/compare/v0.25.16...v0.25.17) (2026-09-15)
+
+
+### Bug Fixes
+
+* **auth:** repair dot damage in pasted email addresses ([#445](https://github.com/adea-ai/adea/issues/445)) ([73e971b](https://github.com/adea-ai/adea/commit/73e971bd9e1ef5aa6080d9a2626ab016300ecef9))
+
 ## [0.25.16](https://github.com/adea-ai/adea/compare/v0.25.15...v0.25.16) (2026-09-15)
 
 
