@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.15](https://github.com/adea-ai/adea/compare/v0.25.14...v0.25.15) (2026-09-15)
+
+
+### Bug Fixes
+
+* **web:** stream marketplace catalog reads through the worker unparsed ([#441](https://github.com/adea-ai/adea/issues/441)) ([84e79b4](https://github.com/adea-ai/adea/commit/84e79b4e4c21a5864d58db27aa7d087fc8fdea64))
+
 ## [0.25.14](https://github.com/adea-ai/adea/compare/v0.25.13...v0.25.14) (2026-09-15)
 
 
