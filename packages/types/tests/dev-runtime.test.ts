@@ -132,16 +132,22 @@ describe('Dev Runtime command envelope', () => {
     }
   })
 
-  test('accepts paired commits whose immutable plan owns the target binding', () => {
-    const value = command('dev.git.discardCommit', {
-      planId: 'plan-1',
-      planDigest: '0'.repeat(64),
-    })
-    const paired = {
-      ...value,
-      resource: { kind: 'worktree', id: 'worktree-1', generation: 7 },
+  test('accepts every paired commit whose immutable plan owns the target binding', () => {
+    const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
+    expect(pairedCommits).toHaveLength(9)
+    for (const operation of pairedCommits) {
+      const value = command(operation, {
+        planId: 'plan-1',
+        planDigest: '0'.repeat(64),
+      })
+      const definition = devOperationDefinitions[operation]
+      expect(definition.resource).not.toBeNull()
+      const paired = {
+        ...value,
+        resource: { kind: definition.resource!.kind, id: 'plan-target-1', generation: 7 },
+      }
+      expect(decodeDevCommand(paired)).toEqual(paired)
     }
-    expect(decodeDevCommand(paired)).toEqual(paired)
   })
 
   test('rejects command control payloads above 256 KiB', () => {
