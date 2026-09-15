@@ -902,13 +902,17 @@ test('browses the verified registry marketplace and submits an exact install req
       workspaceIdentity: { userId: 'user-e2e', workspaceId: workspace.id },
     },
   ])
-  // The verified catalog is cached for stale-while-revalidate, so the assertion
-  // is about what must never be persisted: installations, authorizations, and
+  // The verified catalog is cached for stale-while-revalidate (the global
+  // snapshot plus the legacy per-workspace entry), so the assertion is about
+  // what must never be persisted: installations, authorizations, and
   // credentials. Anything else plugin-shaped in storage fails this gate.
   expect(
     await page.evaluate(() =>
       Object.keys(localStorage).filter(
-        (key) => /plugin/i.test(key) && key !== 'adea:plugin-catalog-cache:v1'
+        (key) =>
+          /plugin/i.test(key) &&
+          key !== 'adea:plugin-catalog-cache:v1' &&
+          key !== 'adea:plugin-catalog-global:v1'
       )
     )
   ).toEqual([])
