@@ -1,14 +1,15 @@
 /**
  * Normalize an email address the way a person actually types or pastes it.
  *
- * The provider's email validation rejects invisible characters even when the
- * address reads correctly — a trailing non-breaking space or a zero-width
- * space from a copy-paste fails with "invalid email" no matter what the
- * person does, because `String.prototype.trim` only removes ASCII whitespace
- * at the ends. NFKC folds fullwidth and lookalike forms (e.g. ＠ → @) and the
- * character class strips every Unicode whitespace plus zero-width markers
- * anywhere in the value; none of them can appear in a deliverable address.
+ * The auth provider's email validation is ASCII-only and rejects anything
+ * else, while real input carries fullwidth/lookalike forms (＠, Cyrillic
+ * lookalikes) and invisible characters (soft hyphens, non-breaking and
+ * zero-width spaces from copy-paste) that read as a valid address. NFKC
+ * folds the foldable forms, then everything outside the ASCII email charset
+ * is dropped — the provider would reject the address for any such character
+ * anyway, so whitelisting exactly what it accepts can only make a
+ * deliverable address more correct, never less.
  */
 export function normalizeEmail(raw: string): string {
-  return raw.normalize('NFKC').replace(/[\p{White_Space}\u200B-\u200D\u2060\uFEFF]/gu, '')
+  return raw.normalize('NFKC').replace(/[^A-Za-z0-9@._+-]/g, '')
 }
