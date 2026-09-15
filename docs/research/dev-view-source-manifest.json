@@ -1,0 +1,673 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Exact pinned source handoff for M12 Dev View implementation",
+  "retrievalRoot": "${TMPDIR:-/tmp}/adea-dev-view-donors",
+  "donors": {
+    "kirocrew": {
+      "origin": "https://github.com/kirodotdev/KiroCrew.git",
+      "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+      "license": "Apache-2.0",
+      "licensePath": "LICENSE",
+      "noticePath": "NOTICE",
+      "reuse": "copy_or_translate_with_notice",
+      "dependencyManifests": ["pyproject.toml", "website/package.json", "website/package-lock.json"]
+    },
+    "orca": {
+      "origin": "https://github.com/stablyai/orca.git",
+      "revision": "403b62a8d8fa6e896a93acc4c15405be0f0b7dc7",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "reuse": "primary_typescript_donor",
+      "dependencyManifests": ["package.json", "pnpm-lock.yaml"]
+    },
+    "t3code": {
+      "origin": "https://github.com/pingdotgg/t3code.git",
+      "revision": "77bca8b2d76a1f42552e5eee7d277fcb1160347a",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "reuse": "copy_or_translate_with_hardening",
+      "dependencyManifests": ["package.json", "pnpm-lock.yaml", "third-party-licenses.config.json"],
+      "thirdPartyLicensePaths": ["third-party-licenses.config.json", "native/libghostty-vt/LICENSE"]
+    },
+    "terax": {
+      "origin": "https://github.com/crynta/terax-ai.git",
+      "revision": "b02a7dcbfe58d22b2352d9618b8ed3199e317a00",
+      "license": "Apache-2.0",
+      "licensePath": "LICENSE",
+      "reuse": "primary_editor_files_source_control_donor",
+      "dependencyManifests": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "src-tauri/Cargo.toml",
+        "src-tauri/Cargo.lock"
+      ],
+      "thirdPartyLicensePaths": ["packages/ghostty-core/LICENSE"]
+    },
+    "bb": {
+      "origin": "https://github.com/get-bb/bb.git",
+      "revision": "52a9256373d4d36f9b60e9e2a7f333464091a2ac",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "reuse": "copy_pure_typescript_units",
+      "dependencyManifests": ["package.json", "pnpm-lock.yaml"]
+    },
+    "zeron": {
+      "origin": "https://github.com/zeronsh/zeron.git",
+      "revision": "30a9a9537c5ec96226c87f4bf349b6f77c5dfb59",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "reuse": "translate_rust_models_and_interactions",
+      "dependencyManifests": ["Cargo.toml", "Cargo.lock", "crates/theme/Cargo.toml"],
+      "thirdPartyLicensePaths": ["THIRD_PARTY_NOTICES.md"]
+    },
+    "muxy": {
+      "origin": "https://github.com/muxy-app/muxy.git",
+      "revision": "5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6",
+      "license": "MIT",
+      "licensePath": "LICENSE",
+      "reuse": "translate_swift_units_and_tests",
+      "dependencyManifests": ["Package.swift", "Package.resolved"]
+    },
+    "buzz": {
+      "origin": "https://github.com/block/buzz.git",
+      "revision": "eed74bde2f4797714335ac10c56c0b0244c1def4",
+      "license": "Apache-2.0",
+      "licensePath": "LICENSE",
+      "noticePath": null,
+      "reuse": "copy_or_translate_with_adea_notice",
+      "dependencyManifests": [
+        "package.json",
+        "pnpm-lock.yaml",
+        "desktop/package.json",
+        "desktop/src-tauri/Cargo.toml",
+        "desktop/src-tauri/Cargo.lock"
+      ]
+    },
+    "warp": {
+      "origin": "https://github.com/warpdotdev/warp.git",
+      "revision": "3959ea72141fc0ecd007665029a8058e0e6db0f8",
+      "license": "AGPL-3.0 for all relevant M12 implementation paths",
+      "reuse": "prohibited_implementation_source",
+      "retrievalAllowedForImplementation": false
+    },
+    "opengrok": {
+      "origin": "https://github.com/hexuria/opengrok.git",
+      "revision": "2bf49b3ca5a72c09b169a282a8cea16373a85288",
+      "license": "no source license grant",
+      "reuse": "prohibited_entire_repository_and_history",
+      "retrievalAllowedForImplementation": false
+    }
+  },
+  "slices": {
+    "394-contract-foundation": {
+      "issue": 394,
+      "destinations": [
+        "docs/research/dev-view-donor-audit.md",
+        "docs/research/dev-view-source-manifest.json",
+        "docs/decisions/0009-dev-view-control-plane.md",
+        "docs/specs/dev-runtime.md",
+        "docs/specs/dev-runtime-operations.json",
+        "docs/security/dev-view-threat-model.md",
+        "docs/guides/dev-view-implementation.md",
+        "docs/plans/m12-dev-view.md",
+        "AGENTS.md"
+      ],
+      "units": [],
+      "instruction": "Accept and maintain the contract package; no donor implementation is copied in this slice."
+    },
+    "395-shell-layout": {
+      "issue": 395,
+      "destinations": [
+        "packages/types/src/dev-runtime.ts",
+        "packages/data/src/dev-runtime.ts",
+        "packages/state/src/index.ts",
+        "packages/dev-view/package.json",
+        "packages/dev-view/src/index.ts",
+        "packages/dev-view/src/platform.ts",
+        "packages/workspace-ui/src/workspace-view-toggle.tsx",
+        "packages/workspace-ui/src/global-workspace-rail.tsx",
+        "apps/web/src/components/workspace-navigation.tsx",
+        "apps/web/src/lib/desktop-dev-runtime.ts",
+        "apps/desktop/shell/src/dev-runtime/index.ts",
+        "apps/desktop/shell/src/commands.ts",
+        "packages/dev-view/src/layout/**",
+        "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
+        "packages/dev-view/src/sidebar/archive-shelf.tsx",
+        "packages/ui/src/styles/dev-view.css"
+      ],
+      "units": [
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/pages/ChatSidebar.tsx",
+            "website/src/pages/chat/SidePanel.tsx",
+            "website/src/hooks/panelTabRegistry.ts"
+          ],
+          "tests": [],
+          "action": "Translate component decomposition, navigation hierarchy, archive shelf, and panel registry interactions to Solid; retain Adea tokens and platform provider."
+        },
+        {
+          "donor": "bb",
+          "source": [
+            "apps/app/src/lib/split-layout/types.ts",
+            "apps/app/src/lib/split-layout/ops.ts",
+            "apps/app/src/lib/split-layout/persistence.ts"
+          ],
+          "tests": [
+            "apps/app/src/lib/split-layout/ops.test.ts",
+            "apps/app/src/lib/split-layout/persistence.test.ts",
+            "apps/app/src/lib/split-layout/computePaneRects.test.ts",
+            "apps/app/src/views/thread-detail/splitPaneCommands.test.ts"
+          ],
+          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout."
+        },
+        {
+          "donor": "muxy",
+          "source": ["Muxy/Models/Workspace/SplitNode.swift"],
+          "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
+          "action": "Translate invariants and all applicable test cases to TypeScript."
+        }
+      ]
+    },
+    "397-worktrees": {
+      "issue": 397,
+      "destinations": ["apps/desktop/shell/src/dev-runtime/worktrees/**"],
+      "units": [
+        {
+          "donor": "orca",
+          "source": [
+            "src/main/runtime/orca-runtime-create-managed-worktree.ts",
+            "src/main/worktree-removal-safety.ts",
+            "src/main/worktree-trash.ts",
+            "src/main/runtime/repo-worktree-admin-fingerprint.ts"
+          ],
+          "tests": [
+            "src/main/worktree-removal-safety.test.ts",
+            "src/main/worktree-trash.test.ts",
+            "src/main/runtime/repo-worktree-admin-fingerprint.test.ts",
+            "src/cli/index-worktree-create-agent.test.ts",
+            "src/cli/index-worktree-create-linear.test.ts",
+            "src/cli/index-worktree-create-parent.test.ts",
+            "src/cli/index-worktree-create-target.test.ts"
+          ],
+          "action": "Port as primary service; preserve proof-before-trash and rename-before-delete; add M10 scope, identity generations, durable journal, leases, and complete blockers."
+        },
+        {
+          "donor": "muxy",
+          "source": [
+            "Muxy/Services/Project/WorktreeStore.swift",
+            "Muxy/Services/Git/WorktreeProcessQuiescer.swift"
+          ],
+          "tests": [
+            "Tests/MuxyTests/Services/Project/WorktreeStoreTests.swift",
+            "Tests/MuxyTests/Git/WorktreeProcessQuiescerTests.swift",
+            "Tests/MuxyTests/Git/GitWorktreeServiceAddTests.swift",
+            "Tests/MuxyTests/Git/GitWorktreeServiceRemoveTests.swift"
+          ],
+          "action": "Translate staged UX and race fixtures; replace cwd/PID/PGID/lsof ownership with Adea launch identity."
+        }
+      ]
+    },
+    "398-project-registry": {
+      "issue": 398,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/projects/**",
+        "packages/dev-view/src/sidebar/project-tree.tsx",
+        "packages/dev-view/src/sidebar/project-row.tsx",
+        "packages/dev-view/src/sidebar/worktree-row.tsx"
+      ],
+      "units": [
+        {
+          "donor": "kirocrew",
+          "source": ["src/kiro_crew/project_scan.py"],
+          "tests": [
+            "test/test_project_scan_members.py",
+            "test/test_project_scan_properties.py",
+            "test/test_project_scan_models.py",
+            "test/test_project_scan_fixtures.py",
+            "test/test_project_scan_walker.py"
+          ],
+          "action": "Translate behavior and fixtures into bounded TypeScript modules; preserve prune-first discovery and workspace semantics."
+        },
+        {
+          "donor": "orca",
+          "source": [
+            "src/shared/project-types.ts",
+            "src/shared/repo-types.ts",
+            "src/shared/project-groups.ts"
+          ],
+          "tests": [],
+          "action": "Adapt normalized group/project/repository relations and row hierarchy with runtime-node scope."
+        },
+        {
+          "donor": "bb",
+          "source": ["packages/db/src/schema.ts"],
+          "tests": [],
+          "action": "Adapt relationship model only; durable authority remains execution host and Control Plane."
+        }
+      ]
+    },
+    "396-terminal": {
+      "issue": 396,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/terminal/**",
+        "packages/dev-view/src/terminal/**"
+      ],
+      "units": [
+        {
+          "donor": "t3code",
+          "source": [
+            "apps/server/src/terminal/PtyAdapter.ts",
+            "apps/server/src/terminal/BunPtyAdapter.ts"
+          ],
+          "tests": ["apps/server/src/terminal/BunPtyAdapter.test.ts"],
+          "action": "Copy adapter shape and Bun spawn lifecycle; replace decoded string callbacks with Uint8Array and detached sidecar authority."
+        },
+        {
+          "donor": "bb",
+          "source": [
+            "apps/host-daemon/src/terminals/terminal-manager.ts",
+            "packages/client-core/src/terminal/terminal-websocket-transport.ts"
+          ],
+          "tests": [
+            "apps/host-daemon/src/terminals/terminal-manager.test.ts",
+            "apps/host-daemon/src/terminals/node-pty-fd-leak.test.ts",
+            "packages/client-core/test/terminal-websocket-transport.test.ts"
+          ],
+          "action": "Copy queue, reconnect, heartbeat, and stale-socket mechanics; add authenticated endpoint, byte sequence, checkpoints, replay, resync, and generation."
+        },
+        {
+          "donor": "orca",
+          "source": ["src/main/terminal-history.ts", "src/main/shell-startup-features.ts"],
+          "tests": [
+            "src/main/terminal-history.test.ts",
+            "src/main/terminal-history-gc.test.ts",
+            "src/main/daemon/terminal-history-permissions.test.ts",
+            "src/main/daemon/terminal-history-incremental-restore.test.ts"
+          ],
+          "action": "Port worktree history/startup assembly; use relative content-addressed authority and fresh containment proof."
+        },
+        {
+          "donor": "buzz",
+          "source": [
+            "desktop/src-tauri/src/terminal_transport.rs",
+            "desktop/src-tauri/crates/buzz-terminal/src/env_fence.rs"
+          ],
+          "tests": [
+            "desktop/src-tauri/crates/buzz-terminal/src/env_fence_tests.rs",
+            "desktop/src-tauri/crates/buzz-terminal/tests/slicing_adversarial.rs",
+            "desktop/src-tauri/crates/buzz-terminal/tests/resize.rs",
+            "desktop/src/features/terminal/terminalRenderer.test.mjs"
+          ],
+          "action": "Translate bounded renderer credit and environment allowlist; do not treat credit as authentication, ownership, or replay."
+        }
+      ]
+    },
+    "399-files-local-git": {
+      "issue": 399,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/files/**",
+        "apps/desktop/shell/src/dev-runtime/git/**",
+        "packages/dev-view/src/files/**",
+        "packages/dev-view/src/editor/**",
+        "packages/dev-view/src/source-control/**"
+      ],
+      "units": [
+        {
+          "donor": "terax",
+          "source": [
+            "src/modules/editor/EditorPane.tsx",
+            "src/modules/editor/GitDiffPane.tsx",
+            "src/modules/editor/AiDiffPane.tsx",
+            "src/modules/explorer/FileExplorer.tsx",
+            "src/modules/source-control/SourceControlPanel.tsx",
+            "src/app/App.tsx"
+          ],
+          "tests": [
+            "src/modules/editor/lib/eol.test.ts",
+            "src/modules/editor/lib/diffCache.test.ts",
+            "src/modules/explorer/lib/gitStatusUtils.test.ts",
+            "src/modules/explorer/lib/useExplorerDnd.test.ts",
+            "src/modules/source-control/repositoryTarget.test.ts",
+            "src/modules/source-control/useSourceControl.test.ts"
+          ],
+          "action": "Translate component hierarchy and interactions to Solid/CodeMirror; retain test behaviors; replace Tauri authority and listed filesystem/save/search defects."
+        },
+        {
+          "donor": "t3code",
+          "source": [
+            "apps/server/src/checkpointing/CheckpointStore.ts",
+            "apps/server/src/vcs/GitVcsDriver.ts",
+            "packages/contracts/src/editor.ts"
+          ],
+          "tests": [
+            "apps/server/src/checkpointing/CheckpointStore.test.ts",
+            "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts",
+            "apps/server/src/vcs/GitVcsDriver.test.ts",
+            "apps/server/src/vcs/GitVcsDriverCore.test.ts"
+          ],
+          "action": "Copy checkpoint/editor contracts and git parser behavior; add M10 root identity, CAS save, NUL-safe parsing, plan/commit, and retention."
+        }
+      ]
+    },
+    "400-harness-sessions": {
+      "issue": 400,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/harness/**",
+        "apps/desktop/shell/src/dev-runtime/sessions/**",
+        "packages/dev-view/src/agents/**",
+        "packages/dev-view/src/history/**"
+      ],
+      "units": [
+        {
+          "donor": "orca",
+          "source": [
+            "src/shared/tui-agent.ts",
+            "src/shared/agent-status-osc.ts",
+            "src/main/runtime/agent-session-pty-write-gate.ts"
+          ],
+          "tests": [
+            "src/main/runtime/agent-session-pty-write-gate.test.ts",
+            "src/main/agent-hooks/server-ingest-terminal-status.test.ts"
+          ],
+          "action": "Copy identity/write-gate reducers and bounded parser tests; replace heuristic authority with RuntimeSession/HarnessRun generation and event precedence."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "src/kiro_crew/acp/client.py",
+            "src/kiro_crew/acp/runtime.py",
+            "src/kiro_crew/acp/session_provider.py"
+          ],
+          "tests": [
+            "test/test_acp_client.py",
+            "test/test_acp_runtime.py",
+            "test/test_acp_session_provider.py",
+            "test/test_acp_session_provider_shutdown.py",
+            "test/test_session_provider_liveness.py"
+          ],
+          "action": "Translate ACP lifecycle and failure tests behind M10 discovery/protocol authority."
+        },
+        {
+          "donor": "zeron",
+          "source": [
+            "crates/harness/src/lib.rs",
+            "crates/engine/src/registry.rs",
+            "crates/engine/src/rpc.rs",
+            "crates/ui/src/settings/composer.rs",
+            "crates/ui/src/settings/archived.rs",
+            "crates/ui/src/history.rs"
+          ],
+          "tests": [],
+          "action": "Translate harness registry, model/command, preference, archive, and history models while keeping M10/M11 authority."
+        },
+        {
+          "donor": "buzz",
+          "source": [
+            "desktop/src/features/agents/lib/resolvePersonaRuntime.ts",
+            "desktop/src/features/agents/ui/personaRuntimeModel.ts",
+            "desktop/src/features/agents/ui/runtimeModelProviderSelection.ts"
+          ],
+          "tests": [
+            "desktop/src/features/agents/lib/resolvePersonaRuntime.test.mjs",
+            "desktop/src/features/agents/ui/personaRuntimeModel.test.mjs",
+            "desktop/src/features/agents/ui/runtimeModelProviderSelection.test.mjs"
+          ],
+          "action": "Copy/translate explicit preference precedence and reset behavior; never inherit credentials from persona identity."
+        },
+        {
+          "donor": "muxy",
+          "source": ["Muxy/Services/AgentDetection/AIAgentDetector.swift"],
+          "tests": ["Tests/MuxyTests/Services/AgentDetection/AIAgentDetectorTests.swift"],
+          "action": "Use only as degraded-detection fixture/test inspiration; M10 discovery and authenticated native/ACP events remain authoritative."
+        }
+      ]
+    },
+    "422-browser-devices": {
+      "issue": 422,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/browser/**",
+        "apps/desktop/shell/src/dev-runtime/devices/**",
+        "packages/dev-view/src/browser/**",
+        "packages/dev-view/src/devices/**"
+      ],
+      "units": [
+        {
+          "donor": "kirocrew",
+          "source": [
+            "docs/system-specs/modules/browser.md",
+            "src/kiro_crew/browser_cli/launch.py",
+            "src/kiro_crew/browser_cli/launcher.py",
+            "src/kiro_crew/browser_cli/view.py",
+            "website/electron/browser-view.js",
+            "website/src/hooks/useBrowserView.ts"
+          ],
+          "tests": [
+            "test/test_browser_cli_launch.py",
+            "test/test_browser_cli_view.py",
+            "test/test_browser_launcher.py",
+            "website/electron/test/browser-agent-channel.test.js",
+            "website/electron/test/browser-annotate.test.js",
+            "website/electron/test/browser-control.test.js",
+            "website/electron/test/browser-ops.test.js",
+            "website/electron/test/browser-view.test.js",
+            "website/src/test/useBrowserView.test.tsx"
+          ],
+          "action": "Translate explicit transport kinds, capability surface, BrowserView lifecycle, annotation, and tests; replace Electron/Python seams with ADR 0006 Bun.WebView/CDP/M10 lanes."
+        },
+        {
+          "donor": "orca",
+          "source": [
+            "src/main/browser/agent-browser-bridge.ts",
+            "src/main/browser/browser-manager.ts",
+            "src/main/browser/browser-screencast-stream.ts",
+            "src/main/browser/browser-cookie-import.ts",
+            "src/main/browser/browser-route-identity.ts",
+            "src/main/emulator/emulator-bridge.ts",
+            "src/main/emulator/emulator-session-registry.ts",
+            "src/main/emulator/emulator-gesture-sender.ts",
+            "src/main/emulator/backends/android-emulator-backend.ts",
+            "src/main/emulator/backends/ios-emulator-backend.ts"
+          ],
+          "tests": [
+            "src/main/browser/agent-browser-bridge-session-lifecycle.test.ts",
+            "src/main/browser/browser-manager-annotation-bridge.test.ts",
+            "src/main/browser/browser-screencast-stream.test.ts",
+            "src/main/browser/browser-cookie-import-clear-atomicity.test.ts",
+            "src/main/browser/browser-cookie-import-scope.test.ts",
+            "src/main/browser/paired-runtime-browser-host-command-admission.test.ts",
+            "src/main/emulator/emulator-bridge.test.ts",
+            "src/main/emulator/emulator-session-registry.test.ts",
+            "src/main/emulator/emulator-gesture-sender.test.ts",
+            "src/main/emulator/backends/android-emulator-backend.test.ts",
+            "src/main/emulator/backends/ios-emulator-backend.test.ts",
+            "src/main/emulator/android/android-device-inventory.test.ts",
+            "src/main/emulator/simctl-simulator-devices.test.ts"
+          ],
+          "action": "Port target/session/CDP/emulator/cookie/annotation flows; replace Electron seams with Bun.WebView/CDP/M10 and add ADR 0006 lane identities."
+        },
+        {
+          "donor": "t3code",
+          "source": [
+            "apps/server/src/preview/Manager.ts",
+            "apps/server/src/preview/PortScanner.ts",
+            "apps/desktop/src/preview/BrowserSession.ts",
+            "apps/desktop/src/preview/BrowserImport/BrowserImport.ts",
+            "apps/desktop/src/preview/PickedElementPayload.ts",
+            "apps/desktop/src/preview/Manager.ts",
+            "apps/web/src/components/preview/PreviewPanel.tsx",
+            "apps/web/src/components/preview/PreviewPanelShell.tsx",
+            "apps/web/src/components/preview/previewMiniPlayerLayout.ts",
+            "apps/web/src/components/preview/useDiscoveredLocalServers.ts"
+          ],
+          "tests": [
+            "apps/server/src/preview/Manager.test.ts",
+            "apps/server/src/preview/PortScanner.test.ts",
+            "apps/desktop/src/preview/BrowserImport/BrowserImport.test.ts",
+            "apps/desktop/src/preview/PickedElementPayload.test.ts",
+            "apps/web/src/components/preview/previewMiniPlayerLayout.test.ts",
+            "apps/web/src/components/preview/useDiscoveredLocalServers.test.ts"
+          ],
+          "action": "Port preview, port, picker, annotation, and mini-player UX; replace permissive permissions and partial cookie import."
+        }
+      ]
+    },
+    "423-github": {
+      "issue": 423,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/github/**",
+        "packages/dev-view/src/github/**"
+      ],
+      "units": [
+        {
+          "donor": "orca",
+          "source": [
+            "src/main/github/client.ts",
+            "src/main/github/gh-utils.ts",
+            "src/main/github/rate-limit.ts",
+            "src/main/github/issues.ts",
+            "src/main/github/work-item-details.ts",
+            "src/main/github/github-api-repository.ts",
+            "src/main/github/stacked-pr-creation.ts",
+            "src/main/github/pr-refresh-coordinator.ts"
+          ],
+          "tests": [
+            "src/main/github/client-create-pr.test.ts",
+            "src/main/github/client-pr-checks.test.ts",
+            "src/main/github/client-rate-limit-block.test.ts",
+            "src/main/github/client-work-items-query-paging.test.ts",
+            "src/main/github/github-enterprise-repository.test.ts",
+            "src/main/github/client-pr-push-target.test.ts",
+            "src/main/ipc/github-repo-access-guards.test.ts"
+          ],
+          "action": "Copy provider client and test fixtures; replace IPC/vault seams with M10, preserve pagination/rate/error behavior, add plan/commit and reconciliation."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/pages/ChatSidebar.tsx",
+            "website/src/components/PullRequestPanel.tsx"
+          ],
+          "tests": [],
+          "action": "Translate PR/check/work-item information hierarchy to Solid with untrusted-text sanitization."
+        }
+      ]
+    },
+    "424-resources-cleanup": {
+      "issue": 424,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/resources/**",
+        "apps/desktop/shell/src/dev-runtime/usage/**",
+        "packages/dev-view/src/resources/**"
+      ],
+      "units": [
+        {
+          "donor": "muxy",
+          "source": [
+            "Muxy/Services/Git/WorktreeProcessQuiescer.swift",
+            "Muxy/Models/Shared/ProcessUsage.swift"
+          ],
+          "tests": [
+            "Tests/MuxyTests/Git/WorktreeProcessQuiescerTests.swift",
+            "Tests/MuxyTests/Models/Shared/ProcessUsageTests.swift",
+            "Tests/MuxyTests/Services/Diagnostics/ProcessTreeTests.swift"
+          ],
+          "action": "Translate process-tree measurement and race tests; replace cwd/name/PID/PGID/lsof ownership.",
+          "reviewOnlySources": [
+            "Muxy/Services/Extensions/ExtensionStore.swift",
+            "Muxy/Services/Diagnostics/ProcessTree.swift",
+            "Muxy/Services/Diagnostics/ProcessResourceMonitor.swift",
+            "Tests/MuxyTests/Services/Extensions/ExtensionProcessTreeTests.swift"
+          ]
+        },
+        {
+          "donor": "t3code",
+          "source": [
+            "apps/server/src/usage/UsageService.ts",
+            "apps/server/src/usage/UsageLimitSources.ts",
+            "apps/server/src/usage/usageAggregation.ts",
+            "apps/server/src/usage/usageScanCache.ts",
+            "apps/server/src/provider/Layers/claudeUsageLimits.ts",
+            "apps/server/src/provider/Layers/codexUsageLimits.ts",
+            "apps/server/src/diagnostics/ProcessResourceMonitor.ts",
+            "apps/server/src/preview/PortScanner.ts"
+          ],
+          "tests": [
+            "apps/server/src/usage/UsageService.test.ts",
+            "apps/server/src/usage/usageAggregation.test.ts",
+            "apps/server/src/provider/Layers/claudeUsageLimits.test.ts",
+            "apps/server/src/provider/Layers/codexUsageLimits.test.ts",
+            "apps/server/src/diagnostics/ProcessResourceMonitor.test.ts",
+            "apps/server/src/preview/PortScanner.test.ts"
+          ],
+          "action": "Copy usage source separation and presentation contracts; replace configurable credential-forwarding URL with fixed trusted-host adapters."
+        },
+        {
+          "donor": "orca",
+          "source": [
+            "src/main/memory/collector.ts",
+            "src/main/automations/run-usage-collection.ts"
+          ],
+          "tests": [],
+          "action": "Use only for process-memory/local-usage presentation evidence and rejected singleton/remote-unavailable behavior; these units provide no port/process ownership and are not cleanup executors."
+        }
+      ],
+      "consumesSlices": [396, 397],
+      "instruction": "Reuse the already-proven Adea terminal history and worktree archive/trash services produced by #396/#397; do not recopy or independently translate their Orca donors in #424."
+    },
+    "425-appearance-app-library": {
+      "issue": 425,
+      "destinations": [
+        "packages/ui/src/components/theme-provider.tsx",
+        "packages/ui/src/styles/theme.css",
+        "packages/workspace-ui/src/plugins-dialog.tsx",
+        "packages/workspace-ui/src/plugins.ts",
+        "packages/dev-view/src/appearance/**"
+      ],
+      "units": [
+        {
+          "donor": "zeron",
+          "source": [
+            "crates/ui/src/appearance.rs",
+            "crates/theme/src/lib.rs",
+            "crates/theme/src/builtins.rs",
+            "crates/theme/src/library.rs",
+            "crates/theme/src/vscode.rs"
+          ],
+          "tests": [],
+          "action": "Translate complete appearance state and interactions; add accent, surface, reduced transparency, and shared xterm/CodeMirror roles."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/pages/apps/DiscoverPage.tsx",
+            "website/src/components/appstore/CategoryRail.tsx"
+          ],
+          "tests": [
+            "website/playwright/apps.spec.ts",
+            "website/src/test/appstoreCategories.test.ts"
+          ],
+          "action": "Translate category rail, search, installed/discover, and detail composition to Solid over Adea verified catalog/install plans."
+        }
+      ]
+    },
+    "426-integration-release-gate": {
+      "issue": 426,
+      "destinations": [
+        "package.json",
+        "scripts/**dev-view**",
+        "apps/web/e2e/**dev-view**",
+        "apps/desktop/**dev-view**"
+      ],
+      "units": [],
+      "validatesSlices": [395, 396, 397, 398, 399, 400, 422, 423, 424, 425],
+      "instruction": "Do not copy new donor production code here; port any remaining applicable test fixtures from every validated slice and run the complete packaged release matrix."
+    }
+  },
+  "dependencyPolicy": "Manifests are review inputs, not dependency grants. Classify every selected unit import as standard, local-translated, existing Adea dependency, or proposed dependency. Do not add a donor package/runtime transitively; any proposed dependency requires exact version, license, distribution impact, security review, and same-change lockfile evidence.",
+  "sharedFiles": {
+    "NOTICE": "#394 owns policy/baseline. Each reusing issue owns only append-only rows tagged with its issue number and local destination in the same commit as reuse; it must not edit another issue block. #426 verifies/formats the aggregate.",
+    "docs/research/dev-view-donor-audit.md": "#394 owns policy/baseline. Each reusing issue owns only append-only file-level ledger rows tagged with its issue number and local destination; #426 verifies completeness.",
+    "docs/specs/dev-runtime.md": "The issue changing a normative behavior owns its same-change spec update; #394 owns the baseline."
+  }
+}

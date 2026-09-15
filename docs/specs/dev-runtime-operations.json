@@ -1,0 +1,740 @@
+{
+  "schemaVersion": 1,
+  "normative": true,
+  "unknownKeys": "reject",
+  "authorityFieldsInBody": "forbidden",
+  "transportMethods": {
+    "handshake": "dev.runtime.handshake.v1",
+    "execute": "dev.runtime.execute.v1",
+    "events": "dev.runtime.events.v1",
+    "streamAttach": "dev.runtime.stream.attach.v1"
+  },
+  "streamProtocols": {
+    "terminal-bytes-v1": {
+      "data": "raw Uint8Array",
+      "directions": ["read", "write"]
+    },
+    "browser-frames-v1": {
+      "data": "raw encoded image Uint8Array plus canonical-CBOR control",
+      "directions": ["read"]
+    },
+    "device-frames-v1": {
+      "data": "raw encoded image Uint8Array plus canonical-CBOR gesture control",
+      "directions": ["read", "write"]
+    },
+    "runtime-events-v1": {
+      "data": "canonical-CBOR RuntimeEvent",
+      "directions": ["read"]
+    }
+  },
+  "operations": {
+    "dev.browser.annotate": {
+      "capabilities": ["dev.browser.control"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; targetId: string; annotation: BrowserAnnotationInput }",
+      "reply": "BrowserAnnotation"
+    },
+    "dev.browser.attach": {
+      "capabilities": ["dev.browser.read"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "browser-frames-v1",
+        "direction": "read"
+      }
+    },
+    "dev.browser.cookieImportCommit": {
+      "capabilities": ["dev.browser.cookies"],
+      "resource": "browser_lane:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "CookieImportResult"
+    },
+    "dev.browser.cookieImportPlan": {
+      "capabilities": ["dev.browser.cookies"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; sourceProfileId: string; domains: string[]<=128 }",
+      "reply": "MutationPlan"
+    },
+    "dev.browser.diagnostics": {
+      "capabilities": ["dev.browser.read"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<BrowserDiagnostic>"
+    },
+    "dev.browser.inspect": {
+      "capabilities": ["dev.browser.read"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; targetId: string; selector?: string }",
+      "reply": "BrowserInspection"
+    },
+    "dev.browser.laneClose": {
+      "capabilities": ["dev.browser.control"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; confirmationId?: string }",
+      "reply": "BrowserLane"
+    },
+    "dev.browser.laneCreate": {
+      "capabilities": ["dev.browser.control"],
+      "resource": null,
+      "body": "{ runtimeSessionId: string; kind: 'human_embedded'|'task_owned'|'user_context'; initialUrl?: string; profilePolicyId: string }",
+      "reply": "BrowserLane"
+    },
+    "dev.browser.navigate": {
+      "capabilities": ["dev.browser.control"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; url: string; waitUntil?: 'commit'|'domcontentloaded'|'load' }",
+      "reply": "BrowserNavigation"
+    },
+    "dev.browser.profileReset": {
+      "capabilities": ["dev.browser.cookies"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; confirmationId: string }",
+      "reply": "BrowserLane"
+    },
+    "dev.browser.release": {
+      "capabilities": ["dev.browser.control"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer }",
+      "reply": "BrowserLane"
+    },
+    "dev.browser.screenshot": {
+      "capabilities": ["dev.browser.read"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; targetId?: string; format: 'png'|'jpeg'|'webp'; quality?: integer(0..100) }",
+      "reply": "ScreenshotRef"
+    },
+    "dev.browser.takeover": {
+      "capabilities": ["dev.browser.control"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer }",
+      "reply": "BrowserLane"
+    },
+    "dev.browser.targets": {
+      "capabilities": ["dev.browser.read"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<BrowserTarget>"
+    },
+    "dev.browser.viewport": {
+      "capabilities": ["dev.browser.control"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; width: integer(1..4096); height: integer(1..4096); deviceScaleFactor: number(0.25..4); mobile: boolean }",
+      "reply": "BrowserLane"
+    },
+    "dev.capability.snapshot": {
+      "capabilities": [],
+      "resource": null,
+      "body": "{}",
+      "reply": "CapabilitySnapshot"
+    },
+    "dev.cleanupPolicy.approve": {
+      "capabilities": ["dev.cleanup.approve"],
+      "resource": "cleanup_policy:required",
+      "body": "{ cleanupPolicyId: string; expectedVersion: integer; approvalId: string }",
+      "reply": "CleanupPolicy"
+    },
+    "dev.cleanupPolicy.createDraft": {
+      "capabilities": ["dev.cleanup.approve"],
+      "resource": null,
+      "body": "{ projectId: string; name: string(1..128); predicates: CleanupPredicate[]; allowedSteps: CleanupStepKind[]; expiresAt?: timestamp }",
+      "reply": "CleanupPolicy"
+    },
+    "dev.cleanupPolicy.disable": {
+      "capabilities": ["dev.cleanup.approve"],
+      "resource": "cleanup_policy:required",
+      "body": "{ cleanupPolicyId: string; expectedVersion: integer }",
+      "reply": "CleanupPolicy"
+    },
+    "dev.cleanupPolicy.evaluate": {
+      "capabilities": ["dev.cleanup.approve"],
+      "resource": "cleanup_policy:required",
+      "body": "{ cleanupPolicyId: string; expectedVersion: integer; worktreeId: string; expectedGeneration: integer }",
+      "reply": "CleanupPolicyEvaluation"
+    },
+    "dev.cleanupPolicy.list": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<CleanupPolicy>"
+    },
+    "dev.device.attach": {
+      "capabilities": ["dev.device.read"],
+      "resource": "device_session:required",
+      "body": "{ deviceSessionId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "device-frames-v1",
+        "direction": "read"
+      }
+    },
+    "dev.device.input": {
+      "capabilities": ["dev.device.control"],
+      "resource": "device_session:required",
+      "body": "{ deviceSessionId: string; expectedGeneration: integer; direction: 'write'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "device-frames-v1",
+        "direction": "write"
+      }
+    },
+    "dev.device.list": {
+      "capabilities": ["dev.device.read"],
+      "resource": null,
+      "body": "{ kind?: DeviceSession['kind']; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<DeviceInventoryItem>"
+    },
+    "dev.device.screenshot": {
+      "capabilities": ["dev.device.read"],
+      "resource": "device_session:required",
+      "body": "{ deviceSessionId: string; expectedGeneration: integer; format: 'png'|'jpeg'|'webp'; quality?: integer(0..100) }",
+      "reply": "ScreenshotRef"
+    },
+    "dev.device.start": {
+      "capabilities": ["dev.device.control"],
+      "resource": "device_inventory:required",
+      "body": "{ inventoryId: string; expectedGeneration: integer; runtimeSessionId: string }",
+      "reply": "DeviceSession"
+    },
+    "dev.device.stop": {
+      "capabilities": ["dev.device.control"],
+      "resource": "device_session:required",
+      "body": "{ deviceSessionId: string; expectedGeneration: integer; confirmationId?: string }",
+      "reply": "DeviceSession"
+    },
+    "dev.files.copy": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedIdentity: FileIdentity; failIfExists: true }",
+      "reply": "FileEntry"
+    },
+    "dev.files.create": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; kind: 'file'|'directory'; content?: Uint8Array<=8MiB; failIfExists: true }",
+      "reply": "FileEntry"
+    },
+    "dev.files.delete": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; confirmationId: string }",
+      "reply": "FileMutationResult"
+    },
+    "dev.files.list": {
+      "capabilities": ["dev.files.read"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<FileEntry>"
+    },
+    "dev.files.openExternal": {
+      "capabilities": ["dev.files.read"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity }",
+      "reply": "ExternalOpenResult"
+    },
+    "dev.files.read": {
+      "capabilities": ["dev.files.read"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; offset?: uint64; length?: integer(1..67108864) }",
+      "reply": "FileReadResult"
+    },
+    "dev.files.rename": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedIdentity: FileIdentity; failIfExists: true }",
+      "reply": "FileEntry"
+    },
+    "dev.files.search": {
+      "capabilities": ["dev.files.read"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; query: string(1..4096); globs?: string[]<=128; cursor?: string; limit?: integer(1..10000) }",
+      "reply": "Page<SearchMatch>"
+    },
+    "dev.files.stat": {
+      "capabilities": ["dev.files.read"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath }",
+      "reply": "FileEntry"
+    },
+    "dev.files.write": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; content: Uint8Array<=8MiB; eolPolicy: 'preserve'|'lf'|'crlf' }",
+      "reply": "FileWriteResult"
+    },
+    "dev.git.checkpoint": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; label?: string(0..128); paths?: WorkspacePath[]<=1000 }",
+      "reply": "GitCheckpoint"
+    },
+    "dev.git.commit": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; message: string(1..10000); expectedIndexSha: sha256; sign?: boolean }",
+      "reply": "GitCommit"
+    },
+    "dev.git.diff": {
+      "capabilities": ["dev.git.read"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; mode: 'worktree'|'staged'|'commit'; ref?: string; path?: WorkspacePath; cursor?: string; limit?: integer(1..10000) }",
+      "reply": "Page<DiffHunk>"
+    },
+    "dev.git.discardCommit": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitStatus"
+    },
+    "dev.git.discardPlan": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; paths: WorkspacePath[]<=1000 }",
+      "reply": "MutationPlan"
+    },
+    "dev.git.fetch": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; remoteName: string; refspecs?: string[]<=64; prune?: boolean }",
+      "reply": "GitFetchResult"
+    },
+    "dev.git.history": {
+      "capabilities": ["dev.git.read"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; cursor?: string; limit?: integer(1..500); ref?: string }",
+      "reply": "Page<GitCommit>"
+    },
+    "dev.git.restoreCommit": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitStatus"
+    },
+    "dev.git.restorePlan": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; checkpointId: string; paths?: WorkspacePath[]<=1000 }",
+      "reply": "MutationPlan"
+    },
+    "dev.git.stage": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; paths: WorkspacePath[]<=1000 }",
+      "reply": "GitStatus"
+    },
+    "dev.git.status": {
+      "capabilities": ["dev.git.read"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "GitStatus"
+    },
+    "dev.git.unstage": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; paths: WorkspacePath[]<=1000 }",
+      "reply": "GitStatus"
+    },
+    "dev.github.account": {
+      "capabilities": ["dev.github.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "GitHubAccount"
+    },
+    "dev.github.checks": {
+      "capabilities": ["dev.github.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubCheck>"
+    },
+    "dev.github.createPullRequest": {
+      "capabilities": ["dev.github.write"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; headRef: string; baseRef: string; title: string(1..256); body: string<=65536; draft: true }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.github.issues": {
+      "capabilities": ["dev.github.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; state?: 'open'|'closed'|'all'; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubIssue>"
+    },
+    "dev.github.mergeCommit": {
+      "capabilities": ["dev.github.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.github.mergePlan": {
+      "capabilities": ["dev.github.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedHeadSha: sha; method: 'merge'|'squash'|'rebase' }",
+      "reply": "MutationPlan"
+    },
+    "dev.github.milestones": {
+      "capabilities": ["dev.github.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; state?: 'open'|'closed'|'all'; cursor?: string; limit?: integer(1..100) }",
+      "reply": "Page<GitHubMilestone>"
+    },
+    "dev.github.pullRequest": {
+      "capabilities": ["dev.github.read"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; refresh?: boolean }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.github.pushCommit": {
+      "capabilities": ["dev.github.write"],
+      "resource": "repository:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitPushResult"
+    },
+    "dev.github.pushPlan": {
+      "capabilities": ["dev.github.write"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; worktreeId: string; ref: string; expectedLocalSha: sha; forceWithLease?: { expectedRemoteSha: sha } }",
+      "reply": "MutationPlan"
+    },
+    "dev.github.repository": {
+      "capabilities": ["dev.github.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; refresh?: boolean }",
+      "reply": "GitHubRepository"
+    },
+    "dev.github.updateCommit": {
+      "capabilities": ["dev.github.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitHubPullRequest"
+    },
+    "dev.github.updatePlan": {
+      "capabilities": ["dev.github.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; expectedVersion: string; patch: GitHubPullRequestMutableFields }",
+      "reply": "MutationPlan"
+    },
+    "dev.project.archive": {
+      "capabilities": ["dev.project.manage"],
+      "resource": "project:required",
+      "body": "{ projectId: string; expectedVersion: integer; archived: boolean }",
+      "reply": "Project"
+    },
+    "dev.project.clone": {
+      "capabilities": ["dev.project.manage", "dev.repo.manage"],
+      "resource": null,
+      "body": "{ name: string(1..128); remote: RedactedRemoteInput; credentialRefId?: string; destinationBookmarkId: string; groupIds: string[]<=32 }",
+      "reply": "Project"
+    },
+    "dev.project.create": {
+      "capabilities": ["dev.project.manage"],
+      "resource": null,
+      "body": "{ name: string(1..128); groupIds: string[]<=32; repoIds: string[]<=128; preferredRuntimeNodeId?: string; defaultBaseRef?: string; bootstrapWorkflowId?: string; defaultHarnessId?: string }",
+      "reply": "Project"
+    },
+    "dev.project.get": {
+      "capabilities": ["dev.project.read"],
+      "resource": "project:required",
+      "body": "{ projectId: string }",
+      "reply": "Project"
+    },
+    "dev.project.import": {
+      "capabilities": ["dev.project.manage"],
+      "resource": null,
+      "body": "{ name: string(1..128); rootBookmarkId: string; groupIds: string[]<=32; preferredRuntimeNodeId?: string }",
+      "reply": "Project"
+    },
+    "dev.project.list": {
+      "capabilities": ["dev.project.read"],
+      "resource": null,
+      "body": "{ cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<Project>"
+    },
+    "dev.project.reorder": {
+      "capabilities": ["dev.project.manage"],
+      "resource": null,
+      "body": "{ groupId: string; orderedProjectIds: string[]<=10000; expectedGroupVersion: integer }",
+      "reply": "Group"
+    },
+    "dev.project.scan": {
+      "capabilities": ["dev.files.read", "dev.project.read"],
+      "resource": null,
+      "body": "{ rootBookmarkId: string; cursor?: string; force?: boolean }",
+      "reply": "ProjectScanPage"
+    },
+    "dev.project.update": {
+      "capabilities": ["dev.project.manage"],
+      "resource": "project:required",
+      "body": "{ projectId: string; expectedVersion: integer; patch: ProjectMutableFields }",
+      "reply": "Project"
+    },
+    "dev.repo.adopt": {
+      "capabilities": ["dev.repo.manage"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; rootBookmarkId: string; expectedVersion: integer }",
+      "reply": "Repo"
+    },
+    "dev.repo.authorize": {
+      "capabilities": ["dev.repo.manage"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; credentialRefId: string; expectedVersion: integer }",
+      "reply": "Repo"
+    },
+    "dev.repo.inspect": {
+      "capabilities": ["dev.repo.read"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; refresh?: boolean }",
+      "reply": "RepoInspection"
+    },
+    "dev.repo.list": {
+      "capabilities": ["dev.repo.read"],
+      "resource": null,
+      "body": "{ projectId?: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<Repo>"
+    },
+    "dev.repo.refresh": {
+      "capabilities": ["dev.repo.manage"],
+      "resource": "repository:required",
+      "body": "{ repoId: string; expectedVersion: integer }",
+      "reply": "Repo"
+    },
+    "dev.resources.metrics": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; worktreeId?: string; from?: timestamp; to?: timestamp; cursor?: string; limit?: integer(1..720) }",
+      "reply": "Page<ResourceMetric>"
+    },
+    "dev.resources.ports": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; worktreeId?: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<PortRecord>"
+    },
+    "dev.resources.processes": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; worktreeId?: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<ProcessRecord>"
+    },
+    "dev.resources.retainedData": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ worktreeId?: string; runtimeSessionId?: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<RetainedDataRecord>"
+    },
+    "dev.resources.snapshot": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; worktreeId?: string }",
+      "reply": "ResourceSnapshot"
+    },
+    "dev.resources.stopCommit": {
+      "capabilities": ["dev.resources.stop"],
+      "resource": "process:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "ProcessRecord"
+    },
+    "dev.resources.stopPlan": {
+      "capabilities": ["dev.resources.stop"],
+      "resource": "process:required",
+      "body": "{ processRecordId: string; expectedGeneration: integer; reason: string(1..512) }",
+      "reply": "MutationPlan"
+    },
+    "dev.resources.usage": {
+      "capabilities": ["dev.resources.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; projectId?: string; provider?: string; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<UsageRecord>"
+    },
+    "dev.session.cancelHarness": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string; confirmationId?: string }",
+      "reply": "HarnessRun"
+    },
+    "dev.session.create": {
+      "capabilities": ["dev.session.manage"],
+      "resource": null,
+      "body": "{ projectId: string; repoId: string; worktreeId: string; taskId?: string; agentProfileId?: string; agentProfileVersion?: integer; harnessInstallationId?: string }",
+      "reply": "RuntimeSession"
+    },
+    "dev.session.events": {
+      "capabilities": ["dev.session.read"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "runtime-events-v1",
+        "direction": "read"
+      }
+    },
+    "dev.session.get": {
+      "capabilities": ["dev.session.read"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string }",
+      "reply": "RuntimeSession"
+    },
+    "dev.session.launchHarness": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessInstallationId: string; agentProfileId: string; agentProfileVersion: integer; modelId?: string }",
+      "reply": "HarnessRun"
+    },
+    "dev.session.list": {
+      "capabilities": ["dev.session.read"],
+      "resource": null,
+      "body": "{ projectId?: string; worktreeId?: string; archived?: boolean; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<RuntimeSession>"
+    },
+    "dev.session.resumeHarness": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string }",
+      "reply": "HarnessRun"
+    },
+    "dev.session.transferInput": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; fromView: 'chat'|'dev'; toView: 'chat'|'dev'; expectedOwnerVersion: integer }",
+      "reply": "RuntimeSession"
+    },
+    "dev.terminal.attach": {
+      "capabilities": ["dev.terminal.attach"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "terminal-bytes-v1",
+        "direction": "read"
+      }
+    },
+    "dev.terminal.checkpoint": {
+      "capabilities": ["dev.terminal.attach"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; throughSequence?: uint64-string }",
+      "reply": "TerminalCheckpoint"
+    },
+    "dev.terminal.create": {
+      "capabilities": ["dev.terminal.manage"],
+      "resource": null,
+      "body": "{ runtimeSessionId: string; worktreeId: string; cols: integer(1..1000); rows: integer(1..1000); shellProfileId?: string }",
+      "reply": "TerminalRecord"
+    },
+    "dev.terminal.detach": {
+      "capabilities": ["dev.terminal.attach"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer }",
+      "reply": "TerminalRecord"
+    },
+    "dev.terminal.historyDelete": {
+      "capabilities": ["dev.terminal.manage"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; beforeSequence?: uint64-string; confirmationId: string }",
+      "reply": "TerminalRecord"
+    },
+    "dev.terminal.input": {
+      "capabilities": ["dev.terminal.input"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; direction: 'write'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "terminal-bytes-v1",
+        "direction": "write"
+      }
+    },
+    "dev.terminal.resize": {
+      "capabilities": ["dev.terminal.manage"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; cols: integer(1..1000); rows: integer(1..1000) }",
+      "reply": "TerminalRecord"
+    },
+    "dev.terminal.search": {
+      "capabilities": ["dev.terminal.attach"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; query: string(1..1024); cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<TerminalSearchMatch>"
+    },
+    "dev.terminal.signal": {
+      "capabilities": ["dev.terminal.manage"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; signal: 'interrupt'|'terminate'|'kill'; confirmationId?: string }",
+      "reply": "TerminalRecord"
+    },
+    "dev.terminal.terminate": {
+      "capabilities": ["dev.terminal.manage"],
+      "resource": "terminal:required",
+      "body": "{ terminalId: string; expectedGeneration: integer; confirmationId: string }",
+      "reply": "TerminalRecord"
+    },
+    "dev.worktree.archive": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer }",
+      "reply": "Worktree"
+    },
+    "dev.worktree.cleanupCommit": {
+      "capabilities": ["dev.cleanup.approve", "dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "CleanupResult"
+    },
+    "dev.worktree.cleanupPlan": {
+      "capabilities": ["dev.cleanup.approve", "dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer; selectedOwnedResourceIds: string[]<=1000; allowedSteps: CleanupStepKind[] }",
+      "reply": "CleanupPlan"
+    },
+    "dev.worktree.cleanupResume": {
+      "capabilities": ["dev.cleanup.approve", "dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer; cleanupJobId: string }",
+      "reply": "CleanupResult"
+    },
+    "dev.worktree.create": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": null,
+      "body": "{ projectId: string; repoId: string; baseRef: string; branchName: string; destinationName?: string; includePlanDigest?: sha256; bootstrapWorkflowId?: string }",
+      "reply": "WorktreeOperation"
+    },
+    "dev.worktree.lease": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer; ownerKind: LeaseOwnerKind; ownerId: string; ttlSeconds?: integer(15..86400) }",
+      "reply": "Lease"
+    },
+    "dev.worktree.list": {
+      "capabilities": ["dev.worktree.read"],
+      "resource": null,
+      "body": "{ projectId?: string; repoId?: string; archived?: boolean; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<Worktree>"
+    },
+    "dev.worktree.mergeCommit": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "WorktreeOperation"
+    },
+    "dev.worktree.mergePlan": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer; targetRef: string; expectedTargetSha?: sha }",
+      "reply": "MutationPlan"
+    },
+    "dev.worktree.releaseLease": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer; leaseId: string }",
+      "reply": "Lease"
+    },
+    "dev.worktree.retryBootstrap": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer; failedStepId?: string }",
+      "reply": "WorktreeOperation"
+    },
+    "dev.worktree.unarchive": {
+      "capabilities": ["dev.worktree.manage"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; expectedGeneration: integer }",
+      "reply": "Worktree"
+    }
+  }
+}
