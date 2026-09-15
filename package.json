@@ -17,10 +17,11 @@
     "test": "bun run test:unit",
     "test:unit": "turbo run test && bun run test:coverage",
     "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit scripts/*.test.ts --coverage",
+    "test:bundle:dev-view": "bun run --cwd apps/web build && bun scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
-    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts",
+    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts apps/web/e2e/dev-view.spec.ts",
     "test:e2e:visual": "playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts"
   },
   "devDependencies": {

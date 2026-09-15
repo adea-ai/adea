@@ -213,7 +213,7 @@ shadcn finding the same way you fix a type error.
   component's own variants or `size` props — do not pass padding, color,
   typography, or shape classes.
 - The project's named CSS hooks are the sanctioned escape hatch:
-  `conventional-*`, `global-*`, `plugin-*`, `plugins-*`, `virtual-*`,
+  `conventional-*`, `dev-*`, `global-*`, `plugin-*`, `plugins-*`, `virtual-*`,
   `workspace-*`, `visually-hidden` (defined in `packages/ui/src/styles/`).
   Add new hooks in those stylesheets rather than restyling a component
   inline.

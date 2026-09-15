@@ -12,6 +12,7 @@ import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen } from '../lib/desktop-bridge'
+import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
 import { localContentAuthority } from '../lib/desktop-local-content'
 import {
   desktopCapabilityProvider,
@@ -294,6 +295,7 @@ function DesktopWorkspace(props: {
     app: { name: 'Adea', platform: 'desktop', version: props.appVersion },
     capabilities: desktopCapabilityProvider,
     client: props.client,
+    devRuntime: createDesktopDevRuntimeService(),
     privateContent: localContentAuthority,
     plugins: props.plugins,
     settings: desktopSettingsProvider,

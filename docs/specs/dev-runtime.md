@@ -1172,9 +1172,12 @@ constructs typed commands but cannot read credential secret material; M10's
 channel adapter injects `channelId`, `clientCredentialId`, and `proof`. The host
 rejects a bare `DevCommand`.
 
-Every registry operation has a distinct exported request and reply type plus a
-strict unknown-key-rejecting decoder in `packages/types/src/dev-runtime.ts`.
-The registry's `body` field is the sole request-shape DSL: braces denote the
+Every registry operation has a strict unknown-key-rejecting request decoder in
+`packages/types/src/dev-runtime.ts`. The foundation decoder accepts typed error
+replies and fails closed for every success reply until the operation-owning
+provider slice adds that reply DTO's strict decoder and tests before registering
+a handler. No generic object fallback is permitted. The registry's `body` field
+is the sole request-shape DSL: braces denote the
 entire flattened object; every named field is required unless marked `?`; `|`
 denotes an exact closed union; `[]<=N`, string/number ranges, and byte units are
 inclusive limits; `sha` is lowercase hexadecimal Git object ID accepted only at
@@ -1202,9 +1205,10 @@ generation is the record's `generation` when present, otherwise the record's
 `version`; provider snapshots expose a monotonic cache generation; file/root
 operations use the owning Worktree generation. The host returns these values in
 read models and rejects a value it did not issue or that no longer matches.
-Concrete aliases are generated/transcribed exactly from the operation registry
-and decoder/property tests are written before their handler in the
-manifest-owning slice; implementations do not choose different fields. The
+Concrete aliases and success DTO decoders are generated/transcribed exactly
+from the operation registry and written with decoder/property tests before their
+handler in the manifest-owning slice; implementations do not choose different
+fields. The
 envelope's sorted `capabilities` MUST equal the registry set exactly; the M10
 gate independently derives the same set from `operation` and rejects missing,
 extra, duplicated, or differently ordered values. Canonical order is ascending
@@ -1406,6 +1410,10 @@ successful prompt delivery.
 
 Event constraints:
 
+- the decoder receives source provenance out-of-band from the authenticated
+  transport/adapter and rejects a JSON `source` that differs; terminal fallback
+  cannot claim `authoritative` confidence and can emit only bounded assistant
+  text or terminal-observation kinds;
 - one monotonic `seq` per runtime session generation;
 - `sourceEventId` is required on the canonical stored event. Native/ACP/hook
   adapters use the source protocol's stable ID. If the source lacks one, the

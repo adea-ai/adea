@@ -10,9 +10,16 @@ export type WorkspaceState = {
   selectedChannelId: string | null
   selectedTaskId: string | null
   selectedAgentId: string | null
+  selectedRuntimeNodeId: string | null
+  selectedDevProjectId: string | null
+  selectedRuntimeSessionId: string | null
+  selectedDevPaneId: string | null
   threadRootMessageId: string | null
   activeSurface: 'agents' | 'conversation' | 'tasks'
   collapsedRoomIds: readonly string[]
+  collapsedDevGroupIds: readonly string[]
+  collapsedDevProjectIds: readonly string[]
+  devFocusMode: boolean
   drafts: Readonly<Record<string, string>>
   mobileSidebarOpen: boolean
   globalPanel: 'about' | 'plugins' | 'search' | 'settings' | null
@@ -24,12 +31,19 @@ export type WorkspaceState = {
   setSelectedChannelId: (channelId: string | null) => void
   setSelectedTaskId: (taskId: string | null) => void
   setSelectedAgentId: (agentId: string | null) => void
+  setSelectedRuntimeNodeId: (runtimeNodeId: string | null) => void
+  setSelectedDevProjectId: (projectId: string | null) => void
+  setSelectedRuntimeSessionId: (runtimeSessionId: string | null) => void
+  setSelectedDevPaneId: (paneId: string | null) => void
   setThreadRootMessageId: (messageId: string | null) => void
   setActiveSurface: (surface: WorkspaceState['activeSurface']) => void
   setDraft: (channelId: string, value: string) => void
   setMobileSidebarOpen: (open: boolean) => void
   setGlobalPanel: (panel: WorkspaceState['globalPanel']) => void
   toggleRoomCollapsed: (roomId: string) => void
+  toggleDevGroupCollapsed: (groupId: string) => void
+  toggleDevProjectCollapsed: (projectId: string) => void
+  setDevFocusMode: (focusMode: boolean) => void
   restoreConventionalState: (
     state: Partial<
       Pick<
@@ -61,9 +75,16 @@ function initialState(): WorkspaceState {
     selectedChannelId: null,
     selectedTaskId: null,
     selectedAgentId: null,
+    selectedRuntimeNodeId: null,
+    selectedDevProjectId: null,
+    selectedRuntimeSessionId: null,
+    selectedDevPaneId: null,
     threadRootMessageId: null,
     activeSurface: 'conversation',
     collapsedRoomIds: [],
+    collapsedDevGroupIds: [],
+    collapsedDevProjectIds: [],
+    devFocusMode: false,
     drafts: {},
     mobileSidebarOpen:
       typeof window === 'undefined' ? true : window.matchMedia('(min-width: 48rem)').matches,
@@ -76,6 +97,9 @@ function initialState(): WorkspaceState {
         activeSurface: 'conversation',
         cameraViewMode: 'orthographic',
         collapsedRoomIds: [],
+        collapsedDevGroupIds: [],
+        collapsedDevProjectIds: [],
+        devFocusMode: false,
         drafts: {},
         globalPanel: null,
         selectedAgentId: null,
@@ -84,6 +108,10 @@ function initialState(): WorkspaceState {
         selectedScene,
         selectedTaskId: null,
         selectedWorkspaceId,
+        selectedRuntimeNodeId: null,
+        selectedDevProjectId: null,
+        selectedRuntimeSessionId: null,
+        selectedDevPaneId: null,
         threadRootMessageId: null,
       }),
     setSelectedRoomId: (selectedRoomId) => set({ selectedRoomId }),
@@ -91,6 +119,21 @@ function initialState(): WorkspaceState {
       set({ selectedChannelId, threadRootMessageId: null }),
     setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
     setSelectedAgentId: (selectedAgentId) => set({ selectedAgentId }),
+    setSelectedRuntimeNodeId: (selectedRuntimeNodeId) =>
+      set({
+        selectedRuntimeNodeId,
+        selectedDevProjectId: null,
+        selectedRuntimeSessionId: null,
+        selectedDevPaneId: null,
+        collapsedDevGroupIds: [],
+        collapsedDevProjectIds: [],
+        devFocusMode: false,
+      }),
+    setSelectedDevProjectId: (selectedDevProjectId) =>
+      set({ selectedDevProjectId, selectedRuntimeSessionId: null, selectedDevPaneId: null }),
+    setSelectedRuntimeSessionId: (selectedRuntimeSessionId) =>
+      set({ selectedRuntimeSessionId, selectedDevPaneId: null }),
+    setSelectedDevPaneId: (selectedDevPaneId) => set({ selectedDevPaneId }),
     setThreadRootMessageId: (threadRootMessageId) => set({ threadRootMessageId }),
     setActiveSurface: (activeSurface) => set({ activeSurface }),
     setDraft: (channelId, value) =>
@@ -103,6 +146,15 @@ function initialState(): WorkspaceState {
           ? collapsedRoomIds.filter((id) => id !== roomId)
           : [...collapsedRoomIds, roomId]
       ),
+    toggleDevGroupCollapsed: (groupId) =>
+      setStore('collapsedDevGroupIds', (ids) =>
+        ids.includes(groupId) ? ids.filter((id) => id !== groupId) : [...ids, groupId]
+      ),
+    toggleDevProjectCollapsed: (projectId) =>
+      setStore('collapsedDevProjectIds', (ids) =>
+        ids.includes(projectId) ? ids.filter((id) => id !== projectId) : [...ids, projectId]
+      ),
+    setDevFocusMode: (devFocusMode) => set({ devFocusMode }),
     restoreConventionalState: (state) => set(state),
   }
 }

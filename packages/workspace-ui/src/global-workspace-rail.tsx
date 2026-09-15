@@ -9,7 +9,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@adea-ai/ui/components/ui/tooltip'
-import { Bell, BriefcaseBusiness, Home, Map, MessageSquareText, Plug, Search } from 'lucide-solid'
+import {
+  Bell,
+  BriefcaseBusiness,
+  Code2,
+  Home,
+  Map,
+  MessageSquareText,
+  Plug,
+  Search,
+} from 'lucide-solid'
 import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
@@ -177,6 +186,12 @@ export function GlobalWorkspaceRail(props: {
             icon={MessageSquareText}
             label="Chat view"
             onClick={() => props.onViewChange('chat')}
+          />
+          <RailAction
+            active={props.view === 'dev'}
+            icon={Code2}
+            label="Dev view"
+            onClick={() => props.onViewChange('dev')}
           />
           <RailAction
             disabled

@@ -19,6 +19,7 @@
         "allow": [
           "layout",
           "conventional-*",
+          "dev-*",
           "global-*",
           "plugin-*",
           "plugins-*",
@@ -76,6 +77,7 @@
       {
         "allow": [
           "conventional-*",
+          "dev-*",
           "global-*",
           "plugin-*",
           "plugins-*",

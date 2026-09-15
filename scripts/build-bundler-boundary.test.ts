@@ -31,7 +31,7 @@ function workspaceManifests() {
 // dormant build path from reappearing next to the shipping one.
 describe('build and bundler boundary', () => {
   test('compiles the Solid library packages with Vite and declares them with tsc', () => {
-    for (const name of ['ui', 'workspace-ui', 'audio', 'data']) {
+    for (const name of ['ui', 'workspace-ui', 'audio', 'data', 'dev-view']) {
       const pkg = manifest(`packages/${name}/package.json`)
       expect(pkg.scripts?.build).toBe('vite build && tsc -p tsconfig.json --emitDeclarationOnly')
       expect(pkg.scripts?.dev).toBe('vite build --watch')
