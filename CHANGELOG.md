@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.13](https://github.com/adea-ai/adea/compare/v0.25.12...v0.25.13) (2026-09-15)
+
+
+### Documentation
+
+* **dev-view:** define M12 implementation contract ([#437](https://github.com/adea-ai/adea/issues/437)) ([1b911c2](https://github.com/adea-ai/adea/commit/1b911c280d8fdc717eb2eedb574ff0d2c1593da0))
+
 ## [0.25.12](https://github.com/adea-ai/adea/compare/v0.25.11...v0.25.12) (2026-09-14)
 
 
