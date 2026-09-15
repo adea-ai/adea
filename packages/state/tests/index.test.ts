@@ -8,6 +8,39 @@ afterEach(() => {
   workspaceStore.setState(initialState, true)
 })
 
+test('Dev selections reset at their authority boundaries without storing durable records', () => {
+  workspaceStore.setState({
+    selectedRuntimeNodeId: 'node-a',
+    selectedDevProjectId: 'project-a',
+    selectedRuntimeSessionId: 'session-a',
+    selectedDevPaneId: 'pane-a',
+    collapsedDevGroupIds: ['group-a'],
+    collapsedDevProjectIds: ['project-a'],
+    devFocusMode: true,
+  })
+
+  workspaceStore.getState().setSelectedRuntimeNodeId('node-b')
+  expect(workspaceStore.getState()).toMatchObject({
+    selectedRuntimeNodeId: 'node-b',
+    selectedDevProjectId: null,
+    selectedRuntimeSessionId: null,
+    selectedDevPaneId: null,
+    collapsedDevGroupIds: [],
+    collapsedDevProjectIds: [],
+    devFocusMode: false,
+  })
+
+  workspaceStore.getState().setSelectedDevProjectId('project-b')
+  workspaceStore.getState().setSelectedRuntimeSessionId('session-b')
+  workspaceStore.getState().setSelectedDevPaneId('pane-b')
+  workspaceStore.getState().setSelectedDevProjectId('project-c')
+  expect(workspaceStore.getState()).toMatchObject({
+    selectedDevProjectId: 'project-c',
+    selectedRuntimeSessionId: null,
+    selectedDevPaneId: null,
+  })
+})
+
 test('switchWorkspace starts a fresh workspace context with its configured scene', () => {
   workspaceStore.setState({
     activeSurface: 'tasks',
@@ -22,6 +55,13 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     selectedTaskId: 'task-work',
     selectedWorkspaceId: 'workspace-work',
     selectedScene: 'work',
+    selectedRuntimeNodeId: 'node-work',
+    selectedDevProjectId: 'project-work',
+    selectedRuntimeSessionId: 'session-work',
+    selectedDevPaneId: 'pane-work',
+    collapsedDevGroupIds: ['group-work'],
+    collapsedDevProjectIds: ['project-work'],
+    devFocusMode: true,
     threadRootMessageId: 'thread-work',
   })
 
@@ -42,6 +82,13 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     selectedScene: 'home',
     selectedTaskId: null,
     selectedWorkspaceId: 'workspace-home',
+    selectedRuntimeNodeId: null,
+    selectedDevProjectId: null,
+    selectedRuntimeSessionId: null,
+    selectedDevPaneId: null,
+    collapsedDevGroupIds: [],
+    collapsedDevProjectIds: [],
+    devFocusMode: false,
     threadRootMessageId: null,
   })
 })

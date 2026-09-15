@@ -2,6 +2,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/solid-query'
 
 export { AgentHqQueryProvider, releaseWorkspaceCache } from './provider'
+export * from './dev-runtime'
 
 /** A value that may be supplied as a Solid accessor so queries stay reactive. */
 export type MaybeAccessor<T> = T | (() => T)

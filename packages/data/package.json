@@ -23,6 +23,12 @@
       "solid": "./src/events.ts",
       "development": "./src/events.ts",
       "import": "./dist/events.js"
+    },
+    "./dev-runtime": {
+      "types": "./dist/dev-runtime.d.ts",
+      "solid": "./src/dev-runtime.ts",
+      "development": "./src/dev-runtime.ts",
+      "import": "./dist/dev-runtime.js"
     }
   },
   "scripts": {
