@@ -20,6 +20,13 @@ describe('normalizeEmail', () => {
     expect(normalizeEmail(' andy@niftyleague.com\t')).toBe('andy@niftyleague.com')
   })
 
+  test('strips the soft hyphen and other format characters the first fix missed', () => {
+    // U+00AD is a format character, not whitespace — the provider rejects it
+    // and the first whitespace-only strip list let it through.
+    expect(normalizeEmail('andy\u00AD@niftyleague.com')).toBe('andy@niftyleague.com')
+    expect(normalizeEmail('and\u0000y@niftyleague.com')).toBe('andy@niftyleague.com')
+  })
+
   test('folds fullwidth and lookalike forms through NFKC', () => {
     expect(normalizeEmail('\uFF41\uFF4E\uFF44\uFF59\uFF20niftyleague.com')).toBe(
       'andy@niftyleague.com'
