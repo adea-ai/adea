@@ -154,6 +154,8 @@ if (!server) {
   process.exit(1)
 }
 
+// Electrobun registers the window as a constructor side effect; no handle to keep.
+// oxlint-disable-next-line no-new
 new BrowserWindow({
   title: 'Adea',
   url: `http://127.0.0.1:${PORT}/`,

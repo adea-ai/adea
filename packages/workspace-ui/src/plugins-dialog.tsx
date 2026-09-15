@@ -1,5 +1,5 @@
 import { Badge } from '@adea-ai/ui/components/ui/badge'
-import { Button, buttonVariants } from '@adea-ai/ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,7 +20,6 @@ import {
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
-import { cn } from '@adea-ai/ui/lib/utils'
 import {
   ArrowLeft,
   Blocks,
@@ -69,10 +68,7 @@ function PluginFilterMenu(props: {
   const active = () => props.filter.type !== 'all' || props.filter.ownership !== 'all'
   return (
     <DropdownMenu onOpenChange={props.onOpenChange}>
-      <DropdownMenuTrigger
-        class={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-1.5')}
-        aria-pressed={active()}
-      >
+      <DropdownMenuTrigger as={Button} variant="outline" size="sm" aria-pressed={active()}>
         <Filter data-icon="inline-start" aria-hidden="true" />
         Filter
         <Show when={active()}>

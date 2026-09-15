@@ -10,7 +10,6 @@ import { join } from 'node:path'
 
 import {
   parseUpdateManifest,
-  slimSignatureMessage,
   stageUpdateSwap,
   updateSignatureMessage,
   verifySlimSignature,

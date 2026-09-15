@@ -47,7 +47,7 @@ function TooltipContent(props: TooltipContentProps) {
         placement={placement()}
         gutter={local.sideOffset ?? 4}
         class={cn(
-          'z-[160] max-w-72 rounded-md bg-popover px-2.5 py-1.5 text-sm leading-5 text-popover-foreground shadow-md ring-1 ring-foreground/10 data-closed:animate-out data-closed:fade-out-0 data-expanded:animate-in data-expanded:fade-in-0',
+          'z-(--z-tooltip) max-w-72 rounded-md bg-popover px-2.5 py-1.5 text-sm leading-5 text-popover-foreground shadow-md ring-1 ring-foreground/10 data-closed:animate-out data-closed:fade-out-0 data-expanded:animate-in data-expanded:fade-in-0',
           local.class
         )}
         {...rest}

@@ -21,8 +21,7 @@ import {
 } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
-import { buttonVariants } from '@adea-ai/ui/components/ui/button'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from '@adea-ai/ui/components/ui/drawer'
 import {
   DropdownMenu,
@@ -30,6 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
+import { Separator } from '@adea-ai/ui/components/ui/separator'
 
 import type { PrivateContentResolver } from './platform'
 import { RoomIcon } from './room-icon'
@@ -102,8 +102,8 @@ export function TaskDetail(props: Props) {
   const agentChanged = () => (agentId() ?? null) !== (props.task.agentId ?? null)
   const roomChanged = () => (roomId() ?? null) !== (props.task.roomId ?? null)
   const dependenciesChanged = () =>
-    JSON.stringify([...dependencyIds()].sort()) !==
-    JSON.stringify([...props.task.dependencyIds].sort())
+    JSON.stringify([...dependencyIds()].toSorted()) !==
+    JSON.stringify([...props.task.dependencyIds].toSorted())
   const detailsChanged = () =>
     (titleChanged() && trimmedTitle().length > 0 && trimmedTitle().length <= 200) ||
     (objectiveChanged() && trimmedObjective().length > 0 && trimmedObjective().length <= 20_000) ||
@@ -244,14 +244,16 @@ export function TaskDetail(props: Props) {
               onInput={(event) => setObjective(event.currentTarget.value)}
             />
           </label>
-          <hr class="conventional-detail-panel__divider" />
+          <Separator class="conventional-detail-panel__divider" />
           <div class="conventional-detail-panel__grid">
             <div class="conventional-detail-panel__field">
               <span class="conventional-detail-panel__label">Type</span>
               <DropdownMenu>
                 <DropdownMenuTrigger
+                  as={Button}
+                  variant="outline"
                   disabled={fieldsDisabled()}
-                  class={cn(buttonVariants({ variant: 'outline' }), 'conventional-room-picker')}
+                  class="conventional-room-picker"
                 >
                   <Show when={kind() === 'bug'} fallback={<KindIconFallback kind={kind()} />}>
                     <Bug aria-hidden="true" />
@@ -281,7 +283,9 @@ export function TaskDetail(props: Props) {
               <DropdownMenu>
                 <DropdownMenuTrigger
                   disabled={fieldsDisabled()}
-                  class={cn(buttonVariants({ variant: 'outline' }), 'conventional-room-picker')}
+                  as={Button}
+                  variant="outline"
+                  class="conventional-room-picker"
                 >
                   <PriorityIcon priority={priority()} />
                   <span>
@@ -314,7 +318,9 @@ export function TaskDetail(props: Props) {
               <DropdownMenu>
                 <DropdownMenuTrigger
                   disabled={fieldsDisabled()}
-                  class={cn(buttonVariants({ variant: 'outline' }), 'conventional-room-picker')}
+                  as={Button}
+                  variant="outline"
+                  class="conventional-room-picker"
                 >
                   <Show when={selectedRoom()}>
                     {(room) => <RoomIcon functionKey={room().functionKey} />}
@@ -340,7 +346,9 @@ export function TaskDetail(props: Props) {
               <DropdownMenu>
                 <DropdownMenuTrigger
                   disabled={fieldsDisabled()}
-                  class={cn(buttonVariants({ variant: 'outline' }), 'conventional-room-picker')}
+                  as={Button}
+                  variant="outline"
+                  class="conventional-room-picker"
                 >
                   <Bot aria-hidden="true" />
                   <span>
@@ -365,7 +373,7 @@ export function TaskDetail(props: Props) {
               </DropdownMenu>
             </div>
           </div>
-          <hr class="conventional-detail-panel__divider" />
+          <Separator class="conventional-detail-panel__divider" />
           <fieldset>
             <legend>Dependencies</legend>
             <input
@@ -402,7 +410,7 @@ export function TaskDetail(props: Props) {
               </Show>
             </ul>
           </fieldset>
-          <hr class="conventional-detail-panel__divider" />
+          <Separator class="conventional-detail-panel__divider" />
           <Show when={props.task.lifecycleState === 'in_review'}>
             <p>Waiting on review. A new comment in the linked conversation reopens the Task.</p>
           </Show>

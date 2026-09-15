@@ -22,6 +22,9 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-scrim: var(--scrim);
+  --color-scrim-foreground: var(--scrim-foreground);
+  --color-scrim-edge: var(--scrim-edge);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -50,6 +53,12 @@
   --destructive: oklch(0.577 0.245 27.325);
   /* Mirrors the literals the success button variant used to carry. */
   --success: #1a7f37;
+  /* Theme-invariant dark glass for overlays and on-screen controls
+     (Tailwind slate-950). Same value in light and dark themes; the
+     foreground/edge tokens are the text and hairline drawn on it. */
+  --scrim: oklch(0.129 0.042 264.695);
+  --scrim-foreground: #fff;
+  --scrim-edge: #fff;
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -57,6 +66,12 @@
      values the logo used to hardcode. */
   --workspace-logo-surface: #111827;
   --workspace-logo-foreground: #f8fafc;
+  /* Overlay stacking scale — reference it as z-(--z-drawer) etc. in
+     components; do not add one-off z-[N] values. */
+  --z-drawer: 110;
+  --z-dialog: 120;
+  --z-menu: 140;
+  --z-tooltip: 160;
 }
 
 .dark {

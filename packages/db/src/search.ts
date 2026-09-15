@@ -222,7 +222,7 @@ export async function searchWorkspaceForUser(
       ...(row.threadRootMessageId ? { threadRootMessageId: row.threadRootMessageId } : {}),
       workspaceId,
     })),
-  ].sort(compare)
+  ].toSorted(compare)
   const page = results.slice(offset, offset + limit)
   return Object.freeze({
     ...(offset + limit < results.length ? { nextOffset: offset + limit } : {}),

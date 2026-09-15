@@ -20,8 +20,7 @@ import {
   X,
 } from 'lucide-solid'
 import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
-import { Button, buttonVariants } from '@adea-ai/ui/components/ui/button'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -95,7 +94,9 @@ function ConversationChannelRow(props: {
       <span class="conventional-channel-actions">
         <DropdownMenu>
           <DropdownMenuTrigger
-            class={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}
+            as={Button}
+            variant="ghost"
+            size="icon"
             aria-label={`Conversation options for ${props.label}`}
           >
             <EllipsisVertical aria-hidden="true" />
@@ -373,7 +374,9 @@ export function WorkspaceSidebar(props: Props) {
                           <span class="conventional-room-actions">
                             <DropdownMenu>
                               <DropdownMenuTrigger
-                                class={cn(buttonVariants({ variant: 'ghost', size: 'icon' }))}
+                                as={Button}
+                                variant="ghost"
+                                size="icon"
                                 aria-label={`Room options for ${item.room.name}`}
                               >
                                 <EllipsisVertical aria-hidden="true" />

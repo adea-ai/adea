@@ -17,6 +17,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
+import { cn } from '@adea-ai/ui/lib/utils'
 import { TaskDetail } from './task-detail'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
@@ -113,7 +114,12 @@ function PriorityTag(props: { priority: TaskSummary['priority'] }) {
     <Tooltip>
       <TooltipTrigger
         as="span"
-        class={`conventional-priority conventional-priority--${props.priority}`}
+        class={cn('conventional-priority', {
+          'conventional-priority--low': props.priority === 'low',
+          'conventional-priority--normal': props.priority === 'normal',
+          'conventional-priority--high': props.priority === 'high',
+          'conventional-priority--urgent': props.priority === 'urgent',
+        })}
         aria-label={`Priority: ${props.priority}`}
       >
         <Icon aria-hidden="true" />

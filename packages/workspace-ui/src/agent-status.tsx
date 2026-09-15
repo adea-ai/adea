@@ -1,12 +1,16 @@
 import type { AgentSummary } from '@adea-ai/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
+import { cn } from '@adea-ai/ui/lib/utils'
 
 function StatusChip(props: { detail: string; label: string; tone: string }) {
   return (
     <Tooltip>
       <TooltipTrigger
         as="span"
-        class={`conventional-status-chip conventional-status-chip--${props.tone}`}
+        class={cn('conventional-status-chip', {
+          'conventional-status-chip--ready': props.tone === 'ready',
+          'conventional-status-chip--warning': props.tone === 'warning',
+        })}
       >
         {props.label}
       </TooltipTrigger>

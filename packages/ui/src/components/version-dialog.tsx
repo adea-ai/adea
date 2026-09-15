@@ -213,10 +213,10 @@ export function VersionDialog(props: {
           </div>
         </DialogHeader>
 
-        <div class="min-h-0 space-y-5 overflow-y-auto p-6">
+        <div class="flex min-h-0 flex-col gap-5 overflow-y-auto p-6">
           <section class="rounded-xl border bg-background/45 p-4" aria-label="Version status">
             <div class="flex flex-wrap items-start justify-between gap-4">
-              <div class="space-y-1">
+              <div class="flex flex-col gap-1">
                 <p class="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   Installed version
                 </p>
@@ -267,7 +267,7 @@ export function VersionDialog(props: {
               aria-label="Available update"
             >
               <div class="flex flex-wrap items-start justify-between gap-4">
-                <div class="space-y-1">
+                <div class="flex flex-col gap-1">
                   <p class="flex items-center gap-2 text-sm font-semibold">
                     <Sparkles class="size-4 text-primary" aria-hidden="true" />
                     Version {update()?.available_version} is ready
@@ -300,10 +300,7 @@ export function VersionDialog(props: {
           </Show>
 
           <Show when={update()?.phase === 'current'}>
-            <p
-              class="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300"
-              role="status"
-            >
+            <p class="flex items-center gap-2 text-sm text-success" role="status">
               <Check class="size-4" aria-hidden="true" />
               Adea is up to date.
             </p>
@@ -319,7 +316,7 @@ export function VersionDialog(props: {
           </Show>
 
           <Show when={releaseNotes()}>
-            <section class="space-y-2" aria-labelledby="adea-release-notes">
+            <section class="flex flex-col gap-2" aria-labelledby="adea-release-notes">
               <div>
                 <h2 id="adea-release-notes" class="text-sm font-semibold">
                   What changed in this release
@@ -334,7 +331,7 @@ export function VersionDialog(props: {
             </section>
           </Show>
 
-          <section class="space-y-2" aria-labelledby="agent-hq-changelog">
+          <section class="flex flex-col gap-2" aria-labelledby="agent-hq-changelog">
             <div>
               <h2 id="agent-hq-changelog" class="text-sm font-semibold">
                 Installed changelog

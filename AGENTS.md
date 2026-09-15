@@ -201,6 +201,54 @@ At minimum:
 
 If a check cannot run, state the exact reason. A skipped check is not a passing check.
 
+## Design-system styling (enforced by `@shadcn/lint`)
+
+`@shadcn/lint` runs inside oxlint via `jsPlugins` in the root `.oxlintrc.json`;
+`bun run lint` (per-package `oxlint` through turbo) enforces it. Fix every
+shadcn finding the same way you fix a type error.
+
+- Design-system components come from `@adea-ai/ui/components` and
+  `@adea-ai/workspace-ui`. On those components, `class` may set layout only
+  (margin, width, positioning). Appearance changes must come from the
+  component's own variants or `size` props — do not pass padding, color,
+  typography, or shape classes.
+- The project's named CSS hooks are the sanctioned escape hatch:
+  `conventional-*`, `global-*`, `plugin-*`, `plugins-*`, `virtual-*`,
+  `workspace-*`, `visually-hidden` (defined in `packages/ui/src/styles/`).
+  Add new hooks in those stylesheets rather than restyling a component
+  inline.
+- Colors come from the tokens in `packages/ui/src/styles/theme.css`
+  (`bg-primary`, `text-muted-foreground`, `bg-scrim/*`, …). Declare a
+  `--color-*` token there before using a new color; never use raw palette
+  classes such as `bg-slate-950` or `text-emerald-700`. Even the
+  linter-accepted `white`/`black` should go through the scrim tokens
+  (`bg-scrim/*`, `text-scrim-foreground`, `border-scrim-edge/*`) — they are
+  theme-invariant on purpose, not free-form.
+- Overlays stack on the named scale `--z-drawer`/`--z-dialog`/`--z-menu`/
+  `--z-tooltip` (theme.css); use `z-(--z-*)`, never a one-off `z-[N]`.
+- This is a Solid codebase: primitives are `@kobalte/core` (+ `@corvu/drawer`).
+  `no-restricted-imports` blocks `react`, `@radix-ui/*`, Base UI, Ark, Zag,
+  react-aria, and friends — they will not run here.
+- No arbitrary values (`p-[13px]`), no inline `style` props or `<style>`
+  elements, no `space-x-*`/`space-y-*` (use `flex` + `gap-*`), use `size-*`
+  when width and height are equal.
+- `require-static-classes` is an error: every class on a design-system
+  component must be statically readable so the other rules can check it.
+  To give a Kobalte trigger button styling use its polymorphic
+  `as={Button}` + `variant`/`size` props rather than
+  `cn(buttonVariants(...), ...)`. For conditional classes use `cn`'s
+  object-key form (`cn('base', { 'hook--on': cond })`) — never `classList`
+  (invisible to the linter) or `` `base--${value}` `` templates. Genuine
+  `props.class` forwarding (e.g. `ModalDialog`) gets a scoped
+  `oxlint-disable-next-line` comment explaining why.
+- `packages/ui/src/components/**` is exempt from the restyle, arbitrary-value,
+  inline-style, and static-class rules — that is where the design system
+  defines itself.
+- Lint is zero-warning: the `suspicious` category and every shadcn rule are
+  errors. Newly injected `__DOUBLE_UNDERSCORE__` globals must be added to the
+  `no-underscore-dangle` allow list in `.oxlintrc.json` — they are external
+  contracts (vite defines, shell bridge), so name them deliberately.
+
 ## Tests and coverage
 
 - Add or update tests for behavior changes and regressions.
