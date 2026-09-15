@@ -9,6 +9,7 @@
  * 283e136c0f902e965a535a7c9548c57c7504fed0. Modified for Solid, semantic
  * tree controls, typed fixtures, and Adea authority boundaries.
  */
+import { cn } from '@adea-ai/ui/lib/utils'
 import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
 import { For, Show } from 'solid-js'
 
@@ -29,7 +30,7 @@ export function DevSidebarShell(props: {
 }) {
   return (
     <aside
-      classList={{ 'dev-sidebar': true, 'dev-sidebar--open': props.compactOpen }}
+      class={cn('dev-sidebar', { 'dev-sidebar--open': props.compactOpen })}
       aria-label="Projects and sessions"
     >
       <label class="dev-search">
@@ -62,11 +63,9 @@ export function DevSidebarShell(props: {
                         <div class="dev-tree-project">
                           <button
                             type="button"
-                            classList={{
-                              'dev-tree-row': true,
-                              'dev-tree-row--project': true,
-                              'is-selected': props.selectedProject === project.id,
-                            }}
+                            class={cn('dev-tree-row', 'dev-tree-row--project', {
+                              'dev-tree-row--selected': props.selectedProject === project.id,
+                            })}
                             aria-expanded={!projectCollapsed()}
                             onClick={() => {
                               props.onProjectSelect(project.id)
@@ -87,18 +86,20 @@ export function DevSidebarShell(props: {
                               {(session) => (
                                 <button
                                   type="button"
-                                  classList={{
-                                    'dev-tree-row': true,
-                                    'dev-tree-row--session': true,
-                                    'is-selected': props.selectedSession === session.id,
-                                  }}
+                                  class={cn('dev-tree-row', 'dev-tree-row--session', {
+                                    'dev-tree-row--selected': props.selectedSession === session.id,
+                                  })}
                                   aria-current={
                                     props.selectedSession === session.id ? 'page' : undefined
                                   }
                                   onClick={() => props.onSessionSelect(session.id)}
                                 >
                                   <span
-                                    class={`dev-status-dot dev-status-dot--${session.state}`}
+                                    class={cn('dev-status-dot', {
+                                      'dev-status-dot--active': session.state === 'active',
+                                      'dev-status-dot--ready': session.state === 'ready',
+                                      'dev-status-dot--archived': session.state === 'archived',
+                                    })}
                                     aria-label={session.state}
                                   />
                                   <span>{session.title}</span>

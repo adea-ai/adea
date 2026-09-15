@@ -102,8 +102,8 @@
 .dev-button:not(:disabled):hover,
 .dev-icon-button:hover,
 .dev-tree-row:hover,
-.dev-utility-tabs button:hover,
-.dev-utility-tabs button.is-selected {
+.dev-utility-tab:hover,
+.dev-utility-tab--selected {
   background: color-mix(in srgb, var(--foreground, #27251f) 8%, transparent);
 }
 
@@ -196,7 +196,7 @@
   font-size: 0.78rem;
 }
 
-.dev-tree-row.is-selected {
+.dev-tree-row--selected {
   background: color-mix(in srgb, var(--primary, #477c68) 15%, transparent);
 }
 

@@ -13,6 +13,7 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import { cn } from '@adea-ai/ui/lib/utils'
 import {
   Columns2,
   Files,
@@ -135,11 +136,10 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
 
   return (
     <main
-      classList={{
-        'dev-workspace': true,
+      class={cn('dev-workspace', {
         'dev-workspace--focus': focusMode(),
         'dev-workspace--utility-full': utilityFullWidth(),
-      }}
+      })}
     >
       <a class="dev-skip-link" href="#dev-center">
         Skip to workspace
@@ -217,7 +217,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           class="dev-center"
           id="dev-center"
           aria-label="Developer workspace panes"
-          style={`--dev-split-ratio: ${splitRatio()}%`}
+          style={{ '--dev-split-ratio': `${splitRatio()}%` }}
           ref={(element) => {
             centerElement = element
           }}
@@ -293,7 +293,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         </section>
 
         <aside
-          classList={{ 'dev-utility': true, 'dev-utility--open': compactUtilityOpen() }}
+          class={cn('dev-utility', { 'dev-utility--open': compactUtilityOpen() })}
           aria-label="Developer utilities"
         >
           <div class="dev-utility-tabs" role="tablist" aria-label="Developer utilities">
@@ -304,7 +304,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                   role="tab"
                   aria-selected={activeUtility() === item.id}
                   aria-controls="dev-utility-panel"
-                  classList={{ 'is-selected': activeUtility() === item.id }}
+                  class={cn('dev-utility-tab', {
+                    'dev-utility-tab--selected': activeUtility() === item.id,
+                  })}
                   onClick={() => setActiveUtility(item.id)}
                 >
                   <item.icon aria-hidden="true" />
