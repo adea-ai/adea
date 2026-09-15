@@ -44,6 +44,10 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
 
   await page.getByRole('button', { name: 'Agents / History' }).click()
   await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
+  await page.getByRole('tab', { name: 'Agents' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('tab', { name: 'History' })).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
   await page.getByRole('button', { name: 'Expand utility pane' }).click()
   await expect(page.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()
 
