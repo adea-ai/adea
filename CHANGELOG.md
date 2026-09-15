@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.25.14](https://github.com/adea-ai/adea/compare/v0.25.13...v0.25.14) (2026-09-15)
+
+
+### Maintenance
+
+* **lint:** enforce design-system tokens via @shadcn/lint and zero-warning oxlint ([#439](https://github.com/adea-ai/adea/issues/439)) ([f28080b](https://github.com/adea-ai/adea/commit/f28080b460d2ca2995910939a866cf76573cea56))
+
 ## [0.25.13](https://github.com/adea-ai/adea/compare/v0.25.12...v0.25.13) (2026-09-15)
 
 
