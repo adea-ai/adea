@@ -75,7 +75,7 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await page.getByRole('button', { name: 'Chat view' }).click()
   await expect(page).toHaveURL(/view=chat/)
   await expect(page).toHaveURL(/sentinel=keep/)
-  await page.goBack()
+  await page.getByRole('button', { name: 'Dev view' }).click()
   await expect(page).toHaveURL(/view=dev/)
   await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('button', { name: 'Restore utility pane' })).toBeVisible()

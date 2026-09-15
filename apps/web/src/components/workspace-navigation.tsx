@@ -200,16 +200,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // The workspace search contract lives on the root route and the router's
   // custom codec preserves it verbatim, so a patch is written through one
   // typed seam instead of restating the generated search schema.
-  const applySearch = (patch: Partial<WorkspaceSearch>, replace = true) =>
+  const applySearch = (patch: Partial<WorkspaceSearch>) =>
     void navigate({
       search: { ...currentSearch(), ...patch } as never,
       // Carry the hash through: a search update must not drop a deep link such
       // as `#settings/privacy-data` while the dialog it opened is mounting.
       hash: window.location.hash.replace(/^#/, ''),
-      replace,
+      replace: true,
     })
-  const setViewParam = (nextView: WorkspaceView, replace = true) =>
-    applySearch({ view: nextView }, replace)
+  const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
@@ -237,7 +236,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   })
 
   const changeView = (nextView: WorkspaceView) => {
-    void setViewParam(nextView, false)
+    void setViewParam(nextView)
   }
   const setRoomDesignerRoute = (enabled: boolean) => {
     setRoomDesignerEnabled(enabled)
