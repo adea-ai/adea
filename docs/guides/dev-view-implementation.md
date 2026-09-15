@@ -105,17 +105,18 @@ Implementation steps:
 1. Transcribe the baseline opaque IDs, `Scope`, command/reply/stream envelope,
    error, capability, and provider interfaces exactly from the Dev Runtime spec
    and its normative `docs/specs/dev-runtime-operations.json` registry. Generate
-   or hand-write one strict request/reply decoder per registry entry; registry
+   strict request decoders for every registry entry and fail closed for success
+   replies until the owning provider slice adds the exact DTO decoder; registry
    capabilities, resources, body shapes, replies, and stream mappings are fixed.
    Donor-specific project/harness records remain owned by #398/#400; #395 does
    not pull their Orca/Zeron units early.
 2. Define one `DevRuntimeService` interface in `packages/dev-view/src/platform.ts`
    and expose it through the existing `WorkspacePlatformServices`. Include an
    explicit capability snapshot and typed `unavailable` implementation.
-3. Add version-1 decoders for every baseline command/reply/event/record before
-   host or UI uses plain objects. Each later issue adds its operation-specific
-   aliases before handlers. Reject unknown versions and retain corrupt durable
-   data.
+3. Add version-1 decoders for every baseline command, typed error reply, event,
+   and record before host or UI uses plain objects. Each later issue adds its
+   operation-specific success reply aliases and strict DTO decoders before
+   handlers. Reject unknown versions and retain corrupt durable data.
 4. Add package export/lazy import boundaries and a test proving Chat/Virtual do
    not import the Dev chunk.
 5. Add issue-tagged donor ledger and `NOTICE` rows for only the exact #395 units

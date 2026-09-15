@@ -207,6 +207,19 @@ describe('Dev Runtime reply envelope', () => {
     ).toThrow('unknown key')
   })
 
+  test('fails closed for success DTOs until their provider-owned decoder lands', () => {
+    expect(() =>
+      decodeDevReply({
+        schemaVersion: 1,
+        operation: 'dev.project.get',
+        requestId: '00000000-0000-4000-8000-000000000004',
+        ok: true,
+        value: { extra: true },
+        observedAt: '2026-09-15T12:00:00.000Z',
+      })
+    ).toThrow('success DTO decoder is unavailable')
+  })
+
   test('rejects unknown versions and unknown operations', () => {
     expect(() => decodeDevReply({ schemaVersion: 2 })).toThrow('schemaVersion')
     expect(() =>

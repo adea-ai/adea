@@ -885,7 +885,10 @@ export function decodeDevReply(value: unknown): DevReply {
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
-    record(item.value, 'reply.value')
+    fail(
+      'reply.value',
+      'success DTO decoder is unavailable until the operation-owning provider slice installs it'
+    )
   } else if (item.ok === false) {
     exactKeys(item, ['schemaVersion', 'operation', 'requestId', 'ok', 'error'], [], 'reply')
     decodeError(item.error)
