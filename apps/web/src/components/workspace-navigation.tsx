@@ -22,41 +22,6 @@ import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
 
-const DevWorkspace = lazyComponent(
-  () =>
-    import('@adea-ai/dev-view').then(
-      ({ DevWorkspaceEntry, createUnavailableDevRuntimeService, devViewFixtureGroups }) => {
-        return (entryProps: {
-          fixture: boolean
-          runtime?: WorkspacePlatformServices['devRuntime']
-        }) => {
-          const unavailable =
-            entryProps.runtime ??
-            createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
-          const runtime =
-            entryProps.fixture && !entryProps.runtime
-              ? {
-                  ...unavailable,
-                  preferenceScope: () => ({
-                    accountId: '00000000-0000-4000-8000-000000000001',
-                    workspaceId: '00000000-0000-4000-8000-000000000002',
-                    runtimeNodeId: '00000000-0000-4000-8000-000000000003',
-                  }),
-                }
-              : unavailable
-          return (
-            <DevWorkspaceEntry
-              groups={entryProps.fixture ? devViewFixtureGroups : undefined}
-              storage={typeof window === 'undefined' ? undefined : window.localStorage}
-              runtime={runtime}
-            />
-          )
-        }
-      }
-    ),
-  { loading: () => <WorkspaceEntryLoading /> }
-)
-
 const ConventionalWorkspace = lazyComponent(
   () =>
     import('./conventional-workspace-entry').then(
@@ -189,7 +154,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
   const view = (): WorkspaceView => {
     const value = currentSearch().view
-    if (value === 'chat' || value === 'dev' || value === 'virtual') return value
+    if (value === 'chat' || value === 'virtual') return value
     return props.virtual ? 'virtual' : 'chat'
   }
   const scene = () => {
@@ -291,47 +256,35 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       />
       <div class="workspace-frame__surface">
         <Show
-          when={view() !== 'dev'}
+          when={view() === 'virtual'}
           fallback={
-            <DevWorkspace
-              fixture={
-                import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
-              }
-              runtime={props.services.devRuntime}
+            <ConventionalWorkspace
+              client={props.client}
+              manageSettings={false}
+              onViewChange={changeView}
+              services={props.services}
             />
           }
         >
           <Show
-            when={view() === 'virtual'}
+            when={roomDesignerEnabled()}
             fallback={
-              <ConventionalWorkspace
-                client={props.client}
-                manageSettings={false}
-                onViewChange={changeView}
+              <SpatialWorkspace
+                {...props.virtualProps}
+                apiClient={props.client}
+                initialScene={scene()}
+                onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
+                onWorkspaceViewChange={changeView}
                 services={props.services}
+                workspaceView={view()}
               />
             }
           >
-            <Show
-              when={roomDesignerEnabled()}
-              fallback={
-                <SpatialWorkspace
-                  {...props.virtualProps}
-                  apiClient={props.client}
-                  initialScene={scene()}
-                  onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
-                  onWorkspaceViewChange={changeView}
-                  services={props.services}
-                  workspaceView={view()}
-                />
-              }
-            >
-              <RoomDesignerWorkspace
-                initialCharacter={props.virtualProps.initialCharacter}
-                initialScene={scene()}
-                onClose={() => setRoomDesignerRoute(false)}
-              />
-            </Show>
+            <RoomDesignerWorkspace
+              initialCharacter={props.virtualProps.initialCharacter}
+              initialScene={scene()}
+              onClose={() => setRoomDesignerRoute(false)}
+            />
           </Show>
         </Show>
       </div>
@@ -361,8 +314,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         open={globalPanel() === 'plugins' && Boolean(props.activeWorkspace)}
         onClose={() => workspaceStore.getState().setGlobalPanel(null)}
         provider={props.services.plugins}
-        authenticated={props.account.authenticated}
-        onSignIn={props.account.onSignIn}
       />
       <WorkspaceAboutDialog
         appName={props.services.app?.name}
