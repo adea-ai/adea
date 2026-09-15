@@ -85,6 +85,13 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
           { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready' },
         ],
       },
+      {
+        id: 'fixture-tools',
+        name: 'Runtime tools',
+        repository: 'example/tools',
+        branch: 'feature/runtime',
+        sessions: [{ id: 'fixture-tools-session', title: 'Other project session', state: 'ready' }],
+      },
     ],
   },
 ]
@@ -371,7 +378,11 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           collapsedProjects={collapsedProjects()}
           compactOpen={compactSidebarOpen()}
           onProjectSelect={(id) => workspaceStore.getState().setSelectedDevProjectId(id)}
-          onSessionSelect={(id) => workspaceStore.getState().setSelectedRuntimeSessionId(id)}
+          onSessionSelect={(projectId, sessionId) => {
+            const store = workspaceStore.getState()
+            if (store.selectedDevProjectId !== projectId) store.setSelectedDevProjectId(projectId)
+            workspaceStore.getState().setSelectedRuntimeSessionId(sessionId)
+          }}
           onToggleGroup={(id) => workspaceStore.getState().toggleDevGroupCollapsed(id)}
           onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
         />

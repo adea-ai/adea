@@ -35,6 +35,12 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
 
+  await page.getByRole('button', { name: 'Other project session' }).click()
+  await expect(page.getByRole('button', { name: 'Other project session' })).toHaveAttribute(
+    'aria-current',
+    'page'
+  )
+
   const group = page.getByRole('button', { name: 'PRODUCT' })
   await group.click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')

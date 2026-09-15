@@ -24,7 +24,7 @@ export function DevSidebarShell(props: {
   collapsedProjects: ReadonlySet<string>
   compactOpen: boolean
   onProjectSelect(id: string): void
-  onSessionSelect(id: string): void
+  onSessionSelect(projectId: string, sessionId: string): void
   onToggleGroup(id: string): void
   onToggleProject(id: string): void
 }) {
@@ -97,7 +97,7 @@ export function DevSidebarShell(props: {
                                     aria-current={
                                       props.selectedSession === session.id ? 'page' : undefined
                                     }
-                                    onClick={() => props.onSessionSelect(session.id)}
+                                    onClick={() => props.onSessionSelect(project.id, session.id)}
                                   >
                                     <span
                                       role="img"

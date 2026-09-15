@@ -177,7 +177,7 @@ export function swapPanes(
       ? node
       : { ...node, children: [left, right] }
   }
-  return { ...state, center: swap(state.center) }
+  return { ...state, center: swap(state.center), closed: [] }
 }
 
 export function movePane(

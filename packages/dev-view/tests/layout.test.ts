@@ -115,6 +115,10 @@ describe('strict binary Dev layout', () => {
       leaf: leaf('later'),
     })
     expect(split.closed).toHaveLength(0)
+
+    const swapped = swapPanes(closed, 'one', 'two')
+    expect(swapped.closed).toHaveLength(0)
+    expect(undoClosePane(swapped)).toBe(swapped)
   })
 
   test('focuses and swaps existing leaves without changing identities', () => {
