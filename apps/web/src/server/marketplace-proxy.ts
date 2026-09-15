@@ -22,7 +22,10 @@ export async function proxyMarketplaceCatalog(
       requestedAt: new Date().toISOString(),
       workspaceId: requiredControlPlaneWorkspaceId(),
     },
-    requestId
+    requestId,
+    // The catalog is tens of megabytes; buffer-free streaming keeps the
+    // worker under Cloudflare's resource limits.
+    { streamThrough: true }
   )
 }
 
@@ -103,7 +106,8 @@ function requiredControlPlaneWorkspaceId(): string {
 async function proxyControlPlane(
   path: string,
   body: Record<string, unknown>,
-  requestId: string
+  requestId: string,
+  options: Readonly<{ streamThrough?: boolean }> = {}
 ): Promise<Response> {
   const origin = process.env.CONTROL_PLANE_ORIGIN?.trim()
   const token = process.env.CONTROL_PLANE_SERVICE_TOKEN?.trim()
@@ -137,6 +141,17 @@ async function proxyControlPlane(
           : 'Control Plane rejected the marketplace request',
         status
       )
+    }
+    // Large reads (the marketplace catalog is tens of megabytes) stream
+    // through unparsed: buffering + re-serializing them in the worker
+    // exceeds Cloudflare's resource limits.
+    if (options.streamThrough) {
+      return new Response(response.body, {
+        headers: {
+          'content-type': response.headers.get('content-type') ?? 'application/json',
+          'cache-control': 'no-store',
+        },
+      })
     }
     const envelope = (await response.json()) as { data?: unknown }
     if (!envelope || !('data' in envelope))

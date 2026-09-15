@@ -383,11 +383,22 @@ export class AgentHqApiClient {
   }
 
   async getMarketplaceCatalog(workspaceId: string): Promise<ApiMarketplaceCatalogResponse> {
-    return this.request<ApiMarketplaceCatalogResponse>('/marketplace/catalog', {
+    // Streaming proxies forward the Control Plane envelope verbatim, so the
+    // payload can arrive wrapped in `data` instead of unwrapped.
+    const parsed: unknown = await this.request<unknown>('/marketplace/catalog', {
       body: JSON.stringify({ workspaceId }),
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
     })
+    if (
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      'data' in parsed &&
+      parsed.data !== undefined
+    ) {
+      return parsed.data as ApiMarketplaceCatalogResponse
+    }
+    return parsed as ApiMarketplaceCatalogResponse
   }
 
   async requestMarketplaceInstallPlan(
