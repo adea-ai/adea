@@ -1,15 +1,15 @@
 .dev-workspace {
-  --dev-border: color-mix(in srgb, var(--border, #9a9488) 62%, transparent);
-  --dev-panel: color-mix(in srgb, var(--background, #f7f4ed) 94%, #d9e3dd);
-  --dev-muted: color-mix(in srgb, var(--foreground, #27251f) 58%, transparent);
+  --dev-border: color-mix(in srgb, var(--border) 62%, transparent);
+  --dev-panel: color-mix(in srgb, var(--background) 94%, var(--muted));
+  --dev-muted: var(--muted-foreground);
   display: grid;
   grid-template-rows: 3rem minmax(0, 1fr);
   width: 100%;
   min-width: 0;
   height: 100%;
   overflow: hidden;
-  color: var(--foreground, #27251f);
-  background: var(--background, #f7f4ed);
+  color: var(--foreground);
+  background: var(--background);
 }
 
 .dev-skip-link {
@@ -20,8 +20,8 @@
   transform: translateY(-160%);
   padding: 0.5rem 0.75rem;
   border-radius: 0.4rem;
-  background: var(--foreground, #27251f);
-  color: var(--background, #fff);
+  background: var(--foreground);
+  color: var(--background);
 }
 
 .dev-skip-link:focus {
@@ -104,7 +104,7 @@
 .dev-tree-row:hover,
 .dev-utility-tab:hover,
 .dev-utility-tab--selected {
-  background: color-mix(in srgb, var(--foreground, #27251f) 8%, transparent);
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 
 .dev-button:focus-visible,
@@ -112,7 +112,7 @@
 .dev-tree-row:focus-visible,
 .dev-utility-tabs button:focus-visible,
 .dev-search input:focus-visible {
-  outline: 2px solid var(--ring, #477c68);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -197,7 +197,7 @@
 }
 
 .dev-tree-row--selected {
-  background: color-mix(in srgb, var(--primary, #477c68) 15%, transparent);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
 }
 
 .dev-tree-row__count {
@@ -219,12 +219,12 @@
 }
 
 .dev-status-dot--active {
-  background: #3d9970;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #3d9970 18%, transparent);
+  background: var(--success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 18%, transparent);
 }
 
 .dev-status-dot--archived {
-  background: #9a9488;
+  background: var(--muted-foreground);
 }
 
 .dev-center {
@@ -233,7 +233,7 @@
   min-height: 0;
   grid-template-columns: minmax(0, var(--dev-split-ratio)) 0.45rem minmax(0, 1fr);
   overflow: hidden;
-  background: color-mix(in srgb, var(--background, #f7f4ed) 96%, #cad6cf);
+  background: color-mix(in srgb, var(--background) 96%, var(--muted));
 }
 
 .dev-pane {
@@ -251,17 +251,17 @@
   padding: 0;
   border: 0;
   border-inline: 1px solid var(--dev-border);
-  background: color-mix(in srgb, var(--foreground, #27251f) 3%, transparent);
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
   cursor: col-resize;
 }
 
 .dev-splitter:hover,
 .dev-splitter:focus-visible {
-  background: color-mix(in srgb, var(--primary, #477c68) 35%, transparent);
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
 }
 
 .dev-splitter:focus-visible {
-  outline: 2px solid var(--ring, #477c68);
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 
@@ -425,7 +425,7 @@
     inset-block: 3rem 0;
     inset-inline-end: 0;
     width: min(19rem, 78vw);
-    box-shadow: -0.5rem 0 2rem color-mix(in srgb, #000 12%, transparent);
+    box-shadow: -0.5rem 0 2rem color-mix(in srgb, var(--scrim) 12%, transparent);
   }
 }
 
@@ -454,7 +454,7 @@
     transition:
       transform 160ms ease,
       visibility 0s linear 160ms;
-    box-shadow: 0.5rem 0 2rem color-mix(in srgb, #000 12%, transparent);
+    box-shadow: 0.5rem 0 2rem color-mix(in srgb, var(--scrim) 12%, transparent);
   }
 
   .dev-sidebar--open {
