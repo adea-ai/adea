@@ -7,14 +7,15 @@ import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
  * is imported only if Dev asks for a capability/command, preserving the cold
  * Chat/Virtual graph.
  */
+async function unavailableDevRuntime() {
+  const { createUnavailableDevRuntimeService } = await import('@adea-ai/dev-view/platform')
+  return createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+}
+
 export function createDesktopDevRuntimeService(): DevRuntimeService {
-  const unavailable = async () => {
-    const { createUnavailableDevRuntimeService } = await import('@adea-ai/dev-view/platform')
-    return createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
-  }
   return {
     state: () => ({ status: 'unavailable', reason: 'channel_unauthenticated' }),
-    capabilitySnapshot: async (scope) => (await unavailable()).capabilitySnapshot(scope),
-    execute: async (command) => (await unavailable()).execute(command),
+    capabilitySnapshot: async (scope) => (await unavailableDevRuntime()).capabilitySnapshot(scope),
+    execute: async (command) => (await unavailableDevRuntime()).execute(command),
   }
 }
