@@ -77,6 +77,11 @@ test('a guest can use a workspace before opening the optional persistence flow',
 
   await userMenu.click()
   const accountMenu = page.getByRole('menu')
+  // The menu enters with a zoom/fade animation that transforms its box; wait
+  // for it to settle before measuring the final position.
+  await accountMenu.evaluate((menu) =>
+    Promise.allSettled(menu.getAnimations({ subtree: true }).map((a) => a.finished))
+  )
   const accountMenuPosition = await accountMenu.evaluate((menu) => {
     const menuBox = menu.getBoundingClientRect()
     const triggerBox = document
