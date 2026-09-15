@@ -43,6 +43,9 @@ describe('Dev layout persistence', () => {
     expect(layoutStorageKey(scope, 'project-a', 'session-b')).not.toBe(
       layoutStorageKey(scope, 'project-a', 'session-a')
     )
+    expect(layoutStorageKey(scope, 'project:a', 'session')).not.toBe(
+      layoutStorageKey(scope, 'project', 'a:session')
+    )
   })
 
   test('retains unread corrupt and unknown-version values for recovery', () => {

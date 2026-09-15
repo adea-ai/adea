@@ -18,6 +18,7 @@ export type LayoutDecodeResult =
   | Readonly<{ state: 'unsupported'; raw: string }>
 
 const utilities = ['files', 'source_control', 'browser', 'devices', 'agents', 'history'] as const
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -37,7 +38,9 @@ function decodeScope(value: unknown): value is Scope {
     typeof value.accountId === 'string' &&
     typeof value.workspaceId === 'string' &&
     typeof value.runtimeNodeId === 'string' &&
-    Boolean(value.accountId && value.workspaceId && value.runtimeNodeId)
+    uuidPattern.test(value.accountId) &&
+    uuidPattern.test(value.workspaceId) &&
+    uuidPattern.test(value.runtimeNodeId)
   )
 }
 
@@ -149,5 +152,13 @@ export function layoutStorageKey(
   projectId: string,
   runtimeSessionId: string
 ): string {
-  return `adea.dev-layout.v1:${scope.accountId}:${scope.workspaceId}:${scope.runtimeNodeId}:${projectId}:${runtimeSessionId}`
+  return `adea.dev-layout.v1:${[
+    scope.accountId,
+    scope.workspaceId,
+    scope.runtimeNodeId,
+    projectId,
+    runtimeSessionId,
+  ]
+    .map(encodeURIComponent)
+    .join(':')}`
 }

@@ -804,6 +804,14 @@ function decodeRequestBody(
 }
 
 export function decodeDevCommand(value: unknown): DevCommand {
+  let encoded: string
+  try {
+    encoded = JSON.stringify(value)
+  } catch {
+    fail('command', 'expected JSON-encodable control payload')
+  }
+  if (new TextEncoder().encode(encoded).byteLength > 256 * 1024)
+    fail('command', 'control payload exceeds 256 KiB')
   const item = record(value, 'command')
   exactKeys(
     item,

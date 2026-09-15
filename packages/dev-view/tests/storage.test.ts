@@ -2,7 +2,11 @@ import { expect, test } from 'bun:test'
 
 import { createLayoutStorageController } from '../src/layout/storage'
 
-const scope = { accountId: 'account', workspaceId: 'workspace', runtimeNodeId: 'node' }
+const scope = {
+  accountId: '00000000-0000-4000-8000-000000000001',
+  workspaceId: '00000000-0000-4000-8000-000000000002',
+  runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+}
 const value = {
   schemaVersion: 1 as const,
   scope,
@@ -42,6 +46,23 @@ test('debounces writes and flushes pending state when hidden', () => {
   expect(storage.values.size).toBe(0)
   controller.visibilityChanged(true)
   expect(JSON.parse(storage.values.get(controller.key)!)).toMatchObject({ focusMode: true })
+})
+
+test('rejects stored and scheduled preferences from another scope', () => {
+  const other = {
+    ...value,
+    scope: { ...scope, workspaceId: '00000000-0000-4000-8000-000000000009' },
+  }
+  const storage = memoryStorage()
+  const controller = createLayoutStorageController({
+    storage,
+    scope,
+    projectId: 'project',
+    runtimeSessionId: 'session',
+  })
+  storage.values.set(controller.key, JSON.stringify(other))
+  expect(controller.load()).toMatchObject({ state: 'corrupt' })
+  expect(() => controller.schedule(other)).toThrow('scope_mismatch')
 })
 
 test('retains an unread corrupt value before replacing it after an explicit change', () => {

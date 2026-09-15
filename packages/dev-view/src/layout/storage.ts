@@ -26,10 +26,21 @@ export function createLayoutStorageController(options: {
   let pending: DevLayoutPreferencesV1 | undefined
   let unread: string | undefined
 
+  const matchesControllerScope = (value: DevLayoutPreferencesV1) =>
+    value.scope.accountId === options.scope.accountId &&
+    value.scope.workspaceId === options.scope.workspaceId &&
+    value.scope.runtimeNodeId === options.scope.runtimeNodeId &&
+    value.projectId === options.projectId &&
+    value.runtimeSessionId === options.runtimeSessionId
+
   const load = (): LayoutDecodeResult | undefined => {
     const raw = options.storage.getItem(key)
     if (raw === null) return undefined
     const result = decodeLayoutPreferences(raw)
+    if (result.state === 'ready' && !matchesControllerScope(result.value)) {
+      unread = raw
+      return { state: 'corrupt', raw }
+    }
     if (result.state !== 'ready') unread = result.raw
     return result
   }
@@ -47,6 +58,8 @@ export function createLayoutStorageController(options: {
   }
 
   const schedule = (value: DevLayoutPreferencesV1) => {
+    if (!matchesControllerScope(value))
+      throw new TypeError('scope_mismatch: layout preferences belong to another scope')
     pending = value
     if (timer !== undefined) clearTimer(timer)
     timer = setTimer(flush, debounceMs)

@@ -144,6 +144,16 @@ describe('Dev Runtime command envelope', () => {
     expect(decodeDevCommand(paired)).toEqual(paired)
   })
 
+  test('rejects command control payloads above 256 KiB', () => {
+    const value = command('dev.session.create', {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      taskId: 'x'.repeat(300_000),
+    })
+    expect(() => decodeDevCommand(value)).toThrow('control payload exceeds 256 KiB')
+  })
+
   test('rejects stale resource bindings and unknown envelope keys', () => {
     const value = command('dev.browser.viewport', {
       browserLaneId: 'lane-1',
