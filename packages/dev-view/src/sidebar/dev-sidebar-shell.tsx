@@ -39,83 +39,90 @@ export function DevSidebarShell(props: {
         <input type="search" placeholder="Filter projects" />
       </label>
       <nav aria-label="Dev projects">
-        <For each={props.groups}>
-          {(group) => {
-            const groupCollapsed = () => props.collapsedGroups.has(group.id)
-            return (
-              <section class="dev-tree-group">
-                <button
-                  type="button"
-                  class="dev-tree-row dev-tree-row--group"
-                  aria-expanded={!groupCollapsed()}
-                  onClick={() => props.onToggleGroup(group.id)}
-                >
-                  <Show when={groupCollapsed()} fallback={<ChevronDown aria-hidden="true" />}>
-                    <ChevronRight aria-hidden="true" />
-                  </Show>
-                  <span>{group.name}</span>
-                </button>
-                <Show when={!groupCollapsed()}>
-                  <For each={group.projects}>
-                    {(project) => {
-                      const projectCollapsed = () => props.collapsedProjects.has(project.id)
-                      return (
-                        <div class="dev-tree-project">
-                          <button
-                            type="button"
-                            class={cn('dev-tree-row', 'dev-tree-row--project', {
-                              'dev-tree-row--selected': props.selectedProject === project.id,
-                            })}
-                            aria-expanded={!projectCollapsed()}
-                            onClick={() => {
-                              props.onProjectSelect(project.id)
-                              props.onToggleProject(project.id)
-                            }}
-                          >
-                            <Show
-                              when={projectCollapsed()}
-                              fallback={<ChevronDown aria-hidden="true" />}
+        <Show
+          when={props.groups.length > 0}
+          fallback={<p class="dev-tree-empty">No runtime projects available.</p>}
+        >
+          <For each={props.groups}>
+            {(group) => {
+              const groupCollapsed = () => props.collapsedGroups.has(group.id)
+              return (
+                <section class="dev-tree-group">
+                  <button
+                    type="button"
+                    class="dev-tree-row dev-tree-row--group"
+                    aria-expanded={!groupCollapsed()}
+                    onClick={() => props.onToggleGroup(group.id)}
+                  >
+                    <Show when={groupCollapsed()} fallback={<ChevronDown aria-hidden="true" />}>
+                      <ChevronRight aria-hidden="true" />
+                    </Show>
+                    <span>{group.name}</span>
+                  </button>
+                  <Show when={!groupCollapsed()}>
+                    <For each={group.projects}>
+                      {(project) => {
+                        const projectCollapsed = () => props.collapsedProjects.has(project.id)
+                        return (
+                          <div class="dev-tree-project">
+                            <button
+                              type="button"
+                              class={cn('dev-tree-row', 'dev-tree-row--project', {
+                                'dev-tree-row--selected': props.selectedProject === project.id,
+                              })}
+                              aria-expanded={!projectCollapsed()}
+                              onClick={() => {
+                                props.onProjectSelect(project.id)
+                                props.onToggleProject(project.id)
+                              }}
                             >
-                              <ChevronRight aria-hidden="true" />
-                            </Show>
-                            <span>{project.name}</span>
-                            <span class="dev-tree-row__count">{project.sessions.length}</span>
-                          </button>
-                          <Show when={!projectCollapsed()}>
-                            <For each={project.sessions}>
-                              {(session) => (
-                                <button
-                                  type="button"
-                                  class={cn('dev-tree-row', 'dev-tree-row--session', {
-                                    'dev-tree-row--selected': props.selectedSession === session.id,
-                                  })}
-                                  aria-current={
-                                    props.selectedSession === session.id ? 'page' : undefined
-                                  }
-                                  onClick={() => props.onSessionSelect(session.id)}
-                                >
-                                  <span
-                                    class={cn('dev-status-dot', {
-                                      'dev-status-dot--active': session.state === 'active',
-                                      'dev-status-dot--ready': session.state === 'ready',
-                                      'dev-status-dot--archived': session.state === 'archived',
+                              <Show
+                                when={projectCollapsed()}
+                                fallback={<ChevronDown aria-hidden="true" />}
+                              >
+                                <ChevronRight aria-hidden="true" />
+                              </Show>
+                              <span>{project.name}</span>
+                              <span class="dev-tree-row__count">{project.sessions.length}</span>
+                            </button>
+                            <Show when={!projectCollapsed()}>
+                              <For each={project.sessions}>
+                                {(session) => (
+                                  <button
+                                    type="button"
+                                    class={cn('dev-tree-row', 'dev-tree-row--session', {
+                                      'dev-tree-row--selected':
+                                        props.selectedSession === session.id,
                                     })}
-                                    aria-label={session.state}
-                                  />
-                                  <span>{session.title}</span>
-                                </button>
-                              )}
-                            </For>
-                          </Show>
-                        </div>
-                      )
-                    }}
-                  </For>
-                </Show>
-              </section>
-            )
-          }}
-        </For>
+                                    aria-current={
+                                      props.selectedSession === session.id ? 'page' : undefined
+                                    }
+                                    onClick={() => props.onSessionSelect(session.id)}
+                                  >
+                                    <span
+                                      role="img"
+                                      class={cn('dev-status-dot', {
+                                        'dev-status-dot--active': session.state === 'active',
+                                        'dev-status-dot--ready': session.state === 'ready',
+                                        'dev-status-dot--archived': session.state === 'archived',
+                                      })}
+                                      aria-label={session.state}
+                                    />
+                                    <span>{session.title}</span>
+                                  </button>
+                                )}
+                              </For>
+                            </Show>
+                          </div>
+                        )
+                      }}
+                    </For>
+                  </Show>
+                </section>
+              )
+            }}
+          </For>
+        </Show>
       </nav>
       <ArchiveShelf />
     </aside>

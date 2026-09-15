@@ -23,11 +23,17 @@ for (const width of [320, 768, 1280, 1920]) {
   })
 }
 
+test('production unavailable state does not fabricate projects or sessions', async ({ page }) => {
+  await page.goto('/?view=dev')
+  await expect(page.getByText('No runtime projects available.')).toBeVisible()
+  await expect(page.getByText('Example project')).toHaveCount(0)
+})
+
 test('Dev rail history, hierarchy, separator, focus, and utility controls are deterministic', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
-  await page.goto('/?view=dev&sentinel=keep')
+  await page.goto('/?view=dev&devE2e=preserved&sentinel=keep')
 
   const group = page.getByRole('button', { name: 'PRODUCT' })
   await group.click()

@@ -1,4 +1,5 @@
 import type { PaneLeaf, PaneNode, PaneSplit } from '@adea-ai/types/dev-runtime'
+import { cn } from '@adea-ai/ui/lib/utils'
 import { Files, PanelRightOpen, TerminalSquare, X } from 'lucide-solid'
 import { Match, Show, Switch } from 'solid-js'
 
@@ -21,8 +22,7 @@ function Pane(props: {
 }) {
   return (
     <section
-      class="dev-pane"
-      classList={{ 'dev-pane--focused': props.focused }}
+      class={cn('dev-pane', { 'dev-pane--focused': props.focused })}
       data-pane-id={props.leaf.id}
       onPointerDown={props.onFocus}
     >
@@ -89,8 +89,27 @@ function Split(props: {
   }
   return (
     <section
-      class={`dev-layout-node dev-layout-node--${props.node.direction}`}
-      style={{ '--dev-node-ratio': `${props.node.ratio * 100}%` }}
+      class={cn('dev-layout-node', {
+        'dev-layout-node--row': props.node.direction === 'row',
+        'dev-layout-node--column': props.node.direction === 'column',
+        'dev-layout-node--ratio-10': Math.round(props.node.ratio * 20) * 5 === 10,
+        'dev-layout-node--ratio-15': Math.round(props.node.ratio * 20) * 5 === 15,
+        'dev-layout-node--ratio-20': Math.round(props.node.ratio * 20) * 5 === 20,
+        'dev-layout-node--ratio-25': Math.round(props.node.ratio * 20) * 5 === 25,
+        'dev-layout-node--ratio-30': Math.round(props.node.ratio * 20) * 5 === 30,
+        'dev-layout-node--ratio-35': Math.round(props.node.ratio * 20) * 5 === 35,
+        'dev-layout-node--ratio-40': Math.round(props.node.ratio * 20) * 5 === 40,
+        'dev-layout-node--ratio-45': Math.round(props.node.ratio * 20) * 5 === 45,
+        'dev-layout-node--ratio-50': Math.round(props.node.ratio * 20) * 5 === 50,
+        'dev-layout-node--ratio-55': Math.round(props.node.ratio * 20) * 5 === 55,
+        'dev-layout-node--ratio-60': Math.round(props.node.ratio * 20) * 5 === 60,
+        'dev-layout-node--ratio-65': Math.round(props.node.ratio * 20) * 5 === 65,
+        'dev-layout-node--ratio-70': Math.round(props.node.ratio * 20) * 5 === 70,
+        'dev-layout-node--ratio-75': Math.round(props.node.ratio * 20) * 5 === 75,
+        'dev-layout-node--ratio-80': Math.round(props.node.ratio * 20) * 5 === 80,
+        'dev-layout-node--ratio-85': Math.round(props.node.ratio * 20) * 5 === 85,
+        'dev-layout-node--ratio-90': Math.round(props.node.ratio * 20) * 5 === 90,
+      })}
       ref={(element) => {
         splitElement = element
       }}

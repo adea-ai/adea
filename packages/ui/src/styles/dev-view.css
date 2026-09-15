@@ -206,8 +206,21 @@
   font-variant-numeric: tabular-nums;
 }
 
-.dev-tree-row--archive {
+.dev-tree-empty {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  color: var(--dev-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.dev-archive-shelf {
   margin-block-start: auto;
+  border-block-start: 1px solid var(--dev-border);
+}
+
+.dev-tree-row--archive {
+  width: 100%;
 }
 
 .dev-status-dot {
@@ -240,6 +253,58 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.dev-layout-node--ratio-10 {
+  --dev-node-ratio: 10%;
+}
+.dev-layout-node--ratio-15 {
+  --dev-node-ratio: 15%;
+}
+.dev-layout-node--ratio-20 {
+  --dev-node-ratio: 20%;
+}
+.dev-layout-node--ratio-25 {
+  --dev-node-ratio: 25%;
+}
+.dev-layout-node--ratio-30 {
+  --dev-node-ratio: 30%;
+}
+.dev-layout-node--ratio-35 {
+  --dev-node-ratio: 35%;
+}
+.dev-layout-node--ratio-40 {
+  --dev-node-ratio: 40%;
+}
+.dev-layout-node--ratio-45 {
+  --dev-node-ratio: 45%;
+}
+.dev-layout-node--ratio-50 {
+  --dev-node-ratio: 50%;
+}
+.dev-layout-node--ratio-55 {
+  --dev-node-ratio: 55%;
+}
+.dev-layout-node--ratio-60 {
+  --dev-node-ratio: 60%;
+}
+.dev-layout-node--ratio-65 {
+  --dev-node-ratio: 65%;
+}
+.dev-layout-node--ratio-70 {
+  --dev-node-ratio: 70%;
+}
+.dev-layout-node--ratio-75 {
+  --dev-node-ratio: 75%;
+}
+.dev-layout-node--ratio-80 {
+  --dev-node-ratio: 80%;
+}
+.dev-layout-node--ratio-85 {
+  --dev-node-ratio: 85%;
+}
+.dev-layout-node--ratio-90 {
+  --dev-node-ratio: 90%;
 }
 
 .dev-layout-node--row {

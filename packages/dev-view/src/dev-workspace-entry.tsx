@@ -68,7 +68,7 @@ export type DevWorkspaceEntryProps = Readonly<{
   groups?: readonly DevGroupFixture[]
 }>
 
-const fixtureGroups: readonly DevGroupFixture[] = [
+export const devViewFixtureGroups: readonly DevGroupFixture[] = [
   {
     id: 'fixture-product',
     name: 'Product',
@@ -111,7 +111,7 @@ const initialLayout = () =>
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
-  const groups = () => props.groups ?? fixtureGroups
+  const groups = () => props.groups ?? []
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
@@ -235,7 +235,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         </button>
         <div class="dev-toolbar__identity">
           <strong>Dev</strong>
-          <span>Foundation preview · typed fixtures</span>
+          <span>
+            {groups().length > 0 ? 'Foundation preview · typed fixtures' : 'Runtime unavailable'}
+          </span>
         </div>
         <div class="dev-toolbar__actions" role="toolbar" aria-label="Developer workspace actions">
           <button type="button" class="dev-button" disabled>

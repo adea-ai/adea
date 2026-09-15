@@ -25,9 +25,13 @@ import type { WorkspaceShellProps } from './workspace-shell'
 const DevWorkspace = lazyComponent(
   () =>
     import('@adea-ai/dev-view').then(
-      ({ DevWorkspaceEntry, createUnavailableDevRuntimeService }) => {
-        return (entryProps: { runtime?: WorkspacePlatformServices['devRuntime'] }) => (
+      ({ DevWorkspaceEntry, createUnavailableDevRuntimeService, devViewFixtureGroups }) => {
+        return (entryProps: {
+          fixture: boolean
+          runtime?: WorkspacePlatformServices['devRuntime']
+        }) => (
           <DevWorkspaceEntry
+            groups={entryProps.fixture ? devViewFixtureGroups : undefined}
             runtime={
               entryProps.runtime ??
               createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
@@ -275,7 +279,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <div class="workspace-frame__surface">
         <Show
           when={view() !== 'dev'}
-          fallback={<DevWorkspace runtime={props.services.devRuntime} />}
+          fallback={
+            <DevWorkspace
+              fixture={
+                import.meta.env.DEV && Reflect.get(currentSearch(), 'devE2e') === 'preserved'
+              }
+              runtime={props.services.devRuntime}
+            />
+          }
         >
           <Show
             when={view() === 'virtual'}
