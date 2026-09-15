@@ -62,9 +62,9 @@ const fixtureGroups: readonly DevGroupFixture[] = [
     projects: [
       {
         id: 'fixture-adea',
-        name: 'Adea',
-        repository: 'adea-ai/adea',
-        branch: 'feat/dev-view-foundation',
+        name: 'Example project',
+        repository: 'example/repository',
+        branch: 'feature/example',
         sessions: [
           { id: 'fixture-shell', title: 'Dev View foundation', state: 'active' },
           { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready' },
@@ -165,7 +165,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         </button>
         <div class="dev-toolbar__identity">
           <strong>Dev</strong>
-          <span>Adea / feat/dev-view-foundation</span>
+          <span>Foundation preview · typed fixtures</span>
         </div>
         <div class="dev-toolbar__actions" role="toolbar" aria-label="Developer workspace actions">
           <button type="button" class="dev-button" disabled>
