@@ -13,6 +13,7 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import '@adea-ai/ui/dev-view.css'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
   Columns2,

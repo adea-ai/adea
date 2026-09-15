@@ -9,7 +9,9 @@ describe('Dev View dependency and bundle boundaries', () => {
   test('loads the Dev package only through the workspace navigation dynamic boundary', () => {
     const navigation = read('apps/web/src/components/workspace-navigation.tsx')
     expect(navigation).toContain("import('@adea-ai/dev-view')")
-    expect(navigation).toContain("import('@adea-ai/ui/dev-view.css')")
+    expect(read('packages/dev-view/src/dev-workspace-entry.tsx')).toContain(
+      "import '@adea-ai/ui/dev-view.css'"
+    )
     expect(navigation).not.toMatch(/^import .*@adea-ai\/dev-view/m)
 
     for (const entry of [

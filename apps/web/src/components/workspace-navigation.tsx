@@ -26,7 +26,6 @@ const DevWorkspace = lazyComponent(
   () =>
     import('@adea-ai/dev-view').then(
       ({ DevWorkspaceEntry, createUnavailableDevRuntimeService }) => {
-        void import('@adea-ai/ui/dev-view.css')
         return (entryProps: { runtime?: WorkspacePlatformServices['devRuntime'] }) => (
           <DevWorkspaceEntry
             runtime={
