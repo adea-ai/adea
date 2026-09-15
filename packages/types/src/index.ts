@@ -1,5 +1,3 @@
-export * from './dev-runtime'
-
 export type WorkspaceSceneId = 'home' | 'work'
 
 export type WorkspaceViewMode = 'perspective' | 'orthographic'
