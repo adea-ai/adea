@@ -321,7 +321,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             }
             onFocus={(leafId) => updateLayout((state) => focusPane(state, leafId))}
             onResize={(splitId, ratio) =>
-              updateLayout((state) => resizeSplit(state, splitId, ratio))
+              updateLayout((state) => resizeSplit(state, splitId, Math.round(ratio * 20) / 20))
             }
           />
         </section>
