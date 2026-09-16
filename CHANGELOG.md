@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.5](https://github.com/adea-ai/adea/compare/v0.26.4...v0.26.5) (2026-09-16)
+
+
+### Performance
+
+* **web:** transcript placeholder data + client bundle budget ([#459](https://github.com/adea-ai/adea/issues/459)) ([53d6167](https://github.com/adea-ai/adea/commit/53d61673086b67a667b400e34f409c4cec23e408))
+
 ## [0.26.4](https://github.com/adea-ai/adea/compare/v0.26.3...v0.26.4) (2026-09-16)
 
 
