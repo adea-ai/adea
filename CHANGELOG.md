@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.3](https://github.com/adea-ai/adea/compare/v0.26.2...v0.26.3) (2026-09-16)
+
+
+### Maintenance
+
+* **web:** solid-first rendering and loading audit ([#455](https://github.com/adea-ai/adea/issues/455)) ([6f629ea](https://github.com/adea-ai/adea/commit/6f629ea24eb58aeb564b60500f927e783138b24f))
+
 ## [0.26.2](https://github.com/adea-ai/adea/compare/v0.26.1...v0.26.2) (2026-09-16)
 
 
