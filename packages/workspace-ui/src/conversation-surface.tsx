@@ -127,6 +127,16 @@ export function ConversationSurface(props: {
     {
       ...(cursor() !== undefined ? { afterSequence: cursor() } : {}),
       limit: 100,
+    },
+    {
+      // Revisiting a channel renders its last-known transcript as the
+      // placeholder page while the refetch merges fresher messages in — the
+      // query itself carries the stale-while-revalidate contract.
+      placeholderData: () => {
+        const channel = props.channel
+        const cached = channel ? transcriptCache.get(channel.id) : undefined
+        return cached ? { messages: cached } : undefined
+      },
     }
   )
   const createMessage = useCreateMessageMutation(

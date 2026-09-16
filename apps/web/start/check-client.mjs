@@ -36,6 +36,16 @@ for (const path of await filesUnder(clientDirectory)) {
   count++
 }
 if (!count) throw new Error('No built client JavaScript found; run start:build first')
+// Budgets with ~15% headroom over the post-audit bundle (~1.07MB / 45 files).
+// A barrel import or a heavyweight dependency trips this before it ships.
+const CLIENT_JS_BUDGET_BYTES = 1_250_000
+const CLIENT_JS_FILE_BUDGET = 55
+if (javascriptBytes > CLIENT_JS_BUDGET_BYTES)
+  throw new Error(
+    `Client JavaScript budget exceeded: ${javascriptBytes} > ${CLIENT_JS_BUDGET_BYTES} bytes`
+  )
+if (count > CLIENT_JS_FILE_BUDGET)
+  throw new Error(`Client chunk-count budget exceeded: ${count} > ${CLIENT_JS_FILE_BUDGET} files`)
 // Static workspace documents would allow an unexpected route to evade the
 // per-request access check. This preview deliberately has no prerendered HTML.
 const html = (await filesUnder(clientDirectory)).filter((path) => path.endsWith('.html'))
