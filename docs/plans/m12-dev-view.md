@@ -97,7 +97,10 @@ Owned by other milestones, consumed here:
 - the remote runtime-node host loads the same
   `apps/desktop/shell/src/dev-runtime/**` adapter sources and exposes the same
   registry over an authorized `RuntimeConnection` — M12 does not define a
-  second remote wire contract.
+  second remote wire contract;
+- M10 must still define the authorized-root (`RootBookmark`) mint/revoke flow
+  and vault `CredentialRef` enrollment that the Dev Runtime DTOs consume — M12
+  reads them but cannot mint either.
 
 Committed scope that must not be reclassified as non-goals without an owner
 decision: per-project mute/snooze (#424), independent per-session badges for

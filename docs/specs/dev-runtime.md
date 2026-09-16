@@ -1126,6 +1126,11 @@ Orthogonal health: `healthy | degraded | replay_required | faulted`.
 Detaching a window/client does not terminate the PTY. A user terminate command
 acts on the recorded process group/session after identity revalidation.
 
+A session may own several terminals through splits.
+`RuntimeSession.terminalId` names only the session's primary terminal;
+`dev.terminal.list` enumerates every terminal a session or worktree owns,
+including split leaves and terminals re-created after a restart.
+
 ### Runtime session and harness run
 
 ```text
@@ -1439,6 +1444,11 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                          |
 | `dev.appearance`    | client preference only; privileged host command only for capability snapshot                                                                                                                                                                     |
 | `dev.appLibrary`    | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                    |
+
+`dev.appearance` and `dev.appLibrary` intentionally have no operation in this
+contract: `dev.capability.snapshot` is their only consumer — it reports each as
+granted or typed-unavailable for the scope, and the client falls back to local
+preference storage or the existing verified App Library surfaces accordingly.
 
 Capability/resource binding is deny-by-default:
 
@@ -2303,6 +2313,10 @@ can distinguish intentional spec evolution from drift:
   AGPL clean-room boundary) from #396. Total operations: 133. Issue bodies for
   #394/#397/#400/#424 were corrected to the pinned Muxy revision
   `5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6`; #394 remains closed.
+  `RuntimeSession.terminalId` is documented as the primary terminal only —
+  `dev.terminal.list` enumerates a session's split-leaf terminals — and
+  `dev.appearance`/`dev.appLibrary` are clarified as capability-snapshot-only
+  grants with `dev.capability.snapshot` as their sole consumer.
 
 ## What pins this
 
