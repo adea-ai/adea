@@ -575,6 +575,7 @@ export function ConventionalWorkspaceShell(props: {
                   artifacts={controller.artifacts}
                   channels={controller.channels}
                   client={controller.client}
+                  onChannelIntent={prefetchChannelMessages}
                   onClose={() => setDialog(null)}
                   online={online()}
                   onSelect={selectSearchResult}

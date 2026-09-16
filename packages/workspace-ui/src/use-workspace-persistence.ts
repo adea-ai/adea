@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, onMount, type Accessor } from 'solid-js'
+import { createEffect, createRoot, createSignal, onCleanup, onMount, type Accessor } from 'solid-js'
 import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
 
 import { createWorkspaceStatePersister } from './workspace-state-persister'
@@ -32,11 +32,24 @@ function persistedState(state: WorkspaceState): PersistedState {
 }
 
 /**
- * Restores the persisted workspace state once, then keeps it written back.
+ * Restores the persisted workspace state once per app lifetime, then keeps it
+ * written back. This is a module singleton: both the chat controller and the
+ * virtual room controls mount it, and each mount used to re-restore from
+ * storage (racing any state written since) and register a second store
+ * subscription plus pagehide listener. One shared root means one restore,
+ * one writer, and persistence that survives view switches.
+ *
  * Returns an accessor: callers must read it inside a reactive scope so the
  * workspace waits for the restore (and writes) to arm before rendering.
  */
 export function useWorkspacePersistence(): Accessor<boolean> {
+  persistenceReady ??= createRoot(createPersistence)
+  return persistenceReady
+}
+
+let persistenceReady: Accessor<boolean> | undefined
+
+function createPersistence(): Accessor<boolean> {
   const [ready, setReady] = createSignal(false)
 
   // One-time restore: it tracks nothing, so onMount says what the effect was
@@ -66,6 +79,10 @@ export function useWorkspacePersistence(): Accessor<boolean> {
     const writeNow = (state: WorkspaceState) => persister.save(persistedState(state))
     writeNow(workspaceStore.getState())
     const unsubscribe = workspaceStore.subscribe(writeNow)
+    if (typeof window === 'undefined') {
+      onCleanup(unsubscribe)
+      return
+    }
     // The debounced write must not lose the latest state when the app goes
     // away before the timer fires.
     const flushWhenHidden = () => {

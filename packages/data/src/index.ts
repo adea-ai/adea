@@ -1018,6 +1018,29 @@ export function usePrefetchChannelMessages(
     void queryClient.prefetchQuery(messageQueryOptions.list(client, id, channelId, { limit: 100 }))
   }
 }
+/**
+ * Warms a thread's reply page on intent (hover/focus of the thread
+ * affordance), so the panel's first paint hits the cache. Options must match
+ * the panel's list query exactly — prefetch keys are structural.
+ */
+export function usePrefetchThreadMessages(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>,
+  channelId?: MaybeAccessor<string | undefined>
+) {
+  const queryClient = useQueryClient()
+  return (rootMessageId: string) => {
+    const workspace = resolveAccessor(workspaceId)
+    const channel = resolveAccessor(channelId)
+    if (!workspace || !channel) return
+    void queryClient.prefetchQuery(
+      messageQueryOptions.list(client, workspace, channel, {
+        limit: 100,
+        threadRootMessageId: rootMessageId,
+      })
+    )
+  }
+}
 export function useMessageQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,

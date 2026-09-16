@@ -52,6 +52,8 @@ export function WorkspaceSearchDialog(props: {
   artifacts: readonly ArtifactSummary[]
   channels: readonly ChannelSummary[]
   client: AgentHqApiClient
+  /** Fires on hover/focus of a result — prefetch its destination. */
+  onChannelIntent?: (channelId: string) => void
   onClose: () => void
   online: boolean
   onSelect: (result: SearchResult) => void
@@ -302,7 +304,10 @@ export function WorkspaceSearchDialog(props: {
                   type="button"
                   role="option"
                   aria-selected={index() === selectedIndex()}
-                  onMouseEnter={() => setSelectedIndex(index())}
+                  onMouseEnter={() => {
+                    setSelectedIndex(index())
+                    if (result().kind === 'channel') props.onChannelIntent?.(result().id)
+                  }}
                   onClick={() => select(result())}
                 >
                   {searchResultIcon(result().kind)}
