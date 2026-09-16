@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.2](https://github.com/adea-ai/adea/compare/v0.26.1...v0.26.2) (2026-09-16)
+
+
+### Bug Fixes
+
+* **auth:** mute the Neon auth logger without pino ([#453](https://github.com/adea-ai/adea/issues/453)) ([9494f20](https://github.com/adea-ai/adea/commit/9494f20351dc4553c8a44eca09c0bf29ccdaa2a6))
+
 ## [0.26.1](https://github.com/adea-ai/adea/compare/v0.26.0...v0.26.1) (2026-09-15)
 
 
