@@ -3,6 +3,7 @@ import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 import { capabilitySnapshotAge, presentCapability } from './capability-status'
+import { keyedRows } from './keyed-rows'
 import type { CapabilitySnapshot, CapabilityStatus } from './platform'
 
 const toneBadge = {
@@ -42,9 +43,13 @@ export function CapabilityList(props: {
   onRefresh?: () => void
   snapshot: CapabilitySnapshot
 }) {
+  const capabilityRows = keyedRows(
+    () => props.snapshot.capabilities,
+    (status) => status.id
+  )
   return (
     <div role="group" aria-label="Local capabilities" data-local-capabilities="true">
-      <For each={props.snapshot.capabilities}>{(status) => <CapabilityCard status={status} />}</For>
+      <For each={capabilityRows()}>{(entry) => <CapabilityCard status={entry.item()} />}</For>
       <div class="conventional-settings-note">
         <p>
           {capabilitySnapshotAge(props.snapshot)}

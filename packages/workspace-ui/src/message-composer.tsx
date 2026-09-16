@@ -4,6 +4,7 @@ import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
+import { keyedRows } from './keyed-rows'
 import { mergeTranscription } from './transcription'
 import { createClientRequestId } from './request-id'
 import { composerKeyboardAction, parseAgentMentions } from './workspace-model'
@@ -36,6 +37,10 @@ export function MessageComposer(props: {
   )
   let transcriptionSession: TranscriptionSession | null = null
   const [textarea, setTextarea] = createSignal<HTMLTextAreaElement>()
+  const artifactRows = keyedRows(
+    () => props.artifacts,
+    (artifact) => artifact.id
+  )
 
   onCleanup(() => transcriptionSession?.cancel())
 
@@ -202,23 +207,23 @@ export function MessageComposer(props: {
           <Show when={attachmentsOpen()}>
             <div class="conventional-attachment-menu">
               <strong>Attach Artifact</strong>
-              <For each={props.artifacts}>
-                {(artifact) => (
+              <For each={artifactRows()}>
+                {(entry) => (
                   <label>
                     <input
                       type="checkbox"
-                      checked={attachmentIds().includes(artifact.id)}
-                      disabled={artifact.availability !== 'available'}
+                      checked={attachmentIds().includes(entry.item().id)}
+                      disabled={entry.item().availability !== 'available'}
                       onChange={(event) =>
                         setAttachmentIds((ids) =>
                           event.currentTarget.checked
-                            ? [...ids, artifact.id]
-                            : ids.filter((id) => id !== artifact.id)
+                            ? [...ids, entry.item().id]
+                            : ids.filter((id) => id !== entry.item().id)
                         )
                       }
                     />
-                    <span>{artifact.filename}</span>
-                    <small>{artifact.availability}</small>
+                    <span>{entry.item().filename}</span>
+                    <small>{entry.item().availability}</small>
                   </label>
                 )}
               </For>

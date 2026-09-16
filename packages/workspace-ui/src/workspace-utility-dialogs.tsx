@@ -20,6 +20,7 @@ import {
   Settings,
 } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { keyedRows } from './keyed-rows'
 
 import { ModalDialog } from './modal-dialog'
 import { fuzzySearchMatch, searchKeyboardSelection } from './workspace-model'
@@ -232,6 +233,9 @@ export function WorkspaceSearchDialog(props: {
       )
     return quickResults()
   })
+  // Result sets churn per keystroke; keying rows keeps DOM (and selection
+  // scroll position) stable for results that survive the merge.
+  const resultRows = keyedRows(results, (result) => `${result.kind}:${result.id}`)
 
   createEffect(() => {
     void debouncedQuery()
@@ -287,26 +291,29 @@ export function WorkspaceSearchDialog(props: {
         aria-label="Search results"
         aria-live="polite"
       >
-        <For each={results()}>
-          {(result, index) => (
-            <li role="presentation">
-              <button
-                id={`search-result-${index()}`}
-                ref={index() === selectedIndex() ? setSelected : undefined}
-                type="button"
-                role="option"
-                aria-selected={index() === selectedIndex()}
-                onMouseEnter={() => setSelectedIndex(index())}
-                onClick={() => select(result)}
-              >
-                {searchResultIcon(result.kind)}
-                <span>
-                  <strong>{result.label}</strong>
-                  <small>{result.secondary}</small>
-                </span>
-              </button>
-            </li>
-          )}
+        <For each={resultRows()}>
+          {(entry, index) => {
+            const result = entry.item
+            return (
+              <li role="presentation">
+                <button
+                  id={`search-result-${index()}`}
+                  ref={index() === selectedIndex() ? setSelected : undefined}
+                  type="button"
+                  role="option"
+                  aria-selected={index() === selectedIndex()}
+                  onMouseEnter={() => setSelectedIndex(index())}
+                  onClick={() => select(result())}
+                >
+                  {searchResultIcon(result().kind)}
+                  <span>
+                    <strong>{result().label}</strong>
+                    <small>{result().secondary}</small>
+                  </span>
+                </button>
+              </li>
+            )
+          }}
         </For>
       </ul>
       <Show when={(remote.isFetching || localSearching()) && debouncedQuery().length >= 2}>

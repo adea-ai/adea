@@ -20,6 +20,7 @@ import {
 import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
+import { keyedRows } from './keyed-rows'
 import type { WorkspaceView } from './workspace-view-toggle'
 
 type RailActionProps = {
@@ -85,6 +86,10 @@ export function GlobalWorkspaceRail(props: {
   workspaces: readonly WorkspaceSummary[]
 }) {
   const activeWorkspaceLabel = () => props.activeWorkspace?.name ?? 'Loading'
+  const workspaceRows = keyedRows(
+    () => props.workspaces,
+    (workspace) => workspace.id
+  )
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = createSignal(false)
   const workspaceMenuId = createUniqueId()
   const [workspaceMenu, setWorkspaceMenu] = createSignal<HTMLDivElement>()
@@ -153,19 +158,19 @@ export function GlobalWorkspaceRail(props: {
           </Tooltip>
           <Show when={workspaceMenuOpen()}>
             <div class="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
-              <For each={props.workspaces}>
-                {(workspace) => (
+              <For each={workspaceRows()}>
+                {(entry) => (
                   <button
                     type="button"
                     role="menuitemradio"
-                    aria-checked={workspace.id === props.activeWorkspace?.id}
+                    aria-checked={entry.item().id === props.activeWorkspace?.id}
                     onClick={() => {
-                      props.onWorkspaceChange(workspace)
+                      props.onWorkspaceChange(entry.item())
                       setWorkspaceMenuOpen(false)
                     }}
                   >
-                    <WorkspaceMark workspace={workspace} />
-                    <span class="global-rail__workspace-name">{workspace.name}</span>
+                    <WorkspaceMark workspace={entry.item()} />
+                    <span class="global-rail__workspace-name">{entry.item().name}</span>
                   </button>
                 )}
               </For>

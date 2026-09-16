@@ -7,6 +7,7 @@ import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from '
 import { createEffect, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
+import { keyedRows } from './keyed-rows'
 import { ModalDialog } from './modal-dialog'
 import {
   defaultWorkspacePreferences,
@@ -71,6 +72,10 @@ export function WorkspaceSettingsDialog(props: {
   const [capabilities, setCapabilities] = createSignal<CapabilitySnapshot | undefined>()
   const [capabilitiesBusy, setCapabilitiesBusy] = createSignal(false)
   const navigationRefs = new Map<SettingsSection, HTMLButtonElement>()
+  const topAgentRows = keyedRows(
+    () => props.agents.slice(0, 5),
+    (agent) => agent.id
+  )
 
   const refreshCapabilities = async (force: boolean) => {
     if (!props.services?.capabilities) return
@@ -296,11 +301,11 @@ export function WorkspaceSettingsDialog(props: {
                   <p>Durable identity and explicit profile references.</p>
                 </div>
               </header>
-              <For each={props.agents.slice(0, 5)}>
-                {(agent) => (
+              <For each={topAgentRows()}>
+                {(entry) => (
                   <SettingsRow
-                    title={agent.name}
-                    detail={`${agent.profile.id} · v${agent.profile.version} · ${agent.lifecycleState.replace('_', ' ')}`}
+                    title={entry.item().name}
+                    detail={`${entry.item().profile.id} · v${entry.item().profile.version} · ${entry.item().lifecycleState.replace('_', ' ')}`}
                   />
                 )}
               </For>
@@ -444,11 +449,11 @@ export function WorkspaceSettingsDialog(props: {
                   />
                 }
               >
-                <For each={props.agents.slice(0, 5)}>
-                  {(agent) => (
+                <For each={topAgentRows()}>
+                  {(entry) => (
                     <SettingsRow
-                      title={`${agent.profile.id} v${agent.profile.version}`}
-                      detail={`AgentProfile reference for ${agent.name}; execution availability is not implied.`}
+                      title={`${entry.item().profile.id} v${entry.item().profile.version}`}
+                      detail={`AgentProfile reference for ${entry.item().name}; execution availability is not implied.`}
                     />
                   )}
                 </For>

@@ -3,7 +3,7 @@
 // shell session bootstrap (guest credential, PKCE sign-in) and the start
 // surface; the workspace itself renders through the shared
 // `WorkspaceNavigation`.
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
@@ -183,15 +183,19 @@ export function DesktopWorkspaceEntry(props: {
     void localContentAuthority.authorizeWorkspace(workspace.id).catch(() => undefined)
   })
 
-  const client = () => {
-    if (!workspaceState()) return clientRef
+  // Stable identity: every reactive reader must get the same client for a
+  // given session/workspace — creating one per call means each accessor read
+  // allocates a fresh client and breaks reference equality for consumers.
+  const client = createMemo(() => {
+    const state = workspaceState()
+    if (!state) return clientRef
     const nextClient = runtime.createClient(
       session(),
-      workspaceState()?.temporaryCredential ?? undefined
+      state.temporaryCredential ?? undefined
     )
     clientRef = nextClient
     return nextClient
-  }
+  })
 
   async function beginSignIn() {
     setStatus('opening')
