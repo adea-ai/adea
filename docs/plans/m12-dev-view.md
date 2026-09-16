@@ -79,12 +79,11 @@ from disconnects and partial failure.
 
 ## Non-goals and ownership boundaries
 
-Explicitly outside M12 scope:
+Explicitly outside M12 scope (owner-confirmed 2026-09-16):
 
-- computer use / OS-level desktop automation;
-- macOS permissions onboarding (accessibility/screen-recording walkthroughs);
 - GitHub Projects/Kanban/automation surfaces — they belong in App Library, not
-  the core sidebar (#423);
+  the core sidebar (#423); the owner classifies these as later App Library
+  add-ons, not MVP;
 - terminal cloud share links — deferred until a redaction/expiry policy exists
   (#396, Dev Runtime spec);
 - a real-browser extension lane (#422, Dev Runtime spec).
@@ -104,8 +103,14 @@ Owned by other milestones, consumed here:
 
 Committed scope that must not be reclassified as non-goals without an owner
 decision: per-project mute/snooze (#424), independent per-session badges for
-harness/dirty/PR-check/server-port state (#395), and tab hover/detail cards
-(#423).
+harness/dirty/PR-check/server-port state (#395), tab hover/detail cards
+(#423), macOS permissions onboarding (#471), and computer use (#472).
+
+Owner reclassification 2026-09-16: the planning pass had recorded computer use
+and macOS permissions onboarding as non-goals; the owner returned both to M12
+scope as #471 (needed — the Orca permissions page is the Apple Note's model)
+and #472 (critical). Automations and GitHub Projects/Kanban stay outside M12
+as later App Library add-ons.
 
 ## Dependency order
 
@@ -120,7 +125,9 @@ M10/M11 required substrate
       │   ├─ #399 files/local source control (also #397)
       │   │   └─ #423 GitHub (also #398)
       │   ├─ #422 Browser & Devices
-      │   └─ #425 Appearance/App Library
+      │   ├─ #425 Appearance/App Library
+      │   ├─ #471 permissions onboarding (also M10 #33)
+      │   └─ #472 computer use (also #400/#422/#471, M10 #33)
       └─ #397 worktree service
 all above ── #426 integration/release gate
 ```
@@ -490,7 +497,7 @@ Acceptance:
 ## Task 12 — Integration and release gate
 
 Issue: [#426](https://github.com/adea-ai/adea/issues/426)
-Depends on: all prior M12 issues, M10 #33/#30–#34/#185, and M11 #36–#41/#43.
+Depends on: every other M12 issue, M10 #33/#30–#34/#185, and M11 #36–#41/#43.
 
 Deliverables:
 
@@ -523,6 +530,49 @@ Acceptance:
       issue and states why M12 can safely ship without it.
 - [ ] All required docs and routed specs are current and all predecessor issues
       are closed with current test evidence.
+
+## Task 13 — macOS permissions onboarding
+
+Issue: [#471](https://github.com/adea-ai/adea/issues/471)
+Depends on: #394, #395; consumes M10 #33 capability reporting.
+
+Deliverables:
+
+- live TCC status page with per-permission purpose, exact System Settings deep
+  links, and restart-free re-check;
+- capability extension in the registry/spec when missing;
+- dependent-feature degradation wired into the Dev View consumers.
+
+Acceptance:
+
+- [ ] Statuses reflect real TCC state on a packaged macOS build, including the
+      owner's denied Accessibility/Screen Recording state.
+- [ ] Deep links land on the correct pane; re-check updates without restart.
+- [ ] Denied permissions visibly disable dependent features; nothing is
+      auto-granted or nagged; the web lane renders unavailable truthfully.
+
+## Task 14 — Computer use lanes
+
+Issue: [#472](https://github.com/adea-ai/adea/issues/472)
+Depends on: #394, #395, #400, #422, #471, and M10 #33. The planning slice
+(spec operations, stream protocol, threat model, manifest) lands in one
+commit before implementation.
+
+Deliverables:
+
+- session/generation-scoped computer-use grants executed through an
+  authorized native helper (Orca-derived, public macOS APIs only);
+- live-view pane with approval gates and instant human takeover;
+- audit, redaction classification, and packaged macOS smoke coverage.
+
+Acceptance:
+
+- [ ] Grants die with the HarnessRun; takeover suspends agent input instantly
+      and Escape releases; stale-generation input is inert.
+- [ ] Threat-model additions (privileged-surface typing, secret capture,
+      grant escalation) land with the planning slice and carry evidence.
+- [ ] Packaged macOS smoke covers capture, input, takeover, revocation, and
+      TCC-denied behavior; fixture-only work cannot close.
 
 ## Evidence artifacts and waivers
 
