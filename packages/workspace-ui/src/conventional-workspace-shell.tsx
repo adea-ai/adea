@@ -1,6 +1,7 @@
+import { createApiClient } from '@adea-ai/api-client'
 import { AlertTriangle, X } from 'lucide-solid'
-import { createEffect, createSignal, lazy, Show, Suspense } from 'solid-js'
-import { settledData } from '@adea-ai/data'
+import { createEffect, createSignal, lazy, on, Show, Suspense } from 'solid-js'
+import { settledData, usePrefetchChannelMessages } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { AgentRoster } from './agent-roster'
@@ -41,14 +42,30 @@ type DialogId =
   | 'settings'
   | null
 
+export type WorkspaceDeepLink = Readonly<{
+  channel?: string
+  message?: string
+  task?: string
+  thread?: string
+  workspace?: string
+}>
+
 export function ConventionalWorkspaceShell(props: {
+  /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
+  deepLink?: () => WorkspaceDeepLink
   manageSettings?: boolean
+  /** Called after a deep link applies — the host removes its params. */
+  onConsumeDeepLink?: () => void
   onViewChange?: (view: WorkspaceView) => void
   services?: WorkspacePlatformServices
   view?: WorkspaceView
 }) {
   const services = () => props.services
   const controller = useWorkspaceController(services()?.client)
+  const prefetchChannelMessages = usePrefetchChannelMessages(
+    services()?.client ?? createApiClient(),
+    () => controller.workspaceId
+  )
   const [dialog, setDialog] = createSignal<DialogId>(null)
   const [accountBusy, setAccountBusy] = createSignal(false)
   const [online, setOnline] = createSignal(true)
@@ -73,10 +90,7 @@ export function ConventionalWorkspaceShell(props: {
     services()?.account?.label ??
     (accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Sign in')
 
-  createEffect(() => {
-    void sessionIdentity()
-    setSessionNoticeDismissed(false)
-  })
+  createEffect(on(sessionIdentity, () => setSessionNoticeDismissed(false), { defer: true }))
 
   const selectChannel = (channelId: string, roomId?: string) => {
     setSelectedArtifactId(null)
@@ -194,18 +208,41 @@ export function ConventionalWorkspaceShell(props: {
       : 'Adea'
   })
 
+  // Deep links are read through the host's accessor when one is provided —
+  // reactive to router search, so links apply on SPA navigation, not just at
+  // mount. The URL fallback covers hosts without a router.
+  const deepLinkQuery = (): WorkspaceDeepLink => {
+    if (props.deepLink) return props.deepLink()
+    const query = new URLSearchParams(window.location.search)
+    return {
+      channel: query.get('channel') ?? undefined,
+      message: query.get('message') ?? undefined,
+      task: query.get('task') ?? undefined,
+      thread: query.get('thread') ?? undefined,
+      workspace: query.get('workspace') ?? undefined,
+    }
+  }
+  const consumeDeepLink = () => {
+    if (props.onConsumeDeepLink) {
+      props.onConsumeDeepLink()
+      return
+    }
+    const url = new URL(window.location.href)
+    for (const key of ['channel', 'thread', 'message', 'task', 'workspace'])
+      url.searchParams.delete(key)
+    window.history.replaceState(null, '', url)
+  }
   createEffect(() => {
     if (!controller.workspaceId || !controller.channels.length) return
-    const query = new URLSearchParams(window.location.search)
-    const requestedWorkspace = query.get('workspace')
-    if (requestedWorkspace && requestedWorkspace !== controller.workspaceId) return
-    const channelId = query.get('channel')
-    const taskId = query.get('task')
+    const query = deepLinkQuery()
+    if (query.workspace && query.workspace !== controller.workspaceId) return
+    const channelId = query.channel
+    const taskId = query.task
     if (channelId && controller.channels.some(({ id }) => id === channelId)) {
       const channel = controller.channels.find(({ id }) => id === channelId)!
       selectChannel(channel.id, channel.roomId)
-      workspaceStore.getState().setThreadRootMessageId(query.get('thread'))
-      setSearchTargetMessageId(query.get('message'))
+      workspaceStore.getState().setThreadRootMessageId(query.thread ?? null)
+      setSearchTargetMessageId(query.message ?? null)
     } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
       workspaceStore.getState().setSelectedTaskId(taskId)
       workspaceStore.getState().setActiveSurface('tasks')
@@ -213,10 +250,7 @@ export function ConventionalWorkspaceShell(props: {
     // Consume the deep link: it applies once. Leaving the params in the URL
     // would re-select the stale destination every time the channel list
     // changes and re-runs this effect.
-    const url = new URL(window.location.href)
-    for (const key of ['channel', 'thread', 'message', 'task', 'workspace'])
-      url.searchParams.delete(key)
-    window.history.replaceState(null, '', url)
+    consumeDeepLink()
   })
 
   const selectSearchResult = (result: SearchResult) => {
@@ -308,6 +342,7 @@ export function ConventionalWorkspaceShell(props: {
                 workspaceStore.getState().setActiveSurface('tasks')
               }}
               onMarkAllRead={() => void controller.readStateActions.markAllRead()}
+              onChannelIntent={prefetchChannelMessages}
               onSelectChannel={selectChannel}
               onToggleMobile={(open) => workspaceStore.getState().setMobileSidebarOpen(open)}
               onToggleRoom={(roomId) => workspaceStore.getState().toggleRoomCollapsed(roomId)}

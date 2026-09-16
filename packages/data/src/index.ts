@@ -1002,6 +1002,22 @@ export function useMessageListQuery(
     ...(queryConfig.placeholderData ? { placeholderData: queryConfig.placeholderData } : {}),
   }))
 }
+/**
+ * Warms the message-page cache for a channel on intent (hover/focus), so the
+ * transcript's first paint hits the cache instead of the network. The options
+ * must match the surface's list query exactly — prefetch keys are structural.
+ */
+export function usePrefetchChannelMessages(
+  client: AgentHqApiClient,
+  workspaceId?: MaybeAccessor<string | undefined>
+) {
+  const queryClient = useQueryClient()
+  return (channelId: string) => {
+    const id = resolveAccessor(workspaceId)
+    if (!id) return
+    void queryClient.prefetchQuery(messageQueryOptions.list(client, id, channelId, { limit: 100 }))
+  }
+}
 export function useMessageQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,
