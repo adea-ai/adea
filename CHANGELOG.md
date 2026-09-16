@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.6](https://github.com/adea-ai/adea/compare/v0.26.5...v0.26.6) (2026-09-16)
+
+
+### Performance
+
+* **web:** trim zod locales, dead CSS, and deep-link param consumption ([#461](https://github.com/adea-ai/adea/issues/461)) ([dd21dee](https://github.com/adea-ai/adea/commit/dd21dee17c60178b5d800513adc8abbdc6014218))
+
 ## [0.26.5](https://github.com/adea-ai/adea/compare/v0.26.4...v0.26.5) (2026-09-16)
 
 
