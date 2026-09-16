@@ -31,6 +31,8 @@ export function PluginLogo(props: { iconKey?: string; iconUrl?: string; name: st
         <img
           alt=""
           src={source()}
+          loading="lazy"
+          decoding="async"
           onError={() => {
             clearFallbackTimer()
             setFailed(true)

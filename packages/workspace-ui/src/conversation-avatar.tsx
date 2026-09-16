@@ -23,7 +23,13 @@ export function ConversationAvatar(props: {
         )
       }
     >
-      <img src={props.avatarRef} alt="" onError={() => setImageFailed(true)} />
+      <img
+        src={props.avatarRef}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setImageFailed(true)}
+      />
     </Show>
   )
 }

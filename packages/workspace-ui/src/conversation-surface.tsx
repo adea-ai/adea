@@ -20,19 +20,27 @@ import type { PrivateContentResolver, TranscriptionProvider } from './platform'
 import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
 
-const scrollPositions = new Map<string, number>()
 /**
  * Merged transcripts per channel, kept across selection changes so revisiting
  * a conversation renders its last-known history immediately while the refetch
- * merges fresher pages in. Bounded: the least recently touched channel drops
- * out once the map outgrows the working set a user realistically flips between.
+ * merges fresher pages in. Scroll position rides along in the same entry so
+ * revisit restores where the user left off. Bounded: the least recently
+ * touched channel drops out once the map outgrows the working set a user
+ * realistically flips between.
  */
-const transcriptCache = new Map<string, readonly MessageSummary[]>()
+const transcriptCache = new Map<
+  string,
+  { messages: readonly MessageSummary[]; scrollTop: number }
+>()
 const TRANSCRIPT_CACHE_LIMIT = 12
 
-function rememberTranscript(channelId: string, messages: readonly MessageSummary[]) {
+function rememberTranscript(
+  channelId: string,
+  messages: readonly MessageSummary[],
+  scrollTop: number
+) {
   transcriptCache.delete(channelId)
-  transcriptCache.set(channelId, messages)
+  transcriptCache.set(channelId, { messages, scrollTop })
   while (transcriptCache.size > TRANSCRIPT_CACHE_LIMIT) {
     transcriptCache.delete(transcriptCache.keys().next().value!)
   }
@@ -135,7 +143,7 @@ export function ConversationSurface(props: {
       placeholderData: () => {
         const channel = props.channel
         const cached = channel ? transcriptCache.get(channel.id) : undefined
-        return cached ? { messages: cached } : undefined
+        return cached ? { messages: cached.messages } : undefined
       },
     }
   )
@@ -153,20 +161,25 @@ export function ConversationSurface(props: {
   // One effect makes the order explicit: reset first when the channel changes,
   // then accept whatever the query currently holds.
   let loadedChannelId: string | undefined
+  // Live scroll position of the loaded channel — captured into the cache
+  // entry on switch instead of written to a map on every scroll event.
+  let liveScrollTop = 0
   createEffect(() => {
     const channel = props.channel
     if (channel?.id !== loadedChannelId) {
-      if (loadedChannelId) rememberTranscript(loadedChannelId, messages())
+      if (loadedChannelId) rememberTranscript(loadedChannelId, messages(), liveScrollTop)
       loadedChannelId = channel?.id
       setCursor(undefined)
       // Restore the last-known transcript for the incoming channel. The merge
       // below reconciles it with the fresh page when the refetch lands, so the
       // stale copy is a render bridge, not a second source of truth.
-      setMessages(channel ? (transcriptCache.get(channel.id) ?? []) : [])
+      const cached = channel ? transcriptCache.get(channel.id) : undefined
+      setMessages(cached?.messages ?? [])
+      liveScrollTop = cached?.scrollTop ?? 0
       setOptimisticMessage(null)
       setPageBelongsToChannel(false)
       requestAnimationFrame(() => {
-        if (transcript() && channel) transcript()!.scrollTop = scrollPositions.get(channel.id) ?? 0
+        if (transcript() && channel) transcript()!.scrollTop = cached?.scrollTop ?? 0
       })
     }
     const data = settledData(messageQuery)
@@ -388,7 +401,9 @@ export function ConversationSurface(props: {
             ref={setTranscript}
             class="conventional-transcript"
             aria-label={`${channel().title} message history`}
-            onScroll={(event) => scrollPositions.set(channel().id, event.currentTarget.scrollTop)}
+            onScroll={(event) => {
+              liveScrollTop = event.currentTarget.scrollTop
+            }}
           >
             <Show when={(messageQuery.isPending || !pageBelongsToChannel()) && !messages().length}>
               <WorkspaceSkeleton label="Loading messages" />
