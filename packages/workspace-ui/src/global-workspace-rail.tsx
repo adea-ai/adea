@@ -1,5 +1,3 @@
-'use client'
-
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
@@ -30,6 +28,8 @@ type RailActionProps = {
   icon: typeof Home
   label: string
   onClick?: () => void
+  /** Fires on hover or keyboard focus — a chance to prefetch before the click. */
+  onIntent?: () => void
 }
 
 function RailAction(props: RailActionProps) {
@@ -44,6 +44,8 @@ function RailAction(props: RailActionProps) {
         aria-pressed={props.active || undefined}
         disabled={props.disabled}
         onClick={() => props.onClick?.()}
+        onFocus={() => props.onIntent?.()}
+        onPointerEnter={() => props.onIntent?.()}
       >
         <props.icon aria-hidden="true" />
       </TooltipTrigger>
@@ -75,6 +77,8 @@ export function GlobalWorkspaceRail(props: {
   onOpenSettings: () => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
   onViewChange: (view: WorkspaceView) => void
+  /** Fires when the user hovers or focuses a view button — prefetch the target. */
+  onViewIntent?: (view: WorkspaceView) => void
   view: WorkspaceView
   workspaces: readonly WorkspaceSummary[]
 }) {
@@ -180,18 +184,21 @@ export function GlobalWorkspaceRail(props: {
             icon={Map}
             label="Virtual view"
             onClick={() => props.onViewChange('virtual')}
+            onIntent={() => props.onViewIntent?.('virtual')}
           />
           <RailAction
             active={props.view === 'chat'}
             icon={MessageSquareText}
             label="Chat view"
             onClick={() => props.onViewChange('chat')}
+            onIntent={() => props.onViewIntent?.('chat')}
           />
           <RailAction
             active={props.view === 'dev'}
             icon={Code2}
             label="Dev view"
             onClick={() => props.onViewChange('dev')}
+            onIntent={() => props.onViewIntent?.('dev')}
           />
           <RailAction
             disabled

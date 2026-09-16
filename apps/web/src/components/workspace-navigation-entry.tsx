@@ -1,10 +1,7 @@
-'use client'
-
 // Workspace entry for both lanes. The desktop runtime renders the same
 // navigation component from the shell session bootstrap; the browser renders
 // it from the cookie bootstrap. See
 // docs/decisions/0006-browser-lanes-and-desktop-shell.md.
-import { createEffect, createSignal } from 'solid-js'
 import { createApiClient } from '@adea-ai/api-client'
 import { settledData, useWorkspaceBootstrapQuery } from '@adea-ai/data'
 import { useWorkspaceState } from '@adea-ai/state'
@@ -19,9 +16,9 @@ import packageJson from '../../package.json'
 const appVersion = packageJson.version
 
 const requestedScene = () =>
-  typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('scene')
-    ? new URLSearchParams(window.location.search).get('scene')
-    : undefined
+  typeof window === 'undefined'
+    ? undefined
+    : (new URLSearchParams(window.location.search).get('scene') ?? undefined)
 
 export function WorkspaceNavigationEntry(props: {
   virtual: boolean
@@ -51,9 +48,20 @@ function WebNavigationEntry(props: {
   virtualProps: WorkspaceShellProps
   roomDesigner?: boolean
 }) {
-  const [client] = createSignal(createApiClient())
-  let workspaceId: string | undefined
-  let userId: string | undefined
+  const client = createApiClient()
+  const bootstrap = useWorkspaceBootstrapQuery(client)
+  const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  const bootstrapData = () => settledData(bootstrap)
+  const activeWorkspace = () =>
+    bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
+    bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??
+    bootstrapData()?.activeWorkspace
+  const principal = () => bootstrapData()?.principal
+  const accountAuthenticated = () => Boolean(principal() && !principal()!.temporary)
+  const accountLabel = () =>
+    accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Not signed in'
+  // The plugins provider reads these lazily, so accessors deliver the current
+  // ids directly — no mutable variables synchronized through an effect.
   const services: WorkspacePlatformServices = {
     account: {
       onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
@@ -65,29 +73,13 @@ function WebNavigationEntry(props: {
     },
     app: { name: 'Adea', platform: 'web', version: appVersion },
     plugins: createDeferredPluginsProvider({
-      client: client(),
-      getWorkspaceId: () => workspaceId,
-      getUserId: () => userId,
+      client,
+      getWorkspaceId: () => activeWorkspace()?.id,
+      getUserId: () => principal()?.userId,
       requestedHarness: 'codex',
     }),
     settings: createBrowserSettingsProvider(),
   }
-  const bootstrap = useWorkspaceBootstrapQuery(client())
-  const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
-  const bootstrapData = () => settledData(bootstrap)
-  const activeWorkspace = () =>
-    bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
-    bootstrapData()?.workspaces.find(({ scene }) => scene === requestedScene()) ??
-    bootstrapData()?.activeWorkspace
-  const principal = () => bootstrapData()?.principal
-  const accountAuthenticated = () => Boolean(principal() && !principal()!.temporary)
-  const accountLabel = () =>
-    accountAuthenticated() ? (principal()?.displayName ?? 'Account') : 'Not signed in'
-
-  createEffect(() => {
-    workspaceId = activeWorkspace()?.id
-    userId = principal()?.userId
-  })
 
   return (
     <WorkspaceNavigation
@@ -99,7 +91,7 @@ function WebNavigationEntry(props: {
         onSignOut: () => services.account?.onSignOut(),
       }}
       activeWorkspace={activeWorkspace()}
-      client={client()}
+      client={client}
       platform="web"
       roomDesigner={props.roomDesigner ?? false}
       services={services}

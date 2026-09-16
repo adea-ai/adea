@@ -1,5 +1,3 @@
-'use client'
-
 // The single workspace UI. Both lanes render this exact component: the web
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
@@ -102,6 +100,15 @@ function WorkspaceEntryLoading() {
       <p>Opening workspace…</p>
     </main>
   )
+}
+
+// Fetch a view's chunk on hover/focus so the switch feels instant. The
+// specifiers match the lazy boundaries above, so the module map deduplicates
+// a preload that races the mount itself.
+function preloadView(nextView: WorkspaceView) {
+  if (nextView === 'virtual') void import('./workspace-shell')
+  else if (nextView === 'dev') void import('@adea-ai/dev-view')
+  else void import('./conventional-workspace-entry')
 }
 
 function WorkspaceSettingsOverlay(props: {
@@ -257,7 +264,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     workspaceStore.getState().setGlobalPanel('search')
     if (view() !== 'chat') changeView('chat')
   }
-
   return (
     <div class={`workspace-frame workspace-frame--${view()}`}>
       <GlobalWorkspaceRail
@@ -286,6 +292,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             .catch(() => undefined)
         }}
         onViewChange={changeView}
+        onViewIntent={preloadView}
         view={view()}
         workspaces={props.workspaces}
       />
@@ -357,18 +364,25 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           workspace={props.activeWorkspace!}
         />
       </Show>
-      <PluginsDialog
-        open={globalPanel() === 'plugins' && Boolean(props.activeWorkspace)}
-        onClose={() => workspaceStore.getState().setGlobalPanel(null)}
-        provider={props.services.plugins}
-      />
-      <WorkspaceAboutDialog
-        appName={props.services.app?.name}
-        open={globalPanel() === 'about'}
-        onClose={() => workspaceStore.getState().setGlobalPanel(null)}
-        platform={props.platform}
-        version={props.services.app?.version}
-      />
+      {/* Both dialogs mount only when their panel opens: an always-mounted
+          lazyComponent fetches its chunk at startup, which silently defeats
+          the code split these boundaries exist to create. */}
+      <Show when={globalPanel() === 'plugins' && props.activeWorkspace}>
+        <PluginsDialog
+          open
+          onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+          provider={props.services.plugins}
+        />
+      </Show>
+      <Show when={globalPanel() === 'about'}>
+        <WorkspaceAboutDialog
+          appName={props.services.app?.name}
+          open
+          onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+          platform={props.platform}
+          version={props.services.app?.version}
+        />
+      </Show>
       <Show when={props.updates}>
         {(updates) => <VersionDialog open={updates().open} onOpenChange={updates().onOpenChange} />}
       </Show>

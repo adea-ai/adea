@@ -1,5 +1,3 @@
-'use client'
-
 import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js'
 import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
 

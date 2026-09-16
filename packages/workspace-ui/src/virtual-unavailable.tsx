@@ -1,5 +1,3 @@
-'use client'
-
 import { Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 

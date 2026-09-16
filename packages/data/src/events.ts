@@ -1,5 +1,3 @@
-'use client'
-
 import type { QueryClient } from '@tanstack/solid-query'
 
 import {
@@ -216,7 +214,21 @@ export function createWorkspaceEventSubscription(
     }
   }
 
+  // Refreshes are queued, deduplicated by key, and flushed once per stream
+  // chunk: a burst of events in one read maps to the same few query groups, and
+  // invalidating them per event would turn N messages into N×groups refetches.
+  let pendingRefresh: Map<string, readonly unknown[]> | undefined
+
   function refresh(keys: readonly (readonly unknown[])[]): void {
+    for (const key of keys) {
+      ;(pendingRefresh ??= new Map()).set(JSON.stringify(key), key)
+    }
+  }
+
+  function flushRefresh(): void {
+    if (!pendingRefresh?.size) return
+    const keys = [...pendingRefresh.values()]
+    pendingRefresh = undefined
     for (const key of keys) {
       void queryClient.invalidateQueries({ queryKey: key })
     }
@@ -317,10 +329,14 @@ export function createWorkspaceEventSubscription(
         const chunk = buffer.slice(0, boundary + 2)
         buffer = buffer.slice(boundary + 2)
         for (const frame of parseEventFrames(chunk)) handleFrame(frame)
+        flushRefresh()
       }
     } catch {
       // Falls through to the reconnect schedule below.
     } finally {
+      // Anything queued before the stream dropped still applies: the cursor
+      // for those events was already persisted.
+      flushRefresh()
       if (connectedAt > 0 && now() - connectedAt >= STABLE_CONNECTION_MS) attempt = 0
       diagnostics('disconnected')
     }

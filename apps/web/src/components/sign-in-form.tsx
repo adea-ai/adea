@@ -1,5 +1,3 @@
-'use client'
-
 import { createSignal, Show } from 'solid-js'
 
 type AuthMode = 'sign-in' | 'sign-up'

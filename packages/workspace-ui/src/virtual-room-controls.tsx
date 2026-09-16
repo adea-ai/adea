@@ -1,5 +1,3 @@
-'use client'
-
 import { createEffect, createMemo, createSignal } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import {

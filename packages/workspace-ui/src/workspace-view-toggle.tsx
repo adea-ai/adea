@@ -1,5 +1,3 @@
-'use client'
-
 import { Code2, MessageSquareText, PanelsTopLeft } from 'lucide-solid'
 import { ToggleGroup, ToggleGroupItem } from '@adea-ai/ui/components/ui/toggle-group'
 

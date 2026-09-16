@@ -2,8 +2,9 @@ import type { AgentSummary, ArtifactSummary, MessageSummary, TaskSummary } from 
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
 import { MailOpen, X } from 'lucide-solid'
-import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 
+import { keyedRows } from './keyed-rows'
 import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
 import type { PrivateContentResolver, TranscriptionProvider } from './platform'
@@ -41,23 +42,23 @@ export function ThreadPanel(props: {
     lastMarkedRead = 0
   })
 
-  createEffect(() => {
+  const markVisible = () => {
     const messages = settledData(replies)?.messages ?? []
     if (!messages.length) return
     const lastReadSequence = Math.max(...messages.map(({ sequence }) => sequence))
-    const markVisible = () => {
-      if (
-        document.visibilityState !== 'visible' ||
-        !document.hasFocus() ||
-        lastMarkedRead >= lastReadSequence
-      )
-        return
-      lastMarkedRead = lastReadSequence
-      void props.onMarkRead(lastReadSequence).catch(() => {
-        if (lastMarkedRead === lastReadSequence) lastMarkedRead = 0
-      })
-    }
-    markVisible()
+    if (
+      document.visibilityState !== 'visible' ||
+      !document.hasFocus() ||
+      lastMarkedRead >= lastReadSequence
+    )
+      return
+    lastMarkedRead = lastReadSequence
+    void props.onMarkRead(lastReadSequence).catch(() => {
+      if (lastMarkedRead === lastReadSequence) lastMarkedRead = 0
+    })
+  }
+  createEffect(markVisible)
+  onMount(() => {
     window.addEventListener('focus', markVisible)
     document.addEventListener('visibilitychange', markVisible)
     onCleanup(() => {
@@ -82,8 +83,17 @@ export function ThreadPanel(props: {
     () => props.workspaceId,
     () => props.channelId
   )
-  const artifactById = () => new Map(props.artifacts.map((artifact) => [artifact.id, artifact]))
-  const taskById = () => new Map(props.tasks.map((task) => [task.id, task]))
+  const artifactById = createMemo(
+    () => new Map(props.artifacts.map((artifact) => [artifact.id, artifact]))
+  )
+  const taskById = createMemo(() => new Map(props.tasks.map((task) => [task.id, task])))
+  // Keyed by message id: a refetched page updates rows in place instead of
+  // remounting the reply list on every new object identity.
+  const replyRows = keyedRows(
+    () => settledData(replies)?.messages ?? [],
+    (message) => message.id,
+    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
+  )
 
   const submit = async (submission: ComposerSubmission) => {
     await createMessage.mutateAsync({
@@ -132,16 +142,16 @@ export function ThreadPanel(props: {
         <Show when={replies.isError}>
           <WorkspaceError error={replies.error} retry={() => void replies.refetch()} />
         </Show>
-        <For each={settledData(replies)?.messages ?? []}>
-          {(message) => (
+        <For each={replyRows()}>
+          {(entry) => (
             <MessageRow
               agents={props.agents}
               artifacts={artifactById()}
-              message={message}
-              highlighted={message.id === props.searchTargetMessageId}
+              message={entry.item()}
+              highlighted={entry.item().id === props.searchTargetMessageId}
               onOpenTask={props.onOpenTask}
               privateContent={props.privateContent}
-              task={message.taskId ? taskById().get(message.taskId) : undefined}
+              task={entry.item().taskId ? taskById().get(entry.item().taskId!) : undefined}
             />
           )}
         </For>

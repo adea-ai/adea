@@ -14,10 +14,12 @@ import {
   X,
 } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/ui/lib/utils'
+import { keyedRows } from './keyed-rows'
 import { TaskDetail } from './task-detail'
 import type { PrivateContentResolver } from './platform'
 import { TaskObjective } from './private-task-objective'
@@ -275,6 +277,14 @@ export function TaskBoard(props: Props) {
           <For each={columns}>
             {(column) => {
               const tasks = () => tasksFor(column.id)
+              // Keyed by task id: a task refetch updates cards in place instead
+              // of remounting the column's DOM on every new object identity.
+              const taskRows = keyedRows(
+                tasks,
+                (task) => task.id,
+                (previous, next) =>
+                  previous.version === next.version && previous.updatedAt === next.updatedAt
+              )
               return (
                 <section
                   aria-labelledby={`task-column-${column.id}`}
@@ -297,31 +307,31 @@ export function TaskBoard(props: Props) {
                   <div
                     class={`conventional-task-column${dropColumnId() === column.id ? ' conventional-task-column--drop-target' : ''}`}
                   >
-                    <For each={tasks()}>
-                      {(task) => {
-                        const KindIcon = kindIconFor[task.kind ?? 'feature']
+                    <For each={taskRows()}>
+                      {(entry) => {
+                        const task = entry.item
                         return (
                           <article
                             role="button"
                             tabIndex={0}
-                            aria-label={task.title}
-                            class={`conventional-task-card${dragTaskId() === task.id ? ' conventional-task-card--dragging' : ''}`}
+                            aria-label={task().title}
+                            class={`conventional-task-card${dragTaskId() === task().id ? ' conventional-task-card--dragging' : ''}`}
                             draggable
                             onClick={() => {
                               setBoardError(null)
-                              props.onSelect(task.id)
+                              props.onSelect(task().id)
                             }}
                             onKeyDown={(event) => {
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault()
                                 setBoardError(null)
-                                props.onSelect(task.id)
+                                props.onSelect(task().id)
                               }
                             }}
                             onDragStart={(event) => {
-                              event.dataTransfer?.setData('text/plain', task.id)
+                              event.dataTransfer?.setData('text/plain', task().id)
                               if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-                              setDragTaskId(task.id)
+                              setDragTaskId(task().id)
                             }}
                             onDragEnd={() => {
                               setDragTaskId(null)
@@ -330,30 +340,35 @@ export function TaskBoard(props: Props) {
                           >
                             <div class="conventional-task-card__header">
                               <span class="conventional-task-card__kind">
-                                <KindIcon aria-hidden="true" />
+                                <Dynamic
+                                  component={kindIconFor[task().kind ?? 'feature']}
+                                  aria-hidden="true"
+                                />
                               </span>
-                              <strong>{task.title}</strong>
-                              <PriorityTag priority={task.priority} />
+                              <strong>{task().title}</strong>
+                              <PriorityTag priority={task().priority} />
                             </div>
                             <p>
-                              <TaskObjective privateContent={props.privateContent} task={task} />
+                              <TaskObjective privateContent={props.privateContent} task={task()} />
                             </p>
                             <footer>
                               <span>
                                 <Bot aria-hidden="true" />
-                                {task.agentId
-                                  ? (agentById().get(task.agentId)?.name ?? 'Unavailable Agent')
+                                {task().agentId
+                                  ? (agentById().get(task().agentId!)?.name ?? 'Unavailable Agent')
                                   : 'Unassigned'}
                               </span>
                               <span>
-                                <Show when={task.roomId ? roomById().get(task.roomId) : undefined}>
+                                <Show
+                                  when={task().roomId ? roomById().get(task().roomId!) : undefined}
+                                >
                                   {(room) => <RoomIcon functionKey={room().functionKey} />}
                                 </Show>
-                                {task.roomId
-                                  ? (roomById().get(task.roomId)?.name ?? 'Unavailable Room')
+                                {task().roomId
+                                  ? (roomById().get(task().roomId!)?.name ?? 'Unavailable Room')
                                   : 'No Room'}
                               </span>
-                              <Show when={task.lifecycleState === 'created'}>
+                              <Show when={task().lifecycleState === 'created'}>
                                 <Button
                                   type="button"
                                   variant="success"
@@ -362,7 +377,7 @@ export function TaskBoard(props: Props) {
                                   disabled={props.busy}
                                   onClick={(event) => {
                                     event.stopPropagation()
-                                    void queueFromCard(task)
+                                    void queueFromCard(task())
                                   }}
                                   onKeyDown={(event) => event.stopPropagation()}
                                 >

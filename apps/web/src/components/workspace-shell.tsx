@@ -1,18 +1,17 @@
-'use client'
-
 import { createEffect, createSignal, onMount } from 'solid-js'
 import { createApiClient, type AgentHqApiClient } from '@adea-ai/api-client'
 import type { HqSceneId } from '@adea-ai/app-core'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import { hqHomeManifest, hqWorkManifest } from '@adea-ai/spatial-protocol'
 import type { SceneStartPosition } from '@adea-ai/asset-manifests'
-import {
-  VirtualRoomControls,
-  VirtualUnavailable,
-  VirtualView,
-  type WorkspacePlatformServices,
-  type WorkspaceView,
-} from '@adea-ai/workspace-ui'
+// Subpath imports keep this chunk's static graph shallow: the package barrel
+// re-exports the dialogs and the conventional shell, which would otherwise be
+// preloaded with the virtual scene.
+import { VirtualRoomControls } from '@adea-ai/workspace-ui/virtual-room-controls'
+import { VirtualUnavailable } from '@adea-ai/workspace-ui/virtual-unavailable'
+import { VirtualView } from '@adea-ai/workspace-ui/virtual-view'
+import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
+import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 
 const sceneOptions = [
   {

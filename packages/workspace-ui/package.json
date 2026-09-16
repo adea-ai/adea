@@ -81,6 +81,27 @@
       "development": "./src/workspace-view-toggle.tsx",
       "import": "./dist/workspace-view-toggle.js",
       "default": "./dist/workspace-view-toggle.js"
+    },
+    "./virtual-unavailable": {
+      "types": "./dist/virtual-unavailable.d.ts",
+      "solid": "./src/virtual-unavailable.tsx",
+      "development": "./src/virtual-unavailable.tsx",
+      "import": "./dist/virtual-unavailable.js",
+      "default": "./dist/virtual-unavailable.js"
+    },
+    "./virtual-view": {
+      "types": "./dist/virtual-view.d.ts",
+      "solid": "./src/virtual-view.tsx",
+      "development": "./src/virtual-view.tsx",
+      "import": "./dist/virtual-view.js",
+      "default": "./dist/virtual-view.js"
+    },
+    "./virtual-room-controls": {
+      "types": "./dist/virtual-room-controls.d.ts",
+      "solid": "./src/virtual-room-controls.tsx",
+      "development": "./src/virtual-room-controls.tsx",
+      "import": "./dist/virtual-room-controls.js",
+      "default": "./dist/virtual-room-controls.js"
     }
   },
   "scripts": {

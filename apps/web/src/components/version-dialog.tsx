@@ -1,5 +1,3 @@
-'use client'
-
 import {
   VersionDialog as SharedVersionDialog,
   type VersionDialogAdapter,

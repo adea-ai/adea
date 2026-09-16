@@ -9,7 +9,7 @@ import type {
   TranscriptionSession,
   WorkspacePreferences,
   WorkspaceSettingsProvider,
-} from '@adea-ai/workspace-ui'
+} from '@adea-ai/workspace-ui/platform'
 
 import { Channel, invoke } from './desktop-bridge'
 

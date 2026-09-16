@@ -1,5 +1,3 @@
-'use client'
-
 import { Check, ExternalLink } from 'lucide-solid'
 import { createSignal, Match, onMount, Switch } from 'solid-js'
 
