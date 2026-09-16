@@ -179,7 +179,9 @@
             "src/main/runtime/orca-runtime-create-managed-worktree.ts",
             "src/main/worktree-removal-safety.ts",
             "src/main/worktree-trash.ts",
-            "src/main/runtime/repo-worktree-admin-fingerprint.ts"
+            "src/main/runtime/repo-worktree-admin-fingerprint.ts",
+            "src/shared/worktree-name-suggestion.ts",
+            "src/shared/worktree/retired-name-registry.ts"
           ],
           "tests": [
             "src/main/worktree-removal-safety.test.ts",
@@ -234,10 +236,12 @@
           "source": [
             "src/shared/project-types.ts",
             "src/shared/repo-types.ts",
-            "src/shared/project-groups.ts"
+            "src/shared/project-groups.ts",
+            "src/renderer/src/components/sidebar/AddRepoDialog.tsx",
+            "src/renderer/src/components/sidebar/worktree-list/**"
           ],
           "tests": [],
-          "action": "Adapt normalized group/project/repository relations and row hierarchy with runtime-node scope."
+          "action": "Adapt normalized group/project/repository relations and row hierarchy with runtime-node scope; translate AddRepoDialog and worktree-list hierarchy interactions to Solid."
         },
         {
           "donor": "bb",
@@ -278,7 +282,13 @@
         },
         {
           "donor": "orca",
-          "source": ["src/main/terminal-history.ts", "src/main/shell-startup-features.ts"],
+          "source": [
+            "src/main/terminal-history.ts",
+            "src/main/shell-startup-features.ts",
+            "src/main/daemon/daemon-init.ts",
+            "src/main/daemon/daemon-pty-checkpoint-persistence.ts",
+            "src/main/daemon/terminal-history-*.ts"
+          ],
           "tests": [
             "src/main/terminal-history.test.ts",
             "src/main/terminal-history-gc.test.ts",
@@ -331,7 +341,11 @@
             "src/modules/source-control/repositoryTarget.test.ts",
             "src/modules/source-control/useSourceControl.test.ts"
           ],
-          "action": "Translate component hierarchy and interactions to Solid/CodeMirror; retain test behaviors; replace Tauri authority and listed filesystem/save/search defects."
+          "action": "Translate component hierarchy and interactions to Solid/CodeMirror; retain test behaviors; replace Tauri authority and listed filesystem/save/search defects.",
+          "reviewOnlySources": [
+            "src/modules/editor/lib/useDocument.ts",
+            "src/modules/git-history/lib/remoteWebUrl.ts"
+          ]
         },
         {
           "donor": "t3code",
@@ -364,7 +378,9 @@
           "source": [
             "src/shared/tui-agent.ts",
             "src/shared/agent-status-osc.ts",
-            "src/main/runtime/agent-session-pty-write-gate.ts"
+            "src/main/runtime/agent-session-pty-write-gate.ts",
+            "src/renderer/src/lib/agent-paste-draft.ts",
+            "src/renderer/src/lib/agent-launch-prompt-delivery.ts"
           ],
           "tests": [
             "src/main/runtime/agent-session-pty-write-gate.test.ts",
@@ -420,6 +436,16 @@
           "source": ["Muxy/Services/AgentDetection/AIAgentDetector.swift"],
           "tests": ["Tests/MuxyTests/Services/AgentDetection/AIAgentDetectorTests.swift"],
           "action": "Use only as degraded-detection fixture/test inspiration; M10 discovery and authenticated native/ACP events remain authoritative."
+        },
+        {
+          "donor": "bb",
+          "source": [],
+          "tests": [],
+          "action": "Review-only aggregation references: model-catalog accepts unrestricted stdout and provider naming heuristics, and useUpdateInventory is a static-staleness system/host update hook rather than a runtime-node harness registry; port only bounded typed-aggregation ideas.",
+          "reviewOnlySources": [
+            "packages/provider-bridge-acp/src/bridge/model-catalog.ts",
+            "apps/app/src/hooks/useUpdateInventory.ts"
+          ]
         }
       ]
     },
@@ -451,7 +477,8 @@
             "website/electron/test/browser-control.test.js",
             "website/electron/test/browser-ops.test.js",
             "website/electron/test/browser-view.test.js",
-            "website/src/test/useBrowserView.test.tsx"
+            "website/src/test/useBrowserView.test.tsx",
+            "website/src/test/useNativeBrowser.test.tsx"
           ],
           "action": "Translate explicit transport kinds, capability surface, BrowserView lifecycle, annotation, and tests; replace Electron/Python seams with ADR 0006 Bun.WebView/CDP/M10 lanes."
         },
@@ -463,6 +490,9 @@
             "src/main/browser/browser-screencast-stream.ts",
             "src/main/browser/browser-cookie-import.ts",
             "src/main/browser/browser-route-identity.ts",
+            "src/main/browser/cdp-screenshot.ts",
+            "src/main/browser/browser-manager-viewport.ts",
+            "src/renderer/src/components/browser-pane/annotate/**",
             "src/main/emulator/emulator-bridge.ts",
             "src/main/emulator/emulator-session-registry.ts",
             "src/main/emulator/emulator-gesture-sender.ts",
@@ -493,7 +523,11 @@
             "apps/server/src/preview/PortScanner.ts",
             "apps/desktop/src/preview/BrowserSession.ts",
             "apps/desktop/src/preview/BrowserImport/BrowserImport.ts",
+            "apps/desktop/src/preview/BrowserImport/**",
+            "apps/desktop/src/preview/PickPreload.ts",
+            "apps/desktop/src/preview/Annotation.css",
             "apps/desktop/src/preview/PickedElementPayload.ts",
+            "apps/web/src/browser/**",
             "apps/desktop/src/preview/Manager.ts",
             "apps/web/src/components/preview/PreviewPanel.tsx",
             "apps/web/src/components/preview/PreviewPanelShell.tsx",
@@ -529,7 +563,15 @@
             "src/main/github/work-item-details.ts",
             "src/main/github/github-api-repository.ts",
             "src/main/github/stacked-pr-creation.ts",
-            "src/main/github/pr-refresh-coordinator.ts"
+            "src/main/github/pr-refresh-coordinator.ts",
+            "src/main/github/client/lookup/get-pr-for-branch.ts",
+            "src/main/github/client/check/get-pr-checks.ts",
+            "src/main/github/client/check/get-pr-check-details.ts",
+            "src/main/github/client/create/create-github-pull-request.ts",
+            "src/main/github/client/merge/merge-pr.ts",
+            "src/main/github/client/update/pr-state.ts",
+            "src/main/github/client/list/work-item-pages.ts",
+            "src/renderer/src/components/sidebar/worktree-list/viewport/use-visible-review-refresh.ts"
           ],
           "tests": [
             "src/main/github/client-create-pr.test.ts",
@@ -550,6 +592,12 @@
           ],
           "tests": [],
           "action": "Translate PR/check/work-item information hierarchy to Solid with untrusted-text sanitization."
+        },
+        {
+          "donor": "t3code",
+          "source": ["apps/server/src/git/remoteRefs.ts"],
+          "tests": [],
+          "action": "Adopt remote-ref and PR/check/review/provider DTO and cache/rate-limit patterns; Adea's force-with-lease confirmation, idempotent PR reconciliation, custom-host credential scoping, and update-branch policy remain independent gates."
         }
       ]
     },
