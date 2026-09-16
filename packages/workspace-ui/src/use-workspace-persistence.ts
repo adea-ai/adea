@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onCleanup, type Accessor } from 'solid-js'
+import { createEffect, createSignal, onCleanup, onMount, type Accessor } from 'solid-js'
 import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
 
 import { createWorkspaceStatePersister } from './workspace-state-persister'
@@ -39,7 +39,9 @@ function persistedState(state: WorkspaceState): PersistedState {
 export function useWorkspacePersistence(): Accessor<boolean> {
   const [ready, setReady] = createSignal(false)
 
-  createEffect(() => {
+  // One-time restore: it tracks nothing, so onMount says what the effect was
+  // silently relying on.
+  onMount(() => {
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY)
       if (saved) workspaceStore.getState().restoreConventionalState(JSON.parse(saved))

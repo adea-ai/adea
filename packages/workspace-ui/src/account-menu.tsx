@@ -27,6 +27,8 @@ import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-
 type AccountMenuProps = {
   authenticated: boolean
   busy?: boolean
+  /** Fires on hover/focus of the trigger — a chance to prefetch menu targets. */
+  onIntent?: () => void
   onOpenUpdates?: () => void
   onOpenAbout: () => void
   onOpenSettings: () => void
@@ -56,6 +58,8 @@ export function AccountMenu(props: AccountMenuProps) {
         size="icon-lg"
         class="global-rail__button global-rail__account-trigger"
         aria-label="User settings"
+        onFocus={() => props.onIntent?.()}
+        onPointerEnter={() => props.onIntent?.()}
       >
         <UserRound aria-hidden="true" />
       </DropdownMenuTrigger>

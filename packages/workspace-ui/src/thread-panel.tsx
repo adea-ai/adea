@@ -36,10 +36,14 @@ export function ThreadPanel(props: {
   )
   let lastMarkedRead = 0
   const [panel, setPanel] = createSignal<HTMLElement>()
+  // Replies committed locally while the mutation's invalidation refetches the
+  // thread page — deduplicated by id once the authoritative list catches up.
+  const [committedReplies, setCommittedReplies] = createSignal<readonly MessageSummary[]>([])
 
   createEffect(() => {
     void props.root.id
     lastMarkedRead = 0
+    setCommittedReplies([])
   })
 
   const markVisible = () => {
@@ -87,20 +91,33 @@ export function ThreadPanel(props: {
     () => new Map(props.artifacts.map((artifact) => [artifact.id, artifact]))
   )
   const taskById = createMemo(() => new Map(props.tasks.map((task) => [task.id, task])))
+  const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
+  const replyList = createMemo(() => {
+    const fetched = settledData(replies)?.messages ?? []
+    const fetchedIds = new Set(fetched.map(({ id }) => id))
+    return [...fetched, ...committedReplies().filter(({ id }) => !fetchedIds.has(id))].toSorted(
+      (left, right) => left.sequence - right.sequence
+    )
+  })
   // Keyed by message id: a refetched page updates rows in place instead of
   // remounting the reply list on every new object identity.
   const replyRows = keyedRows(
-    () => settledData(replies)?.messages ?? [],
+    replyList,
     (message) => message.id,
     (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
   )
 
   const submit = async (submission: ComposerSubmission) => {
-    await createMessage.mutateAsync({
+    const created = await createMessage.mutateAsync({
       ...submission,
       replyToMessageId: props.root.id,
       threadRootMessageId: props.root.id,
     })
+    // Merge the committed reply immediately: the invalidation refetch lands
+    // later and dedupes it by id, but the reply should not wait a round trip.
+    setCommittedReplies((current) =>
+      current.some(({ id }) => id === created.message.id) ? current : [...current, created.message]
+    )
   }
 
   return (
@@ -125,7 +142,7 @@ export function ThreadPanel(props: {
       </header>
       <div class="conventional-thread__transcript">
         <MessageRow
-          agents={props.agents}
+          agents={agentById()}
           artifacts={artifactById()}
           message={props.root}
           highlighted={props.root.id === props.searchTargetMessageId}
@@ -145,7 +162,7 @@ export function ThreadPanel(props: {
         <For each={replyRows()}>
           {(entry) => (
             <MessageRow
-              agents={props.agents}
+              agents={agentById()}
               artifacts={artifactById()}
               message={entry.item()}
               highlighted={entry.item().id === props.searchTargetMessageId}
