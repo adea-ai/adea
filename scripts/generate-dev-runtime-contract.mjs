@@ -13,6 +13,7 @@ const targetIdFields = {
   cleanup_policy: 'cleanupPolicyId',
   device_inventory: 'inventoryId',
   device_session: 'deviceSessionId',
+  group: 'groupId',
   process: 'processRecordId',
   project: 'projectId',
   pull_request: 'pullRequestId',

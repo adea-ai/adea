@@ -210,6 +210,7 @@ export type RuntimeSession = Readonly<{
   projectId: string
   repoId: string
   worktreeId: string
+  displayName?: string
   terminalId?: string
   taskId?: string
   agentProfileId?: string
@@ -248,6 +249,7 @@ export type Group = Readonly<{
   id: string
   scope: Scope
   name: string
+  colorToken?: string
   projectIds: readonly string[]
   sortKey: string
   version: number
@@ -570,6 +572,14 @@ function namedType(name: string, value: unknown, path: string): unknown {
       'defaultHarnessId',
     ] as const)
       if (item[key] !== undefined) stringValue(item[key], `${path}.${key}`, 1)
+    return value
+  }
+  if (name === 'GroupMutableFields') {
+    const item = record(value, path)
+    exactKeys(item, [], ['name', 'colorToken', 'sortKey'], path)
+    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 128)
+    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
+    if (item.sortKey !== undefined) stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
     return value
   }
   if (name === 'GitHubPullRequestMutableFields') {

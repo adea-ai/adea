@@ -15,10 +15,14 @@ export const devStreamProtocolDefinitions = {
   },
   'browser-frames-v1': {
     data: 'raw encoded image Uint8Array plus canonical-CBOR control',
-    directions: ['read'],
+    directions: ['read', 'write'],
   },
   'device-frames-v1': {
     data: 'raw encoded image Uint8Array plus canonical-CBOR gesture control',
+    directions: ['read', 'write'],
+  },
+  'file-bytes-v1': {
+    data: 'raw file Uint8Array',
     directions: ['read', 'write'],
   },
   'runtime-events-v1': {
@@ -70,6 +74,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'browser_lane', idField: 'browserLaneId' },
     stream: null,
   },
+  'dev.browser.input': {
+    body: "{ browserLaneId: string; expectedGeneration: integer; direction: 'write'; fromSequence?: uint64-string }",
+    capabilities: ['dev.browser.control'],
+    reply: 'DevStreamGrant',
+    resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    stream: { protocol: 'browser-frames-v1', direction: 'write' },
+  },
   'dev.browser.laneClose': {
     body: '{ browserLaneId: string; expectedGeneration: integer; confirmationId?: string }',
     capabilities: ['dev.browser.control'],
@@ -84,11 +95,25 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.browser.lanes': {
+    body: "{ runtimeSessionId?: string; kind?: 'human_embedded'|'task_owned'|'user_context'; state?: 'provisioning'|'ready'|'navigating'|'suspended'|'closing'|'closed'|'crashed'|'recovering'; cursor?: string; limit?: integer(1..500) }",
+    capabilities: ['dev.browser.read'],
+    reply: 'Page<BrowserLane>',
+    resource: null,
+    stream: null,
+  },
   'dev.browser.navigate': {
     body: "{ browserLaneId: string; expectedGeneration: integer; url: string; waitUntil?: 'commit'|'domcontentloaded'|'load' }",
     capabilities: ['dev.browser.control'],
     reply: 'BrowserNavigation',
     resource: { kind: 'browser_lane', idField: 'browserLaneId' },
+    stream: null,
+  },
+  'dev.browser.profilePolicies': {
+    body: '{ cursor?: string; limit?: integer(1..500) }',
+    capabilities: ['dev.browser.read'],
+    reply: 'Page<ProfilePolicy>',
+    resource: null,
     stream: null,
   },
   'dev.browser.profileReset': {
@@ -203,6 +228,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'device_session', idField: 'deviceSessionId' },
     stream: null,
   },
+  'dev.device.sessions': {
+    body: "{ runtimeSessionId?: string; kind?: DeviceSession['kind']; cursor?: string; limit?: integer(1..500) }",
+    capabilities: ['dev.device.read'],
+    reply: 'Page<DeviceSession>',
+    resource: null,
+    stream: null,
+  },
   'dev.device.start': {
     body: '{ inventoryId: string; expectedGeneration: integer; runtimeSessionId: string }',
     capabilities: ['dev.device.control'],
@@ -225,7 +257,7 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.files.create': {
-    body: "{ worktreeId: string; path: WorkspacePath; kind: 'file'|'directory'; content?: Uint8Array<=8MiB; failIfExists: true }",
+    body: "{ worktreeId: string; path: WorkspacePath; kind: 'file'|'directory'; content?: Uint8Array<=256KiB; failIfExists: true }",
     capabilities: ['dev.files.write'],
     reply: 'FileEntry',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },
@@ -253,11 +285,18 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.files.read': {
-    body: '{ worktreeId: string; path: WorkspacePath; offset?: uint64; length?: integer(1..67108864) }',
+    body: '{ worktreeId: string; path: WorkspacePath; offset?: uint64; length?: integer(1..262144) }',
     capabilities: ['dev.files.read'],
     reply: 'FileReadResult',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },
     stream: null,
+  },
+  'dev.files.readStream': {
+    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; offset?: uint64; length?: uint64; direction: 'read'; fromSequence?: uint64-string }",
+    capabilities: ['dev.files.read'],
+    reply: 'DevStreamGrant',
+    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    stream: { protocol: 'file-bytes-v1', direction: 'read' },
   },
   'dev.files.rename': {
     body: '{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedIdentity: FileIdentity; failIfExists: true }',
@@ -281,11 +320,18 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.files.write': {
-    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; content: Uint8Array<=8MiB; eolPolicy: 'preserve'|'lf'|'crlf' }",
+    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; content: Uint8Array<=256KiB; eolPolicy: 'preserve'|'lf'|'crlf' }",
     capabilities: ['dev.files.write'],
     reply: 'FileWriteResult',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },
     stream: null,
+  },
+  'dev.files.writeStream': {
+    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; byteLength: uint64; contentSha256: sha256; eolPolicy: 'preserve'|'lf'|'crlf'; direction: 'write'; fromSequence?: uint64-string }",
+    capabilities: ['dev.files.write'],
+    reply: 'DevStreamGrant',
+    resource: { kind: 'workspace_root', idField: 'worktreeId' },
+    stream: { protocol: 'file-bytes-v1', direction: 'write' },
   },
   'dev.git.checkpoint': {
     body: '{ worktreeId: string; label?: string(0..128); paths?: WorkspacePath[]<=1000 }',
@@ -427,6 +473,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'pull_request', idField: 'pullRequestId' },
     stream: null,
   },
+  'dev.github.pullRequests': {
+    body: "{ repoId: string; state?: 'open'|'closed'|'merged'|'all'; cursor?: string; limit?: integer(1..100) }",
+    capabilities: ['dev.github.read'],
+    reply: 'Page<GitHubPullRequest>',
+    resource: { kind: 'repository', idField: 'repoId' },
+    stream: null,
+  },
   'dev.github.pushCommit': {
     body: '{ planId: string; planDigest: sha256 }',
     capabilities: ['dev.github.write'],
@@ -456,10 +509,45 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.github.updatePlan': {
-    body: '{ pullRequestId: string; expectedVersion: string; patch: GitHubPullRequestMutableFields }',
+    body: '{ pullRequestId: string; expectedVersion: integer; patch: GitHubPullRequestMutableFields }',
     capabilities: ['dev.github.write'],
     reply: 'MutationPlan',
     resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    stream: null,
+  },
+  'dev.group.create': {
+    body: '{ name: string(1..128); colorToken?: string; afterGroupId?: string }',
+    capabilities: ['dev.project.manage'],
+    reply: 'Group',
+    resource: null,
+    stream: null,
+  },
+  'dev.group.delete': {
+    body: '{ groupId: string; expectedVersion: integer; confirmationId: string }',
+    capabilities: ['dev.project.manage'],
+    reply: 'Group',
+    resource: { kind: 'group', idField: 'groupId' },
+    stream: null,
+  },
+  'dev.group.list': {
+    body: '{ cursor?: string; limit?: integer(1..500) }',
+    capabilities: ['dev.project.read'],
+    reply: 'Page<Group>',
+    resource: null,
+    stream: null,
+  },
+  'dev.group.reorder': {
+    body: '{ orderedGroupIds: string[]<=1000 }',
+    capabilities: ['dev.project.manage'],
+    reply: 'Page<Group>',
+    resource: null,
+    stream: null,
+  },
+  'dev.group.update': {
+    body: '{ groupId: string; expectedVersion: integer; patch: GroupMutableFields }',
+    capabilities: ['dev.project.manage'],
+    reply: 'Group',
+    resource: { kind: 'group', idField: 'groupId' },
     stream: null,
   },
   'dev.project.archive': {
@@ -467,6 +555,13 @@ export const devOperationDefinitions = {
     capabilities: ['dev.project.manage'],
     reply: 'Project',
     resource: { kind: 'project', idField: 'projectId' },
+    stream: null,
+  },
+  'dev.project.bookmarks': {
+    body: "{ kind?: 'directory'|'repository'; cursor?: string; limit?: integer(1..500) }",
+    capabilities: ['dev.project.read'],
+    reply: 'Page<RootBookmark>',
+    resource: null,
     stream: null,
   },
   'dev.project.clone': {
@@ -537,6 +632,13 @@ export const devOperationDefinitions = {
     capabilities: ['dev.repo.manage'],
     reply: 'Repo',
     resource: { kind: 'repository', idField: 'repoId' },
+    stream: null,
+  },
+  'dev.repo.credentialRefs': {
+    body: '{ host?: string; cursor?: string; limit?: integer(1..500) }',
+    capabilities: ['dev.repo.read'],
+    reply: 'Page<CredentialRef>',
+    resource: null,
     stream: null,
   },
   'dev.repo.inspect': {
@@ -616,6 +718,13 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.session.archive': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; reason?: string(0..512) }',
+    capabilities: ['dev.session.manage'],
+    reply: 'ArchiveRecord',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.cancelHarness': {
     body: '{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string; confirmationId?: string }',
     capabilities: ['dev.session.manage'],
@@ -672,6 +781,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: null,
   },
+  'dev.session.unarchive': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer }',
+    capabilities: ['dev.session.manage'],
+    reply: 'ArchiveRecord',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.terminal.attach': {
     body: "{ terminalId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
     capabilities: ['dev.terminal.attach'],
@@ -714,6 +830,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'terminal', idField: 'terminalId' },
     stream: { protocol: 'terminal-bytes-v1', direction: 'write' },
   },
+  'dev.terminal.list': {
+    body: "{ runtimeSessionId?: string; worktreeId?: string; state?: 'creating'|'running'|'detached'|'terminating'|'exited'; cursor?: string; limit?: integer(1..500) }",
+    capabilities: ['dev.terminal.attach'],
+    reply: 'Page<TerminalRecord>',
+    resource: null,
+    stream: null,
+  },
   'dev.terminal.resize': {
     body: '{ terminalId: string; expectedGeneration: integer; cols: integer(1..1000); rows: integer(1..1000) }',
     capabilities: ['dev.terminal.manage'],
@@ -726,6 +849,13 @@ export const devOperationDefinitions = {
     capabilities: ['dev.terminal.attach'],
     reply: 'Page<TerminalSearchMatch>',
     resource: { kind: 'terminal', idField: 'terminalId' },
+    stream: null,
+  },
+  'dev.terminal.shellProfiles': {
+    body: '{ cursor?: string; limit?: integer(1..500) }',
+    capabilities: ['dev.terminal.attach'],
+    reply: 'Page<ShellProfile>',
+    resource: null,
     stream: null,
   },
   'dev.terminal.signal': {
@@ -753,6 +883,13 @@ export const devOperationDefinitions = {
     body: '{ planId: string; planDigest: sha256 }',
     capabilities: ['dev.cleanup.approve', 'dev.worktree.manage'],
     reply: 'CleanupResult',
+    resource: { kind: 'worktree', idField: 'worktreeId' },
+    stream: null,
+  },
+  'dev.worktree.cleanupJobs': {
+    body: '{ worktreeId: string; expectedGeneration: integer; cursor?: string; limit?: integer(1..500) }',
+    capabilities: ['dev.resources.read'],
+    reply: 'Page<CleanupJobRecord>',
     resource: { kind: 'worktree', idField: 'worktreeId' },
     stream: null,
   },

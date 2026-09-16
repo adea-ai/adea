@@ -63,6 +63,9 @@ knowledge of an object ID MUST NOT grant permission.
 - `packages/dev-view/src/**`: Solid UI only, through `WorkspacePlatformServices`.
 - `apps/web/src/lib/desktop-dev-runtime.ts`: desktop provider adapter only.
 - `apps/desktop/shell/src/dev-runtime/**`: privileged host adapters behind M10.
+  These sources are also the canonical adapter implementation loaded by an
+  authorized remote runtime-node host; the node host exposes the same registry
+  over an authorized `RuntimeConnection`, never a second wire contract.
 - `packages/state`: ephemeral selected IDs, collapsed sections, layout/focus;
   never durable entity truth, output, content, credentials, or process IDs.
 
@@ -82,6 +85,11 @@ branch names, URLs, or array indexes.
 | `repoId`                | canonical repository/common-dir identity on one runtime node |
 | `worktreeId`            | never-reused checkout identity                               |
 | `runtimeSessionId`      | canonical Dev/Chat session                                   |
+| `groupId`               | user-defined project group                                   |
+| `bookmarkId`            | M10-minted authorized root grant                             |
+| `credentialRefId`       | vault-held credential reference, never the secret            |
+| `shellProfileId`        | named host-admitted shell configuration                      |
+| `profilePolicyId`       | named browser lane-permission policy                         |
 | `terminalId`            | one PTY lifecycle within a session                           |
 | `harnessInstallationId` | discovered harness on one runtime node                       |
 | `harnessRunId`          | one launch/resume generation                                 |
@@ -264,6 +272,7 @@ type RuntimeSession = {
   projectId: string
   repoId: string
   worktreeId: string
+  displayName?: string
   terminalId?: string
   taskId?: string
   agentProfileId?: string
@@ -346,8 +355,81 @@ type Group = {
   id: string
   scope: Scope
   name: string
+  colorToken?: string
   projectIds: string[]
   sortKey: string
+  version: number
+}
+
+type GroupMutableFields = {
+  name?: string
+  colorToken?: string
+  sortKey?: string
+}
+
+// A RootBookmark is a durable grant that a directory or repository root has
+// been authorized by the owner. M10's authorized-root flow mints and revokes
+// bookmarks; M12 consumes them but cannot mint one.
+type RootBookmark = {
+  id: string
+  scope: Scope
+  label: string
+  kind: 'directory' | 'repository'
+  canonicalRoot: string
+  rootIdentity: FileIdentity
+  state: 'active' | 'stale' | 'revoked'
+  generation: number
+  version: number
+}
+
+// A CredentialRef identifies vault-held credential material without exposing
+// it. The secret never enters a command body, reply, event, or log.
+type CredentialRef = {
+  id: string
+  scope: Scope
+  label: string
+  host: string
+  kind: 'git_https' | 'github_token' | 'ssh_key' | 'other'
+  state: 'ready' | 'expired' | 'revoked' | 'unknown'
+  version: number
+}
+
+// A ShellProfile is a named, host-admitted shell configuration offered to
+// dev.terminal.create. Hosts mint builtin profiles; user profiles live under
+// the runtime data directory.
+type ShellProfile = {
+  id: string
+  scope: Scope
+  label: string
+  argv: string[]
+  envAllowlistKeys: string[]
+  builtin: boolean
+  version: number
+}
+
+// A ProfilePolicy is a named lane-permission policy: which lane permissions
+// (downloads, uploads, clipboard, camera, microphone, geolocation,
+// notifications, popups, certificate exceptions) lanes created under it allow
+// by default. Hosts mint policies; lanes record which one they used.
+type ProfilePolicy = {
+  id: string
+  scope: Scope
+  label: string
+  allowedPermissions: string[]
+  version: number
+}
+
+// A CleanupJobRecord summarizes one cleanup attempt for listing and
+// rediscovery after a restart; the full CleanupPlan/CleanupResult records
+// remain authoritative.
+type CleanupJobRecord = {
+  id: string
+  scope: Scope
+  worktreeId: string
+  state: CleanupJobState
+  createdAt: string
+  observedAt: string
+  generation: number
   version: number
 }
 
@@ -1044,6 +1126,11 @@ Orthogonal health: `healthy | degraded | replay_required | faulted`.
 Detaching a window/client does not terminate the PTY. A user terminate command
 acts on the recorded process group/session after identity revalidation.
 
+A session may own several terminals through splits.
+`RuntimeSession.terminalId` names only the session's primary terminal;
+`dev.terminal.list` enumerates every terminal a session or worktree owns,
+including split leaves and terminals re-created after a restart.
+
 ### Runtime session and harness run
 
 ```text
@@ -1055,6 +1142,13 @@ run:     resolving → starting → working ↔ awaiting_input|awaiting_approval
 `stale` is metadata with `source` and `observedAt`, not a replacement success
 state. Resume creates a new `HarnessRun` generation under the same compatible
 `RuntimeSession`; it does not silently reuse stale write authority.
+
+`dev.session.archive` and `dev.session.unarchive` produce the `ArchiveRecord`
+that drives `archived → restoring → restored` and set/clear
+`RuntimeSession.archived`. Session archive is navigation/history metadata: it
+removes the session from the active list, never stops a terminal, harness,
+browser, device, or process, and never deletes worktree data. Worktree archive
+(`dev.worktree.archive`) remains a separate decision.
 
 ### Browser lane
 
@@ -1118,16 +1212,17 @@ All privileged commands use a versioned authenticated channel:
 ```ts
 type DevOperation =
   | `dev.capability.${'snapshot'}`
-  | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'reorder' | 'archive'}`
-  | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt'}`
-  | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume'}`
-  | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete'}`
-  | `dev.session.${'create' | 'get' | 'list' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput'}`
-  | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal'}`
+  | `dev.group.${'list' | 'create' | 'update' | 'delete' | 'reorder'}`
+  | `dev.project.${'list' | 'get' | 'import' | 'clone' | 'scan' | 'create' | 'update' | 'reorder' | 'archive' | 'bookmarks'}`
+  | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
+  | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
+  | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
+  | `dev.session.${'create' | 'get' | 'list' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
-  | `dev.browser.${'laneCreate' | 'laneClose' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset'}`
-  | `dev.device.${'list' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
-  | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
+  | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
+  | `dev.device.${'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
+  | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
   | `dev.cleanupPolicy.${'list' | 'createDraft' | 'approve' | 'disable' | 'evaluate'}`
 
@@ -1164,7 +1259,7 @@ channel), `dev.runtime.execute.v1` (one `AuthorizedDevFrame`/`DevReply`),
 `dev.runtime.stream.attach.v1` (terminal/browser/device bulk stream negotiated
 from an authorized execute reply). The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 114 operation names, exact body shapes, exact reply types, complete required
+all 133 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -1263,7 +1358,12 @@ type DeviceGesture =
 type DevStreamGrant = {
   schemaVersion: 1
   grantId: string
-  protocol: 'terminal-bytes-v1' | 'browser-frames-v1' | 'device-frames-v1' | 'runtime-events-v1'
+  protocol:
+    | 'terminal-bytes-v1'
+    | 'browser-frames-v1'
+    | 'device-frames-v1'
+    | 'file-bytes-v1'
+    | 'runtime-events-v1'
   channelId: string
   scope: Scope
   resource: { kind: string; id: string; generation: number }
@@ -1326,29 +1426,36 @@ Exact transport method names are stable once shipped. M12 begins with these
 families; adding a privileged command requires this spec, decoder, M10 policy,
 audit classification, and deny-by-default tests in the same change.
 
-| Family              | Required operations                                                                                                                                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dev.capability`    | `snapshot`                                                                                                                                                                                                  |
-| `dev.project`       | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`                                                                                                                          |
-| `dev.repo`          | `list`, `inspect`, `refresh`, `authorize`, `adopt`                                                                                                                                                          |
-| `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`                                            |
-| `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`                                                                                             |
-| `dev.session`       | `create`, `get`, `list`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`                                                                                                       |
-| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`                                                                                                             |
-| `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                            |
-| `dev.browser`       | `laneCreate`, `laneClose`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `cookieImportPlan`, `cookieImportCommit`, `profileReset` |
-| `dev.device`        | `list`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                    |
-| `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                           |
-| `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                              |
-| `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                     |
-| `dev.appearance`    | client preference only; privileged host command only for capability snapshot                                                                                                                                |
-| `dev.appLibrary`    | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                               |
+| Family              | Required operations                                                                                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dev.capability`    | `snapshot`                                                                                                                                                                                                                                       |
+| `dev.group`         | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                  |
+| `dev.project`       | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                  |
+| `dev.repo`          | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                             |
+| `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                  |
+| `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                         |
+| `dev.session`       | `create`, `get`, `list`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                    |
+| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
+| `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
+| `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
+| `dev.device`        | `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                             |
+| `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                |
+| `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                   |
+| `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                          |
+| `dev.appearance`    | client preference only; privileged host command only for capability snapshot                                                                                                                                                                     |
+| `dev.appLibrary`    | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                    |
+
+`dev.appearance` and `dev.appLibrary` intentionally have no operation in this
+contract: `dev.capability.snapshot` is their only consumer — it reports each as
+granted or typed-unavailable for the scope, and the client falls back to local
+preference storage or the existing verified App Library surfaces accordingly.
 
 Capability/resource binding is deny-by-default:
 
 | Family        | Read operations                                                             | Mutation operations                                                                                         | Resource kind                                       |
 | ------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                         |
+| group         | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `group` except top-level list/create/reorder        |
 | project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone |
 | repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                        |
 | worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                          |
@@ -1529,11 +1636,47 @@ runtime root. Persisted absolute history directories are never deletion
 authority. Resolve and revalidate containment/file identity immediately before
 history deletion.
 
+### Terminal UX
+
+The terminal ships a styled default profile using theme tokens for font,
+cursor, padding, opacity, and colors; a "system terminal" opt-out leaves the
+host terminal untouched.
+
+A bottom editor supports multiline input, history search, palette sources, and
+send-to-active-terminal; pasting multiline or control-character text requires
+confirmation. Raw direct-keyboard mode remains available so full-screen TUIs
+work without the editor intercepting keys.
+
+When trusted wrapper hooks prove command boundaries (authenticated OSC 133/7),
+prompt blocks show the command, cwd, duration, and exit code; a block can be
+copied or exported locally. Command boundaries are never inferred from
+unauthenticated screen text. Cloud/share links for terminal output are out of
+M12 scope until a redaction/expiry policy exists.
+
+Terminal splits use the shared layout tree. Closing a split never deletes its
+worktree; closing a pane whose terminal has an active process requires
+confirmation.
+
+Warp's command-block implementation is AGPL and remains a prohibited source:
+the block UI is implemented independently against the external OSC 133/7
+protocol, with no copied hook names, DCS identifiers, payload schemas, parser
+structure, fixtures, or UI strings.
+
 ## Project registry and scanner
 
 A group organizes projects; a project expresses user intent/defaults; a repo is
 an authorized source; a worktree is one checkout; a session binds execution.
 None is an alias for another.
+
+A group is user organization: `name`, an optional `colorToken` from the theme
+token vocabulary, and `sortKey` order. `dev.group.*` manages it. `create` places
+the group after `afterGroupId` or at the end; `update` patches name/color/order
+under expected version; `reorder` applies the submitted `orderedGroupIds`
+atomically as one ordering decision and bumps each affected group's `version`
+(a stale submission loses wholesale rather than interleaving); `delete`
+requires an empty group — move or remove its projects first — plus a
+`confirmationId`. Group collapse is ephemeral `packages/state` UI state, not a
+host command.
 
 The add surface supports recent/indexed folders, picker/import, clone URL,
 authenticated GitHub selection, monorepo package, and known external worktree.
@@ -1654,6 +1797,15 @@ Defaults:
 - no recursive copy unless an explicit plan enumerates and validates every
   source/destination under limits.
 
+Inline control-path file content is capped at 256 KiB (`dev.files.read`,
+`dev.files.write`, `dev.files.create`), matching the control-payload limit.
+Transfers above that cap use the `file-bytes-v1` bulk stream:
+`dev.files.readStream`/`dev.files.writeStream` return a `DevStreamGrant`
+carrying the worktree root resource, expected file identity, byte range, and
+(for writes) declared `byteLength`/`contentSha256`. Stream frames obey the
+grant's `maxFrameBytes`; a write whose received bytes fail the declared
+length/digest is discarded and reports `file_changed`.
+
 Save uses content SHA-256 plus stat identity/version compare-and-swap, then an
 owner-only same-directory temporary file, write, fsync file, preserve reviewed
 permissions, atomic rename where supported, and directory fsync. Revalidate
@@ -1757,6 +1909,14 @@ Screencast defaults: 15 FPS, maximum 30; maximum 4096×4096 and 8 MiB/frame;
 one in-flight plus one newest complete frame; input maximum 240 events/second;
 resize/takeover/input carry lane/session/generation/viewport sequence. Stale
 subscriptions and old input are inert. Escape always releases human capture.
+
+Human input reaches the lane through `dev.browser.input`, which returns a
+`DevStreamGrant` for a write-direction `browser-frames-v1` stream bound to the
+lane resource and generation. Input is admitted only while the lane's
+automation owner permits the caller: a `human_takeover` lane accepts the
+controlling user's input, a `task_owned` lane accepts input only within the
+owning task's grant, and `none` rejects input. Ownership transfer increments
+the generation, so input granted under an old generation is inert.
 
 Screenshots/annotations carry origin, viewport, time, lane/profile, and
 redaction provenance; maximum 25 MiB each and workspace retention limits apply.
@@ -2038,30 +2198,30 @@ single lookup. A lower upstream M10/M11 limit wins. Limit exhaustion returns
 partial metadata plus `limit_exceeded` or the more specific typed error; it
 never truncates silently or allocates an unbounded fallback.
 
-| Surface               | M12 initial limit                                                                                                              |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| center layout         | 8 leaves, depth 8, ratio 0.1–0.9                                                                                               |
-| command               | 256 KiB control body; 60-second expiry; 30-second clock skew                                                                   |
-| nonce/idempotency     | ≥128-bit nonce; key 1–128 printable ASCII; completed mutation 24 hours–7 days                                                  |
-| event                 | 256 KiB JSON; depth 32; string 64 KiB; 1,000 frames/s; page 500/default 100; 100,000/session or 30 days                        |
-| hook/OSC              | authenticated hook frame 8 KiB; OSC payload 2 KiB                                                                              |
-| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 8 subscribers; 1 MiB input/subscriber queue   |
-| terminal liveness     | 15-second heartbeat; unhealthy at 45 seconds; reconnect 250 ms exponential to 30 seconds; checkpoint ≤5 seconds and each 1 MiB |
-| scanner               | depth 16; 100,000 entries; 10,000 packages; 2 MiB/manifest; 10 seconds; concurrency 8                                          |
-| watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                         |
-| include copy          | 1,000 regular files; 100 MiB total; 16 MiB/file                                                                                |
-| bootstrap/teardown    | 15 minutes/step; 10 MiB output; one owned process group                                                                        |
-| files                 | directory page 500; editable 8 MiB; streamed preview 64 MiB; 30-second operation                                               |
-| editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                   |
-| search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                      |
-| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                  |
-| harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                  |
-| cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                          |
-| screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                         |
-| screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                      |
-| metrics               | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours           |
-| usage refresh         | provider backoff plus 60-second manual-refresh floor                                                                           |
-| cleanup lock/lease    | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s                                   |
+| Surface               | M12 initial limit                                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| center layout         | 8 leaves, depth 8, ratio 0.1–0.9                                                                                                                        |
+| command               | 256 KiB control body; 60-second expiry; 30-second clock skew                                                                                            |
+| nonce/idempotency     | ≥128-bit nonce; key 1–128 printable ASCII; completed mutation 24 hours–7 days                                                                           |
+| event                 | 256 KiB JSON; depth 32; string 64 KiB; 1,000 frames/s; page 500/default 100; 100,000/session or 30 days                                                 |
+| hook/OSC              | authenticated hook frame 8 KiB; OSC payload 2 KiB                                                                                                       |
+| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 8 subscribers; 1 MiB input/subscriber queue                            |
+| terminal liveness     | 15-second heartbeat; unhealthy at 45 seconds; reconnect 250 ms exponential to 30 seconds; checkpoint ≤5 seconds and each 1 MiB                          |
+| scanner               | depth 16; 100,000 entries; 10,000 packages; 2 MiB/manifest; 10 seconds; concurrency 8                                                                   |
+| watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                                                  |
+| include copy          | 1,000 regular files; 100 MiB total; 16 MiB/file                                                                                                         |
+| bootstrap/teardown    | 15 minutes/step; 10 MiB output; one owned process group                                                                                                 |
+| files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream; editable 8 MiB; preview 64 MiB; 30-second operation |
+| editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                            |
+| search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                               |
+| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                           |
+| harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                           |
+| cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                   |
+| screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                  |
+| screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                               |
+| metrics               | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours                                    |
+| usage refresh         | provider backoff plus 60-second manual-refresh floor                                                                                                    |
+| cleanup lock/lease    | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s                                                            |
 
 ## Performance and retention budgets
 
@@ -2126,6 +2286,37 @@ Required layers:
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but at least the packaged macOS path and
 authorized remote RuntimeConnection path must pass.
+
+## Spec changes
+
+Post-baseline contract changes are recorded here so issue mirrors and audits
+can distinguish intentional spec evolution from drift:
+
+- **2026-09-16 — contract completeness audit fixes.** Added the missing
+  operations the M12 issue bodies already require: `dev.group.*`
+  (create/update/delete/list/reorder) for #398; `dev.session.archive` and
+  `dev.session.unarchive` producing `ArchiveRecord` for #395; `dev.browser.input`,
+  `dev.browser.lanes`, and `dev.browser.profilePolicies` for #422;
+  `dev.github.pullRequests` for #423; `dev.terminal.list`,
+  `dev.terminal.shellProfiles`, `dev.device.sessions`, and
+  `dev.worktree.cleanupJobs` for disconnect/restart rediscovery;
+  `dev.project.bookmarks` and `dev.repo.credentialRefs` defining the
+  authorized-root and vault-reference seams; and `dev.files.readStream`/
+  `dev.files.writeStream` plus the `file-bytes-v1` protocol for bulk file
+  transfer. Corrected `dev.github.updatePlan.expectedVersion` from `string` to
+  `integer`, added `Group.colorToken` and `RuntimeSession.displayName`, defined
+  the `GroupMutableFields`, `RootBookmark`, `CredentialRef`, `ShellProfile`,
+  `ProfilePolicy`, and `CleanupJobRecord` DTOs, capped inline file content at
+  the 256 KiB control limit, and promoted the terminal UX requirements
+  (styled default profile with system-terminal opt-out, bottom editor with
+  raw-mode escape, authenticated prompt blocks, deferred link sharing, and the
+  AGPL clean-room boundary) from #396. Total operations: 133. Issue bodies for
+  #394/#397/#400/#424 were corrected to the pinned Muxy revision
+  `5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6`; #394 remains closed.
+  `RuntimeSession.terminalId` is documented as the primary terminal only —
+  `dev.terminal.list` enumerates a session's split-leaf terminals — and
+  `dev.appearance`/`dev.appLibrary` are clarified as capability-snapshot-only
+  grants with `dev.capability.snapshot` as their sole consumer.
 
 ## What pins this
 

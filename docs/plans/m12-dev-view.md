@@ -77,6 +77,36 @@ from disconnects and partial failure.
 - Reuse licensed donor units first; independently invent only where no suitable
   licensed donor exists. Warp/OpenGrok restrictions are absolute.
 
+## Non-goals and ownership boundaries
+
+Explicitly outside M12 scope:
+
+- computer use / OS-level desktop automation;
+- macOS permissions onboarding (accessibility/screen-recording walkthroughs);
+- GitHub Projects/Kanban/automation surfaces — they belong in App Library, not
+  the core sidebar (#423);
+- terminal cloud share links — deferred until a redaction/expiry policy exists
+  (#396, Dev Runtime spec);
+- a real-browser extension lane (#422, Dev Runtime spec).
+
+Owned by other milestones, consumed here:
+
+- mobile handoff is M11 #187's authority; M12 only renders its projections;
+- provider subscription/billing management stays with the account surface; M12
+  #424 owns only the usage/limit cards and adapters;
+- the remote runtime-node host loads the same
+  `apps/desktop/shell/src/dev-runtime/**` adapter sources and exposes the same
+  registry over an authorized `RuntimeConnection` — M12 does not define a
+  second remote wire contract;
+- M10 must still define the authorized-root (`RootBookmark`) mint/revoke flow
+  and vault `CredentialRef` enrollment that the Dev Runtime DTOs consume — M12
+  reads them but cannot mint either.
+
+Committed scope that must not be reclassified as non-goals without an owner
+decision: per-project mute/snooze (#424), independent per-session badges for
+harness/dirty/PR-check/server-port state (#395), and tab hover/detail cards
+(#423).
+
 ## Dependency order
 
 ```text
@@ -550,8 +580,7 @@ performance and soak; #426 composes the exact six named scripts above and
 retains their artifacts. The issue adding each script MUST define platform,
 fixture, timeout, output path, and pass thresholds in the same commit. #426
 cannot close until every command exists and passes. A skipped check is not
-passing evidence. A skipped check is
-not passing evidence.
+passing evidence.
 
 ## Definition of done
 
