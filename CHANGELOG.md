@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.1](https://github.com/adea-ai/adea/compare/v0.26.0...v0.26.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **web:** de-gate the Plugins dialog for guest sessions ([#451](https://github.com/adea-ai/adea/issues/451)) ([15ff7eb](https://github.com/adea-ai/adea/commit/15ff7eb9b8858808e236cdcb6f42e50aafd72f74))
+
 ## [0.26.0](https://github.com/adea-ai/adea/compare/v0.25.17...v0.26.0) (2026-09-15)
 
 
