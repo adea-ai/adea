@@ -20,6 +20,14 @@ if (typeof window !== 'undefined') {
   } else if (view !== 'dev') {
     void import('./conventional-workspace-entry')
   }
+  // Chat is the fallback surface every lane can reach: once the predicted view
+  // is on the wire, warm it during idle so the first switch renders instantly.
+  // On the chat path itself the import already ran above and this deduplicates.
+  const idle =
+    typeof requestIdleCallback === 'function'
+      ? requestIdleCallback
+      : (run: () => void) => setTimeout(run, 2_000)
+  idle(() => void import('./conventional-workspace-entry'))
 }
 
 // The workspace entry stays a deferred chunk: a failed import surfaces as the

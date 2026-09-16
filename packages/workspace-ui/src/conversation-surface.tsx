@@ -225,6 +225,7 @@ export function ConversationSurface(props: {
     () => new Map(props.artifacts.map((artifact) => [artifact.id, artifact]))
   )
   const taskById = createMemo(() => new Map(props.tasks.map((task) => [task.id, task])))
+  const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const directAgent = createMemo(() =>
     props.channel?.agentId
       ? props.agents.find(({ id }) => id === props.channel?.agentId)
@@ -414,7 +415,7 @@ export function ConversationSurface(props: {
                     </div>
                   </Show>
                   <MessageRow
-                    agents={props.agents}
+                    agents={agentById()}
                     artifacts={artifactById()}
                     message={entry.item().message}
                     highlighted={entry.item().message.id === props.searchTargetMessageId}
@@ -433,7 +434,7 @@ export function ConversationSurface(props: {
             <Show when={optimisticMessage()}>
               {(message) => (
                 <MessageRow
-                  agents={props.agents}
+                  agents={agentById()}
                   artifacts={artifactById()}
                   message={message()}
                   onOpenTask={props.onOpenTask}

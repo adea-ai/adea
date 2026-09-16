@@ -79,6 +79,8 @@ export function GlobalWorkspaceRail(props: {
   onViewChange: (view: WorkspaceView) => void
   /** Fires when the user hovers or focuses a view button — prefetch the target. */
   onViewIntent?: (view: WorkspaceView) => void
+  /** Fires on hover/focus of a panel's entry point — prefetch its dialog chunk. */
+  onPanelIntent?: (panel: 'about' | 'plugins' | 'settings') => void
   view: WorkspaceView
   workspaces: readonly WorkspaceSummary[]
 }) {
@@ -214,10 +216,17 @@ export function GlobalWorkspaceRail(props: {
             icon={Plug}
             label="Plugins"
             onClick={props.onOpenPlugins}
+            onIntent={() => props.onPanelIntent?.('plugins')}
           />
           <AccountMenu
             authenticated={props.account.authenticated}
             busy={props.account.busy}
+            onIntent={() => {
+              // The menu is the path to settings and about: warm both dialogs
+              // when the user reaches for it.
+              props.onPanelIntent?.('settings')
+              props.onPanelIntent?.('about')
+            }}
             onOpenUpdates={props.account.onOpenUpdates}
             onOpenAbout={props.onOpenAbout}
             onOpenSettings={props.onOpenSettings}

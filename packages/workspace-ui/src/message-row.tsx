@@ -17,11 +17,11 @@ import { ConversationAvatar } from './conversation-avatar'
 // formatter across every row instead of building it per binding evaluation.
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 
-function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
+function senderLabel(message: MessageSummary, agents: ReadonlyMap<string, AgentSummary>) {
   if (message.sender.kind === 'user') return 'You'
   if (message.sender.kind === 'system') return 'Adea'
   const agentId = message.sender.agentId
-  return agents.find(({ id }) => id === agentId)?.name ?? 'Agent'
+  return (agentId ? agents.get(agentId)?.name : undefined) ?? 'Agent'
 }
 
 function MessageBody(props: { message: MessageSummary; privateContent?: PrivateContentResolver }) {
@@ -128,7 +128,8 @@ function ArtifactCard(props: { artifact?: ArtifactSummary; artifactId: string })
 }
 
 export function MessageRow(props: {
-  agents: readonly AgentSummary[]
+  /** Memoized id-keyed lookup — one map per surface, shared across all rows. */
+  agents: ReadonlyMap<string, AgentSummary>
   artifacts: ReadonlyMap<string, ArtifactSummary>
   highlighted?: boolean
   message: MessageSummary
@@ -146,7 +147,7 @@ export function MessageRow(props: {
     props.message.sender.kind === 'agent' ? props.message.sender.agentId : undefined
   const senderAgent = () => {
     const agentId = senderAgentId()
-    return agentId ? props.agents.find(({ id }) => id === agentId) : undefined
+    return agentId ? props.agents.get(agentId) : undefined
   }
 
   return (

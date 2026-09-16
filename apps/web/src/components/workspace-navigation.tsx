@@ -111,6 +111,20 @@ function preloadView(nextView: WorkspaceView) {
   else void import('./conventional-workspace-entry')
 }
 
+// Same trick for the overlay panels: hovering the rail button or the account
+// menu trigger downloads the dialog chunk before the click lands.
+function preloadPanel(panel: 'about' | 'plugins' | 'settings') {
+  if (panel === 'plugins') {
+    void import('@adea-ai/workspace-ui/plugins-dialog')
+    // The dialog's catalog provider resolves through the same deferred import.
+    void import('@adea-ai/workspace-ui/plugins')
+  } else if (panel === 'settings') {
+    void import('@adea-ai/workspace-ui/workspace-settings')
+  } else {
+    void import('@adea-ai/workspace-ui/workspace-about-dialog')
+  }
+}
+
 function WorkspaceSettingsOverlay(props: {
   accountAuthenticated: boolean
   accountLabel: string
@@ -293,6 +307,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         }}
         onViewChange={changeView}
         onViewIntent={preloadView}
+        onPanelIntent={preloadPanel}
         view={view()}
         workspaces={props.workspaces}
       />
