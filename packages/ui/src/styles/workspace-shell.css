@@ -77,11 +77,6 @@
  * that would compete with the editor canvas. */
 .workspace-scene-viewport:has([data-room-designer-active='true'])
   .workspace-ui
-  :is(
-    .conventional-mobile-menu,
-    .workspace-scene-tools,
-    .workspace-view-switcher,
-    .workspace-scene-caption
-  ) {
+  :is(.conventional-mobile-menu, .workspace-scene-caption) {
   display: none;
 }

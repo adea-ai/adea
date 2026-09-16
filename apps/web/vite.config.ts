@@ -43,6 +43,22 @@ function protectClientGraph(): Plugin {
   }
 }
 
+// better-auth pulls `z` in wholesale, and zod v4's barrel re-exports ~1.2MB of
+// per-language error catalogues via `export * as locales` — dead weight the
+// namespace import makes un-shakeable. Nothing configures a non-English
+// locale, so the barrel serves only `en` and the other ~50 locale modules
+// leave the module graph entirely.
+function trimZodLocales(): Plugin {
+  return {
+    name: 'adea-trim-zod-locales',
+    enforce: 'pre',
+    load(id) {
+      if (!id.replaceAll('\\', '/').endsWith('/zod/v4/locales/index.js')) return null
+      return 'export { default as en } from "./en.js"'
+    },
+  }
+}
+
 export default defineConfig({
   root,
   // No automatic environment-variable prefixes: public values are enumerated below.
@@ -92,6 +108,7 @@ export default defineConfig({
     }),
     tanstackStart({ srcDirectory: './src/start' }),
     viteSolid({ ssr: true }),
+    trimZodLocales(),
     protectClientGraph(),
   ],
 })

@@ -209,7 +209,14 @@ export function ConventionalWorkspaceShell(props: {
     } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
       workspaceStore.getState().setSelectedTaskId(taskId)
       workspaceStore.getState().setActiveSurface('tasks')
-    }
+    } else return
+    // Consume the deep link: it applies once. Leaving the params in the URL
+    // would re-select the stale destination every time the channel list
+    // changes and re-runs this effect.
+    const url = new URL(window.location.href)
+    for (const key of ['channel', 'thread', 'message', 'task', 'workspace'])
+      url.searchParams.delete(key)
+    window.history.replaceState(null, '', url)
   })
 
   const selectSearchResult = (result: SearchResult) => {

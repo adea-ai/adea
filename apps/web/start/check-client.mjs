@@ -13,6 +13,15 @@ if (!modules.every((id) => typeof id === 'string'))
   throw new Error('Invalid client module evidence')
 const forbidden = modules.filter(forbiddenClientModule)
 if (forbidden.length) throw new Error(`Server dependencies in client: ${forbidden.join(', ')}`)
+// The trimZodLocales Vite plugin narrows zod's locales barrel to English; a
+// dependency update that routes around it must be caught here, not in a
+// bundle-diff review.
+const extraLocales = modules.filter(
+  (id) =>
+    /zod.*\/v4\/locales\/[^/]+\.js$/.test(id) && !id.endsWith('/en.js') && !id.endsWith('/index.js')
+)
+if (extraLocales.length)
+  throw new Error(`Non-English zod locales in client graph: ${extraLocales.join(', ')}`)
 
 async function filesUnder(directory) {
   const files = []
