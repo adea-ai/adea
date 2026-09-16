@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.12](https://github.com/adea-ai/adea/compare/v0.26.11...v0.26.12) (2026-09-16)
+
+
+### Documentation
+
+* **dev-view:** stage remote RuntimeConnection certification into M14, after chat view ([#475](https://github.com/adea-ai/adea/issues/475)) ([#476](https://github.com/adea-ai/adea/issues/476)) ([e2b81d0](https://github.com/adea-ai/adea/commit/e2b81d03b40013f2f7ceb57bde4daaef4ea4ee56))
+
 ## [0.26.11](https://github.com/adea-ai/adea/compare/v0.26.10...v0.26.11) (2026-09-16)
 
 
