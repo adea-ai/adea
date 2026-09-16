@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.11](https://github.com/adea-ai/adea/compare/v0.26.10...v0.26.11) (2026-09-16)
+
+
+### Documentation
+
+* **dev-view:** return computer use and macOS permissions to M12 scope per owner ([#471](https://github.com/adea-ai/adea/issues/471), [#472](https://github.com/adea-ai/adea/issues/472)) ([#473](https://github.com/adea-ai/adea/issues/473)) ([c00b4fc](https://github.com/adea-ai/adea/commit/c00b4fc996a2f578d572a9696a005b1581488006))
+
 ## [0.26.10](https://github.com/adea-ai/adea/compare/v0.26.9...v0.26.10) (2026-09-16)
 
 
