@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.10](https://github.com/adea-ai/adea/compare/v0.26.9...v0.26.10) (2026-09-16)
+
+
+### Documentation
+
+* **dev-view:** complete M12 contract, donor manifest, and plan boundaries ([#469](https://github.com/adea-ai/adea/issues/469)) ([6eca0b2](https://github.com/adea-ai/adea/commit/6eca0b2e59da21a60119cab0d667e4ca67e62915))
+
 ## [0.26.9](https://github.com/adea-ai/adea/compare/v0.26.8...v0.26.9) (2026-09-16)
 
 

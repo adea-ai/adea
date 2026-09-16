@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/auth",
-  "version": "0.26.9",
+  "version": "0.26.10",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
