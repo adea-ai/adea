@@ -1,4 +1,4 @@
-import { createSignal, Show } from 'solid-js'
+import { createSignal, onMount, Show } from 'solid-js'
 
 type AuthMode = 'sign-in' | 'sign-up'
 
@@ -46,6 +46,10 @@ export function SignInForm(props: { returnTo: string }) {
   const [mode, setMode] = createSignal<AuthMode>('sign-in')
   const [error, setError] = createSignal('')
   const [pending, setPending] = createSignal(false)
+
+  // The auth client is a deferred chunk (it stays out of the workspace boot
+  // graph on purpose); warm it at form mount so submit doesn't pay the import.
+  onMount(() => void import('@adea-ai/auth/client'))
 
   async function submit(event: SubmitEvent & { currentTarget: HTMLFormElement }) {
     event.preventDefault()

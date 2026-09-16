@@ -189,10 +189,7 @@ export function DesktopWorkspaceEntry(props: {
   const client = createMemo(() => {
     const state = workspaceState()
     if (!state) return clientRef
-    const nextClient = runtime.createClient(
-      session(),
-      state.temporaryCredential ?? undefined
-    )
+    const nextClient = runtime.createClient(session(), state.temporaryCredential ?? undefined)
     clientRef = nextClient
     return nextClient
   })
