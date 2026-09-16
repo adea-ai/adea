@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.7](https://github.com/adea-ai/adea/compare/v0.26.6...v0.26.7) (2026-09-16)
+
+
+### Performance
+
+* **web:** shared event stream, bounded scroll cache, lazy images ([#462](https://github.com/adea-ai/adea/issues/462)) ([0e69c50](https://github.com/adea-ai/adea/commit/0e69c5004a10093e74b443e4ca8425c06be3217d))
+
 ## [0.26.6](https://github.com/adea-ai/adea/compare/v0.26.5...v0.26.6) (2026-09-16)
 
 
