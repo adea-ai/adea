@@ -116,8 +116,9 @@ desktop sessions share one path, and the cursor travels explicitly.
   while still advancing the cursor. The client never invents missing events.
 - Reconnects back off 1s→30s with jitter, reset after a stable connection, and
   never faster than the server asks.
-- One subscription is mounted in the shared workspace controller, so
-  conventional and spatial surfaces read the same query state, and transient UI
+- One subscription is mounted in the workspace navigation shell — above view
+  switching — so conventional, spatial, and dev surfaces read the same query
+  state without reconnecting on each surface change, and transient UI
   coordination stays in the Solid workspace store (`solid-js/store`; decision
   [0007](../decisions/0007-solid-tanstack-start.md)).
 

@@ -37,7 +37,6 @@ import {
   useUpdateRoomMutation,
   useWorkspaceBootstrapQuery,
 } from '@adea-ai/data'
-import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
 import { projectWorkspaceNavigation } from './workspace-model'
@@ -69,14 +68,6 @@ export function useWorkspaceController(providedClient?: AgentHqApiClient) {
     bootstrapData()?.workspaces.find(({ id }) => id === selectedWorkspaceId()) ??
     bootstrapData()?.activeWorkspace
   const workspaceId = () => activeWorkspace()?.id
-  useWorkspaceEventStream({
-    headers: () => client().eventStreamHeaders(),
-    url: () => {
-      const id = workspaceId()
-      return id ? client().workspaceEventStreamUrl(id) : undefined
-    },
-    workspaceId,
-  })
   const rooms = useRoomListQuery(client(), workspaceId)
   const channels = useChannelListQuery(client(), workspaceId)
   const agents = useAgentListQuery(client(), workspaceId)

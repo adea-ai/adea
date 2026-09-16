@@ -6,6 +6,7 @@ import { createEffect, createSignal, Show } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
+import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import type {
@@ -205,6 +206,17 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  // The stream lives above view switching: chat/virtual/dev share the query
+  // cache, so one subscription keeps every lane's lists fresh instead of
+  // reconnecting and replaying on each surface change.
+  useWorkspaceEventStream({
+    headers: () => props.client.eventStreamHeaders(),
+    url: () => {
+      const id = props.activeWorkspace?.id
+      return id ? props.client.workspaceEventStreamUrl(id) : undefined
+    },
+    workspaceId: () => props.activeWorkspace?.id,
+  })
   const search = useSearch({ strict: false })
   const navigate = useNavigate()
 
