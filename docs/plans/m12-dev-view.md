@@ -55,8 +55,11 @@ inspect resources/usage, archive losslessly, and perform separately authorized
 safe cleanup.
 
 The milestone is complete only when this journey works on the packaged macOS
-desktop and through an authorized remote RuntimeConnection, including recovery
-from disconnects and partial failure.
+desktop, including recovery from disconnects and partial failure. Remote
+RuntimeConnection certification is outside M12: the owner moved it to
+M14 — Remote Runtime Integration (executes after M13 — Chat View closes and
+gates M17 — Spatial; decision 2026-09-16). M12 keeps one shared adapter code
+path and no second wire contract so the remote host consumes it unchanged.
 
 ## Product contract
 
@@ -97,6 +100,10 @@ Owned by other milestones, consumed here:
   `apps/desktop/shell/src/dev-runtime/**` adapter sources and exposes the same
   registry over an authorized `RuntimeConnection` — M12 does not define a
   second remote wire contract;
+- remote RuntimeConnection certification is M14 — Remote Runtime Integration's
+  authority (owner decision 2026-09-16: it runs after M12 and M13 close, and
+  gates M17 — Spatial Workspace); M12 keeps the shared code path remote-ready
+  without certifying it;
 - M10 must still define the authorized-root (`RootBookmark`) mint/revoke flow
   and vault `CredentialRef` enrollment that the Dev Runtime DTOs consume — M12
   reads them but cannot mint either.
@@ -508,8 +515,10 @@ Deliverables:
 
 Acceptance:
 
-- [ ] Complete owner journey passes local packaged desktop and authorized remote
-      runtime-node paths, including reconnect/resume and partial failures.
+- [ ] Complete owner journey passes the local packaged desktop, including
+      reconnect/resume and partial-failure recovery. (Remote RuntimeConnection
+      certification moved to M14 — Remote Runtime Integration; owner decision
+      2026-09-16.)
 - [ ] Account/workspace/node/resource/generation/channel/path/process/browser/
       credential crossover suite passes.
 - [ ] Every adversarial and failure case in the Dev Runtime spec has evidence.
