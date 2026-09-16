@@ -3,7 +3,6 @@ import 'server-only'
 import {
   createAuthServer,
   handleAuthProxyRequest,
-  resolveNeonAuthLogging,
   type NeonAuthServer,
   type RequestContextFactory,
 } from '@neondatabase/auth/server'
@@ -26,7 +25,14 @@ function config(environment: AuthEnvironment) {
 
 // Provider payloads and transport errors may contain PII or cookies. Adea
 // emits only its own allowlisted auth events through createAuthEvent().
-const silentLog = () => resolveNeonAuthLogging({ logLevel: 'silent' })
+// A plain no-op sink keeps that full mute without pino, whose internals
+// break under the local dev workerd runtime.
+const silentLog = () => ({
+  error: () => {},
+  warn: () => {},
+  info: () => {},
+  debug: () => {},
+})
 
 export function createNeonServerAdapter(
   context: RequestContextFactory,
