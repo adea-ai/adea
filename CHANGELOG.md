@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.4](https://github.com/adea-ai/adea/compare/v0.26.3...v0.26.4) (2026-09-16)
+
+
+### Performance
+
+* **web:** solid-ux audit follow-ups ([#457](https://github.com/adea-ai/adea/issues/457)) ([2a8b24b](https://github.com/adea-ai/adea/commit/2a8b24b54a7956fcc5064942a077c399f22d6e37))
+
 ## [0.26.3](https://github.com/adea-ai/adea/compare/v0.26.2...v0.26.3) (2026-09-16)
 
 
