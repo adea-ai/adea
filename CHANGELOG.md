@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.8](https://github.com/adea-ai/adea/compare/v0.26.7...v0.26.8) (2026-09-16)
+
+
+### Performance
+
+* **web:** channel-intent prefetch and router-owned deep links ([#465](https://github.com/adea-ai/adea/issues/465)) ([05ff094](https://github.com/adea-ai/adea/commit/05ff094eeadb4b6f468896065cac76ca00ad0f32))
+
 ## [0.26.7](https://github.com/adea-ai/adea/compare/v0.26.6...v0.26.7) (2026-09-16)
 
 
