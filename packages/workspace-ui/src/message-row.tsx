@@ -137,6 +137,8 @@ export function MessageRow(props: {
   onEdit?: () => void
   onOpenTask?: (taskId: string) => void
   onOpenThread?: (messageId: string) => void
+  /** Fires on hover/focus of the thread affordance — prefetch before click. */
+  onThreadIntent?: (messageId: string) => void
   privateContent?: PrivateContentResolver
   pending?: boolean
   retry?: () => void
@@ -206,7 +208,12 @@ export function MessageRow(props: {
         </div>
         <footer class="conventional-message__actions">
           <Show when={!props.message.threadRootMessageId && !props.message.deleted}>
-            <button type="button" onClick={() => props.onOpenThread?.(props.message.id)}>
+            <button
+              type="button"
+              onClick={() => props.onOpenThread?.(props.message.id)}
+              onPointerEnter={() => props.onThreadIntent?.(props.message.id)}
+              onFocus={() => props.onThreadIntent?.(props.message.id)}
+            >
               <MessageSquareReply aria-hidden="true" />
               Thread
             </button>

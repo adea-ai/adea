@@ -28,6 +28,8 @@ export function ConversationAvatar(props: {
         alt=""
         loading="lazy"
         decoding="async"
+        fetchpriority="low"
+        referrerpolicy="no-referrer"
         onError={() => setImageFailed(true)}
       />
     </Show>

@@ -33,6 +33,8 @@ export function PluginLogo(props: { iconKey?: string; iconUrl?: string; name: st
           src={source()}
           loading="lazy"
           decoding="async"
+          fetchpriority="low"
+          referrerpolicy="no-referrer"
           onError={() => {
             clearFallbackTimer()
             setFailed(true)

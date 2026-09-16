@@ -6,7 +6,12 @@ import type {
   TaskSummary,
 } from '@adea-ai/types'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
+import {
+  settledData,
+  useCreateMessageMutation,
+  useMessageListQuery,
+  usePrefetchThreadMessages,
+} from '@adea-ai/data'
 import { Info, MailOpen, MessagesSquare, Search } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 
@@ -127,6 +132,11 @@ export function ConversationSurface(props: {
   const [pageBelongsToChannel, setPageBelongsToChannel] = createSignal(false)
   const [optimisticMessage, setOptimisticMessage] = createSignal<MessageSummary | null>(null)
   const [transcript, setTranscript] = createSignal<HTMLDivElement>()
+  const prefetchThread = usePrefetchThreadMessages(
+    props.client,
+    () => props.workspaceId,
+    () => props.channel?.id
+  )
   let lastMarkedRead = ''
   const messageQuery = useMessageListQuery(
     props.client,
@@ -446,6 +456,7 @@ export function ConversationSurface(props: {
                     highlighted={entry.item().message.id === props.searchTargetMessageId}
                     onOpenTask={props.onOpenTask}
                     onOpenThread={props.onThreadChange}
+                    onThreadIntent={prefetchThread}
                     privateContent={props.privateContent}
                     task={
                       entry.item().message.taskId
@@ -464,6 +475,7 @@ export function ConversationSurface(props: {
                   message={message()}
                   onOpenTask={props.onOpenTask}
                   onOpenThread={props.onThreadChange}
+                  onThreadIntent={prefetchThread}
                   pending
                   privateContent={props.privateContent}
                 />

@@ -272,6 +272,26 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // `?workspace=` switches the active workspace when the link scopes another
   // one — the surface's deep-link guard keeps channel/task params pending
   // until the switch lands and its lists reload.
+  // Both switch paths (rail menu and `?workspace=` links) funnel through one
+  // helper so the surface can show the in-flight affordance and an effect
+  // re-run can't fire a second authorize for a switch already in progress.
+  const [switchingWorkspaceId, setSwitchingWorkspaceId] = createSignal<string>()
+  const switchToWorkspace = (workspace: (typeof props.workspaces)[number]) => {
+    if (workspace.id === props.activeWorkspace?.id) return Promise.resolve(false)
+    if (switchingWorkspaceId()) return Promise.resolve(false)
+    setSwitchingWorkspaceId(workspace.id)
+    return Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
+      .then(() => {
+        workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
+        void setScene(workspace.scene)
+        return true
+      })
+      .catch(() => false)
+      .finally(() =>
+        setSwitchingWorkspaceId((current) => (current === workspace.id ? undefined : current))
+      )
+  }
+
   createEffect(() => {
     const requestedWorkspace = currentSearch().workspace
     if (!requestedWorkspace) return
@@ -291,20 +311,17 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return
     }
     const workspace = props.workspaces.find(({ id }) => id === requestedWorkspace)
-    if (!workspace) return
-    void Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
-      .then(() => {
-        workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
-        void setScene(workspace.scene)
-        const rest = { ...currentSearch() }
-        delete rest.workspace
-        void navigate({
-          search: rest as never,
-          hash: window.location.hash.replace(/^#/, ''),
-          replace: true,
-        })
+    if (!workspace || switchingWorkspaceId()) return
+    void switchToWorkspace(workspace).then((switched) => {
+      if (!switched) return
+      const rest = { ...currentSearch() }
+      delete rest.workspace
+      void navigate({
+        search: rest as never,
+        hash: window.location.hash.replace(/^#/, ''),
+        replace: true,
       })
-      .catch(() => undefined)
+    })
   })
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
@@ -371,22 +388,19 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onOpenSearch={openSearch}
         onOpenSettings={() => openSettings('account')}
         activeWorkspace={props.activeWorkspace}
-        onWorkspaceChange={(workspace) => {
-          if (workspace.id === props.activeWorkspace?.id) return
-          void Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
-            .then(() => {
-              workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
-              void setScene(workspace.scene)
-            })
-            .catch(() => undefined)
-        }}
+        onWorkspaceChange={(workspace) => void switchToWorkspace(workspace)}
         onViewChange={changeView}
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
         view={view()}
         workspaces={props.workspaces}
       />
-      <div class="workspace-frame__surface">
+      <div class="workspace-frame__surface" aria-busy={switchingWorkspaceId() ? true : undefined}>
+        <Show when={switchingWorkspaceId()}>
+          <p class="workspace-switching" role="status">
+            Switching workspace…
+          </p>
+        </Show>
         <Show
           when={view() !== 'dev'}
           fallback={
