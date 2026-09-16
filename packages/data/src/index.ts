@@ -986,16 +986,21 @@ export function useMessageListQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,
   channelId?: MaybeAccessor<string | undefined>,
-  options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {}
+  options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {},
+  queryConfig: Readonly<{
+    /** Ephemeral page shown while the fetch is in flight — not written to cache. */
+    placeholderData?: () => Awaited<ReturnType<AgentHqApiClient['listMessages']>> | undefined
+  }> = {}
 ) {
-  return useQuery(() =>
-    messageQueryOptions.list(
+  return useQuery(() => ({
+    ...messageQueryOptions.list(
       client,
       resolveAccessor(workspaceId),
       resolveAccessor(channelId),
       options
-    )
-  )
+    ),
+    ...(queryConfig.placeholderData ? { placeholderData: queryConfig.placeholderData } : {}),
+  }))
 }
 export function useMessageQuery(
   client: AgentHqApiClient,
