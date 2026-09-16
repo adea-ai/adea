@@ -1,5 +1,3 @@
-'use client'
-
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
 import { Show } from 'solid-js'
 

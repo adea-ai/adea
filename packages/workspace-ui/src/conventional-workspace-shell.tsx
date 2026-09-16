@@ -1,5 +1,3 @@
-'use client'
-
 import { AlertTriangle, X } from 'lucide-solid'
 import { createEffect, createSignal, lazy, Show, Suspense } from 'solid-js'
 import { settledData } from '@adea-ai/data'

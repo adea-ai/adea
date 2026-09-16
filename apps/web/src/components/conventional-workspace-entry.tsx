@@ -1,5 +1,3 @@
-'use client'
-
 import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
 import { ConventionalWorkspaceShell } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'

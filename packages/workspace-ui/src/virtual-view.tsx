@@ -1,5 +1,3 @@
-'use client'
-
 import { createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js'
 
 import {

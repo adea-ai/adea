@@ -33,6 +33,7 @@ import {
 } from 'lucide-solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
+import { keyedRows } from './keyed-rows'
 import { ModalDialog } from './modal-dialog'
 import { PluginLogo } from './plugin-logo'
 import type { WorkspacePlugin, WorkspacePluginsProvider } from './platform'
@@ -173,6 +174,9 @@ function PluginBrowserGroup(props: {
   const preview = () =>
     props.expanded ? props.plugins : props.plugins.slice(0, props.previewCount)
   const hidden = () => props.plugins.slice(props.previewCount)
+  // The filtered list changes on every search keystroke; keyed rows keep each
+  // row's DOM alive so typing does not rebuild the grid each character.
+  const pluginRows = keyedRows(preview, (plugin) => plugin.id)
   const expandLabel = () => {
     const nextNames = hidden()
       .slice(0, 2)
@@ -187,12 +191,12 @@ function PluginBrowserGroup(props: {
         <span>{props.plugins.length}</span>
       </header>
       <div class="plugins-browser__grid">
-        <For each={preview()}>
-          {(plugin) => (
+        <For each={pluginRows()}>
+          {(entry) => (
             <PluginBrowserRow
               disabled={props.disabled}
-              onSelect={() => props.onSelect(plugin.id)}
-              plugin={plugin}
+              onSelect={() => props.onSelect(entry.item().id)}
+              plugin={entry.item()}
             />
           )}
         </For>
@@ -423,6 +427,9 @@ export function PluginsDialog(props: {
       ? [{ category: 'Popular', plugins: getPopularWorkspacePlugins(visible()) }, ...grouped]
       : grouped
   })
+  // Groups recompute on every search keystroke; key by category so group
+  // sections keep their DOM instead of remounting per character.
+  const groupRows = keyedRows(groups, (group) => group.category)
 
   createEffect(() => {
     const provider = props.provider
@@ -532,23 +539,23 @@ export function PluginsDialog(props: {
                   when={visible().length > 0}
                   fallback={<PluginsEmpty query={query()} tab={tab()} />}
                 >
-                  <For each={groups()}>
-                    {(group) => (
+                  <For each={groupRows()}>
+                    {(entry) => (
                       <PluginBrowserGroup
                         disabled={filterOpen()}
-                        expanded={expandedGroups().has(group.category)}
-                        name={group.category}
+                        expanded={expandedGroups().has(entry.item().category)}
+                        name={entry.item().category}
                         onSelect={setSelectedId}
                         previewCount={previewCount()}
                         onToggle={() =>
                           setExpandedGroups((current) => {
                             const next = new Set<string>(current)
-                            if (next.has(group.category)) next.delete(group.category)
-                            else next.add(group.category)
+                            if (next.has(entry.item().category)) next.delete(entry.item().category)
+                            else next.add(entry.item().category)
                             return next
                           })
                         }
-                        plugins={group.plugins}
+                        plugins={entry.item().plugins}
                       />
                     )}
                   </For>

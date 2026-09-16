@@ -3,6 +3,7 @@ import { Bot, MessageCircle, Pencil, Plus, ShieldAlert, X } from 'lucide-solid'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
+import { keyedRows } from './keyed-rows'
 import { WorkspaceEmpty } from './workspace-states'
 
 export type AgentCustomizationInput = Readonly<{
@@ -38,6 +39,13 @@ export function AgentRoster(props: Props) {
   const [error, setError] = createSignal<string | null>(null)
   const roomById = createMemo(() => new Map(props.rooms.map((room) => [room.id, room])))
   const editingAgent = createMemo(() => props.agents.find(({ id }) => id === editingAgentId()))
+  // Keyed by agent id: an agents refetch updates cards in place instead of
+  // remounting the grid on every new object identity.
+  const agentRows = keyedRows(
+    () => props.agents,
+    (agent) => agent.id,
+    (previous, next) => previous.updatedAt === next.updatedAt
+  )
 
   return (
     <section class="conventional-directory" aria-labelledby="agent-roster-title">
@@ -99,44 +107,44 @@ export function AgentRoster(props: Props) {
         )}
       </Show>
       <div class="conventional-agent-grid">
-        <For each={props.agents}>
-          {(agent) => (
+        <For each={agentRows()}>
+          {(entry) => (
             <article class="conventional-agent-card">
               <div class="conventional-agent-card__avatar" aria-hidden="true">
                 <Bot />
               </div>
               <div class="conventional-agent-card__identity">
-                <h2>{agent.name}</h2>
+                <h2>{entry.item().name}</h2>
               </div>
               <div class="conventional-agent-card__status">
-                <AgentStatus agent={agent} compact />
+                <AgentStatus agent={entry.item()} compact />
               </div>
-              <p>{agent.roleSummary ?? 'No role summary yet.'}</p>
+              <p>{entry.item().roleSummary ?? 'No role summary yet.'}</p>
               <div class="conventional-agent-card__metadata">
                 <p>
                   <span>Profile</span>
                   <strong>
-                    {agent.profile.id} · v{agent.profile.version}
+                    {entry.item().profile.id} · v{entry.item().profile.version}
                   </strong>
                 </p>
                 <p>
                   <span>Room</span>
                   <strong>
-                    {agent.roomId
-                      ? (roomById().get(agent.roomId)?.name ?? 'Unavailable Room')
+                    {entry.item().roomId
+                      ? (roomById().get(entry.item().roomId!)?.name ?? 'Unavailable Room')
                       : 'Unassigned'}
                   </strong>
                 </p>
                 <p>
                   <span>Profile state</span>
-                  <strong>{agent.profile.state}</strong>
+                  <strong>{entry.item().profile.state}</strong>
                 </p>
               </div>
-              <button type="button" onClick={() => void props.onMessage(agent.id)}>
+              <button type="button" onClick={() => void props.onMessage(entry.item().id)}>
                 <MessageCircle aria-hidden="true" />
                 Open conversation
               </button>
-              <button type="button" onClick={() => setEditingAgentId(agent.id)}>
+              <button type="button" onClick={() => setEditingAgentId(entry.item().id)}>
                 <Pencil aria-hidden="true" />
                 Customize
               </button>

@@ -7,7 +7,7 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, onMount, Show } from 'solid-js'
 
 import { formatReleaseDate, plainTextFromMarkdown } from '#lib/version-notes'
 import { Button, buttonVariants } from '#components/ui/button'
@@ -91,7 +91,7 @@ export function VersionDialog(props: {
     props.onOpenChange?.(nextOpen)
   }
 
-  const [desktopRuntime, setDesktopRuntime] = createSignal(false)
+  const desktopRuntime = () => props.adapter.isDesktopRuntime()
   const [update, setUpdate] = createSignal<SharedDesktopUpdate | null>(null)
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal('')
@@ -105,9 +105,7 @@ export function VersionDialog(props: {
     }
   }
 
-  createEffect(() => setDesktopRuntime(props.adapter.isDesktopRuntime()))
-
-  createEffect(() => {
+  onMount(() => {
     if (desktopRuntime()) void loadCurrentStatus()
   })
 

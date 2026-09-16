@@ -1,5 +1,3 @@
-'use client'
-
 // Desktop runtime entry for the single workspace UI. The shell injects
 // `window.__adeaDesktop` before this client boots, so this entry owns only the
 // shell session bootstrap (guest credential, PKCE sign-in) and the start
@@ -62,15 +60,21 @@ export function DesktopWorkspaceEntry(props: {
   const [updatesOpen, setUpdatesOpen] = createSignal(false)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
   let temporaryCredential: string | null = null
-  let workspaceId: string | undefined
-  let userId: string | undefined
   let clientRef: AgentHqApiClient | undefined
   const workspaceRequestGuard = createWorkspaceRequestGuard()
   let authCallbackObserved = false
+  const activeWorkspace = (): WorkspaceSummary | undefined => {
+    const state = workspaceState()
+    return state
+      ? (state.workspaces.find(({ id }) => id === selectedWorkspaceId()) ?? state.workspace)
+      : undefined
+  }
+  // The plugins provider reads these lazily, so accessors deliver the current
+  // ids directly — no mutable variables synchronized through effects.
   const plugins = createDeferredPluginsProvider({
     client: () => clientRef!,
-    getWorkspaceId: () => workspaceId,
-    getUserId: () => userId,
+    getWorkspaceId: () => activeWorkspace()?.id,
+    getUserId: () => workspaceState()?.userId,
     requestedHarness: 'codex',
   })
 
@@ -112,8 +116,6 @@ export function DesktopWorkspaceEntry(props: {
         .getState()
         .switchWorkspace(nextWorkspace.workspace.id, nextWorkspace.workspace.scene)
       temporaryCredential = nextWorkspace.temporaryCredential
-      workspaceId = nextWorkspace.workspace.id
-      userId = nextWorkspace.userId
       setWorkspaceState(nextWorkspace)
       setStatus(activeSession ? 'authenticated' : 'guest')
       setMessage(
@@ -175,17 +177,9 @@ export function DesktopWorkspaceEntry(props: {
     }
   })
 
-  const activeWorkspace = (): WorkspaceSummary | undefined => {
-    const state = workspaceState()
-    return state
-      ? (state.workspaces.find(({ id }) => id === selectedWorkspaceId()) ?? state.workspace)
-      : undefined
-  }
-
   createEffect(() => {
     const workspace = activeWorkspace()
     if (!workspace) return
-    workspaceId = workspace.id
     void localContentAuthority.authorizeWorkspace(workspace.id).catch(() => undefined)
   })
 
@@ -284,6 +278,9 @@ function DesktopWorkspace(props: {
 }) {
   const signedIn = () => Boolean(props.session)
   const accountLabel = () => (signedIn() ? (props.accountLabel ?? 'Account') : 'Not signed in')
+  // Invariant services are built once: rebuilding the object per evaluation
+  // would also rebuild the dev runtime service on every busy/version update.
+  const devRuntime = createDesktopDevRuntimeService()
   const services = (): WorkspacePlatformServices => ({
     account: {
       authenticated: signedIn(),
@@ -295,7 +292,7 @@ function DesktopWorkspace(props: {
     app: { name: 'Adea', platform: 'desktop', version: props.appVersion },
     capabilities: desktopCapabilityProvider,
     client: props.client,
-    devRuntime: createDesktopDevRuntimeService(),
+    devRuntime,
     privateContent: localContentAuthority,
     plugins: props.plugins,
     settings: desktopSettingsProvider,

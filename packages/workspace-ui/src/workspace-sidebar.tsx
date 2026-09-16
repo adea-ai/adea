@@ -29,6 +29,7 @@ import {
 } from '@adea-ai/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 
+import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
 import { RoomIcon } from './room-icon'
 import { SidebarToggleButton } from './sidebar-toggle-button'
@@ -67,6 +68,22 @@ function currentSidebarWidth(root: HTMLElement): number {
 
 function applySidebarWidth(root: HTMLElement, width: number) {
   root.style.setProperty('--conventional-sidebar-width', `${clampSidebarWidth(width)}px`)
+}
+
+/** Field-level channel equality for the keyed navigation rows. */
+function sameChannels(
+  previous: readonly ChannelSummary[],
+  next: readonly ChannelSummary[]
+): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every(
+      (channel, index) =>
+        channel.id === next[index]!.id &&
+        channel.version === next[index]!.version &&
+        channel.updatedAt === next[index]!.updatedAt
+    )
+  )
 }
 
 function ConversationChannelRow(props: {
@@ -159,6 +176,28 @@ export function WorkspaceSidebar(props: Props) {
   const agentById = createMemo(() => new Map(props.agents.map((agent) => [agent.id, agent])))
   const readStateByChannel = createMemo(
     () => new Map(props.readState.map((state) => [state.channelId, state]))
+  )
+  // The navigation projection produces fresh wrapper objects on every rooms or
+  // channels refetch. Keying on the stable ids keeps each row's DOM (menus,
+  // hover, focus) alive and lets the per-row accessor push actual changes.
+  const roomRows = keyedRows(
+    () => props.navigation.rooms,
+    (item) => item.room.id,
+    (previous, next) =>
+      previous.room.updatedAt === next.room.updatedAt &&
+      previous.selectionChannelId === next.selectionChannelId &&
+      previous.primaryChannel?.updatedAt === next.primaryChannel?.updatedAt &&
+      sameChannels(previous.visibleChannels, next.visibleChannels)
+  )
+  const directChannelRows = keyedRows(
+    () => props.navigation.directAgentChannels,
+    (channel) => channel.id,
+    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
+  )
+  const groupChannelRows = keyedRows(
+    () => props.navigation.groupChannels,
+    (channel) => channel.id,
+    (previous, next) => previous.version === next.version && previous.updatedAt === next.updatedAt
   )
   const hasUnread = () =>
     props.readState.some(
@@ -326,16 +365,19 @@ export function WorkspaceSidebar(props: Props) {
               }
             >
               <ul class="conventional-room-list">
-                <For each={props.navigation.rooms}>
-                  {(item) => {
-                    const collapsed = () => props.collapsedRoomIds.includes(item.room.id)
+                <For each={roomRows()}>
+                  {(entry) => {
+                    const item = () => entry.item()
+                    const collapsed = () => props.collapsedRoomIds.includes(item().room.id)
                     const selected = () =>
-                      Boolean(item.selectionChannelId) &&
-                      (props.selectedChannelId === item.selectionChannelId ||
-                        item.visibleChannels.some(({ id }) => id === props.selectedChannelId))
+                      Boolean(item().selectionChannelId) &&
+                      (props.selectedChannelId === item().selectionChannelId ||
+                        item().visibleChannels.some(({ id }) => id === props.selectedChannelId))
                     const roomChannels = () => [
-                      ...(item.primaryChannel ? [item.primaryChannel] : []),
-                      ...item.visibleChannels.filter(({ id }) => id !== item.primaryChannel?.id),
+                      ...(item().primaryChannel ? [item().primaryChannel!] : []),
+                      ...item().visibleChannels.filter(
+                        ({ id }) => id !== item().primaryChannel?.id
+                      ),
                     ]
                     const roomUnread = () =>
                       roomChannels().reduce((total, channel) => {
@@ -346,6 +388,12 @@ export function WorkspaceSidebar(props: Props) {
                           (state?.threadUnreadCount ?? 0)
                         )
                       }, 0)
+                    const channelRows = keyedRows(
+                      () => item().visibleChannels,
+                      (channel) => channel.id,
+                      (previous, next) =>
+                        previous.version === next.version && previous.updatedAt === next.updatedAt
+                    )
                     return (
                       <li>
                         <div class="conventional-room-row">
@@ -354,17 +402,17 @@ export function WorkspaceSidebar(props: Props) {
                             class="conventional-room-select"
                             aria-current={selected() ? 'page' : undefined}
                             onClick={() =>
-                              item.selectionChannelId &&
-                              props.onSelectChannel(item.selectionChannelId, item.room.id)
+                              item().selectionChannelId &&
+                              props.onSelectChannel(item().selectionChannelId!, item().room.id)
                             }
                           >
-                            <RoomIcon functionKey={item.room.functionKey} />
-                            <span class="conventional-room-name">{item.room.name}</span>
+                            <RoomIcon functionKey={item().room.functionKey} />
+                            <span class="conventional-room-name">{item().room.name}</span>
                             <Show when={roomUnread()}>
                               {(unread) => (
                                 <span
                                   class="conventional-unread-badge"
-                                  aria-label={`${unread()} unread in ${item.room.name}`}
+                                  aria-label={`${unread()} unread in ${item().room.name}`}
                                 >
                                   {unread() > 99 ? '99+' : unread()}
                                 </span>
@@ -377,7 +425,7 @@ export function WorkspaceSidebar(props: Props) {
                                 as={Button}
                                 variant="ghost"
                                 size="icon"
-                                aria-label={`Room options for ${item.room.name}`}
+                                aria-label={`Room options for ${item().room.name}`}
                               >
                                 <EllipsisVertical aria-hidden="true" />
                               </DropdownMenuTrigger>
@@ -385,7 +433,7 @@ export function WorkspaceSidebar(props: Props) {
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setActionError(null)
-                                    setEditingRoom(item.room)
+                                    setEditingRoom(item().room)
                                   }}
                                 >
                                   <Pencil aria-hidden="true" />
@@ -394,13 +442,13 @@ export function WorkspaceSidebar(props: Props) {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </span>
-                          <Show when={item.visibleChannels.length}>
+                          <Show when={item().visibleChannels.length}>
                             <button
                               type="button"
                               class="conventional-room-toggle"
-                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item.room.name}`}
+                              aria-label={`${collapsed() ? 'Expand' : 'Collapse'} ${item().room.name}`}
                               aria-expanded={!collapsed()}
-                              onClick={() => props.onToggleRoom(item.room.id)}
+                              onClick={() => props.onToggleRoom(item().room.id)}
                             >
                               <Show
                                 when={!collapsed()}
@@ -411,21 +459,25 @@ export function WorkspaceSidebar(props: Props) {
                             </button>
                           </Show>
                         </div>
-                        <Show when={item.visibleChannels.length && !collapsed()}>
+                        <Show when={item().visibleChannels.length && !collapsed()}>
                           <ul class="conventional-channel-list">
-                            <For each={item.visibleChannels}>
-                              {(channel) => (
+                            <For each={channelRows()}>
+                              {(channelEntry) => (
                                 <li>
                                   <button
                                     type="button"
                                     aria-current={
-                                      channel.id === props.selectedChannelId ? 'page' : undefined
+                                      channelEntry.item().id === props.selectedChannelId
+                                        ? 'page'
+                                        : undefined
                                     }
-                                    onClick={() => props.onSelectChannel(channel.id, item.room.id)}
+                                    onClick={() =>
+                                      props.onSelectChannel(channelEntry.item().id, item().room.id)
+                                    }
                                   >
                                     <Hash aria-hidden="true" />
-                                    <span>{channel.title}</span>
-                                    {unreadBadge(channel.id)}
+                                    <span>{channelEntry.item().title}</span>
+                                    {unreadBadge(channelEntry.item().id)}
                                   </button>
                                 </li>
                               )}
@@ -452,37 +504,37 @@ export function WorkspaceSidebar(props: Props) {
               </button>
             </div>
             <ul class="conventional-channel-list conventional-channel-list--standalone">
-              <For each={props.navigation.directAgentChannels}>
-                {(channel) => (
+              <For each={directChannelRows()}>
+                {(entry) => (
                   <ConversationChannelRow
-                    channel={channel}
+                    channel={entry.item()}
                     icon={<Bot aria-hidden="true" />}
                     label={
-                      channel.agentId
-                        ? (agentById().get(channel.agentId)?.name ?? 'Agent')
+                      entry.item().agentId
+                        ? (agentById().get(entry.item().agentId!)?.name ?? 'Agent')
                         : 'Agent'
                     }
                     onArchive={archiveChannel}
                     onCopyLink={copyChannelLink}
                     onRename={setRenamingChannel}
-                    onSelect={() => props.onSelectChannel(channel.id)}
-                    selected={channel.id === props.selectedChannelId}
-                    unread={unreadBadge(channel.id)}
+                    onSelect={() => props.onSelectChannel(entry.item().id)}
+                    selected={entry.item().id === props.selectedChannelId}
+                    unread={unreadBadge(entry.item().id)}
                   />
                 )}
               </For>
-              <For each={props.navigation.groupChannels}>
-                {(channel) => (
+              <For each={groupChannelRows()}>
+                {(entry) => (
                   <ConversationChannelRow
-                    channel={channel}
+                    channel={entry.item()}
                     icon={<Users aria-hidden="true" />}
-                    label={channel.title}
+                    label={entry.item().title}
                     onArchive={archiveChannel}
                     onCopyLink={copyChannelLink}
                     onRename={setRenamingChannel}
-                    onSelect={() => props.onSelectChannel(channel.id)}
-                    selected={channel.id === props.selectedChannelId}
-                    unread={unreadBadge(channel.id)}
+                    onSelect={() => props.onSelectChannel(entry.item().id)}
+                    selected={entry.item().id === props.selectedChannelId}
+                    unread={unreadBadge(entry.item().id)}
                   />
                 )}
               </For>

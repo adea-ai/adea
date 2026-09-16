@@ -13,6 +13,10 @@ import { createEffect, createSignal, For, Show } from 'solid-js'
 import type { PrivateContentResolver } from './platform'
 import { ConversationAvatar } from './conversation-avatar'
 
+// Intl.DateTimeFormat construction is surprisingly expensive; share one
+// formatter across every row instead of building it per binding evaluation.
+const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+
 function senderLabel(message: MessageSummary, agents: readonly AgentSummary[]) {
   if (message.sender.kind === 'user') return 'You'
   if (message.sender.kind === 'system') return 'Adea'
@@ -184,9 +188,7 @@ export function MessageRow(props: {
           </Show>
           <div class="conventional-message__meta">
             <time dateTime={props.message.createdAt}>
-              {new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-                new Date(props.message.createdAt)
-              )}
+              {timeFormatter.format(new Date(props.message.createdAt))}
             </time>
             <Show when={props.message.editedAt}>
               <span>edited</span>

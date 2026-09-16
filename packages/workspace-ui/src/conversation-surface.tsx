@@ -8,9 +8,10 @@ import type {
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useCreateMessageMutation, useMessageListQuery } from '@adea-ai/data'
 import { Info, MailOpen, MessagesSquare, Search } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from 'solid-js'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
+import { keyedRows } from './keyed-rows'
 import { MessageComposer, type ComposerSubmission } from './message-composer'
 import { MessageRow } from './message-row'
 import { ThreadPanel } from './thread-panel'
@@ -20,6 +21,24 @@ import { AgentStatusBadge } from './agent-status'
 import { ConversationAvatar } from './conversation-avatar'
 
 const scrollPositions = new Map<string, number>()
+/**
+ * Merged transcripts per channel, kept across selection changes so revisiting
+ * a conversation renders its last-known history immediately while the refetch
+ * merges fresher pages in. Bounded: the least recently touched channel drops
+ * out once the map outgrows the working set a user realistically flips between.
+ */
+const transcriptCache = new Map<string, readonly MessageSummary[]>()
+const TRANSCRIPT_CACHE_LIMIT = 12
+
+function rememberTranscript(channelId: string, messages: readonly MessageSummary[]) {
+  transcriptCache.delete(channelId)
+  transcriptCache.set(channelId, messages)
+  while (transcriptCache.size > TRANSCRIPT_CACHE_LIMIT) {
+    transcriptCache.delete(transcriptCache.keys().next().value!)
+  }
+}
+
+const dayFormatter = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' })
 
 type ConversationPerson = Readonly<{
   active: boolean
@@ -64,9 +83,7 @@ function peopleForConversation(
 }
 
 function formatMessageDay(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'long' }).format(
-    new Date(value)
-  )
+  return dayFormatter.format(new Date(value))
 }
 
 export function ConversationSurface(props: {
@@ -129,9 +146,13 @@ export function ConversationSurface(props: {
   createEffect(() => {
     const channel = props.channel
     if (channel?.id !== loadedChannelId) {
+      if (loadedChannelId) rememberTranscript(loadedChannelId, messages())
       loadedChannelId = channel?.id
       setCursor(undefined)
-      setMessages([])
+      // Restore the last-known transcript for the incoming channel. The merge
+      // below reconciles it with the fresh page when the refetch lands, so the
+      // stale copy is a render bridge, not a second source of truth.
+      setMessages(channel ? (transcriptCache.get(channel.id) ?? []) : [])
       setOptimisticMessage(null)
       setPageBelongsToChannel(false)
       requestAnimationFrame(() => {
@@ -168,20 +189,25 @@ export function ConversationSurface(props: {
     messages().filter(({ threadRootMessageId }) => !threadRootMessageId)
   )
 
-  createEffect(() => {
+  // One stable marker: the effect re-evaluates it when the transcript changes,
+  // and the focus/visibility listeners call the same closure for the life of
+  // the component instead of being detached and re-registered per message.
+  const markVisible = () => {
     const channel = props.channel
-    if (!channel || messageQuery.isPending || !rootMessages().length) return
-    const lastReadSequence = Math.max(...rootMessages().map(({ sequence }) => sequence))
-    const markVisible = () => {
-      const key = `${channel.id}:${lastReadSequence}`
-      if (document.visibilityState !== 'visible' || !document.hasFocus() || lastMarkedRead === key)
-        return
-      lastMarkedRead = key
-      void props.onMarkRead(lastReadSequence).catch(() => {
-        if (lastMarkedRead === key) lastMarkedRead = ''
-      })
-    }
-    markVisible()
+    if (!channel || messageQuery.isPending) return
+    const roots = rootMessages()
+    if (!roots.length) return
+    const lastReadSequence = Math.max(...roots.map(({ sequence }) => sequence))
+    const key = `${channel.id}:${lastReadSequence}`
+    if (document.visibilityState !== 'visible' || !document.hasFocus() || lastMarkedRead === key)
+      return
+    lastMarkedRead = key
+    void props.onMarkRead(lastReadSequence).catch(() => {
+      if (lastMarkedRead === key) lastMarkedRead = ''
+    })
+  }
+  createEffect(markVisible)
+  onMount(() => {
     window.addEventListener('focus', markVisible)
     document.addEventListener('visibilitychange', markVisible)
     onCleanup(() => {
@@ -225,7 +251,17 @@ export function ConversationSurface(props: {
       workspaceId: props.workspaceId,
     })
     try {
-      await createMessage.mutateAsync(submission)
+      const created = await createMessage.mutateAsync(submission)
+      // Merge the committed message immediately: the list invalidation that
+      // follows refetches the page, but the transcript should not wait a round
+      // trip (or drop the optimistic row first) to show what the server
+      // already confirmed.
+      setMessages((current) => {
+        if (current.some(({ id }) => id === created.message.id)) return current
+        return [...current, created.message].toSorted(
+          (left, right) => left.sequence - right.sequence
+        )
+      })
     } finally {
       setOptimisticMessage(null)
     }
@@ -244,6 +280,16 @@ export function ConversationSurface(props: {
       }
     })
   })
+  // Keyed by message id so a refetched page updates rows in place instead of
+  // remounting the whole transcript on every new object identity.
+  const transcriptRows = keyedRows(
+    messagesWithDividers,
+    (entry) => entry.message.id,
+    (previous, next) =>
+      previous.showDayDivider === next.showDayDivider &&
+      previous.message.version === next.message.version &&
+      previous.message.updatedAt === next.message.updatedAt
+  )
 
   return (
     <Show
@@ -359,23 +405,27 @@ export function ConversationSurface(props: {
                 detail="Messages here are canonical Adea history and remain stable across runtime sessions."
               />
             </Show>
-            <For each={messagesWithDividers()}>
+            <For each={transcriptRows()}>
               {(entry) => (
                 <>
-                  <Show when={entry.showDayDivider}>
+                  <Show when={entry.item().showDayDivider}>
                     <div class="conventional-date-divider" role="separator">
-                      <span>{formatMessageDay(entry.message.createdAt)}</span>
+                      <span>{formatMessageDay(entry.item().message.createdAt)}</span>
                     </div>
                   </Show>
                   <MessageRow
                     agents={props.agents}
                     artifacts={artifactById()}
-                    message={entry.message}
-                    highlighted={entry.message.id === props.searchTargetMessageId}
+                    message={entry.item().message}
+                    highlighted={entry.item().message.id === props.searchTargetMessageId}
                     onOpenTask={props.onOpenTask}
                     onOpenThread={props.onThreadChange}
                     privateContent={props.privateContent}
-                    task={entry.message.taskId ? taskById().get(entry.message.taskId) : undefined}
+                    task={
+                      entry.item().message.taskId
+                        ? taskById().get(entry.item().message.taskId!)
+                        : undefined
+                    }
                   />
                 </>
               )}

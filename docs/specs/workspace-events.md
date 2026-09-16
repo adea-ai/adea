@@ -109,7 +109,9 @@ desktop sessions share one path, and the cursor travels explicitly.
   the cursor is persisted, so a reload resumes where the previous session
   stopped.
 - Each event family maps to the query groups it changes; an unknown family
-  refreshes the workspace rather than being dropped.
+  refreshes the workspace rather than being dropped. Refreshes are coalesced:
+  the keys a stream chunk produces are deduplicated and invalidated once per
+  chunk, so a burst of events costs one refetch per group, not one per event.
 - A sequence gap or `resync_required` refetches authoritative current state
   while still advancing the cursor. The client never invents missing events.
 - Reconnects back off 1s→30s with jitter, reset after a stable connection, and

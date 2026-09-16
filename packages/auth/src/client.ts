@@ -1,5 +1,3 @@
-'use client'
-
 import { createAuthClient } from '@neondatabase/auth'
 import { BetterAuthVanillaAdapter } from '@neondatabase/auth/vanilla'
 
