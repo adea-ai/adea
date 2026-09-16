@@ -54,7 +54,7 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
-    expect(devOperations).toHaveLength(114)
+    expect(devOperations).toHaveLength(133)
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',
@@ -90,6 +90,45 @@ describe('Dev Runtime operation registry', () => {
         mobile: false,
       })
     ).toThrow('width')
+  })
+
+  test('decodes new group, stream-grant, and list operation bodies', () => {
+    expect(
+      devOperationDecoders['dev.group.update'].request({
+        groupId: 'group-1',
+        expectedVersion: 3,
+        patch: { name: 'Platform', colorToken: 'accent' },
+      })
+    ).toMatchObject({ groupId: 'group-1' })
+    expect(() =>
+      devOperationDecoders['dev.group.update'].request({
+        groupId: 'group-1',
+        expectedVersion: 3,
+        patch: { name: 'Platform', unknown: true },
+      })
+    ).toThrow('unknown key')
+    expect(
+      devOperationDecoders['dev.files.writeStream'].request({
+        worktreeId: 'wt-1',
+        path: {
+          worktreeId: 'wt-1',
+          rootIdentity: { mtimeNs: '1', size: '1' },
+          relativePath: 'src/index.ts',
+        },
+        expectedIdentity: { mtimeNs: '1', size: '1' },
+        byteLength: 1048576,
+        contentSha256: '0'.repeat(64),
+        eolPolicy: 'preserve',
+        direction: 'write',
+      })
+    ).toMatchObject({ eolPolicy: 'preserve' })
+    expect(
+      devOperationDecoders['dev.terminal.list'].request({
+        runtimeSessionId: 'session-1',
+        state: 'running',
+      })
+    ).toMatchObject({ state: 'running' })
+    expect(() => devOperationDecoders['dev.terminal.list'].request({ state: 'bogus' })).toThrow()
   })
 
   test('rejects authority fields nested in operation bodies', () => {
