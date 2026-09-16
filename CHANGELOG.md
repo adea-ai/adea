@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.9](https://github.com/adea-ai/adea/compare/v0.26.8...v0.26.9) (2026-09-16)
+
+
+### Performance
+
+* **web:** thread/search intent prefetch, persistence singleton, switch affordance ([#467](https://github.com/adea-ai/adea/issues/467)) ([8edc122](https://github.com/adea-ai/adea/commit/8edc122810b5cb625d311fb26e8b334af7eefdfb))
+
 ## [0.26.8](https://github.com/adea-ai/adea/compare/v0.26.7...v0.26.8) (2026-09-16)
 
 
