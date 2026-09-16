@@ -580,8 +580,7 @@ performance and soak; #426 composes the exact six named scripts above and
 retains their artifacts. The issue adding each script MUST define platform,
 fixture, timeout, output path, and pass thresholds in the same commit. #426
 cannot close until every command exists and passes. A skipped check is not
-passing evidence. A skipped check is
-not passing evidence.
+passing evidence.
 
 ## Definition of done
 
