@@ -16,6 +16,7 @@ import type {
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
+import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
@@ -244,6 +245,68 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
 
+  // Deep-link params are router state the chat surface consumes through
+  // accessors — reactive, so notification links apply on SPA navigation too.
+  // `onConsumeDeepLink` strips the params once the surface applies them so a
+  // stale link can't re-select the destination on later channel changes.
+  const deepLink = (): WorkspaceDeepLink => {
+    const query = currentSearch()
+    return {
+      channel: query.channel,
+      message: query.message,
+      task: query.task,
+      thread: query.thread,
+      workspace: query.workspace,
+    }
+  }
+  const consumeDeepLink = () => {
+    const rest = { ...currentSearch() }
+    for (const key of ['channel', 'message', 'task', 'thread', 'workspace'] as const)
+      delete rest[key]
+    void navigate({
+      search: rest as never,
+      hash: window.location.hash.replace(/^#/, ''),
+      replace: true,
+    })
+  }
+  // `?workspace=` switches the active workspace when the link scopes another
+  // one — the surface's deep-link guard keeps channel/task params pending
+  // until the switch lands and its lists reload.
+  createEffect(() => {
+    const requestedWorkspace = currentSearch().workspace
+    if (!requestedWorkspace) return
+    if (requestedWorkspace === props.activeWorkspace?.id) {
+      // Already there: drop the param unless channel/task deep links still
+      // need it as a scoping guard for the surface.
+      const query = currentSearch()
+      if (!query.channel && !query.task && !query.thread && !query.message) {
+        const rest = { ...query }
+        delete rest.workspace
+        void navigate({
+          search: rest as never,
+          hash: window.location.hash.replace(/^#/, ''),
+          replace: true,
+        })
+      }
+      return
+    }
+    const workspace = props.workspaces.find(({ id }) => id === requestedWorkspace)
+    if (!workspace) return
+    void Promise.resolve(props.onAuthorizeWorkspace?.(workspace.id))
+      .then(() => {
+        workspaceStore.getState().switchWorkspace(workspace.id, workspace.scene)
+        void setScene(workspace.scene)
+        const rest = { ...currentSearch() }
+        delete rest.workspace
+        void navigate({
+          search: rest as never,
+          hash: window.location.hash.replace(/^#/, ''),
+          replace: true,
+        })
+      })
+      .catch(() => undefined)
+  })
+
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
   const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
 
@@ -340,7 +403,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
             fallback={
               <ConventionalWorkspace
                 client={props.client}
+                deepLink={deepLink}
                 manageSettings={false}
+                onConsumeDeepLink={consumeDeepLink}
                 onViewChange={changeView}
                 services={props.services}
               />

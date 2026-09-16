@@ -32,6 +32,7 @@ import {
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 
 import type { PrivateContentResolver } from './platform'
+import { keyedRows } from './keyed-rows'
 import { RoomIcon } from './room-icon'
 
 type Props = Readonly<{
@@ -118,6 +119,17 @@ export function TaskDetail(props: Props) {
         task.title.toLowerCase().includes(dependencyQuery().trim().toLowerCase())
     )
   )
+  // Refetches hand these lists fresh object identities; keying by id keeps the
+  // open dropdown's rows (and their hover/focus) stable.
+  const roomRows = keyedRows(
+    () => props.rooms,
+    (room) => room.id
+  )
+  const agentRows = keyedRows(
+    () => props.agents,
+    (agent) => agent.id
+  )
+  const dependencyRows = keyedRows(dependencyCandidates, (task) => task.id)
   const toggleDependency = (taskId: string) =>
     setDependencyIds((ids) =>
       ids.includes(taskId) ? ids.filter((id) => id !== taskId) : [...ids, taskId]
@@ -330,11 +342,11 @@ export function TaskDetail(props: Props) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="bottom">
                   <DropdownMenuItem onSelect={() => setRoomId(null)}>No Room</DropdownMenuItem>
-                  <For each={props.rooms}>
-                    {(room) => (
-                      <DropdownMenuItem onSelect={() => setRoomId(room.id)}>
-                        <RoomIcon functionKey={room.functionKey} />
-                        {room.name}
+                  <For each={roomRows()}>
+                    {(entry) => (
+                      <DropdownMenuItem onSelect={() => setRoomId(entry.item().id)}>
+                        <RoomIcon functionKey={entry.item().functionKey} />
+                        {entry.item().name}
                       </DropdownMenuItem>
                     )}
                   </For>
@@ -361,11 +373,11 @@ export function TaskDetail(props: Props) {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" side="bottom">
                   <DropdownMenuItem onSelect={() => setAgentId(null)}>Unassigned</DropdownMenuItem>
-                  <For each={props.agents}>
-                    {(agent) => (
-                      <DropdownMenuItem onSelect={() => setAgentId(agent.id)}>
+                  <For each={agentRows()}>
+                    {(entry) => (
+                      <DropdownMenuItem onSelect={() => setAgentId(entry.item().id)}>
                         <Bot aria-hidden="true" />
-                        {agent.name}
+                        {entry.item().name}
                       </DropdownMenuItem>
                     )}
                   </For>
@@ -385,21 +397,21 @@ export function TaskDetail(props: Props) {
               onInput={(event) => setDependencyQuery(event.currentTarget.value)}
             />
             <ul class="conventional-dependency-results">
-              <For each={dependencyCandidates()}>
-                {(task) => {
-                  const selectedDependency = () => dependencyIds().includes(task.id)
+              <For each={dependencyRows()}>
+                {(entry) => {
+                  const selectedDependency = () => dependencyIds().includes(entry.item().id)
                   return (
                     <li>
                       <button
                         type="button"
                         aria-pressed={selectedDependency()}
                         disabled={fieldsDisabled()}
-                        onClick={() => toggleDependency(task.id)}
+                        onClick={() => toggleDependency(entry.item().id)}
                       >
                         <Show when={selectedDependency()} fallback={<Plus aria-hidden="true" />}>
                           <Check aria-hidden="true" />
                         </Show>
-                        <span>{task.title}</span>
+                        <span>{entry.item().title}</span>
                       </button>
                     </li>
                   )

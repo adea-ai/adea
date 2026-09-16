@@ -92,6 +92,7 @@ function ConversationChannelRow(props: {
   label: string
   onArchive: (channel: ChannelSummary) => void
   onCopyLink: (channel: ChannelSummary) => void
+  onIntent?: () => void
   onRename: (channel: ChannelSummary) => void
   onSelect: () => void
   selected: boolean
@@ -103,6 +104,8 @@ function ConversationChannelRow(props: {
         type="button"
         aria-current={props.selected ? 'page' : undefined}
         onClick={() => props.onSelect()}
+        onPointerEnter={() => props.onIntent?.()}
+        onFocus={() => props.onIntent?.()}
       >
         {props.icon}
         <span>{props.label}</span>
@@ -154,6 +157,8 @@ type Props = Readonly<{
   onOpenAgents: () => void
   onOpenTasks: () => void
   onMarkAllRead: () => void
+  /** Fires on hover/focus of a channel affordance — prefetch before click. */
+  onChannelIntent?: (channelId: string) => void
   onRenameChannel: (channel: ChannelSummary, title: string) => Promise<void>
   onSelectChannel: (channelId: string, roomId?: string) => void
   onToggleMobile: (open: boolean) => void
@@ -405,6 +410,14 @@ export function WorkspaceSidebar(props: Props) {
                               item().selectionChannelId &&
                               props.onSelectChannel(item().selectionChannelId!, item().room.id)
                             }
+                            onPointerEnter={() =>
+                              item().selectionChannelId &&
+                              props.onChannelIntent?.(item().selectionChannelId!)
+                            }
+                            onFocus={() =>
+                              item().selectionChannelId &&
+                              props.onChannelIntent?.(item().selectionChannelId!)
+                            }
                           >
                             <RoomIcon functionKey={item().room.functionKey} />
                             <span class="conventional-room-name">{item().room.name}</span>
@@ -474,6 +487,10 @@ export function WorkspaceSidebar(props: Props) {
                                     onClick={() =>
                                       props.onSelectChannel(channelEntry.item().id, item().room.id)
                                     }
+                                    onPointerEnter={() =>
+                                      props.onChannelIntent?.(channelEntry.item().id)
+                                    }
+                                    onFocus={() => props.onChannelIntent?.(channelEntry.item().id)}
                                   >
                                     <Hash aria-hidden="true" />
                                     <span>{channelEntry.item().title}</span>
@@ -517,6 +534,7 @@ export function WorkspaceSidebar(props: Props) {
                     onArchive={archiveChannel}
                     onCopyLink={copyChannelLink}
                     onRename={setRenamingChannel}
+                    onIntent={() => props.onChannelIntent?.(entry.item().id)}
                     onSelect={() => props.onSelectChannel(entry.item().id)}
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
@@ -532,6 +550,7 @@ export function WorkspaceSidebar(props: Props) {
                     onArchive={archiveChannel}
                     onCopyLink={copyChannelLink}
                     onRename={setRenamingChannel}
+                    onIntent={() => props.onChannelIntent?.(entry.item().id)}
                     onSelect={() => props.onSelectChannel(entry.item().id)}
                     selected={entry.item().id === props.selectedChannelId}
                     unread={unreadBadge(entry.item().id)}
