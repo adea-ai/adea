@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.13](https://github.com/adea-ai/adea/compare/v0.26.12...v0.26.13) (2026-09-17)
+
+
+### Documentation
+
+* **dev-view:** add CoW-first worktree materialization and dependency-template cache ([#397](https://github.com/adea-ai/adea/issues/397)/[#398](https://github.com/adea-ai/adea/issues/398)/[#424](https://github.com/adea-ai/adea/issues/424)) ([#479](https://github.com/adea-ai/adea/issues/479)) ([085d082](https://github.com/adea-ai/adea/commit/085d0826daec304d5f22ea544b1ba35e756bfcc5))
+
 ## [0.26.12](https://github.com/adea-ai/adea/compare/v0.26.11...v0.26.12) (2026-09-16)
 
 
