@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.16](https://github.com/adea-ai/adea/compare/v0.26.15...v0.26.16) (2026-09-17)
+
+
+### Maintenance
+
+* point config runtime_ref at v1.29.1 ([#486](https://github.com/adea-ai/adea/issues/486)) ([23b428b](https://github.com/adea-ai/adea/commit/23b428b8c493c87fd175d828d7581baa332dfd1c))
+
 ## [0.26.15](https://github.com/adea-ai/adea/compare/v0.26.14...v0.26.15) (2026-09-17)
 
 
