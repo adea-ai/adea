@@ -77,6 +77,10 @@ path and no second wire contract so the remote host consumes it unchanged.
 - Human and task-owned browser lanes remain separate per ADR 0006.
 - Appearance is live/versioned/coherent; App Library never executes arbitrary
   downloaded UI code.
+- Worktrees materialize fast: `.worktreeinclude` populations and dependency
+  trees use copy-on-write file clones, with a package-manager-aware,
+  per-project dependency-template cache (#397/#398) and template visibility in
+  #424's retained-data view.
 - Reuse licensed donor units first; independently invent only where no suitable
   licensed donor exists. Warp/OpenGrok restrictions are absolute.
 
@@ -229,7 +233,11 @@ Deliverables:
 
 - authorized discovery/adoption/create/bootstrap/lease/archive/merge/cleanup;
 - per-repo mutation ownership/cross-process lock and durable journal;
-- `.worktreeinclude` bounded plan/copy;
+- CoW-first `.worktreeinclude` bounded plan/copy (native file clones, never
+  stream loops) and the per-project dependency-template cache: one immutable,
+  lockfile-digest-validated template per project, package-manager-aware,
+  cloned into new worktrees, promoted only from an approved successful
+  bootstrap;
 - expected-SHA merge/branch cleanup and quarantine trash with continuation.
 
 Acceptance:
@@ -239,6 +247,11 @@ Acceptance:
 - [ ] Bootstrap/teardown is approved argv/cwd/env digest, never shell text.
 - [ ] Include copy rejects escapes, symlinks, special files, overwrites, budget
       excess, identity races, and unapproved secret-like files.
+- [ ] `.worktreeinclude` and dependency-template materialization are CoW-first
+      (native file clones, no stream loops) and pass the measured 50k-file
+      fixture on APFS within bounded time and disk; templates are immutable,
+      digest-validated, never mutated in place, and one build runs at a time
+      per project.
 - [ ] Archive is lossless and distinct from complete-and-clean.
 - [ ] Dirty/unpushed/conflicted/leased/external/protected/dangerous/nested or
       unproven state blocks destructive cleanup.
@@ -263,7 +276,10 @@ Deliverables:
 - add/recent/picker/clone/GitHub/monorepo/external-worktree flows;
 - bounded KiroCrew-derived scanner and fingerprint cache;
 - visible-row-priority status/watch scheduler;
-- one transactional new-session flow.
+- one transactional new-session flow;
+- per-project dependency-template default and template status
+  (hit / stale / building / absent / failed) with explicit rebuild/clear
+  controls.
 
 Acceptance:
 
@@ -282,6 +298,8 @@ Acceptance:
 - [ ] Watcher overflow/permission loss/offline node degrades to bounded refresh.
 - [ ] Any new-session failure leaves a visible retryable transaction and no
       silent orphan or destructive rollback.
+- [ ] The per-project dependency-template default is settable, shows template
+      state, and rebuild/clear never runs automatically during scan/import.
 
 ## Task 5 — Terminal runtime
 
@@ -450,7 +468,9 @@ Deliverables:
 - joined resource inventory and explicit ownership/provenance;
 - bounded process/port/CPU/memory sampling and history;
 - source/freshness/confidence-labeled usage adapters;
-- Archive and separate proof-driven Complete-and-clean UI over #397.
+- Archive and separate proof-driven Complete-and-clean UI over #397;
+- dependency-template caches in the retained-data breakdown and as explicit
+  cleanup candidates (#397/#398).
 
 Acceptance:
 
@@ -468,6 +488,9 @@ Acceptance:
       confirmation and policy edit/revoke/expiry are audited.
 - [ ] Performance covers 100 sessions and 1,000 processes with no polling storm
       or >16 ms UI task; resource/cleanup soak proves bounded history.
+- [ ] Dependency-template caches appear in the retained-data breakdown and as
+      cleanup candidates; clearing one never touches worktrees or the primary
+      checkout.
 
 ## Task 11 — Appearance and App Library
 
