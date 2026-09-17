@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.14](https://github.com/adea-ai/adea/compare/v0.26.13...v0.26.14) (2026-09-17)
+
+
+### Maintenance
+
+* standardize lint and format toolchain ([#482](https://github.com/adea-ai/adea/issues/482)) ([daa3922](https://github.com/adea-ai/adea/commit/daa392248d2d748f66e7af36a0c3e96587f27070))
+
 ## [0.26.13](https://github.com/adea-ai/adea/compare/v0.26.12...v0.26.13) (2026-09-17)
 
 
