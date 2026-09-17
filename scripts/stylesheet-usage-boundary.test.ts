@@ -59,6 +59,6 @@ describe('stylesheet usage boundary', () => {
         dead.push(`${name} (${sheet.slice(root.length + 1)})`)
       }
     }
-    expect(dead.sort()).toEqual([])
+    expect(dead.toSorted()).toEqual([])
   })
 })
