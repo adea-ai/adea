@@ -83,6 +83,12 @@ export interface CreateTerminalInput {
   readonly args: readonly string[]
   readonly cwd: string
   readonly env: Record<string, string>
+  /**
+   * Byte-level output transform applied before ring storage (the
+   * shell-integration observer consumes protocol frames and denies OSC 52).
+   * Must stay byte-preserving: it never decodes or trims.
+   */
+  readonly outputTransform?: (bytes: Uint8Array) => Uint8Array
 }
 
 export type TerminalSnapshot = Readonly<{
@@ -135,6 +141,7 @@ type Session = {
   cols: number
   rows: number
   pty: PtyProcess | null
+  outputTransform: ((bytes: Uint8Array) => Uint8Array) | null
   disposables: (() => void)[]
   ring: RingEntry[]
   ringBytes: number
@@ -214,6 +221,7 @@ export function createTerminalManager(options: TerminalManagerOptions) {
 
   function handleOutput(session: Session, data: Uint8Array): void {
     if (sessions.get(session.terminalId) !== session) return
+    if (session.outputTransform) data = session.outputTransform(data)
     const consumed = consumeDeviceAttributes(session.pendingDaQuery, data)
     session.pendingDaQuery = consumed.pending
     if (consumed.queries > 0 && session.pty) {
@@ -395,6 +403,7 @@ export function createTerminalManager(options: TerminalManagerOptions) {
         cols: input.cols,
         rows: input.rows,
         pty: spawned.value,
+        outputTransform: input.outputTransform ?? null,
         disposables: [],
         ring: [],
         ringBytes: 0,
