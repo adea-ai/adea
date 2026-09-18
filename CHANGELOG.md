@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.27.0](https://github.com/adea-ai/adea/compare/v0.26.20...v0.27.0) (2026-09-18)
+
+
+### Features
+
+* **dev-runtime:** M10 [#34](https://github.com/adea-ai/adea/issues/34) grants/roots/vault substrate ([#498](https://github.com/adea-ai/adea/issues/498)) ([3568bc9](https://github.com/adea-ai/adea/commit/3568bc9a55b9504c527b21596ee8fd92a750dd57))
+
 ## [0.26.20](https://github.com/adea-ai/adea/compare/v0.26.19...v0.26.20) (2026-09-18)
 
 
