@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/config",
-  "version": "0.26.16",
+  "version": "0.26.17",
   "private": true,
   "type": "module",
   "exports": {
