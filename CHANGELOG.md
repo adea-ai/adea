@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.33.0](https://github.com/adea-ai/adea/compare/v0.32.0...v0.33.0) (2026-09-18)
+
+
+### Features
+
+* **dev-view:** browser & devices lanes, ports, annotation, and emulators ([#422](https://github.com/adea-ai/adea/issues/422)) ([#514](https://github.com/adea-ai/adea/issues/514)) ([c9de59b](https://github.com/adea-ai/adea/commit/c9de59b30097877108ef98bc0f8e20c648f6aea5))
+
 ## [0.32.0](https://github.com/adea-ai/adea/compare/v0.31.1...v0.32.0) (2026-09-18)
 
 
