@@ -1,7 +1,7 @@
 // Devices pane model: inventory grouping with typed capability guidance.
 import { describe, expect, test } from 'bun:test'
 
-import { groupDeviceInventory } from '../src/devices/devices-pane'
+import { groupDeviceInventory } from '../src/devices/device-model'
 
 const item = (
   overrides: Partial<{ id: string; kind: string; name: string; state: string }> = {}
