@@ -6,14 +6,14 @@
 
 ## File-ownership map (concurrent agents never edit another agent's paths)
 
-| Agent | Issue | Owned paths (exclusive while open) |
-| --- | --- | --- |
-| S1 | #395 shell/panes | `packages/dev-view/src/**` (except editor/browser/files/source-control/sidebar-registry dirs owned later), `packages/workspace-ui/src/global-workspace-rail.tsx`, `apps/web/src/components/workspace-navigation.tsx`, dev-view CSS additions |
-| S2 | #425 appearance/App Library | `packages/ui/src/components/theme-provider.tsx`, `packages/ui/src/styles/theme.css`, `packages/workspace-ui/src/plugins-dialog.tsx` + plugins catalog modules, appearance popover components. **Holds `global-workspace-rail.tsx` / `workspace-navigation.tsx` until S1's Dev-entry merge lands** |
-| M1 | M10 #33 boundary/channel auth | `apps/desktop/shell/src/commands.ts`, shell auth/channel modules, `packages/types/src/dev-runtime.ts` auth/channel DTO blocks |
-| M2 | M10 #34 grants/roots/vault | shell grant/vault/root-bookmark modules (disjoint files from M1), `packages/types/src/dev-runtime.ts` grant DTO blocks |
-| M3 | M10 #185 local stack supervision | shell supervision/component-manifest modules |
-| CP1 | control-plane#548 (CP repo) | `apps/local-control-plane/**`, `packages/sqlite-persistence/**` |
+| Agent | Issue                            | Owned paths (exclusive while open)                                                                                                                                                                                                                                                                |
+| ----- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1    | #395 shell/panes                 | `packages/dev-view/src/**` (except editor/browser/files/source-control/sidebar-registry dirs owned later), `packages/workspace-ui/src/global-workspace-rail.tsx`, `apps/web/src/components/workspace-navigation.tsx`, dev-view CSS additions                                                      |
+| S2    | #425 appearance/App Library      | `packages/ui/src/components/theme-provider.tsx`, `packages/ui/src/styles/theme.css`, `packages/workspace-ui/src/plugins-dialog.tsx` + plugins catalog modules, appearance popover components. **Holds `global-workspace-rail.tsx` / `workspace-navigation.tsx` until S1's Dev-entry merge lands** |
+| M1    | M10 #33 boundary/channel auth    | `apps/desktop/shell/src/commands.ts`, shell auth/channel modules, `packages/types/src/dev-runtime.ts` auth/channel DTO blocks                                                                                                                                                                     |
+| M2    | M10 #34 grants/roots/vault       | shell grant/vault/root-bookmark modules (disjoint files from M1), `packages/types/src/dev-runtime.ts` grant DTO blocks                                                                                                                                                                            |
+| M3    | M10 #185 local stack supervision | shell supervision/component-manifest modules                                                                                                                                                                                                                                                      |
+| CP1   | control-plane#548 (CP repo)      | `apps/local-control-plane/**`, `packages/sqlite-persistence/**`                                                                                                                                                                                                                                   |
 
 Shared files — append/coordinate, never rewrite: `docs/research/dev-view-source-manifest.json` (own issue's slice block only), `docs/research/dev-view-donor-audit.md` + root `NOTICE` (own issue-tagged rows only, per the plan's ownership protocol), `packages/types/src/dev-runtime.ts` (additive DTO blocks only, per issue-tagged section). Merge order = wave order when these conflict.
 
@@ -21,25 +21,25 @@ Shared files — append/coordinate, never rewrite: `docs/research/dev-view-sourc
 
 **Wave A — dispatch immediately (independent):**
 
-| Agent | Issue | Gate to close |
-| --- | --- | --- |
-| S1 | #395 shell/panes | #394 (done) |
-| S2 | #425 appearance/App Library | #394 + S1's rail-entry merge |
-| M1 | M10 #33 boundary/channel auth | standalone substrate |
-| M2 | M10 #34 grants/roots/vault | coordinates with M1 |
-| M3 | M10 #185 local stack supervision | CP#548 contracts (parallel) |
-| CP1 | control-plane#548 SQLite durable queue + profile conformance | standalone (CP repo, CP-M11) |
+| Agent | Issue                                                        | Gate to close                |
+| ----- | ------------------------------------------------------------ | ---------------------------- |
+| S1    | #395 shell/panes                                             | #394 (done)                  |
+| S2    | #425 appearance/App Library                                  | #394 + S1's rail-entry merge |
+| M1    | M10 #33 boundary/channel auth                                | standalone substrate         |
+| M2    | M10 #34 grants/roots/vault                                   | coordinates with M1          |
+| M3    | M10 #185 local stack supervision                             | CP#548 contracts (parallel)  |
+| CP1   | control-plane#548 SQLite durable queue + profile conformance | standalone (CP repo, CP-M11) |
 
 **Wave B — dispatch when #395 and M10 #33/#34/#185 have merged** (fixture work may start earlier; closure per plan):
 
-| Agent | Issue | Extra closure deps |
-| --- | --- | --- |
-| T1 | #396 terminal | #397 + M10 #30–#32 |
-| T2 | #397 worktrees | M10 authorities only |
-| T3 | #399 files/local source control | M10 #33 |
-| T4 | #422 browser/devices | M10 #33/#34/#185; closes before #400 is allowed to (agent-event attachment waits) |
-| T5 | #471 permissions page | M10 #33 capability reporting |
-| M4/M5/M6 | M10 #30 discovery, #31 managed Pi, #32 ACP | standalone substrate |
+| Agent    | Issue                                      | Extra closure deps                                                                |
+| -------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
+| T1       | #396 terminal                              | #397 + M10 #30–#32                                                                |
+| T2       | #397 worktrees                             | M10 authorities only                                                              |
+| T3       | #399 files/local source control            | M10 #33                                                                           |
+| T4       | #422 browser/devices                       | M10 #33/#34/#185; closes before #400 is allowed to (agent-event attachment waits) |
+| T5       | #471 permissions page                      | M10 #33 capability reporting                                                      |
+| M4/M5/M6 | M10 #30 discovery, #31 managed Pi, #32 ACP | standalone substrate                                                              |
 
 **Wave C — dispatched from Wave B merges:** #398 (needs #397), #400 (needs #396 + M11 #36–#41/#43 — **M11 contracts are Wave B-parallel work in their own issues**), #423 (needs #398/#399), #424 (needs #396/#397/#398/#400/#422 — fixtures may start earlier), #472 computer use (planning-first slice after #400/#422/#471). Then #426 integration/release gate last.
 
