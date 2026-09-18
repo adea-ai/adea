@@ -58,6 +58,7 @@
   },
   "scripts": {
     "lint": "oxlint",
+    "test": "bun test tests",
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit"

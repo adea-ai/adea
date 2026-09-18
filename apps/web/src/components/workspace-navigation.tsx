@@ -14,6 +14,16 @@ import type {
   WorkspacePluginsProvider,
 } from '@adea-ai/workspace-ui/platform'
 import type { RegistryPluginsProviderOptions } from '@adea-ai/workspace-ui/plugins'
+import type { RailPreferencesV1 } from '@adea-ai/workspace-ui/rail-preferences'
+import {
+  defaultRailPreferences,
+  railItemsForViews,
+  readRailPreferences,
+  reorderRailItems,
+  resolveRailItems,
+  setRailItemHidden,
+  writeRailPreferences,
+} from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
@@ -88,6 +98,13 @@ const PluginsDialog = lazyComponent(
   { ssr: false }
 )
 
+// The appearance surface is a dev-view subpath so opening it never pulls the
+// Dev workspace chunk into Chat/Virtual.
+const AppearanceDialog = lazyComponent(
+  () => import('@adea-ai/dev-view/appearance').then((module) => module.AppearanceDialog),
+  { ssr: false }
+)
+
 const WorkspaceSettingsDialog = lazyComponent(
   () =>
     import('@adea-ai/workspace-ui/workspace-settings').then(
@@ -125,6 +142,10 @@ function preloadPanel(panel: 'about' | 'plugins' | 'settings') {
   } else {
     void import('@adea-ai/workspace-ui/workspace-about-dialog')
   }
+}
+
+function preloadAppearance() {
+  void import('@adea-ai/dev-view/appearance')
 }
 
 function WorkspaceSettingsOverlay(props: {
@@ -203,10 +224,34 @@ export type WorkspaceNavigationProps = Readonly<{
   workspaces: readonly WorkspaceSummary[]
 }>
 
+// Rail customization applies the versioned order/hidden preference, keeping
+// the active view visible even when it is hidden. Unknown ids preserved by
+// the preference (contributions from other builds) never reach the rail.
+const isWorkspaceView = (id: string): id is WorkspaceView =>
+  id === 'chat' || id === 'dev' || id === 'virtual'
+
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  // Rail customization is a device-local versioned preference with unknown-
+  // contribution preservation; a corrupt record falls back without deleting
+  // the unread value.
+  const [railPreferences, setRailPreferences] = createSignal<RailPreferencesV1>(
+    defaultRailPreferences,
+    { equals: false }
+  )
+  const [appearanceOpen, setAppearanceOpen] = createSignal(false)
+  const railItems = railItemsForViews()
+  createEffect(() => {
+    setRailPreferences(
+      readRailPreferences(typeof window === 'undefined' ? undefined : window.localStorage)
+    )
+  })
+  const persistRailPreferences = (next: RailPreferencesV1) => {
+    setRailPreferences(next)
+    writeRailPreferences(window.localStorage, next)
+  }
   // The stream lives above view switching: chat/virtual/dev share the query
   // cache, so one subscription keeps every lane's lists fresh instead of
   // reconnecting and replaying on each surface change.
@@ -226,6 +271,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     if (value === 'chat' || value === 'dev' || value === 'virtual') return value
     return props.virtual ? 'virtual' : 'chat'
   }
+  // Rail customization applies the versioned order/hidden preference, keeping
+  // the active view visible even when it is hidden.
+  const orderedViews = () =>
+    resolveRailItems(railPreferences(), railItems, view())
+      .map((item) => item.id)
+      .filter(isWorkspaceView)
   const scene = () => {
     const value = currentSearch().scene
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
@@ -385,6 +436,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onOpenNotifications={() => openSettings('input-notifications')}
         onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
         onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
+        onOpenAppearance={() => setAppearanceOpen(true)}
+        onAppearanceIntent={preloadAppearance}
         onOpenSearch={openSearch}
         onOpenSettings={() => openSettings('account')}
         activeWorkspace={props.activeWorkspace}
@@ -393,6 +446,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onViewIntent={preloadView}
         onPanelIntent={preloadPanel}
         view={view()}
+        views={orderedViews()}
         workspaces={props.workspaces}
       />
       <div class="workspace-frame__surface" aria-busy={switchingWorkspaceId() ? true : undefined}>
@@ -473,11 +527,26 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       {/* Both dialogs mount only when their panel opens: an always-mounted
           lazyComponent fetches its chunk at startup, which silently defeats
           the code split these boundaries exist to create. */}
+      <Show when={appearanceOpen()}>
+        <AppearanceDialog open onOpenChange={setAppearanceOpen} />
+      </Show>
       <Show when={globalPanel() === 'plugins' && props.activeWorkspace}>
         <PluginsDialog
           open
           onClose={() => workspaceStore.getState().setGlobalPanel(null)}
           provider={props.services.plugins}
+          navigation={{
+            activeItemId: view(),
+            items: railItems,
+            get preferences() {
+              return railPreferences()
+            },
+            onReorder: (id, direction) =>
+              persistRailPreferences(reorderRailItems(railPreferences(), id, direction)),
+            onSetHidden: (id, hidden) =>
+              persistRailPreferences(setRailItemHidden(railPreferences(), id, hidden)),
+            onReset: () => persistRailPreferences(defaultRailPreferences),
+          }}
         />
       </Show>
       <Show when={globalPanel() === 'about'}>

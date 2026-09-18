@@ -785,7 +785,7 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   )
 })
 
-test('keeps Plugins unavailable until workspace bootstrap completes', async ({ page }) => {
+test('keeps the App Library unavailable until workspace bootstrap completes', async ({ page }) => {
   let releaseBootstrap!: () => void
   const bootstrapBlocked = new Promise<void>((resolve) => {
     releaseBootstrap = resolve
@@ -803,7 +803,7 @@ test('keeps Plugins unavailable until workspace bootstrap completes', async ({ p
   })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  const pluginsButton = globalNavigation.getByRole('button', { name: 'Plugins' })
+  const pluginsButton = globalNavigation.getByRole('button', { name: 'App Library' })
   await expect(pluginsButton).toBeVisible()
   await expect(pluginsButton).toBeDisabled()
 
@@ -853,8 +853,8 @@ test('browses the verified registry marketplace and submits an exact install req
   })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
-  const plugins = page.getByRole('dialog', { name: 'Plugins' })
+  await globalNavigation.getByRole('button', { name: 'App Library' }).click()
+  const plugins = page.getByRole('dialog', { name: 'App Library' })
   await expect(plugins).toBeVisible()
   await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
 
@@ -917,7 +917,7 @@ test('browses the verified registry marketplace and submits an exact install req
     )
   ).toEqual([])
   await plugins.getByRole('button', { name: 'Back to plugins' }).click()
-  await plugins.getByRole('tab', { name: 'Yours' }).click()
+  await plugins.getByRole('tab', { name: 'Installed' }).click()
   await expect(plugins.getByText('No plugins added yet')).toBeVisible()
 })
 

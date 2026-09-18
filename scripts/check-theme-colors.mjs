@@ -33,6 +33,9 @@ const COLOR_LITERALS = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lch|lab
 export const TOKEN_FILES = [
   'packages/ui/src/styles/theme.css',
   'packages/ui/src/styles/workspace-shell.css',
+  // The built-in theme manifest: its color strings are the theme data itself,
+  // applied as CSS custom properties by the appearance provider.
+  'packages/ui/src/components/appearance.ts',
 ]
 
 /**

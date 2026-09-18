@@ -76,6 +76,13 @@
       "import": "./dist/conventional-workspace-shell.js",
       "default": "./dist/conventional-workspace-shell.js"
     },
+    "./rail-preferences": {
+      "types": "./dist/rail-preferences.d.ts",
+      "solid": "./src/rail-preferences.ts",
+      "development": "./src/rail-preferences.ts",
+      "import": "./dist/rail-preferences.js",
+      "default": "./dist/rail-preferences.js"
+    },
     "./workspace-view-toggle": {
       "types": "./dist/workspace-view-toggle.d.ts",
       "solid": "./src/workspace-view-toggle.tsx",

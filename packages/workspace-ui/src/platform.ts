@@ -107,6 +107,42 @@ export type WorkspacePluginCategory =
 
 export type WorkspacePluginSurface = 'agent' | 'app' | 'command' | 'hook' | 'mcp' | 'skill'
 
+/**
+ * App Library manifest for a plugin that presents an `app` surface. Only a
+ * bundled first-party entry may activate in M12 (Dev Runtime spec,
+ * "Appearance and App Library"); every other field is presentational or a
+ * declaration of what activation would require later.
+ */
+export type WorkspaceAppSurface = Readonly<{
+  /** The bundled first-party entry identifier. Absent for catalog-only apps. */
+  bundledEntryId?: string
+  supportedPlatforms: readonly string[]
+  capabilities: readonly string[]
+  /** Permissions activation would require; declarative in M12. */
+  requestedPermissions: readonly string[]
+  /** Whether and how the app contributes a global rail entry. */
+  railContribution: 'none' | 'optional'
+  settingsRoute?: string
+  version?: string
+  digest?: string
+}>
+
+export type WorkspaceAppActivation =
+  | Readonly<{ status: 'activatable'; entryId: string }>
+  | Readonly<{ status: 'activation-unavailable'; reason: 'not-installed' | 'catalog-only' }>
+
+/**
+ * Activation authority for app surfaces: a bundled first-party entry id on an
+ * installed app can activate; a catalog-only entry — installed metadata and
+ * connectors notwithstanding — cannot execute UI code and says why.
+ */
+export function workspaceAppActivation(plugin: WorkspacePlugin): WorkspaceAppActivation {
+  const app = plugin.appSurface
+  if (!app?.bundledEntryId) return { status: 'activation-unavailable', reason: 'catalog-only' }
+  if (!plugin.installed) return { status: 'activation-unavailable', reason: 'not-installed' }
+  return { status: 'activatable', entryId: app.bundledEntryId }
+}
+
 export type WorkspacePluginDefinition = Readonly<{
   auth: 'api-key' | 'oauth' | 'workspace'
   authenticationPolicy?: 'on-install' | 'on-use'
@@ -154,6 +190,8 @@ export type WorkspacePluginDefinition = Readonly<{
     approvalRequired: true
   }>
   contentResolution?: 'complete' | 'metadata-only'
+  /** Present when one of the plugin's surfaces is `app`. */
+  appSurface?: WorkspaceAppSurface
 }>
 
 export type WorkspacePluginInstallationStatus =
