@@ -370,7 +370,13 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
             byteOffset: String(start),
             preview: new TextDecoder('utf-8', { fatal: false })
               .decode(haystack.slice(start, start + previewLength))
-              .replaceAll(/[\x00-\x1f\x7f]/g, ' '),
+              // The strip is intentional: control bytes in terminal output
+              // must not reach the preview surface.
+              .replaceAll(
+                // oxlint-disable-next-line no-control-regex
+                /[\x00-\x1f\x7f]/g,
+                ' '
+              ),
           })
           break
         }

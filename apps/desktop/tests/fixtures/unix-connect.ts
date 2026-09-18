@@ -9,10 +9,10 @@ export async function connectUnix(socketPath: string): Promise<ByteDuplex> {
     unix: socketPath,
     socket: {
       data(_socket, data) {
-        for (const callback of [...dataCallbacks]) callback(new Uint8Array(data))
+        for (const callback of dataCallbacks) callback(new Uint8Array(data))
       },
       close() {
-        for (const callback of [...closeCallbacks]) callback()
+        for (const callback of closeCallbacks) callback()
       },
     },
   })

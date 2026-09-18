@@ -2549,6 +2549,19 @@ files in the same commit:
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
 - desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
   process, browser, provider, cleanup;
+  `apps/desktop/tests/terminal-pty-adapter.test.ts`,
+  `apps/desktop/tests/terminal-manager.test.ts`,
+  `apps/desktop/tests/terminal-checkpoints.test.ts`,
+  `apps/desktop/tests/terminal-input-authority.test.ts`,
+  `apps/desktop/tests/terminal-shell-integration.test.ts`,
+  `apps/desktop/tests/terminal-sidecar.test.ts`,
+  `apps/desktop/tests/terminal-channel.test.ts`, and the real-PTY packaged
+  smoke `apps/desktop/tests/terminal-pty-smoke.test.ts` pin the Terminal
+  protocol, sidecar adoption, shell integration, and input authority sections
+  (issue #396);
+  `packages/dev-view/tests/terminal-transport.test.ts` and
+  `packages/dev-view/tests/terminal-renderer-editor.test.ts` pin the client
+  transport, renderer fallback policy, command blocks, and bottom editor;
   `apps/desktop/tests/dev-runtime-roots.test.ts`,
   `apps/desktop/tests/dev-runtime-vault.test.ts`, and
   `apps/desktop/tests/dev-runtime-grants.test.ts` pin the M10 #34

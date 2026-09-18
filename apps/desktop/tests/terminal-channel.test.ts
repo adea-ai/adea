@@ -5,7 +5,7 @@
 // bindings, stale generations, and unauthorized worktree roots. The
 // WebSocket plumbing itself is pinned by shell-channel.test.ts.
 import { afterAll, describe, expect, test } from 'bun:test'
-import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -53,7 +53,15 @@ afterAll(() => {
   for (const dir of dataDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-type Harness = Awaited<ReturnType<typeof makeHarness>>
+/** Builds the envelope's terminal resource binding from the body target. */
+function resourceFor(operation: string, body: Record<string, unknown>): DevCommand['resource'] {
+  const idField = operation === 'dev.terminal.create' ? '' : 'terminalId'
+  return {
+    kind: 'terminal',
+    id: body[idField] as string,
+    generation: (body.expectedGeneration as number | undefined) ?? 1,
+  }
+}
 
 async function makeHarness(platform: NodeJS.Platform = 'darwin') {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-terminal-channel-'))
@@ -166,15 +174,6 @@ async function makeHarness(platform: NodeJS.Platform = 'darwin') {
       },
       { trusted: true }
     )
-  }
-
-  function resourceFor(operation: string, body: Record<string, unknown>): DevCommand['resource'] {
-    const idField = operation === 'dev.terminal.create' ? '' : 'terminalId'
-    return {
-      kind: 'terminal',
-      id: body[idField] as string,
-      generation: (body.expectedGeneration as number | undefined) ?? 1,
-    }
   }
 
   async function createTerminal(

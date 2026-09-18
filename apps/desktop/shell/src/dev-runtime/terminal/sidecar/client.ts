@@ -11,6 +11,7 @@ import {
   type ByteDuplex,
   type ByteFrameMeta,
   type DecodedSidecarFrame,
+  type SidecarProtocol,
   type SidecarRequest,
   type SidecarResponse,
   type SidecarScope,
@@ -80,6 +81,15 @@ export type SidecarClient = {
     subscriberId: string,
     byteCount: number
   ): Promise<SidecarResult<{ acknowledged: boolean }>>
+  setEvents(events: {
+    onDataFrame?: (meta: ByteFrameMeta, bytes: Uint8Array) => void
+    onResync?: (notice: {
+      terminalId: string
+      subscriberId: string
+      checkpointSequence: string
+    }) => void
+    onExited?: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+  }): void
   checkpoint(terminalId: string): Promise<SidecarResult<{ checkpoint: unknown }>>
   list(): Promise<SidecarResult<{ terminals: unknown[] }>>
   search(
@@ -92,7 +102,7 @@ export type SidecarClient = {
     sidecarVersion: string
     pid: number
     pidStartIdentity: string
-    protocol: typeof SIDECAR_PROTOCOL
+    protocol: SidecarProtocol
   }
   close(): void
   isClosed(): boolean
@@ -126,7 +136,7 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
   >()
   let closed = false
   let resolved = false
-  let resolveConnectRef: (result: SidecarConnectResult) => void = () => {}
+  let resolveConnectRef: ((result: SidecarConnectResult) => void) | null = null
 
   function fail(code: string, message: string): void {
     if (closed || resolved) return
@@ -136,7 +146,7 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
     for (const entry of pending.values()) clearTimeout(entry.timer)
     pending.clear()
     duplex.close()
-    resolveConnectRef({ ok: false, code, message })
+    resolveConnectRef?.({ ok: false, code, message })
   }
 
   const helloTimeoutMs = options.requestTimeoutMs ?? 10_000
@@ -274,7 +284,19 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
                 requestId: nextRequestId(),
                 terminalId,
               }),
-            setEvents(handlers) {
+            setEvents(handlers: {
+              onDataFrame?: (meta: ByteFrameMeta, bytes: Uint8Array) => void
+              onResync?: (notice: {
+                terminalId: string
+                subscriberId: string
+                checkpointSequence: string
+              }) => void
+              onExited?: (notice: {
+                terminalId: string
+                generation: number
+                exitCode: number | null
+              }) => void
+            }) {
               if (handlers.onDataFrame !== undefined) events.onDataFrame = handlers.onDataFrame
               if (handlers.onResync !== undefined) events.onResync = handlers.onResync
               if (handlers.onExited !== undefined) events.onExited = handlers.onExited
@@ -324,7 +346,9 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
       options.onClose?.()
     })
 
-    function request<T>(requestMessage: SidecarRequest): Promise<SidecarResult<T>> {
+    function request<T>(
+      requestMessage: SidecarRequest & { requestId: string }
+    ): Promise<SidecarResult<T>> {
       if (closed)
         return Promise.resolve({ ok: false, code: 'invalid_state', message: 'client is closed' })
       return new Promise<SidecarResult<T>>((resolve) => {

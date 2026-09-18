@@ -2,7 +2,7 @@
 // recovery, the authenticated transport, the command-block rail, and the
 // bottom input editor. Composition only — every decision lives in the tested
 // pure modules beside this file.
-import { createEffect, createSignal, onCleanup, onMount, Show } from 'solid-js'
+import { createSignal, onCleanup, onMount, Show } from 'solid-js'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -38,8 +38,12 @@ export type TerminalPaneProps = {
   }) => TerminalStreamSocket
   /** The grant's starting sequence for this attach. */
   fromSequence: string
-  /** Authenticated shell-protocol observations from the host wrapper. */
-  observations?: (observation: ShellObservation) => void
+  /**
+   * Subscribes to authenticated shell-protocol observations from the host
+   * wrapper (OSC 133/7, MAC-verified server-side). Returns the unsubscribe
+   * function.
+   */
+  subscribeToObservations?: (handler: (observation: ShellObservation) => void) => () => void
   /** Multiline, history-aware send path into the active terminal. */
   write: (bytes: Uint8Array) => boolean
   resize: (cols: number, rows: number) => void
@@ -53,8 +57,7 @@ const THEME = {
 } as const
 
 export function TerminalPane(props: TerminalPaneProps) {
-  let container: HTMLDivElement | undefined
-  let editorArea: HTMLTextAreaElement | undefined
+  const [surface, setSurface] = createSignal<HTMLDivElement | null>(null)
   const policy = createRendererPolicy()
   const [policyVersion, setPolicyVersion] = createSignal(0)
   const [blocks, setBlocks] = createSignal(createBlocksState())
@@ -75,9 +78,7 @@ export function TerminalPane(props: TerminalPaneProps) {
 
   const transport = createTerminalTransport({
     connect: props.connect,
-    fromSequence: props.fromSequence,
-    onOutput: (sequence, bytes) => {
-      void sequence
+    onOutput: (_sequence, bytes) => {
       terminal.write(bytes)
     },
     onConnectionState: setConnection,
@@ -88,9 +89,27 @@ export function TerminalPane(props: TerminalPaneProps) {
     },
   })
 
+  function recordObservation(observation: ShellObservation, sequence: string): void {
+    const at = new Date().toISOString()
+    if (observation.kind === 'preexec') {
+      setBlocks(
+        applyObservation(blocks(), { kind: 'preexec', command: observation.command, at, sequence })
+      )
+      return
+    }
+    if (observation.kind === 'precmd') {
+      setBlocks(
+        applyObservation(blocks(), { kind: 'precmd', exitCode: observation.exitCode, at, sequence })
+      )
+      return
+    }
+    setBlocks(applyObservation(blocks(), { kind: 'cwd', cwd: observation.cwd, at }))
+  }
+
   onMount(() => {
-    if (!container) return
-    terminal.open(container)
+    const element = surface()
+    if (!element) return
+    terminal.open(element)
     terminal.focus()
     // Lazy WebGL first; DOM is the fallback on any failure or context loss.
     const next = policy.mounted()
@@ -120,17 +139,15 @@ export function TerminalPane(props: TerminalPaneProps) {
     }
     fit.fit()
     transport.start(props.fromSequence)
-  })
-
-  createEffect(() => {
-    // The renderer kind re-resolves whenever the policy changes; the
-    // terminal instance survives so scrollback and selection are never lost.
-    void policyVersion()
-    void terminal.element
+    const unsubscribe = props.subscribeToObservations?.((observation) =>
+      recordObservation(observation, transport.snapshot().nextOutputSeq)
+    )
+    onCleanup(unsubscribe ?? (() => undefined))
   })
 
   const observer = new ResizeObserver(() => {
-    if (!container) return
+    const element = surface()
+    if (!element) return
     const cols = terminal.cols
     const rows = terminal.rows
     fit.fit()
@@ -138,14 +155,13 @@ export function TerminalPane(props: TerminalPaneProps) {
       props.resize(terminal.cols, terminal.rows)
     }
   })
-  if (container) observer.observe(container)
   onCleanup(() => {
     observer.disconnect()
     transport.dispose()
     terminal.dispose()
   })
 
-  function onContainerKeyDown(event: KeyboardEvent): void {
+  function onSurfaceKeyDown(event: KeyboardEvent): void {
     if (event.key === 'f' && (event.metaKey || event.ctrlKey)) {
       event.preventDefault()
       const query = window.prompt?.('Search terminal')
@@ -160,26 +176,12 @@ export function TerminalPane(props: TerminalPaneProps) {
     props.write(new TextEncoder().encode(`${result.payload}\n`))
   }
 
-  function recordObservation(observation: ShellObservation, sequence: string): void {
-    props.observations?.(observation)
-    const at = new Date().toISOString()
-    if (observation.kind === 'preexec') {
-      setBlocks(
-        applyObservation(blocks(), { kind: 'preexec', command: observation.command, at, sequence })
-      )
-      return
-    }
-    if (observation.kind === 'precmd') {
-      setBlocks(
-        applyObservation(blocks(), { kind: 'precmd', exitCode: observation.exitCode, at, sequence })
-      )
-      return
-    }
-    setBlocks(applyObservation(blocks(), { kind: 'cwd', cwd: observation.cwd, at }))
-  }
-
   return (
-    <section class="dev-terminal-pane" aria-label="Integrated terminal">
+    <section
+      class="dev-terminal-pane"
+      aria-label="Integrated terminal"
+      data-policy-version={policyVersion()}
+    >
       <header class="dev-terminal-pane-header">
         <span class="dev-terminal-pane-status" data-state={connection()}>
           {connection()}
@@ -209,7 +211,7 @@ export function TerminalPane(props: TerminalPaneProps) {
             </div>
           ))}
       </div>
-      <div class="dev-terminal-surface" ref={container} onKeyDown={onContainerKeyDown} />
+      <div class="dev-terminal-surface" ref={setSurface} onKeyDown={onSurfaceKeyDown} />
       <Show
         when={editor().mode === 'compose'}
         fallback={
@@ -218,7 +220,6 @@ export function TerminalPane(props: TerminalPaneProps) {
       >
         <div class="dev-terminal-editor">
           <textarea
-            ref={editorArea}
             rows={2}
             aria-label="Compose terminal input"
             value={editor().draft}

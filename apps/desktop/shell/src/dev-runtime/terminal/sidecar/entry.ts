@@ -33,7 +33,7 @@ if (!dataDir) {
 // supervisor's durable launch records remain the destruction authority.
 function pidStartIdentity(): string {
   try {
-    const proc = Bun.spawnSync('ps', ['-o', 'lstart=', '-p', String(process.pid)])
+    const proc = Bun.spawnSync(['ps', '-o', 'lstart=', '-p', String(process.pid)])
     return proc.stdout.toString().trim() || `boot-${process.pid}`
   } catch {
     return `boot-${process.pid}`
@@ -66,11 +66,11 @@ class SocketDuplex implements ByteDuplex {
   }
 
   deliver(data: Uint8Array): void {
-    for (const callback of [...this.dataCallbacks]) callback(data)
+    for (const callback of this.dataCallbacks) callback(data)
   }
 
   closeRemote(): void {
-    for (const callback of [...this.closeCallbacks]) callback()
+    for (const callback of this.closeCallbacks) callback()
   }
 
   send(bytes: Uint8Array): void {

@@ -24,14 +24,14 @@ export class FakePtyProcess implements PtyProcess {
   /** Test hook: emit exact source bytes (any fragmentation, any validity). */
   emit(data: Uint8Array): void {
     if (this.exited) return
-    for (const listener of [...this.dataListeners]) listener(data)
+    for (const listener of this.dataListeners) listener(data)
   }
 
   /** Test hook: simulate process exit with a code/signal. */
   exit(exitCode: number, signal: number | null = null): void {
     if (this.exited) return
     this.exited = true
-    for (const listener of [...this.exitListeners]) listener({ exitCode, signal })
+    for (const listener of this.exitListeners) listener({ exitCode, signal })
   }
 
   /** When true, signals are recorded but do not end the process (an unresponsive child). */

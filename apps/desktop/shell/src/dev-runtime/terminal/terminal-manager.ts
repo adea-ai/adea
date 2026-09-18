@@ -30,6 +30,8 @@ export type TerminalError = Readonly<{
     | 'backpressure'
     | 'limit_exceeded'
     | 'sequence_gap'
+    | 'spawn_failed'
+    | 'unsupported_capability'
   message: string
 }>
 
@@ -188,6 +190,17 @@ export function consumeDeviceAttributes(
   return { output: output.subarray(0, out), pending: state, queries }
 }
 
+/** Builds the wire chunk for one ring entry (pure; shared by the store). */
+function chunkOf(session: Session, entry: RingEntry): TerminalChunk {
+  return {
+    terminalId: session.terminalId,
+    generation: session.generation,
+    seq: String(entry.seq),
+    emittedAt: entry.emittedAt,
+    bytes: entry.bytes,
+  }
+}
+
 export function createTerminalManager(options: TerminalManagerOptions) {
   const now = options.now ?? Date.now
   const outputBatchDelayMs = options.outputBatchDelayMs ?? 4
@@ -196,16 +209,6 @@ export function createTerminalManager(options: TerminalManagerOptions) {
   const limits = options.limits ?? TERMINAL_LIMITS
   const sessions = new Map<string, Session>()
   const operations = new Map<string, Promise<unknown>>()
-
-  function chunkOf(session: Session, entry: RingEntry): TerminalChunk {
-    return {
-      terminalId: session.terminalId,
-      generation: session.generation,
-      seq: String(entry.seq),
-      emittedAt: entry.emittedAt,
-      bytes: entry.bytes,
-    }
-  }
 
   /** Serializes operations per terminal so state transitions cannot interleave. */
   function run<T>(terminalId: string, operation: () => Promise<T> | T): Promise<T> {
@@ -394,7 +397,15 @@ export function createTerminalManager(options: TerminalManagerOptions) {
         rows: input.rows,
         env: input.env,
       })
-      if (!spawned.ok) return { ok: false, error: spawned }
+      if (!spawned.ok) {
+        return {
+          ok: false,
+          error: terminalError(
+            spawned.code === 'unsupported_capability' ? 'unsupported_capability' : 'spawn_failed',
+            spawned.message
+          ),
+        }
+      }
       const session: Session = {
         terminalId: input.terminalId,
         generation: input.generation,
@@ -625,9 +636,9 @@ export function createTerminalManager(options: TerminalManagerOptions) {
      * state, leaving PTY history recoverable for adoption after a restart.
      */
     async shutdownForAdoption(): Promise<void> {
-      for (const session of [...sessions.values()]) {
+      for (const session of Array.from(sessions.values())) {
         flushOutput(session)
-        for (const subscriberId of [...session.subscribers.keys()])
+        for (const subscriberId of Array.from(session.subscribers.keys()))
           this.detach(session.terminalId, subscriberId)
       }
     },

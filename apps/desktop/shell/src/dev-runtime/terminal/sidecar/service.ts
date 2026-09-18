@@ -64,6 +64,16 @@ type ConnectionState = {
   subscribers: Map<string, string>
 }
 
+/** One-way control send; a vanished connection just marks itself closed. */
+function send(state: ConnectionState, message: SidecarResponse): void {
+  if (state.closed) return
+  try {
+    state.duplex.send(encodeControl(message))
+  } catch {
+    state.closed = true
+  }
+}
+
 export function createSidecarService(options: SidecarServiceOptions) {
   const now = options.now ?? Date.now
   const helloNonces = new Map<string, number>()
@@ -98,15 +108,6 @@ export function createSidecarService(options: SidecarServiceOptions) {
       },
     },
   })
-
-  function send(state: ConnectionState, message: SidecarResponse): void {
-    if (state.closed) return
-    try {
-      state.duplex.send(encodeControl(message))
-    } catch {
-      state.closed = true
-    }
-  }
 
   function respond(state: ConnectionState, requestId: string, value: unknown): void {
     send(state, { type: 'result', requestId, ok: true, value })

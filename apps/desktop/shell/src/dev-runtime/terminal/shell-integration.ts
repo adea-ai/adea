@@ -147,8 +147,6 @@ export type WrapperDescriptor = {
 /** Pure wrapper text for one shell kind + feature set. */
 export function wrapperContent(shellKind: ShellKind, features: readonly ShellFeature[]): string {
   const enabled = (feature: ShellFeature): boolean => features.includes(feature)
-  const emit = (kind: string, fields: string): string => `__adea_emit ${kind} ${fields}`
-  const preexec = `__adea_hook preexec "$1"` // shell-supplied command line
   if (shellKind === 'zsh') {
     const lines: string[] = [
       `# Adea terminal shell integration v${SHELL_WRAPPER_PROTOCOL_VERSION}.`,
@@ -160,7 +158,7 @@ export function wrapperContent(shellKind: ShellKind, features: readonly ShellFea
       `  local payload nonce`,
       `  nonce="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \\n')"$`,
       `  nonce="\${nonce:-0000000000000000}"`,
-      `  payload="{\\"v\\":1,\\"k\\":\\"$kind\\",\\"n\\":\\"$nonce\\"$(\[\[ -n \$1 \]\] && printf ',%s' "$1")}"}`,
+      `  payload="{\\"v\\":1,\\"k\\":\\"$kind\\",\\"n\\":\\"$nonce\\"$([[ -n $1 ]] && printf ',%s' "$1")}"}`,
       `  printf '\\033]133;adea;%s;%s\\007' "$(printf %s "$payload" | base64 | tr -d '\\n')" "$(printf %s "$payload" | openssl dgst -sha256 -hmac "$ADEA_TERMINAL_HOOK_KEY" -binary | base64 | tr -d '\\n')"$`,
       `}`,
     ]
@@ -196,7 +194,7 @@ export function wrapperContent(shellKind: ShellKind, features: readonly ShellFea
       `  local payload nonce`,
       `  nonce="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \\n')"$`,
       `  nonce="\${nonce:-0000000000000000}"`,
-      `  payload="{\\"v\\":1,\\"k\\":\\"$kind\\",\\"n\\":\\"$nonce\\"$(\[\[ -n \$1 \]\] && printf ',%s' "$1")}"}`,
+      `  payload="{\\"v\\":1,\\"k\\":\\"$kind\\",\\"n\\":\\"$nonce\\"$([[ -n $1 ]] && printf ',%s' "$1")}"}`,
       `  printf '\\033]133;adea;%s;%s\\007' "$(printf %s "$payload" | base64 | tr -d '\\n')" "$(printf %s "$payload" | openssl dgst -sha256 -hmac "$ADEA_TERMINAL_HOOK_KEY" -binary | base64 | tr -d '\\n')"$`,
       `}`,
     ]

@@ -455,6 +455,15 @@ describe('sidecar terminal lifecycle', () => {
   })
 })
 
+/** Opens a loopback sidecar connection served by the harness. */
+function connectTo(harness: Harness): () => Promise<ByteDuplex> {
+  return async () => {
+    const [clientSide, serverSide] = createLoopbackPair()
+    harness.service.handleConnection(serverSide)
+    return clientSide
+  }
+}
+
 describe('sidecar adoption', () => {
   function writeEndpoint(
     harness: Harness,
@@ -472,14 +481,6 @@ describe('sidecar adoption', () => {
       createdAt: '2026-09-18T00:00:00.000Z',
       ...overrides,
     })
-  }
-
-  function connectTo(harness: Harness): () => Promise<ByteDuplex> {
-    return async () => {
-      const [clientSide, serverSide] = createLoopbackPair()
-      harness.service.handleConnection(serverSide)
-      return clientSide
-    }
   }
 
   test('adopts a compatible sidecar after credential authentication', async () => {

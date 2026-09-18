@@ -41,14 +41,14 @@ class Half implements ByteDuplex {
     // A real socket's close is observed by the peer (end/close event); the
     // local side also stops delivering.
     if (this.remote && !this.remote.closed) {
-      for (const callback of [...this.remote.closeCallbacks]) callback()
+      for (const callback of this.remote.closeCallbacks) callback()
       this.remote.closed = true
     }
-    for (const callback of [...this.closeCallbacks]) callback()
+    for (const callback of this.closeCallbacks) callback()
   }
 
   private deliver(bytes: Uint8Array): void {
-    for (const callback of [...this.dataCallbacks]) callback(bytes)
+    for (const callback of this.dataCallbacks) callback(bytes)
   }
 }
 

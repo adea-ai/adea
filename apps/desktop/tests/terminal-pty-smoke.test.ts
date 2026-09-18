@@ -3,7 +3,7 @@
 // the repository-pinned Bun line for macOS. Fixture-only suites cannot close
 // the terminal issue; this file is the real-PTY evidence for CI on darwin.
 import { afterAll, describe, expect, test } from 'bun:test'
-import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { createHmac, randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,7 +12,6 @@ import {
   decodeDevStreamGrant,
   devCommandProofMessage,
   devOperationDecoders,
-  devStreamAttachProofMessage,
   type DevCommand,
   type DevReply,
   type DevStreamFrame,
@@ -22,7 +21,6 @@ import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authori
 import { registerTerminalRuntime } from '../shell/src/dev-runtime/terminal/register'
 import { adoptSidecar } from '../shell/src/dev-runtime/terminal/sidecar/adoption'
 import { readEndpointFile } from '../shell/src/dev-runtime/terminal/sidecar/endpoint-file'
-import { createLoopbackPair } from './fixtures/loopback-duplex'
 import { connectUnix } from './fixtures/unix-connect'
 
 const SHELL_HOST = '127.0.0.1:4789'

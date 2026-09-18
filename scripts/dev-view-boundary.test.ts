@@ -2,8 +2,21 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { readdirSync } from 'node:fs'
+
 const root = resolve(import.meta.dir, '..')
 const read = (path: string) => readFileSync(resolve(root, path), 'utf8')
+/** Walks a source directory (recursively) and returns every file's text. */
+function sourceTree(relativeDir: string): string[] {
+  const absolute = resolve(root, relativeDir)
+  const files: string[] = []
+  for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+    const child = `${relativeDir}/${entry.name}`
+    if (entry.isDirectory()) files.push(...sourceTree(child))
+    else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) files.push(read(child))
+  }
+  return files
+}
 
 describe('Dev View dependency and bundle boundaries', () => {
   test('loads the Dev package only through the workspace navigation dynamic boundary', () => {
@@ -24,16 +37,19 @@ describe('Dev View dependency and bundle boundaries', () => {
 
   test('keeps privileged libraries and donor frameworks out of the shared package', () => {
     const manifest = read('packages/dev-view/package.json')
-    for (const forbidden of [
-      '@xterm/xterm',
-      '@codemirror',
-      'electron',
-      'react',
-      'zustand',
-      '@pierre/',
-    ]) {
+    for (const forbidden of ['@codemirror', 'electron', 'react', 'zustand', '@pierre/']) {
       expect(manifest).not.toContain(`"${forbidden}`)
     }
+    // Issue #396 moved the xterm family into the terminal slice: it must be
+    // reachable only through the lazy `./terminal` subpath so Chat/Virtual
+    // graphs never pull a renderer chunk.
+    expect(manifest).toContain('"@xterm/xterm"')
+    const terminalSources = [...sourceTree('packages/dev-view/src/terminal')]
+    expect(terminalSources.length).toBeGreaterThan(0)
+    for (const source of terminalSources) {
+      expect(source).not.toMatch(/^import .*@adea-ai\/dev-view/m)
+    }
+    expect(read('packages/dev-view/src/index.ts')).not.toContain('./terminal')
     const source = [
       read('packages/dev-view/src/dev-workspace-entry.tsx'),
       read('packages/dev-view/src/layout/operations.ts'),

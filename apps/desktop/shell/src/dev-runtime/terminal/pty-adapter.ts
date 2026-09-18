@@ -18,7 +18,6 @@
 // ADR 0008 note: `Bun.spawn`'s `terminal` option is an execution-runtime API
 // used inside the shell/sidecar lane; the application build path stays
 // Vite/Rolldown (docs/specs/dev-runtime.md, "PTY adapter").
-/// <reference types="bun" />
 import type { DevErrorCode } from '../../../../../../packages/types/src/dev-runtime'
 
 export type PtyExitEvent = Readonly<{ exitCode: number; signal: number | null }>
@@ -31,7 +30,7 @@ export interface PtyProcess {
   readonly pid: number
   write(data: Uint8Array): void
   resize(cols: number, rows: number): void
-  kill(signal?: 'SIGTERM' | 'SIGKILL' | 'SIGHUP'): void
+  kill(signal?: 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGHUP'): void
   onData(callback: (data: Uint8Array) => void): () => void
   onExit(callback: (event: PtyExitEvent) => void): () => void
 }
@@ -93,7 +92,7 @@ class BunPtyProcess implements PtyProcess {
     this.process.terminal.resize(cols, rows)
   }
 
-  kill(signal?: 'SIGTERM' | 'SIGKILL' | 'SIGHUP'): void {
+  kill(signal?: 'SIGINT' | 'SIGTERM' | 'SIGKILL' | 'SIGHUP'): void {
     // A forkpty child is its own session/process-group leader, so the negative
     // PID signals the whole owned group; fall back to the child itself if the
     // group signal is refused (e.g. the child already exited).
