@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.19](https://github.com/adea-ai/adea/compare/v0.26.18...v0.26.19) (2026-09-18)
+
+
+### Documentation
+
+* **dev-view:** M12 parallel dispatch plan ([#495](https://github.com/adea-ai/adea/issues/495)) ([ee823f4](https://github.com/adea-ai/adea/commit/ee823f4ad7964b39bc8f856c9cd8d5bc37ecf9d6))
+
 ## [0.26.18](https://github.com/adea-ai/adea/compare/v0.26.17...v0.26.18) (2026-09-18)
 
 
