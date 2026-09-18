@@ -130,6 +130,34 @@ store described at the top of `docs/specs/local-content.md`; do not assume its
 planned OS credential-store/SQLite authority is implemented until the owning
 M10 acceptance tests prove it.
 
+### Foundation closure requirements before privileged slices
+
+The merged #447 foundation is intentionally incomplete. Before an implementation
+agent starts #397, #396, #399, #400, #422, or #424, verify these concrete
+seams rather than inventing local substitutes:
+
+- `DevWorkspaceEntry` consumes an authenticated typed projection of
+  `RuntimeSession` and related records. Fixtures are development/E2E-only.
+- Dev and Chat use the same session query/event identity; selection is checked
+  against project, workspace, account, node, archive state, and generation.
+- The layout preference migration produces V2 independent left/right utility
+  slots and rejects split-node focus targets. The six utility panes are present
+  exactly once, and one side's toggle cannot hide the other side.
+- The preference key is scoped through the authoritative
+  `(account, workspace, runtime node, project, runtime session)` tuple. V1,
+  quota, storage-loss, concurrent-window, node-switch, and reload cases have
+  explicit tests.
+- Generated registry checks cover every operation's request, capability,
+  resource, stream, success DTO, and handler registration. Use code-point
+  capability ordering and decimal strings for unbounded uint64 values.
+- M12's release evidence covers packaged local macOS behavior; remote
+  production certification belongs to M14, while M12 still runs authorized
+  fake RuntimeConnection/revocation/scope-isolation fixtures.
+
+If any item is absent, continue only with pure reducers, contract tests, or
+truthful unavailable UI. Do not register privileged commands or create a second
+provider/session authority.
+
 ## Shell, navigation, and binary layout (#395)
 
 Issue: [#395](https://github.com/adea-ai/adea/issues/395)
@@ -159,13 +187,21 @@ Issue: [#395](https://github.com/adea-ai/adea/issues/395)
 4. Port Muxy's split invariants/tests: no cycles, all leaf IDs unique, collapse
    preserves neighbor, removing final leaf yields one terminal leaf, and ratios
    clamp. Add maximum depth 8 and a default hard cap of 8 leaves.
-5. Reject unknown/missing/duplicate leaf IDs during restore; retain unread raw
-   preferences and fall back to one terminal leaf. Never persist DOM geometry.
-6. Build direct left Files/Source Control and right Browser/Devices,
-   Agents/History toggles. The active center remains one RuntimeSession; pane
-   leaves are not permanent top-level tabs.
-7. Add keyboard separators, logical focus return, 44×44 px touch targets where
-   applicable, reduced motion, zoom/reflow tests, and full-width/focus modes.
+5. Reject unknown/missing/duplicate leaf IDs during restore; require
+   `focusTargetId` to identify a leaf; retain unread raw preferences and fall
+   back to one terminal leaf. Never persist DOM geometry.
+6. Implement two independent utility slots: left Files/Source Control and right
+   Browser/Devices plus Agents/History. Preserve the opposite side when a pane
+   is toggled, and persist side/order/visibility/size/last-nonzero/full-width
+   state. The active center remains one RuntimeSession; pane leaves are not
+   permanent top-level tabs.
+7. Migrate the #447 V1 preference envelope to V2. The migration is keyed by
+   account/workspace/runtime-node/project/runtime-session, retains corrupt or
+   future raw values, handles quota/storage failure, and never restores a
+   resource from another session.
+8. Add keyboard separators, logical focus return, 44×44 px touch targets where
+   applicable, reduced motion, zoom/reflow tests, full-width/focus modes, and
+   mount/unmount tests proving global listeners are cleaned up.
 
 ### Do not carry forward
 
