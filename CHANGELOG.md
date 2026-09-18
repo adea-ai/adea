@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.20](https://github.com/adea-ai/adea/compare/v0.26.19...v0.26.20) (2026-09-18)
+
+
+### Documentation
+
+* **dev-view:** close M12 foundation gaps ([#494](https://github.com/adea-ai/adea/issues/494)) ([2b147a3](https://github.com/adea-ai/adea/commit/2b147a3b77395ca2919918f8e60eaccad51bab79))
+
 ## [0.26.19](https://github.com/adea-ai/adea/compare/v0.26.18...v0.26.19) (2026-09-18)
 
 
