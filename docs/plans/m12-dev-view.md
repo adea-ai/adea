@@ -104,10 +104,11 @@ Owned by other milestones, consumed here:
   `apps/desktop/shell/src/dev-runtime/**` adapter sources and exposes the same
   registry over an authorized `RuntimeConnection` — M12 does not define a
   second remote wire contract;
-- remote RuntimeConnection certification is M14 — Remote Runtime Integration's
-  authority (owner decision 2026-09-16: it runs after M12 and M13 close, and
-  gates M17 — Spatial Workspace); M12 keeps the shared code path remote-ready
-  without certifying it;
+- remote RuntimeConnection production certification is M14 — Remote Runtime
+  Integration's authority (owner decision 2026-09-16: it runs after M12 and M13
+  close, and gates M17 — Spatial Workspace). M12 exercises the shared adapter
+  and registry through authorized fake RuntimeConnection, revocation, and
+  scope-isolation fixtures, but does not certify remote production behavior;
 - M10 must still define the authorized-root (`RootBookmark`) mint/revoke flow
   and vault `CredentialRef` enrollment that the Dev Runtime DTOs consume — M12
   reads them but cannot mint either.
@@ -170,6 +171,78 @@ Before a privileged M12 operation merges, verify:
 If a required upstream API is absent, land its approved upstream issue first or
 keep the M12 adapter behind an unavailable capability. Do not build a bypass.
 
+## Pre-implementation closure gate after #447
+
+PR #447 (`feat(dev-view): add M12 foundation shell`) is merged, but #395
+remains open. The merged slice is a truthful, dependency-ready shell; it is not
+provider-backed Dev View completion. Before starting a privileged M12 slice,
+resolve the following decisions in code, tests, and the synchronized contract
+pages. Do not treat a fixture-only green run as evidence that any item below is
+complete.
+
+### Canonical session/provider seam
+
+- Define the UI-facing Dev Runtime projection over the registry's typed list/get
+  replies. `DevWorkspaceEntry` must consume authoritative groups, projects,
+  worktrees, and `RuntimeSession` projections rather than a production fixture
+  tree.
+- `selectedRuntimeSessionId` is valid only when the session belongs to the
+  selected project, workspace, account, and runtime node. A stale, archived, or
+  revoked selection is cleared or visibly recovered; it is never paired with a
+  different project's session.
+- Dev and Chat read the same `runtimeSessionId` and subscribe to the same
+  provider/cache identity. Switching views mounts or unmounts a projection only;
+  it never creates, stops, resumes, or transfers a process implicitly.
+- Input ownership and explicit Dev↔Chat transfer are M10/M11-authorized
+  operations. The UI may request a transfer, but cannot infer ownership from a
+  pane, tab, route, or terminal focus.
+- A real provider must supply an authenticated `Scope` before preference writes
+  or runtime data are accepted. The fixture provider remains development/E2E
+  only and is impossible to enable in production.
+
+### Utility-slot and persistence decision
+
+- #395 owns two independent utility slots: one left and one right. Each side
+  may have one active pane or be collapsed; changing the active pane on one
+  side must not hide or replace the pane on the other side.
+- The persisted utility record contains all six pane identities exactly once,
+  each pane's side, order, visibility, size, last nonzero size, and explicit
+  full-width state. Side placement and tab order are user preferences, not
+  resource authority.
+- The center tree and utility slots are scoped to
+  `(accountId, workspaceId, runtimeNodeId, projectId, runtimeSessionId)`. The
+  session ID is intentional: restoring a pane that references a prior
+  session's terminal/editor resource is unsafe. A future project-level default
+  may seed a new session, but it must not restore session-owned resources.
+- Introduce a versioned V1→V2 preference migration. V1 values from #447 are
+  retained and migrated by filling missing panes from safe defaults; corrupt or
+  future values remain available under an unread/recovery key and are never
+  overwritten silently.
+- Add tests for quota errors, storage unavailability, stale writes from two
+  windows, runtime-node changes, invalid focus targets, and a full reload with
+  both utility sides visible. `focusTargetId` must resolve to a leaf, never a
+  split-node ID.
+
+### Contract and release-boundary decisions
+
+- Keep the operation catalog generated from one source, but require exact
+  generated-artifact checks, per-operation request/capability/resource tests,
+  success-DTO/handler parity, and explicit registry versioning before a handler
+  is registered. Capability ordering uses ASCII/code-point ordering, never
+  locale-dependent comparison.
+- Any unbounded byte offset, length, sequence, or byte count is a canonical
+  decimal string on the wire. Numeric fields are permitted only when the
+  registry supplies a safe explicit upper bound.
+- M12 certifies the local packaged macOS path. M14 owns production
+  RuntimeConnection/remote-node certification. M12 must keep one shared,
+  remote-ready adapter/registry and remote authorization fixtures, but must not
+  claim that remote production behavior is certified. The spec, threat model,
+  plan, and #426 acceptance text must use this same boundary.
+
+Only after this gate is recorded as satisfied may #397/#396/#399/#400/#422
+register or exercise privileged host behavior. Pure reducers, typed fixtures,
+contract tests, and unavailable UI states may continue before the gate.
+
 ## Task 1 — Architecture, source audit, and contract
 
 Issue: [#394](https://github.com/adea-ai/adea/issues/394)
@@ -203,26 +276,36 @@ Deliverables:
 
 - shared `packages/types`, `packages/data`, `packages/dev-view`, web-provider, and
   shell registration skeleton with dependency-boundary/decoder tests;
+- an authoritative Dev Runtime projection seam for groups, projects, worktrees,
+  and canonical `RuntimeSession` records, with no production fixture fallback;
 - lazy Dev rail entry and contextual sidebar frame;
-- strict binary center layout and direct utility-pane toggles;
-- scoped versioned layout/selection preference with safe migration;
-- responsive, keyboard, screen-reader, focus/full-width modes.
+- strict binary center layout plus independent left/right utility slots;
+- scoped V2 layout/selection preference with a tested V1 migration;
+- responsive, keyboard, screen-reader, focus/full-width modes and explicit
+  focus restoration after pane close or utility collapse.
 
 Acceptance:
 
 - [ ] Chat/Virtual initial graphs contain no Dev/xterm/CodeMirror/browser chunk.
-- [ ] One canonical active RuntimeSession remains mounted across pane changes.
+- [ ] One authoritative `RuntimeSession` projection is shared by Dev and Chat;
+      switching views never launches, stops, duplicates, or silently transfers it.
+- [ ] Project/session/node selection is scope-validated; stale, archived,
+      revoked, and cross-project IDs recover visibly without data crossover.
 - [ ] Split insert/remove/resize/move/collapse/restore invariants pass property
       and Muxy/bb-derived fixture tests; maximum depth/leaves are enforced.
-- [ ] Corrupt/unknown persistence falls back without data deletion.
+- [ ] Left and right utility slots operate independently, preserve their own
+      active pane/collapse/size/full-width state, and persist placement/order.
+- [ ] Corrupt/unknown persistence, quota failure, storage loss, and V1 values
+      fall back without deleting unread data; focus targets normalize to leaves.
 - [ ] Loading/empty/offline/unavailable/stale/error states do not collapse UI.
 - [ ] Split, move, duplicate, close, undo-close, collapse, expand, focus, and
       restore behave deterministically and preserve the one-session invariant.
-- [ ] URL/deep-link selection is deterministic and invalid IDs recover visibly.
+- [ ] URL/deep-link project/session selection is deterministic and invalid IDs
+      recover visibly while preserving unknown query keys.
 - [ ] Boundary tests prove Dev UI never reads `window.__adeaDesktop` or imports
       shell/desktop modules directly.
-- [ ] 320/768/1280/1920 px, 80/100/200% zoom, keyboard-only and WCAG 2.2 AA
-      checks pass.
+- [ ] 320/768/1280/1920 px, 80/100/200% zoom, keyboard-only, focus restoration,
+      and WCAG 2.2 AA checks pass.
 
 ## Task 3 — Worktree lifecycle service
 
@@ -539,9 +622,10 @@ Deliverables:
 Acceptance:
 
 - [ ] Complete owner journey passes the local packaged desktop, including
-      reconnect/resume and partial-failure recovery. (Remote RuntimeConnection
-      certification moved to M14 — Remote Runtime Integration; owner decision
-      2026-09-16.)
+      reconnect/resume and partial-failure recovery. M12 exercises the shared
+      remote-ready adapter with authorized fake RuntimeConnection and revocation
+      fixtures, but production remote-node certification is explicitly owned by
+      M14 — Remote Runtime Integration (owner decision 2026-09-16).
 - [ ] Account/workspace/node/resource/generation/channel/path/process/browser/
       credential crossover suite passes.
 - [ ] Every adversarial and failure case in the Dev Runtime spec has evidence.

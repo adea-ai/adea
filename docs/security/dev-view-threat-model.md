@@ -44,7 +44,11 @@ Assumptions:
 - M10 channel/permission work is complete before privileged M12 code ships;
 - TLS/authenticated Control Plane and RuntimeConnection semantics remain as
   specified by `docs/specs/runtime-nodes.md`;
-- runtime nodes may be remote and intermittently disconnected;
+- M12 certifies the packaged local macOS path and exercises remote-ready code
+  through authorized fake RuntimeConnection, revocation, and scope-isolation
+  fixtures; production remote-node certification belongs to M14;
+- runtime nodes may be remote and intermittently disconnected once M14 enables
+  that production path;
 - repository, prompt, terminal, screenshot, cookie, and usage data are private;
 - extension/browser content and remote GitHub text are attacker-controlled;
 - users may approve destructive work, but approval does not waive identity or
@@ -250,8 +254,10 @@ browsed-page loopback access is not removed before privileged M12 commands.
 
 Before release:
 
-- adversarial suites listed in `docs/specs/dev-runtime.md` pass on fixture,
-  packaged desktop, and authorized remote-node paths;
+- adversarial suites listed in `docs/specs/dev-runtime.md` pass on fixture and
+  packaged desktop paths; M12 additionally proves the remote-ready adapter with
+  authorized fake-node, revocation, and scope-isolation fixtures, while M14
+  owns production remote-node evidence;
 - every privileged command produces a secret-free audit result keyed by actor,
   scope, node, resource, generation, operation, and error code;
 - security telemetry counts rejected replay, stale generation, identity race,

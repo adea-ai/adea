@@ -285,14 +285,14 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.files.read': {
-    body: '{ worktreeId: string; path: WorkspacePath; offset?: uint64; length?: integer(1..262144) }',
+    body: '{ worktreeId: string; path: WorkspacePath; offset?: uint64-string; length?: integer(1..262144) }',
     capabilities: ['dev.files.read'],
     reply: 'FileReadResult',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },
     stream: null,
   },
   'dev.files.readStream': {
-    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; offset?: uint64; length?: uint64; direction: 'read'; fromSequence?: uint64-string }",
+    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; offset?: uint64-string; length?: uint64-string; direction: 'read'; fromSequence?: uint64-string }",
     capabilities: ['dev.files.read'],
     reply: 'DevStreamGrant',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },
@@ -327,7 +327,7 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.files.writeStream': {
-    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; byteLength: uint64; contentSha256: sha256; eolPolicy: 'preserve'|'lf'|'crlf'; direction: 'write'; fromSequence?: uint64-string }",
+    body: "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; byteLength: uint64-string; contentSha256: sha256; eolPolicy: 'preserve'|'lf'|'crlf'; direction: 'write'; fromSequence?: uint64-string }",
     capabilities: ['dev.files.write'],
     reply: 'DevStreamGrant',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },

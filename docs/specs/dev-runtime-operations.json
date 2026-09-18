@@ -267,13 +267,13 @@
     "dev.files.read": {
       "capabilities": ["dev.files.read"],
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
-      "body": "{ worktreeId: string; path: WorkspacePath; offset?: uint64; length?: integer(1..262144) }",
+      "body": "{ worktreeId: string; path: WorkspacePath; offset?: uint64-string; length?: integer(1..262144) }",
       "reply": "FileReadResult"
     },
     "dev.files.readStream": {
       "capabilities": ["dev.files.read"],
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
-      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; offset?: uint64; length?: uint64; direction: 'read'; fromSequence?: uint64-string }",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; offset?: uint64-string; length?: uint64-string; direction: 'read'; fromSequence?: uint64-string }",
       "reply": "DevStreamGrant",
       "stream": {
         "protocol": "file-bytes-v1",
@@ -307,7 +307,7 @@
     "dev.files.writeStream": {
       "capabilities": ["dev.files.write"],
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
-      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; byteLength: uint64; contentSha256: sha256; eolPolicy: 'preserve'|'lf'|'crlf'; direction: 'write'; fromSequence?: uint64-string }",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; byteLength: uint64-string; contentSha256: sha256; eolPolicy: 'preserve'|'lf'|'crlf'; direction: 'write'; fromSequence?: uint64-string }",
       "reply": "DevStreamGrant",
       "stream": {
         "protocol": "file-bytes-v1",
