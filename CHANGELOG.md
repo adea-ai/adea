@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.0](https://github.com/adea-ai/adea/compare/v0.31.1...v0.32.0) (2026-09-18)
+
+
+### Features
+
+* **desktop:** local harness discovery and RuntimeConnection inventory (M10 [#30](https://github.com/adea-ai/adea/issues/30)) ([#512](https://github.com/adea-ai/adea/issues/512)) ([efa7e19](https://github.com/adea-ai/adea/commit/efa7e194214b86baf2e34e8f08d84e2ebc138eb7))
+
 ## [0.31.1](https://github.com/adea-ai/adea/compare/v0.31.0...v0.31.1) (2026-09-18)
 
 
