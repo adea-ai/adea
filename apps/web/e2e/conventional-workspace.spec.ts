@@ -1106,3 +1106,16 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
     animations: 'disabled',
   })
 })
+
+test('the appearance dialog keeps the ported Zeron composition', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Appearance' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Appearance' })
+  await expect(dialog).toBeVisible()
+  // The three live mode cards: System renders the split light/dark miniature.
+  await expect(dialog.locator('[data-theme-miniature]')).toHaveCount(4)
+  await expect(dialog).toHaveScreenshot('appearance-dialog-light.png', { animations: 'disabled' })
+})

@@ -48,7 +48,13 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // Budgets ratchet down as the audit shrinks the bundle: ~7% headroom over
 // the current ~935KB / 45 files. A barrel import or a heavyweight
 // dependency trips this before it ships.
-const CLIENT_JS_BUDGET_BYTES = 1_000_000
+//
+// 2026-09-18 audit (#425): 46 files / ~999KB on main left 0.5KB of runway;
+// the ratchet moves to 1,020,000 for the appearance composition port. The
+// delta is the donor-ported appearance dialog + its painters and helpers
+// (+9.4KB), all inside the lazy `appearance` chunk that only loads when the
+// dialog opens — the eager shell is unchanged, and the chunk count is flat.
+const CLIENT_JS_BUDGET_BYTES = 1_020_000
 const CLIENT_JS_FILE_BUDGET = 50
 if (javascriptBytes > CLIENT_JS_BUDGET_BYTES)
   throw new Error(
