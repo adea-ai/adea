@@ -2460,6 +2460,32 @@ can distinguish intentional spec evolution from drift:
 
 > > > > > > > 49452cc (feat(shell): supervise the bundled local component stack)
 
+- **2026-09-18 — browser and device lanes implementation (#422).** Landed the
+  lane host adapters and UI behind the existing registry (no new operations):
+  browser lanes derive an immutable profile identity from
+  `(account, workspace, runtime node, session, kind)`, so human and
+  task-owned lanes can never share a profile; takeover and release are the
+  only generation-incrementing ownership transfers and input granted under an
+  old generation is inert; screencast publication keeps one in-flight plus
+  the newest complete frame under credit backpressure with the spec's
+  15/30 FPS, 4096×4096, 8 MiB, and 240 inputs/s limits enforced; navigation
+  revalidates scheme, credentials, and every resolved address on each hop and
+  admits loopback only for a proven Adea-owned service (loopback ports 80/443
+  are never owned); cookie import is a previewed plan/commit transaction —
+  digest-bound, scoped to the imported registrable families, excluding
+  non-transplantable origins (google.com) unless explicitly overridden, and
+  fully rolled back on any failure or cancellation with values never logged;
+  the port inventory scans loopback listeners only (no LAN probe), marks
+  Adea-owned services from launch metadata, and keeps vanished ports stale;
+  device inventory is capability-gated `xcrun simctl`/`adb` with fixed argv
+  templates bound to verified inventory IDs, and stops only an Adea-launched,
+  still-identity-matching process (user-booted devices detach, never shut
+  down). `dev.browser.attach`/`input`/`screenshot` and
+  `dev.device.attach`/`input`/`screenshot` replies are typed
+  `capability_unavailable` at the provider layer until the channel-identity
+  grant-minting seam and the #400 agent-event attachment land; agent-event
+  attachment remains explicitly unavailable for #422 closure.
+
 - **2026-09-16 — contract completeness audit fixes.** Added the missing
   operations the M12 issue bodies already require: `dev.group.*`
   (create/update/delete/list/reorder) for #398; `dev.session.archive` and
@@ -2501,6 +2527,22 @@ files in the same commit:
   boundary: no loopback or browsed-page privilege (trusted-origin gate,
   bootstrap handshake, proof/replay/expiry refusals, single-use grants,
   full-duplex attach, secret-free audit);
+- `packages/types/tests/dev-runtime-browser-device.test.ts` — #422 wire
+  contract: every `dev.browser.*`/`dev.device.*` request body and success
+  reply decodes, lane crossover and stale generations fail closed, and
+  gesture/viewport/cookie limits bind on the stream;
+- `apps/desktop/tests/dev-runtime-browser.test.ts` — lane/profile identity
+  separation, takeover generation fencing, screencast bounded publication and
+  stale-input inertness, cookie import scope/atomic rollback/secret-free
+  results, loopback-only port inventory with stale handling, screenshot
+  provenance and limits;
+- `apps/desktop/tests/dev-runtime-browser-providers.test.ts` — provider
+  preconditions behind the M10 gate: scope identity, generation binding, SSRF
+  refusals recorded as policy diagnostics, and typed-unavailable engine
+  seams;
+- `apps/desktop/tests/dev-runtime-devices.test.ts` — simctl/adb inventory
+  parsing fixtures, fixed argv templates, gesture pixel clamping, and
+  launch-identity stop rules including adopt-never-kill.
 - `packages/types` contract/property tests
   (`packages/types/tests/dev-runtime.test.ts`) — envelope, channel, stream,
   and state decoders;

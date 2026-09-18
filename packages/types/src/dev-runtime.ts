@@ -406,6 +406,254 @@ export type DevRuntimePage<T> = Readonly<{
   observedAt: string
 }>
 
+// ─── Browser and device lanes (#422) ────────────────────────────────────────
+//
+// DTOs for the ADR 0006 lane model: the human embedded lane, the task-owned
+// agent lane, and the external user-context lane never share a profile, and
+// every device attachment is capability-gated. Field shapes are transcribed
+// from the Dev Runtime spec's core domain model; the registry validates the
+// same shapes through `namedType`.
+
+export const browserLaneStates = [
+  'provisioning',
+  'ready',
+  'navigating',
+  'suspended',
+  'closing',
+  'closed',
+  'crashed',
+  'recovering',
+] as const
+export type BrowserLaneState = (typeof browserLaneStates)[number]
+
+export const deviceSessionStates = [
+  'discovering',
+  'available',
+  'starting',
+  'attached',
+  'suspended',
+  'stopping',
+  'stopped',
+] as const
+export type DeviceSessionState = (typeof deviceSessionStates)[number]
+
+export type BrowserLane = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  kind: 'human_embedded' | 'task_owned' | 'user_context'
+  profileId: string
+  state: BrowserLaneState
+  automationOwner: 'none' | 'agent' | 'human_takeover'
+  generation: number
+}>
+
+/** A named lane-permission policy; hosts mint it, lanes record the one used. */
+export type ProfilePolicy = Readonly<{
+  id: string
+  scope: Scope
+  label: string
+  allowedPermissions: readonly string[]
+  version: number
+}>
+
+export type DeviceSession = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  inventoryId: string
+  kind: 'responsive' | 'ios_simulator' | 'android_emulator' | 'physical'
+  state: DeviceSessionState
+  processRecordId?: string
+  generation: number
+}>
+
+export type BrowserTarget = Readonly<{
+  id: string
+  browserLaneId: string
+  type: 'page' | 'frame' | 'worker'
+  url: string
+  title: string
+  generation: number
+}>
+
+export type BrowserNavigation = Readonly<{
+  browserLaneId: string
+  targetId: string
+  finalUrl: string
+  status?: number
+  generation: number
+  observedAt: string
+}>
+
+export type BrowserAnnotation = Readonly<{
+  targetId: string
+  kind: 'point' | 'rect' | 'text'
+  x: number
+  y: number
+  width?: number
+  height?: number
+  text?: string
+  id: string
+  screenshotId: string
+  createdAt: string
+}>
+
+export type BrowserInspection = Readonly<{
+  targetId: string
+  nodeId?: string
+  role?: string
+  name?: string
+  bounds?: Readonly<{ x: number; y: number; width: number; height: number }>
+  observedAt: string
+}>
+
+export type BrowserDiagnostic = Readonly<{
+  id: string
+  level: 'info' | 'warning' | 'error'
+  category: 'console' | 'network' | 'crash' | 'policy'
+  message: string
+  observedAt: string
+}>
+
+export type ScreenshotRef = Readonly<{
+  id: string
+  scope: Scope
+  ownerId: string
+  contentType: 'image/png' | 'image/jpeg' | 'image/webp'
+  byteLength: string
+  width: number
+  height: number
+  sha256: string
+  expiresAt: string
+}>
+
+export type CookieImportResult = Readonly<{
+  browserLaneId: string
+  imported: number
+  skipped: number
+  rolledBack: boolean
+  observedAt: string
+}>
+
+export type DeviceInventoryItem = Readonly<{
+  id: string
+  kind: DeviceSession['kind']
+  name: string
+  platform: string
+  state: 'available' | 'busy' | 'offline' | 'unauthorized'
+  generation: number
+  observedAt: string
+}>
+
+export type PortRecord = Readonly<{
+  id: string
+  scope: Scope
+  protocol: 'tcp' | 'udp'
+  host: string
+  port: number
+  owner: 'adea' | 'external' | 'unknown'
+  processRecordId?: string
+  runtimeSessionId?: string
+  generation?: number
+  state: 'observed' | 'stale' | 'gone'
+  observedAt: string
+}>
+
+export type CleanupBlocker = Readonly<{
+  code: DevErrorCode
+  resourceId?: string
+  message: string
+}>
+
+/** Plan digest for a plan/commit mutation pair; the commit rejects changed facts. */
+export type MutationPlan = Readonly<{
+  id: string
+  operation: DevOperation
+  scope: Scope
+  resource: Readonly<{ kind: string; id: string; generation: number }>
+  factVersions: Readonly<Record<string, string>>
+  steps: readonly Readonly<{
+    id: string
+    kind: string
+    targetId: string
+    dependsOn: readonly string[]
+  }>[]
+  blockers: readonly CleanupBlocker[]
+  requiredApprovalIds: readonly string[]
+  digest: string
+  expiresAt: string
+}>
+
+const cleanupBlockerKeys = ['code', 'message'] as const
+const cleanupBlockerOptionalKeys = ['resourceId'] as const
+
+function decodeCleanupBlocker(value: unknown, path: string): CleanupBlocker {
+  const item = record(value, path)
+  exactKeys(item, [...cleanupBlockerKeys], [...cleanupBlockerOptionalKeys], path)
+  literal(item.code, devErrorCodes, `${path}.code`)
+  if (item.resourceId !== undefined) stringValue(item.resourceId, `${path}.resourceId`, 1, 256)
+  stringValue(item.message, `${path}.message`, 1, 4096)
+  return value as CleanupBlocker
+}
+
+function decodeMutationPlan(value: unknown): MutationPlan {
+  const item = record(value, 'mutationPlan')
+  exactKeys(
+    item,
+    [
+      'id',
+      'operation',
+      'scope',
+      'resource',
+      'factVersions',
+      'steps',
+      'blockers',
+      'requiredApprovalIds',
+      'digest',
+      'expiresAt',
+    ],
+    [],
+    'mutationPlan'
+  )
+  if (!uuidPattern.test(stringValue(item.id, 'mutationPlan.id')))
+    fail('mutationPlan.id', 'expected lowercase UUID')
+  const operation = item.operation
+  if (typeof operation !== 'string' || !(operation in devOperationDefinitions))
+    fail('mutationPlan.operation', 'unknown operation')
+  decodeScope(item.scope, 'mutationPlan.scope')
+  resourceBinding(item.resource, 'mutationPlan.resource')
+  const factVersions = record(item.factVersions, 'mutationPlan.factVersions')
+  for (const [key, entry] of Object.entries(factVersions)) {
+    stringValue(key, 'mutationPlan.factVersions key', 1, 256)
+    stringValue(entry, `mutationPlan.factVersions.${key}`, 1, 4096)
+  }
+  if (!Array.isArray(item.steps)) fail('mutationPlan.steps', 'expected array')
+  if (item.steps.length > 10_000) fail('mutationPlan.steps', 'steps exceed 10,000')
+  item.steps.forEach((step, index) => {
+    const stepItem = record(step, `mutationPlan.steps[${index}]`)
+    exactKeys(stepItem, ['id', 'kind', 'targetId', 'dependsOn'], [], `mutationPlan.steps[${index}]`)
+    stringValue(stepItem.id, `mutationPlan.steps[${index}].id`, 1, 256)
+    stringValue(stepItem.kind, `mutationPlan.steps[${index}].kind`, 1, 128)
+    stringValue(stepItem.targetId, `mutationPlan.steps[${index}].targetId`, 0, 4096)
+    validateType('string[]', stepItem.dependsOn, `mutationPlan.steps[${index}].dependsOn`)
+  })
+  if (!Array.isArray(item.blockers)) fail('mutationPlan.blockers', 'expected array')
+  item.blockers.forEach((blocker, index) =>
+    decodeCleanupBlocker(blocker, `mutationPlan.blockers[${index}]`)
+  )
+  validateType('string[]', item.requiredApprovalIds, 'mutationPlan.requiredApprovalIds')
+  if (!sha256Pattern.test(stringValue(item.digest, 'mutationPlan.digest')))
+    fail('mutationPlan.digest', 'expected sha256')
+  timestamp(item.expiresAt, 'mutationPlan.expiresAt')
+  return value as MutationPlan
+}
+
+/** Strict decoder for the plan/commit mutation plan DTO. */
+export function decodeDevMutationPlan(value: unknown): MutationPlan {
+  return decodeMutationPlan(value)
+}
+
 const objectPrototype = Object.prototype
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/
@@ -549,6 +797,235 @@ const cleanupSteps = [
 ] as const
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  // #422 browser/device DTOs. Shapes mirror the Dev Runtime spec's core
+  // domain model; the registry bodies and replies validate through here.
+  if (name === 'BrowserLane') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'kind',
+        'profileId',
+        'state',
+        'automationOwner',
+        'generation',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    literal(item.kind, ['human_embedded', 'task_owned', 'user_context'], `${path}.kind`)
+    stringValue(item.profileId, `${path}.profileId`, 1, 256)
+    literal(item.state, browserLaneStates, `${path}.state`)
+    literal(item.automationOwner, ['none', 'agent', 'human_takeover'], `${path}.automationOwner`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'ProfilePolicy') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'scope', 'label', 'allowedPermissions', 'version'], [], path)
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.label, `${path}.label`, 1, 128)
+    validateType('string[]', item.allowedPermissions, `${path}.allowedPermissions`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'DeviceSession') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'runtimeSessionId', 'inventoryId', 'kind', 'state', 'generation'],
+      ['processRecordId'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.inventoryId, `${path}.inventoryId`, 1, 256)
+    literal(
+      item.kind,
+      ['responsive', 'ios_simulator', 'android_emulator', 'physical'],
+      `${path}.kind`
+    )
+    literal(item.state, deviceSessionStates, `${path}.state`)
+    if (item.processRecordId !== undefined)
+      stringValue(item.processRecordId, `${path}.processRecordId`, 1, 256)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'BrowserTarget') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'browserLaneId', 'type', 'url', 'title', 'generation'], [], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.browserLaneId, `${path}.browserLaneId`, 1, 256)
+    literal(item.type, ['page', 'frame', 'worker'], `${path}.type`)
+    stringValue(item.url, `${path}.url`, 1, 4096)
+    stringValue(item.title, `${path}.title`, 0, 2048)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'BrowserNavigation') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['browserLaneId', 'targetId', 'finalUrl', 'generation', 'observedAt'],
+      ['status'],
+      path
+    )
+    stringValue(item.browserLaneId, `${path}.browserLaneId`, 1, 256)
+    stringValue(item.targetId, `${path}.targetId`, 1, 256)
+    stringValue(item.finalUrl, `${path}.finalUrl`, 1, 4096)
+    if (item.status !== undefined) integerValue(item.status, `${path}.status`, 100, 599)
+    integerValue(item.generation, `${path}.generation`, 0)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'BrowserAnnotation') {
+    const item = record(value, path)
+    const kind = literal(item.kind, ['point', 'rect', 'text'], `${path}.kind`)
+    exactKeys(
+      item,
+      ['targetId', 'kind', 'x', 'y', 'id', 'screenshotId', 'createdAt'],
+      ['width', 'height', 'text'],
+      path
+    )
+    stringValue(item.targetId, `${path}.targetId`, 1)
+    finiteNumber(item.x, `${path}.x`, 0, 1)
+    finiteNumber(item.y, `${path}.y`, 0, 1)
+    if (item.width !== undefined) finiteNumber(item.width, `${path}.width`, 0, 1)
+    if (item.height !== undefined) finiteNumber(item.height, `${path}.height`, 0, 1)
+    if (item.text !== undefined) stringValue(item.text, `${path}.text`, 0, 4096)
+    if (kind === 'rect' && (item.width === undefined || item.height === undefined))
+      fail(path, 'rect annotation requires width and height')
+    if (kind === 'text' && item.text === undefined) fail(path, 'text annotation requires text')
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    stringValue(item.screenshotId, `${path}.screenshotId`, 1, 256)
+    timestamp(item.createdAt, `${path}.createdAt`)
+    return value
+  }
+  if (name === 'BrowserInspection') {
+    const item = record(value, path)
+    exactKeys(item, ['targetId', 'observedAt'], ['nodeId', 'role', 'name', 'bounds'], path)
+    stringValue(item.targetId, `${path}.targetId`, 1)
+    if (item.nodeId !== undefined) stringValue(item.nodeId, `${path}.nodeId`, 1, 256)
+    if (item.role !== undefined) stringValue(item.role, `${path}.role`, 1, 128)
+    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 0, 2048)
+    if (item.bounds !== undefined) {
+      const bounds = record(item.bounds, `${path}.bounds`)
+      exactKeys(bounds, ['x', 'y', 'width', 'height'], [], `${path}.bounds`)
+      for (const key of ['x', 'y', 'width', 'height'] as const)
+        finiteNumber(bounds[key], `${path}.bounds.${key}`)
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'BrowserDiagnostic') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'level', 'category', 'message', 'observedAt'], [], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    literal(item.level, ['info', 'warning', 'error'], `${path}.level`)
+    literal(item.category, ['console', 'network', 'crash', 'policy'], `${path}.category`)
+    stringValue(item.message, `${path}.message`, 1, 4096)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'ScreenshotRef') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'ownerId',
+        'contentType',
+        'byteLength',
+        'width',
+        'height',
+        'sha256',
+        'expiresAt',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    literal(item.contentType, ['image/png', 'image/jpeg', 'image/webp'], `${path}.contentType`)
+    uint64String(item.byteLength, `${path}.byteLength`)
+    integerValue(item.width, `${path}.width`, 1, 4096)
+    integerValue(item.height, `${path}.height`, 1, 4096)
+    if (!sha256Pattern.test(stringValue(item.sha256, `${path}.sha256`)))
+      fail(`${path}.sha256`, 'expected sha256')
+    timestamp(item.expiresAt, `${path}.expiresAt`)
+    return value
+  }
+  if (name === 'CookieImportResult') {
+    const item = record(value, path)
+    exactKeys(item, ['browserLaneId', 'imported', 'skipped', 'rolledBack', 'observedAt'], [], path)
+    stringValue(item.browserLaneId, `${path}.browserLaneId`, 1, 256)
+    integerValue(item.imported, `${path}.imported`, 0)
+    integerValue(item.skipped, `${path}.skipped`, 0)
+    if (typeof item.rolledBack !== 'boolean') fail(`${path}.rolledBack`, 'expected boolean')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'DeviceInventoryItem') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'kind', 'name', 'platform', 'state', 'generation', 'observedAt'],
+      [],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    literal(
+      item.kind,
+      ['responsive', 'ios_simulator', 'android_emulator', 'physical'],
+      `${path}.kind`
+    )
+    stringValue(item.name, `${path}.name`, 1, 256)
+    stringValue(item.platform, `${path}.platform`, 1, 64)
+    literal(item.state, ['available', 'busy', 'offline', 'unauthorized'], `${path}.state`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'PortRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'protocol', 'host', 'port', 'owner', 'state', 'observedAt'],
+      ['processRecordId', 'runtimeSessionId', 'generation'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    decodeScope(item.scope, `${path}.scope`)
+    literal(item.protocol, ['tcp', 'udp'], `${path}.protocol`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    integerValue(item.port, `${path}.port`, 1, 65_535)
+    literal(item.owner, ['adea', 'external', 'unknown'], `${path}.owner`)
+    if (item.processRecordId !== undefined)
+      stringValue(item.processRecordId, `${path}.processRecordId`, 1, 256)
+    if (item.runtimeSessionId !== undefined)
+      stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    if (item.generation !== undefined) integerValue(item.generation, `${path}.generation`, 0)
+    literal(item.state, ['observed', 'stale', 'gone'], `${path}.state`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'MutationPlan') return decodeMutationPlan(value)
+  if (name === 'CleanupBlocker') return decodeCleanupBlocker(value, path)
   if (name === "DeviceSession['kind']")
     return literal(value, ['responsive', 'ios_simulator', 'android_emulator', 'physical'], path)
   if (name === 'DeviceGesture') {
@@ -875,6 +1352,68 @@ function decodeDevRuntimePage(
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // #422 browser/device lanes. Page replies decode through the same strict
+  // named-type validators the registry bodies use.
+  'dev.browser.annotate': (value) => namedType('BrowserAnnotation', value, 'reply.value'),
+  'dev.browser.attach': (value) => decodeDevStreamGrant(value),
+  'dev.browser.cookieImportCommit': (value) =>
+    namedType('CookieImportResult', value, 'reply.value'),
+  'dev.browser.cookieImportPlan': (value) => decodeMutationPlan(value),
+  'dev.browser.diagnostics': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('BrowserDiagnostic', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.browser.inspect': (value) => namedType('BrowserInspection', value, 'reply.value'),
+  'dev.browser.input': (value) => decodeDevStreamGrant(value),
+  'dev.browser.laneClose': (value) => namedType('BrowserLane', value, 'reply.value'),
+  'dev.browser.laneCreate': (value) => namedType('BrowserLane', value, 'reply.value'),
+  'dev.browser.lanes': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('BrowserLane', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.browser.navigate': (value) => namedType('BrowserNavigation', value, 'reply.value'),
+  'dev.browser.profilePolicies': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('ProfilePolicy', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.browser.profileReset': (value) => namedType('BrowserLane', value, 'reply.value'),
+  'dev.browser.release': (value) => namedType('BrowserLane', value, 'reply.value'),
+  'dev.browser.screenshot': (value) => namedType('ScreenshotRef', value, 'reply.value'),
+  'dev.browser.takeover': (value) => namedType('BrowserLane', value, 'reply.value'),
+  'dev.browser.targets': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('BrowserTarget', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.browser.viewport': (value) => namedType('BrowserLane', value, 'reply.value'),
+  'dev.device.attach': (value) => decodeDevStreamGrant(value),
+  'dev.device.input': (value) => decodeDevStreamGrant(value),
+  'dev.device.list': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('DeviceInventoryItem', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.device.screenshot': (value) => namedType('ScreenshotRef', value, 'reply.value'),
+  'dev.device.sessions': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('DeviceSession', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.device.start': (value) => namedType('DeviceSession', value, 'reply.value'),
+  'dev.device.stop': (value) => namedType('DeviceSession', value, 'reply.value'),
+  // The #422 Ports menu consumes this read-only projection; #424 owns the
+  // provider and its resource side.
+  'dev.resources.ports': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('PortRecord', item, path), value, 'reply.value'),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {

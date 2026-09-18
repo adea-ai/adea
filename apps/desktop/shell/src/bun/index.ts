@@ -7,11 +7,13 @@
 // src/dev-runtime/channel/. The view is pinned to the loopback origin: no
 // remote navigation.
 import { BrowserWindow } from 'electrobun/main'
+import { promises as dns } from 'node:dns'
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface } from '../commands'
+import { registerBrowserDeviceRuntime } from '../dev-runtime/browser/register'
 import { createChannelAuthority } from '../dev-runtime/channel/authority'
 import { createChannelGateway, type SocketData } from '../dev-runtime/channel/server'
 
@@ -41,6 +43,35 @@ const authority = createChannelAuthority({
   shellOrigin: SHELL_ORIGIN,
 })
 const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
+// #422: the browser/device lane providers dispatch through the same M10 gate.
+// The loopback listener scan is the optional OS inspection; Adea-owned
+// launch metadata stays the primary port authority.
+registerBrowserDeviceRuntime({
+  authority,
+  runLsof: async () => {
+    const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
+      stdout: 'pipe',
+      stderr: 'ignore',
+    })
+    const text = await new Response(proc.stdout).text()
+    await proc.exited
+    return text
+  },
+  resolveDns: async (hostname) => {
+    try {
+      const [a, aaaa] = await Promise.all([
+        dns.resolve4(hostname).catch(() => [] as string[]),
+        dns.resolve6(hostname).catch(() => [] as string[]),
+      ])
+      return [
+        ...a.map((address) => ({ address, family: 4 as const })),
+        ...aaaa.map((address) => ({ address, family: 6 as const })),
+      ]
+    } catch {
+      return []
+    }
+  },
+})
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',

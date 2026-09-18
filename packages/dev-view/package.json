@@ -23,6 +23,18 @@
       "solid": "./src/appearance/index.ts",
       "development": "./src/appearance/index.ts",
       "import": "./dist/appearance/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser/index.d.ts",
+      "solid": "./src/browser/index.ts",
+      "development": "./src/browser/index.ts",
+      "import": "./dist/browser/index.js"
+    },
+    "./devices": {
+      "types": "./dist/devices/index.d.ts",
+      "solid": "./src/devices/index.ts",
+      "development": "./src/devices/index.ts",
+      "import": "./dist/devices/index.js"
     }
   },
   "scripts": {

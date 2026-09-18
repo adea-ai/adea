@@ -44,6 +44,21 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+Dev View issue #422 contains portions substantially translated and modified from
+t3code (https://github.com/pingdotgg/t3code):
+Copyright (c) 2026 T3 Tools Inc.
+Licensed under the MIT License.
+
+Dev View issue #422 contains portions substantially translated and modified from
+orca (https://github.com/stablyai/orca):
+Copyright (c) 2026 Lovecast Inc.
+Licensed under the MIT License.
+
+Dev View issue #422 contains portions published under the Apache License,
+Version 2.0 from Buzz (https://github.com/block/buzz):
+Copyright (c) 2026 Block, Inc.
+Buzz is licensed under the Apache License, Version 2.0.
+
 Dev View issue #425 contains portions substantially translated and modified from
 Zeron (https://github.com/zeronsh/zeron):
 Copyright (c) 2026 Wing
@@ -55,7 +70,8 @@ Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 KiroCrew is licensed under the Apache License, Version 2.0, and includes
 software developed at Amazon.com, Inc. (https://www.amazon.com/).
 
-For the Zeron portions, permission is hereby granted, free of charge, to any
+For the Zeron, t3code, and orca portions, permission is hereby granted, free of
+charge, to any
 person obtaining a copy of this software and associated documentation files
 (the "Software"), to deal in the Software without restriction, including
 without limitation the rights to use, copy, modify, merge, publish, distribute,
