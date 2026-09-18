@@ -330,6 +330,80 @@ export type CredentialRef = Readonly<{
   version: number
 }>
 
+// M10 discovery is the sole authority for harness installation truth; Dev View
+// renders these projections and never re-probes. `executableIdentity` uses
+// host-native path form inside authorized host DTOs only — remote clients
+// receive the redacted `executableLabel` unless granted path detail.
+export type HarnessProtocol = 'native' | 'acp' | 'pty'
+export type HarnessAuthState = 'ready' | 'required' | 'expired' | 'unknown'
+export type HarnessHealth = 'healthy' | 'degraded' | 'unhealthy' | 'unknown'
+export type HarnessModel = Readonly<{
+  id: string
+  displayName: string
+  capabilities: readonly string[]
+}>
+export type HarnessInstallation = Readonly<{
+  id: string
+  scope: Scope
+  executableIdentity: string
+  executableLabel: string
+  protocol: HarnessProtocol
+  version?: string
+  auth: HarnessAuthState
+  health: HarnessHealth
+  capabilities: readonly string[]
+  models: readonly HarnessModel[]
+  observedAt: string
+  generation: number
+}>
+export type RuntimeConnectionTransport = 'direct_local' | 'remote_gateway'
+export type RuntimeConnectionProvenance = 'user_managed' | 'managed'
+export type RuntimeConnectionFreshness = 'fresh' | 'stale'
+export type HarnessAcpAvailability = 'available' | 'adapter_required' | 'unavailable'
+export type RuntimeConnectionBlocker = Readonly<{
+  code: DevErrorCode
+  message: string
+}>
+export type RuntimeConnectionEligibility = Readonly<{
+  eligible: boolean
+  blockers: readonly RuntimeConnectionBlocker[]
+}>
+// One RuntimeConnection candidate: a discovered installation joined with its
+// driver identity, eligibility, and diagnostics metadata. `freshness` is
+// derived on read from `observedAt` and never stored.
+export type RuntimeConnectionInventoryEntry = Readonly<{
+  id: string
+  scope: Scope
+  family: string
+  displayName: string
+  driverId: string
+  driverVersion: string
+  provenance: RuntimeConnectionProvenance
+  executableIdentity: string
+  executableLabel: string
+  protocol: HarnessProtocol
+  acpAvailability: HarnessAcpAvailability
+  acpVersion?: string
+  version?: string
+  auth: HarnessAuthState
+  health: HarnessHealth
+  capabilities: readonly string[]
+  sessionOperations: readonly string[]
+  entitlementHints: readonly string[]
+  limitations: readonly string[]
+  eligibility: RuntimeConnectionEligibility
+  transport: RuntimeConnectionTransport
+  models: readonly HarnessModel[]
+  observedAt: string
+  generation: number
+}>
+export type RuntimeConnectionInventorySnapshot = Readonly<{
+  scope: Scope
+  items: readonly RuntimeConnectionInventoryEntry[]
+  freshness: readonly RuntimeConnectionFreshness[]
+  observedAt: string
+}>
+
 export const runtimeEventKinds = [
   'session.created',
   'session.starting',
@@ -1214,6 +1288,134 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.version, `${path}.version`, 1)
     return value
   }
+  if (name === 'HarnessModel') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'displayName', 'capabilities'], [], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.displayName, `${path}.displayName`, 1, 256)
+    validateType('string[]<=1000', item.capabilities, `${path}.capabilities`)
+    for (const capability of item.capabilities as readonly unknown[])
+      stringValue(capability, `${path}.capabilities[]`, 1, 128)
+    return value
+  }
+  if (name === 'HarnessInstallation') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'executableIdentity',
+        'executableLabel',
+        'protocol',
+        'auth',
+        'health',
+        'capabilities',
+        'models',
+        'observedAt',
+        'generation',
+      ],
+      ['version'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 4096)
+    stringValue(item.executableLabel, `${path}.executableLabel`, 1, 256)
+    literal(item.protocol, ['native', 'acp', 'pty'], `${path}.protocol`)
+    if (item.version !== undefined) stringValue(item.version, `${path}.version`, 1, 128)
+    literal(item.auth, ['ready', 'required', 'expired', 'unknown'], `${path}.auth`)
+    literal(item.health, ['healthy', 'degraded', 'unhealthy', 'unknown'], `${path}.health`)
+    validateType('string[]<=64', item.capabilities, `${path}.capabilities`)
+    for (const capability of item.capabilities as readonly unknown[])
+      stringValue(capability, `${path}.capabilities[]`, 1, 128)
+    validateType('HarnessModel[]<=1000', item.models, `${path}.models`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'RuntimeConnectionInventoryEntry') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'family',
+        'displayName',
+        'driverId',
+        'driverVersion',
+        'provenance',
+        'executableIdentity',
+        'executableLabel',
+        'protocol',
+        'acpAvailability',
+        'auth',
+        'health',
+        'capabilities',
+        'sessionOperations',
+        'entitlementHints',
+        'limitations',
+        'eligibility',
+        'transport',
+        'models',
+        'observedAt',
+        'generation',
+      ],
+      ['acpVersion', 'version'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.family, `${path}.family`, 1, 128)
+    stringValue(item.displayName, `${path}.displayName`, 1, 128)
+    stringValue(item.driverId, `${path}.driverId`, 1, 128)
+    stringValue(item.driverVersion, `${path}.driverVersion`, 1, 64)
+    literal(item.provenance, ['user_managed', 'managed'], `${path}.provenance`)
+    stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 4096)
+    stringValue(item.executableLabel, `${path}.executableLabel`, 1, 256)
+    literal(item.protocol, ['native', 'acp', 'pty'], `${path}.protocol`)
+    literal(
+      item.acpAvailability,
+      ['available', 'adapter_required', 'unavailable'],
+      `${path}.acpAvailability`
+    )
+    if (item.acpVersion !== undefined) stringValue(item.acpVersion, `${path}.acpVersion`, 1, 128)
+    if (item.version !== undefined) stringValue(item.version, `${path}.version`, 1, 128)
+    literal(item.auth, ['ready', 'required', 'expired', 'unknown'], `${path}.auth`)
+    literal(item.health, ['healthy', 'degraded', 'unhealthy', 'unknown'], `${path}.health`)
+    validateType('string[]<=64', item.capabilities, `${path}.capabilities`)
+    for (const capability of item.capabilities as readonly unknown[])
+      stringValue(capability, `${path}.capabilities[]`, 1, 128)
+    validateType('string[]<=32', item.sessionOperations, `${path}.sessionOperations`)
+    for (const operation of item.sessionOperations as readonly unknown[])
+      stringValue(operation, `${path}.sessionOperations[]`, 1, 128)
+    validateType('string[]<=32', item.entitlementHints, `${path}.entitlementHints`)
+    for (const hint of item.entitlementHints as readonly unknown[])
+      stringValue(hint, `${path}.entitlementHints[]`, 1, 128)
+    validateType('string[]<=32', item.limitations, `${path}.limitations`)
+    for (const limitation of item.limitations as readonly unknown[])
+      stringValue(limitation, `${path}.limitations[]`, 1, 256)
+    const eligibility = record(item.eligibility, `${path}.eligibility`)
+    exactKeys(eligibility, ['eligible', 'blockers'], [], `${path}.eligibility`)
+    if (typeof eligibility.eligible !== 'boolean')
+      fail(`${path}.eligibility.eligible`, 'expected boolean')
+    if (!Array.isArray(eligibility.blockers)) fail(`${path}.eligibility.blockers`, 'expected array')
+    if (eligibility.blockers.length > 32) fail(`${path}.eligibility.blockers`, 'array exceeds 32')
+    eligibility.blockers.forEach((blocker, index) => {
+      const blockerRecord = record(blocker, `${path}.eligibility.blockers[${index}]`)
+      exactKeys(blockerRecord, ['code', 'message'], [], `${path}.eligibility.blockers[${index}]`)
+      literal(blockerRecord.code, devErrorCodes, `${path}.eligibility.blockers[${index}].code`)
+      stringValue(blockerRecord.message, `${path}.eligibility.blockers[${index}].message`, 1, 512)
+    })
+    literal(item.transport, ['direct_local', 'remote_gateway'], `${path}.transport`)
+    validateType('HarnessModel[]<=1000', item.models, `${path}.models`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
   fail(path, `unknown named type ${name}`)
 }
 
@@ -1330,6 +1532,53 @@ export function decodeRootBookmark(value: unknown): RootBookmark {
 export function decodeCredentialRef(value: unknown): CredentialRef {
   namedType('CredentialRef', value, 'credentialRef')
   return value as CredentialRef
+}
+
+/** Strict decoder for the M10 discovery HarnessInstallation read model. */
+export function decodeHarnessInstallation(value: unknown): HarnessInstallation {
+  namedType('HarnessInstallation', value, 'harnessInstallation')
+  return value as HarnessInstallation
+}
+
+/** Strict decoder for one RuntimeConnection inventory entry. */
+export function decodeRuntimeConnectionInventoryEntry(
+  value: unknown
+): RuntimeConnectionInventoryEntry {
+  namedType('RuntimeConnectionInventoryEntry', value, 'runtimeConnectionInventoryEntry')
+  return value as RuntimeConnectionInventoryEntry
+}
+
+/** Strict decoder for the RuntimeConnection inventory snapshot read model. */
+export function decodeRuntimeConnectionInventorySnapshot(
+  value: unknown
+): RuntimeConnectionInventorySnapshot {
+  const item = record(value, 'runtimeConnectionInventorySnapshot')
+  exactKeys(
+    item,
+    ['scope', 'items', 'freshness', 'observedAt'],
+    [],
+    'runtimeConnectionInventorySnapshot'
+  )
+  decodeScope(item.scope, 'runtimeConnectionInventorySnapshot.scope')
+  if (!Array.isArray(item.items)) fail('runtimeConnectionInventorySnapshot.items', 'expected array')
+  if (item.items.length > 500)
+    fail('runtimeConnectionInventorySnapshot.items', 'page exceeds 500 items')
+  item.items.forEach((entry, index) =>
+    namedType(
+      'RuntimeConnectionInventoryEntry',
+      entry,
+      `runtimeConnectionInventorySnapshot.items[${index}]`
+    )
+  )
+  if (!Array.isArray(item.freshness))
+    fail('runtimeConnectionInventorySnapshot.freshness', 'expected array')
+  if (item.freshness.length !== item.items.length)
+    fail('runtimeConnectionInventorySnapshot.freshness', 'expected one freshness per item')
+  item.freshness.forEach((entry, index) =>
+    literal(entry, ['fresh', 'stale'], `runtimeConnectionInventorySnapshot.freshness[${index}]`)
+  )
+  timestamp(item.observedAt, 'runtimeConnectionInventorySnapshot.observedAt')
+  return value as RuntimeConnectionInventorySnapshot
 }
 
 function decodeDevRuntimePage(
