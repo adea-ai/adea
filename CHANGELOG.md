@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.18](https://github.com/adea-ai/adea/compare/v0.26.17...v0.26.18) (2026-09-18)
+
+
+### Bug Fixes
+
+* complete fleet toolchain alignment ([#492](https://github.com/adea-ai/adea/issues/492)) ([6860f85](https://github.com/adea-ai/adea/commit/6860f8508ddbaf464e7342910ac46b242227ff47))
+
 ## [0.26.17](https://github.com/adea-ai/adea/compare/v0.26.16...v0.26.17) (2026-09-18)
 
 
