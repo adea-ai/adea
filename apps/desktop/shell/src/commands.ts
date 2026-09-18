@@ -3,10 +3,17 @@
 // keyring-protected under the previous shell. The observable command contract is
 // unchanged — see docs/specs/desktop-auth.md and docs/specs/local-content.md for
 // the behaviours these implement and the documented replacements.
+//
+// This registry sits behind the M10 channel gate (issue #33): the loopback
+// server refuses any request that has not authenticated to the shell channel
+// (see src/dev-runtime/channel/), so a handler here runs only for the app's
+// own window. Privileged `dev.*` operations do NOT register here — they belong
+// to the authenticated Dev Runtime channel under src/dev-runtime/.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { version as packagedVersion } from '../../package.json'
+import { resolveCloudOrigin } from './cloud-proxy'
 import { createUpdateManager } from './updates'
 
 // Update flow: compare this build against the signed `latest.json` feed the
@@ -16,6 +23,42 @@ import { createUpdateManager } from './updates'
 // a releases-page handoff. Release Please bumps the desktop lane's package
 // version with every release, so the running version is never restated by hand.
 const APP_VERSION = process.env.ADEA_APP_VERSION ?? packagedVersion
+
+// Local content identifiers are identities, never paths: the spec pins
+// canonical UUIDs (docs/specs/local-content.md) and the transitional store
+// already mints 128-bit hex ids, so the guard accepts exactly those two
+// shapes. Every handler that turns an id into a filename re-checks the shape
+// first, so a hostile id cannot escape the content directory.
+const CONTENT_ID_PATTERN =
+  /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/
+
+function contentId(value: unknown): string {
+  const id = String(value ?? '')
+  if (!CONTENT_ID_PATTERN.test(id)) throw new Error('invalid content id')
+  return id
+}
+
+/**
+ * Shell-side defense in depth for `desktop_auth_start`: the client validates
+ * the full authorization URL (docs/specs/desktop-auth.md); the shell refuses
+ * to open anything that is not a credential-free authorize URL on the one
+ * canonical cloud origin.
+ */
+function isAcceptableAuthorizationUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    const cloud = new URL(resolveCloudOrigin())
+    return (
+      parsed.origin === cloud.origin &&
+      parsed.pathname === '/api/auth/desktop/authorize' &&
+      parsed.username === '' &&
+      parsed.password === '' &&
+      parsed.hash === ''
+    )
+  } catch {
+    return false
+  }
+}
 
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: string }
 
@@ -115,7 +158,7 @@ export function createCommandSurface(dataDir: string) {
     },
     desktop_auth_start: (args) => {
       const url = String(args?.authorizationUrl ?? '')
-      if (!url) throw new Error('missing authorization url')
+      if (!isAcceptableAuthorizationUrl(url)) throw new Error('untrusted authorization url')
       // Open the trusted sign-in page in the system browser; the callback
       // arrives through the URL-scheme handler (release-pipeline registration).
       Bun.spawn(['open', url])
@@ -143,7 +186,8 @@ export function createCommandSurface(dataDir: string) {
     local_content_authorize_workspace: () => null,
     local_content_create: (args) => {
       const input = (args?.input ?? {}) as Record<string, unknown>
-      const id = String(input.contentId ?? randomBytes(16).toString('hex'))
+      const id =
+        input.contentId === undefined ? randomBytes(16).toString('hex') : contentId(input.contentId)
       const now = new Date().toISOString()
       const ref = {
         id,
@@ -172,7 +216,7 @@ export function createCommandSurface(dataDir: string) {
     },
     local_content_read: (args) => {
       const input = (args?.input ?? {}) as Record<string, unknown>
-      const id = String(input.contentId ?? '')
+      const id = contentId(input.contentId)
       const ref = contentIndex()[id]
       if (!ref) return null
       const plaintext = open(readFileSync(join(contentDir, `${id}.sealed`), 'utf8'))
@@ -180,7 +224,7 @@ export function createCommandSurface(dataDir: string) {
     },
     local_content_update: (args) => {
       const input = (args?.input ?? {}) as Record<string, unknown>
-      const id = String(input.contentId ?? '')
+      const id = contentId(input.contentId)
       const index = contentIndex()
       const ref = index[id]
       if (!ref) return null
@@ -194,11 +238,11 @@ export function createCommandSurface(dataDir: string) {
     },
     local_content_delete: (args) => {
       const input = (args?.input ?? {}) as Record<string, unknown>
-      const id = String(input.contentId ?? '')
+      const id = contentId(input.contentId)
       const index = contentIndex()
       delete index[id]
       writeContentIndex(index)
-      clear(join('..', 'local-content', `${id}.sealed`))
+      rmSync(join(contentDir, `${id}.sealed`), { force: true })
       return null
     },
     local_content_search: (args) => {

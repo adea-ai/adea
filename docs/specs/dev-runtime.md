@@ -1496,6 +1496,21 @@ pauses when credit is zero; client input never exceeds the grant and subsystem
 queue caps. Reconnect obtains a new grant and starts from the last acknowledged
 sequence/checkpoint; it never reuses attach proof or guesses continuity.
 
+On the desktop shell the channel rides one loopback WebSocket
+(`/__adea/channel`) upgraded only for a request that passed the trusted-origin
+gate. Its first text message completes `dev.runtime.handshake.v1`; later text
+messages carry `{ method, frame | attach | payload }` for
+`dev.runtime.execute.v1`, `dev.runtime.stream.attach.v1`, and
+`dev.runtime.events.v1`. Every subsequent message is binary: one marker byte
+followed by canonical CBOR of the control-frame object (`opened`, `ack`,
+`heartbeat`, `resync`, `error`, `close`) or of the byte-frame metadata plus an
+exact `byteLength` (`data`, `video`, `input`, `gesture`, `resize`) followed by
+the raw bytes. `packages/types/src/dev-runtime.ts` owns the canonical-JSON and
+proof-message builders and the canonical-CBOR codec so the client adapter and
+the host MAC byte-identical inputs; the channel MAC is HMAC-SHA256 under a
+256-bit per-channel secret returned exactly once by the handshake and never
+persisted, logged, or exposed to renderer state.
+
 ## Command catalog
 
 Exact transport method names are stable once shipped. M12 begins with these
@@ -2415,6 +2430,13 @@ files in the same commit:
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and
   `CredentialRef` grant DTOs and the success page decoders for
   `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34);
+- `apps/desktop/tests/shell-channel.test.ts` — the M10 channel/desktop
+  boundary: no loopback or browsed-page privilege (trusted-origin gate,
+  bootstrap handshake, proof/replay/expiry refusals, single-use grants,
+  full-duplex attach, secret-free audit);
+- `packages/types` contract/property tests
+  (`packages/types/tests/dev-runtime.test.ts`) — envelope, channel, stream,
+  and state decoders;
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
 - desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
   process, browser, provider, cleanup;

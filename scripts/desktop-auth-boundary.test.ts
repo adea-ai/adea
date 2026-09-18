@@ -72,8 +72,12 @@ describe('desktop shell auth commands', () => {
     expect(source).toContain('desktop_auth_attempt_load')
     expect(source).toContain('desktop_auth_attempt_save')
     expect(source).toContain('desktop_auth_attempt_clear')
-    // A missing authorization URL is refused before the browser is opened.
-    expect(source).toContain("if (!url) throw new Error('missing authorization url')")
+    // Anything that is not a credential-free authorize URL on the canonical
+    // cloud origin is refused before the browser is opened (shell-side
+    // defense in depth; the client owns the full validation).
+    expect(source).toContain(
+      "if (!isAcceptableAuthorizationUrl(url)) throw new Error('untrusted authorization url')"
+    )
     // The sign-in page opens in the system browser, never in the shell window.
     expect(source).toContain("Bun.spawn(['open', url])")
     // The callback is read once and cleared in the same handler.

@@ -1,16 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import {
-  decodeCredentialRef,
-  decodeDevCommand,
-  decodeDevReply,
-  decodeRootBookmark,
-  decodeRuntimeEvent,
-  devOperationDefinitions,
-  devOperationDecoders,
-  devOperations,
-  devRuntimeTransportMethods,
-} from '../src/dev-runtime'
+import { decodeCredentialRef, decodeDevCommand, decodeDevReply, decodeRootBookmark, canonicalDevCommandJson, decodeAuthorizedDevFrame, decodeCapabilitySnapshot, decodeCbor, decodeDevChannelHandshakeReply, decodeDevChannelHandshakeRequest, decodeDevStreamAttach, decodeDevStreamFrame, decodeDevStreamGrant, decodeRuntimeEvent, devCommandProofMessage, devOperationDefinitions, devOperationDecoders, devOperations, devRuntimeTransportMethods, devStreamAttachProofMessage, devStreamGrantProofMessage, encodeCbor } from '../src/dev-runtime'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -443,5 +433,331 @@ describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
     expect(
       devOperationDecoders['dev.repo.credentialRefs'].request({ host: 'github.com', limit: 1 })
     ).toMatchObject({ host: 'github.com', limit: 1 })
+const base64url = (text: string) => Buffer.from(text, 'utf8').toString('base64url')
+
+describe('Dev Runtime authenticated channel (M10 #33)', () => {
+  const channelId = '00000000-0000-4000-8000-00000000000a'
+  const credentialId = '00000000-0000-4000-8000-00000000000b'
+
+  const handshakeRequest = {
+    schemaVersion: 1 as const,
+    method: 'dev.runtime.handshake.v1' as const,
+    requestId: '00000000-0000-4000-8000-000000000004',
+    bootstrap: base64url('bootstrap-secret-at-least-128-bits'),
+    supportedProtocolVersions: ['1'],
+    nonce: base64url('handshake-nonce-128-bits'),
+    issuedAt: '2026-09-15T12:00:00.000Z',
+    expiresAt: '2026-09-15T12:00:30.000Z',
+  }
+
+  const handshakeReply = {
+    schemaVersion: 1 as const,
+    method: 'dev.runtime.handshake.v1' as const,
+    requestId: handshakeRequest.requestId,
+    ok: true as const,
+    channelId,
+    clientCredentialId: credentialId,
+    clientSecret: base64url('channel-client-secret-returned-exactly-once-32-bytes'),
+    channelGeneration: 1,
+    protocolVersion: '1',
+    serverExpiresAt: '2026-09-15T12:30:00.000Z',
+    observedAt: '2026-09-15T12:00:00.000Z',
+  }
+
+  test('pins the transport method names', () => {
+    expect(devRuntimeTransportMethods).toEqual({
+      handshake: 'dev.runtime.handshake.v1',
+      execute: 'dev.runtime.execute.v1',
+      events: 'dev.runtime.events.v1',
+      streamAttach: 'dev.runtime.stream.attach.v1',
+    })
+  })
+
+  test('strictly decodes the channel handshake request and reply', () => {
+    expect(decodeDevChannelHandshakeRequest(handshakeRequest)).toEqual(handshakeRequest)
+    expect(decodeDevChannelHandshakeReply(handshakeReply)).toEqual(handshakeReply)
+    expect(() =>
+      decodeDevChannelHandshakeRequest({ ...handshakeRequest, method: 'dev.runtime.execute.v1' })
+    ).toThrow('method')
+    expect(() =>
+      decodeDevChannelHandshakeRequest({ ...handshakeRequest, bootstrap: 'short' })
+    ).toThrow('bootstrap')
+    expect(() =>
+      decodeDevChannelHandshakeRequest({ ...handshakeRequest, nonce: 'bad*nonce*chars' })
+    ).toThrow('nonce')
+    expect(() =>
+      decodeDevChannelHandshakeRequest({ ...handshakeRequest, supportedProtocolVersions: [] })
+    ).toThrow('supportedProtocolVersions')
+    expect(() => decodeDevChannelHandshakeReply({ ...handshakeReply, extra: 1 })).toThrow(
+      'unknown key'
+    )
+    expect(() =>
+      decodeDevChannelHandshakeReply({ ...handshakeReply, channelId: 'not-a-uuid' })
+    ).toThrow('UUID')
+    const refused = {
+      schemaVersion: 1 as const,
+      method: 'dev.runtime.handshake.v1' as const,
+      requestId: handshakeRequest.requestId,
+      ok: false as const,
+      error: { code: 'channel_unauthenticated', retryable: false, message: 'Refused' },
+    }
+    expect(decodeDevChannelHandshakeReply(refused)).toEqual(refused)
+  })
+
+  test('strictly decodes an authorized frame around a bare command', () => {
+    const snapshotCommand = command('dev.capability.snapshot', {})
+    const frame = {
+      channelId,
+      clientCredentialId: credentialId,
+      command: snapshotCommand,
+      proof: base64url('proof-over-the-canonical-command-digest-and-channel-binding'),
+    }
+    expect(decodeAuthorizedDevFrame(frame)).toEqual(frame)
+    expect(() =>
+      decodeAuthorizedDevFrame({ ...frame, command: { ...snapshotCommand, scope: 1 } })
+    ).toThrow()
+    expect(() => decodeAuthorizedDevFrame({ ...frame, proof: 'short' })).toThrow('proof')
+    expect(() => decodeAuthorizedDevFrame({ ...frame, clientCredentialId: 'not-a-uuid' })).toThrow(
+      'UUID'
+    )
+  })
+
+  test('canonicalizes command JSON and binds every proof field', () => {
+    expect(canonicalDevCommandJson({ b: 2, a: { d: 1, c: [true, null] } })).toBe(
+      '{"a":{"c":[true,null],"d":1},"b":2}'
+    )
+    const snapshotCommand = command('dev.capability.snapshot', {})
+    const input = { channelId, clientCredentialId: credentialId, command: snapshotCommand }
+    expect(devCommandProofMessage(input)).toBe(devCommandProofMessage({ ...input }))
+    // Every bound field changes the proof input: scope, capabilities, times,
+    // nonce, request id, credential, channel, and the body itself.
+    expect(
+      devCommandProofMessage({
+        ...input,
+        command: { ...snapshotCommand, nonce: base64url('a-different-request-nonce-value') },
+      })
+    ).not.toBe(devCommandProofMessage(input))
+    expect(
+      devCommandProofMessage({
+        ...input,
+        command: { ...snapshotCommand, capabilities: [...snapshotCommand.capabilities] },
+      })
+    ).toBe(devCommandProofMessage(input))
+    expect(
+      devCommandProofMessage({
+        ...input,
+        command: { ...snapshotCommand, idempotencyKey: 'logical-retry' },
+      })
+    ).not.toBe(devCommandProofMessage(input))
+  })
+
+  test('strictly decodes stream grants and attaches', () => {
+    const grant = {
+      schemaVersion: 1 as const,
+      grantId: '00000000-0000-4000-8000-00000000000c',
+      protocol: 'terminal-bytes-v1' as const,
+      channelId,
+      scope,
+      resource: { kind: 'terminal', id: 'terminal-1', generation: 3 },
+      direction: 'read' as const,
+      fromSequence: '0',
+      expiresAt: '2026-09-15T12:00:45.000Z',
+      maxFrameBytes: 65_536,
+    }
+    expect(decodeDevStreamGrant(grant)).toEqual(grant)
+    expect(() => decodeDevStreamGrant({ ...grant, protocol: 'terminal-bytes-v2' })).toThrow(
+      'protocol'
+    )
+    expect(() => decodeDevStreamGrant({ ...grant, direction: 'write' })).not.toThrow()
+    expect(() => decodeDevStreamGrant({ ...grant, fromSequence: '01' })).toThrow('uint64')
+    expect(() => decodeDevStreamGrant({ ...grant, maxFrameBytes: 0 })).toThrow('maxFrameBytes')
+
+    const attach = {
+      schemaVersion: 1 as const,
+      grantId: grant.grantId,
+      requestId: '00000000-0000-4000-8000-000000000004',
+      nonce: base64url('attach-nonce-128-bits-long'),
+      fromSequence: '0',
+      proof: base64url('attach-proof-bound-to-grant-and-channel'),
+    }
+    expect(decodeDevStreamAttach(attach)).toEqual(attach)
+    expect(() => decodeDevStreamAttach({ ...attach, extra: true })).toThrow('unknown key')
+
+    // The grant proof message binds credential, channel, protocol, scope,
+    // resource/generation, direction, sequence, and limits; the attach proof
+    // additionally binds the consumed nonce and resume sequence.
+    const grantMessage = devStreamGrantProofMessage({
+      clientCredentialId: credentialId,
+      grant,
+    })
+    expect(devStreamGrantProofMessage({ clientCredentialId: credentialId, grant })).toBe(
+      grantMessage
+    )
+    expect(
+      devStreamGrantProofMessage({
+        clientCredentialId: credentialId,
+        grant: { ...grant, direction: 'write' },
+      })
+    ).not.toBe(grantMessage)
+    const attachMessage = devStreamAttachProofMessage({
+      channelId,
+      attach,
+    })
+    expect(
+      devStreamAttachProofMessage({ channelId, attach: { ...attach, fromSequence: '5' } })
+    ).not.toBe(attachMessage)
+  })
+
+  test('strictly decodes every bulk stream frame variant', () => {
+    const frames = [
+      { type: 'opened', protocol: 'terminal-bytes-v1', generation: 1, nextSequence: '0' },
+      { type: 'data', sequence: '1', bytes: new Uint8Array([1, 2, 3]) },
+      { type: 'video', sequence: '2', timestampMs: 12, keyframe: true, bytes: new Uint8Array([9]) },
+      { type: 'input', sequence: '3', generation: 1, bytes: new Uint8Array([4]) },
+      { type: 'gesture', sequence: '4', generation: 1, gesture: { kind: 'tap', x: 0.5, y: 0.5 } },
+      {
+        type: 'gesture',
+        sequence: '4',
+        generation: 1,
+        gesture: { kind: 'swipe', fromX: 0.1, fromY: 0.2, toX: 0.3, toY: 0.4, durationMs: 220 },
+      },
+      { type: 'resize', sequence: '5', generation: 1, cols: 80, rows: 24 },
+      { type: 'ack', throughSequence: '6', availableCreditBytes: 1024 },
+      { type: 'heartbeat', observedAt: '2026-09-15T12:00:00.000Z', throughSequence: '6' },
+      { type: 'resync', reason: 'sequence_gap', checkpointSequence: '7' },
+      {
+        type: 'error',
+        error: { code: 'backpressure', retryable: true, message: 'Slow subscriber' },
+      },
+      { type: 'close', code: 'stale_generation' },
+    ] as const
+    for (const frame of frames) expect(decodeDevStreamFrame(frame)).toEqual(frame)
+
+    expect(() => decodeDevStreamFrame({ type: 'data', sequence: '1', bytes: 'AQID' })).toThrow(
+      'Uint8Array'
+    )
+    expect(() =>
+      decodeDevStreamFrame({
+        type: 'gesture',
+        sequence: '4',
+        generation: 1,
+        gesture: { kind: 'tap', x: 1.5, y: 0.5 },
+      })
+    ).toThrow('x')
+    expect(() =>
+      decodeDevStreamFrame({
+        type: 'gesture',
+        sequence: '4',
+        generation: 1,
+        gesture: { kind: 'swipe', fromX: 0.1, fromY: 0.2, toX: 0.3, toY: 0.4, durationMs: 5 },
+      })
+    ).toThrow('durationMs')
+    expect(() =>
+      decodeDevStreamFrame({
+        type: 'gesture',
+        sequence: '4',
+        generation: 1,
+        gesture: { kind: 'text', text: 'x'.repeat(4097) },
+      })
+    ).toThrow('text')
+    expect(() => decodeDevStreamFrame({ type: 'close', code: 'bogus' })).toThrow('close')
+    expect(() =>
+      decodeDevStreamFrame({ type: 'resync', reason: 'bogus', checkpointSequence: '7' })
+    ).toThrow('reason')
+    expect(() =>
+      decodeDevStreamFrame({ type: 'data', sequence: '1', bytes: new Uint8Array([1]), extra: 1 })
+    ).toThrow('unknown key')
+  })
+
+  test('strictly decodes the capability snapshot including client-preference grants', () => {
+    const snapshot = {
+      scope,
+      granted: ['dev.appearance.read'] as const,
+      unavailable: [
+        { capability: 'dev.terminal.attach', reason: 'capability_unavailable' },
+        { capability: 'dev.appLibrary.manage', reason: 'capability_unavailable' },
+      ],
+      channelGeneration: 1,
+      observedAt: '2026-09-15T12:00:00.000Z',
+    }
+    expect(decodeCapabilitySnapshot(snapshot)).toEqual(snapshot)
+    expect(() => decodeCapabilitySnapshot({ ...snapshot, granted: ['dev.bogus.read'] })).toThrow(
+      'capability'
+    )
+    expect(() =>
+      decodeCapabilitySnapshot({ ...snapshot, unavailable: [{ capability: 'dev.git.read' }] })
+    ).toThrow('reason')
+    expect(() =>
+      decodeCapabilitySnapshot({ ...snapshot, scope: { ...scope, accountId: 'x' } })
+    ).toThrow('UUID')
+  })
+
+  test('encodes and decodes canonical CBOR per RFC 8949 deterministic rules', () => {
+    const vectors: [unknown, string][] = [
+      [0, '00'],
+      [1, '01'],
+      [10, '0a'],
+      [23, '17'],
+      [24, '1818'],
+      [100, '1864'],
+      [1000, '1903e8'],
+      [1_000_000, '1a000f4240'],
+      [1_000_000_000_000, '1b000000e8d4a51000'],
+      [18446744073709551615n, '1bffffffffffffffff'],
+      [-1, '20'],
+      [-10, '29'],
+      [-100, '3863'],
+      [-1000, '3903e7'],
+      [1.5, 'f93e00'],
+      [100000.5, 'fa47c35040'],
+      [1.1, 'fb3ff199999999999a'],
+      [true, 'f5'],
+      [false, 'f4'],
+      [null, 'f6'],
+      ['', '60'],
+      ['a', '6161'],
+      ['IETF', '6449455446'],
+      ['"\\', '62225c'],
+      ['ü', '62c3bc'],
+      ['水', '63e6b0b4'],
+      ['𝄞', '64f09d849e'],
+      [new Uint8Array([]), '40'],
+      [new Uint8Array([1, 2, 3, 4]), '4401020304'],
+      [[], '80'],
+      [[1, 2, 3], '83010203'],
+      [{}, 'a0'],
+      [{ a: 1, b: [2, 3] }, 'a26161016162820203'],
+      [['a', { b: 'c' }], '826161a161626163'],
+    ]
+    for (const [value, encoded] of vectors) {
+      expect(Buffer.from(encodeCbor(value)).toString('hex')).toBe(encoded)
+      const decoded = decodeCbor(encodeCbor(value))
+      expect(decoded.value).toEqual(value)
+      expect(decoded.byteLength).toBe(encodeCbor(value).byteLength)
+    }
+  })
+
+  test('rejects non-canonical CBOR instead of guessing', () => {
+    const bad = [
+      '190001',
+      '7f616161ff',
+      'c074323031332d30332d32315432303a30343a30305a',
+      '1b0000000000000064',
+      'fe',
+    ]
+    for (const hex of bad) {
+      expect(() => decodeCbor(Buffer.from(hex, 'hex'))).toThrow()
+    }
+    // Map keys are stored by their encoded bytes: two-entry maps decode to the
+    // same canonical key order regardless of insertion order.
+    expect(decodeCbor(encodeCbor({ b: 1, a: 2 })).value).toEqual({ a: 2, b: 1 })
+    expect(decodeCbor(encodeCbor({ b: 1, aa: 2 })).value).toEqual({ aa: 2, b: 1 })
+    // Trailing bytes are reported, never silently consumed.
+    const encoded = encodeCbor(1)
+    const trailing = new Uint8Array(encoded.length + 1)
+    trailing.set(encoded)
+    expect(decodeCbor(trailing).byteLength).toBe(encoded.length)
+    expect(() => encodeCbor(Number.NaN)).toThrow()
+    expect(() => encodeCbor(undefined)).toThrow()
   })
 })

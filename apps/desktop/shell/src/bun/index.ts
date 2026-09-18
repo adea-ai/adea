@@ -1,14 +1,19 @@
 // Adea desktop shell — Electrobun 2.x (Bun main process, bundled CEF view).
 // Serves the single UI (apps/web's TanStack Start SPA output, built by
 // apps/desktop/scripts/client.mjs) from disk on a loopback port, injects the
-// bridge script into the document, and hosts the desktop command surface.
-// The view is pinned to the loopback origin: no remote navigation.
+// bridge script into the document, and hosts the desktop command surface
+// behind the M10 channel gate (issue #33): the legacy invoke/events paths and
+// the full-duplex `dev.runtime.*` channel all authenticate through
+// src/dev-runtime/channel/. The view is pinned to the loopback origin: no
+// remote navigation.
 import { BrowserWindow } from 'electrobun/main'
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface } from '../commands'
+import { createChannelAuthority } from '../dev-runtime/channel/authority'
+import { createChannelGateway, type SocketData } from '../dev-runtime/channel/server'
 
 // The client is copied into the bundle (`electrobun.config.ts` build.copy), so
 // the packaged app serves `Resources/app/client`. Running from the repo
@@ -29,6 +34,13 @@ const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
 const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
 
 const invoke = createCommandSurface(DATA_DIR)
+// The M10 channel authority binds the trusted window and gates every command;
+// the gateway owns the `/__adea/*` routes and the full-duplex WebSocket.
+const authority = createChannelAuthority({
+  shellHost: `127.0.0.1:${PORT}`,
+  shellOrigin: SHELL_ORIGIN,
+})
+const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -42,28 +54,16 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
 }
 
-const BRIDGE_JS = `window.__adeaDesktop = {
-  invoke(cmd, args) {
-    return fetch("/__adea/invoke", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ cmd, args }),
-    }).then(function (r) { return r.json() }).then(function (result) {
-      if (!result.ok) throw new Error(result.error || "desktop command failed")
-      return result.value
-    })
-  },
-  listen(event, handler) {
-    var source = new EventSource("/__adea/events?event=" + encodeURIComponent(event))
-    source.onmessage = function (message) { handler({ payload: JSON.parse(message.data) }) }
-    return Promise.resolve(function () { source.close() })
-  },
-}
-`
-
 function injectBridge(html: string): string {
   if (html.includes('/__adea/bridge.js')) return html
-  return html.replace('<head>', '<head><script src="/__adea/bridge.js"></script>')
+  // The one-time launch bootstrap rides only this injected script tag: it is
+  // the trusted window's handshake capability (the bridge script itself
+  // carries no secrets).
+  const bootstrap = gateway.bootstrapToken()
+  return html.replace(
+    '<head>',
+    `<head><script>window.__ADEA_LAUNCH_BOOTSTRAP__=${JSON.stringify(bootstrap)}</script><script src="/__adea/bridge.js"></script>`
+  )
 }
 
 // The post-update relaunch can race the old bundle's socket release, so the
@@ -74,44 +74,22 @@ for (let attempt = 0; attempt < 30 && !server; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 1_000))
   }
   try {
-    server = Bun.serve({
+    server = Bun.serve<SocketData>({
       hostname: '127.0.0.1',
       port: PORT,
-      async fetch(request) {
+      async fetch(request, bunServer) {
         const url = new URL(request.url)
         try {
-          if (url.pathname === '/__adea/bridge.js') {
-            return new Response(BRIDGE_JS, { headers: { 'content-type': 'text/javascript' } })
-          }
-          if (url.pathname === '/__adea/invoke' && request.method === 'POST') {
-            const payload = (await request.json()) as {
-              cmd?: string
-              args?: Record<string, unknown>
-            }
-            const result = await invoke(String(payload.cmd ?? ''), payload.args)
-            return Response.json(result)
-          }
-          if (url.pathname === '/__adea/events') {
-            // Long-lived SSE channel for shell events (auth callback readiness).
-            let heartbeat: ReturnType<typeof setInterval> | undefined
-            const stream = new ReadableStream({
-              start(controller) {
-                const encoder = new TextEncoder()
-                controller.enqueue(encoder.encode(': connected\n\n'))
-                heartbeat = setInterval(() => {
-                  controller.enqueue(
-                    encoder.encode(`data: ${JSON.stringify({ at: Date.now() })}\n\n`)
-                  )
-                }, 30_000)
-              },
-              cancel() {
-                // Client disconnected: stop the heartbeat.
-                if (heartbeat) clearInterval(heartbeat)
-              },
-            })
-            return new Response(stream, {
-              headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
-            })
+          // Everything under /__adea/* — bridge script, guarded invoke,
+          // handshake, events, and the authenticated full-duplex channel —
+          // is the M10 boundary's surface.
+          if (url.pathname.startsWith('/__adea/')) {
+            const response = await gateway.handle(request, (req, data) =>
+              bunServer.upgrade(req, { data })
+            )
+            // After a successful upgrade Bun discards any response; a 101
+            // Response is only the fallthrough for a failed upgrade.
+            return response
           }
           // The client's cloud traffic rides the same-origin proxy; the cloud's
           // desktop lane sees the trusted shell origin on every forwarded call.
@@ -143,6 +121,11 @@ for (let attempt = 0; attempt < 30 && !server; attempt++) {
         } catch {
           return new Response(null, { status: 500 })
         }
+      },
+      websocket: {
+        open: (socket) => gateway.websockets.open(socket),
+        message: (socket, message) => gateway.websockets.message(socket, message),
+        close: (socket) => gateway.websockets.close(socket),
       },
     })
   } catch {
