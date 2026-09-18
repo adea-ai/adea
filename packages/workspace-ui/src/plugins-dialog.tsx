@@ -36,7 +36,9 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'so
 import { keyedRows } from './keyed-rows'
 import { ModalDialog } from './modal-dialog'
 import { PluginLogo } from './plugin-logo'
-import type { WorkspacePlugin, WorkspacePluginsProvider } from './platform'
+import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
+import { workspaceAppActivation } from './platform'
+import type { RailItem, RailPreferencesV1 } from './rail-preferences'
 import {
   defaultPluginFilter,
   filterWorkspacePlugins,
@@ -45,10 +47,24 @@ import {
   type WorkspacePluginFilter,
 } from './plugins'
 
-type PluginTab = 'marketplace' | 'yours'
+type PluginTab = 'marketplace' | 'navigation' | 'yours'
+
+/**
+ * Rail customization handed to the App Library by the shell. The dialog owns
+ * the controls; the rail owns the truth.
+ */
+export type AppLibraryNavigation = Readonly<{
+  items: readonly RailItem[]
+  activeItemId?: string
+  preferences: RailPreferencesV1
+  onReorder: (id: string, direction: 'up' | 'down') => void
+  onSetHidden: (id: string, hidden: boolean) => void
+  onReset: () => void
+}>
 
 const typeOptions = [
   ['all', 'All types'],
+  ['apps', 'Apps'],
   ['connectors', 'Connectors'],
   ['skills', 'Skills'],
 ] as const
@@ -294,12 +310,47 @@ function PluginsEmpty(props: { query: string; tab: PluginTab }) {
   )
 }
 
+function activationEntryId(activation: WorkspaceAppActivation): string {
+  return activation.status === 'activatable' ? activation.entryId : ''
+}
+
+function activationUnavailableReason(
+  activation: WorkspaceAppActivation
+): 'catalog-only' | 'not-installed' {
+  return activation.status === 'activatable' ? 'catalog-only' : activation.reason
+}
+
+function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
+  return (
+    <section class="plugins-detail__section" aria-labelledby="plugin-activation-heading">
+      <h4 id="plugin-activation-heading">Activation</h4>
+      <Show
+        when={props.activation.status === 'activatable'}
+        fallback={
+          <p role="note">
+            <ShieldCheck aria-hidden="true" />
+            {activationUnavailableReason(props.activation) === 'not-installed'
+              ? 'Activation unlocks after this app is installed.'
+              : 'Activation unavailable: this catalog entry has no bundled first-party implementation. It can install metadata and connectors, but it cannot execute interface code.'}
+          </p>
+        }
+      >
+        <p>
+          <Check aria-hidden="true" /> Bundled first-party app entry{' '}
+          <code>{activationEntryId(props.activation)}</code> can activate.
+        </p>
+      </Show>
+    </section>
+  )
+}
+
 function PluginDetail(props: {
   onBack: () => void
   onUpdate: () => void
   plugin: WorkspacePlugin
   saving: boolean
 }) {
+  const activation = () => workspaceAppActivation(props.plugin)
   return (
     <article class="plugins-detail">
       <Button type="button" variant="ghost" size="sm" onClick={() => props.onBack()}>
@@ -387,7 +438,99 @@ function PluginDetail(props: {
           {props.plugin.contentResolution === 'metadata-only' ? ' Content is metadata-only.' : ''}
         </small>
       </section>
+      <Show when={props.plugin.appSurface}>
+        {(app) => (
+          <section class="plugins-detail__section" aria-labelledby="plugin-app-heading">
+            <h4 id="plugin-app-heading">App</h4>
+            <small>
+              Platforms: {app().supportedPlatforms.join(', ') || 'unspecified'}.
+              {app().requestedPermissions.length > 0
+                ? ` Requests: ${app().requestedPermissions.join(', ')}.`
+                : ' Requests no additional permissions.'}
+              {app().version ? ` Version ${app().version}.` : ''}
+              {app().digest ? ` Digest ${app().digest}.` : ''}
+            </small>
+          </section>
+        )}
+      </Show>
+      <Show when={props.plugin.appSurface}>
+        <AppActivationSection activation={activation()} />
+      </Show>
     </article>
+  )
+}
+
+function NavigationMissing() {
+  return (
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Blocks aria-hidden="true" />
+        </EmptyMedia>
+        <EmptyTitle>Navigation is unavailable</EmptyTitle>
+        <EmptyDescription>
+          Open the App Library from the rail to manage navigation.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
+  )
+}
+
+function NavigationPanel(props: { navigation: AppLibraryNavigation }) {
+  return (
+    <div class="plugins-navigation">
+      <p class="plugins-navigation__hint">
+        Order and show the global rail entries. Core views stay recoverable: hiding one is temporary
+        while it is active, and Reset Navigation restores the default rail.
+      </p>
+      <ul class="plugins-navigation__list">
+        <For each={props.navigation.items}>
+          {(item) => (
+            <li class="plugins-navigation__row">
+              <span class="plugins-navigation__label">
+                <span class="plugins-navigation__name">{item.label}</span>
+                <Show when={props.navigation.activeItemId === item.id}>
+                  <Badge variant="secondary">Active</Badge>
+                </Show>
+              </span>
+              <span class="plugins-navigation__controls">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Move ${item.label} up`}
+                  onClick={() => props.navigation.onReorder(item.id, 'up')}
+                >
+                  <ChevronUp aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Move ${item.label} down`}
+                  onClick={() => props.navigation.onReorder(item.id, 'down')}
+                >
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+                <label class="plugins-navigation__visibility">
+                  <input
+                    type="checkbox"
+                    checked={!props.navigation.preferences.hidden.includes(item.id)}
+                    onChange={(event) =>
+                      props.navigation.onSetHidden(item.id, !event.currentTarget.checked)
+                    }
+                  />
+                  Show
+                </label>
+              </span>
+            </li>
+          )}
+        </For>
+      </ul>
+      <Button type="button" variant="outline" size="sm" onClick={() => props.navigation.onReset()}>
+        Reset Navigation
+      </Button>
+    </div>
   )
 }
 
@@ -395,6 +538,7 @@ export function PluginsDialog(props: {
   onClose: () => void
   open: boolean
   provider?: WorkspacePluginsProvider
+  navigation?: AppLibraryNavigation
 }) {
   const previewCount = usePluginPreviewCount()
   const [expandedGroups, setExpandedGroups] = createSignal<ReadonlySet<string>>(new Set())
@@ -407,14 +551,22 @@ export function PluginsDialog(props: {
     'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
   >('idle')
   const [tab, setTab] = createSignal<PluginTab>('marketplace')
-  const [filters, setFilters] = createSignal<Record<PluginTab, WorkspacePluginFilter>>({
+  const [filters, setFilters] = createSignal<
+    Record<'marketplace' | 'yours', WorkspacePluginFilter>
+  >({
     marketplace: defaultPluginFilter,
     yours: defaultPluginFilter,
   })
-  const activeFilter = () => filters()[tab()]
+  const activeFilter = () => filters()[browserTab()] ?? defaultPluginFilter
   const selected = createMemo(() => plugins().find(({ id }) => id === selectedId()))
+  // The Navigation tab shows no browser; the list is computed as Discover so
+  // the memo stays total without leaking the navigation value into the filter.
+  const browserTab = (): 'marketplace' | 'yours' => {
+    const current = tab()
+    return current === 'navigation' ? 'marketplace' : current
+  }
   const visible = createMemo(() =>
-    filterWorkspacePlugins(plugins(), tab(), query(), activeFilter())
+    filterWorkspacePlugins(plugins(), browserTab(), query(), activeFilter())
   )
   const groups = createMemo(() => {
     const grouped = groupWorkspacePlugins(visible())
@@ -481,10 +633,10 @@ export function PluginsDialog(props: {
   return (
     <ModalDialog
       class="plugins-dialog"
-      description="Browse and manage providers and skills available to your agents."
+      description="Browse and manage apps, providers, and skills available to your agents."
       onClose={close}
       open={props.open}
-      title="Plugins"
+      title="App Library"
     >
       <Show
         when={selected()}
@@ -495,82 +647,106 @@ export function PluginsDialog(props: {
             value={tab()}
             onChange={(value) => value && setTab(value as PluginTab)}
           >
-            <TabsList variant="line" aria-label="Plugins view" class="plugins-browser__tabs">
-              <TabsTrigger value="marketplace">Marketplace</TabsTrigger>
-              <TabsTrigger value="yours">Yours</TabsTrigger>
-            </TabsList>
-            <div class="plugins-browser__bar">
-              <PluginFilterMenu
-                filter={activeFilter()}
-                onChange={(filter) => setFilters((current) => ({ ...current, [tab()]: filter }))}
-                onOpenChange={setFilterOpen}
-              />
-              <label class="plugins-browser__search">
-                <Search aria-hidden="true" />
-                <Input
-                  type="search"
-                  aria-label="Search plugins"
-                  placeholder="Search plugins"
-                  value={query()}
-                  onInput={(event) => setQuery(event.currentTarget.value)}
-                />
-              </label>
-              <span class="plugins-browser__count" aria-live="polite">
-                {visible().length} {visible().length === 1 ? 'plugin' : 'plugins'}
-              </span>
-            </div>
-            <TabsContent value={tab()} class="plugins-browser__list">
-              <Show
-                when={status() !== 'loading' && status() !== 'error'}
-                fallback={
-                  <PluginListState
-                    catalogState={
-                      catalogState() === 'verification-failure'
-                        ? 'verification-failure'
-                        : catalogState() === 'stale'
-                          ? 'stale'
-                          : 'unavailable'
-                    }
-                    status={status() === 'error' ? 'error' : 'loading'}
-                  />
-                }
-              >
-                <Show
-                  when={visible().length > 0}
-                  fallback={<PluginsEmpty query={query()} tab={tab()} />}
-                >
-                  <For each={groupRows()}>
-                    {(entry) => (
-                      <PluginBrowserGroup
-                        disabled={filterOpen()}
-                        expanded={expandedGroups().has(entry.item().category)}
-                        name={entry.item().category}
-                        onSelect={setSelectedId}
-                        previewCount={previewCount()}
-                        onToggle={() =>
-                          setExpandedGroups((current) => {
-                            const next = new Set<string>(current)
-                            if (next.has(entry.item().category)) next.delete(entry.item().category)
-                            else next.add(entry.item().category)
-                            return next
-                          })
-                        }
-                        plugins={entry.item().plugins}
-                      />
-                    )}
-                  </For>
-                </Show>
+            <TabsList variant="line" aria-label="App Library view" class="plugins-browser__tabs">
+              <TabsTrigger value="marketplace">Discover</TabsTrigger>
+              <TabsTrigger value="yours">Installed</TabsTrigger>
+              <Show when={props.navigation}>
+                {(navigation) => (
+                  <TabsTrigger value="navigation">
+                    Navigation ({navigation().items.length})
+                  </TabsTrigger>
+                )}
               </Show>
-            </TabsContent>
-            <Show when={catalogState() === 'stale' && status() === 'idle'}>
-              <p class="plugins-browser__notice" role="status">
-                Showing the last-known-good catalog while the registry is unavailable.
-              </p>
-            </Show>
-            <Show when={catalogState() === 'verification-failure' && status() === 'idle'}>
-              <p class="plugins-browser__notice" role="alert">
-                The latest catalog failed integrity verification and was not accepted.
-              </p>
+            </TabsList>
+            <Show
+              when={tab() !== 'navigation'}
+              fallback={
+                <Show when={props.navigation} fallback={<NavigationMissing />}>
+                  {(navigation) => <NavigationPanel navigation={navigation()} />}
+                </Show>
+              }
+            >
+              <div class="plugins-browser__body">
+                <div class="plugins-browser__bar">
+                  <PluginFilterMenu
+                    filter={activeFilter()}
+                    onChange={(filter) =>
+                      setFilters((current) => ({
+                        ...current,
+                        [browserTab()]: filter,
+                      }))
+                    }
+                    onOpenChange={setFilterOpen}
+                  />
+                  <label class="plugins-browser__search">
+                    <Search aria-hidden="true" />
+                    <Input
+                      type="search"
+                      aria-label="Search plugins"
+                      placeholder="Search plugins"
+                      value={query()}
+                      onInput={(event) => setQuery(event.currentTarget.value)}
+                    />
+                  </label>
+                  <span class="plugins-browser__count" aria-live="polite">
+                    {visible().length} {visible().length === 1 ? 'plugin' : 'plugins'}
+                  </span>
+                </div>
+                <TabsContent value={tab()} class="plugins-browser__list">
+                  <Show
+                    when={status() !== 'loading' && status() !== 'error'}
+                    fallback={
+                      <PluginListState
+                        catalogState={
+                          catalogState() === 'verification-failure'
+                            ? 'verification-failure'
+                            : catalogState() === 'stale'
+                              ? 'stale'
+                              : 'unavailable'
+                        }
+                        status={status() === 'error' ? 'error' : 'loading'}
+                      />
+                    }
+                  >
+                    <Show
+                      when={visible().length > 0}
+                      fallback={<PluginsEmpty query={query()} tab={tab()} />}
+                    >
+                      <For each={groupRows()}>
+                        {(entry) => (
+                          <PluginBrowserGroup
+                            disabled={filterOpen()}
+                            expanded={expandedGroups().has(entry.item().category)}
+                            name={entry.item().category}
+                            onSelect={setSelectedId}
+                            previewCount={previewCount()}
+                            onToggle={() =>
+                              setExpandedGroups((current) => {
+                                const next = new Set<string>(current)
+                                if (next.has(entry.item().category))
+                                  next.delete(entry.item().category)
+                                else next.add(entry.item().category)
+                                return next
+                              })
+                            }
+                            plugins={entry.item().plugins}
+                          />
+                        )}
+                      </For>
+                    </Show>
+                  </Show>
+                </TabsContent>
+                <Show when={catalogState() === 'stale' && status() === 'idle'}>
+                  <p class="plugins-browser__notice" role="status">
+                    Showing the last-known-good catalog while the registry is unavailable.
+                  </p>
+                </Show>
+                <Show when={catalogState() === 'verification-failure' && status() === 'idle'}>
+                  <p class="plugins-browser__notice" role="alert">
+                    The latest catalog failed integrity verification and was not accepted.
+                  </p>
+                </Show>
+              </div>
             </Show>
           </Tabs>
         }

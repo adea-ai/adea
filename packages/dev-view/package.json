@@ -17,6 +17,12 @@
       "solid": "./src/platform.ts",
       "development": "./src/platform.ts",
       "import": "./dist/platform.js"
+    },
+    "./appearance": {
+      "types": "./dist/appearance/index.d.ts",
+      "solid": "./src/appearance/index.ts",
+      "development": "./src/appearance/index.ts",
+      "import": "./dist/appearance/index.js"
     }
   },
   "scripts": {

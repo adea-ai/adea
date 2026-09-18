@@ -44,7 +44,7 @@ export const popularWorkspacePluginIds = Object.freeze(
 
 export type WorkspacePluginFilter = Readonly<{
   ownership: 'all' | WorkspacePlugin['ownership']
-  type: 'all' | 'connectors' | 'skills'
+  type: 'all' | 'apps' | 'connectors' | 'skills'
 }>
 
 export const defaultPluginFilter: WorkspacePluginFilter = Object.freeze({
@@ -355,6 +355,8 @@ export function createRegistryPluginsProvider(
   }
 }
 
+const isAppSurface = (plugin: WorkspacePlugin): boolean => plugin.surfaces.includes('app')
+
 export function filterWorkspacePlugins(
   plugins: readonly WorkspacePlugin[],
   tab: 'marketplace' | 'yours',
@@ -366,6 +368,7 @@ export function filterWorkspacePlugins(
     (plugin) =>
       (tab === 'marketplace' || plugin.installed) &&
       (filter.type === 'all' ||
+        (filter.type === 'apps' && isAppSurface(plugin)) ||
         (filter.type === 'connectors' && plugin.kind === 'connector') ||
         (filter.type === 'skills' && plugin.kind === 'skill')) &&
       (filter.ownership === 'all' || plugin.ownership === filter.ownership) &&
@@ -376,6 +379,20 @@ export function filterWorkspacePlugins(
           .toLocaleLowerCase()
           .includes(needle))
   )
+}
+
+/**
+ * Counts per category in canonical order, omitting empty categories — the
+ * App Library rail's data (KiroCrew `categoryCounts` composition over the
+ * verified Adea catalog).
+ */
+export function appCategoryCounts(
+  plugins: readonly WorkspacePlugin[]
+): readonly { category: WorkspacePluginCategory; count: number }[] {
+  return groupWorkspacePlugins(plugins).map((group) => ({
+    category: group.category,
+    count: group.plugins.length,
+  }))
 }
 
 export function groupWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {

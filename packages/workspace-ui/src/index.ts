@@ -16,12 +16,25 @@ export { WorkspaceAboutDialog } from './workspace-about-dialog'
 export { PluginsDialog } from './plugins-dialog'
 export {
   createRegistryPluginsProvider,
+  appCategoryCounts,
   filterWorkspacePlugins,
   getPopularWorkspacePlugins,
   groupWorkspacePlugins,
   popularWorkspacePluginIds,
   workspacePluginCategoryOrder,
 } from './plugins'
+export {
+  defaultRailPreferences,
+  normalizeRailPreferences,
+  railItemsForViews,
+  readRailPreferences,
+  reorderRailItems,
+  resolveRailItems,
+  setRailItemHidden,
+  writeRailPreferences,
+  type RailItem,
+  type RailPreferencesV1,
+} from './rail-preferences'
 export {
   canonicalDigest,
   canonicalJson,
@@ -52,6 +65,8 @@ export type {
   TranscriptionProvider,
   TranscriptionSession,
   TranscriptionState,
+  WorkspaceAppActivation,
+  WorkspaceAppSurface,
   WorkspacePreferences,
   WorkspacePlatformServices,
   WorkspacePlugin,
@@ -63,4 +78,4 @@ export type {
   WorkspacePluginInstallationStatus,
   WorkspacePluginsProviderState,
 } from './platform'
-export { defaultWorkspacePreferences } from './platform'
+export { defaultWorkspacePreferences, workspaceAppActivation } from './platform'

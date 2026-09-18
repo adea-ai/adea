@@ -9,42 +9,175 @@ import {
   type ParentProps,
 } from 'solid-js'
 
-export type Theme = 'light' | 'dark' | 'system'
-export type ResolvedTheme = 'light' | 'dark'
+import {
+  appearanceThemeScript,
+  applyAppearanceToDocument,
+  DARK_QUERY,
+  defaultAppearancePreferences,
+  type AppearanceMode,
+  type AppearancePreferencesV2,
+  type ResolvedAppearance,
+  readAppearancePreferences,
+  REDUCED_TRANSPARENCY_QUERY,
+  resolveAppearanceState,
+  writeAppearancePreferences,
+} from './appearance'
+
+export type Theme = AppearanceMode
+export type ResolvedTheme = ResolvedAppearance
+
+export type { AppearanceMode, AppearancePreferencesV2, ResolvedAppearance } from './appearance'
 
 type ThemeContextValue = {
+  /** The persisted v2 appearance preferences. */
+  preferences: Accessor<AppearancePreferencesV2>
+  /** Mode after combining the user choice with the OS report. */
+  resolvedMode: Accessor<ResolvedAppearance>
+  /** The active theme variant id (`documentElement.dataset.theme`). */
+  variantId: Accessor<string>
+  /** Surface after reduced-transparency and capability resolution. */
+  effectiveSurface: Accessor<'opaque' | 'frosted' | 'translucent'>
+  /** True while the OS or the user forces opaque surfaces. */
+  reduceTransparencyActive: Accessor<boolean>
+  /** Persist a field update immediately (Zeron's `SavePolicy::Immediate`). */
+  update: (patch: Partial<AppearancePreferencesV2>) => void
+  /** Apply a draft against the visible app without persisting it. */
+  preview: (preferences: AppearancePreferencesV2 | undefined) => void
+
+  /** Legacy single-mode seam (settings toggle and existing consumers). */
   theme: Accessor<Theme>
   resolvedTheme: Accessor<ResolvedTheme>
   setTheme: (theme: Theme) => void
 }
 
-const STORAGE_KEY = 'theme'
-const DARK_QUERY = '(prefers-color-scheme: dark)'
-
 const ThemeContext = createContext<ThemeContextValue>()
-
-function readStoredTheme(): Theme {
-  if (typeof window === 'undefined') return 'system'
-  try {
-    const stored = window.localStorage.getItem(STORAGE_KEY)
-    return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system'
-  } catch {
-    return 'system'
-  }
-}
 
 function systemPrefersDark(): boolean {
   return typeof window !== 'undefined' && window.matchMedia(DARK_QUERY).matches
+}
+
+function systemReducesTransparency(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia(REDUCED_TRANSPARENCY_QUERY).matches
+}
+
+type ThemeProviderProps = ParentProps<{
+  defaultTheme?: Theme
+  disableTransitionOnChange?: boolean
+  /**
+   * Whether the host window can render OS translucency. The web lane keeps
+   * the default `false` and renders tokenized frosted surfaces instead of
+   * pretending to OS vibrancy.
+   */
+  nativeTranslucency?: boolean
+}>
+
+/**
+ * The shared Solid appearance provider. It owns the versioned appearance
+ * preference (mode, independent light/dark themes, accent, surface) on top of
+ * the contract the previous provider exposed to the token layer: a `dark`
+ * class on the document element plus a `color-scheme` style, persisted in
+ * `localStorage` and defaulting to the system preference. The legacy single
+ * `theme` key migrates on read and is never deleted.
+ */
+export function ThemeProvider(props: ThemeProviderProps) {
+  const storage = typeof window === 'undefined' ? undefined : window.localStorage
+  const stored = readAppearancePreferences(storage)
+  // A legacy or default record keeps the historical `defaultTheme` escape
+  // hatch meaningful for embedders.
+  const initial =
+    stored === defaultAppearancePreferences && props.defaultTheme
+      ? { ...stored, mode: props.defaultTheme }
+      : stored
+  const [preferences, setPreferences] = createSignal<AppearancePreferencesV2>(initial)
+  const [prefersDark, setPrefersDark] = createSignal(systemPrefersDark())
+  const [osReducedTransparency, setOsReducedTransparency] = createSignal(
+    systemReducesTransparency()
+  )
+  const nativeTranslucency = () => props.nativeTranslucency ?? false
+
+  if (typeof window !== 'undefined') {
+    const darkMedia = window.matchMedia(DARK_QUERY)
+    const onDarkChange = (event: MediaQueryListEvent) => setPrefersDark(event.matches)
+    darkMedia.addEventListener('change', onDarkChange)
+    onCleanup(() => darkMedia.removeEventListener('change', onDarkChange))
+
+    const transparencyMedia = window.matchMedia(REDUCED_TRANSPARENCY_QUERY)
+    const onTransparencyChange = (event: MediaQueryListEvent) =>
+      setOsReducedTransparency(event.matches)
+    transparencyMedia.addEventListener('change', onTransparencyChange)
+    onCleanup(() => transparencyMedia.removeEventListener('change', onTransparencyChange))
+  }
+
+  const resolvedState = () =>
+    resolveAppearanceState(preferences(), {
+      systemAppearance: prefersDark() ? 'dark' : 'light',
+      osReducedTransparency: osReducedTransparency(),
+      nativeTranslucency: nativeTranslucency(),
+    })
+
+  const persist = (next: AppearancePreferencesV2) => {
+    setPreferences(next)
+    writeAppearancePreferences(storage, next)
+  }
+
+  createEffect(() => {
+    applyResolved(resolvedState(), props.disableTransitionOnChange ?? true)
+  })
+
+  const update = (patch: Partial<AppearancePreferencesV2>) => {
+    persist({ ...preferences(), ...patch })
+  }
+
+  const preview = (draft: AppearancePreferencesV2 | undefined) => {
+    if (!draft) {
+      applyResolved(resolvedState(), props.disableTransitionOnChange ?? true)
+      return
+    }
+    applyResolved(
+      resolveAppearanceState(draft, {
+        systemAppearance: prefersDark() ? 'dark' : 'light',
+        osReducedTransparency: osReducedTransparency(),
+        nativeTranslucency: nativeTranslucency(),
+      }),
+      props.disableTransitionOnChange ?? true
+    )
+  }
+
+  // Legacy seam: the single `theme` value is the v2 mode.
+  const theme = (): Theme => preferences().mode
+  const resolvedTheme = (): ResolvedTheme => resolvedState().resolvedMode
+  const setTheme = (next: Theme) => update({ mode: next })
+
+  return (
+    <ThemeContext.Provider
+      value={{
+        preferences,
+        resolvedMode: resolvedTheme,
+        variantId: () => resolvedState().variant.id,
+        effectiveSurface: () => resolvedState().effectiveSurface,
+        reduceTransparencyActive: () => resolvedState().reduceTransparencyActive,
+        update,
+        preview,
+        theme,
+        resolvedTheme,
+        setTheme,
+      }}
+    >
+      {props.children}
+    </ThemeContext.Provider>
+  )
 }
 
 /**
  * Applies the resolved theme to the document and suppresses transitions for the
  * frame that carries the change, so a theme switch cannot animate page-wide.
  */
-function applyTheme(theme: ResolvedTheme, disableTransitionOnChange: boolean): void {
+function applyResolved(
+  state: ReturnType<typeof resolveAppearanceState>,
+  disableTransitionOnChange: boolean
+): void {
   if (typeof document === 'undefined') return
 
-  const root = document.documentElement
   let restoreTransitions: (() => void) | undefined
 
   if (disableTransitionOnChange) {
@@ -55,60 +188,11 @@ function applyTheme(theme: ResolvedTheme, disableTransitionOnChange: boolean): v
     restoreTransitions = () => style.remove()
   }
 
-  root.classList.toggle('dark', theme === 'dark')
-  root.style.colorScheme = theme
+  applyAppearanceToDocument(document, state)
 
   if (restoreTransitions) {
     requestAnimationFrame(() => requestAnimationFrame(() => restoreTransitions?.()))
   }
-}
-
-type ThemeProviderProps = ParentProps<{
-  defaultTheme?: Theme
-  disableTransitionOnChange?: boolean
-}>
-
-/**
- * The shared Solid theme provider. It owns the same contract the previous
- * provider exposed to the token layer: a `dark` class on the document element
- * plus a `color-scheme` style, persisted in `localStorage` and defaulting to
- * the system preference.
- */
-export function ThemeProvider(props: ThemeProviderProps) {
-  const [theme, setThemeSignal] = createSignal<Theme>(props.defaultTheme ?? readStoredTheme())
-  const [prefersDark, setPrefersDark] = createSignal(systemPrefersDark())
-
-  const resolvedTheme = (): ResolvedTheme => {
-    const current = theme()
-    if (current === 'system') return prefersDark() ? 'dark' : 'light'
-    return current
-  }
-
-  if (typeof window !== 'undefined') {
-    const media = window.matchMedia(DARK_QUERY)
-    const onChange = (event: MediaQueryListEvent) => setPrefersDark(event.matches)
-    media.addEventListener('change', onChange)
-    onCleanup(() => media.removeEventListener('change', onChange))
-  }
-
-  createEffect(() => {
-    applyTheme(resolvedTheme(), props.disableTransitionOnChange ?? true)
-  })
-
-  const setTheme = (next: Theme) => {
-    setThemeSignal(next)
-    try {
-      window.localStorage.setItem(STORAGE_KEY, next)
-    } catch {
-      // A blocked storage API must not break the in-memory theme.
-    }
-  }
-
-  return (
-    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme }}>
-      {props.children}
-    </ThemeContext.Provider>
-  )
 }
 
 export function useTheme(): ThemeContextValue {
@@ -120,11 +204,11 @@ export function useTheme(): ThemeContextValue {
 }
 
 /**
- * Pre-paint theme restore for server-rendered documents. Rendered in the
- * document head, it applies the stored or system theme before first paint so
- * hydration never shows the wrong palette.
+ * Pre-paint appearance restore for server-rendered documents. Rendered in the
+ * document head, it resolves the stored (or legacy) preference against the OS
+ * and applies the palette before first paint so hydration never shows the
+ * wrong theme.
  */
 export function ThemeScript(): JSX.Element {
-  const script = `(function(){try{var t=localStorage.getItem('${STORAGE_KEY}')||'system';var d=t==='dark'||(t==='system'&&window.matchMedia('${DARK_QUERY}').matches);var r=document.documentElement;r.classList.toggle('dark',d);r.style.colorScheme=d?'dark':'light'}catch(e){}})();`
-  return <script innerHTML={script} />
+  return <script innerHTML={appearanceThemeScript()} />
 }

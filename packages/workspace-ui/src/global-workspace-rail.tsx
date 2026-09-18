@@ -14,6 +14,7 @@ import {
   Home,
   Map,
   MessageSquareText,
+  Palette,
   Plug,
   Search,
 } from 'lucide-solid'
@@ -22,6 +23,18 @@ import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from
 import { AccountMenu } from './account-menu'
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceView } from './workspace-view-toggle'
+
+const VIEW_ICONS: Record<string, typeof Home> = {
+  virtual: Map,
+  chat: MessageSquareText,
+  dev: Code2,
+}
+
+const VIEW_LABELS: Record<string, string> = {
+  virtual: 'Virtual view',
+  chat: 'Chat view',
+  dev: 'Dev view',
+}
 
 type RailActionProps = {
   active?: boolean
@@ -71,9 +84,14 @@ export function GlobalWorkspaceRail(props: {
     platform: 'desktop' | 'web'
   }>
   activeWorkspace?: WorkspaceSummary
+  /** The visible view entries, already ordered and filtered by rail preferences. */
+  views: readonly WorkspaceView[]
   onOpenNotifications: () => void
   onOpenAbout: () => void
   onOpenPlugins: () => void
+  onOpenAppearance: () => void
+  /** Fires on hover/focus of the appearance entry — prefetch its dialog chunk. */
+  onAppearanceIntent?: () => void
   onOpenSearch: () => void
   onOpenSettings: () => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
@@ -186,27 +204,20 @@ export function GlobalWorkspaceRail(props: {
         <Separator class="global-rail__separator" />
 
         <div class="global-rail__views" role="group" aria-label="Workspace views">
-          <RailAction
-            active={props.view === 'virtual'}
-            icon={Map}
-            label="Virtual view"
-            onClick={() => props.onViewChange('virtual')}
-            onIntent={() => props.onViewIntent?.('virtual')}
-          />
-          <RailAction
-            active={props.view === 'chat'}
-            icon={MessageSquareText}
-            label="Chat view"
-            onClick={() => props.onViewChange('chat')}
-            onIntent={() => props.onViewIntent?.('chat')}
-          />
-          <RailAction
-            active={props.view === 'dev'}
-            icon={Code2}
-            label="Dev view"
-            onClick={() => props.onViewChange('dev')}
-            onIntent={() => props.onViewIntent?.('dev')}
-          />
+          <For each={props.views}>
+            {(view) => {
+              const Icon = VIEW_ICONS[view] ?? Map
+              return (
+                <RailAction
+                  active={props.view === view}
+                  icon={Icon}
+                  label={VIEW_LABELS[view] ?? view}
+                  onClick={() => props.onViewChange(view)}
+                  onIntent={() => props.onViewIntent?.(view)}
+                />
+              )
+            }}
+          </For>
           <RailAction
             disabled
             icon={Bell}
@@ -217,9 +228,15 @@ export function GlobalWorkspaceRail(props: {
 
         <div class="global-rail__footer">
           <RailAction
+            icon={Palette}
+            label="Appearance"
+            onClick={props.onOpenAppearance}
+            onIntent={() => props.onAppearanceIntent?.()}
+          />
+          <RailAction
             disabled={!props.activeWorkspace}
             icon={Plug}
-            label="Plugins"
+            label="App Library"
             onClick={props.onOpenPlugins}
             onIntent={() => props.onPanelIntent?.('plugins')}
           />
