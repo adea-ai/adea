@@ -2439,6 +2439,7 @@ Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
 <<<<<<< HEAD
+
 - **2026-09-17 — foundation-gap resolution.** Defined the authoritative typed
   Dev provider projection and canonical Dev↔Chat `RuntimeSession` invariants;
   made layout preferences explicitly session-scoped; introduced the V2 utility
@@ -2446,7 +2447,7 @@ can distinguish intentional spec evolution from drift:
   required leaf-only focus restoration; clarified that unbounded file offsets,
   lengths, and byte counts use `uint64-string`; and moved production remote-node
   certification to M14 while retaining remote-ready fake-node fixtures in M12.
-=======
+  \=======
 - **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
   "Local stack supervision" section: the desktop shell is the single
   supervisor for the bundled local stack, specified as the component-manifest
@@ -2459,7 +2460,8 @@ can distinguish intentional spec evolution from drift:
   This transcribes the supervision authority M12 consumes; it adds no Dev
   Runtime registry operations and changes no acceptance criteria.
 
->>>>>>> 49452cc (feat(shell): supervise the bundled local component stack)
+> > > > > > > 49452cc (feat(shell): supervise the bundled local component stack)
+
 - **2026-09-16 — contract completeness audit fixes.** Added the missing
   operations the M12 issue bodies already require: `dev.group.*`
   (create/update/delete/list/reorder) for #398; `dev.session.archive` and
