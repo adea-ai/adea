@@ -19,29 +19,21 @@ Shared files — append/coordinate, never rewrite: `docs/research/dev-view-sourc
 
 ## Waves
 
-**Wave A — dispatch immediately (independent):**
+**Wave A — COMPLETE (2026-09-18).** Landed: #501 (#395), #504 (#425 — preference model; visual composition port remains, see Active dispatch), #503 (M10 #33), #498 (M10 #34), #499 (M10 #185). Evidence posted on each issue. Exception: control-plane#548 stays on the CP timeline (not yet started).
 
-| Agent | Issue                                                        | Gate to close                |
-| ----- | ------------------------------------------------------------ | ---------------------------- |
-| S1    | #395 shell/panes                                             | #394 (done)                  |
-| S2    | #425 appearance/App Library                                  | #394 + S1's rail-entry merge |
-| M1    | M10 #33 boundary/channel auth                                | standalone substrate         |
-| M2    | M10 #34 grants/roots/vault                                   | coordinates with M1          |
-| M3    | M10 #185 local stack supervision                             | CP#548 contracts (parallel)  |
-| CP1   | control-plane#548 SQLite durable queue + profile conformance | standalone (CP repo, CP-M11) |
+**Active dispatch (Wave B first tranche — 5 agents, 2026-09-18):**
 
-**Wave B — dispatch when #395 and M10 #33/#34/#185 have merged** (fixture work may start earlier; closure per plan):
+| Agent | Issue                                                      | Branch                     | Note                                                                                         |
+| ----- | ---------------------------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------- |
+| T1    | #396 terminal (Bun PTY sidecar + channel)                  | `feat/m12-396-terminal`    | Start gate satisfied (#395 + M10 #33/#34/#185 merged); closure adds #397 + M10 #30–#32       |
+| T2    | #397 worktrees                                             | `feat/m12-397-worktrees`   | Start gate satisfied; gates the most downstream slices (#398/#399/#423/#400)                 |
+| T3    | #422 browser/devices                                       | `feat/m12-422-browser`     | Start gate satisfied; agent-event attachment waits for #400                                  |
+| T4    | M10 #30 harness discovery + RuntimeConnection inventory    | `feat/m10-30-discovery`    | Critical path: gates #396/#400 closure                                                       |
+| T5    | #425 visual conformance port (Zeron composition checklist) | `feat/m12-425-visual-port` | Closes the appearance visual gap the owner flagged; preference model from #504 is the wiring |
 
-| Agent    | Issue                                      | Extra closure deps                                                                |
-| -------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
-| T1       | #396 terminal                              | #397 + M10 #30–#32                                                                |
-| T2       | #397 worktrees                             | M10 authorities only                                                              |
-| T3       | #399 files/local source control            | M10 #33                                                                           |
-| T4       | #422 browser/devices                       | M10 #33/#34/#185; closes before #400 is allowed to (agent-event attachment waits) |
-| T5       | #471 permissions page                      | M10 #33 capability reporting                                                      |
-| M4/M5/M6 | M10 #30 discovery, #31 managed Pi, #32 ACP | standalone substrate                                                              |
+Micro-task (ride along with any agent between slices): stabilize the timing-flaky supervision retention test with an injected clock (#185 comment, 2026-09-18).
 
-**Wave C — dispatched from Wave B merges:** #398 (needs #397), #400 (needs #396 + M11 #36–#41/#43 — **M11 contracts are Wave B-parallel work in their own issues**), #423 (needs #398/#399), #424 (needs #396/#397/#398/#400/#422 — fixtures may start earlier), #472 computer use (planning-first slice after #400/#422/#471). Then #426 integration/release gate last.
+**Queue after this tranche:** #471 permissions page (M10 #33 landed — fully unblocked), M10 #31 managed Pi, M10 #32 ACP, M11 #36–#41/#43 contracts (own issues), then as merges land: #398 (needs #397), #399 (needs #397), #400 (needs #396 + M11), #423 (needs #398/#399), #424 (needs #396/#397/#398/#400/#422), #472 (needs #400/#422/#471, planning-first). #426 release gate last.
 
 ## Rules for every agent
 
