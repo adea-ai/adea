@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.0](https://github.com/adea-ai/adea/compare/v0.28.0...v0.29.0) (2026-09-18)
+
+
+### Features
+
+* **dev-view:** M12.11 live appearance, App Library, and rail customization ([#425](https://github.com/adea-ai/adea/issues/425)) ([#504](https://github.com/adea-ai/adea/issues/504)) ([9026b56](https://github.com/adea-ai/adea/commit/9026b565b29cad1aa4bee34ba81cfe6b98a0c580))
+
 ## [0.28.0](https://github.com/adea-ai/adea/compare/v0.27.0...v0.28.0) (2026-09-18)
 
 
