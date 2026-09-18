@@ -1704,6 +1704,58 @@ Restart loops allow 5 failures in 10 minutes, then stop and surface
 `crash_loop`. Window/app close detaches; explicit termination signals only the
 owned process group after start-identity recheck.
 
+### Local stack supervision
+
+The desktop shell is the one supervisor for the bundled local stack (M10
+#185): Control Plane, managed Pi, optional Cortana, local drivers, and the
+Dev Runtime sidecar all register with the lifecycle below; M12 adapters never
+supervise their own processes and M12 adds no second supervisor. The
+bundled **component manifest** records, per component, the exact product
+version, platform/architecture, artifact digest and signature, app-version
+compatibility window, install and data locations, startup phase, declared
+dependencies, health probe, registration protocol, explicit rollback target,
+and required/optional flag. Its strict decoder returns
+`unsupported_version`/`corrupt_state` instead of guessing; optional
+components never gate baseline readiness; incompatible platform, arch, or
+version-window combinations fail before execution with an actionable reason;
+startup order is sequential by declared phase with dependency refinement, and
+a dependency cycle is `invalid_state`.
+
+Supervision rules:
+
+- every start creates a launch record (`processRecordId`, PID start identity,
+  executable identity, process group, generation) and is idempotent by key;
+- a destructive action rechecks the launch identity immediately before every
+  signal. A reused PID or replaced executable is never signalled — the
+  supervisor reports `ownership_unproven` and leaves the unrelated process
+  running (TM-004);
+- an unexpected exit counts against the crash-loop window: 5 failures in
+  10 minutes stop automatic restarts and surface `crash_loop`; only an
+  explicit operator restart clears it, and the verdict survives app restarts
+  through the durable launch/exit records;
+- health is orthogonal to state: probe heartbeat default 15 seconds, degraded
+  at two missed intervals, unhealthy at `unhealthyAfterMs` (default
+  45 seconds); an unresponsive owned process is signalled and recycled as a
+  counted failure;
+- a component starts only when its required dependencies are running and
+  healthy; readiness of required components is the baseline — optional
+  components (Cortana) may fail or be removed without breaking it;
+- the registration protocol handshake chooses exactly `adopt`,
+  `drain_upgrade` (same major version drift; current sessions are retained
+  until detached), or `sidecar_incompatible`; there is no PID/port adoption
+  fallback;
+- launch/exit records persist owner-only under the supervisor's data
+  location; corrupt or torn lines are quarantined with raw bytes retained,
+  retention is bounded, and rollback/upgrade never deletes component data
+  locations;
+- every spawn, signal, exit, adoption, drain, and crash-loop decision appends
+  to a bounded secret-free audit ring; the snapshot exposes exact packaged
+  versions and digests for diagnostics.
+
+This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
+`apps/desktop/tests/supervision-supervisor.test.ts`, and
+`apps/desktop/tests/supervision-records.test.ts`.
+
 ### Shell integration and input
 
 Wrapper files are content addressed and owner-only. Commands are argv arrays,
@@ -2386,6 +2438,7 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+<<<<<<< HEAD
 - **2026-09-17 — foundation-gap resolution.** Defined the authoritative typed
   Dev provider projection and canonical Dev↔Chat `RuntimeSession` invariants;
   made layout preferences explicitly session-scoped; introduced the V2 utility
@@ -2393,6 +2446,20 @@ can distinguish intentional spec evolution from drift:
   required leaf-only focus restoration; clarified that unbounded file offsets,
   lengths, and byte counts use `uint64-string`; and moved production remote-node
   certification to M14 while retaining remote-ready fake-node fixtures in M12.
+=======
+- **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
+  "Local stack supervision" section: the desktop shell is the single
+  supervisor for the bundled local stack, specified as the component-manifest
+  model (strict decode, compatibility gate, sequential startup order,
+  explicit rollback targets, optional-component baseline) plus the
+  supervision rules (launch-record identity with pre-signal recheck,
+  5-in-10-minutes crash-loop verdict that survives restarts, probe health
+  defaults, idempotent starts, adopt/drain_upgrade/sidecar_incompatible
+  handshake, owner-only quarantined records, bounded secret-free audit).
+  This transcribes the supervision authority M12 consumes; it adds no Dev
+  Runtime registry operations and changes no acceptance criteria.
+
+>>>>>>> 49452cc (feat(shell): supervise the bundled local component stack)
 - **2026-09-16 — contract completeness audit fixes.** Added the missing
   operations the M12 issue bodies already require: `dev.group.*`
   (create/update/delete/list/reorder) for #398; `dev.session.archive` and
