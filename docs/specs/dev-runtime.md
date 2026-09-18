@@ -2326,9 +2326,17 @@ files in the same commit:
 - `scripts/docs-boundary.test.ts` — this spec is routed and links resolve;
 - M10 channel/desktop boundary tests — no loopback or browsed-page privilege;
 - `packages/types` contract/property tests — envelope and state decoders;
+  `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and
+  `CredentialRef` grant DTOs and the success page decoders for
+  `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34);
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
 - desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
   process, browser, provider, cleanup;
+  `apps/desktop/tests/dev-runtime-roots.test.ts`,
+  `apps/desktop/tests/dev-runtime-vault.test.ts`, and
+  `apps/desktop/tests/dev-runtime-grants.test.ts` pin the M10 #34
+  authorized-root containment/identity rechecks, vault enrollment/resolution,
+  and project grant binding;
 - web/desktop Playwright owner journey;
 - named Dev Runtime performance and soak commands;
 - package/provenance denylist tests.

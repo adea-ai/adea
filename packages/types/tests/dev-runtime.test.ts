@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  decodeCredentialRef,
   decodeDevCommand,
   decodeDevReply,
+  decodeRootBookmark,
   decodeRuntimeEvent,
   devOperationDefinitions,
   devOperationDecoders,
@@ -316,5 +318,130 @@ describe('Dev Runtime reply envelope', () => {
         error: { code: 'unavailable', retryable: true, message: 'Unavailable' },
       })
     ).toThrow('operation')
+  })
+})
+
+describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
+  const rootBookmark = {
+    id: '00000000-0000-4000-8000-000000000010',
+    scope,
+    label: 'Primary checkout',
+    kind: 'repository',
+    canonicalRoot: '/Users/dev/work/adea',
+    rootIdentity: { device: '1', inode: '42', mtimeNs: '1700000000000000000', size: '4096' },
+    state: 'active',
+    generation: 1,
+    version: 1,
+  } as const
+
+  const credentialRef = {
+    id: '00000000-0000-4000-8000-000000000011',
+    scope,
+    label: 'GitHub token',
+    host: 'github.com',
+    kind: 'github_token',
+    state: 'ready',
+    version: 1,
+  } as const
+
+  test('strictly decodes root bookmarks', () => {
+    expect(decodeRootBookmark(rootBookmark)).toEqual(rootBookmark)
+    expect(() => decodeRootBookmark({ ...rootBookmark, extra: true })).toThrow('unknown key')
+    expect(() => decodeRootBookmark({ ...rootBookmark, id: 'bookmark-1' })).toThrow('UUID')
+    expect(() => decodeRootBookmark({ ...rootBookmark, kind: 'symlink' })).toThrow('repository')
+    expect(() => decodeRootBookmark({ ...rootBookmark, state: 'expired' })).toThrow('state')
+    expect(() => decodeRootBookmark({ ...rootBookmark, label: '' })).toThrow('string length')
+    expect(() => decodeRootBookmark({ ...rootBookmark, label: 'x'.repeat(129) })).toThrow(
+      'string length'
+    )
+    expect(() => decodeRootBookmark({ ...rootBookmark, canonicalRoot: '/bad\0nul' })).toThrow(
+      'canonicalRoot'
+    )
+    expect(() => decodeRootBookmark({ ...rootBookmark, rootIdentity: { mtimeNs: '1' } })).toThrow(
+      'size'
+    )
+    expect(() => decodeRootBookmark({ ...rootBookmark, generation: -1 })).toThrow('integer')
+    expect(() => decodeRootBookmark({ ...rootBookmark, version: 0 })).toThrow('integer')
+  })
+
+  test('strictly decodes credential references without secret material', () => {
+    expect(decodeCredentialRef(credentialRef)).toEqual(credentialRef)
+    expect(() => decodeCredentialRef({ ...credentialRef, secret: 'hunter2' })).toThrow(
+      'unknown key'
+    )
+    expect(() => decodeCredentialRef({ ...credentialRef, id: 'ref-1' })).toThrow('UUID')
+    expect(() => decodeCredentialRef({ ...credentialRef, kind: 'password' })).toThrow(
+      'github_token'
+    )
+    expect(() => decodeCredentialRef({ ...credentialRef, state: 'active' })).toThrow('state')
+    expect(() => decodeCredentialRef({ ...credentialRef, host: '' })).toThrow('string length')
+    expect(() => decodeCredentialRef({ ...credentialRef, version: 0 })).toThrow('integer')
+  })
+
+  test('installs success page decoders for the grant seam operations', () => {
+    const observedAt = '2026-09-18T12:00:00.000Z'
+    const requestId = '00000000-0000-4000-8000-000000000004'
+    const bookmarksReply = {
+      schemaVersion: 1,
+      operation: 'dev.project.bookmarks',
+      requestId,
+      ok: true,
+      value: { items: [rootBookmark], nextCursor: 'cursor-1', observedAt },
+      observedAt,
+    }
+    expect(decodeDevReply(bookmarksReply)).toEqual(bookmarksReply)
+    expect(devOperationDecoders['dev.project.bookmarks'].reply(bookmarksReply)).toEqual(
+      bookmarksReply
+    )
+
+    const credentialRefsReply = {
+      schemaVersion: 1,
+      operation: 'dev.repo.credentialRefs',
+      requestId,
+      ok: true,
+      value: { items: [credentialRef], observedAt },
+      observedAt,
+    }
+    expect(devOperationDecoders['dev.repo.credentialRefs'].reply(credentialRefsReply)).toEqual(
+      credentialRefsReply
+    )
+
+    expect(() =>
+      decodeDevReply({
+        ...bookmarksReply,
+        value: { items: [{ ...rootBookmark, state: 'bogus' }], observedAt },
+      })
+    ).toThrow('state')
+    expect(() =>
+      decodeDevReply({
+        ...bookmarksReply,
+        value: { items: [rootBookmark], cursor: 'unknown-key', observedAt },
+      })
+    ).toThrow('unknown key')
+    expect(() =>
+      decodeDevReply({
+        ...bookmarksReply,
+        operation: 'dev.repo.authorize',
+        value: { items: [rootBookmark], observedAt },
+      })
+    ).toThrow('success DTO decoder is unavailable')
+  })
+
+  test('validates bookmark listing request bodies', () => {
+    expect(
+      devOperationDecoders['dev.project.bookmarks'].request({ kind: 'directory', limit: 500 })
+    ).toMatchObject({ kind: 'directory', limit: 500 })
+    expect(() => devOperationDecoders['dev.project.bookmarks'].request({ kind: 'file' })).toThrow(
+      'directory'
+    )
+    expect(() => devOperationDecoders['dev.project.bookmarks'].request({ limit: 0 })).toThrow(
+      'integer'
+    )
+    expect(() => devOperationDecoders['dev.project.bookmarks'].request({ limit: 501 })).toThrow(
+      'integer'
+    )
+    expect(
+      devOperationDecoders['dev.repo.credentialRefs'].request({ host: 'github.com', limit: 1 })
+    ).toMatchObject({ host: 'github.com', limit: 1 })
   })
 })

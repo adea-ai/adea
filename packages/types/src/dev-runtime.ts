@@ -255,6 +255,33 @@ export type Group = Readonly<{
   version: number
 }>
 
+// A RootBookmark is a durable grant that a directory or repository root has
+// been authorized by the owner. M10's authorized-root flow mints and revokes
+// bookmarks; M12 consumes them but cannot mint one.
+export type RootBookmark = Readonly<{
+  id: string
+  scope: Scope
+  label: string
+  kind: 'directory' | 'repository'
+  canonicalRoot: string
+  rootIdentity: FileIdentity
+  state: 'active' | 'stale' | 'revoked'
+  generation: number
+  version: number
+}>
+
+// A CredentialRef identifies vault-held credential material without exposing
+// it. The secret never enters a command body, reply, event, or log.
+export type CredentialRef = Readonly<{
+  id: string
+  scope: Scope
+  label: string
+  host: string
+  kind: 'git_https' | 'github_token' | 'ssh_key' | 'other'
+  state: 'ready' | 'expired' | 'revoked' | 'unknown'
+  version: number
+}>
+
 export const runtimeEventKinds = [
   'session.created',
   'session.starting',
@@ -592,6 +619,50 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.baseRef !== undefined) stringValue(item.baseRef, `${path}.baseRef`, 1)
     return value
   }
+  if (name === 'RootBookmark') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'label',
+        'kind',
+        'canonicalRoot',
+        'rootIdentity',
+        'state',
+        'generation',
+        'version',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.label, `${path}.label`, 1, 128)
+    literal(item.kind, ['directory', 'repository'], `${path}.kind`)
+    const canonicalRoot = stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
+    if (canonicalRoot.includes('\0')) fail(`${path}.canonicalRoot`, 'expected path without NUL')
+    namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
+    literal(item.state, ['active', 'stale', 'revoked'], `${path}.state`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'CredentialRef') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'scope', 'label', 'host', 'kind', 'state', 'version'], [], path)
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.label, `${path}.label`, 1, 128)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    literal(item.kind, ['git_https', 'github_token', 'ssh_key', 'other'], `${path}.kind`)
+    literal(item.state, ['ready', 'expired', 'revoked', 'unknown'], `${path}.state`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
   fail(path, `unknown named type ${name}`)
 }
 
@@ -696,6 +767,40 @@ function decodeScope(value: unknown, path = 'scope'): Scope {
     if (!uuidPattern.test(stringValue(item[key], `${path}.${key}`)))
       fail(`${path}.${key}`, 'expected lowercase UUID')
   return value as Scope
+}
+
+/** Strict decoder for the M10-minted authorized-root grant DTO. */
+export function decodeRootBookmark(value: unknown): RootBookmark {
+  namedType('RootBookmark', value, 'rootBookmark')
+  return value as RootBookmark
+}
+
+/** Strict decoder for the vault-held credential reference DTO (never a secret). */
+export function decodeCredentialRef(value: unknown): CredentialRef {
+  namedType('CredentialRef', value, 'credentialRef')
+  return value as CredentialRef
+}
+
+function decodeDevRuntimePage(
+  decodeItem: (value: unknown, path: string) => unknown,
+  value: unknown,
+  path = 'page'
+): DevRuntimePage<unknown> {
+  const item = record(value, path)
+  exactKeys(item, ['items', 'observedAt'], ['nextCursor'], path)
+  if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+  if (item.items.length > 500) fail(`${path}.items`, 'page exceeds 500 items')
+  item.items.forEach((entry, index) => decodeItem(entry, `${path}.items[${index}]`))
+  timestamp(item.observedAt, `${path}.observedAt`)
+  if (item.nextCursor !== undefined) stringValue(item.nextCursor, `${path}.nextCursor`, 1, 512)
+  return value as DevRuntimePage<unknown>
+}
+
+// Success reply decoders, installed by the slice that owns each operation's
+// DTO. Every operation without an entry keeps failing closed in decodeDevReply.
+const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
+  'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
+  'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {
@@ -927,10 +1032,13 @@ export function decodeDevReply(value: unknown): DevReply {
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
-    fail(
-      'reply.value',
-      'success DTO decoder is unavailable until the operation-owning provider slice installs it'
-    )
+    const decodeValue = devReplyValueDecoders[item.operation as DevOperation]
+    if (!decodeValue)
+      fail(
+        'reply.value',
+        'success DTO decoder is unavailable until the operation-owning provider slice installs it'
+      )
+    decodeValue(item.value)
   } else if (item.ok === false) {
     exactKeys(item, ['schemaVersion', 'operation', 'requestId', 'ok', 'error'], [], 'reply')
     decodeError(item.error)
