@@ -1,6 +1,29 @@
 import { describe, expect, test } from 'bun:test'
 
-import { decodeCredentialRef, decodeDevCommand, decodeDevReply, decodeRootBookmark, canonicalDevCommandJson, decodeAuthorizedDevFrame, decodeCapabilitySnapshot, decodeCbor, decodeDevChannelHandshakeReply, decodeDevChannelHandshakeRequest, decodeDevStreamAttach, decodeDevStreamFrame, decodeDevStreamGrant, decodeRuntimeEvent, devCommandProofMessage, devOperationDefinitions, devOperationDecoders, devOperations, devRuntimeTransportMethods, devStreamAttachProofMessage, devStreamGrantProofMessage, encodeCbor } from '../src/dev-runtime'
+import {
+  decodeCredentialRef,
+  decodeDevCommand,
+  decodeDevReply,
+  decodeRootBookmark,
+  canonicalDevCommandJson,
+  decodeAuthorizedDevFrame,
+  decodeCapabilitySnapshot,
+  decodeCbor,
+  decodeDevChannelHandshakeReply,
+  decodeDevChannelHandshakeRequest,
+  decodeDevStreamAttach,
+  decodeDevStreamFrame,
+  decodeDevStreamGrant,
+  decodeRuntimeEvent,
+  devCommandProofMessage,
+  devOperationDefinitions,
+  devOperationDecoders,
+  devOperations,
+  devRuntimeTransportMethods,
+  devStreamAttachProofMessage,
+  devStreamGrantProofMessage,
+  encodeCbor,
+} from '../src/dev-runtime'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -433,6 +456,9 @@ describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
     expect(
       devOperationDecoders['dev.repo.credentialRefs'].request({ host: 'github.com', limit: 1 })
     ).toMatchObject({ host: 'github.com', limit: 1 })
+  })
+})
+
 const base64url = (text: string) => Buffer.from(text, 'utf8').toString('base64url')
 
 describe('Dev Runtime authenticated channel (M10 #33)', () => {
