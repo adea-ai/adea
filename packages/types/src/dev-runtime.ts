@@ -187,6 +187,14 @@ export type PaneSplit = Readonly<{
 }>
 export type PaneNode = PaneLeaf | PaneSplit
 
+export type DevUtilityPane =
+  | 'files'
+  | 'source_control'
+  | 'browser'
+  | 'devices'
+  | 'agents'
+  | 'history'
+
 export type DevLayoutPreferencesV1 = Readonly<{
   schemaVersion: 1
   scope: Scope
@@ -194,13 +202,47 @@ export type DevLayoutPreferencesV1 = Readonly<{
   runtimeSessionId: string
   center: PaneNode
   utility: readonly Readonly<{
-    pane: 'files' | 'source_control' | 'browser' | 'devices' | 'agents' | 'history'
+    pane: DevUtilityPane
     side: 'left' | 'right'
     visible: boolean
     size: number
     lastNonzeroSize: number
   }>[]
   focusMode: boolean
+  focusTargetId?: string
+}>
+
+export type DevUtilityPreference = Readonly<{
+  pane: DevUtilityPane
+  side: 'left' | 'right'
+  order: number
+  visible: boolean
+  size: number
+  lastNonzeroSize: number
+  fullWidth: boolean
+}>
+
+/**
+ * V2 is the first implementation-complete format. The six utility panes are
+ * present exactly once. At most one pane is visible per side; both sides may
+ * be visible simultaneously. No utility field confers runtime authority.
+ */
+export type DevLayoutPreferencesV2 = Readonly<{
+  schemaVersion: 2
+  scope: Scope
+  projectId: string
+  runtimeSessionId: string
+  center: PaneNode
+  utility: readonly [
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+  ]
+  focusMode: boolean
+  /** MUST identify a leaf in center, never a split node. */
   focusTargetId?: string
 }>
 

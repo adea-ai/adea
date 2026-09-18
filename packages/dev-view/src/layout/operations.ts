@@ -220,3 +220,38 @@ export function resizeSplit(state: DevLayoutState, splitId: string, ratio: numbe
   const center = visit(state.center)
   return found && center !== state.center ? { ...state, center, closed: [] } : state
 }
+
+/**
+ * Pure repair walk ported from bb's size normalization: every split ratio is
+ * clamped into the normative range and a non-finite ratio falls back to an
+ * even split. Structure, IDs, and focus are untouched.
+ */
+export function normalizeLayout(state: DevLayoutState): DevLayoutState {
+  const visit = (node: PaneNode): { node: PaneNode; changed: boolean } => {
+    if (node.kind === 'leaf') return { node, changed: false }
+    const first = visit(node.children[0])
+    const second = visit(node.children[1])
+    const ratio = Number.isFinite(node.ratio)
+      ? Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, node.ratio))
+      : (MIN_SPLIT_RATIO + MAX_SPLIT_RATIO) / 2
+    const changed = first.changed || second.changed || ratio !== node.ratio
+    return {
+      node: changed ? { ...node, ratio, children: [first.node, second.node] } : node,
+      changed,
+    }
+  }
+  const result = visit(state.center)
+  return result.changed ? { ...state, center: result.node } : state
+}
+
+/** The leaf immediately after (`1`) or before (`-1`) the given leaf in reading order. */
+export function neighborLeaf(
+  state: DevLayoutState,
+  leafId: string,
+  step: 1 | -1
+): PaneLeaf | undefined {
+  const leaves = listLeaves(state.center)
+  const index = leaves.findIndex((leaf) => leaf.id === leafId)
+  if (index < 0) return undefined
+  return leaves[index + step]
+}

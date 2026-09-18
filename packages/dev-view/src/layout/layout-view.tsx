@@ -1,7 +1,7 @@
 import type { PaneLeaf, PaneNode, PaneSplit } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/ui/lib/utils'
-import { Files, PanelRightOpen, TerminalSquare, X } from 'lucide-solid'
-import { Match, Show, Switch } from 'solid-js'
+import { Files, GripVertical, PanelRightOpen, TerminalSquare, X } from 'lucide-solid'
+import { Match, Show, Switch, createSignal } from 'solid-js'
 
 import type { DevLayoutState } from './operations'
 
@@ -11,7 +11,36 @@ export type DevLayoutViewProps = Readonly<{
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
+  onMoveTo(
+    leafId: string,
+    targetLeafId: string,
+    placement: 'before' | 'after',
+    direction: 'row' | 'column'
+  ): void
 }>
+
+type DropIntent = 'row-before' | 'row-after' | 'column-before' | 'column-after'
+
+function dropIntentFor(event: DragEvent, element: HTMLElement): DropIntent {
+  const bounds = element.getBoundingClientRect()
+  const x = event.clientX - bounds.left
+  const y = event.clientY - bounds.top
+  const distances: readonly (readonly [DropIntent, number])[] = [
+    ['row-before', x],
+    ['row-after', bounds.width - x],
+    ['column-before', y],
+    ['column-after', bounds.height - y],
+  ]
+  let best: DropIntent = 'row-before'
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const [intent, distance] of distances) {
+    if (distance < bestDistance) {
+      best = intent
+      bestDistance = distance
+    }
+  }
+  return best
+}
 
 function Pane(props: {
   leaf: PaneLeaf
@@ -19,17 +48,53 @@ function Pane(props: {
   unavailable: boolean
   onClose(): string
   onFocus(): void
+  onMoveTo(
+    leafId: string,
+    targetLeafId: string,
+    placement: 'before' | 'after',
+    direction: 'row' | 'column'
+  ): void
 }) {
+  let sectionElement: HTMLElement | undefined
+  const [dropIntent, setDropIntent] = createSignal<DropIntent | undefined>()
+  const clearDrop = () => setDropIntent(undefined)
   return (
     <section
+      ref={(element) => {
+        sectionElement = element
+      }}
       class={cn('dev-pane', { 'dev-pane--focused': props.focused })}
       data-pane-id={props.leaf.id}
       role="region"
       aria-label={`${props.leaf.pane} pane`}
       tabIndex={0}
       onFocus={props.onFocus}
+      onDragOver={(event) => {
+        if (!sectionElement || !event.dataTransfer) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        setDropIntent(dropIntentFor(event, sectionElement))
+      }}
+      onDragLeave={clearDrop}
+      onDrop={(event) => {
+        event.preventDefault()
+        const draggedId = event.dataTransfer?.getData('text/plain')
+        const intent = dropIntent()
+        clearDrop()
+        if (!draggedId || !intent) return
+        const [direction, placement] = intent.split('-') as ['row' | 'column', 'before' | 'after']
+        props.onMoveTo(draggedId, props.leaf.id, placement, direction)
+      }}
     >
-      <header>
+      <header
+        draggable={true}
+        onDragStart={(event) => {
+          event.dataTransfer?.setData('text/plain', props.leaf.id)
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+        }}
+        onDragEnd={clearDrop}
+      >
+        <GripVertical aria-hidden="true" class="dev-pane-grip" />
         <Show when={props.leaf.pane === 'terminal'} fallback={<Files aria-hidden="true" />}>
           <TerminalSquare aria-hidden="true" />
         </Show>
@@ -40,6 +105,7 @@ function Pane(props: {
         <button
           type="button"
           class="dev-pane-close"
+          draggable={false}
           aria-label={`Close ${props.leaf.pane} pane`}
           onClick={(event) => {
             event.stopPropagation()
@@ -75,6 +141,18 @@ function Pane(props: {
           </Show>
         </div>
       </Show>
+      <span class="sr-only" aria-live="polite">
+        {dropIntent() ? 'Drop to place pane here' : ''}
+      </span>
+      <span
+        class={cn('dev-pane-drop-hint', {
+          'dev-pane--drop-row-before': dropIntent() === 'row-before',
+          'dev-pane--drop-row-after': dropIntent() === 'row-after',
+          'dev-pane--drop-column-before': dropIntent() === 'column-before',
+          'dev-pane--drop-column-after': dropIntent() === 'column-after',
+        })}
+        aria-hidden="true"
+      />
     </section>
   )
 }
@@ -86,6 +164,12 @@ function Split(props: {
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
+  onMoveTo(
+    leafId: string,
+    targetLeafId: string,
+    placement: 'before' | 'after',
+    direction: 'row' | 'column'
+  ): void
 }) {
   let splitElement: HTMLElement | undefined
   const resizeFromPointer = (event: PointerEvent) => {
@@ -168,6 +252,12 @@ function LayoutNode(props: {
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
+  onMoveTo(
+    leafId: string,
+    targetLeafId: string,
+    placement: 'before' | 'after',
+    direction: 'row' | 'column'
+  ): void
 }) {
   return (
     <Switch>
@@ -179,6 +269,7 @@ function LayoutNode(props: {
             unavailable={props.unavailable}
             onClose={() => props.onClose(leaf().id)}
             onFocus={() => props.onFocus(leaf().id)}
+            onMoveTo={props.onMoveTo}
           />
         )}
       </Match>

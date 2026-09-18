@@ -6,6 +6,8 @@ import {
   createLayoutState,
   listLeaves,
   movePane,
+  neighborLeaf,
+  normalizeLayout,
   focusPane,
   resizeSplit,
   splitPane,
@@ -165,5 +167,77 @@ describe('strict binary Dev layout', () => {
     expect(resizeSplit(initial, 'split', 1).center).toMatchObject({ ratio: 0.9 })
     expect(resizeSplit(initial, 'missing', 0.2)).toEqual(initial)
     expect(resizeSplit(initial, 'split', Number.NaN)).toEqual(initial)
+  })
+})
+
+describe('layout normalization and neighbors', () => {
+  const nested = () =>
+    createLayoutState({
+      kind: 'split',
+      id: 'root',
+      direction: 'row',
+      ratio: 0.5,
+      children: [
+        leaf('a'),
+        {
+          kind: 'split',
+          id: 'inner',
+          direction: 'column',
+          ratio: 0.5,
+          children: [leaf('b', 'editor'), leaf('c')],
+        },
+      ],
+    })
+
+  test('clamps out-of-range ratios and repairs non-finite ones to an even split', () => {
+    const state = nested()
+    const repaired = normalizeLayout({
+      ...state,
+      center: {
+        kind: 'split',
+        id: 'root',
+        direction: 'row',
+        ratio: 0.97,
+        children: [
+          leaf('a'),
+          {
+            kind: 'split',
+            id: 'inner',
+            direction: 'column',
+            ratio: Number.NaN,
+            children: [leaf('b', 'editor'), leaf('c')],
+          },
+        ],
+      },
+    })
+    const root = repaired.center
+    if (root.kind !== 'split') throw new Error('expected split root')
+    expect(root.ratio).toBe(0.9)
+    const inner = root.children[1]
+    if (inner.kind !== 'split') throw new Error('expected split inner')
+    expect(inner.ratio).toBeCloseTo(0.5)
+    expect(listLeaves(repaired.center).map((item) => item.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  test('returns the same state when every ratio is already inside the range', () => {
+    const state = nested()
+    expect(normalizeLayout(state)).toBe(state)
+  })
+
+  test('finds reading-order neighbors for pane moves', () => {
+    const state = nested()
+    expect(neighborLeaf(state, 'a', 1)?.id).toBe('b')
+    expect(neighborLeaf(state, 'b', -1)?.id).toBe('a')
+    expect(neighborLeaf(state, 'b', 1)?.id).toBe('c')
+    expect(neighborLeaf(state, 'c', 1)).toBeUndefined()
+    expect(neighborLeaf(state, 'ghost', 1)).toBeUndefined()
+  })
+
+  test('move preserves identities and the leaf cap across the cap boundary', () => {
+    const state = nested()
+    const moved = movePane(state, 'c', 'a', 'before', 'row', 'moved-split')
+    expect(listLeaves(moved.center).map((item) => item.id)).toEqual(['c', 'a', 'b'])
+    expect(moved.focusedLeafId).toBe('c')
+    expect(countLeaves(moved.center)).toBe(3)
   })
 })
