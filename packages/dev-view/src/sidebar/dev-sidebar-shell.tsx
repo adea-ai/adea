@@ -12,6 +12,7 @@ import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
 import { For, Show } from 'solid-js'
 
 import type { DevGroupFixture } from '../dev-workspace-entry'
+import { sessionBadges } from './badges'
 import { ArchiveShelf } from './archive-shelf'
 
 export function DevSidebarShell(props: {
@@ -106,7 +107,23 @@ export function DevSidebarShell(props: {
                                       })}
                                       aria-label={session.state}
                                     />
-                                    <span>{session.title}</span>
+                                    <span class="dev-tree-row__title">{session.title}</span>
+                                    <span class="dev-row-badges">
+                                      <For each={sessionBadges(session.badges)}>
+                                        {(badge) => (
+                                          <span
+                                            class={cn('dev-row-badge', {
+                                              'dev-row-badge--success': badge.tone === 'success',
+                                              'dev-row-badge--failure': badge.tone === 'failure',
+                                              'dev-row-badge--progress': badge.tone === 'progress',
+                                            })}
+                                            title={badge.label}
+                                          >
+                                            {badge.short}
+                                          </span>
+                                        )}
+                                      </For>
+                                    </span>
                                   </button>
                                 )}
                               </For>

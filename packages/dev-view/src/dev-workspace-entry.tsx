@@ -11,7 +11,11 @@
  * See NOTICE and docs/research/dev-view-donor-audit.md.
  */
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
-import type { DevLayoutPreferencesV1 } from '@adea-ai/types/dev-runtime'
+import type {
+  DevLayoutPreferencesV2,
+  DevUtilityPane,
+  DevUtilityPreference,
+} from '@adea-ai/types/dev-runtime'
 import '@adea-ai/ui/dev-view.css'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
@@ -22,27 +26,33 @@ import {
   Laptop,
   Maximize2,
   MonitorSmartphone,
-  PanelRightOpen,
   Plus,
   TerminalSquare,
   Users,
+  X,
 } from 'lucide-solid'
-import { For, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
 
+import { createDevKeyboardController } from './keyboard'
 import { DevLayoutView } from './layout/layout-view'
 import {
   closePane,
   countLeaves,
   createLayoutState,
   focusPane,
+  neighborLeaf,
+  normalizeLayout,
   resizeSplit,
   splitPane,
   undoClosePane,
+  movePane,
   type DevLayoutState,
 } from './layout/operations'
 import { createLayoutStorageController, type LayoutStorage } from './layout/storage'
 import type { DevRuntimeService } from './platform'
+import { resolveDevSelection, type DevSelection } from './selection'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
+import type { DevSessionBadgeState } from './sidebar/badges'
 
 export type DevProjectFixture = Readonly<{
   id: string
@@ -53,6 +63,7 @@ export type DevProjectFixture = Readonly<{
     id: string
     title: string
     state: 'active' | 'ready' | 'archived'
+    badges?: DevSessionBadgeState
   }>[]
 }>
 
@@ -79,7 +90,17 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
         repository: 'example/repository',
         branch: 'feature/example',
         sessions: [
-          { id: 'fixture-shell', title: 'Dev View foundation', state: 'active' },
+          {
+            id: 'fixture-shell',
+            title: 'Dev View foundation',
+            state: 'active',
+            badges: {
+              harness: 'working',
+              dirty: true,
+              checks: 'running',
+              ports: [3000],
+            },
+          },
           { id: 'fixture-runtime', title: 'Runtime contracts', state: 'ready' },
         ],
       },
@@ -88,37 +109,59 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
         name: 'Runtime tools',
         repository: 'example/tools',
         branch: 'feature/runtime',
-        sessions: [{ id: 'fixture-tools-session', title: 'Other project session', state: 'ready' }],
+        sessions: [
+          {
+            id: 'fixture-tools-session',
+            title: 'Other project session',
+            state: 'ready',
+            badges: { checks: 'failed', harness: 'awaiting_input' },
+          },
+        ],
       },
     ],
   },
 ]
 
 const utilityItems = [
-  { id: 'files', pane: 'files', side: 'left', label: 'Files', icon: Files },
+  { pane: 'files', side: 'left', label: 'Files', title: 'Files', icon: Files },
   {
-    id: 'source',
     pane: 'source_control',
     side: 'left',
     label: 'Source control',
+    title: 'Source Control',
     icon: GitBranch,
   },
-  { id: 'browser', pane: 'browser', side: 'right', label: 'Browser', icon: Laptop },
-  { id: 'devices', pane: 'devices', side: 'right', label: 'Devices', icon: MonitorSmartphone },
-  { id: 'agents', pane: 'agents', side: 'right', label: 'Agents', icon: Users },
-  { id: 'history', pane: 'history', side: 'right', label: 'History', icon: History },
-] as const
+  { pane: 'browser', side: 'right', label: 'Browser', title: 'Browser', icon: Laptop },
+  {
+    pane: 'devices',
+    side: 'right',
+    label: 'Devices',
+    title: 'Devices',
+    icon: MonitorSmartphone,
+  },
+  { pane: 'agents', side: 'right', label: 'Agents', title: 'Agents', icon: Users },
+  { pane: 'history', side: 'right', label: 'History', title: 'History', icon: History },
+] as const satisfies readonly Readonly<{
+  pane: DevUtilityPane
+  side: 'left' | 'right'
+  label: string
+  title: string
+  icon: typeof Files
+}>[]
 
-type UtilityId = (typeof utilityItems)[number]['id']
-type UtilityPreference = DevLayoutPreferencesV1['utility'][number]
+const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
+const utilitySizeSteps = [240, 288, 336, 384] as const
+const defaultUtilitySize = 288
 
-const initialUtilityPreferences = (): readonly UtilityPreference[] =>
-  utilityItems.map((item) => ({
+const defaultUtilityPreferences = (): DevUtilityPreference[] =>
+  utilityItems.map((item, order) => ({
     pane: item.pane,
     side: item.side,
-    visible: item.id === 'files',
-    size: 288,
-    lastNonzeroSize: 288,
+    order,
+    visible: item.pane === 'files',
+    size: defaultUtilitySize,
+    lastNonzeroSize: defaultUtilitySize,
+    fullWidth: false,
   }))
 
 const initialLayout = () =>
@@ -133,6 +176,23 @@ const initialLayout = () =>
     ],
   })
 
+const snapUtilitySize = (size: number) => {
+  if (!Number.isFinite(size)) return defaultUtilitySize
+  return utilitySizeSteps.reduce(
+    (best, step) => (Math.abs(step - size) < Math.abs(best - size) ? step : best),
+    utilitySizeSteps[0]
+  )
+}
+
+function focusPaneElement(leafId: string) {
+  requestAnimationFrame(() => {
+    const target = [...document.querySelectorAll<HTMLElement>('[data-pane-id]')].find(
+      (element) => element.dataset.paneId === leafId
+    )
+    target?.focus()
+  })
+}
+
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
@@ -142,40 +202,76 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
   const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
-  const selectedProjectRecord = () => {
-    const projects = groups().flatMap((group) => group.projects)
-    return projects.find((project) => project.id === selectedProjectState()) ?? projects[0]
-  }
-  const selectedProject = () => selectedProjectRecord()?.id ?? ''
-  const selectedSession = () => {
-    const sessions = selectedProjectRecord()?.sessions ?? []
-    return (
-      sessions.find((session) => session.id === selectedSessionState())?.id ?? sessions[0]?.id ?? ''
-    )
-  }
-  const collapsedGroups = () => new Set(collapsedGroupIds())
-  const collapsedProjects = () => new Set(collapsedProjectIds())
   const [compactSidebarOpen, setCompactSidebarOpen] = createSignal(false)
-  const [compactUtilityOpen, setCompactUtilityOpen] = createSignal(false)
-  const [activeUtility, setActiveUtility] = createSignal<UtilityId>('files')
-  const [utilityPreferences, setUtilityPreferences] = createSignal<readonly UtilityPreference[]>(
-    initialUtilityPreferences()
+  const [utilityPreferences, setUtilityPreferences] = createSignal<readonly DevUtilityPreference[]>(
+    defaultUtilityPreferences()
   )
   const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
-  const [utilityFullWidth, setUtilityFullWidth] = createSignal(false)
   const [announcement, setAnnouncement] = createSignal('')
   const runtimeState = createMemo(() => props.runtime.state())
 
-  const persistedPreferences = (state: DevLayoutState) => {
+  // Selection always resolves inside the active projection; a stale,
+  // archived, or cross-project ID recovers visibly and is corrected once.
+  const selection = createMemo<DevSelection>(() =>
+    resolveDevSelection({
+      projects: groups().flatMap((group) =>
+        group.projects.map((project) => ({
+          id: project.id,
+          sessions: project.sessions.map((session) => ({
+            id: session.id,
+            archived: session.state === 'archived',
+          })),
+        }))
+      ),
+      requestedProjectId: selectedProjectState(),
+      requestedSessionId: selectedSessionState(),
+    })
+  )
+  const selectedProject = () => {
+    const result = selection()
+    return result.status === 'empty' ? '' : result.projectId
+  }
+  const selectedSession = () => {
+    const result = selection()
+    return result.status === 'empty' ? '' : result.runtimeSessionId
+  }
+
+  createEffect(() => {
+    const result = selection()
+    if (result.status !== 'recovered') return
+    const store = workspaceStore.getState()
+    if (store.selectedDevProjectId !== result.projectId)
+      store.setSelectedDevProjectId(result.projectId)
+    if (result.runtimeSessionId && store.selectedRuntimeSessionId !== result.runtimeSessionId)
+      store.setSelectedRuntimeSessionId(result.runtimeSessionId)
+    setAnnouncement('Saved selection is unavailable; the closest live session is selected.')
+  })
+
+  const visiblePaneOf = (side: 'left' | 'right') =>
+    utilityPreferences().find((item) => item.side === side && item.visible)
+  const panesOfSide = (side: 'left' | 'right') =>
+    utilityPreferences()
+      .filter((item) => item.side === side)
+      .toSorted((first, second) => first.order - second.order)
+
+  const toUtilityTuple = (
+    items: readonly DevUtilityPreference[]
+  ): DevLayoutPreferencesV2['utility'] => {
+    if (items.length !== utilityItems.length)
+      throw new TypeError('corrupt_state: utility preferences require all six panes')
+    return items as DevLayoutPreferencesV2['utility']
+  }
+
+  const persistedPreferences = (state: DevLayoutState): DevLayoutPreferencesV2 | undefined => {
     const scope = props.runtime.preferenceScope?.()
-    if (!scope) return undefined
+    if (!scope || !selectedProject() || !selectedSession()) return undefined
     return {
-      schemaVersion: 1 as const,
+      schemaVersion: 2,
       scope,
       projectId: selectedProject(),
       runtimeSessionId: selectedSession(),
       center: state.center,
-      utility: utilityPreferences(),
+      utility: toUtilityTuple(utilityPreferences()),
       focusMode: focusMode(),
       focusTargetId: state.focusedLeafId,
     }
@@ -188,21 +284,54 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     const next = update(layout())
     setLayout(next)
     schedulePreferences(next)
+    return next
   }
-  const showUtility = (id: UtilityId) => {
-    setActiveUtility(id)
-    const pane = utilityItems.find((item) => item.id === id)!.pane
+  const showPane = (pane: DevUtilityPane) => {
+    const side = utilityItemByPane.get(pane)!.side
     setUtilityPreferences((items) =>
-      items.map((item) => ({ ...item, visible: item.pane === pane }))
+      items.map((item) => (item.side === side ? { ...item, visible: item.pane === pane } : item))
     )
     schedulePreferences()
   }
-  const setFullWidth = (expanded: boolean) => {
-    setUtilityFullWidth(expanded)
-    const pane = utilityItems.find((item) => item.id === activeUtility())!.pane
+  const collapseSide = (side: 'left' | 'right') => {
+    setUtilityPreferences((items) =>
+      items.map((item) => (item.side === side ? { ...item, visible: false } : item))
+    )
+    schedulePreferences()
+    setAnnouncement(`${side === 'left' ? 'Left' : 'Right'} utility slot collapsed`)
+    requestAnimationFrame(() => document.getElementById('dev-center')?.focus())
+  }
+  /** One-click toolbar toggle: opens the group, switches to it, or collapses. */
+  const toggleUtilityGroup = (panes: readonly DevUtilityPane[]) => {
+    const side = utilityItemByPane.get(panes[0]!)!.side
+    const current = visiblePaneOf(side)
+    if (!current) {
+      showPane(panes[0]!)
+      setAnnouncement(`${side === 'left' ? 'Left' : 'Right'} utility slot opened`)
+      return
+    }
+    if (panes.includes(current.pane)) {
+      collapseSide(side)
+      return
+    }
+    showPane(panes.find((pane) => pane !== current.pane) ?? panes[0]!)
+  }
+  const setPaneFullWidth = (pane: DevUtilityPane, fullWidth: boolean) => {
+    setUtilityPreferences((items) =>
+      items.map((item) => {
+        if (item.pane === pane) return { ...item, fullWidth }
+        // Full width is exclusive: expanding one side clears the other.
+        if (fullWidth && item.fullWidth) return { ...item, fullWidth: false }
+        return item
+      })
+    )
+    schedulePreferences()
+  }
+  const setPaneSize = (pane: DevUtilityPane, size: number) => {
+    const snapped = snapUtilitySize(size)
     setUtilityPreferences((items) =>
       items.map((item) =>
-        item.pane === pane ? { ...item, size: expanded ? 10_000 : item.lastNonzeroSize } : item
+        item.pane === pane ? { ...item, size: snapped, lastNonzeroSize: snapped } : item
       )
     )
     schedulePreferences()
@@ -223,25 +352,19 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     })
     storageController = controller
     const loaded = controller.load()
-    if (loaded?.state === 'ready') {
-      const restored = createLayoutState(loaded.value.center)
+    if (loaded.state === 'ready') {
+      const restored = normalizeLayout(createLayoutState(loaded.value.center))
       setLayout({
         ...restored,
         focusedLeafId: loaded.value.focusTargetId ?? restored.focusedLeafId,
       })
       setUtilityPreferences(loaded.value.utility)
-      const visible = loaded.value.utility.find((item) => item.visible)
-      const active = utilityItems.find((item) => item.pane === visible?.pane)
-      if (active) {
-        setActiveUtility(active.id)
-        setUtilityFullWidth((visible?.size ?? 0) > 1_000)
-      }
       workspaceStore.getState().setDevFocusMode(loaded.value.focusMode)
     } else {
+      if (loaded.state !== 'empty')
+        setAnnouncement('Stored Dev layout was unreadable and is kept for recovery.')
       setLayout(initialLayout())
-      setUtilityPreferences(initialUtilityPreferences())
-      setActiveUtility('files')
-      setUtilityFullWidth(false)
+      setUtilityPreferences(defaultUtilityPreferences())
       workspaceStore.getState().setDevFocusMode(false)
     }
     const visibilityChanged = () => controller.visibilityChanged(document.hidden)
@@ -254,32 +377,50 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   })
 
   onMount(() => {
-    const handler = (event: KeyboardEvent) => {
-      const target = event.target
-      const editable =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      if (
-        !editable &&
-        (event.metaKey || event.ctrlKey) &&
-        event.shiftKey &&
-        event.key.toLowerCase() === 'f'
-      ) {
-        event.preventDefault()
-        workspaceStore.getState().setDevFocusMode(!focusMode())
-        schedulePreferences()
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    const controller = createDevKeyboardController({
+      target: window,
+      actions: {
+        toggleFocusMode: () => {
+          const next = !focusMode()
+          workspaceStore.getState().setDevFocusMode(next)
+          schedulePreferences()
+          setAnnouncement(next ? 'Focus mode enabled' : 'Focus mode disabled')
+        },
+        moveFocusedPane: ({ step, direction }) => {
+          const state = layout()
+          const neighbor = neighborLeaf(state, state.focusedLeafId, step)
+          if (!neighbor) {
+            setAnnouncement('No adjacent pane to move into')
+            return
+          }
+          const suffix = ++nextPaneId
+          updateLayout((current) =>
+            movePane(
+              current,
+              current.focusedLeafId,
+              neighbor.id,
+              step === 1 ? 'after' : 'before',
+              direction,
+              `dev-move-${suffix}`
+            )
+          )
+          focusPaneElement(state.focusedLeafId)
+          setAnnouncement('Pane moved')
+        },
+      },
+    })
+    onCleanup(() => controller.dispose())
   })
+
+  const leftFullWidth = () => visiblePaneOf('left')?.fullWidth ?? false
+  const rightFullWidth = () => visiblePaneOf('right')?.fullWidth ?? false
 
   return (
     <main
       class={cn('dev-workspace', {
         'dev-workspace--focus': focusMode(),
-        'dev-workspace--utility-full': utilityFullWidth(),
+        'dev-workspace--left-full': leftFullWidth(),
+        'dev-workspace--right-full': rightFullWidth(),
       })}
     >
       <a class="dev-skip-link" href="#dev-center">
@@ -295,15 +436,6 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         >
           <Columns2 aria-hidden="true" />
         </button>
-        <button
-          class="dev-icon-button dev-utility-toggle"
-          type="button"
-          aria-label="Toggle developer utilities"
-          aria-expanded={compactUtilityOpen()}
-          onClick={() => setCompactUtilityOpen((value) => !value)}
-        >
-          <PanelRightOpen aria-hidden="true" />
-        </button>
         <div class="dev-toolbar__identity">
           <strong>Dev</strong>
           <span>
@@ -311,12 +443,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           </span>
         </div>
         <div class="dev-toolbar__actions" role="toolbar" aria-label="Developer workspace actions">
-          <button type="button" class="dev-button" disabled>
-            <Plus aria-hidden="true" /> New worktree
+          <button type="button" class="dev-button dev-button--secondary" disabled>
+            <Plus aria-hidden="true" /> <span>New session</span>
           </button>
           <button
             type="button"
-            class="dev-button"
+            class="dev-button dev-button--secondary"
             disabled={countLeaves(layout().center) >= 8}
             onClick={() => {
               const pane = countLeaves(layout().center) % 2 === 0 ? 'terminal' : 'editor'
@@ -331,25 +463,44 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               )
             }}
           >
-            <TerminalSquare aria-hidden="true" /> Split pane
+            <TerminalSquare aria-hidden="true" /> <span>Split pane</span>
           </button>
           <button
             type="button"
-            class="dev-button"
+            class="dev-button dev-button--secondary"
             disabled={layout().closed.length === 0}
             onClick={() => updateLayout(undoClosePane)}
           >
-            Undo close
+            <span>Undo close</span>
           </button>
-          <button type="button" class="dev-button" onClick={() => showUtility('files')}>
-            <Files aria-hidden="true" /> Files / SC
-          </button>
-          <button type="button" class="dev-button" onClick={() => showUtility('browser')}>
-            <Laptop aria-hidden="true" /> Browser / Devices
-          </button>
-          <button type="button" class="dev-button" onClick={() => showUtility('agents')}>
-            <Users aria-hidden="true" /> Agents / History
-          </button>
+          <Show when={!leftFullWidth()}>
+            <UtilityToolbarToggle
+              label="Files / SC"
+              icon={Files}
+              pressed={Boolean(visiblePaneOf('left'))}
+              onClick={() => toggleUtilityGroup(['files', 'source_control'])}
+            />
+          </Show>
+          <Show when={!rightFullWidth()}>
+            <UtilityToolbarToggle
+              label="Browser / Devices"
+              icon={Laptop}
+              pressed={
+                visiblePaneOf('right')?.pane === 'browser' ||
+                visiblePaneOf('right')?.pane === 'devices'
+              }
+              onClick={() => toggleUtilityGroup(['browser', 'devices'])}
+            />
+            <UtilityToolbarToggle
+              label="Agents / History"
+              icon={Users}
+              pressed={
+                visiblePaneOf('right')?.pane === 'agents' ||
+                visiblePaneOf('right')?.pane === 'history'
+              }
+              onClick={() => toggleUtilityGroup(['agents', 'history'])}
+            />
+          </Show>
           <button
             type="button"
             class="dev-icon-button"
@@ -372,8 +523,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           groups={groups()}
           selectedProject={selectedProject()}
           selectedSession={selectedSession()}
-          collapsedGroups={collapsedGroups()}
-          collapsedProjects={collapsedProjects()}
+          collapsedGroups={new Set(collapsedGroupIds())}
+          collapsedProjects={new Set(collapsedProjectIds())}
           compactOpen={compactSidebarOpen()}
           onProjectSelect={(id) => workspaceStore.getState().setSelectedDevProjectId(id)}
           onSessionSelect={(projectId, sessionId) => {
@@ -385,7 +536,31 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           onToggleProject={(id) => workspaceStore.getState().toggleDevProjectCollapsed(id)}
         />
 
-        <section class="dev-center" id="dev-center" aria-label="Developer workspace panes">
+        <Show when={visiblePaneOf('left')}>
+          <UtilitySlot
+            side="left"
+            panes={panesOfSide('left')}
+            visiblePane={visiblePaneOf('left')}
+            onShow={showPane}
+            onCollapse={() => collapseSide('left')}
+            onToggleFullWidth={setPaneFullWidth}
+            onResize={setPaneSize}
+          />
+        </Show>
+        <Show when={visiblePaneOf('left') && !leftFullWidth()}>
+          <UtilitySplitter
+            side="left"
+            size={visiblePaneOf('left')!.size}
+            onResize={(size) => setPaneSize(visiblePaneOf('left')!.pane, size)}
+          />
+        </Show>
+
+        <section
+          class="dev-center"
+          id="dev-center"
+          aria-label="Developer workspace panes"
+          tabIndex={-1}
+        >
           <DevLayoutView
             state={layout()}
             unavailable={runtimeState().status === 'unavailable'}
@@ -396,85 +571,219 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 nextFocusId = next.focusedLeafId
                 return next
               })
+              focusPaneElement(nextFocusId)
               return nextFocusId
             }}
             onFocus={(leafId) => updateLayout((state) => focusPane(state, leafId))}
             onResize={(splitId, ratio) =>
               updateLayout((state) => resizeSplit(state, splitId, Math.round(ratio * 20) / 20))
             }
+            onMoveTo={(leafId, targetLeafId, placement, direction) => {
+              const suffix = ++nextPaneId
+              updateLayout((state) =>
+                movePane(state, leafId, targetLeafId, placement, direction, `dev-move-${suffix}`)
+              )
+              focusPaneElement(leafId)
+              setAnnouncement('Pane moved')
+            }}
           />
         </section>
 
-        <aside
-          class={cn('dev-utility', { 'dev-utility--open': compactUtilityOpen() })}
-          aria-label="Developer utilities"
-        >
-          <div class="dev-utility-tabs" role="tablist" aria-label="Developer utilities">
-            <For each={utilityItems}>
-              {(item) => (
-                <button
-                  type="button"
-                  id={`dev-utility-tab-${item.id}`}
-                  role="tab"
-                  aria-selected={activeUtility() === item.id}
-                  aria-controls="dev-utility-panel"
-                  tabIndex={activeUtility() === item.id ? 0 : -1}
-                  class={cn('dev-utility-tab', {
-                    'dev-utility-tab--selected': activeUtility() === item.id,
-                  })}
-                  onClick={() => showUtility(item.id)}
-                  onKeyDown={(event) => {
-                    const current = utilityItems.findIndex(
-                      (candidate) => candidate.id === activeUtility()
-                    )
-                    const next =
-                      event.key === 'Home'
-                        ? 0
-                        : event.key === 'End'
-                          ? utilityItems.length - 1
-                          : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
-                            ? (current - 1 + utilityItems.length) % utilityItems.length
-                            : event.key === 'ArrowDown' || event.key === 'ArrowRight'
-                              ? (current + 1) % utilityItems.length
-                              : -1
-                    if (next < 0) return
-                    event.preventDefault()
-                    const nextItem = utilityItems[next]!
-                    showUtility(nextItem.id)
-                    document.getElementById(`dev-utility-tab-${nextItem.id}`)?.focus()
-                  }}
-                >
-                  <item.icon aria-hidden="true" />
-                  <span>{item.label}</span>
-                </button>
-              )}
-            </For>
-          </div>
-          <div
-            id="dev-utility-panel"
-            role="tabpanel"
-            aria-labelledby={`dev-utility-tab-${activeUtility()}`}
-            class="dev-utility-panel"
-          >
-            <div class="dev-utility-panel__heading">
-              <h2>{utilityItems.find((item) => item.id === activeUtility())?.label}</h2>
-              <button
-                type="button"
-                class="dev-icon-button"
-                aria-label={utilityFullWidth() ? 'Restore utility pane' : 'Expand utility pane'}
-                aria-pressed={utilityFullWidth()}
-                onClick={() => setFullWidth(!utilityFullWidth())}
-              >
-                <Maximize2 aria-hidden="true" />
-              </button>
-            </div>
-            <p>This panel is ready for its dependency-owned service.</p>
-          </div>
-        </aside>
+        <Show when={visiblePaneOf('right') && !rightFullWidth()}>
+          <UtilitySplitter
+            side="right"
+            size={visiblePaneOf('right')!.size}
+            onResize={(size) => setPaneSize(visiblePaneOf('right')!.pane, size)}
+          />
+        </Show>
+        <Show when={visiblePaneOf('right')}>
+          <UtilitySlot
+            side="right"
+            panes={panesOfSide('right')}
+            visiblePane={visiblePaneOf('right')}
+            onShow={showPane}
+            onCollapse={() => collapseSide('right')}
+            onToggleFullWidth={setPaneFullWidth}
+            onResize={setPaneSize}
+          />
+        </Show>
       </div>
       <p class="sr-only" aria-live="polite">
         {announcement()}
       </p>
     </main>
+  )
+}
+
+function UtilityToolbarToggle(props: {
+  label: string
+  icon: typeof Files
+  pressed: boolean
+  onClick(): void
+}) {
+  return (
+    <button
+      type="button"
+      class="dev-button dev-button--toggle"
+      aria-pressed={props.pressed}
+      onClick={props.onClick}
+    >
+      <props.icon aria-hidden="true" /> <span>{props.label}</span>
+    </button>
+  )
+}
+
+function UtilitySplitter(props: {
+  side: 'left' | 'right'
+  size: number
+  onResize(size: number): void
+}) {
+  const resizeFromPointer = (startX: number, startSize: number) => (event: PointerEvent) => {
+    const delta = props.side === 'right' ? startX - event.clientX : event.clientX - startX
+    props.onResize(startSize + delta)
+  }
+  return (
+    <button
+      type="button"
+      class={cn('dev-utility-splitter', {
+        'dev-utility-splitter--left': props.side === 'left',
+        'dev-utility-splitter--right': props.side === 'right',
+      })}
+      role="separator"
+      aria-label={`Resize ${props.side} utility pane`}
+      aria-orientation="vertical"
+      aria-valuemin={utilitySizeSteps[0]}
+      aria-valuemax={utilitySizeSteps[utilitySizeSteps.length - 1]}
+      aria-valuenow={props.size}
+      onPointerDown={(event) => {
+        event.currentTarget.setPointerCapture(event.pointerId)
+        const startX = event.clientX
+        const startSize = props.size
+        const move = resizeFromPointer(startX, startSize)
+        const done = () => {
+          window.removeEventListener('pointermove', move)
+          window.removeEventListener('pointerup', done)
+          window.removeEventListener('pointercancel', done)
+        }
+        window.addEventListener('pointermove', move)
+        window.addEventListener('pointerup', done, { once: true })
+        window.addEventListener('pointercancel', done, { once: true })
+      }}
+      onKeyDown={(event) => {
+        const grows = props.side === 'left' ? event.key === 'ArrowRight' : event.key === 'ArrowLeft'
+        const shrinks =
+          props.side === 'left' ? event.key === 'ArrowLeft' : event.key === 'ArrowRight'
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') return
+        if (!grows && !shrinks) return
+        event.preventDefault()
+        props.onResize(props.size + (grows ? 48 : -48))
+      }}
+    />
+  )
+}
+
+function UtilitySlot(props: {
+  side: 'left' | 'right'
+  panes: readonly DevUtilityPreference[]
+  visiblePane: DevUtilityPreference | undefined
+  onShow(pane: DevUtilityPane): void
+  onCollapse(): void
+  onToggleFullWidth(pane: DevUtilityPane, fullWidth: boolean): void
+  onResize(pane: DevUtilityPane, size: number): void
+}) {
+  const sideLabel = () => (props.side === 'left' ? 'Left' : 'Right')
+  const visibleItem = () =>
+    props.visiblePane ? utilityItemByPane.get(props.visiblePane.pane) : undefined
+  const tabKeyDown = (event: KeyboardEvent, currentPane: DevUtilityPane) => {
+    const panes = props.panes.map((entry) => entry.pane)
+    const current = panes.indexOf(currentPane)
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? panes.length - 1
+          : event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+            ? (current - 1 + panes.length) % panes.length
+            : event.key === 'ArrowDown' || event.key === 'ArrowRight'
+              ? (current + 1) % panes.length
+              : -1
+    if (next < 0) return
+    event.preventDefault()
+    const nextPane = panes[next]!
+    props.onShow(nextPane)
+    document.getElementById(`dev-utility-tab-${props.side}-${nextPane}`)?.focus()
+  }
+  return (
+    <aside
+      class={cn('dev-utility', {
+        'dev-utility--left': props.side === 'left',
+        'dev-utility--right': props.side === 'right',
+        'dev-utility--open': Boolean(props.visiblePane),
+        'dev-utility--size-240': props.visiblePane?.size === 240,
+        'dev-utility--size-336': props.visiblePane?.size === 336,
+        'dev-utility--size-384': props.visiblePane?.size === 384,
+      })}
+      aria-label={`Developer utilities (${sideLabel().toLowerCase()})`}
+    >
+      <div class="dev-utility-tabs" role="tablist" aria-label={`${sideLabel()} utility panes`}>
+        <For each={props.panes}>
+          {(item) => {
+            const meta = utilityItemByPane.get(item.pane)!
+            const selected = () => props.visiblePane?.pane === item.pane
+            return (
+              <button
+                type="button"
+                id={`dev-utility-tab-${props.side}-${item.pane}`}
+                role="tab"
+                aria-selected={selected()}
+                aria-controls={`dev-utility-panel-${props.side}`}
+                tabIndex={selected() ? 0 : -1}
+                title={meta.title}
+                class={cn('dev-utility-tab', {
+                  'dev-utility-tab--selected': selected(),
+                })}
+                onClick={() => props.onShow(item.pane)}
+                onKeyDown={(event) => tabKeyDown(event, item.pane)}
+              >
+                <meta.icon aria-hidden="true" />
+                <span>{meta.label}</span>
+              </button>
+            )
+          }}
+        </For>
+      </div>
+      <div
+        id={`dev-utility-panel-${props.side}`}
+        role="tabpanel"
+        aria-labelledby={`dev-utility-tab-${props.side}-${props.visiblePane?.pane ?? ''}`}
+        class="dev-utility-panel"
+      >
+        <div class="dev-utility-panel__heading">
+          <h2>{visibleItem()?.title}</h2>
+          <button
+            type="button"
+            class="dev-icon-button"
+            aria-label={
+              props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
+            }
+            aria-pressed={props.visiblePane?.fullWidth ?? false}
+            onClick={() =>
+              props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
+            }
+          >
+            <Maximize2 aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="dev-icon-button"
+            aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
+            onClick={props.onCollapse}
+          >
+            <X aria-hidden="true" />
+          </button>
+        </div>
+        <p>This panel is ready for its dependency-owned service.</p>
+      </div>
+    </aside>
   )
 }

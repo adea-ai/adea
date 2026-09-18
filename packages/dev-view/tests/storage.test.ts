@@ -1,83 +1,185 @@
-import { expect, test } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 
-import { createLayoutStorageController } from '../src/layout/storage'
+import { createLayoutStorageController, type LayoutStorage } from '../src/layout/storage'
+import type {
+  DevLayoutPreferencesV2,
+  DevUtilityPreference,
+  Scope,
+} from '@adea-ai/types/dev-runtime'
 
-const scope = {
+const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
   workspaceId: '00000000-0000-4000-8000-000000000002',
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
-const value = {
-  schemaVersion: 1 as const,
-  scope,
-  projectId: 'project',
-  runtimeSessionId: 'session',
-  center: { kind: 'leaf' as const, id: 'terminal', pane: 'terminal' as const },
-  utility: [],
+const otherNode: Scope = { ...scope, runtimeNodeId: '00000000-0000-4000-8000-000000000004' }
+
+const pane = (name: DevUtilityPreference['pane'], order: number): DevUtilityPreference => ({
+  pane: name,
+  side: name === 'files' || name === 'source_control' ? 'left' : 'right',
+  order,
+  visible: order === 0,
+  size: 288,
+  lastNonzeroSize: 288,
+  fullWidth: false,
+})
+
+const preferences = (scopeValue: Scope = scope): DevLayoutPreferencesV2 => ({
+  schemaVersion: 2,
+  scope: scopeValue,
+  projectId: 'project-a',
+  runtimeSessionId: 'session-a',
+  center: { kind: 'leaf', id: 'terminal-a', pane: 'terminal' },
+  utility: [
+    pane('files', 0),
+    pane('source_control', 1),
+    pane('browser', 2),
+    pane('devices', 3),
+    pane('agents', 4),
+    pane('history', 5),
+  ],
   focusMode: false,
-}
+  focusTargetId: 'terminal-a',
+})
+
+const v1Document = JSON.stringify({
+  schemaVersion: 1,
+  scope,
+  projectId: 'project-a',
+  runtimeSessionId: 'session-a',
+  center: { kind: 'leaf', id: 'terminal-a', pane: 'terminal' },
+  utility: [{ pane: 'files', side: 'left', visible: true, size: 280, lastNonzeroSize: 280 }],
+  focusMode: false,
+  focusTargetId: 'terminal-a',
+})
 
 function memoryStorage(initial: Record<string, string> = {}) {
-  const values = new Map(Object.entries(initial))
-  return {
-    values,
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, next: string) => void values.set(key, next),
+  const data = new Map(Object.entries(initial))
+  const store = {
+    failSet: false,
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      if (store.failSet) throw new DOMException('quota exceeded', 'QuotaExceededError')
+      data.set(key, value)
+    },
+    removeItem: (key: string) => {
+      data.delete(key)
+    },
   }
+  return { data, store: store as LayoutStorage & typeof store }
 }
 
-test('debounces writes and flushes pending state when hidden', () => {
-  const storage = memoryStorage()
-  const callbacks: (() => void)[] = []
-  const controller = createLayoutStorageController({
+function controller(storage: LayoutStorage, scopeValue: Scope = scope) {
+  return createLayoutStorageController({
     storage,
-    scope,
-    projectId: 'project',
-    runtimeSessionId: 'session',
-    setTimer: ((callback: () => void) => {
-      callbacks.push(callback)
-      return callbacks.length as unknown as ReturnType<typeof setTimeout>
-    }) as typeof setTimeout,
-    clearTimer: (() => {}) as typeof clearTimeout,
+    scope: scopeValue,
+    projectId: 'project-a',
+    runtimeSessionId: 'session-a',
+    debounceMs: 5,
+  })
+}
+
+const denied = () => {
+  throw new DOMException('storage denied', 'SecurityError')
+}
+
+describe('Dev layout storage controller', () => {
+  test('debounces writes and flushes pending state when hidden', () => {
+    const { store } = memoryStorage()
+    const layout = controller(store)
+    expect(layout.load()).toEqual({ state: 'empty' })
+    layout.schedule(preferences())
+    layout.schedule({ ...preferences(), focusMode: true })
+    expect(store.getItem(layout.key)).toBeNull()
+    layout.visibilityChanged(true)
+    expect(store.getItem(layout.key)).toContain('"schemaVersion":2')
+    expect(store.getItem(layout.key)).toContain('"focusMode":true')
+    expect(store.getItem(layout.legacyKey)).toBeNull()
   })
 
-  controller.schedule(value)
-  controller.schedule({ ...value, focusMode: true })
-  expect(storage.values.size).toBe(0)
-  controller.visibilityChanged(true)
-  expect(JSON.parse(storage.values.get(controller.key)!)).toMatchObject({ focusMode: true })
-})
-
-test('rejects stored and scheduled preferences from another scope', () => {
-  const other = {
-    ...value,
-    scope: { ...scope, workspaceId: '00000000-0000-4000-8000-000000000009' },
-  }
-  const storage = memoryStorage()
-  const controller = createLayoutStorageController({
-    storage,
-    scope,
-    projectId: 'project',
-    runtimeSessionId: 'session',
+  test('rejects stored and scheduled preferences from another scope', () => {
+    const { data, store } = memoryStorage()
+    const layout = controller(store)
+    data.set(layout.key, JSON.stringify(preferences(otherNode)))
+    expect(layout.load()).toMatchObject({ state: 'corrupt' })
+    expect(() => layout.schedule(preferences(otherNode))).toThrow('scope_mismatch')
   })
-  storage.values.set(controller.key, JSON.stringify(other))
-  expect(controller.load()).toMatchObject({ state: 'corrupt' })
-  expect(() => controller.schedule(other)).toThrow('scope_mismatch')
-})
 
-test('retains an unread corrupt value before replacing it after an explicit change', () => {
-  const storage = memoryStorage()
-  const controller = createLayoutStorageController({
-    storage,
-    scope,
-    projectId: 'project',
-    runtimeSessionId: 'session',
+  test('retains an unread corrupt value before replacing it after an explicit change', () => {
+    const { data, store } = memoryStorage()
+    const layout = controller(store)
+    data.set(layout.key, '{bad')
+    expect(layout.load()).toEqual({ state: 'corrupt', raw: '{bad' })
+    layout.schedule(preferences())
+    layout.flush()
+    expect(data.get(`${layout.key}:unread`)).toBe('{bad')
+    expect(data.get(layout.key)).toContain('"schemaVersion":2')
   })
-  storage.values.set(controller.key, '{bad')
-  expect(controller.load()).toEqual({ state: 'corrupt', raw: '{bad' })
 
-  controller.schedule(value)
-  controller.flush()
-  expect(storage.values.get(`${controller.key}:unread`)).toBe('{bad')
-  expect(JSON.parse(storage.values.get(controller.key)!)).toMatchObject({ schemaVersion: 1 })
+  test('migrates the V1 envelope, commits V2 first, then removes the original', () => {
+    const { data, store } = memoryStorage()
+    const layout = controller(store)
+    data.set(layout.legacyKey, v1Document)
+    const loaded = layout.load()
+    expect(loaded).toMatchObject({ state: 'ready', migrated: true })
+    if (loaded.state === 'ready') expect(loaded.value.utility).toHaveLength(6)
+    expect(data.get(layout.key)).toContain('"schemaVersion":2')
+    expect(data.has(layout.legacyKey)).toBe(false)
+  })
+
+  test('keeps the pending write when quota fails and succeeds on a later flush', () => {
+    const { store } = memoryStorage()
+    store.failSet = true
+    const layout = controller(store)
+    layout.schedule(preferences())
+    expect(() => layout.flush()).not.toThrow()
+    expect(store.getItem(layout.key)).toBeNull()
+    store.failSet = false
+    layout.flush()
+    expect(store.getItem(layout.key)).toContain('"schemaVersion":2')
+  })
+
+  test('keeps the V1 original in place when migration hits quota failures', () => {
+    const { data, store } = memoryStorage()
+    store.failSet = true
+    const layout = controller(store)
+    data.set(layout.legacyKey, v1Document)
+    const loaded = layout.load()
+    expect(loaded).toMatchObject({ state: 'ready', migrated: true })
+    expect(data.has(layout.key)).toBe(false)
+    expect(data.has(layout.legacyKey)).toBe(true)
+  })
+
+  test('treats unavailable storage as empty and never crashes the shell', () => {
+    const layout = controller({
+      getItem: denied,
+      setItem: denied,
+      removeItem: denied,
+    })
+    expect(layout.load()).toEqual({ state: 'empty' })
+    expect(() => layout.schedule(preferences())).not.toThrow()
+    expect(() => layout.flush()).not.toThrow()
+    expect(() => layout.visibilityChanged(true)).not.toThrow()
+  })
+
+  test('resolves stale two-window writes by last committed writer', () => {
+    const { store } = memoryStorage()
+    const windowA = controller(store)
+    const windowB = controller(store)
+    windowA.schedule({ ...preferences(), focusMode: false })
+    windowB.schedule({ ...preferences(), focusMode: true })
+    windowA.flush()
+    expect(store.getItem(windowA.key)).toContain('"focusMode":false')
+    windowB.flush()
+    expect(store.getItem(windowA.key)).toContain('"focusMode":true')
+  })
+
+  test('never restores preferences across runtime nodes', () => {
+    const { store } = memoryStorage()
+    const nodeA = controller(store)
+    nodeA.schedule(preferences())
+    nodeA.flush()
+    const nodeB = controller(store, otherNode)
+    expect(nodeB.load()).toEqual({ state: 'empty' })
+  })
 })
