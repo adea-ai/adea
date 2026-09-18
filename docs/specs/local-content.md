@@ -56,13 +56,21 @@ verifies under the new key. `local_content_rotate_key` resumes from the row.
 
 Two independent checks, both required:
 
-1. **Trusted window** — the call must come from the `main` window, whose URL is
-   the packaged app scheme (or the local Vite origin in development). The check
-   lives in `window_trust.rs` and is shared with the capability snapshot command.
+1. **Trusted window** — the call must come from the app's own window. In the
+   Electrobun shell this is the M10 channel gate
+   (`apps/desktop/shell/src/dev-runtime/channel/`): the window authenticates
+   with a single-use launch bootstrap at `dev.runtime.handshake.v1` and signs
+   every request, so loopback presence, a rebinding host, or a cross-origin
+   page never reaches a handler.
 2. **Authorized workspace** — the renderer first calls
    `local_content_authorize_workspace` with the workspace ID that bootstrap just
    authorized. The store holds a single active workspace: authorizing another
    clears the previous one, and every other command re-checks membership.
+
+Content identifiers are canonical ids, never paths: every command that turns
+an id into a filename validates it against the minted id shapes (128-bit hex
+or canonical UUID) first, so a hostile `contentId` is rejected instead of
+resolving outside the content directory.
 
 Inputs are bounded: 2 MiB of plaintext per record, UUID validation everywhere,
 parameterized SQL, and bounded search results. Returned errors are generic and
@@ -83,5 +91,8 @@ disagree.
   index, idempotent create, revision-checked update and tombstone, resumable
   rotation with key retirement, error messages that do not echo plaintext.
 - `window_trust.rs` unit tests: packaged, lookalike, and navigated origins.
+  (The Electrobun lane's equivalent lives in
+  `apps/desktop/tests/shell-channel.test.ts`: origin/rebinding refusals,
+  bootstrap single use, and content-id traversal rejection.)
 - `scripts/desktop-ipc-boundary.test.ts`: the `local_content_*` command surface,
   its grant, and the client's calls.

@@ -90,20 +90,19 @@ describe('desktop shell boot', () => {
     const source = await readFile(entry, 'utf8')
 
     expect(source).toContain('createCommandSurface')
-    expect(source).toContain("'/__adea/invoke'")
-    // Network-backed commands (the update check) resolve asynchronously; the
-    // route still answers with exactly the command surface's result.
-    expect(source).toContain('await invoke(')
-    expect(source).toContain('Response.json(result)')
-    expect(source).toContain("'/__adea/bridge.js'")
-    expect(source).toContain('window.__adeaDesktop')
+    // Since M10 #33 the whole /__adea/* surface — guarded invoke, handshake,
+    // events, and the full-duplex channel — is the channel gateway's, and the
+    // command surface is handed to it.
+    expect(source).toContain('createChannelAuthority')
+    expect(source).toContain('createChannelGateway')
+    expect(source).toContain('gateway.handle')
+    // The bridge script itself is served by the gateway (channel/bridge.ts);
+    // the boot file only injects the one-time launch bootstrap into the
+    // served document.
     expect(source).toContain('injectBridge')
-    // The bridge sends the same command names through the same-shaped API the
-    // client's platform adapter expects.
-    expect(source).toContain('fetch("/__adea/invoke"')
-    // The bridge is injected into the served document only; no CORS header lets
-    // a remote page read command results.
-    expect(source).toContain("html.replace('<head>'")
+    expect(source).toContain('__ADEA_LAUNCH_BOOTSTRAP__')
+    expect(source).toContain('/__adea/bridge.js')
+    // No CORS header lets a remote page read command results.
     expect(source).not.toContain('access-control-allow-origin')
   })
 

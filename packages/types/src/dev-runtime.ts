@@ -13,7 +13,13 @@ export {
 }
 
 export type DevOperation = (typeof devOperations)[number]
-export type DevCapability = (typeof devOperationDefinitions)[DevOperation]['capabilities'][number]
+// The registry never carries a command capability for appearance or the App
+// Library (client preference only), but dev.capability.snapshot reports both,
+// so the capability universe is the registry set plus these two.
+export type DevCapability =
+  | (typeof devOperationDefinitions)[DevOperation]['capabilities'][number]
+  | 'dev.appearance.read'
+  | 'dev.appLibrary.manage'
 export type DevStreamProtocol = keyof typeof devStreamProtocolDefinitions
 
 export type Scope = Readonly<{
@@ -545,6 +551,32 @@ const cleanupSteps = [
 function namedType(name: string, value: unknown, path: string): unknown {
   if (name === "DeviceSession['kind']")
     return literal(value, ['responsive', 'ios_simulator', 'android_emulator', 'physical'], path)
+  if (name === 'DeviceGesture') {
+    const item = record(value, path)
+    const kind = literal(item.kind, ['tap', 'swipe', 'key', 'text'], `${path}.kind`)
+    if (kind === 'tap') {
+      exactKeys(item, ['kind', 'x', 'y'], [], path)
+      finiteNumber(item.x, `${path}.x`, 0, 1)
+      finiteNumber(item.y, `${path}.y`, 0, 1)
+      return value
+    }
+    if (kind === 'swipe') {
+      exactKeys(item, ['kind', 'fromX', 'fromY', 'toX', 'toY', 'durationMs'], [], path)
+      for (const key of ['fromX', 'fromY', 'toX', 'toY'] as const)
+        finiteNumber(item[key], `${path}.${key}`, 0, 1)
+      integerValue(item.durationMs, `${path}.durationMs`, 10, 10_000)
+      return value
+    }
+    if (kind === 'key') {
+      exactKeys(item, ['kind', 'code', 'action'], [], path)
+      stringValue(item.code, `${path}.code`, 1, 128)
+      literal(item.action, ['down', 'up'], `${path}.action`)
+      return value
+    }
+    exactKeys(item, ['kind', 'text'], [], path)
+    stringValue(item.text, `${path}.text`, 0, 4096)
+    return value
+  }
   if (name === 'CleanupStepKind') return literal(value, cleanupSteps, path)
   if (name === 'LeaseOwnerKind')
     return literal(value, ['terminal', 'harness', 'browser', 'device', 'server', 'editor'], path)
@@ -1111,3 +1143,776 @@ export const devOperationDecoders = Object.freeze(
     }>
   >
 >
+
+// ─── Authenticated command channel (M10 #33) ────────────────────────────────
+//
+// Every privileged command travels over a versioned authenticated channel
+// (`dev.runtime.handshake.v1` → `dev.runtime.execute.v1` / `.events.v1` /
+// `.stream.attach.v1`). The host rejects a bare `DevCommand`; the frame below
+// is the wire contract that carries it. Proof inputs are built here so the
+// client adapter and the host MAC byte-identical messages, and control frames
+// on the bulk stream use canonical CBOR (RFC 8949 deterministic encoding).
+
+export type DevChannelHandshakeRequest = Readonly<{
+  schemaVersion: 1
+  method: 'dev.runtime.handshake.v1'
+  requestId: string
+  /** One-time launch capability delivered only to the trusted window. */
+  bootstrap: string
+  supportedProtocolVersions: readonly string[]
+  nonce: string
+  issuedAt: string
+  expiresAt: string
+}>
+
+export type DevChannelHandshakeReply = Readonly<
+  | {
+      schemaVersion: 1
+      method: 'dev.runtime.handshake.v1'
+      requestId: string
+      ok: true
+      channelId: string
+      clientCredentialId: string
+      /** Returned exactly once over the loopback; never persisted or logged. */
+      clientSecret: string
+      channelGeneration: number
+      protocolVersion: string
+      serverExpiresAt: string
+      observedAt: string
+    }
+  | {
+      schemaVersion: 1
+      method: 'dev.runtime.handshake.v1'
+      requestId: string
+      ok: false
+      error: DevError
+    }
+>
+
+export type AuthorizedDevFrame<K extends DevOperation = DevOperation> = Readonly<{
+  channelId: string
+  clientCredentialId: string
+  command: DevCommand<K>
+  proof: string
+}>
+
+export type DevStreamGrant = Readonly<{
+  schemaVersion: 1
+  grantId: string
+  protocol: DevStreamProtocol
+  channelId: string
+  scope: Scope
+  resource: Readonly<{ kind: string; id: string; generation: number }>
+  direction: 'read' | 'write'
+  fromSequence: string
+  expiresAt: string
+  maxFrameBytes: number
+}>
+
+export type DevStreamAttach = Readonly<{
+  schemaVersion: 1
+  grantId: string
+  requestId: string
+  nonce: string
+  fromSequence: string
+  proof: string
+}>
+
+export type DeviceGesture =
+  | Readonly<{ kind: 'tap'; x: number; y: number }>
+  | Readonly<{
+      kind: 'swipe'
+      fromX: number
+      fromY: number
+      toX: number
+      toY: number
+      durationMs: number
+    }>
+  | Readonly<{ kind: 'key'; code: string; action: 'down' | 'up' }>
+  | Readonly<{ kind: 'text'; text: string }>
+
+export type DevStreamFrame =
+  | Readonly<{
+      type: 'opened'
+      protocol: DevStreamProtocol
+      generation: number
+      nextSequence: string
+    }>
+  | Readonly<{ type: 'data'; sequence: string; bytes: Uint8Array }>
+  | Readonly<{
+      type: 'video'
+      sequence: string
+      timestampMs: number
+      keyframe: boolean
+      bytes: Uint8Array
+    }>
+  | Readonly<{ type: 'input'; sequence: string; generation: number; bytes: Uint8Array }>
+  | Readonly<{ type: 'gesture'; sequence: string; generation: number; gesture: DeviceGesture }>
+  | Readonly<{ type: 'resize'; sequence: string; generation: number; cols: number; rows: number }>
+  | Readonly<{ type: 'ack'; throughSequence: string; availableCreditBytes: number }>
+  | Readonly<{ type: 'heartbeat'; observedAt: string; throughSequence: string }>
+  | Readonly<{
+      type: 'resync'
+      reason: 'sequence_gap' | 'checkpoint_required'
+      checkpointSequence: string
+    }>
+  | Readonly<{ type: 'error'; error: DevError }>
+  | Readonly<{
+      type: 'close'
+      code: 'normal' | 'expired' | 'revoked' | 'stale_generation' | 'backpressure' | 'incompatible'
+      reason?: string
+    }>
+
+function base64url(value: unknown, path: string, min: number, max: number): string {
+  const text = stringValue(value, path, min, max)
+  if (!/^[A-Za-z0-9_-]+$/.test(text)) fail(path, 'expected unpadded base64url')
+  return text
+}
+
+function uint64String(value: unknown, path: string): string {
+  const text = stringValue(value, path, 1, 64)
+  if (!uint64Pattern.test(text)) fail(path, 'expected canonical uint64 string')
+  return text
+}
+
+function resourceBinding(value: unknown, path: string): DevStreamGrant['resource'] {
+  const item = record(value, path)
+  exactKeys(item, ['kind', 'id', 'generation'], [], path)
+  stringValue(item.kind, `${path}.kind`, 1, 64)
+  stringValue(item.id, `${path}.id`, 1, 256)
+  integerValue(item.generation, `${path}.generation`, 0)
+  return value as DevStreamGrant['resource']
+}
+
+export function decodeDevChannelHandshakeRequest(value: unknown): DevChannelHandshakeRequest {
+  const item = record(value, 'handshake request')
+  exactKeys(
+    item,
+    [
+      'schemaVersion',
+      'method',
+      'requestId',
+      'bootstrap',
+      'supportedProtocolVersions',
+      'nonce',
+      'issuedAt',
+      'expiresAt',
+    ],
+    [],
+    'handshake request'
+  )
+  if (item.schemaVersion !== 1) fail('handshake request.schemaVersion', 'expected 1')
+  if (item.method !== devRuntimeTransportMethods.handshake)
+    fail('handshake request.method', `expected ${devRuntimeTransportMethods.handshake}`)
+  if (!uuidPattern.test(stringValue(item.requestId, 'handshake request.requestId')))
+    fail('handshake request.requestId', 'expected lowercase UUID')
+  base64url(item.bootstrap, 'handshake request.bootstrap', 22, 512)
+  if (
+    !Array.isArray(item.supportedProtocolVersions) ||
+    item.supportedProtocolVersions.length === 0 ||
+    item.supportedProtocolVersions.length > 8
+  )
+    fail('handshake request.supportedProtocolVersions', 'expected 1..8 versions')
+  item.supportedProtocolVersions.forEach((version, index) =>
+    stringValue(version, `handshake request.supportedProtocolVersions[${index}]`, 1, 32)
+  )
+  base64url(item.nonce, 'handshake request.nonce', 22, 256)
+  timestamp(item.issuedAt, 'handshake request.issuedAt')
+  timestamp(item.expiresAt, 'handshake request.expiresAt')
+  return value as DevChannelHandshakeRequest
+}
+
+export function decodeDevChannelHandshakeReply(value: unknown): DevChannelHandshakeReply {
+  const item = record(value, 'handshake reply')
+  if (item.schemaVersion !== 1) fail('handshake reply.schemaVersion', 'expected 1')
+  if (item.method !== devRuntimeTransportMethods.handshake)
+    fail('handshake reply.method', `expected ${devRuntimeTransportMethods.handshake}`)
+  if (!uuidPattern.test(stringValue(item.requestId, 'handshake reply.requestId')))
+    fail('handshake reply.requestId', 'expected lowercase UUID')
+  if (item.ok === true) {
+    exactKeys(
+      item,
+      [
+        'schemaVersion',
+        'method',
+        'requestId',
+        'ok',
+        'channelId',
+        'clientCredentialId',
+        'clientSecret',
+        'channelGeneration',
+        'protocolVersion',
+        'serverExpiresAt',
+        'observedAt',
+      ],
+      [],
+      'handshake reply'
+    )
+    for (const key of ['channelId', 'clientCredentialId'] as const)
+      if (!uuidPattern.test(stringValue(item[key], `handshake reply.${key}`)))
+        fail(`handshake reply.${key}`, 'expected lowercase UUID')
+    base64url(item.clientSecret, 'handshake reply.clientSecret', 43, 512)
+    integerValue(item.channelGeneration, 'handshake reply.channelGeneration', 0)
+    stringValue(item.protocolVersion, 'handshake reply.protocolVersion', 1, 32)
+    timestamp(item.serverExpiresAt, 'handshake reply.serverExpiresAt')
+    timestamp(item.observedAt, 'handshake reply.observedAt')
+    return value as DevChannelHandshakeReply
+  }
+  if (item.ok === false) {
+    exactKeys(item, ['schemaVersion', 'method', 'requestId', 'ok', 'error'], [], 'handshake reply')
+    decodeError(item.error)
+    return value as DevChannelHandshakeReply
+  }
+  fail('handshake reply.ok', 'expected boolean')
+}
+
+export function decodeAuthorizedDevFrame<K extends DevOperation = DevOperation>(
+  value: unknown
+): AuthorizedDevFrame<K> {
+  const item = record(value, 'authorized frame')
+  exactKeys(item, ['channelId', 'clientCredentialId', 'command', 'proof'], [], 'authorized frame')
+  for (const key of ['channelId', 'clientCredentialId'] as const)
+    if (!uuidPattern.test(stringValue(item[key], `authorized frame.${key}`)))
+      fail(`authorized frame.${key}`, 'expected lowercase UUID')
+  base64url(item.proof, 'authorized frame.proof', 43, 512)
+  decodeDevCommand(item.command)
+  return value as AuthorizedDevFrame<K>
+}
+
+export function decodeDevStreamGrant(value: unknown): DevStreamGrant {
+  const item = record(value, 'stream grant')
+  exactKeys(
+    item,
+    [
+      'schemaVersion',
+      'grantId',
+      'protocol',
+      'channelId',
+      'scope',
+      'resource',
+      'direction',
+      'fromSequence',
+      'expiresAt',
+      'maxFrameBytes',
+    ],
+    [],
+    'stream grant'
+  )
+  if (item.schemaVersion !== 1) fail('stream grant.schemaVersion', 'expected 1')
+  if (!uuidPattern.test(stringValue(item.grantId, 'stream grant.grantId')))
+    fail('stream grant.grantId', 'expected lowercase UUID')
+  if (typeof item.protocol !== 'string' || !(item.protocol in devStreamProtocolDefinitions))
+    fail('stream grant.protocol', 'unknown protocol')
+  if (!uuidPattern.test(stringValue(item.channelId, 'stream grant.channelId')))
+    fail('stream grant.channelId', 'expected lowercase UUID')
+  decodeScope(item.scope, 'stream grant.scope')
+  resourceBinding(item.resource, 'stream grant.resource')
+  literal(item.direction, ['read', 'write'], 'stream grant.direction')
+  uint64String(item.fromSequence, 'stream grant.fromSequence')
+  timestamp(item.expiresAt, 'stream grant.expiresAt')
+  integerValue(item.maxFrameBytes, 'stream grant.maxFrameBytes', 1, 67_108_864)
+  return value as DevStreamGrant
+}
+
+export function decodeDevStreamAttach(value: unknown): DevStreamAttach {
+  const item = record(value, 'stream attach')
+  exactKeys(
+    item,
+    ['schemaVersion', 'grantId', 'requestId', 'nonce', 'fromSequence', 'proof'],
+    [],
+    'stream attach'
+  )
+  if (item.schemaVersion !== 1) fail('stream attach.schemaVersion', 'expected 1')
+  for (const key of ['grantId', 'requestId'] as const)
+    if (!uuidPattern.test(stringValue(item[key], `stream attach.${key}`)))
+      fail(`stream attach.${key}`, 'expected lowercase UUID')
+  base64url(item.nonce, 'stream attach.nonce', 22, 256)
+  uint64String(item.fromSequence, 'stream attach.fromSequence')
+  base64url(item.proof, 'stream attach.proof', 43, 512)
+  return value as DevStreamAttach
+}
+
+export function decodeDevStreamFrame(value: unknown): DevStreamFrame {
+  const item = record(value, 'stream frame')
+  const type = item.type
+  if (typeof type !== 'string') fail('stream frame.type', 'expected string')
+  if (type === 'opened') {
+    exactKeys(item, ['type', 'protocol', 'generation', 'nextSequence'], [], 'stream frame')
+    if (typeof item.protocol !== 'string' || !(item.protocol in devStreamProtocolDefinitions))
+      fail('stream frame.protocol', 'unknown protocol')
+    integerValue(item.generation, 'stream frame.generation', 0)
+    uint64String(item.nextSequence, 'stream frame.nextSequence')
+    return value as DevStreamFrame
+  }
+  if (type === 'data') {
+    exactKeys(item, ['type', 'sequence', 'bytes'], [], 'stream frame')
+    uint64String(item.sequence, 'stream frame.sequence')
+    if (!(item.bytes instanceof Uint8Array)) fail('stream frame.bytes', 'expected Uint8Array')
+    return value as DevStreamFrame
+  }
+  if (type === 'video') {
+    exactKeys(item, ['type', 'sequence', 'timestampMs', 'keyframe', 'bytes'], [], 'stream frame')
+    uint64String(item.sequence, 'stream frame.sequence')
+    integerValue(item.timestampMs, 'stream frame.timestampMs', 0)
+    if (typeof item.keyframe !== 'boolean') fail('stream frame.keyframe', 'expected boolean')
+    if (!(item.bytes instanceof Uint8Array)) fail('stream frame.bytes', 'expected Uint8Array')
+    return value as DevStreamFrame
+  }
+  if (type === 'input') {
+    exactKeys(item, ['type', 'sequence', 'generation', 'bytes'], [], 'stream frame')
+    uint64String(item.sequence, 'stream frame.sequence')
+    integerValue(item.generation, 'stream frame.generation', 0)
+    if (!(item.bytes instanceof Uint8Array)) fail('stream frame.bytes', 'expected Uint8Array')
+    return value as DevStreamFrame
+  }
+  if (type === 'gesture') {
+    exactKeys(item, ['type', 'sequence', 'generation', 'gesture'], [], 'stream frame')
+    uint64String(item.sequence, 'stream frame.sequence')
+    integerValue(item.generation, 'stream frame.generation', 0)
+    namedType('DeviceGesture', item.gesture, 'stream frame.gesture')
+    return value as DevStreamFrame
+  }
+  if (type === 'resize') {
+    exactKeys(item, ['type', 'sequence', 'generation', 'cols', 'rows'], [], 'stream frame')
+    uint64String(item.sequence, 'stream frame.sequence')
+    integerValue(item.generation, 'stream frame.generation', 0)
+    integerValue(item.cols, 'stream frame.cols', 1, 1000)
+    integerValue(item.rows, 'stream frame.rows', 1, 1000)
+    return value as DevStreamFrame
+  }
+  if (type === 'ack') {
+    exactKeys(item, ['type', 'throughSequence', 'availableCreditBytes'], [], 'stream frame')
+    uint64String(item.throughSequence, 'stream frame.throughSequence')
+    integerValue(item.availableCreditBytes, 'stream frame.availableCreditBytes', 0)
+    return value as DevStreamFrame
+  }
+  if (type === 'heartbeat') {
+    exactKeys(item, ['type', 'observedAt', 'throughSequence'], [], 'stream frame')
+    timestamp(item.observedAt, 'stream frame.observedAt')
+    uint64String(item.throughSequence, 'stream frame.throughSequence')
+    return value as DevStreamFrame
+  }
+  if (type === 'resync') {
+    exactKeys(item, ['type', 'reason', 'checkpointSequence'], [], 'stream frame')
+    literal(item.reason, ['sequence_gap', 'checkpoint_required'], 'stream frame.reason')
+    uint64String(item.checkpointSequence, 'stream frame.checkpointSequence')
+    return value as DevStreamFrame
+  }
+  if (type === 'error') {
+    exactKeys(item, ['type', 'error'], [], 'stream frame')
+    decodeError(item.error)
+    return value as DevStreamFrame
+  }
+  if (type === 'close') {
+    exactKeys(item, ['type', 'code'], ['reason'], 'stream frame')
+    literal(
+      item.code,
+      ['normal', 'expired', 'revoked', 'stale_generation', 'backpressure', 'incompatible'],
+      'stream frame.close'
+    )
+    if (item.reason !== undefined) stringValue(item.reason, 'stream frame.reason', 0, 256)
+    return value as DevStreamFrame
+  }
+  fail('stream frame.type', 'unknown frame type')
+}
+
+export function decodeCapabilitySnapshot(value: unknown): CapabilitySnapshot {
+  const snapshot = record(value, 'capability snapshot')
+  exactKeys(
+    snapshot,
+    ['scope', 'granted', 'unavailable', 'channelGeneration', 'observedAt'],
+    [],
+    'capability snapshot'
+  )
+  decodeScope(snapshot.scope, 'capability snapshot.scope')
+  if (!Array.isArray(snapshot.granted)) fail('capability snapshot.granted', 'expected array')
+  snapshot.granted.forEach((capability, index) =>
+    literal(capability, devCapabilityUniverse, `capability snapshot.granted[${index}]`)
+  )
+  if (!Array.isArray(snapshot.unavailable))
+    fail('capability snapshot.unavailable', 'expected array')
+  snapshot.unavailable.forEach((entry, index) => {
+    const unavailable = record(entry, `capability snapshot.unavailable[${index}]`)
+    exactKeys(
+      unavailable,
+      ['capability', 'reason'],
+      [],
+      `capability snapshot.unavailable[${index}]`
+    )
+    literal(
+      unavailable.capability,
+      devCapabilityUniverse,
+      `capability snapshot.unavailable[${index}].capability`
+    )
+    literal(unavailable.reason, devErrorCodes, `capability snapshot.unavailable[${index}].reason`)
+  })
+  integerValue(snapshot.channelGeneration, 'capability snapshot.channelGeneration', 0)
+  timestamp(snapshot.observedAt, 'capability snapshot.observedAt')
+  return value as CapabilitySnapshot
+}
+
+// The full capability universe: every registry capability plus the two
+// client-preference capabilities that dev.capability.snapshot reports.
+const devCapabilityUniverse = Object.freeze([
+  ...new Set([
+    ...Object.values(devOperationDefinitions).flatMap((definition) => definition.capabilities),
+    'dev.appearance.read',
+    'dev.appLibrary.manage',
+  ]),
+])
+
+/** Deterministic JSON with recursively sorted object keys (UTF-8). */
+export function canonicalDevCommandJson(value: unknown): string {
+  if (value === null) return 'null'
+  if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value)
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalDevCommandJson).join(',')}]`
+  if (typeof value === 'object') {
+    const object = value as Record<string, unknown>
+    if (Object.getPrototypeOf(object) !== objectPrototype && Object.getPrototypeOf(object) !== null)
+      fail('canonical json', 'expected a plain object')
+    const keys = Object.keys(object).toSorted()
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${canonicalDevCommandJson(object[key])}`)
+      .join(',')}}`
+  }
+  fail('canonical json', `cannot canonicalize ${typeof value}`)
+}
+
+function bindProofFields(parts: readonly string[]): string {
+  // ASCII unit-separator framing: no bound field can contain a raw 0x1f
+  // (JSON escapes control characters, and the rest are restricted alphabets).
+  return parts.join('\u001f')
+}
+
+/**
+ * The exact MAC input for an `AuthorizedDevFrame.proof`: binds channel,
+ * client credential, operation, request id, nonce, the sorted capability set,
+ * scope, resource/generation when present, issue/expiry times, idempotency
+ * key, and the canonical command body.
+ */
+export function devCommandProofMessage(input: {
+  channelId: string
+  clientCredentialId: string
+  command: DevCommand
+}): string {
+  const command = input.command
+  return bindProofFields([
+    'adea-dev-command-proof:v1',
+    input.channelId,
+    input.clientCredentialId,
+    command.operation,
+    command.requestId,
+    command.nonce,
+    canonicalDevCommandJson(command.capabilities.toSorted()),
+    canonicalDevCommandJson(command.scope),
+    command.resource ? canonicalDevCommandJson(command.resource) : '',
+    command.issuedAt,
+    command.expiresAt,
+    command.idempotencyKey ?? '',
+    canonicalDevCommandJson(command.body),
+  ])
+}
+
+/** The exact MAC input minting/consuming a `DevStreamGrant`. */
+export function devStreamGrantProofMessage(input: {
+  clientCredentialId: string
+  grant: DevStreamGrant
+}): string {
+  const grant = input.grant
+  return bindProofFields([
+    'adea-dev-stream-grant-proof:v1',
+    input.clientCredentialId,
+    grant.grantId,
+    grant.channelId,
+    grant.protocol,
+    canonicalDevCommandJson(grant.scope),
+    canonicalDevCommandJson(grant.resource),
+    grant.direction,
+    grant.fromSequence,
+    grant.expiresAt,
+    String(grant.maxFrameBytes),
+  ])
+}
+
+/** The exact MAC input consuming a `DevStreamAttach`. */
+export function devStreamAttachProofMessage(input: {
+  channelId: string
+  attach: DevStreamAttach
+}): string {
+  return bindProofFields([
+    'adea-dev-stream-attach-proof:v1',
+    input.channelId,
+    input.attach.grantId,
+    input.attach.requestId,
+    input.attach.nonce,
+    input.attach.fromSequence,
+  ])
+}
+
+// ─── Canonical CBOR (RFC 8949 deterministic encoding subset) ────────────────
+//
+// Bulk-stream control frames are canonical CBOR with a 64 KiB maximum. This
+// subset covers the frame vocabulary — unsigned/negative integers, floats,
+// booleans, null, byte and text strings, arrays, and text-keyed maps — and
+// refuses anything else (tags, indefinite lengths, non-shortest heads,
+// duplicate or unsorted map keys) instead of guessing.
+
+const cborEncoder = new TextEncoder()
+const cborDecoder = new TextDecoder('utf-8', { fatal: true })
+
+function cborHead(major: number, length: number | bigint): Uint8Array {
+  const value = BigInt(length)
+  const head: number[] = []
+  let info: number
+  let bytes: number[] = []
+  if (value < 24n) info = Number(value)
+  else if (value <= 0xffn) {
+    info = 24
+    bytes = [Number(value)]
+  } else if (value <= 0xffffn) {
+    info = 25
+    for (let shift = 8; shift >= 0; shift -= 8) bytes.push(Number((value >> BigInt(shift)) & 0xffn))
+  } else if (value <= 0xffff_ffffn) {
+    info = 26
+    for (let shift = 24; shift >= 0; shift -= 8)
+      bytes.push(Number((value >> BigInt(shift)) & 0xffn))
+  } else {
+    info = 27
+    for (let shift = 56; shift >= 0; shift -= 8)
+      bytes.push(Number((value >> BigInt(shift)) & 0xffn))
+  }
+  head.push((major << 5) | info, ...bytes)
+  return Uint8Array.from(head)
+}
+
+function shortestFloat(value: number): Uint8Array {
+  const buffer = new ArrayBuffer(8)
+  const view = new DataView(buffer)
+  for (const [head, write, read] of [
+    [0xf9, 'setFloat16', 'getFloat16'],
+    [0xfa, 'setFloat32', 'getFloat32'],
+  ] as const) {
+    view[write](0, value, false)
+    if (view[read](0, false) === value) {
+      const size = head === 0xf9 ? 2 : 4
+      const out = new Uint8Array(1 + size)
+      out[0] = head
+      out.set(new Uint8Array(buffer, 0, size), 1)
+      return out
+    }
+  }
+  view.setFloat64(0, value, false)
+  const out = new Uint8Array(9)
+  out[0] = 0xfb
+  out.set(new Uint8Array(buffer, 0, 8), 1)
+  return out
+}
+
+export function encodeCbor(value: unknown): Uint8Array {
+  const chunks: Uint8Array[] = []
+  const encode = (input: unknown): void => {
+    if (input === null) {
+      chunks.push(Uint8Array.from([0xf6]))
+      return
+    }
+    if (typeof input === 'boolean') {
+      chunks.push(Uint8Array.from([input ? 0xf5 : 0xf4]))
+      return
+    }
+    if (typeof input === 'bigint') {
+      if (input >= 0n) chunks.push(cborHead(0, input))
+      else chunks.push(cborHead(1, -1n - input))
+      return
+    }
+    if (typeof input === 'number') {
+      if (Number.isSafeInteger(input)) {
+        if (input >= 0) chunks.push(cborHead(0, input))
+        else chunks.push(cborHead(1, -1 - input))
+        return
+      }
+      if (Number.isFinite(input)) {
+        chunks.push(shortestFloat(input))
+        return
+      }
+      fail('cbor', 'numbers must be finite')
+    }
+    if (typeof input === 'string') {
+      const bytes = cborEncoder.encode(input)
+      chunks.push(cborHead(3, bytes.byteLength), bytes)
+      return
+    }
+    if (input instanceof Uint8Array) {
+      chunks.push(cborHead(2, input.byteLength), input)
+      return
+    }
+    if (Array.isArray(input)) {
+      chunks.push(cborHead(4, input.length))
+      for (const entry of input) encode(entry)
+      return
+    }
+    if (typeof input === 'object') {
+      if (Object.getPrototypeOf(input) !== objectPrototype && Object.getPrototypeOf(input) !== null)
+        fail('cbor', 'expected a plain object')
+      const entries = Object.entries(input as Record<string, unknown>)
+      const encoded = entries
+        .map(([key, entry]) => ({ key: encodeCbor(key), value: encodeCbor(entry) }))
+        .toSorted((left, right) => {
+          const shorter = Math.min(left.key.byteLength, right.key.byteLength)
+          for (let index = 0; index < shorter; index += 1) {
+            const delta = left.key[index]! - right.key[index]!
+            if (delta !== 0) return delta
+          }
+          return left.key.byteLength - right.key.byteLength
+        })
+      chunks.push(cborHead(5, encoded.length))
+      for (const entry of encoded) {
+        chunks.push(entry.key, entry.value)
+      }
+      return
+    }
+    fail('cbor', `cannot encode ${typeof input}`)
+  }
+  encode(value)
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: number } {
+  let offset = 0
+  const read = (count: number): bigint => {
+    if (offset + count > bytes.byteLength) fail('cbor', 'truncated input')
+    let value = 0n
+    for (let index = 0; index < count; index += 1) value = (value << 8n) | BigInt(bytes[offset++]!)
+    return value
+  }
+  const head = (): { major: number; value: bigint } => {
+    if (offset >= bytes.byteLength) fail('cbor', 'truncated input')
+    const first = bytes[offset++]!
+    const major = first >> 5
+    const info = first & 0x1f
+    if (info < 24) return { major, value: BigInt(info) }
+    if (info === 24) {
+      const value = read(1)
+      if (value < 24n) fail('cbor', 'non-shortest integer head')
+      return { major, value }
+    }
+    if (info === 25) {
+      const value = read(2)
+      if (value < 256n) fail('cbor', 'non-shortest integer head')
+      return { major, value }
+    }
+    if (info === 26) {
+      const value = read(4)
+      if (value < 65_536n) fail('cbor', 'non-shortest integer head')
+      return { major, value }
+    }
+    if (info === 27) {
+      const value = read(8)
+      if (value < 4_294_967_296n) fail('cbor', 'non-shortest integer head')
+      return { major, value }
+    }
+    fail('cbor', `unsupported additional information ${info}`)
+  }
+  const decode = (): unknown => {
+    if (offset >= bytes.byteLength) fail('cbor', 'truncated input')
+    const first = bytes[offset]!
+    // Major 7's "value" is a simple value or raw float bits, not a
+    // length, so the integer shortest-form rules do not apply to it.
+    if (first >> 5 === 7) {
+      offset += 1
+      const info = first & 0x1f
+      if (info === 20) return false
+      if (info === 21) return true
+      if (info === 22) return null
+      if (info === 25 || info === 26 || info === 27) {
+        const width = info === 25 ? 2 : info === 26 ? 4 : 8
+        const bits = read(width)
+        const scratch = new ArrayBuffer(8)
+        const view = new DataView(scratch)
+        for (let index = 0; index < width; index += 1)
+          view.setUint8(index, Number((bits >> BigInt(8 * (width - 1 - index))) & 0xffn))
+        const parsed =
+          info === 25
+            ? view.getFloat16(0, false)
+            : info === 26
+              ? view.getFloat32(0, false)
+              : view.getFloat64(0, false)
+        if (!Number.isFinite(parsed)) fail('cbor', 'floats must be finite')
+        return parsed
+      }
+      fail('cbor', `unsupported simple value ${info}`)
+    }
+    const { major, value } = head()
+    if (major === 0) {
+      if (value > BigInt(Number.MAX_SAFE_INTEGER)) return value
+      return Number(value)
+    }
+    if (major === 1) {
+      const result = -1n - value
+      return result >= BigInt(Number.MIN_SAFE_INTEGER) && result <= BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number(result)
+        : result
+    }
+    if (major === 2) {
+      const length = Number(value)
+      if (offset + length > bytes.byteLength) fail('cbor', 'truncated byte string')
+      const out = bytes.slice(offset, offset + length)
+      offset += length
+      return out
+    }
+    if (major === 3) {
+      const length = Number(value)
+      if (offset + length > bytes.byteLength) fail('cbor', 'truncated text string')
+      const slice = bytes.subarray(offset, offset + length)
+      offset += length
+      try {
+        return cborDecoder.decode(slice)
+      } catch {
+        return fail('cbor', 'invalid UTF-8 text string')
+      }
+    }
+    if (major === 4) {
+      const length = Number(value)
+      const out: unknown[] = []
+      for (let index = 0; index < length; index += 1) out.push(decode())
+      return out
+    }
+    if (major === 5) {
+      const length = Number(value)
+      const out: Record<string, unknown> = {}
+      let previousKey: Uint8Array | undefined
+      for (let index = 0; index < length; index += 1) {
+        const keyStart = offset
+        const key = decode()
+        const keyBytes = bytes.slice(keyStart, offset)
+        if (typeof key !== 'string') fail('cbor', 'map keys must be text strings')
+        if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
+          fail('cbor', 'map keys are not canonically ordered')
+        previousKey = keyBytes
+        if (key in out) fail('cbor', 'duplicate map key')
+        out[key] = decode()
+      }
+      return out
+    }
+    if (major === 6) fail('cbor', 'tags are not part of the frame vocabulary')
+    return fail('cbor', `unsupported major type ${major}`)
+  }
+  const value = decode()
+  return { value, byteLength: offset }
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+  const shorter = Math.min(left.byteLength, right.byteLength)
+  for (let index = 0; index < shorter; index += 1) {
+    const delta = left[index]! - right[index]!
+    if (delta !== 0) return delta
+  }
+  return left.byteLength - right.byteLength
+}

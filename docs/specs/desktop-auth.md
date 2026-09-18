@@ -103,10 +103,19 @@ verification.
 `desktop_auth_*`, `desktop_user_session_*`, and `desktop_temporary_workspace_*`
 exist only in the shell's `handlers` registry
 (`apps/desktop/shell/src/commands.ts`), which the bundled main window reaches
-through `/__adea/invoke`. The registered command set and the commands the client
-actually invokes must match exactly: `scripts/desktop-ipc-boundary.test.ts`
-fails the build otherwise, and `apps/desktop/tests/shell-commands.test.ts`
-exercises the family round-trips.
+through `/__adea/invoke`. Since M10 #33 that path is no longer an open
+authority: the injected bridge performs `dev.runtime.handshake.v1` with a
+single-use launch bootstrap and signs every request with a per-channel HMAC
+(`apps/desktop/shell/src/dev-runtime/channel/`); unauthenticated,
+cross-origin, rebinding, replayed, and tampered requests fail closed with
+typed errors. `desktop_auth_start` additionally refuses to open any URL that
+is not a credential-free authorize URL on the canonical cloud origin — the
+client still owns the full `validate_authorization_url` check. The registered
+command set and the commands the client actually invokes must match exactly:
+`scripts/desktop-ipc-boundary.test.ts` fails the build otherwise, and
+`apps/desktop/tests/shell-commands.test.ts` exercises the family round-trips
+over the guarded path, with the channel boundary itself pinned by
+`apps/desktop/tests/shell-channel.test.ts`.
 
 ## Pinned by
 
@@ -118,3 +127,6 @@ exercises the family round-trips.
 - `scripts/desktop-ipc-boundary.test.ts`: the command surface above.
 - `apps/desktop/tests/shell-server.test.ts`: the proxy targets the canonical
   origin, presents the trusted shell origin, and drops ambient headers.
+- `apps/desktop/tests/shell-channel.test.ts`: the invoke path authenticates
+  the shell channel (bootstrap handshake, per-request HMAC, replay and
+  origin refusals) before a handler runs.
