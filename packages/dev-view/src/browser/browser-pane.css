@@ -1,0 +1,313 @@
+/*
+ * Browser/Devices pane hooks (#422). Scoped to this package so the shared
+ * dev-view stylesheet stays with its owner; tokens come from theme.css via
+ * the same variables the shared dev-view hooks use.
+ */
+
+.dev-browser {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.dev-browser__chrome {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.5rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.dev-browser__url {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+}
+
+.dev-browser__url input {
+  min-width: 0;
+  flex: 1;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.8rem;
+}
+
+.dev-browser__url input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
+  outline-offset: 1px;
+}
+
+.dev-browser__nav-group {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.dev-browser__identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+}
+
+.dev-browser__identity strong {
+  overflow: hidden;
+  max-width: 14rem;
+  color: var(--foreground);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-browser__menu {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.dev-browser__section-title {
+  padding: 0.35rem 0.5rem 0.15rem;
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.dev-browser__row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  text-align: start;
+}
+
+.dev-browser__row:not(:disabled):hover {
+  background: color-mix(in srgb, var(--muted) 70%, transparent);
+}
+
+.dev-browser__row:disabled {
+  color: var(--muted-foreground);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.dev-browser__row-meta {
+  display: block;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-browser__row-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.dev-browser__diagnostics {
+  display: flex;
+  min-height: 5rem;
+  flex-direction: column;
+  overflow: auto;
+  border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  font-size: 0.75rem;
+}
+
+.dev-browser__diagnostic {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.dev-browser__diagnostic[data-level='error'] {
+  color: var(--destructive);
+}
+
+.dev-browser__diagnostic[data-level='warning'] {
+  color: var(--muted-foreground);
+}
+
+.dev-browser__annotation-active {
+  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
+  outline-offset: -2px;
+}
+
+/* Movable mini preview within the app bounds. */
+.dev-browser-mini {
+  position: absolute;
+  left: var(--mini-left);
+  top: var(--mini-top);
+  width: var(--mini-width);
+  height: var(--mini-height);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--mini-radius, 0.75rem);
+  background: var(--background);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 18%, transparent);
+}
+
+.dev-browser-mini__status {
+  position: absolute;
+  inset-block-start: 0.25rem;
+  inset-inline-end: 0.25rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.125rem;
+}
+
+.dev-browser-mini__viewport {
+  width: 100%;
+  height: 100%;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.dev-browser-mini__viewport[data-empty='true'] {
+  display: grid;
+  place-items: center;
+}
+
+.dev-devices__list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem;
+}
+
+.dev-browser__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.25rem;
+}
+
+.dev-browser-mini__layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.dev-browser-mini__layer > .dev-browser-mini {
+  pointer-events: auto;
+}
+
+.dev-browser-mini__handle {
+  position: absolute;
+}
+
+.dev-browser-mini__handle--move {
+  inset-block-start: 0;
+  inset-inline: 0;
+  height: 0.75rem;
+  cursor: grab;
+}
+
+.dev-browser-mini__handle--n {
+  cursor: ns-resize;
+}
+
+.dev-browser-mini__handle--s {
+  cursor: ns-resize;
+}
+
+.dev-browser-mini__handle--w {
+  cursor: ew-resize;
+}
+
+.dev-browser-mini__handle--e {
+  cursor: ew-resize;
+}
+
+.dev-browser-mini__handle--nw,
+.dev-browser-mini__handle--se {
+  cursor: nwse-resize;
+}
+
+.dev-browser-mini__handle--ne,
+.dev-browser-mini__handle--sw {
+  cursor: nesw-resize;
+}
+
+.dev-browser-mini__handle--n {
+  inset-inline: 0;
+  inset-block-start: -0.125rem;
+  height: 0.5rem;
+}
+
+.dev-browser-mini__handle--s {
+  inset-inline: 0;
+  inset-block-end: -0.125rem;
+  height: 0.5rem;
+}
+
+.dev-browser-mini__handle--w {
+  inset-block: 0;
+  inset-inline-start: -0.125rem;
+  width: 0.5rem;
+}
+
+.dev-browser-mini__handle--e {
+  inset-block: 0;
+  inset-inline-end: -0.125rem;
+  width: 0.5rem;
+}
+
+.dev-browser-mini__handle--nw,
+.dev-browser-mini__handle--se {
+  width: 1rem;
+  height: 1rem;
+}
+
+.dev-browser-mini__handle--nw {
+  inset-block-start: -0.25rem;
+  inset-inline-start: -0.25rem;
+}
+
+.dev-browser-mini__handle--se {
+  inset-block-end: -0.25rem;
+  inset-inline-end: -0.25rem;
+}
+
+.dev-browser-mini__handle--ne,
+.dev-browser-mini__handle--sw {
+  width: 1rem;
+  height: 1rem;
+}
+
+.dev-browser-mini__handle--ne {
+  inset-block-start: -0.25rem;
+  inset-inline-end: -0.25rem;
+}
+
+.dev-browser-mini__handle--sw {
+  inset-block-end: -0.25rem;
+  inset-inline-start: -0.25rem;
+}
