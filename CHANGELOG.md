@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/adea-ai/adea/compare/v0.30.0...v0.31.0) (2026-09-18)
+
+
+### Features
+
+* **shell:** supervise the bundled local component stack (M10 [#185](https://github.com/adea-ai/adea/issues/185)) ([#499](https://github.com/adea-ai/adea/issues/499)) ([c141126](https://github.com/adea-ai/adea/commit/c141126912ad99855da20c123acafc2bc968cd17))
+
 ## [0.30.0](https://github.com/adea-ai/adea/compare/v0.29.0...v0.30.0) (2026-09-18)
 
 
