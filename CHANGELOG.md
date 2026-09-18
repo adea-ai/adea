@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.26.17](https://github.com/adea-ai/adea/compare/v0.26.16...v0.26.17) (2026-09-18)
+
+
+### Maintenance
+
+* adopt Code Foundry runtime v1.30.0 ([#488](https://github.com/adea-ai/adea/issues/488)) ([9ef9e12](https://github.com/adea-ai/adea/commit/9ef9e1252f9ea32dc24f654560d5c3134737c250))
+
 ## [0.26.16](https://github.com/adea-ai/adea/compare/v0.26.15...v0.26.16) (2026-09-17)
 
 
