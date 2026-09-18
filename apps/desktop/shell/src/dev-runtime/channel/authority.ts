@@ -56,7 +56,11 @@ export class ChannelRejection extends Error {
 
 export type ChannelIdentity = Readonly<{ channelId: string; clientCredentialId: string }>
 
-export type DevCommandHandler = (command: DevCommand) => unknown | Promise<unknown>
+export type DevCommandHandler = (
+  command: DevCommand,
+  /** The authenticated channel of the caller; stream-grant replies bind to it. */
+  identity?: ChannelIdentity
+) => unknown | Promise<unknown>
 
 export type ChannelAuditRecord = Readonly<{
   at: string
@@ -525,7 +529,10 @@ export function createChannelAuthority(options?: {
       const provider = commandProviders.get(frame.command.operation)
       let value: unknown
       if (provider) {
-        value = await provider(frame.command)
+        value = await provider(frame.command, {
+          channelId: frame.channelId,
+          clientCredentialId: frame.clientCredentialId,
+        })
       } else {
         // Step 6: deny by default — no ad hoc native commands.
         counters.capabilityDenied += 1
@@ -578,6 +585,17 @@ export function createChannelAuthority(options?: {
             clientCredentialId: decodeCredentialId(raw),
           }
         )
+      }
+      // A provider's typed failure is a valid refusal, not a crash: a thrown
+      // DevError-shaped value is surfaced verbatim so callers see the exact
+      // contract code (spec: "Messages may change; code, retryability, and
+      // remediation shape are API").
+      if (isDevErrorShape(error)) {
+        return refusal(error, {
+          operation: decodeOperation(raw),
+          channelId: decodeChannelId(raw),
+          clientCredentialId: decodeCredentialId(raw),
+        })
       }
       return refusal({
         code: 'invalid_state',
@@ -789,6 +807,18 @@ export function createChannelAuthority(options?: {
     activeChannelIds,
     isTrustedRequest,
   }
+}
+
+/** Structural guard for provider-thrown DevError values (never a guess). */
+function isDevErrorShape(error: unknown): error is DevError {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { code?: unknown; retryable?: unknown; message?: unknown }
+  return (
+    typeof candidate.code === 'string' &&
+    typeof candidate.retryable === 'boolean' &&
+    typeof candidate.message === 'string' &&
+    candidate.message.length > 0
+  )
 }
 
 export type ChannelAuthority = ReturnType<typeof createChannelAuthority>

@@ -84,12 +84,14 @@ export type SidecarResponse =
   | { type: 'heartbeat'; at: string }
 
 export type ByteFrameMeta = Readonly<{
-  kind: 'terminal.data'
+  kind: 'terminal.data' | 'terminal.input'
   terminalId: string
   generation: number
   seq: string
   emittedAt: string
   byteLength: number
+  /** Sidecar subscriber this frame belongs to (data out / input in routing). */
+  subscriberId?: string
 }>
 
 export const FRAME_CHANNEL_CONTROL = 0x01

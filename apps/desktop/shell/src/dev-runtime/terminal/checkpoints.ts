@@ -333,7 +333,9 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
     latestSequence() {
       const segments = listSegments()
       const last = segments[segments.length - 1]
-      return last ? String(last.toSeq) : '0'
+      if (last && openChunks.length === 0) return String(last.toSeq)
+      if (openChunks.length > 0) return openChunks[openChunks.length - 1]!.seq
+      return '0'
     },
 
     read(fromSeq) {
@@ -346,7 +348,10 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
           for (const chunk of read.value) if (BigInt(chunk.seq) >= from) chunks.push(chunk)
         }
       }
-      return chunks
+      // The open buffer is pending-durable state: replay and search cover it
+      // so a caller never misses the newest output between checkpoints.
+      for (const chunk of openChunks) if (BigInt(chunk.seq) >= from) chunks.push(chunk)
+      return chunks.toSorted((left, right) => (BigInt(left.seq) < BigInt(right.seq) ? -1 : 1))
     },
 
     search(query, limit) {

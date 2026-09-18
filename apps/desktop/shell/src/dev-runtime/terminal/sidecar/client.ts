@@ -59,7 +59,11 @@ export type SidecarClient = {
     subscriberId: string
     sinceSeq: string
   }): Promise<SidecarResult<AttachReply>>
-  writeInput(terminalId: string, bytes: Uint8Array): Promise<SidecarResult<{ written: number }>>
+  writeInput(
+    terminalId: string,
+    bytes: Uint8Array,
+    subscriberId?: string
+  ): Promise<SidecarResult<{ written: number }>>
   resize(
     terminalId: string,
     cols: number,
@@ -103,6 +107,19 @@ export type AttachReply =
 export function connectSidecarClient(options: SidecarClientOptions): Promise<SidecarConnectResult> {
   const { duplex } = options
   const decoder = createFrameDecoder()
+  const events: {
+    onDataFrame?: (meta: ByteFrameMeta, bytes: Uint8Array) => void
+    onResync?: (notice: {
+      terminalId: string
+      subscriberId: string
+      checkpointSequence: string
+    }) => void
+    onExited?: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+  } = {
+    onDataFrame: options.onDataFrame,
+    onResync: options.onResync,
+    onExited: options.onExited,
+  }
   const pending = new Map<
     string,
     { resolve: (result: SidecarResult<unknown>) => void; timer: ReturnType<typeof setTimeout> }
@@ -133,7 +150,7 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
 
     function handleFrame(frame: DecodedSidecarFrame): void {
       if (frame.channel === 0x02) {
-        options.onDataFrame?.(frame.meta, frame.bytes)
+        events.onDataFrame?.(frame.meta, frame.bytes)
         return
       }
       const message = frame.message as SidecarResponse
@@ -257,6 +274,11 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
                 requestId: nextRequestId(),
                 terminalId,
               }),
+            setEvents(handlers) {
+              if (handlers.onDataFrame !== undefined) events.onDataFrame = handlers.onDataFrame
+              if (handlers.onResync !== undefined) events.onResync = handlers.onResync
+              if (handlers.onExited !== undefined) events.onExited = handlers.onExited
+            },
             close() {
               closed = true
               for (const entry of pending.values()) clearTimeout(entry.timer)
@@ -285,11 +307,11 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
         return
       }
       if (message.type === 'resync') {
-        options.onResync?.(message)
+        events.onResync?.(message)
         return
       }
       if (message.type === 'exited') {
-        options.onExited?.(message)
+        events.onExited?.(message)
       }
     }
 

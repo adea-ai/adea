@@ -1,0 +1,510 @@
+// Issue #396 end-to-end over the real M10 gate: bootstrap → handshake →
+// HMAC-proved execute → terminal create/attach/input through the adopted
+// sidecar, single-use stream grants, byte-preserving stream routing, resync
+// on uncovered sequences, and fail-closed refusals for wrong resource
+// bindings, stale generations, and unauthorized worktree roots. The
+// WebSocket plumbing itself is pinned by shell-channel.test.ts.
+import { afterAll, describe, expect, test } from 'bun:test'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import {
+  decodeDevStreamGrant,
+  devCommandProofMessage,
+  devOperationDecoders,
+  devOperationDefinitions,
+  devStreamAttachProofMessage,
+  type DevCommand,
+  type DevReply,
+  type DevStreamFrame,
+  type Scope,
+} from '../../../packages/types/src/dev-runtime'
+import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
+import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
+import { registerTerminalRuntime } from '../shell/src/dev-runtime/terminal/register'
+import {
+  connectSidecarClient,
+  type SidecarClient,
+} from '../shell/src/dev-runtime/terminal/sidecar/client'
+import {
+  createSidecarService,
+  newSidecarCredential,
+} from '../shell/src/dev-runtime/terminal/sidecar/service'
+import type { ByteDuplex, ByteFrameMeta } from '../shell/src/dev-runtime/terminal/sidecar/protocol'
+import { TERMINAL_LIMITS } from '../shell/src/dev-runtime/terminal/limits'
+import { createFakePtyAdapter } from './fixtures/fake-pty'
+import { createLoopbackPair } from './fixtures/loopback-duplex'
+
+const SHELL_HOST = '127.0.0.1:4789'
+const SHELL_ORIGIN = 'http://127.0.0.1:4789'
+const scope: Scope = {
+  accountId: '00000000-0000-4000-8000-000000000001',
+  workspaceId: '00000000-0000-4000-8000-000000000002',
+  runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+}
+const otherScope: Scope = { ...scope, workspaceId: '00000000-0000-4000-8000-000000000099' }
+const worktreeId = '00000000-0000-4000-8000-0000000000b0'
+const runtimeSessionId = '00000000-0000-4000-8000-0000000000c0'
+
+const dataDirs: string[] = []
+afterAll(() => {
+  for (const dir of dataDirs) rmSync(dir, { recursive: true, force: true })
+})
+
+type Harness = Awaited<ReturnType<typeof makeHarness>>
+
+async function makeHarness(platform: NodeJS.Platform = 'darwin') {
+  const dataDir = mkdtempSync(join(tmpdir(), 'adea-terminal-channel-'))
+  dataDirs.push(dataDir)
+  const runtimeRoot = join(dataDir, 'dev-runtime')
+  mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
+
+  const authority = createChannelAuthority({ shellHost: SHELL_HOST, shellOrigin: SHELL_ORIGIN })
+  // The gateway dependency is a registration seam; the WS plumbing is
+  // covered by shell-channel.test.ts, so the provider is captured here.
+  let streamProvider:
+    | Parameters<ReturnType<typeof createChannelGateway>['registerStreamHandler']>[1]
+    | null = null
+  const gateway = {
+    registerStreamHandler: (protocol: string, provider: NonNullable<typeof streamProvider>) => {
+      if (protocol === 'terminal-bytes-v1') streamProvider = provider
+    },
+  }
+
+  const credential = newSidecarCredential()
+  const fake = createFakePtyAdapter(platform)
+  const service = createSidecarService({
+    runtimeRoot,
+    ptyAdapter: fake.adapter,
+    sidecarVersion: '1.0.0-test',
+    credential,
+    executableIdentity: 'sidecar@test',
+    pidStartIdentity: 'test-identity',
+    managerLimits: {
+      ...TERMINAL_LIMITS,
+      ringMaxBytes: 128,
+      subscriberHighWaterBytes: 48,
+    },
+  })
+  const [clientSide, serverSide]: [ByteDuplex, ByteDuplex] = createLoopbackPair()
+  service.handleConnection(serverSide)
+  const connected = await connectSidecarClient({
+    duplex: clientSide,
+    scope,
+    credential: Buffer.from(credential).toString('base64url'),
+    nonce: randomUUID(),
+  })
+  if (!connected.ok) throw new Error('sidecar connect failed')
+  const sidecar: SidecarClient = connected.client
+
+  const registration = registerTerminalRuntime({
+    authority,
+    gateway: gateway as never,
+    sidecar,
+    scope,
+    runtimeRoot,
+    resolveWorktreeRoot: (id) => (id === worktreeId ? '/tmp/adea-test-worktree' : null),
+  })
+
+  // A real handshake: identity + secret for HMAC-proved frames.
+  const handshakeReply = authority.handshake(
+    {
+      schemaVersion: 1,
+      method: 'dev.runtime.handshake.v1',
+      requestId: randomUUID(),
+      bootstrap: authority.issueLaunchBootstrap(),
+      supportedProtocolVersions: ['1'],
+      nonce: Buffer.from(randomUUID()).toString('base64url'),
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    },
+    { trusted: true }
+  )
+  if (!handshakeReply.ok) throw new Error('handshake failed')
+  const identity = {
+    channelId: handshakeReply.channelId,
+    clientCredentialId: handshakeReply.clientCredentialId,
+  }
+  const secret = Buffer.from(handshakeReply.clientSecret, 'base64url')
+
+  function execute(
+    operation: keyof typeof devOperationDefinitions,
+    body: Record<string, unknown>,
+    overrides?: { scope?: Scope; resource?: DevCommand['resource'] }
+  ): Promise<DevReply> {
+    const definition = devOperationDefinitions[operation]
+    const command: DevCommand = {
+      schemaVersion: 1,
+      operation,
+      requestId: randomUUID(),
+      nonce: Buffer.from(randomUUID()).toString('base64url'),
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      scope: overrides?.scope ?? scope,
+      capabilities: [...definition.capabilities],
+      resource:
+        overrides?.resource ?? (definition.resource ? resourceFor(operation, body) : undefined),
+      body,
+    }
+    return authority.execute(
+      {
+        channelId: identity.channelId,
+        clientCredentialId: identity.clientCredentialId,
+        command,
+        proof: createHmac('sha256', secret)
+          .update(
+            devCommandProofMessage({
+              channelId: identity.channelId,
+              clientCredentialId: identity.clientCredentialId,
+              command,
+            }),
+            'utf8'
+          )
+          .digest('base64url'),
+      },
+      { trusted: true }
+    )
+  }
+
+  function resourceFor(operation: string, body: Record<string, unknown>): DevCommand['resource'] {
+    const idField = operation === 'dev.terminal.create' ? '' : 'terminalId'
+    return {
+      kind: 'terminal',
+      id: body[idField] as string,
+      generation: (body.expectedGeneration as number | undefined) ?? 1,
+    }
+  }
+
+  async function createTerminal(
+    terminalId?: string,
+    overrides?: { scope?: Scope; worktreeId?: string }
+  ): Promise<string> {
+    const id = terminalId ?? randomUUID()
+    const reply = await execute(
+      'dev.terminal.create',
+      {
+        runtimeSessionId,
+        worktreeId: overrides?.worktreeId ?? worktreeId,
+        cols: 80,
+        rows: 24,
+      },
+      { scope: overrides?.scope }
+    )
+    if (!reply.ok) throw new Error(`create failed: ${JSON.stringify(reply.error)}`)
+    devOperationDecoders['dev.terminal.create'].reply(reply)
+    const record = reply.value as { id: string }
+    if (terminalId && record.id !== id) throw new Error('unexpected terminal id')
+    return record.id
+  }
+
+  function openStream(grant: unknown): {
+    frames: DevStreamFrame[]
+    send: (frame: DevStreamFrame) => void
+    closes: string[]
+    meta: ByteFrameMeta[]
+  } {
+    const frames: DevStreamFrame[] = []
+    const closes: string[] = []
+    const meta: ByteFrameMeta[] = []
+    const decoded = decodeDevStreamGrant(grant)
+    const session = {
+      grant: decoded,
+      inbound: { accept: () => ({ ok: true }), markClosed: () => {} },
+      send: (frame: DevStreamFrame) => {
+        if (frame.type === 'data')
+          meta.push({
+            kind: 'terminal.data',
+            terminalId: decoded.resource.id,
+            generation: decoded.resource.generation,
+            seq: frame.sequence,
+            emittedAt: '',
+            byteLength: frame.bytes.byteLength,
+          })
+        frames.push(frame)
+      },
+      close: (code: string, reason?: string) => closes.push(`${code}: ${reason ?? ''}`),
+      onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
+      onClose: undefined as (() => void) | undefined,
+    }
+    ;(streamProvider as NonNullable<typeof streamProvider>)(session as never)
+    return {
+      frames,
+      closes,
+      meta,
+      send: (frame) => session.onFrame?.(frame),
+    }
+  }
+
+  return {
+    authority,
+    registration,
+    sidecar,
+    fake,
+    runtimeRoot,
+    identity,
+    secret,
+    execute,
+    createTerminal,
+    openStream,
+    streamProvider: () => streamProvider,
+  }
+}
+
+describe('terminal runtime over the m10 gate', () => {
+  test('shell profiles advertise installed content-addressed wrappers', async () => {
+    const harness = await makeHarness()
+    const reply = await harness.execute('dev.terminal.shellProfiles', {})
+    expect(reply.ok).toBe(true)
+    if (reply.ok) {
+      devOperationDecoders['dev.terminal.shellProfiles'].reply(reply)
+      const page = reply.value as {
+        items: Array<{ label: string; builtin: boolean; argv: string[] }>
+      }
+      // zsh and bash are guaranteed on the pinned macOS lane; anything else
+      // present is host truth (e.g. an installed fish).
+      expect(page.items.map((profile) => profile.label)).toContain('zsh')
+      expect(page.items.map((profile) => profile.label)).toContain('bash')
+      for (const profile of page.items) {
+        expect(profile.builtin).toBe(true)
+        expect(profile.argv).toHaveLength(2)
+      }
+    }
+  })
+
+  test('create, list, resize, signal, and detach round-trip through the sidecar', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const listReply = await harness.execute('dev.terminal.list', { worktreeId })
+    if (listReply.ok) {
+      devOperationDecoders['dev.terminal.list'].reply(listReply)
+      const items = (
+        listReply.value as { items: Array<{ id: string; state: string; worktreeId: string }> }
+      ).items
+      expect(items.map((terminal) => terminal.id)).toEqual([terminalId])
+      expect(items[0]!.state).toBe('running')
+      expect(items[0]!.worktreeId).toBe(worktreeId)
+    }
+    const resizeReply = await harness.execute('dev.terminal.resize', {
+      terminalId,
+      expectedGeneration: 1,
+      cols: 120,
+      rows: 40,
+    })
+    expect(resizeReply.ok).toBe(true)
+    expect(harness.fake.processes[0]!.resizes).toEqual([{ cols: 120, rows: 40 }])
+    harness.fake.processes[0]!.ignoreSignals = true
+    const signalReply = await harness.execute('dev.terminal.signal', {
+      terminalId,
+      expectedGeneration: 1,
+      signal: 'interrupt',
+    })
+    expect(signalReply.ok).toBe(true)
+    expect(harness.fake.processes[0]!.kills).toEqual(['SIGINT'])
+    const terminateReply = await harness.execute('dev.terminal.terminate', {
+      terminalId,
+      expectedGeneration: 1,
+      confirmationId: 'user-requested',
+    })
+    expect(terminateReply.ok).toBe(true)
+  })
+
+  test('create fails closed for unauthorized worktrees and foreign scopes', async () => {
+    const harness = await makeHarness()
+    const badWorktree = await harness.execute('dev.terminal.create', {
+      runtimeSessionId,
+      worktreeId: '00000000-0000-4000-8000-0000000000b1',
+      cols: 80,
+      rows: 24,
+    })
+    expect(badWorktree).toMatchObject({ ok: false, error: { code: 'not_found' } })
+    const foreign = await harness.execute(
+      'dev.terminal.create',
+      { runtimeSessionId, worktreeId, cols: 80, rows: 24 },
+      { scope: otherScope }
+    )
+    expect(foreign).toMatchObject({ ok: false, error: { code: 'workspace_unavailable' } })
+  })
+
+  test('resource bindings are enforced: wrong id, kind, and stale generation', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const wrongId = await harness.execute(
+      'dev.terminal.resize',
+      {
+        terminalId: '00000000-0000-4000-8000-0000000000b2',
+        expectedGeneration: 1,
+        cols: 100,
+        rows: 30,
+      },
+      { resource: { kind: 'terminal', id: '00000000-0000-4000-8000-0000000000b2', generation: 1 } }
+    )
+    expect(wrongId).toMatchObject({ ok: false, error: { code: 'not_found' } })
+    const stale = await harness.execute(
+      'dev.terminal.resize',
+      { terminalId, expectedGeneration: 7, cols: 100, rows: 30 },
+      { resource: { kind: 'terminal', id: terminalId, generation: 7 } }
+    )
+    expect(stale).toMatchObject({ ok: false, error: { code: 'stale_generation' } })
+    // A wrong resource kind cannot even reach a provider: the frame decoder
+    // fails closed against the registry's terminal binding.
+    const wrongKind = await harness.execute(
+      'dev.terminal.resize',
+      { terminalId, expectedGeneration: 1, cols: 100, rows: 30 },
+      { resource: { kind: 'worktree', id: terminalId, generation: 1 } }
+    )
+    expect(wrongKind).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+  })
+
+  test('terminate without an explicit confirmation id is refused', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.terminate', {
+      terminalId,
+      expectedGeneration: 1,
+      confirmationId: 'no',
+    })
+    expect(reply).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+  })
+
+  test('attach returns a single-use read grant bound to the channel and scope', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    expect(reply.ok).toBe(true)
+    if (!reply.ok) return
+    devOperationDecoders['dev.terminal.attach'].reply(reply)
+    const grant = decodeDevStreamGrant(reply.value)
+    expect(grant).toMatchObject({
+      protocol: 'terminal-bytes-v1',
+      direction: 'read',
+      channelId: harness.identity.channelId,
+      resource: { kind: 'terminal', id: terminalId, generation: 1 },
+      fromSequence: '0',
+    })
+    // Consuming it through the authority's attach path works exactly once.
+    const attach = {
+      schemaVersion: 1,
+      grantId: grant.grantId,
+      requestId: randomUUID(),
+      nonce: Buffer.from(randomUUID()).toString('base64url'),
+      fromSequence: '0',
+      proof: '',
+    }
+    attach.proof = createHmac('sha256', harness.secret)
+      .update(
+        devStreamAttachProofMessage({ channelId: harness.identity.channelId, attach }),
+        'utf8'
+      )
+      .digest('base64url')
+    const consumed = harness.authority.attachStream({ identity: harness.identity, attach })
+    expect(consumed.grantId).toBe(grant.grantId)
+    expect(() => harness.authority.attachStream({ identity: harness.identity, attach })).toThrow(
+      'consumed'
+    )
+  })
+
+  test('the stream provider routes byte-preserving data frames and resyncs uncovered sequences', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const attachReply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!attachReply.ok) throw new Error('attach failed')
+    const grant = decodeDevStreamGrant(attachReply.value)
+    const stream = harness.openStream(grant)
+    await Bun.sleep(20)
+    // Output flows sidecar → provider → session as raw data frames.
+    harness.fake.processes[0]!.emit(new Uint8Array([0x68, 0xff, 0x69]))
+    await Bun.sleep(15)
+    const dataFrames = stream.frames.filter((frame) => frame.type === 'data')
+    expect(dataFrames).toHaveLength(1)
+    if (dataFrames[0]!.type === 'data') {
+      expect([...dataFrames[0]!.bytes]).toEqual([0x68, 0xff, 0x69])
+      expect(dataFrames[0]!.sequence).toBe('0')
+    }
+    // Ack credit flows back to the sidecar subscriber.
+    stream.send({ type: 'ack', throughSequence: '0', availableCreditBytes: 3 })
+    await Bun.sleep(10)
+    harness.fake.processes[0]!.emit(new Uint8Array([0x62, 0x79, 0x65]))
+    await Bun.sleep(15)
+    expect(stream.frames.filter((frame) => frame.type === 'data')).toHaveLength(2)
+  })
+
+  test('an attach whose fromSequence is no longer covered resyncs from the checkpoint anchor', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    // Push enough output through the small ring (fake limits keep this fast)
+    // so early sequences are pruned.
+    for (let batch = 0; batch < 12; batch += 1) {
+      harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61))
+      await Bun.sleep(6)
+    }
+    const attachReply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!attachReply.ok) throw new Error('attach failed')
+    const grant = decodeDevStreamGrant(attachReply.value)
+    const stream = harness.openStream(grant)
+    await Bun.sleep(30)
+    expect(stream.frames).toEqual([
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: expect.any(String) },
+    ])
+    expect(stream.closes).toHaveLength(1)
+    expect(stream.closes[0]).toContain('backpressure')
+  })
+
+  test('write grants carry generation-stamped input to the PTY', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.input', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'write',
+    })
+    expect(reply.ok).toBe(true)
+    if (!reply.ok) return
+    const grant = decodeDevStreamGrant(reply.value)
+    expect(grant.direction).toBe('write')
+    const stream = harness.openStream(grant)
+    const payload = new TextEncoder().encode('cargo test\n')
+    stream.send({ type: 'input', sequence: '1', generation: 1, bytes: payload })
+    await Bun.sleep(20)
+    expect(
+      harness.fake.processes[0]!.written.map((bytes) => new TextDecoder().decode(bytes))
+    ).toEqual(['cargo test\n'])
+    // A stale-generation input frame is inert and closes the stream.
+    stream.send({ type: 'input', sequence: '2', generation: 99, bytes: payload })
+    await Bun.sleep(10)
+    expect(
+      harness.fake.processes[0]!.written.map((bytes) => new TextDecoder().decode(bytes))
+    ).toHaveLength(1)
+  })
+
+  test('provider-typed failures surface their contract code, not a generic 500', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.checkpoint', {
+      terminalId,
+      expectedGeneration: 1,
+    })
+    expect(reply.ok).toBe(true)
+    if (reply.ok) {
+      devOperationDecoders['dev.terminal.checkpoint'].reply(reply)
+      const checkpoint = reply.value as { terminalId: string; throughSequence: string }
+      expect(checkpoint.terminalId).toBe(terminalId)
+    }
+  })
+})

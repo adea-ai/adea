@@ -33,6 +33,8 @@ type StreamSession = {
   onFrame?: (
     frame: import('../../../../../../packages/types/src/dev-runtime').DevStreamFrame
   ) => void
+  /** Provider cleanup when the stream ends for any reason (e.g. detach). */
+  onClose?: () => void
   send: (frame: import('../../../../../../packages/types/src/dev-runtime').DevStreamFrame) => void
   close: (code: StreamCloseCode, reason?: string) => void
 }
@@ -197,7 +199,14 @@ export function createChannelGateway(input: {
     closeCode: StreamCloseCode,
     reason?: string
   ): void {
+    const closing = data.stream
     data.stream = undefined
+    closing?.inbound.markClosed()
+    try {
+      closing?.onClose?.()
+    } catch {
+      /* provider cleanup must never break the socket path */
+    }
     try {
       socket.send(
         encodeStreamFrame({ type: 'close', code: closeCode, ...(reason ? { reason } : {}) }),
@@ -430,8 +439,14 @@ export function createChannelGateway(input: {
     },
     close(socket: ChannelSocket) {
       const data = socket.data
+      const closing = data.stream
       data.stream?.inbound.markClosed()
       data.stream = undefined
+      try {
+        closing?.onClose?.()
+      } catch {
+        /* provider cleanup must never break the socket path */
+      }
       data.subscriptions.clear()
     },
   }

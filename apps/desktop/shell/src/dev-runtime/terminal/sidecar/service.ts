@@ -13,6 +13,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 
 import { createCheckpointSink, type CheckpointSink } from '../checkpoints'
+import { TERMINAL_LIMITS } from '../limits'
 import type { PtyAdapter } from '../pty-adapter'
 import {
   buildTerminalEnv,
@@ -50,6 +51,8 @@ export type SidecarServiceOptions = {
   executableIdentity: string
   pidStartIdentity: string
   now?: () => number
+  /** Test/ops override only; production uses the normative spec limits. */
+  managerLimits?: typeof TERMINAL_LIMITS
 }
 
 type ConnectionState = {
@@ -72,6 +75,7 @@ export function createSidecarService(options: SidecarServiceOptions) {
   const manager: TerminalManager = createTerminalManager({
     ptyAdapter: options.ptyAdapter,
     now,
+    limits: options.managerLimits,
     events: {
       onChunk: (chunk) => {
         sinks.get(chunk.terminalId)?.append({
@@ -278,6 +282,7 @@ export function createSidecarService(options: SidecarServiceOptions) {
                 seq: chunk.seq,
                 emittedAt: chunk.emittedAt,
                 byteLength: chunk.bytes.byteLength,
+                subscriberId,
               }
               try {
                 state.duplex.send(encodeByteFrame(meta, chunk.bytes))
