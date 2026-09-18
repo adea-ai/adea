@@ -51,3 +51,4 @@ Shared files — append/coordinate, never rewrite: `docs/research/dev-view-sourc
 4. Do not edit another open agent's owned paths. If a shared file must change in a way ownership forbids, stop that file and note it in the PR — the wave owner resolves.
 5. Every PR records its Bun runtime-version guards (adea#490) and Bun-native adoption items where its slice owns them (#33/#396/#397/#398/#399/#422/#426).
 6. Prohibited-donor rules are absolute: no Warp AGPL material, no `hexuria/opengrok` anything.
+7. **Visual conformance is donor-sourced:** port the donor's UI composition (layout, widgets, previews, interaction flow) in Solid/Adea tokens — donor composition is the visual spec; owner review is not the design gate.

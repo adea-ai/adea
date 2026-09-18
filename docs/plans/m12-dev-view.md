@@ -83,6 +83,12 @@ path and no second wire contract so the remote host consumes it unchanged.
   #424's retained-data view.
 - Reuse licensed donor units first; independently invent only where no suitable
   licensed donor exists. Warp/OpenGrok restrictions are absolute.
+- **Visual conformance is donor-sourced too:** every donor-derived surface ports
+  the donor's UI composition — layout, widget structure, previews, and
+  interaction flow — reimplemented in Solid against Adea tokens. Donor
+  composition is the visual spec; conformance is checked by tests + the visual
+  lane, not by owner design review (owner directive 2026-09-18; see #425's
+  Zeron composition checklist for the pattern).
 
 ## Non-goals and ownership boundaries
 
