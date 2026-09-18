@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.28.0](https://github.com/adea-ai/adea/compare/v0.27.0...v0.28.0) (2026-09-18)
+
+
+### Features
+
+* **dev-view:** complete M12 shell slots, V2 layout migration, and pane moves ([#501](https://github.com/adea-ai/adea/issues/501)) ([85475af](https://github.com/adea-ai/adea/commit/85475af00503c6d0ad818f34d593af331bf32218)), closes [#395](https://github.com/adea-ai/adea/issues/395)
+
 ## [0.27.0](https://github.com/adea-ai/adea/compare/v0.26.20...v0.27.0) (2026-09-18)
 
 
