@@ -671,6 +671,19 @@ type PaneSplit = {
 }
 type PaneNode = PaneLeaf | PaneSplit
 
+type DevUtilityPane = 'files' | 'source_control' | 'browser' | 'devices' | 'agents' | 'history'
+type DevUtilityPreference = {
+  pane: DevUtilityPane
+  side: 'left' | 'right'
+  order: number
+  visible: boolean
+  size: number
+  lastNonzeroSize: number
+  fullWidth: boolean
+}
+
+// V1 is the foundation format merged by #447. It remains readable only so the
+// client can migrate it without losing an unread value.
 type DevLayoutPreferencesV1 = {
   schemaVersion: 1
   scope: Scope
@@ -678,7 +691,7 @@ type DevLayoutPreferencesV1 = {
   runtimeSessionId: string
   center: PaneNode
   utility: Array<{
-    pane: 'files' | 'source_control' | 'browser' | 'devices' | 'agents' | 'history'
+    pane: DevUtilityPane
     side: 'left' | 'right'
     visible: boolean
     size: number
@@ -686,6 +699,27 @@ type DevLayoutPreferencesV1 = {
   }>
   focusMode: boolean
   focusTargetId?: string
+}
+
+// V2 is the first implementation-complete format. The six utility panes are
+// present exactly once. At most one pane is visible per side; both sides may be
+// visible simultaneously. No utility field confers runtime authority.
+type DevLayoutPreferencesV2 = {
+  schemaVersion: 2
+  scope: Scope
+  projectId: string
+  runtimeSessionId: string
+  center: PaneNode
+  utility: readonly [
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+    DevUtilityPreference,
+  ]
+  focusMode: boolean
+  focusTargetId?: string // MUST identify a leaf in center, never a split node
 }
 
 type TaskProjection = {
@@ -1055,10 +1089,12 @@ M10 remains authoritative for installation discovery and process admission;
 these DTOs are scoped projections required for Dev View and do not transfer
 ownership.
 
-Integer byte counts use safe decimal strings on wire where they may exceed
-JavaScript's safe integer. Timestamps are UTC ISO-8601. Paths use host-native
-form only inside authorized host DTOs; remote clients receive policy-redacted
-labels unless granted path detail.
+Integer byte counts and all unbounded offsets, lengths, and sequence numbers
+use canonical unsigned decimal strings on the wire. Numeric values
+are allowed only when the registry gives them an explicit safe upper bound.
+Timestamps are UTC ISO-8601. Paths use host-native form only inside authorized
+host DTOs; remote clients receive policy-redacted labels unless granted path
+detail.
 
 ## State machines
 
@@ -1096,7 +1132,12 @@ privileged command. The center layout is a strict binary tree with a hard M12
 cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
 when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the
-last leaf restores one terminal placeholder.
+last leaf restores one terminal placeholder. Utility slots are independent:
+left and right may each show one pane or be collapsed, and a change on one side
+cannot hide the other side. Utility order, side, visibility, size, collapse,
+and full-width state are local preferences only. A persisted focus target must
+identify a center leaf; a split-node target is corrupt and falls back to the
+first valid leaf.
 
 ### Worktree
 
@@ -1149,6 +1190,40 @@ that drives `archived → restoring → restored` and set/clear
 removes the session from the active list, never stops a terminal, harness,
 browser, device, or process, and never deletes worktree data. Worktree archive
 (`dev.worktree.archive`) remains a separate decision.
+
+### Dev provider and canonical session projection
+
+The Dev UI consumes an authorized typed projection, not a fixture-shaped copy of
+runtime data. A provider projection MUST include the active `Scope`, its source
+and freshness/generation metadata, and the groups, projects, repositories,
+worktrees, and `RuntimeSession` records returned by the corresponding registry
+operations. The provider may expose loading, stale, offline, unavailable, and
+partial states, but it MUST NOT turn any of them into fabricated success data.
+
+The following invariants are mandatory:
+
+1. `selectedRuntimeSessionId` MUST resolve to a session in the selected project,
+   workspace, account, and runtime node. An archived, revoked, missing, or
+   generation-mismatched selection is cleared or rendered as an explicit
+   recovery state.
+2. Dev and Chat MUST subscribe to the same `runtimeSessionId` and authoritative
+   session query/event cursor. A route or pane change cannot create, stop,
+   resume, duplicate, or implicitly transfer a run.
+3. Input ownership is changed only by the authorized `dev.session.transferInput`
+   operation. Renderer focus is a presentation hint, not ownership proof.
+4. The provider MUST expose the authenticated preference scope separately from
+   runtime records. Until that scope exists, Dev may render unavailable state
+   and pure local fixtures in development/E2E only, but MUST NOT persist a
+   production layout under a guessed or synthetic scope.
+5. Changing workspace or runtime node cancels in-flight private queries before
+   removing the old scope's cache. No projection, selection, path label, or
+   preference from the old node may be used for the new node.
+
+`packages/data` owns the scoped query keys and cancellation/invalidation seam;
+`packages/state` owns only ephemeral selected IDs and presentation state. The
+`DevRuntimeService`/provider adapter maps registry replies into this projection
+and never creates a second session, event, approval, credential, or runtime-node
+authority.
 
 ### Browser lane
 
@@ -1277,8 +1352,9 @@ entire flattened object; every named field is required unless marked `?`; `|`
 denotes an exact closed union; `[]<=N`, string/number ranges, and byte units are
 inclusive limits; `sha` is lowercase hexadecimal Git object ID accepted only at
 the repository's object format; `sha256` is 64 lowercase hexadecimal digits;
-`timestamp` is UTC RFC 3339; `uint64-string` is canonical unsigned decimal;
-named types resolve to the exact DTO in this spec and reject unknown keys.
+`timestamp` is UTC RFC 3339; `uint64-string` is canonical unsigned decimal
+for every unbounded uint64 value; named types resolve to the exact DTO in this
+spec and reject unknown keys.
 `reply` is the complete success value; `Page<T>` is
 `{ items: T[]; nextCursor?: string; observedAt: timestamp }`. The registry is
 machine checked against the catalog. No prose wrapper, alternate nesting, or
@@ -2284,14 +2360,24 @@ Required layers:
 9. provenance/package scans described in the donor audit.
 
 No issue closes on fixture-only production integration. Unsupported platform
-states remain deterministic fixtures, but at least the packaged macOS path and
-authorized remote RuntimeConnection path must pass.
+states remain deterministic fixtures, but the local packaged macOS path must
+pass before M12 release. M12 also requires authorized fake
+RuntimeConnection/revocation/scope-isolation fixtures against the shared remote
+adapter. Production remote RuntimeConnection certification is explicitly owned
+by M14 and is not a hidden M12 acceptance criterion.
 
 ## Spec changes
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-17 — foundation-gap resolution.** Defined the authoritative typed
+  Dev provider projection and canonical Dev↔Chat `RuntimeSession` invariants;
+  made layout preferences explicitly session-scoped; introduced the V2 utility
+  envelope with independent left/right slots and V1 migration requirements;
+  required leaf-only focus restoration; clarified that unbounded file offsets,
+  lengths, and byte counts use `uint64-string`; and moved production remote-node
+  certification to M14 while retaining remote-ready fake-node fixtures in M12.
 - **2026-09-16 — contract completeness audit fixes.** Added the missing
   operations the M12 issue bodies already require: `dev.group.*`
   (create/update/delete/list/reorder) for #398; `dev.session.archive` and

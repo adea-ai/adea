@@ -49,11 +49,12 @@ approval, cancellation, or durable-task authority.
   shelf pinned to the bottom.
 - Display exactly one primary runtime session. Terminal/editor leaves may split
   within that session; do not create a permanent top-level tab forest.
-- Use direct utility toggles:
+- Use direct utility toggles with two independent slots:
   - left: Files / Source Control;
   - right: Browser / Devices and Agents / History.
-- Allow utility panes to resize, collapse, restore, move where meaningful, and
-  expand full-width. Focus mode hides surrounding chrome without destroying it.
+- Each side can show one pane or be collapsed without changing the other side.
+  Persist pane order, side, visibility, size, last nonzero size, and full-width
+  state. Focus mode hides surrounding chrome without destroying it.
 - Define “new session” as one visible, durable transaction:
   authorize → update base → create worktree → bootstrap → terminal → default
   harness.
@@ -151,6 +152,21 @@ Destructive action requires a launch record and PID start identity plus
 process-group/session generation, rechecked before every signal. Unknown
 processes and ports may be displayed as external but have no stop action.
 
+## Canonical session and provider decision
+
+The UI does not own a Dev-local project or session model. An authorized typed
+provider projects the registry's groups, projects, repositories, worktrees, and
+`RuntimeSession` records, including source/freshness/generation metadata. The
+selected project and session are validated against the active account,
+workspace, and runtime node before rendering or persistence.
+
+Dev and Chat consume the same `runtimeSessionId` and event/query identity. A
+view switch is presentation-only; creating, stopping, resuming, or transferring
+input requires the named M10/M11 operation. Renderer focus, a route, or a
+fixture ID is never ownership proof. The unavailable provider may expose a
+truthful state and development/E2E fixtures, but production never fabricates
+runtime records or guesses a preference scope.
+
 ## Browser decision
 
 ADR 0006 remains normative:
@@ -202,19 +218,24 @@ must fail closed.
 
 ## Persistence ownership
 
-| Data                                     | Owner                                       | Store                             |
-| ---------------------------------------- | ------------------------------------------- | --------------------------------- |
-| pane visibility/size/focus, selected IDs | local UI                                    | versioned scoped preferences      |
-| project/repo/worktree/session lifecycle  | execution host + Control Plane read model   | host durable store/events         |
-| terminal bytes/checkpoints               | terminal sidecar                            | owner-only bounded runtime data   |
-| canonical events                         | execution host/Control Plane event contract | bounded append log                |
-| credentials/cookies                      | M10 vault/local-content authority           | never UI/localStorage             |
-| browser profiles                         | execution host                              | owner-only lane directories       |
-| process/port identity                    | execution host supervisor                   | launch/exit/lease records         |
-| usage cache                              | authorized adapter                          | bounded, source/freshness labeled |
+| Data                                     | Owner                                       | Store                                          |
+| ---------------------------------------- | ------------------------------------------- | ---------------------------------------------- |
+| pane visibility/size/focus, selected IDs | local UI                                    | V2 preferences scoped through runtimeSessionId |
+| project/repo/worktree/session projection | authorized Dev Runtime provider             | typed query/event projection                   |
+| project/repo/worktree/session lifecycle  | execution host + Control Plane read model   | host durable store/events                      |
+| terminal bytes/checkpoints               | terminal sidecar                            | owner-only bounded runtime data                |
+| canonical events                         | execution host/Control Plane event contract | bounded append log                             |
+| credentials/cookies                      | M10 vault/local-content authority           | never UI/localStorage                          |
+| browser profiles                         | execution host                              | owner-only lane directories                    |
+| process/port identity                    | execution host supervisor                   | launch/exit/lease records                      |
+| usage cache                              | authorized adapter                          | bounded, source/freshness labeled              |
 
 Unknown versions and corrupt local UI preferences fall back without erasing the
-unread value. Durable mutations are idempotent and crash-recoverable.
+unread value. The #447 V1 layout format migrates to V2 only after validating
+scope, project, runtime session, utility identities, and leaf focus; a migration
+failure retains the raw value. Layout state is session-scoped because center
+leaves may reference session-owned resources. Durable mutations are idempotent
+and crash-recoverable.
 
 ## Dependency DAG
 
@@ -271,6 +292,9 @@ The `TerminalInputAuthority` interface is defined/tested with fixtures in #396;
 ## Consequences
 
 - M12 is contract-first and can be delivered in dependency-ordered slices.
+- The #447 foundation is not completion: canonical session/provider, V2
+  utility-slot persistence, and upstream authority gates must close before
+  privileged slices or #395 completion.
 - Every privileged feature has one authority and one provider seam.
 - The UI remains useful in unavailable/degraded states without fabricating data.
 - Session continuity between Dev and Chat is structural, not a synchronization
