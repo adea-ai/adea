@@ -116,7 +116,7 @@ describe('Dev Runtime operation registry', () => {
           relativePath: 'src/index.ts',
         },
         expectedIdentity: { mtimeNs: '1', size: '1' },
-        byteLength: "1048576",
+        byteLength: '1048576',
         contentSha256: '0'.repeat(64),
         eolPolicy: 'preserve',
         direction: 'write',
