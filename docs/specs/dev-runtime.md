@@ -2438,8 +2438,6 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
-<<<<<<< HEAD
-
 - **2026-09-17 — foundation-gap resolution.** Defined the authoritative typed
   Dev provider projection and canonical Dev↔Chat `RuntimeSession` invariants;
   made layout preferences explicitly session-scoped; introduced the V2 utility
