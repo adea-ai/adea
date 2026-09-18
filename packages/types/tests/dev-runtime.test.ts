@@ -5,6 +5,9 @@ import {
   decodeDevCommand,
   decodeDevReply,
   decodeRootBookmark,
+  decodeHarnessInstallation,
+  decodeRuntimeConnectionInventoryEntry,
+  decodeRuntimeConnectionInventorySnapshot,
   canonicalDevCommandJson,
   decodeAuthorizedDevFrame,
   decodeCapabilitySnapshot,
@@ -456,6 +459,147 @@ describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
     expect(
       devOperationDecoders['dev.repo.credentialRefs'].request({ host: 'github.com', limit: 1 })
     ).toMatchObject({ host: 'github.com', limit: 1 })
+  })
+})
+
+describe('M10 discovery DTOs (HarnessInstallation, RuntimeConnection inventory)', () => {
+  const observedAt = '2026-09-18T12:00:00.000Z'
+
+  const harnessInstallation = {
+    id: '00000000-0000-5000-8000-0000000000a1',
+    scope,
+    executableIdentity: '/opt/homebrew/bin/claude',
+    executableLabel: 'claude (system)',
+    protocol: 'native',
+    version: '2.0.1',
+    auth: 'ready',
+    health: 'healthy',
+    capabilities: ['native', 'models', 'resume'],
+    models: [{ id: 'claude-sonnet', displayName: 'Claude Sonnet', capabilities: ['tools'] }],
+    observedAt,
+    generation: 1,
+  } as const
+
+  const inventoryEntry = {
+    id: harnessInstallation.id,
+    scope,
+    family: 'claude-code',
+    displayName: 'Claude Code',
+    driverId: 'local-executable',
+    driverVersion: '1',
+    provenance: 'user_managed',
+    executableIdentity: '/opt/homebrew/bin/claude',
+    executableLabel: 'claude (system)',
+    protocol: 'native',
+    acpAvailability: 'unavailable',
+    version: '2.0.1',
+    auth: 'ready',
+    health: 'healthy',
+    capabilities: ['native', 'models', 'resume'],
+    sessionOperations: ['session.new', 'session.resume'],
+    entitlementHints: ['user_managed'],
+    limitations: ['history_is_native_not_adea'],
+    eligibility: { eligible: true, blockers: [] },
+    transport: 'direct_local',
+    models: harnessInstallation.models,
+    observedAt,
+    generation: 1,
+  } as const
+
+  test('strictly decodes harness installations', () => {
+    expect(decodeHarnessInstallation(harnessInstallation)).toEqual(harnessInstallation)
+    expect(() => decodeHarnessInstallation({ ...harnessInstallation, extra: true })).toThrow(
+      'unknown key'
+    )
+    expect(() => decodeHarnessInstallation({ ...harnessInstallation, protocol: 'grpc' })).toThrow(
+      'native'
+    )
+    expect(() => decodeHarnessInstallation({ ...harnessInstallation, auth: 'granted' })).toThrow(
+      'auth'
+    )
+    expect(() => decodeHarnessInstallation({ ...harnessInstallation, health: 'perfect' })).toThrow(
+      'health'
+    )
+    expect(() => decodeHarnessInstallation({ ...harnessInstallation, id: 'claude' })).toThrow(
+      'UUID'
+    )
+    expect(() =>
+      decodeHarnessInstallation({ ...harnessInstallation, executableLabel: 'x'.repeat(257) })
+    ).toThrow('string length')
+    expect(() =>
+      decodeHarnessInstallation({
+        ...harnessInstallation,
+        models: [{ id: 'm', displayName: 'm', capabilities: [] }, ...harnessInstallation.models],
+      })
+    ).not.toThrow()
+    // freshness is derived on read and never part of the stored DTO
+    expect(() => decodeHarnessInstallation({ ...harnessInstallation, freshness: 'stale' })).toThrow(
+      'unknown key'
+    )
+  })
+
+  test('strictly decodes RuntimeConnection inventory entries', () => {
+    expect(decodeRuntimeConnectionInventoryEntry(inventoryEntry)).toEqual(inventoryEntry)
+    expect(() => decodeRuntimeConnectionInventoryEntry({ ...inventoryEntry, fresh: true })).toThrow(
+      'unknown key'
+    )
+    expect(() =>
+      decodeRuntimeConnectionInventoryEntry({ ...inventoryEntry, provenance: 'system' })
+    ).toThrow('provenance')
+    expect(() =>
+      decodeRuntimeConnectionInventoryEntry({ ...inventoryEntry, transport: 'carrier_pigeon' })
+    ).toThrow('transport')
+    expect(() =>
+      decodeRuntimeConnectionInventoryEntry({ ...inventoryEntry, acpAvailability: 'maybe' })
+    ).toThrow('acpAvailability')
+    expect(() =>
+      decodeRuntimeConnectionInventoryEntry({
+        ...inventoryEntry,
+        eligibility: { eligible: false, blockers: [{ code: 'made_up_code', message: 'x' }] },
+      })
+    ).toThrow('code')
+    expect(() =>
+      decodeRuntimeConnectionInventoryEntry({
+        ...inventoryEntry,
+        eligibility: { eligible: true },
+      })
+    ).toThrow('blockers')
+    expect(() =>
+      decodeRuntimeConnectionInventoryEntry({
+        ...inventoryEntry,
+        acpAvailability: 'available',
+        acpVersion: '1.2.0',
+      })
+    ).not.toThrow()
+  })
+
+  test('strictly decodes the inventory snapshot with one freshness per entry', () => {
+    const snapshot = {
+      scope,
+      items: [inventoryEntry],
+      freshness: ['fresh'],
+      observedAt,
+    } as const
+    expect(decodeRuntimeConnectionInventorySnapshot(snapshot)).toEqual(snapshot)
+    expect(() => decodeRuntimeConnectionInventorySnapshot({ ...snapshot, freshness: [] })).toThrow(
+      'one freshness per item'
+    )
+    expect(() =>
+      decodeRuntimeConnectionInventorySnapshot({ ...snapshot, freshness: ['fresh', 'stale'] })
+    ).toThrow('one freshness per item')
+    expect(() =>
+      decodeRuntimeConnectionInventorySnapshot({ ...snapshot, freshness: ['old'] })
+    ).toThrow('fresh')
+    expect(() =>
+      decodeRuntimeConnectionInventorySnapshot({
+        ...snapshot,
+        items: [
+          { ...inventoryEntry, eligibility: { eligible: false, blockers: [] } },
+          inventoryEntry,
+        ],
+        freshness: ['stale', 'fresh'],
+      })
+    ).not.toThrow()
   })
 })
 
