@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.1](https://github.com/adea-ai/adea/compare/v0.31.0...v0.31.1) (2026-09-18)
+
+
+### Documentation
+
+* **dev-view:** standing rule — donor visual composition is the visual spec ([#509](https://github.com/adea-ai/adea/issues/509)) ([428f247](https://github.com/adea-ai/adea/commit/428f247b7bf03fd0102100bb311fa2f60fd2c75c))
+
 ## [0.31.0](https://github.com/adea-ai/adea/compare/v0.30.0...v0.31.0) (2026-09-18)
 
 
