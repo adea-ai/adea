@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.30.0](https://github.com/adea-ai/adea/compare/v0.29.0...v0.30.0) (2026-09-18)
+
+
+### Features
+
+* **desktop:** authenticate the shell command channel (M10 [#33](https://github.com/adea-ai/adea/issues/33) / M12 M1 slice) ([#503](https://github.com/adea-ai/adea/issues/503)) ([f337664](https://github.com/adea-ai/adea/commit/f3376644057f3f0bc09de4e34202a44d6ec7aea6))
+
 ## [0.29.0](https://github.com/adea-ai/adea/compare/v0.28.0...v0.29.0) (2026-09-18)
 
 
