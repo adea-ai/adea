@@ -736,6 +736,40 @@
         }
       ]
     },
+    "472-computer-use": {
+      "issue": 472,
+      "destinations": [
+        "apps/desktop/shell/src/dev-runtime/computeruse/**",
+        "packages/dev-view/src/computeruse/**",
+        "docs/specs/dev-runtime.md",
+        "docs/security/dev-view-threat-model.md"
+      ],
+      "units": [
+        {
+          "donor": "orca",
+          "source": [
+            "native/computer-use-macos/Sources/OrcaComputerUseMacOSCore/PermissionStatusSnapshot.swift",
+            "native/computer-use-macos/Sources/OrcaComputerUseMacOSCore/PermissionTrustSettling.swift",
+            "native/computer-use-macos/Sources/OrcaComputerUseMacOSCore/ComputerSnapshotCachePolicy.swift"
+          ],
+          "tests": [
+            "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/PermissionStatusSnapshotTests.swift",
+            "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ScreenCapturePermissionPreflightSafetyTests.swift",
+            "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ComputerSnapshotCachePolicyTests.swift"
+          ],
+          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule — capture refuses closed when the recording grant cannot be proven — becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
+        },
+        {
+          "donor": "orca",
+          "source": [
+            "src/main/computer/desktop-script-runtime-host.ts",
+            "src/main/computer/desktop-script-snapshot-rendering.ts"
+          ],
+          "tests": [],
+          "action": "Mine only the host-side plumbing shape (a supervised runtime host owning lane lifecycle plus a rendering seam that projects desktop snapshots into a bounded client view); the Electron/remote-desktop transport is replaced by Adea's desktop-frames-v1 stream, the M10 gate, and the #472 consent gate. Donor code is not copied verbatim from this unit."
+        }
+      ]
+    },
     "426-integration-release-gate": {
       "issue": 426,
       "destinations": [

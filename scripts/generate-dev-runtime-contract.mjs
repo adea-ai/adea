@@ -12,6 +12,7 @@ const targetIdFields = {
   acp_connection: 'acpConnectionId',
   browser_lane: 'browserLaneId',
   cleanup_policy: 'cleanupPolicyId',
+  computeruse_lane: 'computerUseLaneId',
   device_inventory: 'inventoryId',
   device_session: 'deviceSessionId',
   group: 'groupId',

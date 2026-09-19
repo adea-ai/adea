@@ -18,6 +18,10 @@
       "data": "raw encoded image Uint8Array plus canonical-CBOR control",
       "directions": ["read", "write"]
     },
+    "desktop-frames-v1": {
+      "data": "raw encoded desktop-frame Uint8Array plus canonical-CBOR input control",
+      "directions": ["read", "write"]
+    },
     "device-frames-v1": {
       "data": "raw encoded image Uint8Array plus canonical-CBOR gesture control",
       "directions": ["read", "write"]
@@ -183,6 +187,68 @@
       "resource": null,
       "body": "{ cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<CleanupPolicy>"
+    },
+    "dev.computeruse.attach": {
+      "capabilities": ["dev.computeruse.read"],
+      "resource": "computeruse_lane:required",
+      "body": "{ computerUseLaneId: string; expectedGeneration: integer; direction: 'read'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "desktop-frames-v1",
+        "direction": "read"
+      }
+    },
+    "dev.computeruse.capabilities": {
+      "capabilities": ["dev.computeruse.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "ComputerUseCapabilityReport"
+    },
+    "dev.computeruse.consent": {
+      "capabilities": ["dev.computeruse.control"],
+      "resource": "computeruse_lane:required",
+      "body": "{ computerUseLaneId: string; expectedGeneration: integer; confirmationId: string }",
+      "reply": "ComputerUseConsent"
+    },
+    "dev.computeruse.input": {
+      "capabilities": ["dev.computeruse.control"],
+      "resource": "computeruse_lane:required",
+      "body": "{ computerUseLaneId: string; expectedGeneration: integer; consentId: string; direction: 'write'; fromSequence?: uint64-string }",
+      "reply": "DevStreamGrant",
+      "stream": {
+        "protocol": "desktop-frames-v1",
+        "direction": "write"
+      }
+    },
+    "dev.computeruse.laneClose": {
+      "capabilities": ["dev.computeruse.control"],
+      "resource": "computeruse_lane:required",
+      "body": "{ computerUseLaneId: string; expectedGeneration: integer; confirmationId?: string }",
+      "reply": "ComputerUseLane"
+    },
+    "dev.computeruse.laneCreate": {
+      "capabilities": ["dev.computeruse.control"],
+      "resource": null,
+      "body": "{ runtimeSessionId: string }",
+      "reply": "ComputerUseLane"
+    },
+    "dev.computeruse.lanes": {
+      "capabilities": ["dev.computeruse.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; state?: ComputerUseLane['state']; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<ComputerUseLane>"
+    },
+    "dev.computeruse.release": {
+      "capabilities": ["dev.computeruse.control"],
+      "resource": "computeruse_lane:required",
+      "body": "{ computerUseLaneId: string; expectedGeneration: integer }",
+      "reply": "ComputerUseLane"
+    },
+    "dev.computeruse.takeover": {
+      "capabilities": ["dev.computeruse.control"],
+      "resource": "computeruse_lane:required",
+      "body": "{ computerUseLaneId: string; expectedGeneration: integer }",
+      "reply": "ComputerUseLane"
     },
     "dev.device.attach": {
       "capabilities": ["dev.device.read"],

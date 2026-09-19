@@ -1336,6 +1336,7 @@ type DevOperation =
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
+  | `dev.computeruse.${'capabilities' | 'lanes' | 'laneCreate' | 'laneClose' | 'consent' | 'attach' | 'input' | 'takeover' | 'release'}`
   | `dev.device.${'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
@@ -1371,10 +1372,10 @@ The only control-plane transport method names are
 `dev.runtime.handshake.v1` (negotiate versions/capabilities and obtain a
 channel), `dev.runtime.execute.v1` (one `AuthorizedDevFrame`/`DevReply`),
 `dev.runtime.events.v1` (cursor-resumable event stream), and
-`dev.runtime.stream.attach.v1` (terminal/browser/device bulk stream negotiated
-from an authorized execute reply). The normative
+`dev.runtime.stream.attach.v1` (terminal/browser/device/computer-use bulk
+stream negotiated from an authorized execute reply). The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 133 operation names, exact body shapes, exact reply types, complete required
+all 148 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -1482,6 +1483,7 @@ type DevStreamGrant = {
     | 'terminal-bytes-v1'
     | 'browser-frames-v1'
     | 'device-frames-v1'
+    | 'desktop-frames-v1'
     | 'file-bytes-v1'
     | 'runtime-events-v1'
   channelId: string
@@ -1573,6 +1575,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
 | `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
 | `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
+| `dev.computeruse`   | `capabilities`, `lanes`, `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`, `release`                                                                                                                                          |
 | `dev.device`        | `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                             |
 | `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                |
 | `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                   |
@@ -1599,6 +1602,7 @@ Capability/resource binding is deny-by-default:
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request      |
 | browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                      |
+| computeruse   | `dev.computeruse.read`                                                      | `dev.computeruse.control`; input additionally requires an active consent record                             | `computeruse_lane`                                  |
 | device        | `dev.device.read`                                                           | `dev.device.control`                                                                                        | `device_session`                                    |
 | github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy             | `repository` or `pull_request`                      |
 | resources     | `dev.resources.read`                                                        | stop requires `dev.resources.stop`; destructive cleanup also requires `dev.cleanup.approve`                 | target process/port/worktree resource               |
@@ -2210,6 +2214,95 @@ argv templates and inventory IDs. Starting/stopping is explicit, and Adea stops
 only a still-identity-matching process it launched. Physical devices require a
 separate pairing/grant.
 
+## Computer use lanes
+
+A computer-use lane is the one supervised surface through which an agent
+harness may view the execution host's real desktop (bounded screen frames) and,
+where separately consented, synthesize keyboard input. The lane is a
+session-scoped grant: it is created for one `runtimeSessionId`, dies with that
+session (closure revokes every outstanding consent and frame/input stream), and
+never becomes a global permission. Lane and consent IDs are immutable; the
+generation increments on every ownership or authority transfer, and input or
+capture authorized under an old generation is inert — dropped without error,
+never executed.
+
+Lane states: `idle` (created, no live authority), `granted` (a consent record
+is active and the permission state behind it still holds), `suspended` (human
+takeover), `closed`, `crashed`. `automationOwner` is `none`, `agent`, or
+`human_takeover`. `dev.computeruse.takeover` suspends agent input instantly and
+increments the generation; `dev.computeruse.release` is the Escape path and
+returns authority to the base owner with a new generation. Closing the lane is
+the kill switch: input authority is revoked immediately, in-flight captures
+stop at the next publication boundary, and stale-generation input is inert.
+
+The authority gate fronts every operation and re-derives every decision from
+facts it owns — the provider trusts no engine, harness, or caller claim:
+
+1. the M10 channel gate (identity, proof, replay, expiry, capability set,
+   scope shape) has already passed;
+2. the lane exists and belongs to the command's
+   `(account, workspace, runtime node)` scope — the scope binding is the
+   runtime-node authority, never a session string alone;
+3. the command's `expectedGeneration` equals the lane generation;
+4. the lane's automation owner admits the principal (`human_takeover` accepts
+   only the controlling user; `none` accepts nothing);
+5. a consent record ties the operation to the #471 permissions substrate: the
+   record is issuance-backed (created by `dev.computeruse.consent` with an
+   owner confirmation, mirroring the owner-approval verifier's fail-closed
+   semantics), scope/lane/generation-bound, single-use, and expires within
+   60 seconds; a consumed, expired, wrong-scope, wrong-generation, or
+   forged record refuses;
+6. the permission state behind the record is still fresh: input requires the
+   accessibility probe to report `granted`, and the gate re-probes through the
+   permissions service when its snapshot is older than the record's window. A
+   permission that moved from granted revokes admission immediately; a probe
+   that cannot answer refuses admission — it never defaults to allowed.
+
+All capture and input execute through the authorized fixed-argv host-tooling
+path with launch/audit records; free argv elements never come from caller
+text. No synthetic input ever originates from browser context: input reaches
+the lane only as `desktop-frames-v1` write frames minted by
+`dev.computeruse.input` from an authorized execute reply against the caller's
+authenticated channel identity, and every frame is re-admitted through the
+same gate with per-submission sequence and the lane's hard 240-inputs/second
+rate cap before the engine may inject anything.
+
+Screen frames inherit the screencast rules: 15 FPS default and 30 maximum,
+4096×4096, 8 MiB per frame, one in-flight plus one newest complete frame, and
+stale generations/sequences are inert. Frames carry
+scope/lane/generation/sequence provenance, are classified before leaving the
+host, and inherit workspace screenshot retention when attached to the
+canonical session.
+
+Capability probing is honest per the permissions page's rules: a capability
+exists only where a probe or host tool can prove it. Input synthesis requires
+the accessibility grant (the `osascript` System Events probe proves it) and a
+fixed-argv input tool on the host. Screen capture requires the screen
+recording grant, whose native helper is deliberately deferred — until that
+helper lands, capture reports typed `capability_unavailable` naming the
+missing piece, and `dev.computeruse.capabilities` reports the row
+truthfully. Accessibility-tree reading has no authorized bridge in this lane
+and reports the same. Capability-missing and permission-denied states block
+launch with actionable guidance through the permissions page (denied
+accessibility routes to the exact Settings pane); TCC denial is never
+silently degraded into a working-looking lane.
+
+| Capability | Depends on                                             | This lane's honest state until proven otherwise                          |
+| ---------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| input      | accessibility grant + host input tool + active consent | `denied`/`not_determined`/`unavailable` mirrors the probe; never assumed |
+| capture    | screen recording grant + native capture helper         | `capability_unavailable` (native helper deferred)                        |
+| ax_tree    | accessibility bridge for tree reads                    | `capability_unavailable` (no authorized bridge in this lane)             |
+
+Threat-model closure (see `docs/security/dev-view-threat-model.md`,
+TM-015–TM-017): agent-driven typing into privileged surfaces (password
+fields, Terminal, sudo prompts) is bounded by consent records that name the
+session, are single-use, and die with the run — but the residual risk is
+accepted and documented, not engineered away; capture of secrets
+(keychain/password-manager prompts) is why capture stays unavailable until a
+redaction-classifying helper exists; grant escalation via harness compromise
+is bounded by the gate re-deriving every admission from provider-owned state,
+so a compromised harness can never extend, replay, or widen a grant.
+
 ## GitHub provider
 
 `RemoteSourceProvider` exposes host-neutral IDs and DTOs. GitHub response objects
@@ -2343,13 +2436,13 @@ one, never a polling interval) and no app restart.
 
 Capability matrix (permission × what this lane can honestly report):
 
-| Permission              | Probe (fixed argv)                                    | granted | denied                        | not_determined                              | unavailable              |
-| ----------------------- | ----------------------------------------------------- | ------- | ----------------------------- | ------------------------------------------- | ------------------------ |
-| accessibility           | `osascript` System Events process count, 3 s deadline | exit 0  | assistive-access refusal text | probe deadline hit (consent prompt pending) | other failures           |
-| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline       | exit 0  | `errAEEventNotPermitted` text | probe deadline hit                          | other failures           |
-| screen_recording        | none in this lane (native helper lands with #472)     | —       | —                             | —                                           | `capability_unavailable` |
-| notifications           | none in this lane                                     | —       | —                             | —                                           | `capability_unavailable` |
-| microphone              | none in this lane                                     | —       | —                             | —                                           | `capability_unavailable` |
+| Permission              | Probe (fixed argv)                                                                                                    | granted | denied                        | not_determined                              | unavailable              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------- | ----------------------------- | ------------------------------------------- | ------------------------ |
+| accessibility           | `osascript` System Events process count, 3 s deadline                                                                 | exit 0  | assistive-access refusal text | probe deadline hit (consent prompt pending) | other failures           |
+| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline                                                                       | exit 0  | `errAEEventNotPermitted` text | probe deadline hit                          | other failures           |
+| screen_recording        | none in this lane (native capture helper still deferred; computer-use capture stays typed-unavailable until it lands) | —       | —                             | —                                           | `capability_unavailable` |
+| notifications           | none in this lane                                                                                                     | —       | —                             | —                                           | `capability_unavailable` |
+| microphone              | none in this lane                                                                                                     | —       | —                             | —                                           | `capability_unavailable` |
 
 `unavailable` is a first-class typed state (`capability_unavailable`,
 `unsupported_platform`), never a stand-in for denied or granted, and no
@@ -2579,6 +2672,7 @@ never truncates silently or allocates an unbounded fallback.
 | harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                           |
 | cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                   |
 | screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                  |
+| computer-use frames   | same bounded publication and input caps as screencast; consent record ≤60 seconds and single-use                                                        |
 | screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                               |
 
 Screenshot references include lane/profile provenance, origin, viewport, and redaction state. The bounded encoded bytes remain retrievable by reference until expiry; metadata-only capture records are not valid evidence.
@@ -2670,6 +2764,23 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-19 — supervised computer-use lanes (#472, planning slice).**
+  Added the `dev.computeruse` operation family (`capabilities`, `lanes`,
+  `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`,
+  `release`; total operations 148) and the `desktop-frames-v1` stream
+  protocol, with the new "Computer use lanes" section: session-scoped lanes
+  whose grants die with the runtime session, an authority gate that
+  re-derives every admission from provider-owned state (scope binding,
+  generation fencing, automation owner, issuance-backed single-use ≤60 s
+  consent records tied to the #471 permission substrate, fresh-permission
+  re-checks), a kill switch that revokes input authority immediately, stale
+  input inert by generation, screencast-inherited frame/input bounds
+  (15/30 FPS, 4096×4096, 8 MiB, 240 inputs/s), and honest capability probing
+  — capture and accessibility-tree reading are typed
+  `capability_unavailable` until the deferred native capture helper and an
+  authorized AX bridge exist. Threat-model additions TM-015–TM-017
+  (privileged-surface typing, secret capture, grant escalation) land with
+  this slice.
 - **2026-09-19 — M10 #33/#34 substrate-gap closure: spawn environment
   allowlist, executed rollback, and pinned failure-injection evidence.** The
   "Local stack supervision" rules gain two bullets: a supervised component
@@ -2874,6 +2985,19 @@ files in the same commit:
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and
   `CredentialRef` grant DTOs and the success page decoders for
   `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34);
+- `packages/types/tests/dev-runtime-computeruse.test.ts` — #472 wire
+  contract: every `dev.computeruse.*` request body and success reply decodes,
+  authority fields are rejected, stale generations and forged consent ids
+  fail closed at the decoder layer;
+- `apps/desktop/tests/dev-runtime-computeruse.test.ts` — #472 lane
+  lifecycle and authority gate: session-scoped lanes with immutable
+  generation fencing on takeover/release/close, kill-switch immediacy,
+  stale-generation input inertness, consent records that are issuance-backed,
+  scope/generation-bound, single-use, ≤60 s, and refusal when the #471
+  permission state is not granted or not fresh, bounded desktop-frame
+  publication (one in-flight plus newest, 240 inputs/s), fixed-argv host
+  tooling templates with scripted runners (no real capture or input in CI),
+  and typed-unavailable classification for capture and AX-tree reading;
 - `apps/desktop/tests/shell-channel.test.ts` — the M10 channel/desktop
   boundary: no loopback or browsed-page privilege (trusted-origin gate,
   bootstrap handshake, proof/replay/expiry refusals, single-use grants,
@@ -2921,6 +3045,11 @@ files in the same commit:
   action affordances, live-region announcements, and honest degradation;
   `packages/types/tests/desktop-permissions.test.ts` pins the DTO universes
   and the permission-id guard;
+- computer use (#472): `packages/dev-view/tests/computeruse-model.test.ts`
+  pins the pane model — capability rows rendered from the injected service
+  port only, consent/takeover/release affordances gated on lane state,
+  capture/AX-tree unavailable guidance naming the missing piece, and no
+  fixture capability states;
 - desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
   process, browser, provider, cleanup;
   `apps/desktop/tests/terminal-pty-adapter.test.ts`,
