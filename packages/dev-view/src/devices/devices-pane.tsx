@@ -73,6 +73,25 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
       )
   }
 
+  function startResponsive(): void {
+    const runtimeSessionId = props.runtimeSessionId
+    if (!runtimeSessionId) {
+      setError('no active runtime session')
+      return
+    }
+    execute<DeviceSession>('dev.device.start', {
+      inventoryId: 'responsive',
+      runtimeSessionId,
+    })
+      .then(() => {
+        setError(undefined)
+        void refetchSessions()
+      })
+      .catch((reply) =>
+        setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'start failed'}`)
+      )
+  }
+
   function stopDevice(session: DeviceSession): void {
     execute<DeviceSession>(
       'dev.device.stop',
@@ -91,6 +110,9 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
         setError(`${reply.error?.code ?? 'error'}: ${reply.error?.message ?? 'stop failed'}`)
       )
   }
+
+  const responsiveSession = () =>
+    (sessions()?.items ?? []).find((entry) => entry.kind === 'responsive')
 
   return (
     <section class="dev-browser" aria-label="Devices">
@@ -112,7 +134,29 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
             )}
           </Show>
 
-          <p class="dev-browser__section-title">Responsive presets</p>
+          <p class="dev-browser__section-title">Responsive</p>
+          <div class="dev-browser__actions">
+            <Show
+              when={responsiveSession()}
+              fallback={
+                <button
+                  type="button"
+                  class="dev-button"
+                  disabled={!props.runtimeSessionId}
+                  onClick={startResponsive}
+                >
+                  Start responsive session
+                </button>
+              }
+            >
+              {(session) => (
+                <button type="button" class="dev-button" onClick={() => stopDevice(session())}>
+                  Stop responsive session ({session().state})
+                </button>
+              )}
+            </Show>
+          </div>
+          <p class="dev-browser__section-title">Device presets</p>
           <div class="dev-browser__actions">
             <For each={RESPONSIVE_PRESETS}>
               {(preset) => (
