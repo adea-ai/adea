@@ -4,23 +4,26 @@
 // bridge script into the document, and hosts the desktop command surface
 // behind the M10 channel gate (issue #33): the legacy invoke/events paths and
 // the full-duplex `dev.runtime.*` channel all authenticate through
-// src/dev-runtime/channel/. The view is pinned to the loopback origin: no
-// remote navigation.
+// src/dev-runtime/channel/. The Dev Runtime scope is not injected as a
+// global: it is verified against the cloud from the app's own signed bind
+// request and enforced at the gate before any privileged dispatch.
 import { BrowserWindow } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
 import { existsSync } from 'node:fs'
 import { extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
-import { createCommandSurface } from '../commands'
-import { registerBrowserDeviceRuntime } from '../dev-runtime/browser/register'
-import { registerProjectSessionRuntime } from '../dev-runtime/project-session/register'
+import { createCommandSurface, type BridgeResult } from '../commands'
 import {
-  devOperationDefinitions,
-  type DevOperation,
-} from '../../../../../packages/types/src/dev-runtime'
-import { ChannelRejection, createChannelAuthority } from '../dev-runtime/channel/authority'
+  createCloudIdentityVerifier,
+  createDesktopIdentityAuthority,
+  type DesktopSessionCredential,
+  type Scope,
+} from '../dev-runtime/channel/identity'
+import { createChannelAuthority } from '../dev-runtime/channel/authority'
 import { createChannelGateway, type SocketData } from '../dev-runtime/channel/server'
+import { createDevRuntimeHost, type DevRuntimeHost } from '../dev-runtime'
+import { createOwnerApprovalVerifier } from '../dev-runtime/authority'
 
 // The client is copied into the bundle (`electrobun.config.ts` build.copy), so
 // the packaged app serves `Resources/app/client`. Running from the repo
@@ -37,85 +40,123 @@ const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
 // stack re-points it with ADEA_CLOUD_ORIGIN (see cloud-proxy.ts).
 const CLOUD_ORIGIN = resolveCloudOrigin()
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
-const RUNTIME_SCOPE = {
-  accountId: process.env.ADEA_ACCOUNT_ID ?? '',
-  workspaceId: process.env.ADEA_WORKSPACE_ID ?? '',
-  runtimeNodeId: process.env.ADEA_RUNTIME_NODE_ID ?? '',
-} as const
-const hasRuntimeScope = Object.values(RUNTIME_SCOPE).every((value) => value.length > 0)
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
 const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
 
-const invoke = createCommandSurface(DATA_DIR)
-// The M10 channel authority binds the trusted window and gates every command;
-// the gateway owns the `/__adea/*` routes and the full-duplex WebSocket.
+// The durable, single-use owner-approval authority. Constructed first so the
+// composition cannot exist without it: vault, root, and grant authorities
+// refuse to build when the verifier is missing (fail-open remediation).
+const approvalVerifier = createOwnerApprovalVerifier({ dataDir: DATA_DIR })
+
+const baseInvoke = createCommandSurface(DATA_DIR)
+// The authenticated scope authority: the verified (account, workspace,
+// runtime node) binding plus bounded-TTL runtime-node eligibility.
+const identity = createDesktopIdentityAuthority({
+  dataDir: DATA_DIR,
+  verifier: createCloudIdentityVerifier({ cloudOrigin: CLOUD_ORIGIN, shellOrigin: SHELL_ORIGIN }),
+})
+// The M10 channel authority binds the trusted window and gates every command.
+// Scope admission runs before capability checks and provider dispatch: a
+// command whose scope differs from the verified identity binding is refused
+// as `channel_unauthorized` before the registry capability set is compared.
 const authority = createChannelAuthority({
   shellHost: `127.0.0.1:${PORT}`,
   shellOrigin: SHELL_ORIGIN,
-  authorizeCommand: (command) => {
-    if (
-      !hasRuntimeScope ||
-      command.scope.accountId !== RUNTIME_SCOPE.accountId ||
-      command.scope.workspaceId !== RUNTIME_SCOPE.workspaceId ||
-      command.scope.runtimeNodeId !== RUNTIME_SCOPE.runtimeNodeId
-    ) {
-      throw new ChannelRejection(
-        'channel_unauthenticated',
-        'authenticated account/workspace/runtime-node scope is unavailable',
-        403
-      )
-    }
+  authorizeCommand: async (command) => {
+    identity.assertCommandScope(command.scope)
+    // Eligibility is re-proven on a bounded TTL: a revoked or unpaired
+    // runtime node fails every privileged operation, not just the first.
+    await identity.ensureNodeEligible()
   },
 })
-const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
-// Register every contract operation before optional native adapters. Missing
-// sidecars, harnesses, and host utilities fail closed as typed unavailable
-// instead of appearing as unknown commands or false successes.
-for (const operation of Object.keys(devOperationDefinitions) as DevOperation[]) {
-  if (operation === 'dev.capability.snapshot') continue
-  authority.registerCommandProvider(operation, () => {
-    throw {
-      code: 'capability_unavailable',
-      retryable: true,
-      message: `no host adapter is available for ${operation}`,
-      observedAt: new Date().toISOString(),
+
+// The signed identity bind/scope/unbind commands ride the guarded legacy
+// invoke path (the trusted window's channel), so the renderer can never
+// assert a scope directly: the shell verifies the presented desktop session
+// against the cloud before any binding exists.
+const identityCommands: Record<
+  string,
+  (args?: Record<string, unknown>) => unknown | Promise<unknown>
+> = {
+  desktop_identity_bind: (args) => {
+    const session = args?.session as DesktopSessionCredential | undefined
+    const claimed = args?.claimed as Scope | undefined
+    if (!session || !claimed) throw new Error('identity bind requires session and claimed scope')
+    return identity.bind({ session, claimed })
+  },
+  desktop_identity_scope: () => {
+    const scope = identity.currentScope()
+    if (!scope) throw new Error('no authenticated identity is bound')
+    return scope
+  },
+  desktop_identity_unbind: () => {
+    identity.unbind('owner sign-out')
+    return null
+  },
+}
+async function invoke(cmd: string, args?: Record<string, unknown>): Promise<BridgeResult> {
+  const identityHandler = identityCommands[cmd]
+  if (identityHandler) {
+    try {
+      return { ok: true, value: (await identityHandler(args)) ?? null }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : 'identity command failed',
+      }
     }
+  }
+  return baseInvoke(cmd, args)
+}
+
+const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
+
+// The Dev Runtime host composition: registers every production provider
+// (grant authorities, project/session projection, browser/device lanes,
+// worktrees, terminal when the sidecar is present) and typed-unavailable
+// providers for everything else. Re-binding under a different scope
+// recomposes after the composition revoked the old binding's channels.
+let host: DevRuntimeHost | undefined
+function composeHost(): DevRuntimeHost {
+  return createDevRuntimeHost({
+    authority,
+    gateway,
+    dataDir: DATA_DIR,
+    scope: identity.currentScope(),
+    identity,
+    approvalVerifier,
+    runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
+    runLsof: async () => {
+      const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
+        stdout: 'pipe',
+        stderr: 'ignore',
+      })
+      const text = await new Response(proc.stdout).text()
+      await proc.exited
+      return text
+    },
+    resolveDns: async (hostname) => {
+      try {
+        const [a, aaaa] = await Promise.all([
+          dns.resolve4(hostname).catch(() => [] as string[]),
+          dns.resolve6(hostname).catch(() => [] as string[]),
+        ])
+        return [
+          ...a.map((address) => ({ address, family: 4 as const })),
+          ...aaaa.map((address) => ({ address, family: 6 as const })),
+        ]
+      } catch {
+        return []
+      }
+    },
+    publish: (event, payload) => gateway.publish(event, payload),
   })
 }
-// #422: the browser/device lane providers dispatch through the same M10 gate.
-// The loopback listener scan is the optional OS inspection; Adea-owned
-// launch metadata stays the primary port authority.
-registerBrowserDeviceRuntime({
-  authority,
-  gateway,
-  scope: hasRuntimeScope ? RUNTIME_SCOPE : undefined,
-  runLsof: async () => {
-    const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
-      stdout: 'pipe',
-      stderr: 'ignore',
-    })
-    const text = await new Response(proc.stdout).text()
-    await proc.exited
-    return text
-  },
-  resolveDns: async (hostname) => {
-    try {
-      const [a, aaaa] = await Promise.all([
-        dns.resolve4(hostname).catch(() => [] as string[]),
-        dns.resolve6(hostname).catch(() => [] as string[]),
-      ])
-      return [
-        ...a.map((address) => ({ address, family: 4 as const })),
-        ...aaaa.map((address) => ({ address, family: 6 as const })),
-      ]
-    } catch {
-      return []
-    }
-  },
+host = composeHost()
+identity.onBindingChanged(() => {
+  host = composeHost()
 })
-if (hasRuntimeScope) {
-  registerProjectSessionRuntime({ authority, dataDir: DATA_DIR, scope: RUNTIME_SCOPE })
-}
+void host
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -129,19 +170,30 @@ const MIME: Record<string, string> = {
   '.wasm': 'application/wasm',
 }
 
-function injectBridge(html: string): string {
+/**
+ * The one-time launch bootstrap rides only the app window's own document
+ * load: a browser-context request carries fetch metadata (`Sec-Fetch-Dest:
+ * document` with a trusted site value). A header-less local process — curl,
+ * a script, any non-browser client — receives HTML without the credential,
+ * so the launch bootstrap cannot be retrieved by omitting Origin/Sec-Fetch
+ * headers, and using it still requires passing the trusted-origin gate at
+ * the handshake.
+ */
+function shouldInjectBootstrap(request: Request): boolean {
+  const secFetchSite = request.headers.get('sec-fetch-site')
+  const secFetchDest = request.headers.get('sec-fetch-dest')
+  return (secFetchSite === 'none' || secFetchSite === 'same-origin') && secFetchDest === 'document'
+}
+
+function injectBridge(html: string, request: Request): string {
   if (html.includes('/__adea/bridge.js')) return html
   // The one-time launch bootstrap rides only this injected script tag: it is
   // the trusted window's handshake capability (the bridge script itself
   // carries no secrets).
-  const bootstrap = gateway.bootstrapToken()
-  const scopeScript = hasRuntimeScope
-    ? `<script>window.__ADEA_DEV_SCOPE__=${JSON.stringify(RUNTIME_SCOPE)}</script>`
+  const bootstrap = shouldInjectBootstrap(request)
+    ? `<script>window.__ADEA_LAUNCH_BOOTSTRAP__=${JSON.stringify(gateway.bootstrapToken())}</script>`
     : ''
-  return html.replace(
-    '<head>',
-    `<head><script>window.__ADEA_LAUNCH_BOOTSTRAP__=${JSON.stringify(bootstrap)}</script>${scopeScript}<script src="/__adea/bridge.js"></script>`
-  )
+  return html.replace('<head>', `<head>${bootstrap}<script src="/__adea/bridge.js"></script>`)
 }
 
 // The post-update relaunch can race the old bundle's socket release, so the
@@ -191,10 +243,15 @@ for (let attempt = 0; attempt < 30 && !server; attempt++) {
           }
           let body = new Uint8Array(await Bun.file(filePath).arrayBuffer())
           if (filePath.endsWith('.html')) {
-            body = new TextEncoder().encode(injectBridge(new TextDecoder().decode(body)))
+            body = new TextEncoder().encode(injectBridge(new TextDecoder().decode(body), request))
           }
           return new Response(body, {
-            headers: { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' },
+            headers: {
+              'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
+              // The injected bootstrap is single-use and per-document load;
+              // no cache may retain it.
+              'cache-control': 'no-store',
+            },
           })
         } catch {
           return new Response(null, { status: 500 })

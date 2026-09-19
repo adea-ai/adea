@@ -477,24 +477,9 @@ export function createChannelAuthority(options?: {
         })
       }
       // Steps 1-2: frame structure, channel credential, proof, freshness,
-      // replay.
+      // replay. Capability derivation and scope admission follow the proof.
       const frame = decodeAuthorizedDevFrame(raw)
       const channel = channelFor(frame)
-      const definition = devOperationDefinitions[frame.command.operation]
-      // Step 3: the gate independently derives the required capability set.
-      if (
-        frame.command.capabilities.length !== definition.capabilities.length ||
-        frame.command.capabilities.some(
-          (capability, index) => capability !== definition.capabilities[index]
-        )
-      ) {
-        counters.capabilityDenied += 1
-        throw new ChannelRejection(
-          'capability_denied',
-          'capabilities do not match the registry',
-          403
-        )
-      }
       const issuedAt = Date.parse(frame.command.issuedAt)
       const expiresAt = Date.parse(frame.command.expiresAt)
       if (issuedAt > at + CLOCK_SKEW_MS) {
@@ -521,6 +506,9 @@ export function createChannelAuthority(options?: {
         counters.identityMismatch += 1
         throw new ChannelRejection('identity_mismatch', 'command proof did not verify', 403)
       }
+      // Step 3 precedes capability derivation: the renderer-submitted scope is
+      // never trusted, so a scope mismatch is refused before the capability
+      // set is compared and before any provider dispatch can run.
       if (options?.authorizeCommand) {
         try {
           await options.authorizeCommand(frame.command, {
@@ -534,6 +522,20 @@ export function createChannelAuthority(options?: {
             403
           )
         }
+      }
+      const definition = devOperationDefinitions[frame.command.operation]
+      if (
+        frame.command.capabilities.length !== definition.capabilities.length ||
+        frame.command.capabilities.some(
+          (capability, index) => capability !== definition.capabilities[index]
+        )
+      ) {
+        counters.capabilityDenied += 1
+        throw new ChannelRejection(
+          'capability_denied',
+          'capabilities do not match the registry',
+          403
+        )
       }
       consumeNonce(
         `${frame.clientCredentialId}\u0000${frame.command.scope.accountId}\u0000${frame.command.scope.workspaceId}`,
@@ -781,6 +783,22 @@ export function createChannelAuthority(options?: {
     commandProviders.set(operation, handler)
   }
 
+  /**
+   * Revokes every active channel (identity rebind, workspace switch, sign
+   * out, session revocation). Each socket's next request fails
+   * `channel_unauthenticated` and must complete a fresh trusted handshake
+   * with a launch bootstrap — reconnects never inherit old authority.
+   */
+  function revokeAllChannels(): number {
+    const count = channels.size
+    channels.clear()
+    grants.clear()
+    if (count > 0) {
+      audit({ at: iso(now()), kind: 'handshake_refused', errorCode: 'channel_unauthenticated' })
+    }
+    return count
+  }
+
   function auditSnapshot(): readonly ChannelAuditRecord[] {
     return [...auditRecords]
   }
@@ -792,6 +810,11 @@ export function createChannelAuthority(options?: {
   /** Test/ops introspection: active channel ids, never secrets. */
   function activeChannelIds(): readonly string[] {
     return [...channels.keys()]
+  }
+
+  /** Composition introspection: which operations have a registered provider. */
+  function registeredOperations(): readonly DevOperation[] {
+    return [...commandProviders.keys()]
   }
 
   function isTrustedRequest(context: {
@@ -822,6 +845,8 @@ export function createChannelAuthority(options?: {
     countersSnapshot,
     activeChannelIds,
     isTrustedRequest,
+    revokeAllChannels,
+    registeredOperations,
   }
 }
 

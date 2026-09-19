@@ -2469,6 +2469,55 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-19 — control-plane composition and fail-closed approvals
+  (remediation gate).** Hardened the host control plane without changing the
+  operation registry:
+  - **Authenticated identity binding.** The Dev Runtime scope is never
+    injected as a renderer global. The shell binds
+    `(account, workspace, runtime node)` once per authentication over the
+    signed legacy channel (`desktop_identity_bind`, `desktop_identity_scope`,
+    `desktop_identity_unbind`), verifying the presented desktop session
+    against the cloud (`GET /api/workspaces` proves liveness and workspace
+    membership) and the runtime-node pairing read model (node must be paired).
+    The gate refuses a command whose scope differs from the verified binding
+    **before** capability derivation and dispatch, re-proves node eligibility
+    on every privileged operation (no TTL cache: a revoked node fails the
+    next command), and revokes every channel on rebind, workspace switch, or
+    unbind — reconnects must complete a fresh trusted handshake.
+  - **Owner approvals are issuance-backed.** `createOwnerApprovalVerifier`
+    records an authoritative issuance (owner prompt/setting) and consumption
+    requires that exact record: scope-bound, action-bound, expiry-checked,
+    single-use, maximum 10-minute window. `approvalVerifier` is a required
+    constructor parameter of the vault, root-bookmark, and project-grant
+    authorities; a missing verifier fails construction, so a caller-supplied
+    non-empty string is never owner consent.
+  - **Keychain failure taxonomy.** The vault key store classifies every
+    `security` CLI outcome (`item_not_found`, `keychain_locked`,
+    `access_denied`, `malformed_output`, `process_failure`, `timeout`,
+    `unavailable_executable`). Only item-not-found permits first-time key
+    generation; every other outcome fails closed without generating or
+    overwriting a key, and lookups re-validate base64 strictly.
+  - **Production registration matrix.** The composition root
+    (`apps/desktop/shell/src/dev-runtime/index.ts`) registers every provider
+    with a reachable implementation — capability snapshot, project/session
+    projection (including canonical `dev.session.create` with worktree-proof
+    validation and `dev.session.transferInput` generation fencing), browser
+    and device lanes, the worktree service (registrar at
+    `worktrees/register.ts`), terminal (when the sidecar adopts), and the
+    grant authorities — and fills every remaining registry operation with a
+    typed-unavailable provider that names the missing host adapter. The
+    composition bootstraps with a restored binding or recomposes on rebind.
+  - **Launch bootstrap document gate.** The one-time launch bootstrap is
+    injected only into document loads that present trusted browser fetch
+    metadata (`Sec-Fetch-Dest: document` with a trusted `Sec-Fetch-Site`);
+    header-less local processes receive HTML without the credential, so the
+    launch capability cannot be retrieved by omitting Origin/Sec-Fetch
+    headers and cannot be reused without passing the trusted-origin gate.
+    Pinned by `apps/desktop/tests/dev-runtime-composition.test.ts` (boots the
+    actual registration graph and enumerates the operation/provider matrix),
+    `apps/desktop/tests/dev-runtime-approvals.test.ts`, and
+    `apps/desktop/tests/dev-runtime-vault-keychain.test.ts`.
+
 - **2026-09-18 — worktree lifecycle implementation detail (#397).** Added the
   worktree-name retirement registry (fixed pool, permanent retirement,
   watermark compaction) and the per-project dependency-template cache
@@ -2605,6 +2654,15 @@ files in the same commit:
   `apps/desktop/tests/dev-runtime-grants.test.ts` pin the M10 #34
   authorized-root containment/identity rechecks, vault enrollment/resolution,
   and project grant binding;
+- `apps/desktop/tests/dev-runtime-approvals.test.ts` pins the fail-closed
+  owner-approval verifier (mandatory construction, issuance-bound single-use
+  consumption, replay/expiry/wrong-scope/forgery refusals);
+- `apps/desktop/tests/dev-runtime-vault-keychain.test.ts` pins the keychain
+  failure taxonomy (only item-not-found permits first-time generation);
+- `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
+  registration graph and pins the operation/provider matrix, the
+  scope-before-dispatch gate ordering, revocation and refused-rebind
+  behavior, and the typed-unavailable host capability results;
 - web/desktop Playwright owner journey;
 - named Dev Runtime performance and soak commands;
 - package/provenance denylist tests.

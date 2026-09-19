@@ -5,6 +5,11 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, cpSync } f
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import {
+  createOwnerApprovalVerifier,
+  type OwnerApproval,
+  type OwnerApprovalVerifier,
+} from '../shell/src/dev-runtime/authority'
 import { createRootBookmarkAuthority } from '../shell/src/dev-runtime/roots'
 import { createWorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 
@@ -14,7 +19,21 @@ export const scope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 } as const
 
-export const approval = { method: 'owner_dialog', reference: 'consent-fixture' } as const
+let verifier: OwnerApprovalVerifier
+let consentSequence = 0
+
+/** Issues one durable, scope-bound, single-use owner approval (M10 #34). */
+export function approved(action = 'authorize a root bookmark'): OwnerApproval {
+  const approval: OwnerApproval = {
+    method: 'owner_dialog',
+    reference: `consent-fixture-${++consentSequence}`,
+    scope,
+    issuedAt: new Date(Date.now() - 1_000).toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  verifier.recordIssuance(approval, scope, action)
+  return approval
+}
 
 export function git(dir: string, args: string[]): { stdout: string; code: number } {
   const proc = Bun.spawnSync(['git', ...args], {
@@ -64,13 +83,14 @@ export function fixture() {
   mkdirSync(workspace)
   const repoPath = realpathSync(initRepo(join(workspace, 'primary')))
 
-  const roots = createRootBookmarkAuthority({ dataDir })
+  verifier = createOwnerApprovalVerifier({ dataDir })
+  const roots = createRootBookmarkAuthority({ dataDir, approvalVerifier: verifier })
   const bookmark = roots.mint({
     scope,
     label: 'Workspace',
     kind: 'repository',
     absolutePath: workspace,
-    approval,
+    approval: approved(),
   })
   const service = createWorktreeService({
     dataDir,

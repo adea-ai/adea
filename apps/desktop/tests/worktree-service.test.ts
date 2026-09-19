@@ -12,7 +12,7 @@ import { WorktreeError } from '../shell/src/dev-runtime/worktrees/errors'
 import { directoryIdentity } from '../shell/src/dev-runtime/worktrees/identity'
 import { workflowDigest } from '../shell/src/dev-runtime/worktrees/bootstrap'
 import { createCleanupJournal } from '../shell/src/dev-runtime/worktrees/journal'
-import { git, initRepo, projectIdA, scope, fixture, approval } from './worktree-fixtures'
+import { git, initRepo, projectIdA, scope, fixture, approved } from './worktree-fixtures'
 
 const scratchRoots: string[] = []
 afterAll(() => {
@@ -50,7 +50,7 @@ describe('repository registration', () => {
         label: 'Notes',
         kind: 'directory',
         absolutePath: folder,
-        approval,
+        approval: approved(),
       })
       const folderRepo = await f.service.registerRepo({
         scope,
@@ -136,7 +136,7 @@ describe('create worktree from an updated base', () => {
         label: 'Remote workspace',
         kind: 'repository',
         absolutePath: join(dir, 'workspace'),
-        approval,
+        approval: approved(),
       })
       const repo = await f.service.registerRepo({
         scope,
@@ -178,7 +178,7 @@ describe('create worktree from an updated base', () => {
         label: 'WS',
         kind: 'repository',
         absolutePath: join(dir, 'workspace'),
-        approval,
+        approval: approved(),
       })
       const repo = await f.service.registerRepo({
         scope,
