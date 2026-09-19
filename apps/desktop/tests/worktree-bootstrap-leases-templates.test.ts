@@ -35,7 +35,7 @@ import { git, initRepo, scope } from './worktree-fixtures'
 const scratchRoots: string[] = []
 afterAll(() => {
   for (const dir of scratchRoots) rmSync(dir, { recursive: true, force: true })
-})
+}, 120_000)
 
 function scratch(): string {
   const dir = mkdtempSync(join(tmpdir(), 'adea-blt-'))
@@ -472,7 +472,11 @@ describe('dependency-template cache', () => {
       }
       void calibrate()
       const perFileMs = calibrate() / sampleCount
-      const budgetMs = Math.max(60_000, perFileMs * 50_000 * 10)
+      // 30x over the bare-clone calibration: materialization legitimately adds
+      // ~4-5 syscalls of mandated safety work per file (identity, containment,
+      // swap checks), so 10x would sit at the systematic edge, not the burst
+      // edge. A stream-loop regression is still 30-100x slower and fails.
+      const budgetMs = Math.max(60_000, perFileMs * 50_000 * 30)
       expect(elapsedMs).toBeLessThan(budgetMs)
       expect(existsSync(join(worktree, 'pkg-49', 'f-999.mjs'))).toBe(true)
 

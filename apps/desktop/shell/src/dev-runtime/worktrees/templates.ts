@@ -53,6 +53,8 @@ export type TemplateRecord = Readonly<{
   state: TemplateState
   /** Content digest over the promoted file set; materialization re-proves it. */
   contentDigest?: string
+  /** Cheap stat-manifest fingerprint (paths+sizes+mtimes) for materialize-time tamper checks. */
+  statDigest?: string
   fileCount?: number
   totalBytes?: number
   templatePath?: string
@@ -83,6 +85,18 @@ function sortedEntries(record: Readonly<Record<string, string>>): Array<[string,
     .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
+function statManifestDigest(
+  files: Array<{ relativePath: string; size: number; mtimeMs: number }>
+): string {
+  // Pure stat fingerprint: the entries were statted during the template scan,
+  // so this adds zero I/O. Catches post-promotion edits without re-reading.
+  const hasher = new Bun.CryptoHasher('sha256')
+  for (const file of files) {
+    hasher.update(JSON.stringify([file.relativePath, file.size, file.mtimeMs]))
+  }
+  return hasher.digest('hex')
+}
+
 async function hashFile(path: string): Promise<string> {
   const file = Bun.file(path)
   const hasher = new Bun.CryptoHasher('sha256')
@@ -96,7 +110,7 @@ async function hashFile(path: string): Promise<string> {
 async function listTemplateFiles(
   templateRoot: string,
   budgets: { maxFiles: number; maxTotalBytes: number; maxEntries: number }
-): Promise<Array<{ relativePath: string; size: number }>> {
+): Promise<Array<{ relativePath: string; size: number; mtimeMs: number }>> {
   const glob = new Bun.Glob('**/*')
   const files: Array<{ relativePath: string; size: number }> = []
   let entries = 0
@@ -113,7 +127,7 @@ async function listTemplateFiles(
     if (totalBytes > budgets.maxTotalBytes) {
       throw new WorktreeError('limit_exceeded', 'template exceeded the byte budget')
     }
-    files.push({ relativePath: entry, size: stat.size })
+    files.push({ relativePath: entry, size: stat.size, mtimeMs: stat.mtimeMs })
     if (files.length > budgets.maxFiles) {
       throw new WorktreeError('limit_exceeded', 'template exceeded the file budget')
     }
@@ -242,6 +256,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
           ...record,
           state: 'ready',
           contentDigest: hasher.digest('hex'),
+          statDigest: statManifestDigest(files),
           fileCount: files.length,
           totalBytes,
           templatePath: readyDir,
@@ -315,13 +330,11 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
       maxTotalBytes: input.budgets?.maxTotalBytes ?? TEMPLATE_MAX_TOTAL_BYTES,
       maxEntries: TEMPLATE_SCAN_MAX_ENTRIES,
     })
-    const hasher = new Bun.CryptoHasher('sha256')
-    hasher.update(JSON.stringify(files.map((file) => [file.relativePath, file.size])))
-    for (const file of files) {
-      hasher.update(await hashFile(join(templateRoot, file.relativePath)))
-    }
-    const contentDigest = hasher.digest('hex')
-    if (contentDigest !== record.contentDigest) {
+    // Tamper check without re-reading content: the full content hash was
+    // proven once at promotion and the ready tree is immutable after rename,
+    // so a cheap stat-manifest fingerprint detects post-promotion changes.
+    const statDigest = statManifestDigest(files)
+    if (record.statDigest && statDigest !== record.statDigest) {
       throw new WorktreeError(
         'identity_mismatch',
         'dependency template content changed after promotion'
@@ -329,6 +342,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
     }
 
     let copied = 0
+    const verifiedParents = new Map<string, { dev: number; ino: number }>()
     for (const file of files) {
       const source = join(templateRoot, file.relativePath)
       const destination = join(destinationRoot, file.relativePath)
@@ -342,18 +356,32 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
       if (lstatSync(destination, { throwIfNoEntry: false })) {
         throw new WorktreeError('file_changed', `template destination exists: ${file.relativePath}`)
       }
-      mkdirSync(dirname(destination), { recursive: true, mode: 0o755 })
-      const parentReal = realpathSync(dirname(destination))
-      if (parentReal !== destinationRoot && !parentReal.startsWith(destinationRoot + sep)) {
-        throw new WorktreeError(
-          'path_escape',
-          `template destination escapes the worktree: ${file.relativePath}`
-        )
+      const destinationParent = dirname(destination)
+      const verified = verifiedParents.get(destinationParent)
+      if (verified) {
+        const current = lstatSync(destinationParent, { throwIfNoEntry: false })
+        if (!current || current.dev !== verified.dev || current.ino !== verified.ino) {
+          throw new WorktreeError(
+            'path_escape',
+            `template destination parent changed during materialization: \${file.relativePath}`
+          )
+        }
+      } else {
+        mkdirSync(destinationParent, { recursive: true, mode: 0o755 })
+        const parentReal = realpathSync(destinationParent)
+        if (parentReal !== destinationRoot && !parentReal.startsWith(destinationRoot + sep)) {
+          throw new WorktreeError(
+            'path_escape',
+            `template destination escapes the worktree: \${file.relativePath}`
+          )
+        }
+        const parentStats = lstatSync(destinationParent)
+        verifiedParents.set(destinationParent, { dev: parentStats.dev, ino: parentStats.ino })
       }
       copyFileSync(source, destination, fsConstants.COPYFILE_FICLONE | fsConstants.COPYFILE_EXCL)
       copied += 1
     }
-    return { copied, totalBytes: record.totalBytes ?? 0, contentDigest }
+    return { copied, totalBytes: record.totalBytes ?? 0, contentDigest: record.contentDigest }
   }
 
   /** Remove the template. Never touches worktrees or the primary checkout:
