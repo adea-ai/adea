@@ -10,7 +10,7 @@
  */
 import { cn } from '@adea-ai/ui/lib/utils'
 import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
-import { For, Show } from 'solid-js'
+import { For, Show, type JSX } from 'solid-js'
 
 import type { DevGroupFixture } from '../dev-workspace-entry'
 import type { ArchiveShelfState } from './archive-shelf-model'
@@ -64,6 +64,8 @@ export function DevSidebarShell(props: {
   /** Provider-backed archive shelf state (see archive-shelf-model). */
   archiveShelf: ArchiveShelfState
   archiveHandoffMessage?: string
+  /** Registry add/scan surface slot (#398); absent in E2E fixture mode. */
+  addProject?: JSX.Element
   onArchiveRestore(runtimeSessionId: string): void
   onArchiveRequestDelete(runtimeSessionId: string): void
   onArchiveCancelDelete(): void
@@ -85,6 +87,7 @@ export function DevSidebarShell(props: {
         <span class="sr-only">Filter projects and sessions</span>
         <input type="search" placeholder="Filter projects" />
       </label>
+      <Show when={props.addProject}>{props.addProject}</Show>
       <nav aria-label="Dev projects">
         <Show
           when={props.groups.length > 0}

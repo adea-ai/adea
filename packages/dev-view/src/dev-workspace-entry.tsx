@@ -76,6 +76,7 @@ import {
   SESSION_DELETE_OPERATION,
   type ArchiveShelfState,
 } from './sidebar/archive-shelf-model'
+import { AddProjectPanel } from './sidebar/add-project-panel'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 import type { DevSessionBadgeState } from './sidebar/badges'
 import {
@@ -95,7 +96,16 @@ export type DevProjectFixture = Readonly<{
   sessions: readonly Readonly<{
     id: string
     title: string
-    state: 'active' | 'ready' | 'archived'
+    /** Canonical RuntimeSession lifecycle states (register-backed). */
+    state:
+      | 'preparing'
+      | 'ready'
+      | 'active'
+      | 'disconnected'
+      | 'completed'
+      | 'failed'
+      | 'cancelled'
+      | 'archived'
     generation?: number
     badges?: DevSessionBadgeState
   }>[]
@@ -963,6 +973,19 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           }}
           archiveShelf={archiveShelf()}
           archiveHandoffMessage={archiveHandoff()}
+          addProject={
+            !fixtureMode() && activeScope() ? (
+              <AddProjectPanel
+                scope={activeScope()!}
+                execute={(command) => props.runtime.execute(command)}
+                knownProjectNames={groups().flatMap((group) =>
+                  group.projects.map((project) => project.name)
+                )}
+                onImported={() => void loadProjection()}
+                announce={setAnnouncement}
+              />
+            ) : undefined
+          }
           onArchiveRestore={(id) => void restoreFromArchive(id)}
           onArchiveRequestDelete={requestArchiveDelete}
           onArchiveCancelDelete={cancelArchiveDelete}

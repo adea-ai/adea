@@ -531,10 +531,11 @@ describe('dev runtime composition', () => {
       const channel = await shell.openChannel()
       const unavailable = shell.currentHost().registration.typedUnavailable
       expect(unavailable.length).toBeGreaterThan(0)
-      const sample = unavailable.find((operation) => operation === 'dev.project.scan')!
-      const reply = await channel.execute(
-        commandFor(sample, SCOPE_A, { rootBookmarkId: randomUUID() })
-      )
+      // dev.project.scan/import/create gained real providers (#398); the
+      // GitHub surface (#400) remains the registry sample of a documented
+      // typed refusal.
+      const sample = unavailable.find((operation) => operation === 'dev.github.account')!
+      const reply = await channel.execute(commandFor(sample, SCOPE_A, {}))
       expect(reply).toMatchObject({
         ok: false,
         error: { code: 'capability_unavailable' },

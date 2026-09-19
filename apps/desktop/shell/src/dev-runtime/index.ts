@@ -35,6 +35,7 @@ import { registerTerminalRuntime, type TerminalRuntimeRegistration } from './ter
 import type { SidecarClient } from './terminal/sidecar/client'
 import { registerWorktreeRuntime } from './worktrees/register'
 import type { WorktreeService } from './worktrees/service'
+import { registerProjectScanRuntime } from './projects/register'
 import { createCredentialVault, type CredentialVault } from './vault'
 
 export type DevProviderKind = 'provider' | 'typed_unavailable'
@@ -141,8 +142,28 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
             } satisfies DevError
           }
         },
+        // Import resolves the authorized root fail-closed through the roots
+        // authority: unknown, revoked, drifted, or replaced bookmarks refuse
+        // before any project record exists.
+        resolveImportRoot: (rootBookmarkId) => {
+          const bookmark = roots.validate({ scope: input.scope!, bookmarkId: rootBookmarkId })
+          return { canonicalRoot: bookmark.canonicalRoot }
+        },
       })
     : undefined
+
+  // The monorepo scan provider rides the same authorized-root gate: scan
+  // recommendations are previews bound to a bookmark, never free-form paths.
+  if (input.scope) {
+    registerProjectScanRuntime({
+      authority: input.authority,
+      scope: input.scope,
+      resolveScanRoot: (rootBookmarkId) => {
+        const bookmark = roots.validate({ scope: input.scope!, bookmarkId: rootBookmarkId })
+        return { canonicalRoot: bookmark.canonicalRoot }
+      },
+    })
+  }
 
   const harness = input.scope
     ? registerHarnessRuntime({

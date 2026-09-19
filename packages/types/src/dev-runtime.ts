@@ -298,12 +298,23 @@ export type Project = Readonly<{
   name: string
   groupIds: readonly string[]
   repoIds: readonly string[]
+  /** Authoritative repository bindings minted at import (#398). */
+  repos?: readonly ProjectRepoBinding[]
   preferredRuntimeNodeId?: string
   defaultBaseRef?: string
   bootstrapWorkflowId?: string
   defaultHarnessId?: string
   lifecycle: 'importing' | 'cloning' | 'scanning' | 'ready' | 'archived' | 'failed'
   version: number
+}>
+
+// An imported project binds each repository to the authorized root bookmark
+// that proves it: the canonical host path never comes from a client body, it
+// is resolved through the roots authority at import time.
+export type ProjectRepoBinding = Readonly<{
+  repoId: string
+  rootBookmarkId: string
+  canonicalRoot: string
 }>
 
 export type Group = Readonly<{
@@ -314,6 +325,37 @@ export type Group = Readonly<{
   projectIds: readonly string[]
   sortKey: string
   version: number
+}>
+
+// One scanner recommendation: a preview of an importable workspace package.
+// Scanning never executes install/bootstrap commands; `suggestedScripts` are
+// manifest-declared names surfaced for confirmation, never run by the host.
+export type ProjectScanEntry = Readonly<{
+  /** Workspace package name from its manifest, or the directory basename. */
+  name: string
+  /** '/'-separated path of the package directory relative to the scan root. */
+  relativeDir: string
+  /** Manifest path relative to the scan root that proved this candidate. */
+  manifestPath: string
+  packageManager: 'npm' | 'pnpm' | 'yarn' | 'bun' | 'cargo' | 'pip' | 'poetry' | 'uv' | 'unknown'
+  /** Toolchain markers observed beside the manifest. */
+  languages: readonly string[]
+  /** Manifest-declared script names offered as bootstrap/check previews. */
+  suggestedScripts: readonly string[]
+  /** Per-entry diagnostics (`malformed_manifest`, `manifest_too_large`). */
+  diagnostics: readonly string[]
+}>
+
+// `dev.project.scan` reply. A partial page is a successful answer whose
+// `diagnostics` say why it stopped (`budget_exhausted`, `cancelled`) — never a
+// silent truncation and never a failed command for a successful partial scan.
+export type ProjectScanPage = Readonly<{
+  rootBookmarkId: string
+  items: readonly ProjectScanEntry[]
+  partial: boolean
+  diagnostics: readonly string[]
+  observedAt: string
+  nextCursor?: string
 }>
 
 // A RootBookmark is a durable grant that a directory or repository root has
@@ -989,8 +1031,12 @@ function splitTopLevel(source: string, separator: string): string[] {
     else if (character === ']') brackets -= 1
     else if (character === '(') parentheses += 1
     else if (character === ')') parentheses -= 1
-    else if (character === '<') angles += 1
-    else if (character === '>') angles -= 1
+    else if (character === '<') {
+      // `<=` is a bound operator in this contract DSL (string[]<=32), not a
+      // generic opener; counting it left the rest of the body mis-split
+      // whenever a bounded array preceded another field.
+      if (source[index + 1] !== '=') angles += 1
+    } else if (character === '>') angles -= 1
     else if (
       character === separator &&
       braces === 0 &&
@@ -1867,6 +1913,136 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.version, `${path}.version`, 1)
     return value
   }
+  // #398 project registry DTOs. Shapes mirror the spec's project registry
+  // model; the registry bodies and replies validate through here.
+  if (name === 'Group') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'name', 'projectIds', 'sortKey', 'version'],
+      ['colorToken'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.name, `${path}.name`, 1, 128)
+    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
+    validateType('string[]<=10000', item.projectIds, `${path}.projectIds`)
+    stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'GroupMutableFields') {
+    const item = record(value, path)
+    exactKeys(item, [], ['name', 'colorToken'], path)
+    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 128)
+    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
+    return value
+  }
+  if (name === 'Project') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'name', 'groupIds', 'repoIds', 'lifecycle', 'version'],
+      [
+        'repos',
+        'preferredRuntimeNodeId',
+        'defaultBaseRef',
+        'bootstrapWorkflowId',
+        'defaultHarnessId',
+      ],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.name, `${path}.name`, 1, 128)
+    validateType('string[]<=32', item.groupIds, `${path}.groupIds`)
+    validateType('string[]<=128', item.repoIds, `${path}.repoIds`)
+    if (item.repos !== undefined) {
+      if (!Array.isArray(item.repos)) fail(`${path}.repos`, 'expected array')
+      if ((item.repos as unknown[]).length > 128) fail(`${path}.repos`, 'array exceeds 128')
+      ;(item.repos as unknown[]).forEach((entry, index) =>
+        namedType('ProjectRepoBinding', entry, `${path}.repos[${index}]`)
+      )
+    }
+    if (item.preferredRuntimeNodeId !== undefined)
+      stringValue(item.preferredRuntimeNodeId, `${path}.preferredRuntimeNodeId`, 1, 256)
+    if (item.defaultBaseRef !== undefined)
+      stringValue(item.defaultBaseRef, `${path}.defaultBaseRef`, 1, 256)
+    if (item.bootstrapWorkflowId !== undefined)
+      stringValue(item.bootstrapWorkflowId, `${path}.bootstrapWorkflowId`, 1, 256)
+    if (item.defaultHarnessId !== undefined)
+      stringValue(item.defaultHarnessId, `${path}.defaultHarnessId`, 1, 256)
+    literal(
+      item.lifecycle,
+      ['importing', 'cloning', 'scanning', 'ready', 'archived', 'failed'],
+      `${path}.lifecycle`
+    )
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'ProjectRepoBinding') {
+    const item = record(value, path)
+    exactKeys(item, ['repoId', 'rootBookmarkId', 'canonicalRoot'], [], path)
+    if (!uuidPattern.test(stringValue(item.repoId, `${path}.repoId`)))
+      fail(`${path}.repoId`, 'expected lowercase UUID')
+    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
+      fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
+    stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
+    return value
+  }
+  if (name === 'ProjectScanEntry') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'name',
+        'relativeDir',
+        'manifestPath',
+        'packageManager',
+        'languages',
+        'suggestedScripts',
+        'diagnostics',
+      ],
+      [],
+      path
+    )
+    stringValue(item.name, `${path}.name`, 1, 256)
+    stringValue(item.relativeDir, `${path}.relativeDir`, 0, 1024)
+    stringValue(item.manifestPath, `${path}.manifestPath`, 1, 1024)
+    literal(
+      item.packageManager,
+      ['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'pip', 'poetry', 'uv', 'unknown'],
+      `${path}.packageManager`
+    )
+    validateType('string[]<=32', item.languages, `${path}.languages`)
+    validateType('string[]<=64', item.suggestedScripts, `${path}.suggestedScripts`)
+    validateType('string[]<=32', item.diagnostics, `${path}.diagnostics`)
+    return value
+  }
+  if (name === 'ProjectScanPage') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['rootBookmarkId', 'items', 'partial', 'diagnostics', 'observedAt'],
+      ['nextCursor'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
+      fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
+    if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+    if ((item.items as unknown[]).length > 500) fail(`${path}.items`, 'page exceeds 500 items')
+    ;(item.items as unknown[]).forEach((entry, index) =>
+      namedType('ProjectScanEntry', entry, `${path}.items[${index}]`)
+    )
+    if (typeof item.partial !== 'boolean') fail(`${path}.partial`, 'expected boolean')
+    validateType('string[]<=32', item.diagnostics, `${path}.diagnostics`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    if (item.nextCursor !== undefined) stringValue(item.nextCursor, `${path}.nextCursor`, 1, 512)
+    return value
+  }
   fail(path, `unknown named type ${name}`)
 }
 
@@ -2074,6 +2250,30 @@ export function decodeAcpConnection(value: unknown): AcpConnection {
   return value as AcpConnection
 }
 
+/** Strict decoder for the registry Group record (#398). */
+export function decodeGroup(value: unknown): Group {
+  namedType('Group', value, 'group')
+  return value as Group
+}
+
+/** Strict decoder for the registry Project record (#398). */
+export function decodeProject(value: unknown): Project {
+  namedType('Project', value, 'project')
+  return value as Project
+}
+
+/** Strict decoder for one scanner recommendation (#398). */
+export function decodeProjectScanEntry(value: unknown): ProjectScanEntry {
+  namedType('ProjectScanEntry', value, 'projectScanEntry')
+  return value as ProjectScanEntry
+}
+
+/** Strict decoder for the `dev.project.scan` reply page (#398). */
+export function decodeProjectScanPage(value: unknown): ProjectScanPage {
+  namedType('ProjectScanPage', value, 'projectScanPage')
+  return value as ProjectScanPage
+}
+
 function decodeDevRuntimePage(
   decodeItem: (value: unknown, path: string) => unknown,
   value: unknown,
@@ -2092,6 +2292,14 @@ function decodeDevRuntimePage(
 // Success reply decoders, installed by the slice that owns each operation's
 // DTO. Every operation without an entry keeps failing closed in decodeDevReply.
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
+  // Project registry (#398): import/create mint Project records, scan returns
+  // a bounded preview page, and the group lifecycle commands return Group.
+  'dev.project.import': (value) => decodeProject(value),
+  'dev.project.create': (value) => decodeProject(value),
+  'dev.project.scan': (value) => decodeProjectScanPage(value),
+  'dev.group.create': (value) => decodeGroup(value),
+  'dev.group.update': (value) => decodeGroup(value),
+  'dev.group.delete': (value) => decodeGroup(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
   // Terminal slice (#396): attach/input return single-use stream grants.

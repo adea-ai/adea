@@ -1232,11 +1232,20 @@ authority for projects, runtime sessions, groups, and the archive journal —
 not a projection of other state. One snapshot record commits groups, projects,
 sessions, and `ArchiveRecord`s together in a single atomic file write, so
 `dev.session.archive`/`dev.session.unarchive` persist the session flip and its
-durable record in one transaction. The register serves `dev.group.*`,
-`dev.project.*` (except import/clone/scan), `dev.session.create/get/list/
-archive/unarchive`; `dev.session.create` binds the session to an in-scope
-project and rejects a `repoId` outside the project's bound repositories with
-`identity_mismatch`. Every mutation enforces the scope triple
+durable record in one transaction. The register serves `dev.group.*` (now
+including `create`/`update`/`delete`: a created group is placed after
+`afterGroupId` or at the end and every displaced group's `version` bumps;
+`delete` requires an empty group plus a `confirmationId` and the `group`
+resource binding), `dev.project.import`/`create`/`get`/`list`/`reorder`, and
+`dev.session.create/get/list/archive/unarchive`. `dev.session.create` binds the
+session to an in-scope project and rejects a `repoId` outside the project's
+bound repositories with `identity_mismatch`. `dev.project.import` registers a
+project from an **authorized root bookmark**: the canonical root is resolved
+fail-closed through the roots authority inside the host — a client-supplied
+path never reaches the register — and a second registration for the same
+bookmark is refused with `identity_mismatch` instead of silently duplicating.
+Import and create commit the new project and every affected group's membership
+ordering in one snapshot write. Every mutation enforces the scope triple
 (`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
 concurrency (`stale_version`); a stored record that fails structural decode
 fails closed with `corrupt_state` and is retained unread. The earlier local
@@ -1895,6 +1904,32 @@ Scanner defaults:
 Watchers coalesce bursts for 250 ms, cap refresh concurrency at 4, prioritize
 visible rows, and degrade to explicit refresh plus a 60-second minimum
 fingerprint interval. There is no steady per-row subprocess polling.
+
+The scan is providerized as `dev.project.scan` (#398): the canonical root
+comes only from the bookmark's fail-closed recheck — the command names a
+`rootBookmarkId`, never a path. Results are cached by bookmark identity plus
+the manifest/ignore fingerprint; `force: true` rescans, and a changed
+fingerprint invalidates the cache. Pagination rides an opaque cursor that
+binds the cached fingerprint, so a scan that changed under a paginated client
+refuses with `stale_version` instead of mixing pages from two scans. Budget
+exhaustion and cancellation return a **successful partial page** whose
+`partial: true` and `diagnostics` (`budget_exhausted`, `cancelled`,
+`malformed_manifest:<path>`, `missing_workspace_member:<path>`,
+`gitignore_negation_unsupported:<dir>`) carry the reason — never a silent
+truncation and never a failed command for a successful partial scan. The
+scanner parses declared workspaces (`workspaces` in `package.json`,
+`pnpm-workspace.yaml`, `[workspace]` in `Cargo.toml`, `[tool.uv.workspace]` in
+`pyproject.toml`) rather than assuming every `package.json` is a project,
+never follows symlinks, treats a `[workspace]`-only root as a non-package, and
+reports malformed manifests as per-entry diagnostics with fallback names.
+Import/create/scan replies decode through strict provider-owned decoders
+(`Project`, `Group`, `ProjectScanPage`); a success DTO without its decoder
+still fails closed. The sidebar's add surface renders scan results as previews
+requiring confirmation — duplicates are flagged against live projects and the
+register's bookmark-binding check remains authoritative — and the sidebar's
+session rows render the canonical `RuntimeSession` lifecycle from the register
+(states outside the historical `active`/`ready`/`archived` set render a
+neutral dot with their own accessible name, never a coerced state).
 
 ## Worktree lifecycle
 
@@ -2631,6 +2666,26 @@ can distinguish intentional spec evolution from drift:
   writes) and the compiled trusted first-party entry registry with ordered
   fail-closed activation reasons (`untrusted-entry`, `integrity-failure`,
   `plan-unverified`, `stale`). No registry operations were added or changed.
+- **2026-09-19 — project registry providers, monorepo scan, and contextual
+  sidebar wiring (#398).** The previously typed-unavailable
+  `dev.group.create`/`update`/`delete`, `dev.project.import`/`create`, and
+  `dev.project.scan` operations gained reachable production providers.
+  Import/create are served by the durable project/session register (snapshot
+  writes keep project and group membership consistent; import resolves the
+  authorized root bookmark fail-closed and refuses duplicates with
+  `identity_mismatch`); scan is a companion provider whose canonical root
+  comes only from the bookmark recheck, with fingerprint-keyed caching,
+  fingerprint-bound cursors (`stale_version` on a moved scan), and partial
+  results carrying `budget_exhausted`/`cancelled` diagnostics. Group
+  `update`/`delete` require the `group` envelope resource binding; `delete`
+  additionally requires an empty group and a `confirmationId`. Additive
+  `Project.repos` bindings record the authoritative
+  `repoId`/`rootBookmarkId`/`canonicalRoot` triple. Fixed the shared request
+  decoder's field splitting so `<=`-bounded array types (`string[]<=32`) may
+  precede another body field without being mis-parsed as a generic; this was
+  a latent defect for mid-body bounded arrays and changes no documented
+  shapes. Success replies for the six operations now decode through strict
+  provider-owned decoders.
 - **2026-09-19 — control-plane composition and fail-closed approvals
   (remediation gate).** Hardened the host control plane without changing the
   operation registry:
@@ -2863,6 +2918,16 @@ files in the same commit:
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind
   behavior, and the typed-unavailable host capability results;
+- `apps/desktop/tests/project-scan.test.ts` pins the monorepo scanner's
+  prune-first discovery, workspace declaration parsing, symlink refusal,
+  ignore handling (including the negation diagnostic), malformed-manifest
+  diagnostics, package/entry/time budgets, cancellation, and fingerprints;
+- `apps/desktop/tests/project-registry.test.ts` pins the project registry
+  providers: group placement/update/delete fencing, import root resolution,
+  duplicate refusal, atomic group membership, restart persistence, scan
+  cache/cursor/partial semantics, and the strict reply decoders;
+- `packages/dev-view/tests/scan-preview-model.test.ts` pins the sidebar's
+  scan preview/duplicate/notice/import-plan presentation model;
 - web/desktop Playwright owner journey;
 - named Dev Runtime performance and soak commands
   (`test:performance:dev-runtime`, `test:soak:dev-runtime`) and the packaged,

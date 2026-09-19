@@ -33,7 +33,21 @@ export type DevWorkspaceProjection = Readonly<{
       sessions: readonly Readonly<{
         id: string
         title: string
-        state: 'active' | 'ready' | 'archived'
+        /**
+         * The canonical RuntimeSession lifecycle from the register (#398).
+         * States beyond the historical three render with a neutral status
+         * dot and their own accessible name instead of being coerced into
+         * `active`/`ready`.
+         */
+        state:
+          | 'preparing'
+          | 'ready'
+          | 'active'
+          | 'disconnected'
+          | 'completed'
+          | 'failed'
+          | 'cancelled'
+          | 'archived'
         generation?: number
       }>[]
     }>[]

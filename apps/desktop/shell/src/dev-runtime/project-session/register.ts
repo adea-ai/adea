@@ -218,6 +218,25 @@ function requireSessionResource(command: DevCommand, session: RuntimeSession): v
   }
 }
 
+/** Group operations carry a group resource binding (no generation: groups
+ * fence through their optimistic version alone). */
+function requireGroupResource(command: DevCommand, groupId: string): void {
+  const resource = command.resource
+  if (resource === undefined) {
+    throw devError('identity_mismatch', 'operation requires a group resource binding')
+  }
+  if (resource.kind !== 'group') {
+    throw devError('identity_mismatch', 'resource kind must be group')
+  }
+  if (resource.id !== groupId) {
+    throw devError('identity_mismatch', 'resource id does not match the request body')
+  }
+}
+
+/** The register's display order is the record-array order; sortKeys are the
+ * padded positions assigned on every ordering decision. */
+const sortKeyFor = (index: number): string => String(index).padStart(10, '0')
+
 function archiveRecord(
   session: RuntimeSession,
   scope: Scope,
@@ -281,6 +300,13 @@ export function registerProjectSessionRuntime(input: {
     repoId: string
     worktreeId: string
   }) => void
+  /**
+   * Fail-closed import hook (#398): the composition resolves an authorized
+   * root bookmark through the roots authority and returns its canonical
+   * root. Any refusal (unknown, revoked, drifted, replaced) throws before
+   * the register touches the record; client-supplied paths never reach it.
+   */
+  resolveImportRoot?: (rootBookmarkId: string) => { canonicalRoot: string }
 }): ProjectSessionRuntime {
   const store = createDurableJsonStore<AuthorityRecord>({
     file: join(input.dataDir, AUTHORITY_STORE_FILE),
@@ -385,7 +411,7 @@ export function registerProjectSessionRuntime(input: {
             const group = known.get(id)!
             return {
               ...group,
-              sortKey: String(index).padStart(10, '0'),
+              sortKey: sortKeyFor(index),
               version: group.version + 1,
             }
           }),
@@ -393,6 +419,100 @@ export function registerProjectSessionRuntime(input: {
         save()
       }
       return page(record.groups)
+    },
+    'dev.group.create': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.group.create'].request(command.body)
+      const name = body.name as string
+      const colorToken = body.colorToken as string | undefined
+      const afterGroupId = body.afterGroupId as string | undefined
+      if (afterGroupId !== undefined && !record.groups.some((group) => group.id === afterGroupId))
+        throw new DevAuthorityError('not_found', `group ${afterGroupId} is unknown`)
+      const created: Group = {
+        id: randomUUID(),
+        scope: input.scope,
+        name,
+        projectIds: [],
+        sortKey: '',
+        version: 1,
+        ...(colorToken !== undefined ? { colorToken } : {}),
+      }
+      // `create` places the group after `afterGroupId` or at the end, then
+      // reassigns the affected sort positions; every moved group's version
+      // bumps with the ordering decision.
+      const insertionIndex = afterGroupId
+        ? record.groups.findIndex((group) => group.id === afterGroupId) + 1
+        : record.groups.length
+      const next = [...record.groups]
+      next.splice(insertionIndex, 0, created)
+      record = {
+        ...record,
+        groups: next.map((group, index) =>
+          group.id === created.id ? { ...group, sortKey: sortKeyFor(index) } : group
+        ),
+      }
+      // Existing groups whose position moved advance their version.
+      record = {
+        ...record,
+        groups: record.groups.map((group, index) =>
+          group.id !== created.id && group.sortKey !== sortKeyFor(index)
+            ? { ...group, sortKey: sortKeyFor(index), version: group.version + 1 }
+            : group
+        ),
+      }
+      save()
+      // The persisted record carries the assigned sort position.
+      return record.groups.find((group) => group.id === created.id) ?? created
+    },
+    'dev.group.update': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.group.update'].request(command.body)
+      const groupId = body.groupId as string
+      const expectedVersion = body.expectedVersion as number
+      const patch = body.patch as { name?: string; colorToken?: string }
+      requireGroupResource(command, groupId)
+      const group = record.groups.find((entry) => entry.id === groupId)
+      if (!group) throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
+      if (group.version !== expectedVersion)
+        throw new DevAuthorityError(
+          'stale_version',
+          `group ${group.id} moved on: version ${group.version}`,
+          group.version
+        )
+      const next: Group = {
+        ...group,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.colorToken !== undefined ? { colorToken: patch.colorToken } : {}),
+        version: group.version + 1,
+      }
+      record = {
+        ...record,
+        groups: record.groups.map((entry) => (entry.id === group.id ? next : entry)),
+      }
+      save()
+      return next
+    },
+    'dev.group.delete': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.group.delete'].request(command.body)
+      const groupId = body.groupId as string
+      requireGroupResource(command, groupId)
+      const group = record.groups.find((entry) => entry.id === groupId)
+      if (!group) throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
+      if (group.version !== (body.expectedVersion as number))
+        throw new DevAuthorityError(
+          'stale_version',
+          `group ${group.id} moved on: version ${group.version}`,
+          group.version
+        )
+      if (group.projectIds.length > 0)
+        throw new DevAuthorityError(
+          'invalid_state',
+          `group ${group.id} still contains projects; move or remove them first`
+        )
+      record = { ...record, groups: record.groups.filter((entry) => entry.id !== groupId) }
+      save()
+      return group
     },
     'dev.project.list': (command) => {
       requireScope(command, input.scope)
@@ -430,6 +550,111 @@ export function registerProjectSessionRuntime(input: {
       }
       save()
       return next
+    },
+    'dev.project.import': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.project.import'].request(command.body)
+      const name = body.name as string
+      const rootBookmarkId = body.rootBookmarkId as string
+      const groupIds = body.groupIds as string[]
+      const preferredRuntimeNodeId = body.preferredRuntimeNodeId as string | undefined
+      // The canonical root never comes from the command: the composition
+      // resolves the authorized bookmark fail-closed (unknown, revoked,
+      // drifted, or replaced roots throw before this record is touched).
+      if (!input.resolveImportRoot) {
+        throw new DevAuthorityError(
+          'not_found',
+          'no authorized root authority is available for project import'
+        )
+      }
+      const root = input.resolveImportRoot(rootBookmarkId)
+      // One canonical root is imported once: a second registration for the
+      // same bookmark is an identity collision, not a silent duplicate.
+      if (
+        record.projects.some((project) =>
+          project.repos?.some((repo) => repo.rootBookmarkId === rootBookmarkId)
+        )
+      )
+        throw new DevAuthorityError(
+          'identity_mismatch',
+          'a project is already registered for this authorized root'
+        )
+      for (const groupId of groupIds)
+        if (!record.groups.some((group) => group.id === groupId))
+          throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
+      const repoId = randomUUID()
+      const created: Project = {
+        id: randomUUID(),
+        scope: input.scope,
+        name,
+        groupIds: [...groupIds],
+        repoIds: [repoId],
+        repos: [{ repoId, rootBookmarkId, canonicalRoot: root.canonicalRoot }],
+        lifecycle: 'ready',
+        version: 1,
+        ...(preferredRuntimeNodeId !== undefined ? { preferredRuntimeNodeId } : {}),
+      }
+      // One atomic snapshot write keeps the project and every group's
+      // membership ordering consistent.
+      record = {
+        ...record,
+        projects: [...record.projects, created],
+        groups: record.groups.map((group) =>
+          groupIds.includes(group.id)
+            ? {
+                ...group,
+                projectIds: [...group.projectIds, created.id],
+                version: group.version + 1,
+              }
+            : group
+        ),
+      }
+      save()
+      return created
+    },
+    'dev.project.create': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.project.create'].request(command.body)
+      const groupIds = body.groupIds as string[]
+      for (const groupId of groupIds)
+        if (!record.groups.some((group) => group.id === groupId))
+          throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
+      const created: Project = {
+        id: randomUUID(),
+        scope: input.scope,
+        name: body.name as string,
+        groupIds: [...groupIds],
+        repoIds: [...(body.repoIds as string[])],
+        lifecycle: 'ready',
+        version: 1,
+        ...(body.preferredRuntimeNodeId !== undefined
+          ? { preferredRuntimeNodeId: body.preferredRuntimeNodeId as string }
+          : {}),
+        ...(body.defaultBaseRef !== undefined
+          ? { defaultBaseRef: body.defaultBaseRef as string }
+          : {}),
+        ...(body.bootstrapWorkflowId !== undefined
+          ? { bootstrapWorkflowId: body.bootstrapWorkflowId as string }
+          : {}),
+        ...(body.defaultHarnessId !== undefined
+          ? { defaultHarnessId: body.defaultHarnessId as string }
+          : {}),
+      }
+      record = {
+        ...record,
+        projects: [...record.projects, created],
+        groups: record.groups.map((group) =>
+          groupIds.includes(group.id)
+            ? {
+                ...group,
+                projectIds: [...group.projectIds, created.id],
+                version: group.version + 1,
+              }
+            : group
+        ),
+      }
+      save()
+      return created
     },
     'dev.session.create': (command) => {
       requireScope(command, input.scope)
