@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.36.0](https://github.com/adea-ai/adea/compare/v0.35.0...v0.36.0) (2026-09-19)
+
+
+### Features
+
+* **shell:** git worktree lifecycle service (M12 [#397](https://github.com/adea-ai/adea/issues/397)) ([#517](https://github.com/adea-ai/adea/issues/517)) ([18f776b](https://github.com/adea-ai/adea/commit/18f776b62df2ca108a84e43bac2c68686ea45726))
+
 ## [0.35.0](https://github.com/adea-ai/adea/compare/v0.34.0...v0.35.0) (2026-09-19)
 
 
