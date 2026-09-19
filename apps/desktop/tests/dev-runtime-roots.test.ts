@@ -19,7 +19,12 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
+import {
+  createOwnerApprovalVerifier,
+  DevAuthorityError,
+  type OwnerApproval,
+  type OwnerApprovalVerifier,
+} from '../shell/src/dev-runtime/authority'
 import { createAuthorityAudit } from '../shell/src/dev-runtime/audit'
 import { createRootBookmarkAuthority } from '../shell/src/dev-runtime/roots'
 
@@ -33,10 +38,26 @@ const otherScope = {
   workspaceId: '00000000-0000-4000-8000-000000000099',
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 } as const
-const approval = { method: 'owner_dialog', reference: 'consent-1' } as const
+const ROOT_ACTION = 'authorize a root bookmark'
+let verifier: OwnerApprovalVerifier
+let consentSequence = 0
+
+/** Issues one durable, scope-bound, single-use owner approval. */
+function approved(action: string = ROOT_ACTION): OwnerApproval {
+  const approval: OwnerApproval = {
+    method: 'owner_dialog',
+    reference: `consent-${++consentSequence}`,
+    scope,
+    issuedAt: new Date(Date.now() - 1_000).toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  verifier.recordIssuance(approval, scope, action)
+  return approval
+}
 
 function authority(dataDir: string, audit?: ReturnType<typeof createAuthorityAudit>) {
-  return createRootBookmarkAuthority({ dataDir, audit })
+  verifier = createOwnerApprovalVerifier({ dataDir })
+  return createRootBookmarkAuthority({ dataDir, audit, approvalVerifier: verifier })
 }
 
 function expectCode(run: () => unknown, code: DevAuthorityError['code']) {
@@ -66,7 +87,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
       expect(minted.state).toBe('active')
       expect(minted.generation).toBe(1)
@@ -89,7 +110,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: linkDir,
-        approval,
+        approval: approved(),
       })
       expect(minted.canonicalRoot).toBe(realpathSync(root))
       expect(minted.rootIdentity.inode).toBe(String(statSync(root, { bigint: true }).ino))
@@ -99,7 +120,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
       expect(again.id).toBe(minted.id)
       expect(again.version).toBe(minted.version)
@@ -123,16 +144,30 @@ describe('root bookmark authority', () => {
             label: 'X',
             kind: 'directory',
             absolutePath: join(dataDir, 'missing'),
-            approval,
+            approval: approved(),
           }),
         'not_found'
       )
       expectCode(
-        () => roots.mint({ scope, label: 'X', kind: 'directory', absolutePath: file, approval }),
+        () =>
+          roots.mint({
+            scope,
+            label: 'X',
+            kind: 'directory',
+            absolutePath: file,
+            approval: approved(),
+          }),
         'special_file_rejected'
       )
       expectCode(
-        () => roots.mint({ scope, label: 'X', kind: 'directory', absolutePath: link, approval }),
+        () =>
+          roots.mint({
+            scope,
+            label: 'X',
+            kind: 'directory',
+            absolutePath: link,
+            approval: approved(),
+          }),
         'not_found'
       )
     } finally {
@@ -151,7 +186,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
       expect(roots.validate({ scope, bookmarkId: minted.id }).state).toBe('active')
 
@@ -173,7 +208,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
       expect(refreshed.id).toBe(minted.id)
       expect(refreshed.state).toBe('active')
@@ -196,7 +231,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
 
       rmSync(root, { recursive: true })
@@ -209,7 +244,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
       expectCode(
         () => roots.revoke({ scope, bookmarkId: minted.id, expectedVersion: 99 }),
@@ -245,7 +280,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
       expectCode(() => roots.validate({ scope: otherScope, bookmarkId: minted.id }), 'not_found')
       expect(roots.list({ scope: otherScope }).items).toHaveLength(0)
@@ -266,7 +301,7 @@ describe('root bookmark authority', () => {
         label: 'Repo',
         kind: 'repository',
         absolutePath: root,
-        approval,
+        approval: approved(),
       })
 
       const resolved = roots.resolvePath({
@@ -338,7 +373,7 @@ describe('root bookmark authority', () => {
           label: name,
           kind: name === 'c' ? 'repository' : 'directory',
           absolutePath: dir,
-          approval,
+          approval: approved(),
         })
       }
       expect(roots.list({ scope, kind: 'repository' }).items).toHaveLength(1)
@@ -361,7 +396,13 @@ describe('root bookmark authority', () => {
       const roots = authority(dataDir)
       const dir = join(dataDir, 'checkout')
       mkdirSync(dir)
-      roots.mint({ scope, label: 'Repo', kind: 'repository', absolutePath: dir, approval })
+      roots.mint({
+        scope,
+        label: 'Repo',
+        kind: 'repository',
+        absolutePath: dir,
+        approval: approved(),
+      })
       const storeDir = join(dataDir, 'dev-runtime', 'roots')
       writeFileSync(join(storeDir, 'bookmarks.json'), '{"schemaVersion":1,"records":[{"broken":', {
         mode: 0o600,
@@ -385,7 +426,13 @@ describe('root bookmark authority', () => {
       const roots = authority(dataDir, audit)
       const dir = join(dataDir, 'checkout')
       mkdirSync(dir)
-      roots.mint({ scope, label: 'Repo', kind: 'repository', absolutePath: dir, approval })
+      roots.mint({
+        scope,
+        label: 'Repo',
+        kind: 'repository',
+        absolutePath: dir,
+        approval: approved(),
+      })
       const trail = readFileSync(join(dataDir, 'audit.jsonl'), 'utf8')
       expect(trail).toContain('root.minted')
       expect(trail.includes(dir)).toBe(false)

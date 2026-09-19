@@ -100,48 +100,210 @@ export type VaultKeyStore = Readonly<{
 const VAULT_KEY_SERVICE = 'com.adea.desktop.dev-runtime'
 const VAULT_KEY_ACCOUNT = 'master-key-v1'
 
+/** Why a `security` CLI invocation failed. Only `item_not_found` may permit
+ * first-time key generation; every other class fails closed. */
+export type KeychainFailureReason =
+  | 'item_not_found'
+  | 'keychain_locked'
+  | 'access_denied'
+  | 'malformed_output'
+  | 'process_failure'
+  | 'timeout'
+  | 'unavailable_executable'
+
+export class KeychainAccessError extends Error {
+  constructor(
+    readonly reason: KeychainFailureReason,
+    message: string,
+    readonly exitCode?: number
+  ) {
+    super(message)
+    this.name = 'KeychainAccessError'
+  }
+}
+
+/** The exact `security` invocation contract, injectable for deterministic
+ * tests. Resolves with stdout on exit 0; throws a classified
+ * `KeychainAccessError` otherwise. */
+export type SecurityCommandRunner = (args: string[], input?: Buffer) => Buffer
+
+/** Result of one classified `security` process run. */
+type SecurityRun =
+  | { ok: true; stdout: Buffer }
+  | { ok: false; reason: KeychainFailureReason; message: string; exitCode?: number }
+
+const ITEM_NOT_FOUND_PATTERN =
+  /could not be found|item not found|errSecItemNotFound|The specified item could not be found/i
+const LOCKED_PATTERN =
+  /locked|errSecInteractionNotAllowed|User interaction is not allowed|-25308|unlock/i
+const DENIED_PATTERN =
+  /access denied|permission denied|errSecAuthFailed|not authorized|user authorization|denied/i
+const SECURITY_TIMEOUT_MS = 10_000
+
+/**
+ * Pure failure classification for one `security` process outcome. Exported
+ * so the taxonomy is deterministically testable without touching a real
+ * keychain: `security` exits 44 for errSecItemNotFound, and the stderr text
+ * is the secondary signal across platform versions.
+ */
+export function classifySecurityFailure(input: {
+  exitCode?: number
+  stderr: string
+  killed?: boolean
+  signal?: string
+  code?: string
+}): { reason: KeychainFailureReason; message: string } {
+  if (input.code === 'ENOENT') {
+    return {
+      reason: 'unavailable_executable',
+      message: 'the OS credential store executable is unavailable',
+    }
+  }
+  if (input.killed || input.signal === 'SIGTERM') {
+    return {
+      reason: 'timeout',
+      message: 'the OS credential store did not answer in time',
+    }
+  }
+  const stderr = input.stderr
+  if (
+    (input.exitCode === 44 || input.exitCode === 0x1002c) &&
+    ITEM_NOT_FOUND_PATTERN.test(stderr)
+  ) {
+    return { reason: 'item_not_found', message: 'keychain item not found' }
+  }
+  if (ITEM_NOT_FOUND_PATTERN.test(stderr)) {
+    return { reason: 'item_not_found', message: 'keychain item not found' }
+  }
+  if (LOCKED_PATTERN.test(stderr)) {
+    return {
+      reason: 'keychain_locked',
+      message: 'the OS keychain is locked or does not allow interaction',
+    }
+  }
+  if (DENIED_PATTERN.test(stderr)) {
+    return {
+      reason: 'access_denied',
+      message: 'access to the OS keychain item was denied',
+    }
+  }
+  return {
+    reason: 'process_failure',
+    message: `the OS credential store failed (exit ${input.exitCode ?? 'unknown'})`,
+  }
+}
+
+/**
+ * Runs `/usr/bin/security` once and classifies every failure mode. A nonzero
+ * exit or stderr text maps onto the failure taxonomy; only the authoritative
+ * item-not-found outcome is distinguishable from "cannot read the store".
+ */
+function classifySecurityRun(args: string[], input?: Buffer): SecurityRun {
+  let stdout: Buffer
+  try {
+    stdout = execFileSync('/usr/bin/security', args, {
+      input,
+      encoding: 'buffer',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: SECURITY_TIMEOUT_MS,
+    }) as Buffer
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException & {
+      status?: number
+      stderr?: Buffer | string
+      killed?: boolean
+      signal?: string
+    }
+    const classified = classifySecurityFailure({
+      exitCode: typeof err?.status === 'number' ? err.status : undefined,
+      stderr: String(err?.stderr ?? ''),
+      killed: err?.killed,
+      signal: err?.signal,
+      code: err?.code,
+    })
+    return { ok: false, ...classified }
+  }
+  if (stdout === undefined || stdout === null) {
+    return {
+      ok: false,
+      reason: 'malformed_output',
+      message: 'the OS credential store returned no output',
+    }
+  }
+  return { ok: true, stdout }
+}
+
+function keychainFailure(error: KeychainAccessError): DevAuthorityError {
+  // Fail closed with the contract's auth_required code; the reason text keeps
+  // the distinction actionable for diagnostics without leaking secret data.
+  return new DevAuthorityError('auth_required', `the OS credential store refused: ${error.message}`)
+}
+
 /**
  * The production adapter keeps the vault master key in macOS Keychain. A
  * file-backed fallback is deliberately not provided: a local file is not an
  * OS credential store and would turn a stolen app-data directory into the
  * ability to decrypt every credential reference. Tests inject an in-memory
- * adapter instead.
+ * adapter, or the `runSecurity` seam for the classification behavior itself.
  */
-function runSecurity(args: string[], input?: Buffer): Buffer {
-  try {
-    return execFileSync('/usr/bin/security', args, {
-      input,
-      encoding: 'buffer',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }) as Buffer
-  } catch {
-    throw new DevAuthorityError('auth_required', 'the OS credential store is unavailable')
-  }
-}
-
-export function createSystemVaultKeyStore(): VaultKeyStore {
+export function createSystemVaultKeyStore(options?: {
+  runSecurity?: SecurityCommandRunner
+}): VaultKeyStore {
   if (process.platform !== 'darwin') {
     throw new DevAuthorityError(
       'auth_required',
       'the credential vault requires an OS credential store on this platform'
     )
   }
+  const injectedRunner = options?.runSecurity
+  const runClassified = (args: string[], input?: Buffer): SecurityRun => {
+    if (!injectedRunner) return classifySecurityRun(args, input)
+    try {
+      return { ok: true, stdout: injectedRunner(args, input) }
+    } catch (error) {
+      if (error instanceof KeychainAccessError) {
+        return { ok: false, reason: error.reason, message: error.message, exitCode: error.exitCode }
+      }
+      return {
+        ok: false,
+        reason: 'process_failure',
+        message: error instanceof Error ? error.message : 'security command failed',
+      }
+    }
+  }
   return {
     get(service, account) {
-      try {
-        const encoded = runSecurity(['find-generic-password', '-s', service, '-a', account, '-w'])
-          .toString('utf8')
-          .trim()
-        return Buffer.from(encoded, 'base64')
-      } catch {
+      const run = runClassified(['find-generic-password', '-s', service, '-a', account, '-w'])
+      if (!run.ok) {
         // An absent item is the only case where initialization may create a
-        // key. Locked/denied stores fail closed in `set` below.
-        return undefined
+        // key. Locked, denied, malformed, timed-out, and failed stores fail
+        // closed without generating or overwriting a key.
+        if (run.reason === 'item_not_found') return undefined
+        throw keychainFailure(new KeychainAccessError(run.reason, run.message, run.exitCode))
       }
+      const encoded = run.stdout.toString('utf8').trim()
+      if (encoded.length === 0) {
+        throw keychainFailure(
+          new KeychainAccessError('malformed_output', 'keychain item returned an empty secret')
+        )
+      }
+      const key = Buffer.from(encoded, 'base64')
+      // Node/Bun base64 decoding is lenient: garbage decodes to garbage
+      // bytes without error. Re-encoding must reproduce the stored secret
+      // exactly, otherwise the item is malformed and the store fails closed.
+      if (
+        key.byteLength === 0 ||
+        key.toString('base64').replace(/=+$/, '') !== encoded.replace(/=+$/, '')
+      ) {
+        throw keychainFailure(
+          new KeychainAccessError('malformed_output', 'keychain item is not readable base64')
+        )
+      }
+      return key
     },
     set(service, account, key) {
       if (key.byteLength !== 32) throw new DevAuthorityError('corrupt_state', 'invalid vault key')
-      runSecurity([
+      const run = runClassified([
         'add-generic-password',
         '-U',
         '-s',
@@ -151,12 +313,15 @@ export function createSystemVaultKeyStore(): VaultKeyStore {
         '-w',
         key.toString('base64'),
       ])
+      if (!run.ok)
+        throw keychainFailure(new KeychainAccessError(run.reason, run.message, run.exitCode))
     },
     delete(service, account) {
-      try {
-        runSecurity(['delete-generic-password', '-s', service, '-a', account])
-      } catch {
-        // Deletion is idempotent when the item was already removed.
+      const run = runClassified(['delete-generic-password', '-s', service, '-a', account])
+      if (!run.ok && run.reason !== 'item_not_found') {
+        // Removal is idempotent only for an already-absent item; every other
+        // failure must surface rather than silently retain the key.
+        throw keychainFailure(new KeychainAccessError(run.reason, run.message, run.exitCode))
       }
     },
   }
@@ -177,11 +342,23 @@ function loadVaultKey(keyStore: VaultKeyStore): Buffer {
 export function createCredentialVault(options: {
   dataDir: string
   audit?: AuthorityAudit
-  approvalVerifier?: OwnerApprovalVerifier
+  /**
+   * Required. The durable, scope-bound, single-use owner-approval authority;
+   * a vault without one cannot prove owner consent, so construction fails
+   * rather than falling back to structural approval checks.
+   */
+  approvalVerifier: OwnerApprovalVerifier
   /** Injectable only for deterministic tests and approved host adapters. */
   credentialStore?: VaultKeyStore
 }) {
   const { dataDir, audit, approvalVerifier } = options
+  if (!approvalVerifier) {
+    // Startup guard for JavaScript callers that bypass the type.
+    throw new DevAuthorityError(
+      'auth_required',
+      'the credential vault requires an owner approval verifier'
+    )
+  }
   const vaultDir = join(dataDir, 'dev-runtime', 'vault')
   mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
   const vaultKeyStore = options.credentialStore ?? createSystemVaultKeyStore()
@@ -295,7 +472,7 @@ export function createCredentialVault(options: {
       if (existing.state === 'ready') return existing
       // 'unknown' means the sealed material is unreadable: this explicit
       // re-enrollment repairs the record under the owner's fresh approval.
-      approvalVerifier?.consume(approval, input.scope, 'enroll a credential')
+      approvalVerifier.consume(approval, input.scope, 'enroll a credential')
       writeSealed(existing.id, secret)
       const repaired: CredentialRefRecord = {
         ...existing,
@@ -308,7 +485,7 @@ export function createCredentialVault(options: {
       return repaired
     }
 
-    approvalVerifier?.consume(approval, input.scope, 'enroll a credential')
+    approvalVerifier.consume(approval, input.scope, 'enroll a credential')
     const record: CredentialRefRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

@@ -117,9 +117,20 @@ function pageOf(
 export function createRootBookmarkAuthority(options: {
   dataDir: string
   audit?: AuthorityAudit
-  approvalVerifier?: OwnerApprovalVerifier
+  /**
+   * Required. The durable, scope-bound, single-use owner-approval authority;
+   * minting a root bookmark without one cannot prove owner consent.
+   */
+  approvalVerifier: OwnerApprovalVerifier
 }) {
   const { dataDir, audit, approvalVerifier } = options
+  if (!approvalVerifier) {
+    // Startup guard for JavaScript callers that bypass the type.
+    throw new DevAuthorityError(
+      'auth_required',
+      'the root bookmark authority requires an owner approval verifier'
+    )
+  }
   const storeDir = join(dataDir, 'dev-runtime', 'roots')
   const store = createDurableJsonStore<RootBookmarkRecord>({
     file: join(storeDir, 'bookmarks.json'),
@@ -222,7 +233,7 @@ export function createRootBookmarkAuthority(options: {
       return existing
     }
     if (existing && existing.state === 'stale') {
-      approvalVerifier?.consume(approval, input.scope, 'authorize a root bookmark')
+      approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
       // Owner re-authorization of the same canonical root refreshes identity.
       const refreshed: RootBookmarkRecord = {
         ...existing,
@@ -236,7 +247,7 @@ export function createRootBookmarkAuthority(options: {
       return refreshed
     }
 
-    approvalVerifier?.consume(approval, input.scope, 'authorize a root bookmark')
+    approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
     const record: RootBookmarkRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

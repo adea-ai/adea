@@ -62,9 +62,15 @@ describe('Dev View dependency and bundle boundaries', () => {
     expect(desktopSeam).not.toContain('desktopInvoke')
     expect(desktopSeam).not.toContain("from './desktop-bridge'")
 
+    // The host seam is the production composition root: it registers every
+    // reachable provider, fills the rest with typed-unavailable providers,
+    // and publishes the operation/provider matrix as acceptance evidence
+    // (remediation gate 2026-09-19; matrix pinned by
+    // apps/desktop/tests/dev-runtime-composition.test.ts).
     const hostSeam = read('apps/desktop/shell/src/dev-runtime/index.ts')
-    expect(hostSeam).toContain("status: 'blocked'")
-    expect(hostSeam).toContain('registeredCommands: Object.freeze([]')
+    expect(hostSeam).toContain('createDevRuntimeHost')
+    expect(hostSeam).toContain('typed_unavailable')
+    expect(hostSeam).toContain('no host adapter is available for')
     expect(read('apps/desktop/shell/src/commands.ts')).not.toContain("'dev.runtime.execute.v1'")
   })
 

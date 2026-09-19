@@ -59,62 +59,126 @@ export type OwnerApproval = Readonly<{
 }>
 
 export type OwnerApprovalVerifier = Readonly<{
+  /**
+   * Records that an authoritative owner prompt/setting ISSUED this approval.
+   * Consumption below fails closed unless a matching issuance record exists,
+   * so a caller-supplied non-empty string is never approval.
+   */
+  recordIssuance(approval: OwnerApproval, scope: DevScope, action: string): void
   consume(approval: OwnerApproval, scope: DevScope, action: string): void
 }>
 
-type ConsumedApproval = Readonly<{
+type IssuedApproval = Readonly<{
   reference: string
+  method: string
+  action: string
   accountId: string
   workspaceId: string
   runtimeNodeId: string
-  action: string
-  consumedAt: string
+  issuedAt: string
+  expiresAt: string
 }>
 
-/** Durable single-use approval evidence. The UI must issue a unique reference
- * bound to the exact scope; authorities consume it before mutating state. */
+type StoredApproval = IssuedApproval & Readonly<{ consumedAt?: string }>
+
+const APPROVAL_MAX_LIFETIME_MS = 10 * 60_000
+
+/**
+ * Durable single-use approval evidence backed by an authoritative issuance
+ * ledger. The host's owner prompt/setting calls `recordIssuance` when the
+ * owner actually approves; an authority then consumes that exact record once.
+ * Every consumption re-checks scope, action, and the validity window, and a
+ * reference is never consumable twice.
+ */
 export function createOwnerApprovalVerifier(options: {
   dataDir: string
   now?: () => Date
 }): OwnerApprovalVerifier {
   const now = options.now ?? (() => new Date())
-  const store = createDurableJsonStore<ConsumedApproval>({
+  const store = createDurableJsonStore<StoredApproval>({
     file: join(options.dataDir, 'dev-runtime', 'approvals', 'consumed.json'),
     schemaVersion: 1,
     label: 'owner approval evidence',
   })
-  return {
-    consume(approval, scope, action) {
-      requireApproval(approval, action)
-      if (!approval.scope || !sameScope(approval.scope, scope))
-        throw new DevAuthorityError('unauthorized', 'approval scope does not match the request')
-      if (typeof approval.issuedAt !== 'string' || typeof approval.expiresAt !== 'string')
-        throw new DevAuthorityError(
-          'unauthorized',
-          'approval evidence is missing its validity window'
-        )
-      const issued = Date.parse(approval.issuedAt)
-      const expires = Date.parse(approval.expiresAt)
-      const at = now().getTime()
-      if (
-        !Number.isFinite(issued) ||
-        !Number.isFinite(expires) ||
-        issued > at + 30_000 ||
-        expires <= at
+
+  function assertWellFormed(approval: OwnerApproval, scope: DevScope, action: string): void {
+    requireApproval(approval, action)
+    if (!approval.scope || !sameScope(approval.scope, scope))
+      throw new DevAuthorityError('unauthorized', 'approval scope does not match the request')
+    if (typeof approval.issuedAt !== 'string' || typeof approval.expiresAt !== 'string')
+      throw new DevAuthorityError(
+        'unauthorized',
+        'approval evidence is missing its validity window'
       )
-        throw new DevAuthorityError('unauthorized', 'approval evidence is expired or invalid')
+    const issued = Date.parse(approval.issuedAt)
+    const expires = Date.parse(approval.expiresAt)
+    const at = now().getTime()
+    if (
+      !Number.isFinite(issued) ||
+      !Number.isFinite(expires) ||
+      issued > at + 30_000 ||
+      expires <= issued ||
+      expires - issued > APPROVAL_MAX_LIFETIME_MS
+    )
+      throw new DevAuthorityError(
+        'unauthorized',
+        'approval evidence has an invalid validity window'
+      )
+  }
+
+  return {
+    recordIssuance(approval, scope, action) {
+      assertWellFormed(approval, scope, action)
       const all = [...store.load().records]
-      if (all.some((entry) => entry.reference === approval.reference))
-        throw new DevAuthorityError('unauthorized', 'approval evidence has already been consumed')
+      // A reference is single-use for its action even before consumption: an
+      // owner prompt re-issued under the same reference replaces nothing.
+      if (all.some((entry) => entry.reference === approval.reference && entry.action === action))
+        throw new DevAuthorityError('unauthorized', 'approval reference was already issued')
       all.push({
         reference: approval.reference,
+        method: approval.method,
+        action,
         accountId: scope.accountId,
         workspaceId: scope.workspaceId,
         runtimeNodeId: scope.runtimeNodeId,
-        action,
-        consumedAt: now().toISOString(),
+        issuedAt: approval.issuedAt!,
+        expiresAt: approval.expiresAt!,
       })
       store.save(all)
+    },
+    consume(approval, scope, action) {
+      assertWellFormed(approval, scope, action)
+      const all = [...store.load().records]
+      const underReference = all.filter((entry) => entry.reference === approval.reference)
+      const issued = underReference.find((entry) => entry.action === action)
+      if (!issued)
+        throw new DevAuthorityError(
+          'unauthorized',
+          'approval evidence was never issued by an owner prompt'
+        )
+      // A reference is single-use across every action: any consumed record
+      // under this reference makes a fresh consumption a replay.
+      if (underReference.some((entry) => entry.consumedAt !== undefined))
+        throw new DevAuthorityError('unauthorized', 'approval evidence has already been consumed')
+      if (
+        issued.method !== approval.method ||
+        issued.accountId !== scope.accountId ||
+        issued.workspaceId !== scope.workspaceId ||
+        issued.runtimeNodeId !== scope.runtimeNodeId ||
+        issued.issuedAt !== approval.issuedAt ||
+        issued.expiresAt !== approval.expiresAt
+      )
+        throw new DevAuthorityError('unauthorized', 'approval evidence does not match its issuance')
+      const at = now().getTime()
+      if (Date.parse(issued.expiresAt) <= at)
+        throw new DevAuthorityError('unauthorized', 'approval evidence is expired')
+      store.save(
+        all.map((entry) =>
+          entry.reference === approval.reference && entry.action === action
+            ? { ...entry, consumedAt: now().toISOString() }
+            : entry
+        )
+      )
     },
   }
 }

@@ -5,33 +5,124 @@ import {
   type DevWorkspaceProjection,
 } from '@adea-ai/dev-view/platform'
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
-type DesktopBridge = {
-  devExecute?: (command: unknown) => Promise<unknown>
-}
-
-declare global {
-  interface Window {
-    __ADEA_DEV_SCOPE__?: Scope
-  }
-}
 
 /**
  * Binds Dev View to the shell's authenticated channel. The bridge is injected
  * only into the packaged desktop window; a normal web tab remains explicitly
  * unavailable rather than attempting a direct loopback connection.
+ *
+ * The scope is never read from a renderer global: the shell projects the
+ * scope it verified against the cloud for the signed identity bind, and this
+ * adapter consumes that projection. Until the shell reports a bound scope,
+ * the service is truthfully unavailable — a guessed or synthetic scope is
+ * never used to build commands (spec: provider invariant 4).
  */
 export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}): DevRuntimeService {
   const unavailable = createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
   const bridge = typeof window === 'undefined' ? undefined : window.__adeaDesktop
   const execute = bridge?.devExecute as ((command: DevCommand) => Promise<DevReply>) | undefined
-  const scope =
-    options.scope ?? (typeof window === 'undefined' ? undefined : window.__ADEA_DEV_SCOPE__)
+  // The signed legacy invoke on the injected bridge object (never the shared
+  // desktop-bridge module) carries the shell's scope projection.
+  const bridgeInvoke = bridge?.invoke as
+    | (<T>(cmd: string, args?: Record<string, unknown>) => Promise<T>)
+    | undefined
 
-  if (!execute || !scope) return unavailable
+  if (options.scope) {
+    return createBoundService({ execute, shellScope: options.scope })
+  }
+  if (!execute || !bridgeInvoke || typeof window === 'undefined') return unavailable
+
+  // Authoritative scope projection: the shell's verified binding, fetched
+  // over the signed legacy channel. A refusal keeps the service unavailable
+  // with the shell's reason — the renderer never self-asserts a scope.
+  let shellScope: Scope | undefined
+  let bindRefusal: { code: string; message: string } | undefined
+  const projectedScope = bridgeInvoke<Scope>('desktop_identity_scope')
+    .then((scope) => {
+      shellScope = scope
+      return scope
+    })
+    .catch((error: unknown) => {
+      bindRefusal = {
+        code: 'unauthenticated',
+        message: error instanceof Error ? error.message : 'identity scope is unbound',
+      }
+      return undefined
+    })
 
   return {
+    state: () =>
+      shellScope
+        ? { status: 'ready' as const }
+        : {
+            status: 'unavailable' as const,
+            reason: 'channel_unauthenticated' as const,
+          },
+    preferenceScope: () => shellScope,
+    projection: async (requestedScope) => {
+      const scope = (await projectedScope) ?? requestedScope
+      if (shellScope && !sameScope(scope, shellScope)) {
+        throw new Error(bindRefusal?.message ?? 'requested scope does not match the shell binding')
+      }
+      const [groups, projects, sessions] = await Promise.all([
+        executeOperation(execute, 'dev.group.list', scope, {}),
+        executeOperation(execute, 'dev.project.list', scope, {}),
+        executeOperation(execute, 'dev.session.list', scope, {}),
+      ])
+      return toProjection(groups, projects, sessions)
+    },
+    capabilitySnapshot: async (requestedScope) => {
+      const scope = (await projectedScope) ?? requestedScope
+      if (shellScope && !sameScope(scope, shellScope)) {
+        return {
+          scope: requestedScope,
+          granted: [],
+          unavailable: [],
+          channelGeneration: 0,
+          observedAt: new Date().toISOString(),
+        }
+      }
+      const command = buildDevCommand({
+        operation: 'dev.capability.snapshot',
+        scope,
+        body: {},
+      })
+      return readSnapshot(await execute(command), scope)
+    },
+    execute: async (command) => {
+      try {
+        return await execute(command)
+      } catch (error) {
+        return {
+          schemaVersion: 1,
+          operation: command.operation,
+          requestId: command.requestId,
+          ok: false,
+          error: {
+            code: 'channel_unauthenticated',
+            retryable: true,
+            message:
+              error instanceof Error ? error.message : 'authenticated desktop channel failed',
+            observedAt: new Date().toISOString(),
+          },
+        }
+      }
+    },
+  }
+}
+
+/** An explicitly provided scope (tests, future bind-aware entry) binds at
+ * construction; commands are still checked against the shell at the gate. */
+function createBoundService(options: {
+  execute?: (command: DevCommand) => Promise<DevReply>
+  shellScope: Scope
+}): DevRuntimeService {
+  const { shellScope } = options
+  const execute = options.execute
+  if (!execute) return createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+  return {
     state: () => ({ status: 'ready' }),
-    preferenceScope: () => scope,
+    preferenceScope: () => shellScope,
     projection: async (requestedScope) => {
       const [groups, projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.group.list', requestedScope, {}),
@@ -70,8 +161,16 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
   }
 }
 
+function sameScope(left: Scope, right: Scope): boolean {
+  return (
+    left.accountId === right.accountId &&
+    left.workspaceId === right.workspaceId &&
+    left.runtimeNodeId === right.runtimeNodeId
+  )
+}
+
 async function executeOperation(
-  execute: NonNullable<DesktopBridge['devExecute']>,
+  execute: (command: DevCommand) => Promise<DevReply>,
   operation: 'dev.group.list' | 'dev.project.list' | 'dev.session.list',
   scope: Scope,
   body: Record<string, unknown>
