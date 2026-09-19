@@ -18,7 +18,11 @@ import type { ComponentId } from './component-manifest'
 
 export const RECORDS_FILE = 'records.jsonl'
 const CORRUPT_FILE = 'records.corrupt.jsonl'
-const MAX_RECORDS = 1_000
+/** The production retention cap. Inject a smaller `maxRecords` in tests so
+ *  prune semantics are provable without a four-thousand-append wall-clock
+ *  dependency (the real-I/O volume used to trip the runner timeout under
+ *  load); production behavior is unchanged. */
+export const DEFAULT_MAX_RECORDS = 1_000
 
 export type ProcessIdentity = {
   pid: number
@@ -115,7 +119,11 @@ function persistRecords(path: string, records: SupervisionRecord[]): void {
  * and journal are owner-only from creation. Corrupt lines found on load are
  * moved to the quarantine file and counted; they never block recovery.
  */
-export function createRecordStore(dir: string): RecordStore {
+export function createRecordStore(
+  dir: string,
+  options?: { maxRecords?: number }
+): RecordStore {
+  const maxRecords = options?.maxRecords ?? DEFAULT_MAX_RECORDS
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const path = join(dir, RECORDS_FILE)
   if (!existsSync(path)) writeFileSync(path, '', { mode: 0o600 })
@@ -137,8 +145,8 @@ export function createRecordStore(dir: string): RecordStore {
   return {
     append(record: SupervisionRecord): void {
       records.push(record)
-      if (records.length > MAX_RECORDS) {
-        records = records.slice(records.length - MAX_RECORDS)
+      if (records.length > maxRecords) {
+        records = records.slice(records.length - maxRecords)
         persistRecords(path, records)
         return
       }

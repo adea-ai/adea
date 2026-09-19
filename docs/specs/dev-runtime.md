@@ -1776,7 +1776,25 @@ Supervision rules:
 
 This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
 `apps/desktop/tests/supervision-supervisor.test.ts`, and
-`apps/desktop/tests/supervision-records.test.ts`.
+`apps/desktop/tests/supervision-records.test.ts`. The rules are additionally
+proven against real processes by the packaged supervision smoke lane —
+`apps/desktop/shell/scripts/supervision-smoke.ts` with
+`apps/desktop/shell/src/supervision/process-adapter.ts` (the real macOS
+adapter: spawn, `ps`-observed launch identity validated against its expected
+row shape and fail-closed when unparseable, signal) — gated to darwin like the
+terminal PTY smoke and pinned by
+`apps/desktop/tests/supervision-packaged-smoke.test.ts`. The smoke proves
+launch-record identity against the live OS, exit confirmed only by observation
+(including an already-dead process confirmed without a signal), SIGTERM→SIGKILL
+escalation with child-side testimony that SIGTERM was delivered and ignored,
+and reconcile after supervisor restart (adoption of the still-running launch,
+expected-exit journaling for a dead one, and refusal — without signalling — of
+a forged record that fails the real-OS identity recheck). Its boundary is
+explicit: the supervised `dev-runtime-sidecar` component is the real bundled
+sidecar entry and the smoke child is a real process, but a complete packaged
+run additionally needs the Electrobun-bundled application binary plus the
+packaging lane's install-location resolution feeding the component manifest;
+the smoke documents that gap rather than faking the evidence.
 
 ### Shell integration and input
 
@@ -2544,6 +2562,25 @@ can distinguish intentional spec evolution from drift:
     actual registration graph and enumerates the operation/provider matrix),
     `apps/desktop/tests/dev-runtime-approvals.test.ts`, and
     `apps/desktop/tests/dev-runtime-vault-keychain.test.ts`.
+- **2026-09-19 — packaged supervision smoke lane (M10 #185/#34).** The
+  supervision rules are now proven against real processes on the packaged app
+  path: `shell/src/supervision/process-adapter.ts` is the real macOS adapter
+  (ps-observed launch identity, validated against its expected row shape and
+  fail-closed when unparseable, so an identity is never guessed; spawn and
+  signal; ESRCH between recheck and signal reads as the exit the observation
+  loop then sees), and `shell/scripts/supervision-smoke.ts` proves
+  launch-record identity, exit-by-observation (including already-dead without
+  a signal), SIGTERM→SIGKILL escalation with child-side delivery testimony,
+  and reconcile-after-restart (adopt / expected-exit journal / forged-record
+  refusal without signalling), pinned by
+  `apps/desktop/tests/supervision-packaged-smoke.test.ts` (darwin-gated like
+  the terminal PTY smoke). The lane states its own boundary: a complete
+  packaged run additionally needs the Electrobun-bundled app binary and the
+  packaging lane's install-location resolution feeding the manifest ("Local
+  stack supervision" updated). No supervision rule changed. Record-store
+  retention is now test-injectable (`maxRecords`, default unchanged at
+  1,000) so the prune semantics no longer depend on 1,100 real appends of
+  wall-clock I/O.
 - **2026-09-19 — host-correctness tightening (#396/#397/#185).** Terminal:
   attach below the memory ring now replays a contiguous durable checkpoint
   bridge exactly once, in order, before live delivery, and a genuinely
@@ -2576,7 +2613,6 @@ can distinguish intentional spec evolution from drift:
   required leaf-only focus restoration; clarified that unbounded file offsets,
   lengths, and byte counts use `uint64-string`; and moved production remote-node
   certification to M14 while retaining remote-ready fake-node fixtures in M12.
-  \=======
 - **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
   "Local stack supervision" section: the desktop shell is the single
   supervisor for the bundled local stack, specified as the component-manifest
