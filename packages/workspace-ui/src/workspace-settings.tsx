@@ -3,8 +3,8 @@ import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
-import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, UserRound } from 'lucide-solid'
-import { createEffect, createSignal, For, onCleanup, Show, type JSX } from 'solid-js'
+import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, ShieldCheck, UserRound } from 'lucide-solid'
+import { createEffect, createSignal, For, lazy, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
 import { keyedRows } from './keyed-rows'
@@ -15,6 +15,7 @@ import {
   type WorkspacePlatformServices,
   type WorkspacePreferences,
 } from './platform'
+import type { MacPermissionsPageService } from '@adea-ai/dev-view/permissions'
 import {
   nextSettingsSection,
   settingsSectionFromHash,
@@ -31,7 +32,14 @@ const sectionIcons = {
   'input-notifications': Mic,
   'privacy-data': EyeOff,
   integrations: Link2,
+  permissions: ShieldCheck,
 } satisfies Record<SettingsSection, typeof UserRound>
+
+// Lazy: the permissions pane (and its dev-view chunk) loads only when the
+// section opens, never with the workspace chrome.
+const PermissionsPane = lazy(() =>
+  import('@adea-ai/dev-view/permissions').then((module) => ({ default: module.PermissionsPane }))
+)
 
 function SettingsRow(props: { children?: JSX.Element; detail: string; title: string }) {
   return (
@@ -55,6 +63,9 @@ export function WorkspaceSettingsDialog(props: {
   onSignIn: () => void
   onSignOut: () => void
   open: boolean
+  /** The desktop bridge permission service; omitted (web-only) renders the
+   * pane's honest typed-unavailable states. */
+  permissionsService?: MacPermissionsPageService
   services?: WorkspacePlatformServices
   workspace: WorkspaceSummary
 }) {
@@ -471,6 +482,18 @@ export function WorkspaceSettingsDialog(props: {
                 title="Plugin runtime connections"
                 detail="Manage enabled plugins from the global Plugins menu. Runtime credentials and execution remain unavailable until an authoritative Control Plane provider is connected."
               />
+            </>
+          </Show>
+          <Show when={section() === 'permissions'}>
+            <>
+              <header>
+                <ShieldCheck aria-hidden="true" />
+                <div>
+                  <h3>{settingsSectionLabels.permissions}</h3>
+                  <p>macOS capabilities this app is granted, with the system panes that control them.</p>
+                </div>
+              </header>
+              <PermissionsPane service={props.permissionsService} />
             </>
           </Show>
           <div class="visually-hidden" aria-live="polite">

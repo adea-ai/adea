@@ -28,6 +28,8 @@ import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspaceSearch } from '../start/routes/__root'
+import { desktopMacPermissionsService } from '../lib/desktop-permissions'
+import { isDesktopRuntime } from '../lib/desktop-bridge'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -173,6 +175,7 @@ function WorkspaceSettingsOverlay(props: {
       onSignIn={props.onSignIn}
       onSignOut={props.onSignOut}
       open={props.open}
+      permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
       services={props.services}
       workspace={props.workspace}
     />
