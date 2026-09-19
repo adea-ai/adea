@@ -2484,6 +2484,18 @@ Required layers:
 8. performance commands and a 24-hour soak with retained results;
 9. provenance/package scans described in the donor audit.
 
+Named evidence commands (root `package.json`; each exits nonzero on failure
+and prints a retained summary under git-ignored `artifacts/dev-runtime/`):
+`test:packaged` (Electrobun shell build), `test:security:dev-runtime`
+(shell-channel/browser/vault/terminal-input suites),
+`test:performance:dev-runtime`, `test:soak:dev-runtime`, and
+`test:bundle:dev-view` (lazy-chunk boundary). The visual lane
+(`test:e2e:visual` plus the `Workspace visual lane` workflow) renders every
+document of `apps/web/e2e/conventional-workspace.spec.ts` without CSS
+transitions (`apps/web/e2e/helpers/visual.ts`) so captures are always the
+settled frame; baseline regeneration stays a single owner-run pass on the
+final merged tree.
+
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but the local packaged macOS path must
 pass before M12 release. M12 also requires authorized fake
@@ -2576,7 +2588,7 @@ can distinguish intentional spec evolution from drift:
   required leaf-only focus restoration; clarified that unbounded file offsets,
   lengths, and byte counts use `uint64-string`; and moved production remote-node
   certification to M14 while retaining remote-ready fake-node fixtures in M12.
-  \=======
+
 - **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
   "Local stack supervision" section: the desktop shell is the single
   supervisor for the bundled local stack, specified as the component-manifest
@@ -2588,8 +2600,6 @@ can distinguish intentional spec evolution from drift:
   handshake, owner-only quarantined records, bounded secret-free audit).
   This transcribes the supervision authority M12 consumes; it adds no Dev
   Runtime registry operations and changes no acceptance criteria.
-
-> > > > > > > 49452cc (feat(shell): supervise the bundled local component stack)
 
 - **2026-09-18 — browser and device lanes implementation (#422).** Landed the
   lane host adapters and UI behind the existing registry (no new operations):
@@ -2708,7 +2718,11 @@ files in the same commit:
   scope-before-dispatch gate ordering, revocation and refused-rebind
   behavior, and the typed-unavailable host capability results;
 - web/desktop Playwright owner journey;
-- named Dev Runtime performance and soak commands;
+- named Dev Runtime performance and soak commands
+  (`test:performance:dev-runtime`, `test:soak:dev-runtime`) and the packaged,
+  security, and bundle lanes (`test:packaged`, `test:security:dev-runtime`,
+  `test:bundle:dev-view`), each writing its summary under
+  `artifacts/dev-runtime/`;
 - package/provenance denylist tests.
 
 Until those files exist, the matching implementation issue remains open; prose

@@ -8,7 +8,9 @@
 // The spec mocks every workspace API response, so no database is needed.
 import { createHash } from 'node:crypto'
 
-import { expect, test, type Page } from '@playwright/test'
+// The visual helpers install transition suppression for every capture; see
+// helpers/visual.ts for the race this closes.
+import { expect, test, type Page } from './helpers/visual'
 
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
 
