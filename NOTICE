@@ -101,6 +101,18 @@ Licensed under the MIT License.
 
 For the M10 issue #30 Zeron and Orca portions, permission is hereby granted,
 free of charge, to any person obtaining a copy of this software and associated
+Dev View issue #397 contains portions substantially translated and modified from
+Orca (https://github.com/stablyai/orca):
+Copyright (c) 2026 Lovecast Inc.
+Licensed under the MIT License.
+
+Dev View issue #397 contains portions substantially translated and modified from bb
+(https://github.com/get-bb/bb):
+Copyright (c) 2026 Michael Yong
+Licensed under the MIT License.
+
+For the Orca and issue-#397 bb portions, permission is hereby granted, free of
+charge, to any person obtaining a copy of this software and associated
 documentation files (the "Software"), to deal in the Software without
 restriction, including without limitation the rights to use, copy, modify,
 merge, publish, distribute, sublicense, and/or sell copies of the Software, and
