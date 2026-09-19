@@ -5,9 +5,9 @@ import {
   type DevWorkspaceProjection,
 } from '@adea-ai/dev-view/platform'
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
-import type { DesktopShell } from './desktop-bridge'
-
-type DesktopBridge = Pick<DesktopShell, 'devExecute'>
+type DesktopBridge = {
+  devExecute?: (command: unknown) => Promise<unknown>
+}
 
 declare global {
   interface Window {

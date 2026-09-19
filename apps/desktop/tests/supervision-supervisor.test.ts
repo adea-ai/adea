@@ -139,6 +139,7 @@ describe('start and idempotency', () => {
     ])
     expect(supervisor.snapshot().components[0]).toMatchObject({ state: 'running', generation: 2 })
   })
+
 })
 
 describe('dependency-aware readiness', () => {
@@ -153,7 +154,22 @@ describe('dependency-aware readiness', () => {
     expect(blocked).toMatchObject({ ok: false, code: 'capability_unavailable' })
 
     await supervisor.start({ componentId: 'cp', idempotencyKey: 'cp-1' })
-    const ready = await supervisor.start({ componentId: 'pi', idempotencyKey: 'pi-1' })
+    clock.advance(30_000)
+    const degradedDependency = await supervisor.start({
+      componentId: 'pi',
+      idempotencyKey: 'pi-degraded',
+    })
+    expect(degradedDependency).toMatchObject({ ok: false, code: 'capability_unavailable' })
+
+    clock.advance(15_000)
+    const unhealthyDependency = await supervisor.start({
+      componentId: 'pi',
+      idempotencyKey: 'pi-unhealthy',
+    })
+    expect(unhealthyDependency).toMatchObject({ ok: false, code: 'capability_unavailable' })
+
+    supervisor.heartbeat('cp')
+    const ready = await supervisor.start({ componentId: 'pi', idempotencyKey: 'pi-healthy' })
     expect(ready.ok).toBe(true)
   })
 

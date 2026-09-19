@@ -5,11 +5,10 @@
 // operations dispatch through the M10 execute path, and binds the
 // `browser-frames-v1` stream handler to the bounded-publication screencast.
 //
-// Stream-grant minting note: the execute path does not carry the client's
-// channel identity into command providers, so the browser/device
-// `attach`/`input` handlers stay typed-unavailable until the wave owner
-// threads channel identity through provider registration (recorded in the
-// PR; the lane/screencast fencing is complete and tested at this layer).
+// Stream-grant note: the provider seam accepts channel identity, but this
+// registration has no live browser/device frame engine. Attach/input therefore
+// remain typed-unavailable until the stream engine and #400 event attachment
+// are installed; never mint a grant for a stream that cannot be served.
 import type { DevCommand, DevOperation } from '../../../../../../packages/types/src/dev-runtime'
 
 import { createDeviceSessionRegistry, type VerifiedInventory } from '../devices/device-sessions'
@@ -119,16 +118,6 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     resolveDns: input.resolveDns ?? (async () => []),
     ownedServices: input.ownedServices ?? (() => []),
     screenshotRecorder: screenshots,
-    mintStreamGrant: ({ identity, scope, resource, direction, fromSequence }) =>
-      input.authority.mintStreamGrant({
-        identity,
-        protocol: 'browser-frames-v1',
-        scope,
-        resource,
-        direction,
-        fromSequence,
-        maxFrameBytes: 1_048_576,
-      }),
   })
   input.authority.registerStreamProvider('browser-frames-v1')
   input.authority.registerStreamProvider('device-frames-v1')
@@ -136,16 +125,6 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     sessions: deviceSessions,
     verifiedInventory: () => verifiedInventory,
     iosInputHint: 'simctl exposes no tap; a future automation helper may add it',
-    mintStreamGrant: ({ identity, scope, resource, direction, fromSequence }) =>
-      input.authority.mintStreamGrant({
-        identity,
-        protocol: 'device-frames-v1',
-        scope,
-        resource,
-        direction,
-        fromSequence,
-        maxFrameBytes: 1_048_576,
-      }),
   })
   if (input.gateway) {
     input.gateway.registerStreamHandler('browser-frames-v1', unavailableStream)

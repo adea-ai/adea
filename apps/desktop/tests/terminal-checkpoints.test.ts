@@ -159,6 +159,21 @@ describe('terminal checkpoint store', () => {
     }
   })
 
+  test('truncated segments are quarantined instead of crashing restore', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-term-truncated-'))
+    try {
+      const sessionDir = join(root, terminalId)
+      mkdirSync(sessionDir, { recursive: true, mode: 0o700 })
+      writeFileSync(join(sessionDir, 'seg-1-0-5.adt'), new TextEncoder().encode('ADT1'), {
+        mode: 0o600,
+      })
+      expect(() => sink(root).read('0')).not.toThrow()
+      expect(readdirSync(join(sessionDir, 'corrupt'))).toHaveLength(1)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('flips a flipped byte into quarantine instead of replaying garbage', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-term-bitflip-'))
     try {

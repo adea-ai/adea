@@ -206,6 +206,21 @@ export function createSupervisor(input: {
     runtime.failures = runtime.failures.filter((at) => at >= horizon)
   }
 
+  function currentHealth(runtime: ComponentRuntime): ComponentHealth {
+    if (!runtime.launch) {
+      runtime.health = 'unknown'
+      return runtime.health
+    }
+    const elapsed = now() - runtime.lastHeartbeatAt
+    runtime.health =
+      elapsed >= runtime.spec.healthProbe.unhealthyAfterMs
+        ? 'unhealthy'
+        : elapsed >= runtime.spec.healthProbe.intervalMs * 2
+          ? 'degraded'
+          : 'healthy'
+    return runtime.health
+  }
+
   function enterCrashLoop(runtime: ComponentRuntime): void {
     runtime.state = 'crash_loop'
     runtime.health = 'unknown'
@@ -274,7 +289,11 @@ export function createSupervisor(input: {
     }
     for (const dependencyId of runtime.spec.dependsOn) {
       const dependency = runtimes.get(dependencyId)
-      if (!dependency || dependency.state !== 'running' || dependency.health === 'unhealthy') {
+      if (
+        !dependency ||
+        dependency.state !== 'running' ||
+        currentHealth(dependency) !== 'healthy'
+      ) {
         return fail(
           'capability_unavailable',
           `${runtime.spec.id} cannot start before its dependency ${dependencyId} is running and healthy`
@@ -522,11 +541,8 @@ export function createSupervisor(input: {
 
     health(componentId) {
       const runtime = runtimes.get(componentId)
-      if (!runtime || !runtime.launch) return 'unknown'
-      const elapsed = now() - runtime.lastHeartbeatAt
-      if (elapsed >= runtime.spec.healthProbe.unhealthyAfterMs) return 'unhealthy'
-      if (elapsed >= runtime.spec.healthProbe.intervalMs * 2) return 'degraded'
-      return 'healthy'
+      if (!runtime) return 'unknown'
+      return currentHealth(runtime)
     },
 
     baselineReady() {

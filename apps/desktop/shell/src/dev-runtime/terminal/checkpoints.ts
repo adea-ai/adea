@@ -255,11 +255,14 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
     } catch {
       return { ok: false, error: { code: 'not_found', message: 'segment vanished' } }
     }
+    if (fileBytes.byteLength < 8) return quarantine(path, 'truncated segment header')
     const magic = new TextDecoder().decode(fileBytes.subarray(0, 4))
     if (magic !== SEGMENT_MAGIC) return quarantine(path, 'bad magic')
     const view = new DataView(fileBytes.buffer, fileBytes.byteOffset, fileBytes.byteLength)
     const footerLength = view.getUint32(4, false)
     if (footerLength > TERMINAL_LIMITS.maxChunkBytes) return quarantine(path, 'footer too large')
+    if (8 + footerLength > fileBytes.byteLength)
+      return quarantine(path, 'truncated segment footer')
     const footerText = new TextDecoder().decode(fileBytes.subarray(8, 8 + footerLength))
     let parsed: unknown
     try {
