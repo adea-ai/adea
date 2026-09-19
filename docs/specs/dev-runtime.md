@@ -189,8 +189,6 @@ type DevCapability =
   | 'dev.terminal.manage'
   | 'dev.session.read'
   | 'dev.session.manage'
-  | 'dev.harness.read'
-  | 'dev.harness.manage'
   | 'dev.files.read'
   | 'dev.files.write'
   | 'dev.git.read'
@@ -481,53 +479,6 @@ type HarnessRun = {
   startedAt?: string
   finishedAt?: string
   version: number
-}
-
-// Managed Pi driver (#31): the Agent HQ-owned installation read model. The
-// pinned version and its archive digest are build-time constants; a genuine
-// host absence reports `failed` with a typed `capability_unavailable`
-// reason and never fabricates an installation.
-type ManagedPiInstallState = 'absent' | 'resolving' | 'installing' | 'ready' | 'failed'
-type ManagedPiStatus = {
-  scope: Scope
-  driverId: string
-  driverVersion: string
-  pinnedVersion: string
-  state: ManagedPiInstallState
-  installationId?: string
-  resolvedVersion?: string
-  executableIdentity?: string
-  executableLabel?: string
-  lastErrorCode?: DevErrorCode
-  lastError?: string
-  observedAt: string
-  generation: number
-}
-
-// ACP lane (#32): one negotiated connection bound to the canonical
-// RuntimeSession. A required capability the harness does not advertise
-// makes the connection ineligible (state `failed` with the missing set
-// recorded); native history is a separate capability and is never
-// fabricated. Close bumps the generation so stale bindings are inert.
-type AcpConnectionState = 'connecting' | 'ready' | 'disconnected' | 'closed' | 'failed'
-type AcpConnection = {
-  id: string
-  scope: Scope
-  runtimeSessionId: string
-  harnessInstallationId: string
-  driverId: string
-  driverVersion: string
-  negotiatedProtocolVersion: string
-  requiredCapabilities: string[]
-  negotiatedCapabilities: string[]
-  missingRequiredCapabilities: string[]
-  sessionOperations: string[]
-  limitations: string[]
-  history: 'available' | 'unavailable'
-  state: AcpConnectionState
-  closeReason?: string
-  observedAt: string
-  generation: number
 }
 
 type ProcessRecord = {
@@ -1342,7 +1293,6 @@ type DevOperation =
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
   | `dev.session.${'create' | 'get' | 'list' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
-  | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'runs'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
@@ -1384,7 +1334,7 @@ channel), `dev.runtime.execute.v1` (one `AuthorizedDevFrame`/`DevReply`),
 `dev.runtime.stream.attach.v1` (terminal/browser/device bulk stream negotiated
 from an authorized execute reply). The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 139 operation names, exact body shapes, exact reply types, complete required
+all 133 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -1580,7 +1530,6 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                  |
 | `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                         |
 | `dev.session`       | `create`, `get`, `list`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                    |
-| `dev.harness`       | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `runs`                                                                                                                                                        |
 | `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
 | `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
 | `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
@@ -1607,7 +1556,6 @@ Capability/resource binding is deny-by-default:
 | worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                          |
 | terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                          |
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                   |
-| harness       | `dev.harness.read`                                                          | install/connect/close requires `dev.harness.manage`                                                         | `runtime_session` (`acpConnect`), `acp_connection` (`acpClose`); reads carry no resource |
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request      |
 | browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                      |
@@ -1828,25 +1776,7 @@ Supervision rules:
 
 This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
 `apps/desktop/tests/supervision-supervisor.test.ts`, and
-`apps/desktop/tests/supervision-records.test.ts`. The rules are additionally
-proven against real processes by the packaged supervision smoke lane —
-`apps/desktop/shell/scripts/supervision-smoke.ts` with
-`apps/desktop/shell/src/supervision/process-adapter.ts` (the real macOS
-adapter: spawn, `ps`-observed launch identity validated against its expected
-row shape and fail-closed when unparseable, signal) — gated to darwin like the
-terminal PTY smoke and pinned by
-`apps/desktop/tests/supervision-packaged-smoke.test.ts`. The smoke proves
-launch-record identity against the live OS, exit confirmed only by observation
-(including an already-dead process confirmed without a signal), SIGTERM→SIGKILL
-escalation with child-side testimony that SIGTERM was delivered and ignored,
-and reconcile after supervisor restart (adoption of the still-running launch,
-expected-exit journaling for a dead one, and refusal — without signalling — of
-a forged record that fails the real-OS identity recheck). Its boundary is
-explicit: the supervised `dev-runtime-sidecar` component is the real bundled
-sidecar entry and the smoke child is a real process, but a complete packaged
-run additionally needs the Electrobun-bundled application binary plus the
-packaging lane's install-location resolution feeding the component manifest;
-the smoke documents that gap rather than faking the evidence.
+`apps/desktop/tests/supervision-records.test.ts`.
 
 ### Shell integration and input
 
@@ -2134,60 +2064,6 @@ retains ready worktree and terminal.
 Changing AgentProfile does not silently select credentials. Changing harness
 does not rename the profile. A linked donor persona's inherited provider/model
 behavior is not the Adea identity model.
-
-### Harness runtime substrate (#31 managed Pi, #32 ACP lane)
-
-The substrate is the M10 command surface that #400 launches through; the Dev
-Runtime performs no model-facing harness engineering (no compaction, no prompt
-rewriting, no task planning — harnesses own their internal loops) and never
-manages Pi processes directly. Every operation dispatches through the
-authenticated gate, is scope-bound, and re-checks the envelope resource
-binding (kind, id, generation) against the canonical `RuntimeSession` record
-before the provider acts.
-
-Managed Pi (#31) is the consumer zero-config path and the initial global
-default harness lane on a clean desktop. The `ManagedPiDriver` installs a
-pinned, digest-verified Pi build into an Agent HQ-owned location
-(`dev.harness.managedPiInstall`, idempotent): the pinned version and its
-archive digest are build-time constants, never network-resolved; a cached,
-current installation short-circuits with no writes and no probing; the
-archive is hash-verified before any byte reaches the install root; installs
-stage and atomically swap, and a failed install/update rolls back without
-degrading the previous managed version or touching any user-managed Pi
-configuration. Acceptance is "no manual Pi installation required": a clean
-supported desktop reaches `ready` through the gate alone. A genuine host
-absence (unsupported platform, no bundled/cached archive, failed write) is a
-typed `capability_unavailable`/`corrupt_state` error through the gate and a
-truthful `failed`/degraded status record — never a fake installation, and
-never a fabricated session.
-
-The ACP lane (#32) connects a supported local harness speaking ACP and maps
-it onto the canonical `RuntimeSession` (`dev.harness.acpConnect`): spawn uses
-a fixed argv template over the host-resolved installation record (never
-renderer input); the handshake negotiates protocol version, capabilities,
-session operations, and limitations within bounded bytes and time. A required
-capability the harness does not advertise makes the connection ineligible
-(typed `incompatible`; the failed connection record is retained as
-diagnostic evidence). Optional capability absence only degrades the record
-explicitly. Native history/load/replay is a separate negotiated capability
-(`AcpConnection.history`); it is surfaced with provenance or reported
-`unavailable` and never fabricated, and Agent HQ conversations never depend
-on it. Native authentication, tools, and configuration remain with the
-external harness and are never mutated. Close (`dev.harness.acpClose`) is
-generation-fenced and bumps the connection generation, so stale bindings are
-inert. Run status/history is the paged `dev.harness.runs` read model.
-
-`dev.session.launchHarness` is idempotent per (session, installation,
-AgentProfile, model) on a live run and binds the created `HarnessRun` to the
-session with a generation bump (`lifecycle: 'active'`,
-`activeHarnessRunId`). `dev.session.resumeHarness` creates a new
-`HarnessRun` generation under the same compatible session and marks the
-prior run `disconnected`. `dev.session.cancelHarness` cancels the named
-run (already-terminal runs refuse with `already_completed`), closes the
-session's live ACP lane best-effort, and moves the session to
-`'disconnected'` with the run cleared. Launching against an installation
-that is not ready refuses with a typed error and a remediation pointing at
-`dev.harness.managedPiInstall`; an unknown installation is `not_found`.
 
 ## Browser and device lanes
 
@@ -2608,6 +2484,18 @@ Required layers:
 8. performance commands and a 24-hour soak with retained results;
 9. provenance/package scans described in the donor audit.
 
+Named evidence commands (root `package.json`; each exits nonzero on failure
+and prints a retained summary under git-ignored `artifacts/dev-runtime/`):
+`test:packaged` (Electrobun shell build), `test:security:dev-runtime`
+(shell-channel/browser/vault/terminal-input suites),
+`test:performance:dev-runtime`, `test:soak:dev-runtime`, and
+`test:bundle:dev-view` (lazy-chunk boundary). The visual lane
+(`test:e2e:visual` plus the `Workspace visual lane` workflow) renders every
+document of `apps/web/e2e/conventional-workspace.spec.ts` without CSS
+transitions (`apps/web/e2e/helpers/visual.ts`) so captures are always the
+settled frame; baseline regeneration stays a single owner-run pass on the
+final merged tree.
+
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but the local packaged macOS path must
 pass before M12 release. M12 also requires authorized fake
@@ -2620,28 +2508,6 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
-- **2026-09-19 — harness runtime substrate (#31 managed Pi, #32 ACP lane).**
-  Added the `dev.harness` family (`managedPiStatus`, `managedPiInstall`,
-  `acpConnect`, `acpConnections`, `acpClose`, `runs`) with the
-  `dev.harness.read`/`dev.harness.manage` capabilities, the `acp_connection`
-  resource kind, the `AgentProfileRef` and `HarnessRun` wire DTOs (with the
-  `dev.session.launchHarness`/`resumeHarness`/`cancelHarness` success
-  decoders), and the `ManagedPiStatus`/`AcpConnection` read models. The
-  managed Pi driver installs a pinned, digest-verified build into an
-  Agent HQ-owned location with zero manual steps (clean-desktop default
-  lane), never touches user-managed Pi configuration, and reports genuine
-  host absence as typed `capability_unavailable` — never a fabricated
-  installation. The ACP lane negotiates protocol/capabilities within bounded
-  bytes and time, refuses required-unsupported capabilities as ineligible,
-  records native history as a separate never-fabricated capability, and
-  binds every connection and run to the canonical `RuntimeSession` identity
-  with scope and generation fencing (launch idempotent, resume a new run
-  generation, cancel fences and disconnects the session). The Dev Runtime
-  performs no model-facing harness engineering. Pinned by
-  `packages/types/tests/dev-runtime-harness.test.ts` and
-  `apps/desktop/tests/dev-runtime-harness.test.ts`; matrix rows in
-  `apps/desktop/tests/dev-runtime-composition.test.ts`. Total operations:
-  139.
 - **2026-09-19 — control-plane composition and fail-closed approvals
   (remediation gate).** Hardened the host control plane without changing the
   operation registry:
@@ -2690,25 +2556,6 @@ can distinguish intentional spec evolution from drift:
     actual registration graph and enumerates the operation/provider matrix),
     `apps/desktop/tests/dev-runtime-approvals.test.ts`, and
     `apps/desktop/tests/dev-runtime-vault-keychain.test.ts`.
-- **2026-09-19 — packaged supervision smoke lane (M10 #185/#34).** The
-  supervision rules are now proven against real processes on the packaged app
-  path: `shell/src/supervision/process-adapter.ts` is the real macOS adapter
-  (ps-observed launch identity, validated against its expected row shape and
-  fail-closed when unparseable, so an identity is never guessed; spawn and
-  signal; ESRCH between recheck and signal reads as the exit the observation
-  loop then sees), and `shell/scripts/supervision-smoke.ts` proves
-  launch-record identity, exit-by-observation (including already-dead without
-  a signal), SIGTERM→SIGKILL escalation with child-side delivery testimony,
-  and reconcile-after-restart (adopt / expected-exit journal / forged-record
-  refusal without signalling), pinned by
-  `apps/desktop/tests/supervision-packaged-smoke.test.ts` (darwin-gated like
-  the terminal PTY smoke). The lane states its own boundary: a complete
-  packaged run additionally needs the Electrobun-bundled app binary and the
-  packaging lane's install-location resolution feeding the manifest ("Local
-  stack supervision" updated). No supervision rule changed. Record-store
-  retention is now test-injectable (`maxRecords`, default unchanged at
-  1,000) so the prune semantics no longer depend on 1,100 real appends of
-  wall-clock I/O.
 - **2026-09-19 — host-correctness tightening (#396/#397/#185).** Terminal:
   attach below the memory ring now replays a contiguous durable checkpoint
   bridge exactly once, in order, before live delivery, and a genuinely
@@ -2741,6 +2588,7 @@ can distinguish intentional spec evolution from drift:
   required leaf-only focus restoration; clarified that unbounded file offsets,
   lengths, and byte counts use `uint64-string`; and moved production remote-node
   certification to M14 while retaining remote-ready fake-node fixtures in M12.
+
 - **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
   "Local stack supervision" section: the desktop shell is the single
   supervisor for the bundled local stack, specified as the component-manifest
@@ -2752,8 +2600,6 @@ can distinguish intentional spec evolution from drift:
   handshake, owner-only quarantined records, bounded secret-free audit).
   This transcribes the supervision authority M12 consumes; it adds no Dev
   Runtime registry operations and changes no acceptance criteria.
-
-> > > > > > > 49452cc (feat(shell): supervise the bundled local component stack)
 
 - **2026-09-18 — browser and device lanes implementation (#422).** Landed the
   lane host adapters and UI behind the existing registry (no new operations):
@@ -2872,7 +2718,11 @@ files in the same commit:
   scope-before-dispatch gate ordering, revocation and refused-rebind
   behavior, and the typed-unavailable host capability results;
 - web/desktop Playwright owner journey;
-- named Dev Runtime performance and soak commands;
+- named Dev Runtime performance and soak commands
+  (`test:performance:dev-runtime`, `test:soak:dev-runtime`) and the packaged,
+  security, and bundle lanes (`test:packaged`, `test:security:dev-runtime`,
+  `test:bundle:dev-view`), each writing its summary under
+  `artifacts/dev-runtime/`;
 - package/provenance denylist tests.
 
 Until those files exist, the matching implementation issue remains open; prose
