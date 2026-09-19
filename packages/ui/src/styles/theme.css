@@ -218,6 +218,13 @@
   border: 1px solid var(--border);
 }
 
+/* Appearance preview painters (see components/theme-preview.tsx). The
+   previewed variant's own border color is runtime token data, passed
+   through this hook's custom property instead of the live theme border. */
+.theme-preview-border {
+  border-color: var(--preview-border, var(--border));
+}
+
 @layer base {
   *,
   *::before,

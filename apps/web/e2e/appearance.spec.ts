@@ -33,8 +33,10 @@ test.describe('appearance', () => {
     await section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
 
-    await section(dialog, 'Dark theme').getByRole('radio', { name: 'Slate Dark' }).click()
+    await section(dialog, 'Dark theme').getByRole('button', { name: 'Dark theme' }).click()
+    await page.getByRole('menuitemradio', { name: 'Slate Dark' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
+    await expect(section(dialog, 'Dark theme').getByText('Slate Dark')).toBeVisible()
 
     await dialog.getByRole('button', { name: 'Save' }).click()
     await expect(dialog).toBeHidden()
@@ -44,6 +46,17 @@ test.describe('appearance', () => {
     await page.reload()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
     await expect(page.locator('html')).toHaveClass(/dark/)
+  })
+
+  test('the mode cards render live miniatures, with System split light/dark', async ({ page }) => {
+    const dialog = await openAppearance(page)
+    const mode = section(dialog, 'Appearance mode')
+
+    // System's card holds the split (two miniatures); Light and Dark hold one.
+    await expect(mode.locator('[data-theme-miniature]')).toHaveCount(4)
+    await mode.getByRole('radio', { name: 'Light' }).click()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
   })
 
   test('Escape reverts the draft: closing without saving keeps the old appearance', async ({
@@ -57,6 +70,39 @@ test.describe('appearance', () => {
     await expect(dialog).toBeHidden()
     await expect(page.locator('html')).not.toHaveClass(/dark/)
     expect(await page.evaluate(() => window.localStorage.getItem('appearance'))).toBeNull()
+  })
+
+  test('accent presets and the custom hex picker preview live and normalize', async ({ page }) => {
+    const dialog = await openAppearance(page)
+    const accent = section(dialog, 'Accent color')
+
+    await accent.getByRole('radio', { name: 'Blue accent' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
+    await expect(accent.getByText('Blue · Controls, glyphs')).toBeVisible()
+
+    // The custom picker rejects unparseable input and normalizes valid colors.
+    await accent.getByRole('radio', { name: 'Custom accent' }).click()
+    const hex = accent.getByRole('textbox', { name: 'Custom accent color as a hex value' })
+    await hex.fill('not-a-color')
+    await hex.blur()
+    await expect(accent.getByText('“not-a-color” is not a hex color')).toBeVisible()
+
+    await hex.fill('#2563eb')
+    await hex.blur()
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
+    await accent.getByRole('radio', { name: 'Theme default accent' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-accent', 'theme')
+  })
+
+  test('the glass control switches the resolved surface', async ({ page }) => {
+    const dialog = await openAppearance(page)
+    await dialog.getByRole('radio', { name: 'Frosted' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
+    await dialog.getByRole('radio', { name: 'Opaque' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
+    await dialog.getByRole('button', { name: 'Save' }).click()
+    await expect(dialog).toBeHidden()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
   })
 
   test('reduced transparency forces the opaque surface state', async ({ page }) => {
@@ -77,6 +123,29 @@ test.describe('appearance', () => {
     await expect(mode.getByRole('radio', { name: 'Light' })).toBeChecked()
     await page.keyboard.press('ArrowRight')
     await expect(mode.getByRole('radio', { name: 'Dark' })).toBeChecked()
+  })
+
+  test('the theme library row opens behind the declared-license contract', async ({ page }) => {
+    const dialog = await openAppearance(page)
+    // An unsaved draft must survive the contract view round-trip.
+    await section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    await dialog.getByRole('button', { name: 'Add theme' }).click()
+
+    const library = page.getByRole('dialog', { name: 'Add a theme' })
+    await expect(library).toBeVisible()
+    await expect(library.getByText('declare an explicit license and provenance')).toBeVisible()
+    await expect(library.getByText('signed App Library pipeline')).toBeVisible()
+
+    await library.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(library).toBeHidden()
+    // The appearance dialog returns with the draft intact and still uncommitted.
+    await expect(dialog).toBeVisible()
+    await expect(page.locator('html')).toHaveClass(/dark/)
+    await expect(
+      section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' })
+    ).toBeChecked()
+    expect(await page.evaluate(() => window.localStorage.getItem('appearance'))).toBeNull()
   })
 
   test('the legacy single theme key migrates without flash or deletion', async ({ page }) => {
