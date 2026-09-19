@@ -500,6 +500,42 @@
       "body": "{ groupId: string; expectedVersion: integer; patch: GroupMutableFields }",
       "reply": "Group"
     },
+    "dev.harness.acpClose": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": "acp_connection:required",
+      "body": "{ acpConnectionId: string; expectedGeneration: integer }",
+      "reply": "AcpConnection"
+    },
+    "dev.harness.acpConnect": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessInstallationId: string; protocolVersion?: string(1..32) }",
+      "reply": "AcpConnection"
+    },
+    "dev.harness.acpConnections": {
+      "capabilities": ["dev.harness.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; state?: 'connecting'|'ready'|'disconnected'|'closed'|'failed'; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<AcpConnection>"
+    },
+    "dev.harness.managedPiInstall": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": null,
+      "body": "{}",
+      "reply": "ManagedPiStatus"
+    },
+    "dev.harness.managedPiStatus": {
+      "capabilities": ["dev.harness.read"],
+      "resource": null,
+      "body": "{}",
+      "reply": "ManagedPiStatus"
+    },
+    "dev.harness.runs": {
+      "capabilities": ["dev.harness.read"],
+      "resource": null,
+      "body": "{ runtimeSessionId?: string; installationId?: string; state?: 'resolving'|'starting'|'working'|'awaiting_input'|'awaiting_approval'|'completed'|'failed'|'cancelled'|'disconnected'|'unknown'; cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<HarnessRun>"
+    },
     "dev.project.archive": {
       "capabilities": ["dev.project.manage"],
       "resource": "project:required",

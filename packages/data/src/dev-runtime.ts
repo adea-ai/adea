@@ -22,6 +22,22 @@ export const devRuntimeQueryKeys = Object.freeze({
   session: (scope: Scope, runtimeSessionId: string) =>
     [...scopeKey(scope), 'sessions', runtimeSessionId] as const,
   capabilities: (scope: Scope) => [...scopeKey(scope), 'capabilities'] as const,
+  // #31/#32 harness-runtime substrate read models.
+  managedPi: (scope: Scope) => [...scopeKey(scope), 'harness', 'managedPi'] as const,
+  acpConnections: (scope: Scope, runtimeSessionId?: string) =>
+    [
+      ...scopeKey(scope),
+      'harness',
+      'acpConnections',
+      ...(runtimeSessionId ? [runtimeSessionId] : []),
+    ] as const,
+  harnessRuns: (scope: Scope, runtimeSessionId?: string) =>
+    [
+      ...scopeKey(scope),
+      'harness',
+      'runs',
+      ...(runtimeSessionId ? [runtimeSessionId] : []),
+    ] as const,
 })
 
 /** Cancel before removal so an outgoing request cannot repopulate private data. */

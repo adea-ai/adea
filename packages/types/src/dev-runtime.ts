@@ -417,6 +417,93 @@ export type RuntimeConnectionInventorySnapshot = Readonly<{
   observedAt: string
 }>
 
+// ─── Harness runtime substrate (#31 managed Pi / #32 ACP lane) ──────────────
+//
+// Wire DTOs for the harness-runtime substrate that #400 launches through. The
+// substrate owns the managed-Pi installation lifecycle and the ACP lane
+// connection; it never fabricates a session or a run, and it performs no
+// model-facing harness engineering (no compaction, no prompt rewriting, no
+// task planning — harnesses own their internal loops).
+
+export type AgentProfileRef = Readonly<{
+  id: string
+  version: number
+  displayName: string
+  capabilityPolicyVersion: number
+}>
+
+export type HarnessRunState =
+  | 'resolving'
+  | 'starting'
+  | 'working'
+  | 'awaiting_input'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'disconnected'
+  | 'unknown'
+
+export type HarnessRun = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  installationId: string
+  agentProfile: AgentProfileRef
+  modelId?: string
+  state: HarnessRunState
+  generation: number
+  startedAt?: string
+  finishedAt?: string
+  version: number
+}>
+
+export type ManagedPiInstallState = 'absent' | 'resolving' | 'installing' | 'ready' | 'failed'
+
+export type ManagedPiStatus = Readonly<{
+  scope: Scope
+  driverId: string
+  driverVersion: string
+  /** The build-time pinned version; never resolved from the network. */
+  pinnedVersion: string
+  state: ManagedPiInstallState
+  /** Stable installation identity once ready (joins to launch/resume). */
+  installationId?: string
+  /** The version actually observed after install; equals pinnedVersion on success. */
+  resolvedVersion?: string
+  executableIdentity?: string
+  executableLabel?: string
+  lastErrorCode?: DevErrorCode
+  lastError?: string
+  observedAt: string
+  generation: number
+}>
+
+export type AcpConnectionState = 'connecting' | 'ready' | 'disconnected' | 'closed' | 'failed'
+export type AcpHistoryCapability = 'available' | 'unavailable'
+
+export type AcpConnection = Readonly<{
+  id: string
+  scope: Scope
+  /** The canonical RuntimeSession this lane is bound to (never a second type). */
+  runtimeSessionId: string
+  harnessInstallationId: string
+  driverId: string
+  driverVersion: string
+  negotiatedProtocolVersion: string
+  requiredCapabilities: readonly string[]
+  negotiatedCapabilities: readonly string[]
+  missingRequiredCapabilities: readonly string[]
+  sessionOperations: readonly string[]
+  limitations: readonly string[]
+  /** Native ACP history is a separate capability and is never fabricated. */
+  history: AcpHistoryCapability
+  state: AcpConnectionState
+  closeReason?: string
+  observedAt: string
+  generation: number
+}>
+
 // ─── Terminal runtime (#396) ────────────────────────────────────────────────
 // Wire DTOs for the integrated terminal. Health is orthogonal to state; the
 // lifecycle machine and limits are normative in docs/specs/dev-runtime.md
@@ -1539,6 +1626,151 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.generation, `${path}.generation`, 0)
     return value
   }
+  // #31/#32 harness substrate DTOs.
+  if (name === 'AgentProfileRef') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'version', 'displayName', 'capabilityPolicyVersion'], [], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    integerValue(item.version, `${path}.version`, 1)
+    stringValue(item.displayName, `${path}.displayName`, 1, 256)
+    integerValue(item.capabilityPolicyVersion, `${path}.capabilityPolicyVersion`, 1)
+    return value
+  }
+  if (name === 'HarnessRun') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'installationId',
+        'agentProfile',
+        'state',
+        'generation',
+        'version',
+      ],
+      ['modelId', 'startedAt', 'finishedAt'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.installationId, `${path}.installationId`, 1, 256)
+    namedType('AgentProfileRef', item.agentProfile, `${path}.agentProfile`)
+    if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
+    literal(
+      item.state,
+      [
+        'resolving',
+        'starting',
+        'working',
+        'awaiting_input',
+        'awaiting_approval',
+        'completed',
+        'failed',
+        'cancelled',
+        'disconnected',
+        'unknown',
+      ],
+      `${path}.state`
+    )
+    integerValue(item.generation, `${path}.generation`, 1)
+    if (item.startedAt !== undefined) timestamp(item.startedAt, `${path}.startedAt`)
+    if (item.finishedAt !== undefined) timestamp(item.finishedAt, `${path}.finishedAt`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'ManagedPiStatus') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['scope', 'driverId', 'driverVersion', 'pinnedVersion', 'state', 'observedAt', 'generation'],
+      [
+        'installationId',
+        'resolvedVersion',
+        'executableIdentity',
+        'executableLabel',
+        'lastErrorCode',
+        'lastError',
+      ],
+      path
+    )
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.driverId, `${path}.driverId`, 1, 128)
+    stringValue(item.driverVersion, `${path}.driverVersion`, 1, 64)
+    stringValue(item.pinnedVersion, `${path}.pinnedVersion`, 1, 128)
+    literal(item.state, ['absent', 'resolving', 'installing', 'ready', 'failed'], `${path}.state`)
+    if (item.installationId !== undefined)
+      if (!uuidPattern.test(stringValue(item.installationId, `${path}.installationId`)))
+        fail(`${path}.installationId`, 'expected lowercase UUID')
+    if (item.resolvedVersion !== undefined)
+      stringValue(item.resolvedVersion, `${path}.resolvedVersion`, 1, 128)
+    if (item.executableIdentity !== undefined)
+      stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 4096)
+    if (item.executableLabel !== undefined)
+      stringValue(item.executableLabel, `${path}.executableLabel`, 1, 256)
+    if (item.lastErrorCode !== undefined)
+      literal(item.lastErrorCode, devErrorCodes, `${path}.lastErrorCode`)
+    if (item.lastError !== undefined) stringValue(item.lastError, `${path}.lastError`, 1, 512)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'AcpConnection') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'harnessInstallationId',
+        'driverId',
+        'driverVersion',
+        'negotiatedProtocolVersion',
+        'requiredCapabilities',
+        'negotiatedCapabilities',
+        'missingRequiredCapabilities',
+        'sessionOperations',
+        'limitations',
+        'history',
+        'state',
+        'observedAt',
+        'generation',
+      ],
+      ['closeReason'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
+    stringValue(item.driverId, `${path}.driverId`, 1, 128)
+    stringValue(item.driverVersion, `${path}.driverVersion`, 1, 64)
+    stringValue(item.negotiatedProtocolVersion, `${path}.negotiatedProtocolVersion`, 1, 32)
+    validateType('string[]<=32', item.requiredCapabilities, `${path}.requiredCapabilities`)
+    validateType('string[]<=64', item.negotiatedCapabilities, `${path}.negotiatedCapabilities`)
+    validateType(
+      'string[]<=32',
+      item.missingRequiredCapabilities,
+      `${path}.missingRequiredCapabilities`
+    )
+    validateType('string[]<=32', item.sessionOperations, `${path}.sessionOperations`)
+    validateType('string[]<=32', item.limitations, `${path}.limitations`)
+    literal(item.history, ['available', 'unavailable'], `${path}.history`)
+    literal(
+      item.state,
+      ['connecting', 'ready', 'disconnected', 'closed', 'failed'],
+      `${path}.state`
+    )
+    if (item.closeReason !== undefined) stringValue(item.closeReason, `${path}.closeReason`, 1, 512)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
   if (name === 'TerminalRecord') {
     const item = record(value, path)
     exactKeys(
@@ -1824,6 +2056,24 @@ export function decodeRuntimeConnectionInventorySnapshot(
   return value as RuntimeConnectionInventorySnapshot
 }
 
+/** Strict decoder for one HarnessRun record (#31/#32 substrate). */
+export function decodeHarnessRun(value: unknown): HarnessRun {
+  namedType('HarnessRun', value, 'harnessRun')
+  return value as HarnessRun
+}
+
+/** Strict decoder for the managed-Pi installation status (#31). */
+export function decodeManagedPiStatus(value: unknown): ManagedPiStatus {
+  namedType('ManagedPiStatus', value, 'managedPiStatus')
+  return value as ManagedPiStatus
+}
+
+/** Strict decoder for one ACP lane connection (#32). */
+export function decodeAcpConnection(value: unknown): AcpConnection {
+  namedType('AcpConnection', value, 'acpConnection')
+  return value as AcpConnection
+}
+
 function decodeDevRuntimePage(
   decodeItem: (value: unknown, path: string) => unknown,
   value: unknown,
@@ -1919,6 +2169,24 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // provider and its resource side.
   'dev.resources.ports': (value) =>
     decodeDevRuntimePage((item, path) => namedType('PortRecord', item, path), value, 'reply.value'),
+  // #31/#32 harness substrate: managed-Pi status/install, ACP lane
+  // connections, run status/history, and the session-mapped launch/resume/
+  // cancel replies whose DTO lands with the owning provider slice.
+  'dev.harness.acpClose': (value) => decodeAcpConnection(value),
+  'dev.harness.acpConnect': (value) => decodeAcpConnection(value),
+  'dev.harness.acpConnections': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('AcpConnection', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.harness.managedPiInstall': (value) => decodeManagedPiStatus(value),
+  'dev.harness.managedPiStatus': (value) => decodeManagedPiStatus(value),
+  'dev.harness.runs': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('HarnessRun', item, path), value, 'reply.value'),
+  'dev.session.cancelHarness': (value) => decodeHarnessRun(value),
+  'dev.session.launchHarness': (value) => decodeHarnessRun(value),
+  'dev.session.resumeHarness': (value) => decodeHarnessRun(value),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {

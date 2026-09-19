@@ -189,6 +189,8 @@ type DevCapability =
   | 'dev.terminal.manage'
   | 'dev.session.read'
   | 'dev.session.manage'
+  | 'dev.harness.read'
+  | 'dev.harness.manage'
   | 'dev.files.read'
   | 'dev.files.write'
   | 'dev.git.read'
@@ -479,6 +481,53 @@ type HarnessRun = {
   startedAt?: string
   finishedAt?: string
   version: number
+}
+
+// Managed Pi driver (#31): the Agent HQ-owned installation read model. The
+// pinned version and its archive digest are build-time constants; a genuine
+// host absence reports `failed` with a typed `capability_unavailable`
+// reason and never fabricates an installation.
+type ManagedPiInstallState = 'absent' | 'resolving' | 'installing' | 'ready' | 'failed'
+type ManagedPiStatus = {
+  scope: Scope
+  driverId: string
+  driverVersion: string
+  pinnedVersion: string
+  state: ManagedPiInstallState
+  installationId?: string
+  resolvedVersion?: string
+  executableIdentity?: string
+  executableLabel?: string
+  lastErrorCode?: DevErrorCode
+  lastError?: string
+  observedAt: string
+  generation: number
+}
+
+// ACP lane (#32): one negotiated connection bound to the canonical
+// RuntimeSession. A required capability the harness does not advertise
+// makes the connection ineligible (state `failed` with the missing set
+// recorded); native history is a separate capability and is never
+// fabricated. Close bumps the generation so stale bindings are inert.
+type AcpConnectionState = 'connecting' | 'ready' | 'disconnected' | 'closed' | 'failed'
+type AcpConnection = {
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  harnessInstallationId: string
+  driverId: string
+  driverVersion: string
+  negotiatedProtocolVersion: string
+  requiredCapabilities: string[]
+  negotiatedCapabilities: string[]
+  missingRequiredCapabilities: string[]
+  sessionOperations: string[]
+  limitations: string[]
+  history: 'available' | 'unavailable'
+  state: AcpConnectionState
+  closeReason?: string
+  observedAt: string
+  generation: number
 }
 
 type ProcessRecord = {
@@ -1293,6 +1342,7 @@ type DevOperation =
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
   | `dev.session.${'create' | 'get' | 'list' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'runs'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
@@ -1334,7 +1384,7 @@ channel), `dev.runtime.execute.v1` (one `AuthorizedDevFrame`/`DevReply`),
 `dev.runtime.stream.attach.v1` (terminal/browser/device bulk stream negotiated
 from an authorized execute reply). The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 133 operation names, exact body shapes, exact reply types, complete required
+all 139 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -1530,6 +1580,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                  |
 | `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                         |
 | `dev.session`       | `create`, `get`, `list`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                    |
+| `dev.harness`       | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `runs`                                                                                                                                                        |
 | `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
 | `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
 | `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
@@ -1556,6 +1607,7 @@ Capability/resource binding is deny-by-default:
 | worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                          |
 | terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                          |
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                   |
+| harness       | `dev.harness.read`                                                          | install/connect/close requires `dev.harness.manage`                                                         | `runtime_session` (`acpConnect`), `acp_connection` (`acpClose`); reads carry no resource |
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request      |
 | browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                      |
@@ -2065,6 +2117,60 @@ Changing AgentProfile does not silently select credentials. Changing harness
 does not rename the profile. A linked donor persona's inherited provider/model
 behavior is not the Adea identity model.
 
+### Harness runtime substrate (#31 managed Pi, #32 ACP lane)
+
+The substrate is the M10 command surface that #400 launches through; the Dev
+Runtime performs no model-facing harness engineering (no compaction, no prompt
+rewriting, no task planning — harnesses own their internal loops) and never
+manages Pi processes directly. Every operation dispatches through the
+authenticated gate, is scope-bound, and re-checks the envelope resource
+binding (kind, id, generation) against the canonical `RuntimeSession` record
+before the provider acts.
+
+Managed Pi (#31) is the consumer zero-config path and the initial global
+default harness lane on a clean desktop. The `ManagedPiDriver` installs a
+pinned, digest-verified Pi build into an Agent HQ-owned location
+(`dev.harness.managedPiInstall`, idempotent): the pinned version and its
+archive digest are build-time constants, never network-resolved; a cached,
+current installation short-circuits with no writes and no probing; the
+archive is hash-verified before any byte reaches the install root; installs
+stage and atomically swap, and a failed install/update rolls back without
+degrading the previous managed version or touching any user-managed Pi
+configuration. Acceptance is "no manual Pi installation required": a clean
+supported desktop reaches `ready` through the gate alone. A genuine host
+absence (unsupported platform, no bundled/cached archive, failed write) is a
+typed `capability_unavailable`/`corrupt_state` error through the gate and a
+truthful `failed`/degraded status record — never a fake installation, and
+never a fabricated session.
+
+The ACP lane (#32) connects a supported local harness speaking ACP and maps
+it onto the canonical `RuntimeSession` (`dev.harness.acpConnect`): spawn uses
+a fixed argv template over the host-resolved installation record (never
+renderer input); the handshake negotiates protocol version, capabilities,
+session operations, and limitations within bounded bytes and time. A required
+capability the harness does not advertise makes the connection ineligible
+(typed `incompatible`; the failed connection record is retained as
+diagnostic evidence). Optional capability absence only degrades the record
+explicitly. Native history/load/replay is a separate negotiated capability
+(`AcpConnection.history`); it is surfaced with provenance or reported
+`unavailable` and never fabricated, and Agent HQ conversations never depend
+on it. Native authentication, tools, and configuration remain with the
+external harness and are never mutated. Close (`dev.harness.acpClose`) is
+generation-fenced and bumps the connection generation, so stale bindings are
+inert. Run status/history is the paged `dev.harness.runs` read model.
+
+`dev.session.launchHarness` is idempotent per (session, installation,
+AgentProfile, model) on a live run and binds the created `HarnessRun` to the
+session with a generation bump (`lifecycle: 'active'`,
+`activeHarnessRunId`). `dev.session.resumeHarness` creates a new
+`HarnessRun` generation under the same compatible session and marks the
+prior run `disconnected`. `dev.session.cancelHarness` cancels the named
+run (already-terminal runs refuse with `already_completed`), closes the
+session's live ACP lane best-effort, and moves the session to
+`'disconnected'` with the run cleared. Launching against an installation
+that is not ready refuses with a typed error and a remediation pointing at
+`dev.harness.managedPiInstall`; an unknown installation is `not_found`.
+
 ## Browser and device lanes
 
 Kinds:
@@ -2496,6 +2602,28 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-19 — harness runtime substrate (#31 managed Pi, #32 ACP lane).**
+  Added the `dev.harness` family (`managedPiStatus`, `managedPiInstall`,
+  `acpConnect`, `acpConnections`, `acpClose`, `runs`) with the
+  `dev.harness.read`/`dev.harness.manage` capabilities, the `acp_connection`
+  resource kind, the `AgentProfileRef` and `HarnessRun` wire DTOs (with the
+  `dev.session.launchHarness`/`resumeHarness`/`cancelHarness` success
+  decoders), and the `ManagedPiStatus`/`AcpConnection` read models. The
+  managed Pi driver installs a pinned, digest-verified build into an
+  Agent HQ-owned location with zero manual steps (clean-desktop default
+  lane), never touches user-managed Pi configuration, and reports genuine
+  host absence as typed `capability_unavailable` — never a fabricated
+  installation. The ACP lane negotiates protocol/capabilities within bounded
+  bytes and time, refuses required-unsupported capabilities as ineligible,
+  records native history as a separate never-fabricated capability, and
+  binds every connection and run to the canonical `RuntimeSession` identity
+  with scope and generation fencing (launch idempotent, resume a new run
+  generation, cancel fences and disconnects the session). The Dev Runtime
+  performs no model-facing harness engineering. Pinned by
+  `packages/types/tests/dev-runtime-harness.test.ts` and
+  `apps/desktop/tests/dev-runtime-harness.test.ts`; matrix rows in
+  `apps/desktop/tests/dev-runtime-composition.test.ts`. Total operations:
+  139.
 - **2026-09-19 — control-plane composition and fail-closed approvals
   (remediation gate).** Hardened the host control plane without changing the
   operation registry:

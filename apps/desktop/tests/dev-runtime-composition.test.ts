@@ -263,6 +263,16 @@ describe('dev runtime composition', () => {
         'dev.session.transferInput',
         'dev.session.archive',
         'dev.session.unarchive',
+        // #31/#32 harness substrate: managed Pi, ACP lane, and run status.
+        'dev.harness.managedPiStatus',
+        'dev.harness.managedPiInstall',
+        'dev.harness.acpConnect',
+        'dev.harness.acpConnections',
+        'dev.harness.acpClose',
+        'dev.harness.runs',
+        'dev.session.launchHarness',
+        'dev.session.resumeHarness',
+        'dev.session.cancelHarness',
         'dev.worktree.list',
         'dev.worktree.create',
         'dev.worktree.archive',
@@ -297,6 +307,16 @@ describe('dev runtime composition', () => {
       )
       // No sidecar: terminal stays typed-unavailable, not unknown.
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.terminal.'))).toBe(true)
+      // #31/#32: the harness substrate registers on a verified scope, and a
+      // clean desktop reports truthful managed-Pi absence (no fabricated
+      // installation, no manual Pi step required to reach `ready`).
+      const harness = shell.currentHost().harness
+      expect(harness).toBeDefined()
+      expect(harness!.commands).toContain('dev.harness.managedPiInstall')
+      expect(harness!.managedPi.status()).toMatchObject({
+        state: 'absent',
+        pinnedVersion: harness!.managedPi.pinnedVersion,
+      })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
