@@ -403,6 +403,7 @@ export type RuntimeConnectionInventorySnapshot = Readonly<{
   freshness: readonly RuntimeConnectionFreshness[]
   observedAt: string
 }>
+
 // ─── Terminal runtime (#396) ────────────────────────────────────────────────
 // Wire DTOs for the integrated terminal. Health is orthogonal to state; the
 // lifecycle machine and limits are normative in docs/specs/dev-runtime.md
@@ -1387,40 +1388,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.generation, `${path}.generation`, 0)
     return value
   }
-  if (name === 'TerminalRecord') {
-    const item = record(value, path)
-    exactKeys(
-      item,
-      [
-        'id',
-        'scope',
-        'runtimeSessionId',
-        'worktreeId',
-        'sidecarId',
-        'processRecordId',
-        'state',
-        'health',
-        'lastSeq',
-        'generation',
-      ],
-      [],
-      path
-    )
-    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected lowercase UUID')
-    decodeScope(item.scope, `${path}.scope`)
-    if (!uuidPattern.test(stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`)))
-      fail(`${path}.runtimeSessionId`, 'expected lowercase UUID')
-    if (!uuidPattern.test(stringValue(item.worktreeId, `${path}.worktreeId`)))
-      fail(`${path}.worktreeId`, 'expected lowercase UUID')
-    stringValue(item.sidecarId, `${path}.sidecarId`, 1, 128)
-    stringValue(item.processRecordId, `${path}.processRecordId`, 1, 128)
-    literal(item.state, ['creating', 'running', 'detached', 'terminating', 'exited'], `${path}.state`)
-    literal(item.health, ['healthy', 'degraded', 'replay_required', 'faulted'], `${path}.health`)
-    uint64String(item.lastSeq, `${path}.lastSeq`)
-    integerValue(item.generation, `${path}.generation`, 0)
-    return value
-  }
   if (name === 'RuntimeConnectionInventoryEntry') {
     const item = record(value, path)
     exactKeys(
@@ -1499,6 +1466,44 @@ function namedType(name: string, value: unknown, path: string): unknown {
     literal(item.transport, ['direct_local', 'remote_gateway'], `${path}.transport`)
     validateType('HarnessModel[]<=1000', item.models, `${path}.models`)
     timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'TerminalRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'worktreeId',
+        'sidecarId',
+        'processRecordId',
+        'state',
+        'health',
+        'lastSeq',
+        'generation',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    if (!uuidPattern.test(stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`)))
+      fail(`${path}.runtimeSessionId`, 'expected lowercase UUID')
+    if (!uuidPattern.test(stringValue(item.worktreeId, `${path}.worktreeId`)))
+      fail(`${path}.worktreeId`, 'expected lowercase UUID')
+    stringValue(item.sidecarId, `${path}.sidecarId`, 1, 128)
+    stringValue(item.processRecordId, `${path}.processRecordId`, 1, 128)
+    literal(
+      item.state,
+      ['creating', 'running', 'detached', 'terminating', 'exited'],
+      `${path}.state`
+    )
+    literal(item.health, ['healthy', 'degraded', 'replay_required', 'faulted'], `${path}.health`)
+    uint64String(item.lastSeq, `${path}.lastSeq`)
     integerValue(item.generation, `${path}.generation`, 0)
     return value
   }
@@ -1678,6 +1683,30 @@ export function decodeCredentialRef(value: unknown): CredentialRef {
   return value as CredentialRef
 }
 
+/** Strict decoder for the terminal lifecycle record. */
+export function decodeTerminalRecord(value: unknown): TerminalRecord {
+  namedType('TerminalRecord', value, 'terminalRecord')
+  return value as TerminalRecord
+}
+
+/** Strict decoder for the durable terminal checkpoint record. */
+export function decodeTerminalCheckpoint(value: unknown): TerminalCheckpoint {
+  namedType('TerminalCheckpoint', value, 'terminalCheckpoint')
+  return value as TerminalCheckpoint
+}
+
+/** Strict decoder for a bounded durable-history search match. */
+export function decodeTerminalSearchMatch(value: unknown): TerminalSearchMatch {
+  namedType('TerminalSearchMatch', value, 'terminalSearchMatch')
+  return value as TerminalSearchMatch
+}
+
+/** Strict decoder for the host-admitted shell configuration DTO. */
+export function decodeShellProfile(value: unknown): ShellProfile {
+  namedType('ShellProfile', value, 'shellProfile')
+  return value as ShellProfile
+}
+
 /** Strict decoder for the M10 discovery HarnessInstallation read model. */
 export function decodeHarnessInstallation(value: unknown): HarnessInstallation {
   namedType('HarnessInstallation', value, 'harnessInstallation')
@@ -1723,28 +1752,6 @@ export function decodeRuntimeConnectionInventorySnapshot(
   )
   timestamp(item.observedAt, 'runtimeConnectionInventorySnapshot.observedAt')
   return value as RuntimeConnectionInventorySnapshot
-/** Strict decoder for the terminal lifecycle record. */
-export function decodeTerminalRecord(value: unknown): TerminalRecord {
-  namedType('TerminalRecord', value, 'terminalRecord')
-  return value as TerminalRecord
-}
-
-/** Strict decoder for the durable terminal checkpoint record. */
-export function decodeTerminalCheckpoint(value: unknown): TerminalCheckpoint {
-  namedType('TerminalCheckpoint', value, 'terminalCheckpoint')
-  return value as TerminalCheckpoint
-}
-
-/** Strict decoder for a bounded durable-history search match. */
-export function decodeTerminalSearchMatch(value: unknown): TerminalSearchMatch {
-  namedType('TerminalSearchMatch', value, 'terminalSearchMatch')
-  return value as TerminalSearchMatch
-}
-
-/** Strict decoder for the host-admitted shell configuration DTO. */
-export function decodeShellProfile(value: unknown): ShellProfile {
-  namedType('ShellProfile', value, 'shellProfile')
-  return value as ShellProfile
 }
 
 function decodeDevRuntimePage(
@@ -1767,6 +1774,19 @@ function decodeDevRuntimePage(
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Terminal slice (#396): attach/input return single-use stream grants.
+  'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
+  'dev.terminal.input': (value) => decodeDevStreamGrant(value),
+  'dev.terminal.create': (value) => decodeTerminalRecord(value),
+  'dev.terminal.detach': (value) => decodeTerminalRecord(value),
+  'dev.terminal.resize': (value) => decodeTerminalRecord(value),
+  'dev.terminal.signal': (value) => decodeTerminalRecord(value),
+  'dev.terminal.terminate': (value) => decodeTerminalRecord(value),
+  'dev.terminal.historyDelete': (value) => decodeTerminalRecord(value),
+  'dev.terminal.list': (value) => decodeDevRuntimePage(decodeTerminalRecord, value),
+  'dev.terminal.search': (value) => decodeDevRuntimePage(decodeTerminalSearchMatch, value),
+  'dev.terminal.shellProfiles': (value) => decodeDevRuntimePage(decodeShellProfile, value),
+  'dev.terminal.checkpoint': (value) => decodeTerminalCheckpoint(value),
   // #422 browser/device lanes. Page replies decode through the same strict
   // named-type validators the registry bodies use.
   'dev.browser.annotate': (value) => namedType('BrowserAnnotation', value, 'reply.value'),
@@ -1829,19 +1849,6 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // provider and its resource side.
   'dev.resources.ports': (value) =>
     decodeDevRuntimePage((item, path) => namedType('PortRecord', item, path), value, 'reply.value'),
-  // Terminal slice (#396): attach/input return single-use stream grants.
-  'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
-  'dev.terminal.input': (value) => decodeDevStreamGrant(value),
-  'dev.terminal.create': (value) => decodeTerminalRecord(value),
-  'dev.terminal.detach': (value) => decodeTerminalRecord(value),
-  'dev.terminal.resize': (value) => decodeTerminalRecord(value),
-  'dev.terminal.signal': (value) => decodeTerminalRecord(value),
-  'dev.terminal.terminate': (value) => decodeTerminalRecord(value),
-  'dev.terminal.historyDelete': (value) => decodeTerminalRecord(value),
-  'dev.terminal.list': (value) => decodeDevRuntimePage(decodeTerminalRecord, value),
-  'dev.terminal.search': (value) => decodeDevRuntimePage(decodeTerminalSearchMatch, value),
-  'dev.terminal.shellProfiles': (value) => decodeDevRuntimePage(decodeShellProfile, value),
-  'dev.terminal.checkpoint': (value) => decodeTerminalCheckpoint(value),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {
