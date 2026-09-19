@@ -14,7 +14,12 @@ import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface } from '../commands'
 import { registerBrowserDeviceRuntime } from '../dev-runtime/browser/register'
-import { createChannelAuthority } from '../dev-runtime/channel/authority'
+import { registerProjectSessionRuntime } from '../dev-runtime/project-session/register'
+import {
+  devOperationDefinitions,
+  type DevOperation,
+} from '../../../../../packages/types/src/dev-runtime'
+import { ChannelRejection, createChannelAuthority } from '../dev-runtime/channel/authority'
 import { createChannelGateway, type SocketData } from '../dev-runtime/channel/server'
 
 // The client is copied into the bundle (`electrobun.config.ts` build.copy), so
@@ -32,6 +37,12 @@ const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
 // stack re-points it with ADEA_CLOUD_ORIGIN (see cloud-proxy.ts).
 const CLOUD_ORIGIN = resolveCloudOrigin()
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
+const RUNTIME_SCOPE = {
+  accountId: process.env.ADEA_ACCOUNT_ID ?? '',
+  workspaceId: process.env.ADEA_WORKSPACE_ID ?? '',
+  runtimeNodeId: process.env.ADEA_RUNTIME_NODE_ID ?? '',
+} as const
+const hasRuntimeScope = Object.values(RUNTIME_SCOPE).every((value) => value.length > 0)
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
 const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
 
@@ -41,13 +52,43 @@ const invoke = createCommandSurface(DATA_DIR)
 const authority = createChannelAuthority({
   shellHost: `127.0.0.1:${PORT}`,
   shellOrigin: SHELL_ORIGIN,
+  authorizeCommand: (command) => {
+    if (
+      !hasRuntimeScope ||
+      command.scope.accountId !== RUNTIME_SCOPE.accountId ||
+      command.scope.workspaceId !== RUNTIME_SCOPE.workspaceId ||
+      command.scope.runtimeNodeId !== RUNTIME_SCOPE.runtimeNodeId
+    ) {
+      throw new ChannelRejection(
+        'channel_unauthenticated',
+        'authenticated account/workspace/runtime-node scope is unavailable',
+        403
+      )
+    }
+  },
 })
 const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
+// Register every contract operation before optional native adapters. Missing
+// sidecars, harnesses, and host utilities fail closed as typed unavailable
+// instead of appearing as unknown commands or false successes.
+for (const operation of Object.keys(devOperationDefinitions) as DevOperation[]) {
+  if (operation === 'dev.capability.snapshot') continue
+  authority.registerCommandProvider(operation, () => {
+    throw {
+      code: 'capability_unavailable',
+      retryable: true,
+      message: `no host adapter is available for ${operation}`,
+      observedAt: new Date().toISOString(),
+    }
+  })
+}
 // #422: the browser/device lane providers dispatch through the same M10 gate.
 // The loopback listener scan is the optional OS inspection; Adea-owned
 // launch metadata stays the primary port authority.
 registerBrowserDeviceRuntime({
   authority,
+  gateway,
+  scope: hasRuntimeScope ? RUNTIME_SCOPE : undefined,
   runLsof: async () => {
     const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
       stdout: 'pipe',
@@ -72,6 +113,9 @@ registerBrowserDeviceRuntime({
     }
   },
 })
+if (hasRuntimeScope) {
+  registerProjectSessionRuntime({ authority, dataDir: DATA_DIR, scope: RUNTIME_SCOPE })
+}
 
 const MIME: Record<string, string> = {
   '.html': 'text/html',
@@ -91,9 +135,12 @@ function injectBridge(html: string): string {
   // the trusted window's handshake capability (the bridge script itself
   // carries no secrets).
   const bootstrap = gateway.bootstrapToken()
+  const scopeScript = hasRuntimeScope
+    ? `<script>window.__ADEA_DEV_SCOPE__=${JSON.stringify(RUNTIME_SCOPE)}</script>`
+    : ''
   return html.replace(
     '<head>',
-    `<head><script>window.__ADEA_LAUNCH_BOOTSTRAP__=${JSON.stringify(bootstrap)}</script><script src="/__adea/bridge.js"></script>`
+    `<head><script>window.__ADEA_LAUNCH_BOOTSTRAP__=${JSON.stringify(bootstrap)}</script>${scopeScript}<script src="/__adea/bridge.js"></script>`
   )
 }
 

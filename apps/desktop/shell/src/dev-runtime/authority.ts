@@ -7,6 +7,8 @@
 // triple: every record is bound to one account/workspace/runtime node and
 // cross-scope access reads as not found so record existence never leaks.
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
+import { createDurableJsonStore } from './host-store'
 
 export type DevAuthorityCode =
   | 'not_found'
@@ -50,7 +52,72 @@ export type DevScope = Readonly<{
 export type OwnerApproval = Readonly<{
   method: 'owner_dialog' | 'owner_setting'
   reference: string
+  /** Optional host-issued binding fields; required by a production verifier. */
+  scope?: DevScope
+  issuedAt?: string
+  expiresAt?: string
 }>
+
+export type OwnerApprovalVerifier = Readonly<{
+  consume(approval: OwnerApproval, scope: DevScope, action: string): void
+}>
+
+type ConsumedApproval = Readonly<{
+  reference: string
+  accountId: string
+  workspaceId: string
+  runtimeNodeId: string
+  action: string
+  consumedAt: string
+}>
+
+/** Durable single-use approval evidence. The UI must issue a unique reference
+ * bound to the exact scope; authorities consume it before mutating state. */
+export function createOwnerApprovalVerifier(options: {
+  dataDir: string
+  now?: () => Date
+}): OwnerApprovalVerifier {
+  const now = options.now ?? (() => new Date())
+  const store = createDurableJsonStore<ConsumedApproval>({
+    file: join(options.dataDir, 'dev-runtime', 'approvals', 'consumed.json'),
+    schemaVersion: 1,
+    label: 'owner approval evidence',
+  })
+  return {
+    consume(approval, scope, action) {
+      requireApproval(approval, action)
+      if (!approval.scope || !sameScope(approval.scope, scope))
+        throw new DevAuthorityError('unauthorized', 'approval scope does not match the request')
+      if (typeof approval.issuedAt !== 'string' || typeof approval.expiresAt !== 'string')
+        throw new DevAuthorityError(
+          'unauthorized',
+          'approval evidence is missing its validity window'
+        )
+      const issued = Date.parse(approval.issuedAt)
+      const expires = Date.parse(approval.expiresAt)
+      const at = now().getTime()
+      if (
+        !Number.isFinite(issued) ||
+        !Number.isFinite(expires) ||
+        issued > at + 30_000 ||
+        expires <= at
+      )
+        throw new DevAuthorityError('unauthorized', 'approval evidence is expired or invalid')
+      const all = [...store.load().records]
+      if (all.some((entry) => entry.reference === approval.reference))
+        throw new DevAuthorityError('unauthorized', 'approval evidence has already been consumed')
+      all.push({
+        reference: approval.reference,
+        accountId: scope.accountId,
+        workspaceId: scope.workspaceId,
+        runtimeNodeId: scope.runtimeNodeId,
+        action,
+        consumedAt: now().toISOString(),
+      })
+      store.save(all)
+    },
+  }
+}
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 

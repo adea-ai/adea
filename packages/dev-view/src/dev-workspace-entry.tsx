@@ -49,7 +49,7 @@ import {
   type DevLayoutState,
 } from './layout/operations'
 import { createLayoutStorageController, type LayoutStorage } from './layout/storage'
-import type { DevRuntimeService } from './platform'
+import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
 import { resolveDevSelection, type DevSelection } from './selection'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 import type { DevSessionBadgeState } from './sidebar/badges'
@@ -78,6 +78,20 @@ export type DevWorkspaceEntryProps = Readonly<{
   groups?: readonly DevGroupFixture[]
   storage?: LayoutStorage
 }>
+
+function toDevGroups(projection: DevWorkspaceProjection): readonly DevGroupFixture[] {
+  return projection.groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    projects: group.projects.map((project) => ({
+      id: project.id,
+      name: project.name,
+      repository: project.repository,
+      branch: project.branch,
+      sessions: project.sessions,
+    })),
+  }))
+}
 
 export const devViewFixtureGroups: readonly DevGroupFixture[] = [
   {
@@ -196,7 +210,8 @@ function focusPaneElement(leafId: string) {
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
-  const groups = () => props.groups ?? []
+  const [projectedGroups, setProjectedGroups] = createSignal<readonly DevGroupFixture[]>([])
+  const groups = () => props.groups ?? projectedGroups()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
@@ -209,6 +224,18 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
   const [announcement, setAnnouncement] = createSignal('')
   const runtimeState = createMemo(() => props.runtime.state())
+
+  onMount(() => {
+    if (props.groups || !props.runtime.projection) return
+    const scope = props.runtime.preferenceScope?.()
+    if (!scope) return
+    void props.runtime
+      .projection(scope)
+      .then((projection) => {
+        setProjectedGroups(toDevGroups(projection))
+      })
+      .catch(() => setProjectedGroups([]))
+  })
 
   // Selection always resolves inside the active projection; a stale,
   // archived, or cross-project ID recovers visibly and is corrected once.

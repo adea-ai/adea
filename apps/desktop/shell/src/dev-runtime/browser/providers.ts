@@ -11,8 +11,10 @@
 import type {
   DevCommand,
   DevErrorCode,
+  DevStreamGrant,
   ScreenshotRef,
 } from '../../../../../../packages/types/src/dev-runtime'
+import type { ChannelIdentity } from '../channel/authority'
 
 import { CookieImportError } from './cookie-import'
 import { createLaneDiagnostics, type LaneDiagnostics } from './diagnostics'
@@ -92,6 +94,13 @@ export type ScreenshotRecorder = Readonly<{
 
 export type BrowserProvidersInput = Readonly<{
   lanes: BrowserLaneRegistry
+  mintStreamGrant?: (input: {
+    identity: ChannelIdentity
+    scope: DevCommand['scope']
+    resource: { kind: 'browser_lane'; id: string; generation: number }
+    direction: 'read' | 'write'
+    fromSequence?: string
+  }) => DevStreamGrant
   diagnostics?: Map<string, LaneDiagnostics>
   /** Resolves a hostname to addresses for the SSRF/rebinding check. */
   resolveDns: (hostname: string) => Promise<readonly LaneHostAddress[]>
@@ -165,7 +174,9 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
     )
   }
 
-  const providers: Partial<Record<string, (command: DevCommand) => unknown | Promise<unknown>>> = {
+  const providers: Partial<
+    Record<string, (command: DevCommand, identity?: ChannelIdentity) => unknown | Promise<unknown>>
+  > = {
     'dev.browser.laneCreate': (command) => {
       const req = body(command)
       const runtimeSessionId = requireString(req.runtimeSessionId, 'runtimeSessionId')
@@ -245,7 +256,13 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
           observedAt: new Date().toISOString(),
         }
       } catch (error) {
-        if (error instanceof DevCommandProviderError) throw error
+        if (error instanceof DevCommandProviderError) {
+          // Host tools are optional: an unavailable engine rolls back the
+          // transient navigating state so recovery can retry; a real engine
+          // fault is terminal for this generation.
+          if (error.code === 'capability_unavailable') input.lanes.markIdle(lane.id)
+          throw error
+        }
         input.lanes.markCrashed(lane.id)
         diagnosticsFor(lane.id).crash('lane crashed during navigation')
         throw new DevCommandProviderError(
@@ -358,18 +375,43 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       items: input.lanes.profilePolicies(),
       observedAt: new Date().toISOString(),
     }),
-    'dev.browser.attach': (command) => {
+    'dev.browser.attach': (command, identity) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
-      // The channel-bound stream-grant minting is supplied by the shell
-      // integration; without the transport binding the attach is
-      // typed-unavailable rather than a grant that could never attach.
-      return unavailableEngine()
+      const requestBody = body(command)
+      if (!identity || !input.mintStreamGrant)
+        throw new DevCommandProviderError(
+          'capability_unavailable',
+          'channel stream grant unavailable',
+          true
+        )
+      return input.mintStreamGrant({
+        identity,
+        scope: command.scope,
+        resource: { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+        direction: 'read',
+        fromSequence:
+          typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
+      })
     },
-    'dev.browser.input': (command) => {
+    'dev.browser.input': (command, identity) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
-      return unavailableEngine()
+      const requestBody = body(command)
+      if (!identity || !input.mintStreamGrant)
+        throw new DevCommandProviderError(
+          'capability_unavailable',
+          'channel stream grant unavailable',
+          true
+        )
+      return input.mintStreamGrant({
+        identity,
+        scope: command.scope,
+        resource: { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+        direction: 'write',
+        fromSequence:
+          typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
+      })
     },
     'dev.browser.cookieImportPlan': (command) => {
       const lane = laneFor(command)
@@ -387,12 +429,14 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
 
   // Every handler is wrapped async so provider failures surface as typed
   // DevError codes through the M10 execute reply, never as raw throws.
-  const mapped: Partial<Record<string, (command: DevCommand) => Promise<unknown>>> = {}
+  const mapped: Partial<
+    Record<string, (command: DevCommand, identity?: ChannelIdentity) => Promise<unknown>>
+  > = {}
   for (const [operation, handler] of Object.entries(providers)) {
     if (!handler) continue
-    mapped[operation] = async (command: DevCommand) => {
+    mapped[operation] = async (command: DevCommand, identity?: ChannelIdentity) => {
       try {
-        return await handler(command)
+        return await handler(command, identity)
       } catch (error) {
         throw browserProviderError(error)
       }

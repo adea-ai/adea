@@ -252,6 +252,19 @@ export type DevLayoutPreferencesV2 = Readonly<{
   focusTargetId?: string
 }>
 
+export type ArchiveRecord = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  worktreeId: string
+  state: 'archived' | 'restoring' | 'restored'
+  archivedAt: string
+  archivedBy: string
+  reason?: string
+  generation: number
+  restoredAt?: string
+}>
+
 export type RuntimeSession = Readonly<{
   id: string
   scope: Scope
@@ -929,6 +942,36 @@ const cleanupSteps = [
 ] as const
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  if (name === 'ArchiveRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'worktreeId',
+        'state',
+        'archivedAt',
+        'archivedBy',
+        'generation',
+      ],
+      ['reason', 'restoredAt'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    literal(item.state, ['archived', 'restoring', 'restored'], `${path}.state`)
+    timestamp(item.archivedAt, `${path}.archivedAt`)
+    stringValue(item.archivedBy, `${path}.archivedBy`, 1, 256)
+    if (item.reason !== undefined) stringValue(item.reason, `${path}.reason`, 0, 512)
+    integerValue(item.generation, `${path}.generation`, 0)
+    if (item.restoredAt !== undefined) timestamp(item.restoredAt, `${path}.restoredAt`)
+    return value
+  }
   // #422 browser/device DTOs. Shapes mirror the Dev Runtime spec's core
   // domain model; the registry bodies and replies validate through here.
   if (name === 'BrowserLane') {

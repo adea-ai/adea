@@ -18,6 +18,7 @@ import {
   sameScope,
   type DevScope,
   type OwnerApproval,
+  type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
 import { createDurableJsonStore } from './host-store'
@@ -113,8 +114,12 @@ function pageOf(
   return { items, ...(nextCursor ? { nextCursor } : {}), observedAt: nowIso() }
 }
 
-export function createRootBookmarkAuthority(options: { dataDir: string; audit?: AuthorityAudit }) {
-  const { dataDir, audit } = options
+export function createRootBookmarkAuthority(options: {
+  dataDir: string
+  audit?: AuthorityAudit
+  approvalVerifier?: OwnerApprovalVerifier
+}) {
+  const { dataDir, audit, approvalVerifier } = options
   const storeDir = join(dataDir, 'dev-runtime', 'roots')
   const store = createDurableJsonStore<RootBookmarkRecord>({
     file: join(storeDir, 'bookmarks.json'),
@@ -217,6 +222,7 @@ export function createRootBookmarkAuthority(options: { dataDir: string; audit?: 
       return existing
     }
     if (existing && existing.state === 'stale') {
+      approvalVerifier?.consume(approval, input.scope, 'authorize a root bookmark')
       // Owner re-authorization of the same canonical root refreshes identity.
       const refreshed: RootBookmarkRecord = {
         ...existing,
@@ -230,6 +236,7 @@ export function createRootBookmarkAuthority(options: { dataDir: string; audit?: 
       return refreshed
     }
 
+    approvalVerifier?.consume(approval, input.scope, 'authorize a root bookmark')
     const record: RootBookmarkRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

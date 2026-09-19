@@ -21,6 +21,7 @@ import {
   sameScope,
   type DevScope,
   type OwnerApproval,
+  type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
 import { createDurableJsonStore } from './host-store'
@@ -106,6 +107,18 @@ const VAULT_KEY_ACCOUNT = 'master-key-v1'
  * ability to decrypt every credential reference. Tests inject an in-memory
  * adapter instead.
  */
+function runSecurity(args: string[], input?: Buffer): Buffer {
+  try {
+    return execFileSync('/usr/bin/security', args, {
+      input,
+      encoding: 'buffer',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }) as Buffer
+  } catch {
+    throw new DevAuthorityError('auth_required', 'the OS credential store is unavailable')
+  }
+}
+
 export function createSystemVaultKeyStore(): VaultKeyStore {
   if (process.platform !== 'darwin') {
     throw new DevAuthorityError(
@@ -113,21 +126,10 @@ export function createSystemVaultKeyStore(): VaultKeyStore {
       'the credential vault requires an OS credential store on this platform'
     )
   }
-  const security = (args: string[], input?: Buffer): Buffer => {
-    try {
-      return execFileSync('/usr/bin/security', args, {
-        input,
-        encoding: 'buffer',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }) as Buffer
-    } catch {
-      throw new DevAuthorityError('auth_required', 'the OS credential store is unavailable')
-    }
-  }
   return {
     get(service, account) {
       try {
-        const encoded = security(['find-generic-password', '-s', service, '-a', account, '-w'])
+        const encoded = runSecurity(['find-generic-password', '-s', service, '-a', account, '-w'])
           .toString('utf8')
           .trim()
         return Buffer.from(encoded, 'base64')
@@ -139,7 +141,7 @@ export function createSystemVaultKeyStore(): VaultKeyStore {
     },
     set(service, account, key) {
       if (key.byteLength !== 32) throw new DevAuthorityError('corrupt_state', 'invalid vault key')
-      security([
+      runSecurity([
         'add-generic-password',
         '-U',
         '-s',
@@ -152,7 +154,7 @@ export function createSystemVaultKeyStore(): VaultKeyStore {
     },
     delete(service, account) {
       try {
-        security(['delete-generic-password', '-s', service, '-a', account])
+        runSecurity(['delete-generic-password', '-s', service, '-a', account])
       } catch {
         // Deletion is idempotent when the item was already removed.
       }
@@ -175,10 +177,11 @@ function loadVaultKey(keyStore: VaultKeyStore): Buffer {
 export function createCredentialVault(options: {
   dataDir: string
   audit?: AuthorityAudit
+  approvalVerifier?: OwnerApprovalVerifier
   /** Injectable only for deterministic tests and approved host adapters. */
   credentialStore?: VaultKeyStore
 }) {
-  const { dataDir, audit } = options
+  const { dataDir, audit, approvalVerifier } = options
   const vaultDir = join(dataDir, 'dev-runtime', 'vault')
   mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
   const vaultKeyStore = options.credentialStore ?? createSystemVaultKeyStore()
@@ -292,6 +295,7 @@ export function createCredentialVault(options: {
       if (existing.state === 'ready') return existing
       // 'unknown' means the sealed material is unreadable: this explicit
       // re-enrollment repairs the record under the owner's fresh approval.
+      approvalVerifier?.consume(approval, input.scope, 'enroll a credential')
       writeSealed(existing.id, secret)
       const repaired: CredentialRefRecord = {
         ...existing,
@@ -304,6 +308,7 @@ export function createCredentialVault(options: {
       return repaired
     }
 
+    approvalVerifier?.consume(approval, input.scope, 'enroll a credential')
     const record: CredentialRefRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

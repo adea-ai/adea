@@ -95,11 +95,17 @@ export function createInputAuthority(terminalId: string) {
     return { ok: true }
   }
 
+  function releaseFence(fence: InputFence): InputAuthorityError | { ok: true } {
+    const current = admitChunk(fence)
+    if (!current.ok) return current
+    return release(fence.source, fence.generation)
+  }
+
   function snapshot(): InputAuthorityState {
     return state
   }
 
-  return { admit, release, admitChunk, snapshot }
+  return { admit, release, releaseFence, admitChunk, snapshot }
 }
 
 export type TerminalInputAuthority = ReturnType<typeof createInputAuthority>

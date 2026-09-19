@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
+import { createOwnerApprovalVerifier, DevAuthorityError } from '../shell/src/dev-runtime/authority'
 import { createAuthorityAudit } from '../shell/src/dev-runtime/audit'
 import { createCredentialVault, type VaultKeyStore } from '../shell/src/dev-runtime/vault'
 
@@ -57,6 +57,33 @@ function enroll(vaultInstance: ReturnType<typeof createCredentialVault>, label =
 }
 
 describe('credential vault', () => {
+  test('owner approval evidence is scope-bound and single-use', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-approvals-'))
+    try {
+      const verifier = createOwnerApprovalVerifier({
+        dataDir,
+        now: () => new Date('2026-09-18T12:00:00.000Z'),
+      })
+      const evidence = {
+        method: 'owner_dialog' as const,
+        reference: 'approval-once',
+        scope,
+        issuedAt: '2026-09-18T11:59:00.000Z',
+        expiresAt: '2026-09-18T12:01:00.000Z',
+      }
+      verifier.consume(evidence, scope, 'authorize a root bookmark')
+      expectCode(
+        () => verifier.consume(evidence, scope, 'authorize a root bookmark'),
+        'unauthorized'
+      )
+      expectCode(
+        () => verifier.consume({ ...evidence, reference: 'foreign' }, otherScope, 'authorize'),
+        'unauthorized'
+      )
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
   test('enrolls only with owner approval evidence', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-vault-'))
     try {

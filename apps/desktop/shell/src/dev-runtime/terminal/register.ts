@@ -558,7 +558,12 @@ export function registerTerminalRuntime(
           inputAuthorities.set(terminalId, created)
           return created
         })()
-      const writeState = { terminalId, generation: grant.resource.generation, session }
+      const writeState: {
+        terminalId: string
+        generation: number
+        session: typeof session
+        fence?: InputFence
+      } = { terminalId, generation: grant.resource.generation, session }
       writeSessions.set(grant.grantId, writeState)
       // The stream grant becomes the terminal's current input owner. A later
       // grant atomically replaces this fence; every chunk from the old writer
@@ -599,6 +604,7 @@ export function registerTerminalRuntime(
       }
       session.onClose = () => {
         writeSessions.delete(grant.grantId)
+        if (writeState.fence) authority.releaseFence(writeState.fence)
       }
     })
 

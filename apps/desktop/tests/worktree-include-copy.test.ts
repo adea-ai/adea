@@ -118,7 +118,7 @@ describe('include copy plan and apply', () => {
       } catch (error) {
         code = (error as WorktreeError).code
       }
-      expect(code).toBe('file_changed')
+      expect(code).toBe('plan_stale')
       expect(readFileSync(join(worktree, 'README.md'), 'utf8')).toBe('# fixture\n')
     } finally {
       rmSync(dir, { recursive: true, force: true })

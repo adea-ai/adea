@@ -2,7 +2,12 @@
 // Sessions and argv come from the devices module; the capability gate lives
 // at the inventory boundary (missing xcrun/adb → typed unavailable with the
 // actionable hint from inventory.ts).
-import type { DevCommand, DevErrorCode } from '../../../../../../packages/types/src/dev-runtime'
+import type {
+  DevCommand,
+  DevErrorCode,
+  DevStreamGrant,
+} from '../../../../../../packages/types/src/dev-runtime'
+import type { ChannelIdentity } from '../channel/authority'
 
 import {
   DeviceSessionError,
@@ -13,6 +18,13 @@ import { DevCommandProviderError } from '../browser/providers'
 
 export type DeviceProvidersInput = Readonly<{
   sessions: DeviceSessionRegistry
+  mintStreamGrant?: (input: {
+    identity: ChannelIdentity
+    scope: DevCommand['scope']
+    resource: { kind: 'device_session'; id: string; generation: number }
+    direction: 'read' | 'write'
+    fromSequence?: string
+  }) => DevStreamGrant
   /** Latest verified inventory per platform; absent = capability unavailable. */
   verifiedInventory: () => Readonly<{
     ios?: VerifiedInventory
@@ -51,7 +63,9 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
     return session
   }
 
-  const providers: Partial<Record<string, (command: DevCommand) => unknown | Promise<unknown>>> = {
+  const providers: Partial<
+    Record<string, (command: DevCommand, identity?: ChannelIdentity) => unknown | Promise<unknown>>
+  > = {
     'dev.device.list': (command) => {
       const verified = input.verifiedInventory()
       const items = [...(verified.ios?.items ?? []), ...(verified.android?.items ?? [])]
@@ -116,16 +130,27 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
       )
       return updated.state === 'stopping' ? updated : input.sessions.markStopped(updated.id)
     },
-    'dev.device.attach': (command) => {
-      sessionFor(command)
-      throw new DevCommandProviderError(
-        'capability_unavailable',
-        'the device frame stream is bound by the shell integration seam',
-        true
-      )
-    },
-    'dev.device.input': (command) => {
+    'dev.device.attach': (command, identity) => {
       const session = sessionFor(command)
+      const requestBody = body(command)
+      if (!identity || !input.mintStreamGrant)
+        throw new DevCommandProviderError(
+          'capability_unavailable',
+          'channel stream grant unavailable',
+          true
+        )
+      return input.mintStreamGrant({
+        identity,
+        scope: command.scope,
+        resource: { kind: 'device_session', id: session.id, generation: session.generation },
+        direction: 'read',
+        fromSequence:
+          typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
+      })
+    },
+    'dev.device.input': (command, identity) => {
+      const session = sessionFor(command)
+      const requestBody = body(command)
       if (session.kind === 'ios_simulator')
         throw new DevCommandProviderError(
           'unsupported_capability',
@@ -136,11 +161,20 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
           'invalid_state',
           'responsive sessions accept viewport changes, not device gestures'
         )
-      throw new DevCommandProviderError(
-        'capability_unavailable',
-        'the device frame stream is bound by the shell integration seam',
-        true
-      )
+      if (!identity || !input.mintStreamGrant)
+        throw new DevCommandProviderError(
+          'capability_unavailable',
+          'channel stream grant unavailable',
+          true
+        )
+      return input.mintStreamGrant({
+        identity,
+        scope: command.scope,
+        resource: { kind: 'device_session', id: session.id, generation: session.generation },
+        direction: 'write',
+        fromSequence:
+          typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
+      })
     },
     'dev.device.screenshot': (command) => {
       const session = sessionFor(command)

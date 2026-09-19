@@ -171,8 +171,11 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
     store.save(records)
   }
 
-  function projectDir(projectId: string): string {
-    return join(root, sha256(projectId).slice(0, 16))
+  function projectDir(scope: DevScope, projectId: string): string {
+    // Physical storage is scoped as well as the durable record. A project id
+    // alone is not an authority boundary and could make two tenants share a
+    // staging/ready tree after a restore or migration.
+    return join(root, sha256(JSON.stringify({ scope, projectId })).slice(0, 32))
   }
 
   function status(scope: DevScope, projectId: string): TemplateRecord | { state: 'absent' } {
@@ -205,7 +208,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         'a template build is already in progress for this project'
       )
     }
-    const dir = projectDir(input.projectId)
+    const dir = projectDir(input.scope, input.projectId)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     const stagingDir = join(dir, `staging-${Date.now()}-${newRecordId().slice(0, 8)}`)
     mkdirSync(stagingDir, { recursive: true, mode: 0o700 })
@@ -303,7 +306,15 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
     budgets?: { maxFiles?: number; maxTotalBytes?: number }
   }): Promise<{ copied: number; totalBytes: number; contentDigest: string }> {
     const record = findRecord(loadRecords(), input.scope, input.projectId)
-    if (!record || record.state !== 'ready' || !record.templatePath || !record.contentDigest) {
+    if (
+      !record ||
+      record.scope.accountId !== input.scope.accountId ||
+      record.scope.workspaceId !== input.scope.workspaceId ||
+      record.scope.runtimeNodeId !== input.scope.runtimeNodeId ||
+      record.state !== 'ready' ||
+      !record.templatePath ||
+      !record.contentDigest
+    ) {
       throw new WorktreeError(
         'invalid_state',
         'no ready dependency template exists for this project'
@@ -396,7 +407,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         'cannot clear a project template while a build is in progress'
       )
     }
-    const dir = projectDir(projectId)
+    const dir = projectDir(scope, projectId)
     rmSync(dir, { force: true, recursive: true })
     persist(records.filter((entry) => entry.id !== record.id))
     return { cleared: true }

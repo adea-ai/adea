@@ -7,6 +7,7 @@
 export type DesktopShell = {
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>
   listen(event: string, handler: (payload: unknown) => void): Promise<() => void>
+  devExecute?(command: unknown): Promise<unknown>
 }
 
 declare global {

@@ -12,9 +12,11 @@
 // PR; the lane/screencast fencing is complete and tested at this layer).
 import type { DevCommand, DevOperation } from '../../../../../../packages/types/src/dev-runtime'
 
-import { createDeviceSessionRegistry } from '../devices/device-sessions'
+import { createDeviceSessionRegistry, type VerifiedInventory } from '../devices/device-sessions'
+import { parseAdbDevices, parseAvdList, parseSimctlDevicesJson } from '../devices/inventory'
 import { createDeviceProviders, deviceProviderError } from '../devices/providers'
 import type { ChannelAuthority } from '../channel/authority'
+import type { ChannelGateway } from '../channel/server'
 import { createCookieImportService } from './cookie-import'
 import { createBrowserLaneRegistry } from './lane-registry'
 import { evaluateNavigation, type AdeaOwnedService } from './navigation-policy'
@@ -24,6 +26,7 @@ import { createScreenshotStore } from './screenshots'
 
 export type BrowserDeviceRuntimeInput = Readonly<{
   authority: ChannelAuthority
+  gateway?: ChannelGateway
   /** Loopback services proven Adea-owned (launch/session metadata). */
   ownedServices?: () => readonly AdeaOwnedService[]
   /** Runs the optional loopback listener scan; failures are non-fatal. */
@@ -33,6 +36,20 @@ export type BrowserDeviceRuntimeInput = Readonly<{
   /** Runtime-node scope projection for the local shell (single node). */
   scope?: { accountId: string; workspaceId: string; runtimeNodeId: string }
 }>
+
+async function runDeviceProbe(argv: string[]): Promise<string> {
+  try {
+    const process = Bun.spawn(argv, { stdout: 'pipe', stderr: 'ignore' })
+    const stdout = await new Response(process.stdout).text()
+    await process.exited
+    return stdout
+  } catch {
+    return ''
+  }
+}
+
+const unavailableStream = (session: { close: (code: 'incompatible', reason?: string) => void }) =>
+  session.close('incompatible', 'browser/device frame engine unavailable')
 
 const LOCAL_SCOPE = {
   accountId: '00000000-0000-4000-8000-000000000000',
@@ -55,21 +72,96 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
       })),
   })
   const deviceSessions = createDeviceSessionRegistry()
+  let verifiedInventory: { ios?: VerifiedInventory; android?: VerifiedInventory } = {}
+  const refreshInventory = async () => {
+    const observedAt = new Date().toISOString()
+    const simctl = await runDeviceProbe(['xcrun', 'simctl', 'list', 'devices', '-j'])
+    const adb = await runDeviceProbe(['adb', 'devices', '-l'])
+    const avds = await runDeviceProbe(['emulator', '-list-avds'])
+    const iosItems = parseSimctlDevicesJson(simctl).map((device) => ({
+      id: device.udid,
+      kind: 'ios_simulator' as const,
+      name: device.name,
+      platform: 'ios' as const,
+      state: device.isAvailable === false ? ('offline' as const) : ('available' as const),
+      generation: 0,
+      observedAt,
+    }))
+    const androidItems = [
+      ...parseAdbDevices(adb).map((device) => ({
+        id: device.serial,
+        kind: device.isEmulator ? ('android_emulator' as const) : ('physical' as const),
+        name: device.model ?? device.serial,
+        platform: 'android' as const,
+        state: device.state === 'device' ? ('available' as const) : ('offline' as const),
+        generation: 0,
+        observedAt,
+      })),
+      ...parseAvdList(avds).map((name) => ({
+        id: name,
+        kind: 'android_emulator' as const,
+        name,
+        platform: 'android' as const,
+        state: 'available' as const,
+        generation: 0,
+        observedAt,
+      })),
+    ]
+    verifiedInventory = {
+      ...(iosItems.length ? { ios: { items: iosItems, observedAt } } : {}),
+      ...(androidItems.length ? { android: { items: androidItems, observedAt } } : {}),
+    }
+  }
+  void refreshInventory()
 
   const browser = createBrowserProviders({
     lanes,
     resolveDns: input.resolveDns ?? (async () => []),
     ownedServices: input.ownedServices ?? (() => []),
     screenshotRecorder: screenshots,
+    mintStreamGrant: ({ identity, scope, resource, direction, fromSequence }) =>
+      input.authority.mintStreamGrant({
+        identity,
+        protocol: 'browser-frames-v1',
+        scope,
+        resource,
+        direction,
+        fromSequence,
+        maxFrameBytes: 1_048_576,
+      }),
   })
+  input.authority.registerStreamProvider('browser-frames-v1')
+  input.authority.registerStreamProvider('device-frames-v1')
   const devices = createDeviceProviders({
     sessions: deviceSessions,
-    verifiedInventory: () => ({}),
+    verifiedInventory: () => verifiedInventory,
     iosInputHint: 'simctl exposes no tap; a future automation helper may add it',
+    mintStreamGrant: ({ identity, scope, resource, direction, fromSequence }) =>
+      input.authority.mintStreamGrant({
+        identity,
+        protocol: 'device-frames-v1',
+        scope,
+        resource,
+        direction,
+        fromSequence,
+        maxFrameBytes: 1_048_576,
+      }),
   })
+  if (input.gateway) {
+    input.gateway.registerStreamHandler('browser-frames-v1', unavailableStream)
+    input.gateway.registerStreamHandler('device-frames-v1', unavailableStream)
+  }
 
   function register(
-    providers: Partial<Record<string, (command: DevCommand) => unknown | Promise<unknown>>>,
+    providers: Partial<
+      Record<
+        string,
+        (
+          command: DevCommand,
+          identity?: import('../channel/authority').ChannelIdentity
+        ) => unknown | Promise<unknown>
+      >
+    >,
     mapError: (error: unknown) => Error
   ): number {
     let count = 0
@@ -77,9 +169,9 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
       if (!handler) continue
       input.authority.registerCommandProvider(
         operation as DevOperation,
-        async (command: DevCommand) => {
+        async (command: DevCommand, identity) => {
           try {
-            return await handler(command)
+            return await handler(command, identity)
           } catch (error) {
             throw mapError(error)
           }

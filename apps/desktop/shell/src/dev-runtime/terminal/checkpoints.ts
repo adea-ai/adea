@@ -80,6 +80,8 @@ export type CreateCheckpointSinkOptions = {
   generation: number
   now?: () => number
   maxBytesPerSession?: number
+  /** Deterministic host hook used to prove failed writes retain pending data. */
+  beforeWrite?: () => void
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -119,6 +121,7 @@ function footerBytes(footer: SegmentFooter): Uint8Array {
 export function createCheckpointSink(options: CreateCheckpointSinkOptions): CheckpointSink {
   const now = options.now ?? Date.now
   const maxBytes = options.maxBytesPerSession ?? TERMINAL_LIMITS.durableMaxBytesPerSession
+  const beforeWrite = options.beforeWrite
   assertTerminalId(options.terminalId)
   const sessionDir = join(options.runtimeRoot, options.terminalId)
   const corruptDir = join(sessionDir, 'corrupt')
@@ -210,6 +213,7 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
     const path = segmentPath(footer)
     const temporary = join(sessionDir, `.${randomUUID()}.tmp`)
     try {
+      beforeWrite?.()
       const handle = openSync(temporary, 'wx', 0o600)
       try {
         writeSync(handle, fileBytes)

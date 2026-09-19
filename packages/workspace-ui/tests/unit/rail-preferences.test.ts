@@ -106,9 +106,14 @@ describe('rail preferences', () => {
     const storage = memoryStorage()
     writeRailPreferences(storage, setRailItemHidden(defaultRailPreferences, 'dev', true))
     expect(readRailPreferences(storage).hidden).toEqual(['dev'])
-    expect(readRailPreferences(memoryStorage({ 'adea:rail-preferences:v1': '{oops' }))).toEqual(
-      defaultRailPreferences
-    )
+    const corruptStorage = memoryStorage({ 'adea:rail-preferences:v1': '{oops' })
+    expect(readRailPreferences(corruptStorage)).toEqual(defaultRailPreferences)
+    expect(corruptStorage.getItem('adea:rail-preferences:quarantine:v1')).toBe('{oops')
+    const futureStorage = memoryStorage({
+      'adea:rail-preferences:v1': JSON.stringify({ version: 99, order: ['dev'], hidden: [] }),
+    })
+    expect(readRailPreferences(futureStorage)).toEqual(defaultRailPreferences)
+    expect(futureStorage.getItem('adea:rail-preferences:quarantine:v1')).toContain('99')
     const blocked = {
       getItem: () => {
         throw new Error('blocked')

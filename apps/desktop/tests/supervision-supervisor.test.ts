@@ -4,7 +4,9 @@
 // All decisions run against an injected clock and a fake process adapter, so
 // restart policy and PID-reuse races are deterministic (TM-004).
 import { describe, expect, test } from 'bun:test'
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   decodeComponentManifest,
@@ -75,7 +77,13 @@ function fakeAdapter() {
       live.set(pid, { pidStartIdentity: `reused-${pid}`, executableIdentity: 'attacker' })
     },
   }
-  return { adapter: adapter as SupervisionAdapter, spawns, signals }
+  return {
+    adapter: adapter as SupervisionAdapter,
+    spawns,
+    signals,
+    rekey: adapter.rekey,
+    exit: adapter.exit,
+  }
 }
 
 function tickClock() {
@@ -156,6 +164,54 @@ describe('dependency-aware readiness', () => {
 })
 
 describe('stop and identity recheck (TM-004)', () => {
+  test('operator stop confirmations are single-use and generation-bound', async () => {
+    const { supervisor } = await runningSupervisor()
+    const confirmation = supervisor.requestStop('cp')
+    expect(confirmation.ok).toBe(true)
+    if (!confirmation.ok) return
+    const stopped = await supervisor.stop('cp', {
+      confirmationId: confirmation.value.confirmationId,
+    })
+    expect(stopped.ok).toBe(true)
+    const replay = await supervisor.stop('cp', {
+      confirmationId: confirmation.value.confirmationId,
+    })
+    expect(replay.ok).toBe(false)
+    expect(replay.ok ? '' : replay.code).toBe('already_completed')
+  })
+
+  test('reconciliation adopts only a still-owned persisted launch', async () => {
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const recordsRoot = mkdtempSync(join(tmpdir(), 'adea-supervisor-'))
+    const records = createRecordStore(recordsRoot)
+    const first = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await first.start({ componentId: 'cp', idempotencyKey: 'initial' })
+    const revived = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await revived.reconcile()
+    expect(revived.snapshot().components[0]?.state).toBe('running')
+    fake.rekey(101)
+    const refused = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await refused.reconcile()
+    expect(refused.snapshot().components[0]?.state).toBe('idle')
+    rmSync(recordsRoot, { recursive: true, force: true })
+  })
+
   test('stop signals the recorded identity only after an immediate recheck', async () => {
     const { supervisor, signals } = await runningSupervisor()
     const stopped = await supervisor.stop('cp')

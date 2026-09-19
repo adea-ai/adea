@@ -43,6 +43,8 @@ export type SupervisionErrorCode =
   | 'already_completed'
   | 'spawn_failed'
   | 'sidecar_incompatible'
+  | 'confirmation_required'
+  | 'confirmation_invalid'
 
 export type SupervisionResult<T> =
   | { ok: true; value: T }
@@ -109,9 +111,14 @@ export type Supervisor = {
     componentId: ComponentId
     idempotencyKey: string
   }): Promise<SupervisionResult<LaunchRecordPublic>>
+  requestStop(
+    componentId: ComponentId
+  ): SupervisionResult<{ confirmationId: string; generation: number }>
+  /** Reconciles persisted launch records against current executable identity. */
+  reconcile(): Promise<void>
   stop(
     componentId: ComponentId,
-    opts?: { generation?: number }
+    opts?: { generation?: number; confirmationId?: string; escalate?: boolean }
   ): Promise<SupervisionResult<ExitedRecord>>
   restart(componentId: ComponentId): Promise<SupervisionResult<LaunchRecordPublic>>
   /** The owned process exited unexpectedly (crash or external kill). */
@@ -162,6 +169,10 @@ export function createSupervisor(input: {
     })
   }
   const completedKeys = new Map<ComponentId, Map<string, LaunchRecordPublic>>()
+  const confirmations = new Map<
+    string,
+    { componentId: ComponentId; generation: number; expiresAt: number }
+  >()
   const auditRing: AuditEvent[] = []
 
   // Crash-loop history survives app restarts: unexpected exits journaled in
@@ -374,6 +385,48 @@ export function createSupervisor(input: {
       return startRuntime(runtime, idempotencyKey)
     },
 
+    async reconcile() {
+      const latest = new Map<ComponentId, LaunchedRecord>()
+      for (const record of records.list()) {
+        if (record.kind === 'launched') latest.set(record.componentId, record)
+        if (record.kind === 'exited') latest.delete(record.componentId)
+      }
+      for (const [componentId, record] of latest) {
+        const runtime = runtimes.get(componentId)
+        if (!runtime) continue
+        const current = await adapter.currentIdentity(record.identity.pid)
+        if (!current || !sameIdentity(current, record.identity)) {
+          audit('adoption', componentId, record.generation, 'persisted launch could not be adopted')
+          continue
+        }
+        runtime.generation = record.generation
+        runtime.launch = {
+          processRecordId: record.processRecordId,
+          componentId,
+          generation: record.generation,
+          identity: record.identity,
+          processGroup: record.processGroup,
+          startedAt: record.at,
+        }
+        runtime.state = 'running'
+        runtime.health = 'unknown'
+        runtime.lastHeartbeatAt = now()
+        audit('adoption', componentId, record.generation, 'persisted launch adopted after restart')
+      }
+    },
+
+    requestStop(componentId) {
+      const runtime = runtimes.get(componentId)
+      if (!runtime || !runtime.launch) return fail('not_found', `unknown component ${componentId}`)
+      const confirmationId = randomUUID()
+      confirmations.set(confirmationId, {
+        componentId,
+        generation: runtime.generation,
+        expiresAt: now() + 60_000,
+      })
+      return { ok: true, value: { confirmationId, generation: runtime.generation } }
+    },
+
     async stop(componentId, opts) {
       const runtime = runtimes.get(componentId)
       if (!runtime) return fail('not_found', `unknown component ${componentId}`)
@@ -393,7 +446,25 @@ export function createSupervisor(input: {
       if (runtime.state === 'draining' && !runtime.drainComplete) {
         return fail('invalid_state', `${componentId} is draining; its sessions must detach first`)
       }
+      if (opts?.confirmationId) {
+        const confirmation = confirmations.get(opts.confirmationId)
+        confirmations.delete(opts.confirmationId)
+        if (
+          !confirmation ||
+          confirmation.componentId !== componentId ||
+          confirmation.generation !== runtime.generation ||
+          confirmation.expiresAt < now()
+        )
+          return fail(
+            'confirmation_invalid',
+            `${componentId} termination confirmation is invalid or expired`
+          )
+      }
       const signalled = await signalOwnedProcess(runtime, 'SIGTERM')
+      if (signalled.ok && signalled.value === 'signalled' && opts?.escalate) {
+        const escalated = await signalOwnedProcess(runtime, 'SIGKILL')
+        if (!escalated.ok) return escalated
+      }
       if (!signalled.ok) return signalled
       return {
         ok: true,

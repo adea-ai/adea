@@ -2393,9 +2393,9 @@ never truncates silently or allocates an unbounded fallback.
 | screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                               |
 
 Screenshot references include lane/profile provenance, origin, viewport, and redaction state. The bounded encoded bytes remain retrievable by reference until expiry; metadata-only capture records are not valid evidence.
-| metrics               | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours                                    |
-| usage refresh         | provider backoff plus 60-second manual-refresh floor                                                                                                    |
-| cleanup lock/lease    | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s                                                            |
+| metrics | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours |
+| usage refresh | provider backoff plus 60-second manual-refresh floor |
+| cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
 
 ## Performance and retention budgets
 

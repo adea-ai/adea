@@ -11,10 +11,29 @@ export type DevRuntimeAvailability =
   | Readonly<{ status: 'ready' }>
   | Readonly<{ status: 'unavailable'; reason: DevErrorCode }>
 
+export type DevWorkspaceProjection = Readonly<{
+  groups: readonly Readonly<{
+    id: string
+    name: string
+    projects: readonly Readonly<{
+      id: string
+      name: string
+      repository: string
+      branch: string
+      sessions: readonly Readonly<{
+        id: string
+        title: string
+        state: 'active' | 'ready' | 'archived'
+      }>[]
+    }>[]
+  }>[]
+}>
+
 export interface DevRuntimeService {
   state(): DevRuntimeAvailability
   /** Authoritative preference scope, absent until a runtime channel is bound. */
   preferenceScope?(): Scope | undefined
+  projection?(scope: Scope): Promise<DevWorkspaceProjection>
   capabilitySnapshot(scope: Scope): Promise<CapabilitySnapshot>
   execute(command: DevCommand): Promise<DevReply>
 }

@@ -17,6 +17,7 @@ import {
   sameScope,
   type DevScope,
   type OwnerApproval,
+  type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
 import { createDurableJsonStore } from './host-store'
@@ -51,8 +52,9 @@ export function createProjectGrantAuthority(options: {
   roots: RootBookmarkAuthority
   vault: CredentialVault
   audit?: AuthorityAudit
+  approvalVerifier?: OwnerApprovalVerifier
 }) {
-  const { dataDir, roots, vault, audit } = options
+  const { dataDir, roots, vault, audit, approvalVerifier } = options
   const store = createDurableJsonStore<ProjectGrantRecord>({
     file: join(dataDir, 'dev-runtime', 'grants', 'grants.json'),
     schemaVersion: 1,
@@ -113,6 +115,7 @@ export function createProjectGrantAuthority(options: {
       return existing
     }
 
+    approvalVerifier?.consume(approval, input.scope, 'grant a project its root')
     const record: ProjectGrantRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

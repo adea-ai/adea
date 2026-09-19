@@ -173,6 +173,8 @@ export function createChannelAuthority(options?: {
   now?: () => number
   shellHost: string
   shellOrigin: string
+  /** Authoritative account/workspace/node admission, supplied by the host. */
+  authorizeCommand?: (command: DevCommand, identity: ChannelIdentity) => void | Promise<void>
 }) {
   const now = options?.now ?? (() => Date.now())
   const policy: TrustedLoopbackPolicy = {
@@ -518,6 +520,20 @@ export function createChannelAuthority(options?: {
       if (!constantTimeEqual(expectedProof, Buffer.from(frame.proof, 'base64url'))) {
         counters.identityMismatch += 1
         throw new ChannelRejection('identity_mismatch', 'command proof did not verify', 403)
+      }
+      if (options?.authorizeCommand) {
+        try {
+          await options.authorizeCommand(frame.command, {
+            channelId: frame.channelId,
+            clientCredentialId: frame.clientCredentialId,
+          })
+        } catch (error) {
+          throw new ChannelRejection(
+            error instanceof ChannelRejection ? error.code : 'channel_unauthenticated',
+            error instanceof Error ? error.message : 'command scope is not authorized',
+            403
+          )
+        }
       }
       consumeNonce(
         `${frame.clientCredentialId}\u0000${frame.command.scope.accountId}\u0000${frame.command.scope.workspaceId}`,

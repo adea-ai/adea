@@ -25,6 +25,8 @@ export type RailPreferencesV1 = Readonly<{
 }>
 
 export const RAIL_PREFERENCES_STORAGE_KEY = 'adea:rail-preferences:v1'
+/** Malformed/future records are quarantined instead of discarded. */
+export const RAIL_PREFERENCES_QUARANTINE_KEY = 'adea:rail-preferences:quarantine:v1'
 
 /**
  * The default rail: core views in the canonical rail order. Optional app
@@ -95,7 +97,23 @@ export function readRailPreferences(storage: PreferenceStorage | undefined): Rai
   try {
     const raw = storage.getItem(RAIL_PREFERENCES_STORAGE_KEY)
     if (raw === null) return defaultRailPreferences
-    return normalizeRailPreferences(JSON.parse(raw)).value
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      // Preserve malformed text byte-for-byte for diagnostics/recovery.
+      storage.setItem(RAIL_PREFERENCES_QUARANTINE_KEY, raw)
+      return defaultRailPreferences
+    }
+    const normalized = normalizeRailPreferences(parsed)
+    if (normalized.retainedRaw !== undefined) {
+      try {
+        storage.setItem(RAIL_PREFERENCES_QUARANTINE_KEY, JSON.stringify(normalized.retainedRaw))
+      } catch {
+        // Storage remains best-effort; the active view still fails closed.
+      }
+    }
+    return normalized.value
   } catch {
     return defaultRailPreferences
   }
