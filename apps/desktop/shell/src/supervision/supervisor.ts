@@ -45,10 +45,16 @@ export type SupervisionErrorCode =
   | 'sidecar_incompatible'
   | 'confirmation_required'
   | 'confirmation_invalid'
+  | 'stop_unconfirmed'
 
 export type SupervisionResult<T> =
   | { ok: true; value: T }
   | { ok: false; code: SupervisionErrorCode; message: string }
+
+/** What the OS reports for a PID right now. `processGroup` is optional
+ *  because not every platform probe can observe group membership; when it is
+ *  present it joins the ownership proof. */
+export type CurrentProcessIdentity = ProcessIdentity & { processGroup?: string }
 
 export type SupervisionAdapter = {
   spawn(
@@ -56,7 +62,7 @@ export type SupervisionAdapter = {
     generation: number
   ): Promise<{ identity: ProcessIdentity; processGroup: string }>
   /** Current OS identity for a PID, or null when nothing lives there. */
-  currentIdentity(pid: number): Promise<ProcessIdentity | null>
+  currentIdentity(pid: number): Promise<CurrentProcessIdentity | null>
   probe(spec: ComponentSpec, identity: ProcessIdentity): Promise<'responsive' | 'unresponsive'>
   signalIdentity(identity: ProcessIdentity, signalName: 'SIGTERM' | 'SIGKILL'): Promise<void>
 }
@@ -150,10 +156,24 @@ export function createSupervisor(input: {
   adapter: SupervisionAdapter
   records?: RecordStore
   now?: () => number
+  /** Grace window after SIGTERM before escalation is considered (deterministic
+   *  against the injected clock; production uses the real clock). */
+  stopGraceMs?: number
+  /** Grace window after SIGKILL before the stop is reported unconfirmed. */
+  killGraceMs?: number
+  /** Delay between termination observation probes. */
+  terminationProbeDelayMs?: number
+  /** Test seam for the probe delay; production sleeps for real. */
+  delay?: (ms: number) => Promise<void>
 }): Supervisor {
   const now = input.now ?? Date.now
   const records: RecordStore = input.records ?? createInMemoryRecords()
   const adapter = input.adapter
+  const stopGraceMs = input.stopGraceMs ?? 5_000
+  const killGraceMs = input.killGraceMs ?? 2_000
+  const probeDelayMs = input.terminationProbeDelayMs ?? 100
+  const delay =
+    input.delay ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
 
   const runtimes = new Map<ComponentId, ComponentRuntime>()
   for (const spec of input.manifest.components) {
@@ -359,8 +379,9 @@ export function createSupervisor(input: {
     if (!launch) return fail('invalid_state', `${runtime.spec.id} has no launch record`)
     const current = await adapter.currentIdentity(launch.identity.pid)
     if (!current) return { ok: true, value: 'already_gone' }
-    if (!sameIdentity(current, launch.identity)) {
-      // A reused PID belongs to someone else: never signal it (TM-004).
+    if (!launchIdentityMatches(current, launch)) {
+      // A reused PID or a replaced executable belongs to someone else: never
+      // signal it (TM-004).
       audit(
         'signal',
         runtime.spec.id,
@@ -375,6 +396,69 @@ export function createSupervisor(input: {
     await adapter.signalIdentity(launch.identity, signalName)
     audit('signal', runtime.spec.id, launch.generation, signalName)
     return { ok: true, value: 'signalled' }
+  }
+
+  /**
+   * Bounded wait for OBSERVED termination: the PID either holds nothing or
+   * holds a different identity (ours exited, the PID moved on). A deadline on
+   * the injected clock keeps this deterministic; the probe delay is a real
+   * (injectable) sleep so a dead process needs no wait at all.
+   */
+  async function awaitObservedExit(
+    launch: LaunchRecordPublic,
+    graceMs: number
+  ): Promise<'gone' | 'alive'> {
+    const deadline = now() + graceMs
+    for (;;) {
+      const current = await adapter.currentIdentity(launch.identity.pid)
+      if (!current || !launchIdentityMatches(current, launch)) return 'gone'
+      if (now() >= deadline) return 'alive'
+      await delay(probeDelayMs)
+    }
+  }
+
+  /**
+   * Signal, then wait for observed termination inside a bounded window,
+   * escalating to SIGKILL when the graceful window expires. The launch record
+   * and `stopping` state survive until termination is observed: a process is
+   * never declared exited (and no replacement is ever started) while it may
+   * still be alive. An unconfirmed stop returns `stop_unconfirmed` with the
+   * record intact so a later exit event or operator retry reconciles truth.
+   */
+  async function terminateAndObserve(
+    runtime: ComponentRuntime,
+    opts?: { escalate?: boolean }
+  ): Promise<SupervisionResult<{ escalated: boolean; alreadyGone: boolean }>> {
+    const signalled = await signalOwnedProcess(runtime, 'SIGTERM')
+    if (!signalled.ok) return signalled
+    const launch = runtime.launch
+    if (!launch) return fail('invalid_state', `${runtime.spec.id} has no launch record`)
+    if (signalled.value === 'already_gone') {
+      return { ok: true, value: { escalated: false, alreadyGone: true } }
+    }
+    runtime.state = 'stopping'
+    if ((await awaitObservedExit(launch, stopGraceMs)) === 'gone') {
+      return sameLaunch(runtime, launch)
+        ? { ok: true, value: { escalated: false, alreadyGone: false } }
+        : fail('invalid_state', `${runtime.spec.id} launch moved while the stop was observed`)
+    }
+    if (opts?.escalate) {
+      const killed = await signalOwnedProcess(runtime, 'SIGKILL')
+      if (!killed.ok) return killed
+      if (
+        killed.value === 'already_gone' ||
+        (await awaitObservedExit(launch, killGraceMs)) === 'gone'
+      ) {
+        return sameLaunch(runtime, launch)
+          ? { ok: true, value: { escalated: true, alreadyGone: false } }
+          : fail('invalid_state', `${runtime.spec.id} launch moved while the stop was observed`)
+      }
+    }
+    return {
+      ok: false,
+      code: 'stop_unconfirmed',
+      message: `${runtime.spec.id} did not exit within the termination window; the launch record is retained and the component stays stopping`,
+    }
   }
 
   function completeStop(runtime: ComponentRuntime, detail: string): ExitedRecord {
@@ -413,8 +497,31 @@ export function createSupervisor(input: {
       for (const [componentId, record] of latest) {
         const runtime = runtimes.get(componentId)
         if (!runtime) continue
+        // Never clobber a launch this supervisor already owns (an eager
+        // restart may have raced the reconciliation).
+        if (runtime.state !== 'idle' || runtime.launch) {
+          audit(
+            'adoption',
+            componentId,
+            record.generation,
+            'adoption skipped: a live launch record is already owned'
+          )
+          continue
+        }
         const current = await adapter.currentIdentity(record.identity.pid)
-        if (!current || !sameIdentity(current, record.identity)) {
+        if (!current || !launchIdentityMatches(current, record)) {
+          // The persisted process is provably gone: journal the exit so the
+          // launch record cannot dangle as adoptable forever. `expected`
+          // keeps an app restart from counting as a component crash.
+          records.append({
+            kind: 'exited',
+            at: new Date(now()).toISOString(),
+            componentId,
+            generation: record.generation,
+            processRecordId: record.processRecordId,
+            expected: true,
+            exitDetail: 'not observable after supervisor restart',
+          })
           audit('adoption', componentId, record.generation, 'persisted launch could not be adopted')
           continue
         }
@@ -479,17 +586,28 @@ export function createSupervisor(input: {
             `${componentId} termination confirmation is invalid or expired`
           )
       }
-      const signalled = await signalOwnedProcess(runtime, 'SIGTERM')
-      if (signalled.ok && signalled.value === 'signalled' && opts?.escalate) {
-        const escalated = await signalOwnedProcess(runtime, 'SIGKILL')
-        if (!escalated.ok) return escalated
+      // Termination is observed, not assumed: the exit record is written only
+      // after the PID provably no longer holds our identity, with SIGKILL
+      // escalation inside the bounded window when `escalate` is set.
+      const outcome = await terminateAndObserve(runtime, { escalate: opts?.escalate })
+      if (!outcome.ok) {
+        audit(
+          'signal',
+          runtime.spec.id,
+          runtime.generation,
+          'stop unconfirmed; launch record retained'
+        )
+        return outcome
       }
-      if (!signalled.ok) return signalled
       return {
         ok: true,
         value: completeStop(
           runtime,
-          signalled.value === 'signalled' ? 'signalled' : 'already gone'
+          outcome.value.alreadyGone
+            ? 'already gone'
+            : outcome.value.escalated
+              ? 'signalled (SIGTERM + SIGKILL); exit observed'
+              : 'signalled; exit observed'
         ),
       }
     },
@@ -505,9 +623,14 @@ export function createSupervisor(input: {
         runtime.state === 'draining' ||
         runtime.state === 'stopping'
       ) {
-        const signalled = await signalOwnedProcess(runtime, 'SIGTERM')
-        if (!signalled.ok) return signalled
-        completeStop(runtime, 'operator restart')
+        // The replacement starts only after the old process is observed gone;
+        // an unconfirmed stop refuses the restart instead of overlapping.
+        const outcome = await terminateAndObserve(runtime, { escalate: true })
+        if (!outcome.ok) return outcome
+        completeStop(
+          runtime,
+          outcome.value.alreadyGone ? 'already gone' : 'signalled; exit observed (operator restart)'
+        )
       }
       return startRuntime(runtime, `operator-restart-${now()}`)
     },
@@ -523,12 +646,12 @@ export function createSupervisor(input: {
       const runtime = runtimes.get(componentId)
       if (!runtime) return fail('not_found', `unknown component ${componentId}`)
       if (!runtime.launch) return fail('invalid_state', `${componentId} has no running process`)
-      const signalled = await signalOwnedProcess(runtime, 'SIGTERM')
-      if (signalled.ok && signalled.value === 'signalled') {
-        return recordUnexpectedExit(runtime)
-      }
-      if (signalled.ok) return recordUnexpectedExit(runtime)
-      return signalled
+      // Recycle only after the recycle is observed: signal, escalate inside
+      // the bounded window, and count the failure (with its restart) once the
+      // process provably exited.
+      const outcome = await terminateAndObserve(runtime, { escalate: true })
+      if (!outcome.ok) return outcome
+      return recordUnexpectedExit(runtime)
     },
 
     heartbeat(componentId) {
@@ -549,7 +672,9 @@ export function createSupervisor(input: {
       const missing: ComponentId[] = []
       for (const runtime of runtimes.values()) {
         if (!runtime.spec.required) continue
-        if (runtime.state !== 'running' || runtime.health === 'unhealthy')
+        // Readiness derives health from the probe window at decision time; a
+        // stored 'healthy' from an earlier heartbeat never satisfies it.
+        if (runtime.state !== 'running' || currentHealth(runtime) === 'unhealthy')
           missing.push(runtime.spec.id)
       }
       return { ready: missing.length === 0, missing }
@@ -608,7 +733,8 @@ export function createSupervisor(input: {
         components: [...runtimes.values()].map((runtime) => ({
           id: runtime.spec.id,
           state: runtime.state,
-          health: runtime.health,
+          // Derived at read time so a snapshot never reports a stale probe.
+          health: currentHealth(runtime),
           generation: runtime.generation,
           launch: runtime.launch
             ? {
@@ -638,6 +764,29 @@ function fail<T>(code: SupervisionErrorCode, message: string): SupervisionResult
 
 function sameIdentity(a: ProcessIdentity, b: ProcessIdentity): boolean {
   return a.pid === b.pid && a.pidStartIdentity === b.pidStartIdentity
+}
+
+/** The observation is only valid for the launch it waited on: an exit event
+ *  or adoption that replaced the launch mid-stop invalidates it. */
+function sameLaunch(runtime: ComponentRuntime, launch: LaunchRecordPublic): boolean {
+  return runtime.launch === launch
+}
+
+/**
+ * Full ownership proof before a signal or an adoption: PID start identity
+ * rules out a reused PID, the executable identity rules out a replaced
+ * artifact at the same start identity, and an observable process group must
+ * still be the launched group.
+ */
+function launchIdentityMatches(
+  current: CurrentProcessIdentity,
+  expected: { identity: ProcessIdentity; processGroup: string }
+): boolean {
+  if (!sameIdentity(current, expected.identity)) return false
+  if (current.executableIdentity !== expected.identity.executableIdentity) return false
+  if (current.processGroup !== undefined && current.processGroup !== expected.processGroup)
+    return false
+  return true
 }
 
 function createInMemoryRecords(): RecordStore {

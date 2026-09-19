@@ -12,7 +12,7 @@
 // identifiers.
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 
-import { createCheckpointSink, type CheckpointSink } from '../checkpoints'
+import { createCheckpointSink, type CheckpointSink, type SegmentChunk } from '../checkpoints'
 import { TERMINAL_LIMITS } from '../limits'
 import type { PtyAdapter } from '../pty-adapter'
 import {
@@ -74,6 +74,40 @@ function send(state: ConnectionState, message: SidecarResponse): void {
   }
 }
 
+/**
+ * The contiguous durable chunk chain [sinceSeq, ringOldestSeq) — exactly the
+ * span the in-memory ring cannot replay. Returns null when the durable
+ * history does not bridge the gap (retention pruned the needed segments or a
+ * segment was quarantined): replaying a partial prefix would fabricate a
+ * continuous history with a hole in it, so the caller resyncs from the ring
+ * anchor instead.
+ */
+function durableBridge(
+  sink: CheckpointSink,
+  sinceSeq: string,
+  ringOldestSeq: string
+): { chunks: SegmentChunk[]; byteLength: number } | null {
+  let expected: bigint
+  try {
+    expected = BigInt(sinceSeq)
+    if (expected >= BigInt(ringOldestSeq)) return null
+  } catch {
+    return null
+  }
+  const chunks: SegmentChunk[] = []
+  let byteLength = 0
+  for (const chunk of sink.read(sinceSeq)) {
+    const seq = BigInt(chunk.seq)
+    if (seq < expected) continue // duplicated across segment tail + open buffer
+    if (seq > expected) return null // gap: history genuinely unavailable
+    if (seq >= BigInt(ringOldestSeq)) break // the live ring replays from here
+    chunks.push(chunk)
+    byteLength += chunk.bytes.byteLength
+    expected += 1n
+  }
+  return expected >= BigInt(ringOldestSeq) ? { chunks, byteLength } : null
+}
+
 export function createSidecarService(options: SidecarServiceOptions) {
   const now = options.now ?? Date.now
   const helloNonces = new Map<string, number>()
@@ -88,7 +122,10 @@ export function createSidecarService(options: SidecarServiceOptions) {
     limits: options.managerLimits,
     events: {
       onChunk: (chunk) => {
-        sinks.get(chunk.terminalId)?.append({
+        // ensureSink (not a bare lookup): every ring chunk is durably
+        // appended even for a terminal whose sink was not opened in this
+        // process yet (e.g. after adoption), never silently dropped.
+        ensureSink(chunk.terminalId, chunk.generation).append({
           seq: chunk.seq,
           emittedAt: chunk.emittedAt,
           bytes: chunk.bytes,
@@ -162,6 +199,20 @@ export function createSidecarService(options: SidecarServiceOptions) {
     })
     sinks.set(terminalId, sink)
     return sink
+  }
+
+  /**
+   * The sink for a control request on a known terminal. Opens the durable
+   * history on demand so checkpoint/search/delete serve a terminal adopted
+   * into this process, not only one created here. Unknown terminals have no
+   * history and stay `not_found`.
+   */
+  function sinkForRequest(terminalId: string): CheckpointSink | null {
+    const existing = sinks.get(terminalId)
+    if (existing) return existing
+    const generation = manager.snapshot(terminalId)?.generation
+    if (generation === undefined) return null
+    return ensureSink(terminalId, generation)
   }
 
   async function handleControl(state: ConnectionState, request: SidecarRequest): Promise<void> {
@@ -271,32 +322,83 @@ export function createSidecarService(options: SidecarServiceOptions) {
       }
       case 'terminal.attach': {
         const subscriberId = request.subscriberId
+        const deliver = (chunk: {
+          terminalId: string
+          generation: number
+          seq: string
+          emittedAt: string
+          bytes: Uint8Array
+        }): void => {
+          const meta: ByteFrameMeta = {
+            kind: 'terminal.data',
+            terminalId: chunk.terminalId,
+            generation: chunk.generation,
+            seq: chunk.seq,
+            emittedAt: chunk.emittedAt,
+            byteLength: chunk.bytes.byteLength,
+            subscriberId,
+          }
+          try {
+            state.duplex.send(encodeByteFrame(meta, chunk.bytes))
+          } catch {
+            state.closed = true
+          }
+        }
         const attached = manager.attach(
           request.terminalId,
-          {
-            id: subscriberId,
-            deliver: (chunk) => {
-              const meta: ByteFrameMeta = {
-                kind: 'terminal.data',
-                terminalId: chunk.terminalId,
-                generation: chunk.generation,
-                seq: chunk.seq,
-                emittedAt: chunk.emittedAt,
-                byteLength: chunk.bytes.byteLength,
-                subscriberId,
-              }
-              try {
-                state.duplex.send(encodeByteFrame(meta, chunk.bytes))
-              } catch {
-                state.closed = true
-              }
-            },
-          },
+          { id: subscriberId, deliver },
           request.sinceSeq
         )
         if (!attached.ok) {
           respondError(state, request.requestId, attached.error)
           return
+        }
+        if (attached.value.resyncRequired) {
+          // The in-memory ring cannot cover sinceSeq. Try the durable
+          // checkpoints: a contiguous segment chain that bridges the gap to
+          // the live ring replays seamlessly (exactly once, in order); a
+          // genuinely unavailable span returns the deterministic anchor —
+          // the oldest ring sequence — so the client resyncs and resumes.
+          const coverage = manager.coverage(request.terminalId)
+          const snapshot = manager.snapshot(request.terminalId)
+          if (coverage && snapshot) {
+            const sink = ensureSink(request.terminalId, snapshot.generation)
+            const bridge = durableBridge(sink, request.sinceSeq, coverage.oldestSeq)
+            if (bridge) {
+              for (const chunk of bridge.chunks) {
+                deliver({
+                  terminalId: request.terminalId,
+                  generation: snapshot.generation,
+                  seq: chunk.seq,
+                  emittedAt: chunk.emittedAt,
+                  bytes: chunk.bytes,
+                })
+              }
+              const primed = manager.attach(
+                request.terminalId,
+                { id: subscriberId, deliver },
+                coverage.oldestSeq,
+                { preplayedBytes: bridge.byteLength }
+              )
+              if (!primed.ok) {
+                respondError(state, request.requestId, primed.error)
+                return
+              }
+              if (primed.value.resyncRequired) {
+                // The ring moved between probes (all synchronous, so this is
+                // defensive only): surface the fresh anchor truthfully.
+                respond(state, request.requestId, primed.value)
+                return
+              }
+              state.subscribers.set(subscriberId, request.terminalId)
+              respond(state, request.requestId, {
+                resyncRequired: false,
+                replayed: bridge.chunks.length + primed.value.replayed,
+                nextSeq: primed.value.nextSeq,
+              })
+              return
+            }
+          }
         }
         state.subscribers.set(subscriberId, request.terminalId)
         respond(state, request.requestId, attached.value)
@@ -315,7 +417,9 @@ export function createSidecarService(options: SidecarServiceOptions) {
         return
       }
       case 'terminal.checkpoint': {
-        const sink = sinks.get(request.terminalId)
+        // ensureSink reopens the durable history of a terminal adopted into
+        // this process (segments on disk, no sink instance yet).
+        const sink = sinkForRequest(request.terminalId)
         if (!sink) {
           respondError(state, request.requestId, {
             code: 'not_found',
@@ -333,7 +437,7 @@ export function createSidecarService(options: SidecarServiceOptions) {
         return
       }
       case 'terminal.search': {
-        const sink = sinks.get(request.terminalId)
+        const sink = sinkForRequest(request.terminalId)
         if (!sink) {
           respondError(state, request.requestId, {
             code: 'not_found',
@@ -347,7 +451,7 @@ export function createSidecarService(options: SidecarServiceOptions) {
         return
       }
       case 'terminal.historyDelete': {
-        const sink = sinks.get(request.terminalId)
+        const sink = sinkForRequest(request.terminalId)
         if (!sink) {
           respondError(state, request.requestId, {
             code: 'not_found',

@@ -290,8 +290,36 @@ export async function applyIncludeCopy(input: {
     if (input.signal?.aborted) {
       throw new WorktreeError('cancelled', 'include copy was cancelled')
     }
+    // Structural containment recheck, independent of the plan digest: a
+    // relative path must never be absolute or climb out with `..`, and the
+    // resolved endpoints must land inside the proven roots. This holds
+    // immediately before each side effect, not only at plan time.
+    if (item.relativePath.length === 0 || isAbsolute(item.relativePath)) {
+      throw new WorktreeError(
+        'path_escape',
+        `include candidate is not a relative path: ${item.relativePath}`
+      )
+    }
+    if (item.relativePath.split(sep).includes('..')) {
+      throw new WorktreeError(
+        'path_escape',
+        `include candidate escapes the repository: ${item.relativePath}`
+      )
+    }
     const absoluteSource = resolve(sourceRoot, item.relativePath)
+    if (!absoluteSource.startsWith(sourceRoot + sep)) {
+      throw new WorktreeError(
+        'path_escape',
+        `include candidate escapes the repository: ${item.relativePath}`
+      )
+    }
     const absoluteDestination = resolve(destinationRoot, item.relativePath)
+    if (!absoluteDestination.startsWith(destinationRoot + sep)) {
+      throw new WorktreeError(
+        'path_escape',
+        `include destination escapes the worktree: ${item.relativePath}`
+      )
+    }
 
     // Source identity recheck: the file must be the exact bytes the plan saw
     // (an in-place rewrite keeps the inode, so mtime+size join the check),
@@ -340,7 +368,15 @@ export async function applyIncludeCopy(input: {
     )
 
     // Post-copy containment recheck: the clone must exist exactly where the
-    // plan placed it.
+    // plan placed it, as a regular file — a symlink swapped in after the
+    // copy is an escape attempt even when its target resolves inside.
+    const placedStat = lstatSync(absoluteDestination, { throwIfNoEntry: false })
+    if (!placedStat || placedStat.isSymbolicLink() || !placedStat.isFile()) {
+      throw new WorktreeError(
+        'path_escape',
+        `include destination was replaced after copy: ${item.relativePath}`
+      )
+    }
     const placed = realpathSync(absoluteDestination)
     if (!placed.startsWith(destinationRoot + sep)) {
       throw new WorktreeError(

@@ -341,14 +341,29 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
       maxTotalBytes: input.budgets?.maxTotalBytes ?? TEMPLATE_MAX_TOTAL_BYTES,
       maxEntries: TEMPLATE_SCAN_MAX_ENTRIES,
     })
-    // Tamper check without re-reading content: the full content hash was
-    // proven once at promotion and the ready tree is immutable after rename,
-    // so a cheap stat-manifest fingerprint detects post-promotion changes.
+    // Cheap pre-check without re-reading: a stat-manifest mismatch fails fast
+    // before any content hashing.
     const statDigest = statManifestDigest(files)
     if (record.statDigest && statDigest !== record.statDigest) {
       throw new WorktreeError(
         'identity_mismatch',
         'dependency template content changed after promotion'
+      )
+    }
+    // Authoritative pre-clone proof: the promoted content digest is recomputed
+    // from the bytes on disk immediately before the first clone. Size/mtime
+    // fingerprints alone cannot prove content, and the ready tree is only
+    // immutable by policy — not by the filesystem.
+    const hasher = new Bun.CryptoHasher('sha256')
+    hasher.update(JSON.stringify(files.map((file) => [file.relativePath, file.size])))
+    for (const file of files) {
+      hasher.update(await hashFile(join(templateRoot, file.relativePath)))
+    }
+    const freshContentDigest = hasher.digest('hex')
+    if (freshContentDigest !== record.contentDigest) {
+      throw new WorktreeError(
+        'identity_mismatch',
+        'dependency template content digest does not match the promoted record'
       )
     }
 
@@ -374,7 +389,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         if (!current || current.dev !== verified.dev || current.ino !== verified.ino) {
           throw new WorktreeError(
             'path_escape',
-            `template destination parent changed during materialization: \${file.relativePath}`
+            `template destination parent changed during materialization: ${file.relativePath}`
           )
         }
       } else {
@@ -383,7 +398,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         if (parentReal !== destinationRoot && !parentReal.startsWith(destinationRoot + sep)) {
           throw new WorktreeError(
             'path_escape',
-            `template destination escapes the worktree: \${file.relativePath}`
+            `template destination escapes the worktree: ${file.relativePath}`
           )
         }
         const parentStats = lstatSync(destinationParent)

@@ -227,4 +227,114 @@ describe('include copy plan and apply', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  test('a pre-existing symlinked destination parent is a path escape', async () => {
+    const dir = scratch()
+    try {
+      const repo = initRepo(join(dir, 'repo'))
+      const worktree = join(dir, 'worktrees', 'feature')
+      git(repo, ['worktree', 'add', worktree, '-b', 'feature'])
+      writeFileSync(join(repo, '.worktreeinclude'), 'config/local.yaml\n')
+      ignored(repo, 'config/local.yaml', 'setting: on\n')
+      // The destination parent already exists as a symlink pointing outside.
+      const outside = join(dir, 'outside')
+      mkdirSync(outside, { recursive: true })
+      symlinkSync(outside, join(worktree, 'config'))
+
+      let code = ''
+      try {
+        await planAndApply(repo, worktree)
+      } catch (error) {
+        code = (error as WorktreeError).code
+      }
+      expect(code).toBe('path_escape')
+      // Nothing was written through the symlinked parent.
+      expect(existsSync(join(outside, 'local.yaml'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a destination parent swapped to a symlink after the plan refuses the copy', async () => {
+    const dir = scratch()
+    try {
+      const repo = initRepo(join(dir, 'repo'))
+      const worktree = join(dir, 'worktrees', 'feature')
+      git(repo, ['worktree', 'add', worktree, '-b', 'feature'])
+      writeFileSync(join(repo, '.worktreeinclude'), 'config/local.yaml\n')
+      ignored(repo, 'config/local.yaml', 'setting: on\n')
+      const plan = await planIncludeCopy({ sourceRoot: repo, destinationRoot: worktree })
+      if ('ran' in plan) throw new Error('expected a plan')
+      // The parent appears as a symlink between plan and apply.
+      const outside = join(dir, 'outside')
+      mkdirSync(outside, { recursive: true })
+      symlinkSync(outside, join(worktree, 'config'))
+
+      let code = ''
+      try {
+        await applyIncludeCopy({ plan, digest: plan.digest })
+      } catch (error) {
+        code = (error as WorktreeError).code
+      }
+      expect(code).toBe('path_escape')
+      expect(existsSync(join(outside, 'local.yaml'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a forged plan with a traversing candidate is refused at apply time', async () => {
+    const dir = scratch()
+    try {
+      const repo = initRepo(join(dir, 'repo'))
+      const worktree = join(dir, 'worktrees', 'feature')
+      git(repo, ['worktree', 'add', worktree, '-b', 'feature'])
+      writeFileSync(join(repo, '.worktreeinclude'), 'config/local.yaml\n')
+      ignored(repo, 'config/local.yaml', 'setting: on\n')
+      const plan = await planIncludeCopy({ sourceRoot: repo, destinationRoot: worktree })
+      if ('ran' in plan) throw new Error('expected a plan')
+      // A forged plan carrying a `..` candidate with a self-consistent
+      // digest: the digest gate passes by construction, so the structural
+      // containment recheck at apply time is what refuses.
+      const forged = {
+        ...plan,
+        items: [
+          {
+            relativePath: '../escape.txt',
+            sizeBytes: 13,
+            sourceIdentity: identityOfPath(join(repo, 'config', 'local.yaml')),
+            secretLike: false,
+          },
+        ],
+      }
+      const { createHash } = await import('node:crypto')
+      const redigest = (candidate: typeof forged): string =>
+        createHash('sha256')
+          .update(
+            JSON.stringify({
+              sourceRoot: candidate.sourceRoot,
+              ...(candidate.sourceRootIdentity
+                ? { sourceRootIdentity: candidate.sourceRootIdentity }
+                : {}),
+              destinationRoot: candidate.destinationRoot,
+              destinationRootIdentity: candidate.destinationRootIdentity,
+              items: candidate.items,
+              excluded: candidate.excluded,
+              totalBytes: candidate.totalBytes,
+              approvedSecretLike: candidate.approvedSecretLike,
+            })
+          )
+          .digest('hex')
+      let code = ''
+      try {
+        await applyIncludeCopy({ plan: forged, digest: redigest(forged) })
+      } catch (error) {
+        code = (error as WorktreeError).code
+      }
+      expect(code).toBe('path_escape')
+      expect(existsSync(join(dir, 'escape.txt'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

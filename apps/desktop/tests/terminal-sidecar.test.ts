@@ -3,7 +3,7 @@
 // operations over the framed protocol, byte-preserving data frames, resync
 // propagation, and adoption decisions (adopt / drain_upgrade / incompatible).
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -28,6 +28,7 @@ import {
   type ByteFrameMeta,
 } from '../shell/src/dev-runtime/terminal/sidecar/protocol'
 import { createBunPtyAdapter } from '../shell/src/dev-runtime/terminal/pty-adapter'
+import { TERMINAL_LIMITS } from '../shell/src/dev-runtime/terminal/limits'
 import { createFakePtyAdapter } from './fixtures/fake-pty'
 import { createLoopbackPair } from './fixtures/loopback-duplex'
 
@@ -707,4 +708,174 @@ describe('real sidecar process on this platform', () => {
       }
     }
   )
+})
+
+describe('durable replay across the ring boundary', () => {
+  async function smallRingHarness() {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-sidecar-ring-'))
+    const runtimeRoot = join(dataDir, 'dev-runtime')
+    mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
+    const credential = newSidecarCredential()
+    const fake = createFakePtyAdapter()
+    const service = createSidecarService({
+      runtimeRoot,
+      ptyAdapter: fake.adapter,
+      sidecarVersion: '1.0.0-test',
+      credential,
+      executableIdentity,
+      pidStartIdentity: 'test-start-identity',
+      managerLimits: { ...TERMINAL_LIMITS, ringMaxBytes: 96 },
+    })
+    const [clientSide, serverSide] = createLoopbackPair()
+    service.handleConnection(serverSide)
+    const connected = await connectSidecarClient({
+      duplex: clientSide,
+      scope,
+      credential: Buffer.from(credential).toString('base64url'),
+      nonce: 'ring-nonce',
+    })
+    if (!connected.ok) throw new Error(`sidecar connect failed: ${connected.code}`)
+    return {
+      service,
+      fake,
+      runtimeRoot,
+      client: connected.client,
+      received: [] as FrameRecord[],
+      cleanup: () => rmSync(dataDir, { recursive: true, force: true }),
+    }
+  }
+
+  test('attach below the ring replays the durable checkpoints, exactly once in order', async () => {
+    const harness = await smallRingHarness()
+    try {
+      harness.client.setEvents({
+        onDataFrame: (meta, bytes) => harness.received.push({ meta, bytes }),
+      })
+      await createTerminal(harness.client)
+      // ~12 chunk flushes; the 96-byte ring prunes the oldest, while the
+      // checkpoint sink retains every chunk (open buffer + segments).
+      for (let batch = 0; batch < 12; batch += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61 + batch))
+        await Bun.sleep(6)
+      }
+      const coverage = harness.service.manager.coverage(terminalId)
+      expect(coverage).toBeDefined()
+      if (!coverage) return
+      expect(Number(coverage.oldestSeq)).toBeGreaterThan(0)
+      const attached = await harness.client.attach({
+        terminalId,
+        subscriberId: 'sub-durable',
+        sinceSeq: '0',
+      })
+      expect(attached).toMatchObject({
+        ok: true,
+        value: { resyncRequired: false, replayed: 12 },
+      })
+      await Bun.sleep(20)
+      expect(harness.received.map((frame) => frame.meta.seq)).toEqual(
+        Array.from({ length: 12 }, (_, index) => String(index))
+      )
+      expect(Array.from(harness.received[0]!.bytes)).toEqual(
+        Array.from(new Uint8Array(24).fill(0x61))
+      )
+      expect(Array.from(harness.received[11]!.bytes)).toEqual(
+        Array.from(new Uint8Array(24).fill(0x6c))
+      )
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
+
+  test('a genuinely unavailable span resyncs from the deterministic ring anchor', async () => {
+    const harness = await smallRingHarness()
+    try {
+      const resyncs: Array<{ terminalId: string; checkpointSequence: string }> = []
+      harness.client.setEvents({
+        onResync: (notice) => resyncs.push(notice),
+      })
+      await createTerminal(harness.client)
+      for (let batch = 0; batch < 12; batch += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61))
+        await Bun.sleep(6)
+      }
+      // Flush the pending buffer to a segment, then delete it: the
+      // retention-boundary shape where the requested span exists nowhere.
+      const checkpointed = await harness.client.checkpoint(terminalId)
+      expect(checkpointed.ok).toBe(true)
+      const sessionDir = join(harness.runtimeRoot, terminalId)
+      const segments = readdirSync(sessionDir)
+        .filter((name) => name.startsWith('seg-'))
+        .toSorted()
+      expect(segments.length).toBeGreaterThan(0)
+      rmSync(join(sessionDir, segments[0]!))
+      const coverage = harness.service.manager.coverage(terminalId)
+      expect(coverage).toBeDefined()
+      if (!coverage) return
+      const attached = await harness.client.attach({
+        terminalId,
+        subscriberId: 'sub-gap',
+        sinceSeq: '0',
+      })
+      // Deterministic: the anchor is exactly the ring's oldest covered
+      // sequence, never a fabricated partial replay.
+      expect(attached).toMatchObject({
+        ok: true,
+        value: { resyncRequired: true, checkpointSequence: coverage.oldestSeq },
+      })
+      const again = await harness.client.attach({
+        terminalId,
+        subscriberId: 'sub-gap-2',
+        sinceSeq: '0',
+      })
+      expect(again).toMatchObject({
+        ok: true,
+        value: { resyncRequired: true, checkpointSequence: coverage.oldestSeq },
+      })
+      expect(harness.received).toEqual([])
+      await Bun.sleep(20)
+      expect(resyncs).toEqual([])
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
+
+  test('a mid-history hole never replays a fabricated continuous bridge', async () => {
+    const harness = await smallRingHarness()
+    try {
+      await createTerminal(harness.client)
+      for (let batch = 0; batch < 12; batch += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61))
+        await Bun.sleep(6)
+      }
+      // Two segments; removing only the OLDEST leaves a hole between seq 0
+      // and the survivors, which must resync instead of partial-replaying.
+      const checkpointed = await harness.client.checkpoint(terminalId)
+      expect(checkpointed.ok).toBe(true)
+      const secondBatch: Array<Promise<void>> = []
+      for (let batch = 0; batch < 4; batch += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x62))
+        secondBatch.push(Bun.sleep(6))
+      }
+      await Promise.all(secondBatch)
+      const checkpointAgain = await harness.client.checkpoint(terminalId)
+      expect(checkpointAgain.ok).toBe(true)
+      const sessionDir = join(harness.runtimeRoot, terminalId)
+      const segments = readdirSync(sessionDir)
+        .filter((name) => name.startsWith('seg-'))
+        .toSorted()
+      expect(segments.length).toBeGreaterThanOrEqual(2)
+      rmSync(join(sessionDir, segments[0]!))
+      const attached = await harness.client.attach({
+        terminalId,
+        subscriberId: 'sub-hole',
+        sinceSeq: '0',
+      })
+      expect(attached).toMatchObject({
+        ok: true,
+        value: { resyncRequired: true, checkpointSequence: expect.any(String) },
+      })
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
 })

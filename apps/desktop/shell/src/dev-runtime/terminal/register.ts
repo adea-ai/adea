@@ -543,7 +543,17 @@ export function registerTerminalRuntime(
       // grant binding is the write authority for this stream.
       const terminalId = grant.resource.id
       const entry = registry.get(terminalId)
-      if (entry && grant.resource.generation !== entry.generation) {
+      if (!entry) {
+        // An unregistered (or since-deregistered) terminal grants no write
+        // authority here even if the sidecar still holds a session.
+        session.send({
+          type: 'error',
+          error: devError('not_found', 'terminal is not registered on this runtime node'),
+        })
+        session.close('incompatible', 'terminal is not registered')
+        return
+      }
+      if (grant.resource.generation !== entry.generation) {
         session.send({
           type: 'error',
           error: devError('stale_generation', 'grant generation is stale'),

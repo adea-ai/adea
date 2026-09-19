@@ -13,6 +13,7 @@ import {
   readSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
@@ -410,6 +411,84 @@ describe('dependency-template cache', () => {
       expect(cache.clear(scope, 'proj').cleared).toBe(true)
       expect(existsSync(join(worktree, 'dep.mjs'))).toBe(true)
       expect(cache.status(scope, 'proj')).toEqual({ state: 'absent' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('materialize recomputes the content digest immediately before cloning', async () => {
+    const dir = scratch()
+    try {
+      const repo = initRepo(join(dir, 'repo'))
+      const worktree = join(dir, 'feature')
+      git(repo, ['worktree', 'add', worktree, '-b', 'feature'])
+      const identity = directoryIdentity(worktree).identity
+      const cache = createTemplateCache({ dataDir: dir })
+      const build = await cache.beginBuild({
+        scope,
+        projectId: 'proj',
+        components,
+        approval: { method: 'owner_setting', reference: 'r' },
+      })
+      writeFileSync(join(build.stagingDir, 'dep.mjs'), 'export const x = 1\n')
+      await build.commit()
+
+      const status = cache.status(scope, 'proj')
+      if (!('templatePath' in status) || !status.templatePath) throw new Error('not promoted')
+      const templateFile = join(status.templatePath, 'dep.mjs')
+      // Tamper in place with the same size and a restored mtime: the
+      // stat-manifest fingerprint passes, only the recomputed content digest
+      // can catch this.
+      const before = statSync(templateFile)
+      writeFileSync(templateFile, 'export const x = 2\n')
+      utimesSync(templateFile, before.atime, before.mtime)
+      expect(statSync(templateFile).size).toBe(before.size)
+
+      await expect(
+        cache.materialize({
+          scope,
+          projectId: 'proj',
+          validityDigest: computeValidityDigest(components),
+          worktreeRoot: worktree,
+          worktreeIdentity: identity,
+        })
+      ).rejects.toMatchObject({ code: 'identity_mismatch' })
+      // Nothing was cloned from the tampered template.
+      expect(existsSync(join(worktree, 'dep.mjs'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('templates are scoped physically and logically per account/workspace/node/project', async () => {
+    const dir = scratch()
+    try {
+      const cache = createTemplateCache({ dataDir: dir })
+      const build = await cache.beginBuild({
+        scope,
+        projectId: 'proj',
+        components,
+        approval: { method: 'owner_setting', reference: 'r' },
+      })
+      writeFileSync(join(build.stagingDir, 'dep.mjs'), 'export const x = 1\n')
+      const promoted = await build.commit()
+
+      // The same projectId under another workspace resolves to a different
+      // physical directory and an absent record — never shared state.
+      const otherScope = { ...scope, workspaceId: '00000000-0000-4000-8000-00000000ffff' }
+      expect(cache.status(otherScope, 'proj')).toEqual({ state: 'absent' })
+      const otherBuild = await cache.beginBuild({
+        scope: otherScope,
+        projectId: 'proj',
+        components,
+        approval: { method: 'owner_setting', reference: 'r' },
+      })
+      expect(otherBuild.stagingDir).not.toBe(promoted.templatePath)
+      expect(otherBuild.stagingDir.startsWith(promoted.templatePath!)).toBe(false)
+      // Clearing one scope's template leaves the other untouched.
+      await otherBuild.abort('not needed')
+      expect(cache.clear(otherScope, 'proj').cleared).toBe(false)
+      expect(cache.status(scope, 'proj')).toMatchObject({ state: 'ready' })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

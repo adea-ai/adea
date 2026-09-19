@@ -1685,8 +1685,13 @@ Defaults:
 - owner-only directories/files, atomic metadata/checkpoint rename, checksum,
   quarantine on corruption.
 
-Attach supplies `sinceSeq`. Covered data replays exactly once in order. If not
-covered, return checkpoint + anchor and resume after the anchor. Backpressure
+Attach supplies `sinceSeq`. Covered data replays exactly once in order. When
+the memory ring cannot cover `sinceSeq`, a contiguous durable checkpoint chain
+that bridges the gap to the ring replays seamlessly (also exactly once, in
+order, with subscriber flow-control credit intact); a span that exists nowhere
+— retention-pruned or quarantined segments included — never replays partially:
+the reply is a resync anchored at the oldest covered sequence, deterministically
+derived from live coverage, and the same anchor on every retry. Backpressure
 never blocks draining the PTY itself.
 
 ### Sidecar adoption
@@ -1733,6 +1738,19 @@ Supervision rules:
   signal. A reused PID or replaced executable is never signalled — the
   supervisor reports `ownership_unproven` and leaves the unrelated process
   running (TM-004);
+- a signal is never treated as an exit. Stop and restart wait for OBSERVED
+  termination — the PID holds nothing, or holds an identity that no longer
+  matches the launch record on start identity, executable identity, and (when
+  observable) process group — inside a bounded window with SIGTERM→SIGKILL
+  escalation. A stop that stays unconfirmed returns `stop_unconfirmed`, keeps
+  the launch record, holds the component in `stopping`, and refuses to start a
+  replacement; a later real exit event or operator retry reconciles truth. A
+  supervisor restart that finds a persisted launch unadoptable journals the
+  exit (`expected`, not a crash) so no launch record dangles adoptable
+  forever, and never clobbers a launch it already owns;
+- readiness derives health from the probe window at decision time — baseline
+  readiness and snapshots compute current health, never a stored heartbeat
+  flag;
 - an unexpected exit counts against the crash-loop window: 5 failures in
   10 minutes stop automatic restarts and surface `crash_loop`; only an
   explicit operator restart clears it, and the verdict survives app restarts
@@ -2468,6 +2486,24 @@ by M14 and is not a hidden M12 acceptance criterion.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-09-19 — host-correctness tightening (#396/#397/#185).** Terminal:
+  attach below the memory ring now replays a contiguous durable checkpoint
+  bridge exactly once, in order, before live delivery, and a genuinely
+  unavailable span resyncs at the deterministically derived oldest covered
+  sequence (spec "Output and replay" updated); the sidecar durably captures
+  every ring chunk even for terminals adopted into a fresh process.
+  Supervision: exits are observed, never assumed — stop/restart wait for
+  observed termination with bounded SIGTERM→SIGKILL escalation and
+  `stop_unconfirmed` retains the launch record and blocks replacement;
+  the ownership proof now includes executable identity and observable
+  process group; readiness derives health at decision time (spec "Local
+  stack supervision" updated). Worktrees: template materialization
+  recomputes the promoted content digest from disk immediately before the
+  first clone (stat fingerprints are a pre-check only, per the existing
+  "content-digest-verified at materialization" rule), and include-copy
+  application re-proves structural containment per item. No new registry
+  operations; no limit changes.
 
 - **2026-09-18 — worktree lifecycle implementation detail (#397).** Added the
   worktree-name retirement registry (fixed pool, permanent retirement,
