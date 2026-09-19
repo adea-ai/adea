@@ -109,6 +109,11 @@ describe('rail preferences', () => {
     const corruptStorage = memoryStorage({ 'adea:rail-preferences:v1': '{oops' })
     expect(readRailPreferences(corruptStorage)).toEqual(defaultRailPreferences)
     expect(corruptStorage.getItem('adea:rail-preferences:quarantine:v1')).toBe('{oops')
+    // The quarantined unread original survives a later valid write.
+    writeRailPreferences(corruptStorage, defaultRailPreferences)
+    expect(corruptStorage.getItem('adea:rail-preferences:quarantine:v1')).toBe('{oops')
+    expect(readRailPreferences(corruptStorage)).toEqual(defaultRailPreferences)
+    expect(corruptStorage.getItem('adea:rail-preferences:quarantine:v1')).toBe('{oops')
     const futureStorage = memoryStorage({
       'adea:rail-preferences:v1': JSON.stringify({ version: 99, order: ['dev'], hidden: [] }),
     })

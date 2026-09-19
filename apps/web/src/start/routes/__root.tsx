@@ -11,6 +11,9 @@ import '../globals.css'
  */
 export type WorkspaceSearch = {
   channel?: string
+  /** Dev View deep links: deterministic project/session selection. */
+  devProject?: string
+  devSession?: string
   message?: string
   roomDesigner?: string
   scene?: 'home' | 'work'

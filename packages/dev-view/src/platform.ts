@@ -11,19 +11,30 @@ export type DevRuntimeAvailability =
   | Readonly<{ status: 'ready' }>
   | Readonly<{ status: 'unavailable'; reason: DevErrorCode }>
 
+/**
+ * The authoritative Dev workspace projection: groups, projects, and canonical
+ * `RuntimeSession` records from the runtime service. Optional versioning and
+ * freshness fields are carried when the provider maps them; the production
+ * selection uses them for reorder concurrency and stale detection, and never
+ * invents them when absent.
+ */
 export type DevWorkspaceProjection = Readonly<{
+  observedAt?: string
   groups: readonly Readonly<{
     id: string
     name: string
+    version?: number
     projects: readonly Readonly<{
       id: string
       name: string
       repository: string
       branch: string
+      version?: number
       sessions: readonly Readonly<{
         id: string
         title: string
         state: 'active' | 'ready' | 'archived'
+        generation?: number
       }>[]
     }>[]
   }>[]

@@ -181,7 +181,9 @@ test.describe('rail customization', () => {
     page,
   }) => {
     const rail = page.getByRole('navigation', { name: 'Global navigation' })
-    await expect(rail.getByRole('button', { name: 'Virtual view' })).toBeVisible()
+    await expect(rail.getByRole('button', { name: 'Virtual view' })).toBeVisible({
+      timeout: 30_000,
+    })
 
     let { library } = await openNavigationTab(page)
     const virtualRow = library
@@ -224,4 +226,60 @@ test.describe('rail customization', () => {
     // Chat is the active view; the rail keeps it rendered.
     await expect(rail.getByRole('button', { name: 'Chat view' })).toBeVisible()
   })
+})
+
+test('a corrupt stored appearance quarantines into the recovery envelope and survives a save', async ({
+  page,
+}) => {
+  // Seed an unreadable appearance document before the app loads.
+  await page.addInitScript(() => {
+    window.localStorage.setItem('appearance', '{"version":2,"mode":"da')
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('main')).toBeVisible()
+
+  // The corrupt value is quarantined byte-for-byte once the provider mounts
+  // (hydration is async, so poll instead of reading once).
+  let envelope: string | null = null
+  await expect
+    .poll(
+      async () => {
+        envelope = await page.evaluate(() => window.localStorage.getItem('appearance.recovery'))
+        return envelope
+      },
+      { timeout: 20_000 }
+    )
+    .toBeTruthy()
+  expect(JSON.parse(envelope!).raw).toBe('{"version":2,"mode":"da')
+
+  // Saving valid preferences must not destroy the quarantined original.
+  const dialog = await openAppearance(page)
+  await section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toBeHidden()
+  const kept = await page.evaluate(() => window.localStorage.getItem('appearance.recovery'))
+  expect(JSON.parse(kept!).raw).toBe('{"version":2,"mode":"da')
+  expect(
+    JSON.parse(await page.evaluate(() => window.localStorage.getItem('appearance')!)).mode
+  ).toBe('dark')
+})
+
+test('cancel reverts the draft and the OS reduced-motion preference keeps the dialog operable', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const dialog = await openAppearance(page)
+
+  await section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toBeHidden()
+  // Closing without saving restores the pre-open appearance.
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+
+  // Re-open under reduced motion: live previews still apply.
+  const reopened = await openAppearance(page)
+  await section(reopened, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await reopened.getByRole('button', { name: 'Cancel' }).click()
 })

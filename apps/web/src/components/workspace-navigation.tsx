@@ -234,6 +234,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  // Dev selection lives in the shared store; the URL effects below mirror it
+  // into `devProject`/`devSession` search params deterministically.
+  const devSelectedProjectId = useWorkspaceState((state) => state.selectedDevProjectId)
+  const devSelectedSessionId = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   // Rail customization is a device-local versioned preference with unknown-
   // contribution preservation; a corrupt record falls back without deleting
   // the unread value.
@@ -295,6 +299,37 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     })
   const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
+
+  // Dev deep links: `devProject`/`devSession` seed the shared selection store
+  // on arrival and follow it deterministically afterwards. A stale, archived,
+  // or cross-project link converges on the recovered selection (Dev View
+  // corrects the store; this effect rewrites the URL) instead of pinning an
+  // invalid selection. Unknown query keys survive every patch because
+  // `applySearch` spreads the current search.
+  createEffect(() => {
+    if (view() !== 'dev') return
+    const urlProject = currentSearch().devProject
+    const urlSession = currentSearch().devSession
+    const store = workspaceStore.getState()
+    if (urlProject && urlProject !== store.selectedDevProjectId) {
+      store.setSelectedDevProjectId(urlProject)
+      if (urlSession) workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+      return
+    }
+    if (urlSession && urlSession !== store.selectedRuntimeSessionId)
+      workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+  })
+  createEffect(() => {
+    if (view() !== 'dev') return
+    const projectId = devSelectedProjectId()
+    const sessionId = devSelectedSessionId()
+    const patch: Partial<WorkspaceSearch> = {}
+    if ((currentSearch().devProject ?? undefined) !== (projectId ?? undefined))
+      patch.devProject = projectId ?? undefined
+    if ((currentSearch().devSession ?? undefined) !== (sessionId ?? undefined))
+      patch.devSession = sessionId ?? undefined
+    if (patch.devProject !== undefined || patch.devSession !== undefined) applySearch(patch)
+  })
 
   // Deep-link params are router state the chat surface consumes through
   // accessors — reactive, so notification links apply on SPA navigation too.

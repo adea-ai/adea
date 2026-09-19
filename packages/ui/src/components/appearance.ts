@@ -41,6 +41,22 @@ export type SurfacePreference = 'opaque' | 'frosted' | 'translucent'
 export const APPEARANCE_STORAGE_KEY = 'appearance'
 /** The pre-#425 key. Migration reads it and never deletes it. */
 export const LEGACY_THEME_STORAGE_KEY = 'theme'
+/**
+ * Recovery envelope for unread preference documents (Dev Runtime spec,
+ * "Compatibility, migrations, and waivers": a failed migration retains the
+ * original record; it never silently rewrites or deletes the input). A
+ * malformed or future-version document is quarantined here — before any
+ * write can touch the main key — so saving valid preferences later can never
+ * destroy the user's unread data.
+ */
+export const APPEARANCE_RECOVERY_STORAGE_KEY = 'appearance.recovery'
+
+export type AppearanceRecoveryEnvelope = Readonly<{
+  schemaVersion: 1
+  reason: 'corrupt_json' | 'unsupported_record'
+  capturedAt: string
+  raw: string
+}>
 
 export const DARK_QUERY = '(prefers-color-scheme: dark)'
 export const REDUCED_TRANSPARENCY_QUERY = '(prefers-reduced-transparency: reduce)'
@@ -838,9 +854,34 @@ export function migrateLegacyThemeValue(
 type AppearanceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 /**
+ * Quarantine an unread raw document into the recovery envelope. Runs at read
+ * time — before any later write can overwrite the main key — and is
+ * idempotent: re-reading the same unread value refreshes the capture without
+ * losing it.
+ */
+function retainRecoveryEnvelope(
+  storage: AppearanceStorage,
+  raw: string,
+  reason: AppearanceRecoveryEnvelope['reason']
+): void {
+  try {
+    const envelope: AppearanceRecoveryEnvelope = {
+      schemaVersion: 1,
+      reason,
+      capturedAt: new Date().toISOString(),
+      raw,
+    }
+    storage.setItem(APPEARANCE_RECOVERY_STORAGE_KEY, JSON.stringify(envelope))
+  } catch {
+    // Quarantine is best-effort; the active preference still fails closed.
+  }
+}
+
+/**
  * Read the appearance preferences: the v2 key first, then the legacy `theme`
- * key, then defaults. Storage failures degrade to defaults like every other
- * blocked-storage consumer.
+ * key, then defaults. A malformed or future-version document is quarantined
+ * into the recovery envelope and the defaults are returned; storage failures
+ * degrade to defaults like every other blocked-storage consumer.
  */
 export function readAppearancePreferences(
   storage: AppearanceStorage | undefined
@@ -853,9 +894,18 @@ export function readAppearancePreferences(
       try {
         parsed = JSON.parse(raw)
       } catch {
+        retainRecoveryEnvelope(storage, raw, 'corrupt_json')
         return defaultAppearancePreferences
       }
-      return normalizeAppearancePreferences(parsed).value
+      const normalized = normalizeAppearancePreferences(parsed)
+      if (normalized.retainedRaw !== undefined) {
+        retainRecoveryEnvelope(
+          storage,
+          raw,
+          typeof parsed === 'object' && parsed !== null ? 'unsupported_record' : 'corrupt_json'
+        )
+      }
+      return normalized.value
     }
     return (
       migrateLegacyThemeValue(storage.getItem(LEGACY_THEME_STORAGE_KEY)) ??

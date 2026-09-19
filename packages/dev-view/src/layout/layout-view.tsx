@@ -134,7 +134,8 @@ function Pane(props: {
         <div class="dev-terminal-placeholder">
           <p>$ dev runtime status</p>
           <p class="dev-terminal-muted">
-            Authenticated terminal transport is not available in this slice.
+            Terminal output rides the authenticated terminal-bytes-v1 stream; this provider does not
+            expose the attach seam yet, so no PTY is bound to this pane.
           </p>
           <Show when={props.unavailable}>
             <p>Capability state: unavailable</p>

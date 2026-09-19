@@ -1225,6 +1225,37 @@ The following invariants are mandatory:
 and never creates a second session, event, approval, credential, or runtime-node
 authority.
 
+### Durable project/session authority (desktop host)
+
+The desktop shell's project/session register is the host-side canonical
+authority for projects, runtime sessions, groups, and the archive journal —
+not a projection of other state. One snapshot record commits groups, projects,
+sessions, and `ArchiveRecord`s together in a single atomic file write, so
+`dev.session.archive`/`dev.session.unarchive` persist the session flip and its
+durable record in one transaction. The register serves `dev.group.*`,
+`dev.project.*` (except import/clone/scan), `dev.session.create/get/list/
+archive/unarchive`; `dev.session.create` binds the session to an in-scope
+project and rejects a `repoId` outside the project's bound repositories with
+`identity_mismatch`. Every mutation enforces the scope triple
+(`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
+concurrency (`stale_version`); a stored record that fails structural decode
+fails closed with `corrupt_state` and is retained unread. The earlier local
+`projection.json` is seeded into the authority store exactly once and never
+deleted.
+
+On the client, project/session selection resolves only inside the active
+scope's projection and enforces archive state, explicit revocation, generation
+binding, and observation freshness; a stale projection renders a visible
+staleness state instead of silently trusting the stored selection. Deep-link
+selection (`devProject`/`devSession` query params) is deterministic: an
+unknown query key survives, and a stale, archived, revoked, generation-stale,
+or cross-scope link recovers to the closest live selection with a visible,
+announced banner while the URL converges on the corrected selection. Sidebar
+group/project reordering is accessible through pointer drag and keyboard
+(`Alt`+`Arrow`) paths that produce the same
+`dev.group.reorder`/`dev.project.reorder` commands; a refused reorder reverts
+to the authoritative projection.
+
 ### Browser lane
 
 ```text
@@ -2214,15 +2245,32 @@ and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
 
+Appearance and rail preference storage uses a read-modify-write contract with
+a recovery envelope: a malformed or future-version stored document is
+quarantined — byte-for-byte, with a reason and capture time — into a separate
+recovery key at read time, before any later write can touch the main key.
+Saving valid preferences never destroys unread original data, and the legacy
+key migrates without deletion. Layout storage retains unread values under its
+unread key; rail storage quarantines malformed and future records the same
+way. Storage-level round-trip tests, not only normalizer tests, pin each of
+these behaviors.
+
 Theme imports are deferred until signed App Library support and require a known
 license/provenance or explicit `unknown/unverified`; “User supplied” does not
 prove redistribution permission.
 
 M12 App Library can activate only a bundled first-party entry ID after existing
-catalog signature/digest/install-plan checks. No downloaded JS, `eval`, remote
-module URL, arbitrary postinstall, or empty placeholder view. Optional rail
-items can hide/reorder, but active/core Chat/Dev/Virtual remain recoverable via
-App Library or Reset Navigation.
+catalog signature/digest/install-plan checks. Trust resolves through a
+**compiled** trusted first-party entry registry — the build's own list of
+shipped entry IDs, each bound to the view it mounts and carrying a build-time
+entry digest the catalog record must echo verbatim. An arbitrary non-empty
+`bundledEntryId` from a plugin manifest is never trusted by itself. Activation
+is fail-closed and ordered: installation, registry membership
+(`untrusted-entry`), entry-digest integrity (`integrity-failure`), verified
+install-plan shape (`plan-unverified`), and catalog source revision (`stale`).
+No downloaded JS, `eval`, remote module URL, arbitrary postinstall, or empty
+placeholder view. Optional rail items can hide/reorder, but active/core
+Chat/Dev/Virtual remain recoverable via App Library or Reset Navigation.
 
 ## macOS permissions onboarding
 
@@ -2570,6 +2618,19 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-19 — Dev View product completion, preferences trust, and App
+  Library activation trust (#395/#425).** Added the "Durable project/session
+  authority (desktop host)" section: the shell register is the canonical,
+  durably persisted project/session/archive authority with transactional
+  `ArchiveRecord` commits, scope/generation/version enforcement, and a
+  one-time retained seed from the legacy projection; client selection now
+  enforces scope, generation, revocation, freshness, and archive state with
+  deterministic, self-converging `devProject`/`devSession` deep links and
+  accessible pointer+keyboard reordering. Specified the appearance/rail
+  storage recovery-envelope contract (unread originals survive later valid
+  writes) and the compiled trusted first-party entry registry with ordered
+  fail-closed activation reasons (`untrusted-entry`, `integrity-failure`,
+  `plan-unverified`, `stale`). No registry operations were added or changed.
 - **2026-09-19 — control-plane composition and fail-closed approvals
   (remediation gate).** Hardened the host control plane without changing the
   operation registry:
@@ -2750,6 +2811,22 @@ files in the same commit:
   (`packages/types/tests/dev-runtime.test.ts`) — envelope, channel, stream,
   and state decoders;
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
+  `packages/dev-view/tests/selection.test.ts` pins selection enforcement
+  (scope, generation, revocation, freshness, archive recovery);
+  `packages/dev-view/tests/sidebar-reorder.test.ts` pins the pointer and
+  keyboard reorder model; `packages/dev-view/tests/archive-shelf-model.test.ts`
+  pins the restore flow, the destructive-delete confirmation gate, and the
+  explicit `dev.session.delete` handoff;
+  `apps/desktop/tests/project-session-register.test.ts` pins the durable
+  project/session authority: restart survival without fixtures, transactional
+  archive records, scope/generation/version rejection, fail-closed corruption,
+  and the legacy-seed migration;
+  `packages/ui/tests/appearance.test.ts` pins the storage-level recovery
+  envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
+  pins the compiled trusted entry registry and every activation rejection;
+  `apps/web/e2e/dev-view.spec.ts` and `apps/web/e2e/appearance.spec.ts` pin the
+  deep-link recovery, reorder, shelf, zoom/reduced-motion, and CSP-safe
+  journeys;
 - macOS permissions (#471): `apps/desktop/tests/shell-permissions.test.ts`
   pins the probe outcome matrix, fixed-argv discipline, settings deep-link
   table, and the `desktop_permissions_*` bridge commands;

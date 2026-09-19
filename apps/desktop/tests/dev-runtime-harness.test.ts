@@ -280,8 +280,23 @@ function commandFor(
   } as DevCommand
 }
 
-/** Creates a canonical session through the gate (generation 1). */
-async function createSession(channel: Awaited<ReturnType<Boot['openChannel']>>) {
+/** Creates a canonical session through the gate (generation 1). The durable
+ * authority requires the referenced project (and repo binding) to exist, so
+ * the project is registered first — production imports projects before any
+ * harness session is created. */
+async function createSession(
+  host: DevRuntimeHost,
+  channel: Awaited<ReturnType<Boot['openChannel']>>
+) {
+  host.projectSession?.upsertProject({
+    id: '00000000-0000-4000-8000-0000000000aa',
+    scope: SCOPE_A,
+    name: 'Harness Project',
+    groupIds: [],
+    repoIds: ['00000000-0000-4000-8000-0000000000ab'],
+    lifecycle: 'ready',
+    version: 1,
+  })
   const reply = await channel.execute(
     commandFor('dev.session.create', SCOPE_A, {
       projectId: '00000000-0000-4000-8000-0000000000aa',
@@ -524,7 +539,7 @@ describe('harness substrate behind the M10 gate', () => {
     })
     try {
       const channel = await shell.openChannel()
-      const session = await createSession(channel)
+      const session = await createSession(shell.host(), channel)
       // Install first: the managed installation id only exists once ready.
       const installed = okValue(
         await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
@@ -599,7 +614,7 @@ describe('harness substrate behind the M10 gate', () => {
     const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
     try {
       const channel = await shell.openChannel()
-      const session = await createSession(channel)
+      const session = await createSession(shell.host(), channel)
       await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
       const installationId = shell.managedPiStatus().installationId!
       const launched = okValue(await channel.execute(launchCommand(session, installationId)))
@@ -698,7 +713,7 @@ describe('ACP lane (#32)', () => {
     })
     try {
       const channel = await shell.openChannel()
-      const session = await createSession(channel)
+      const session = await createSession(shell.host(), channel)
       const connected = okValue(
         await channel.execute(
           commandFor(
@@ -781,7 +796,7 @@ describe('ACP lane (#32)', () => {
     })
     try {
       const channel = await shell.openChannel()
-      const session = await createSession(channel)
+      const session = await createSession(shell.host(), channel)
       const refused = await channel.execute(
         commandFor(
           'dev.harness.acpConnect',
@@ -827,7 +842,7 @@ describe('ACP lane (#32)', () => {
     })
     try {
       const channel = await shell.openChannel()
-      const session = await createSession(channel)
+      const session = await createSession(shell.host(), channel)
       const refused = await channel.execute(
         commandFor(
           'dev.harness.acpConnect',
@@ -869,7 +884,7 @@ describe('ACP lane (#32)', () => {
     const shell = await boot({ seedAcpInstallation: { id: installationId } })
     try {
       const channel = await shell.openChannel()
-      const session = await createSession(channel)
+      const session = await createSession(shell.host(), channel)
       const refused = await channel.execute(
         commandFor(
           'dev.harness.acpConnect',

@@ -12,9 +12,11 @@
  */
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type {
+  DevCapability,
   DevLayoutPreferencesV2,
   DevUtilityPane,
   DevUtilityPreference,
+  DevReply,
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/ui/dev-view.css'
 import { cn } from '@adea-ai/ui/lib/utils'
@@ -31,8 +33,19 @@ import {
   Users,
   X,
 } from 'lucide-solid'
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js'
+import {
+  For,
+  Show,
+  Suspense,
+  createEffect,
+  createMemo,
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+} from 'solid-js'
 
+import { buildDevCommand } from './browser/command'
 import { createDevKeyboardController } from './keyboard'
 import { DevLayoutView } from './layout/layout-view'
 import {
@@ -50,9 +63,29 @@ import {
 } from './layout/operations'
 import { createLayoutStorageController, type LayoutStorage } from './layout/storage'
 import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
-import { resolveDevSelection, type DevSelection } from './selection'
+import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
+import {
+  archiveShelfError,
+  archiveShelfReady,
+  archiveShelfUnavailable,
+  beginArchiveShelfLoad,
+  cancelPendingDelete,
+  confirmPendingDelete,
+  requestDelete,
+  restoreCompleted,
+  SESSION_DELETE_OPERATION,
+  type ArchiveShelfState,
+} from './sidebar/archive-shelf-model'
 import { DevSidebarShell } from './sidebar/dev-sidebar-shell'
 import type { DevSessionBadgeState } from './sidebar/badges'
+import {
+  announcementForMove,
+  moveIdInOrder,
+  reorderGroups,
+  reorderGroupsRelativeTo,
+  reorderProjects,
+  reorderProjectsRelativeTo,
+} from './sidebar/reorder'
 
 export type DevProjectFixture = Readonly<{
   id: string
@@ -63,6 +96,7 @@ export type DevProjectFixture = Readonly<{
     id: string
     title: string
     state: 'active' | 'ready' | 'archived'
+    generation?: number
     badges?: DevSessionBadgeState
   }>[]
 }>
@@ -75,6 +109,7 @@ export type DevGroupFixture = Readonly<{
 
 export type DevWorkspaceEntryProps = Readonly<{
   runtime: DevRuntimeService
+  /** E2E/development fixtures only; production consumes the runtime projection. */
   groups?: readonly DevGroupFixture[]
   storage?: LayoutStorage
 }>
@@ -130,6 +165,11 @@ export const devViewFixtureGroups: readonly DevGroupFixture[] = [
             state: 'ready',
             badges: { checks: 'failed', harness: 'awaiting_input' },
           },
+          {
+            id: 'fixture-archived',
+            title: 'Archived discovery',
+            state: 'archived',
+          },
         ],
       },
     ],
@@ -162,6 +202,16 @@ const utilityItems = [
   title: string
   icon: typeof Files
 }>[]
+
+/** The read capability each utility pane depends on for its provider state. */
+const PANE_CAPABILITY: Record<DevUtilityPane, DevCapability> = {
+  files: 'dev.files.read',
+  source_control: 'dev.git.read',
+  browser: 'dev.browser.read',
+  devices: 'dev.device.read',
+  agents: 'dev.session.read',
+  history: 'dev.session.read',
+}
 
 const utilityItemByPane = new Map(utilityItems.map((item) => [item.pane, item]))
 const utilitySizeSteps = [240, 288, 336, 384] as const
@@ -198,6 +248,35 @@ const snapUtilitySize = (size: number) => {
   )
 }
 
+/** How long a projection observation stays fresh for selection rendering. */
+const PROJECTION_FRESHNESS_MS = 60_000
+
+const RECOVERY_COPY: Record<DevSelectionReason, string> = {
+  project_missing: 'That project link is no longer available. The first live project is selected.',
+  session_missing: 'That session link is no longer available. A live session is selected.',
+  session_archived:
+    'That session is archived. A live session is selected — restore it from Archived sessions.',
+  session_revoked: 'That session is no longer active. A live session is selected.',
+  stale_generation:
+    'That link points to an older session generation. The current session is selected.',
+  cross_scope:
+    'That link belongs to a different account, workspace, or runtime node. The active scope is selected.',
+  project_empty: 'This project has no live sessions. Restore one from Archived sessions.',
+}
+
+/*
+ * The browser and device panes ride their own lazy chunks inside the lazy
+ * Dev boundary: mounting code this heavy on the dev shell chunk would blow
+ * the client budget the bundle check enforces. Both render only while their
+ * utility pane is visible.
+ */
+const BrowserPane = lazy(() =>
+  import('./browser/browser-pane').then((module) => ({ default: module.BrowserPane }))
+)
+const DevicesPane = lazy(() =>
+  import('./devices/devices-pane').then((module) => ({ default: module.DevicesPane }))
+)
+
 function focusPaneElement(leafId: string) {
   requestAnimationFrame(() => {
     const target = [...document.querySelectorAll<HTMLElement>('[data-pane-id]')].find(
@@ -211,7 +290,14 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
   const [projectedGroups, setProjectedGroups] = createSignal<readonly DevGroupFixture[]>([])
-  const groups = () => props.groups ?? projectedGroups()
+  // Fixture mode keeps a local, reorderable copy: `props.groups` itself is
+  // readonly E2E input and never mutates.
+  const [fixtureGroups, setFixtureGroups] = createSignal<readonly DevGroupFixture[] | undefined>()
+  const [projection, setProjection] = createSignal<DevWorkspaceProjection | undefined>()
+  const [projectionStatus, setProjectionStatus] = createSignal<'loading' | 'ready' | 'unavailable'>(
+    'loading'
+  )
+  const groups = () => fixtureGroups() ?? props.groups ?? projectedGroups()
   const selectedProjectState = useWorkspaceState((state) => state.selectedDevProjectId)
   const selectedSessionState = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
@@ -223,22 +309,86 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   )
   const [layout, setLayout] = createSignal<DevLayoutState>(initialLayout())
   const [announcement, setAnnouncement] = createSignal('')
+  const [capabilities, setCapabilities] = createSignal<
+    ReadonlyMap<DevCapability, { granted: boolean; reason?: string }>
+  >(new Map())
+  const [archiveShelf, setArchiveShelf] = createSignal<ArchiveShelfState>(beginArchiveShelfLoad())
+  /**
+   * A latched recovery notice: set the first time a requested selection needs
+   * recovery, kept visible across the URL/store convergence, and cleared only
+   * when the user makes an explicit selection.
+   */
+  const [recoveryNotice, setRecoveryNotice] = createSignal('')
+  const [archiveHandoff, setArchiveHandoff] = createSignal<string | undefined>()
   const runtimeState = createMemo(() => props.runtime.state())
+  const fixtureMode = () => props.groups !== undefined
+
+  const activeScope = () => props.runtime.preferenceScope?.()
+
+  /** Production path: the authoritative projection, reloaded on demand. */
+  const loadProjection = async () => {
+    if (props.groups !== undefined) return
+    const scope = activeScope()
+    if (!scope || !props.runtime.projection) {
+      setProjectionStatus('unavailable')
+      setArchiveShelf(archiveShelfUnavailable('channel_unauthenticated'))
+      return
+    }
+    try {
+      const next = await props.runtime.projection(scope)
+      setProjection(next)
+      setProjectedGroups(toDevGroups(next))
+      setProjectionStatus('ready')
+      void loadArchivedSessions()
+    } catch {
+      setProjectedGroups([])
+      setProjectionStatus('unavailable')
+      setArchiveShelf(archiveShelfUnavailable('unavailable'))
+    }
+  }
 
   onMount(() => {
-    if (props.groups || !props.runtime.projection) return
-    const scope = props.runtime.preferenceScope?.()
-    if (!scope) return
-    void props.runtime
-      .projection(scope)
-      .then((projection) => {
-        setProjectedGroups(toDevGroups(projection))
-      })
-      .catch(() => setProjectedGroups([]))
+    if (props.groups !== undefined) {
+      setFixtureGroups(props.groups)
+      setProjectionStatus('ready')
+      setArchiveShelf(
+        archiveShelfReady(
+          props.groups.flatMap((group) =>
+            group.projects.flatMap((project) =>
+              project.sessions
+                .filter((session) => session.state === 'archived')
+                .map((session) => ({
+                  id: session.id,
+                  projectId: project.id,
+                  title: session.title,
+                  archivedAt: 'fixture',
+                }))
+            )
+          )
+        )
+      )
+      return
+    }
+    void loadProjection()
   })
 
-  // Selection always resolves inside the active projection; a stale,
-  // archived, or cross-project ID recovers visibly and is corrected once.
+  const capabilityOf = (pane: DevUtilityPane) => capabilities().get(PANE_CAPABILITY[pane])
+
+  createEffect(() => {
+    const scope = activeScope()
+    if (!scope || fixtureMode()) return
+    void props.runtime.capabilitySnapshot(scope).then((snapshot) => {
+      const next = new Map<DevCapability, { granted: boolean; reason?: string }>()
+      for (const capability of snapshot.granted) next.set(capability, { granted: true })
+      for (const entry of snapshot.unavailable)
+        next.set(entry.capability, { granted: false, reason: entry.reason })
+      setCapabilities(next)
+    })
+  })
+
+  // Selection always resolves inside the active scope's projection; a stale,
+  // archived, revoked, or cross-project ID recovers visibly and is corrected
+  // once. Fixture selections resolve against the fixture projection.
   const selection = createMemo<DevSelection>(() =>
     resolveDevSelection({
       projects: groups().flatMap((group) =>
@@ -247,11 +397,15 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           sessions: project.sessions.map((session) => ({
             id: session.id,
             archived: session.state === 'archived',
+            generation: session.generation,
           })),
         }))
       ),
       requestedProjectId: selectedProjectState(),
       requestedSessionId: selectedSessionState(),
+      scope: activeScope(),
+      observedAt: projection()?.observedAt,
+      staleAfterMs: PROJECTION_FRESHNESS_MS,
     })
   )
   const selectedProject = () => {
@@ -262,16 +416,24 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     const result = selection()
     return result.status === 'empty' ? '' : result.runtimeSessionId
   }
+  const recoveryMessage = () => recoveryNotice()
 
   createEffect(() => {
+    // A defaulting mount (no requested IDs) is silent; recovery notices apply
+    // only when a stored or deep-linked selection actually failed to resolve.
+    const hadRequest = Boolean(selectedProjectState() || selectedSessionState())
     const result = selection()
     if (result.status !== 'recovered') return
+    // Latch the visible notice before correcting the store: the correction
+    // flips the selection to resolved, which would otherwise unmount the
+    // banner in the same tick it appeared.
+    if (hadRequest && !recoveryNotice()) setRecoveryNotice(RECOVERY_COPY[result.reason])
     const store = workspaceStore.getState()
     if (store.selectedDevProjectId !== result.projectId)
       store.setSelectedDevProjectId(result.projectId)
     if (result.runtimeSessionId && store.selectedRuntimeSessionId !== result.runtimeSessionId)
       store.setSelectedRuntimeSessionId(result.runtimeSessionId)
-    setAnnouncement('Saved selection is unavailable; the closest live session is selected.')
+    if (hadRequest) setAnnouncement(RECOVERY_COPY[result.reason])
   })
 
   const visiblePaneOf = (side: 'left' | 'right') =>
@@ -362,6 +524,234 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       )
     )
     schedulePreferences()
+  }
+
+  /*
+   * Accessible reordering. Keyboard moves and pointer drops funnel through
+   * one pure model; in production the resulting order is sent to the runtime
+   * (`dev.group.reorder` / `dev.project.reorder`) and the authoritative
+   * projection is reloaded — a refused reorder is reverted, never kept.
+   */
+  const reorderVersionOf = (groupId: string) =>
+    projection()?.groups.find((g) => g.id === groupId)?.version
+
+  const executeReorder = async (
+    operation: 'dev.group.reorder' | 'dev.project.reorder',
+    body: Record<string, unknown>
+  ): Promise<boolean> => {
+    const scope = activeScope()
+    if (!scope) return false
+    const reply: DevReply = await props.runtime.execute(buildDevCommand({ operation, scope, body }))
+    if (!reply.ok) {
+      setAnnouncement(`Reorder was refused: ${reply.error.message}`)
+      await loadProjection()
+      return false
+    }
+    return true
+  }
+
+  const applyGroups = (next: readonly DevGroupFixture[]) => {
+    if (fixtureMode()) {
+      setFixtureGroups(next)
+      return
+    }
+    // Optimistic local reorder; the authoritative projection reloads after
+    // the runtime command resolves (or refuses).
+    setProjectedGroups(next)
+  }
+
+  const moveGroupHandler = (id: string, direction: 'up' | 'down') => {
+    const current = groups()
+    const moved = Boolean(
+      moveIdInOrder(
+        current.map((group) => group.id),
+        id,
+        direction
+      )
+    )
+    const next = reorderGroups(current, id, direction)
+    applyGroups(next)
+    const position = next.findIndex((group) => group.id === id) + 1
+    const label = current.find((group) => group.id === id)?.name ?? id
+    setAnnouncement(announcementForMove(label, position, next.length, moved))
+    if (!moved || fixtureMode()) return
+    void executeReorder('dev.group.reorder', { orderedGroupIds: next.map((group) => group.id) })
+  }
+
+  const dropGroupHandler = (id: string, targetId: string) => {
+    const current = groups()
+    const next = reorderGroupsRelativeTo(current, id, targetId)
+    if (next === current) return
+    applyGroups(next)
+    const label = current.find((group) => group.id === id)?.name ?? id
+    const position = next.findIndex((group) => group.id === id) + 1
+    setAnnouncement(announcementForMove(label, position, next.length, true))
+    if (fixtureMode()) return
+    void executeReorder('dev.group.reorder', { orderedGroupIds: next.map((group) => group.id) })
+  }
+
+  const moveProjectHandler = (groupId: string, id: string, direction: 'up' | 'down') => {
+    const current = groups()
+    const group = current.find((candidate) => candidate.id === groupId)
+    const next = reorderProjects(current, groupId, id, direction)
+    applyGroups(next)
+    const position =
+      next.find((candidate) => candidate.id === groupId)?.projects.findIndex((p) => p.id === id) ??
+      -1
+    const label = group?.projects.find((project) => project.id === id)?.name ?? id
+    const total = group?.projects.length ?? 0
+    const moved = Boolean(
+      group &&
+      moveIdInOrder(
+        group.projects.map((project) => project.id),
+        id,
+        direction
+      )
+    )
+    if (position >= 0) setAnnouncement(announcementForMove(label, position + 1, total, moved))
+    if (!moved || fixtureMode()) return
+    const expectedGroupVersion = reorderVersionOf(groupId)
+    if (expectedGroupVersion === undefined) {
+      setAnnouncement(
+        'Reorder needs the connected provider to expose group versions; nothing was changed on the runtime.'
+      )
+      return
+    }
+    void executeReorder('dev.project.reorder', {
+      groupId,
+      orderedProjectIds:
+        next.find((candidate) => candidate.id === groupId)?.projects.map((project) => project.id) ??
+        [],
+      expectedGroupVersion,
+    })
+  }
+
+  const dropProjectHandler = (groupId: string, id: string, targetId: string) => {
+    const current = groups()
+    const group = current.find((candidate) => candidate.id === groupId)
+    const next = reorderProjectsRelativeTo(current, groupId, id, targetId)
+    if (next === current) return
+    applyGroups(next)
+    const position =
+      next.find((candidate) => candidate.id === groupId)?.projects.findIndex((p) => p.id === id) ??
+      -1
+    const label = group?.projects.find((project) => project.id === id)?.name ?? id
+    if (position >= 0)
+      setAnnouncement(announcementForMove(label, position + 1, group?.projects.length ?? 0, true))
+    if (fixtureMode()) return
+    const expectedGroupVersion = reorderVersionOf(groupId)
+    if (expectedGroupVersion === undefined) {
+      setAnnouncement(
+        'Reorder needs the connected provider to expose group versions; nothing was changed on the runtime.'
+      )
+      return
+    }
+    void executeReorder('dev.project.reorder', {
+      groupId,
+      orderedProjectIds:
+        next.find((candidate) => candidate.id === groupId)?.projects.map((project) => project.id) ??
+        [],
+      expectedGroupVersion,
+    })
+  }
+
+  /*
+   * Provider-backed archive shelf. Restore rides `dev.session.unarchive`;
+   * the destructive delete commit reports the missing `dev.session.delete`
+   * host contract instead of pretending to succeed.
+   */
+  const loadArchivedSessions = async () => {
+    const scope = activeScope()
+    if (!scope) {
+      setArchiveShelf(archiveShelfUnavailable('channel_unauthenticated'))
+      return
+    }
+    setArchiveShelf((current) => (current.status === 'ready' ? current : beginArchiveShelfLoad()))
+    const reply = await props.runtime.execute(
+      buildDevCommand({ operation: 'dev.session.list', scope, body: { archived: true } })
+    )
+    if (!reply.ok) {
+      setArchiveShelf((current) =>
+        archiveShelfError(
+          reply.error.code,
+          current.status === 'ready' ? current : beginArchiveShelfLoad()
+        )
+      )
+      return
+    }
+    const sessions = (reply.value as { items: readonly Record<string, unknown>[] }).items
+    setArchiveShelf(
+      archiveShelfReady(
+        sessions.map((raw) => ({
+          id: String(raw.id),
+          projectId: String(raw.projectId ?? ''),
+          title: typeof raw.displayName === 'string' ? raw.displayName : String(raw.id),
+          archivedAt: 'recently',
+        }))
+      )
+    )
+  }
+
+  const restoreFromArchive = async (runtimeSessionId: string) => {
+    setArchiveHandoff(undefined)
+    if (props.groups !== undefined) {
+      setArchiveShelf((current) => restoreCompleted(current, runtimeSessionId))
+      setAnnouncement('Archived session restored (fixtures)')
+      return
+    }
+    const scope = activeScope()
+    if (!scope) return
+    // The authoritative generation lives in the session record; the register
+    // binds archive transitions to it. Read it before the transition.
+    const reply = await props.runtime.execute(
+      buildDevCommand({
+        operation: 'dev.session.get',
+        scope,
+        body: { runtimeSessionId },
+        resource: { kind: 'runtime_session', id: runtimeSessionId, generation: 0 },
+      })
+    )
+    if (!reply.ok) {
+      setArchiveHandoff(`Restore failed: ${reply.error.message}`)
+      return
+    }
+    const record = reply.value as { generation?: number }
+    const unarchive = await props.runtime.execute(
+      buildDevCommand({
+        operation: 'dev.session.unarchive',
+        scope,
+        body: { runtimeSessionId, expectedGeneration: record.generation ?? 1 },
+        resource: {
+          kind: 'runtime_session',
+          id: runtimeSessionId,
+          generation: record.generation ?? 1,
+        },
+      })
+    )
+    if (!unarchive.ok) {
+      setArchiveHandoff(`Restore failed: ${unarchive.error.message}`)
+      return
+    }
+    setArchiveShelf((current) => restoreCompleted(current, runtimeSessionId))
+    setAnnouncement('Archived session restored')
+    await loadProjection()
+  }
+
+  const requestArchiveDelete = (runtimeSessionId: string) => {
+    setArchiveShelf((current) => requestDelete(current, runtimeSessionId))
+  }
+  const cancelArchiveDelete = () => {
+    setArchiveShelf((current) => cancelPendingDelete(current))
+  }
+  const confirmArchiveDelete = () => {
+    const commit = confirmPendingDelete(archiveShelf())
+    setArchiveShelf(commit.state)
+    if (!commit.commitId) return
+    // The destructive delete commit is an explicit handoff: the M12 registry
+    // has no dev.session.delete operation, so nothing is invented here.
+    setArchiveHandoff(
+      `Deleting sessions needs the ${SESSION_DELETE_OPERATION} host contract, which this build does not provide. The session stays archived and recoverable.`
+    )
   }
 
   createEffect(() => {
@@ -466,7 +856,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <div class="dev-toolbar__identity">
           <strong>Dev</strong>
           <span>
-            {groups().length > 0 ? 'Foundation preview · typed fixtures' : 'Runtime unavailable'}
+            {fixtureMode()
+              ? 'Development fixtures · E2E only'
+              : projectionStatus() === 'loading'
+                ? 'Loading runtime projects…'
+                : projectionStatus() === 'unavailable'
+                  ? 'Runtime unavailable'
+                  : 'Runtime projects'}
           </span>
         </div>
         <div class="dev-toolbar__actions" role="toolbar" aria-label="Developer workspace actions">
@@ -545,6 +941,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         </div>
       </header>
 
+      <Show when={recoveryMessage()}>
+        <p class="dev-recovery-banner" role="status">
+          {recoveryMessage()}
+        </p>
+      </Show>
+
       <div class="dev-workspace__body">
         <DevSidebarShell
           groups={groups()}
@@ -553,8 +955,24 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           collapsedGroups={new Set(collapsedGroupIds())}
           collapsedProjects={new Set(collapsedProjectIds())}
           compactOpen={compactSidebarOpen()}
-          onProjectSelect={(id) => workspaceStore.getState().setSelectedDevProjectId(id)}
+          reorder={{
+            onMoveGroup: moveGroupHandler,
+            onMoveProject: moveProjectHandler,
+            onDropGroup: dropGroupHandler,
+            onDropProject: dropProjectHandler,
+          }}
+          archiveShelf={archiveShelf()}
+          archiveHandoffMessage={archiveHandoff()}
+          onArchiveRestore={(id) => void restoreFromArchive(id)}
+          onArchiveRequestDelete={requestArchiveDelete}
+          onArchiveCancelDelete={cancelArchiveDelete}
+          onArchiveConfirmDelete={confirmArchiveDelete}
+          onProjectSelect={(id) => {
+            setRecoveryNotice('')
+            workspaceStore.getState().setSelectedDevProjectId(id)
+          }}
           onSessionSelect={(projectId, sessionId) => {
+            setRecoveryNotice('')
             const store = workspaceStore.getState()
             if (store.selectedDevProjectId !== projectId) store.setSelectedDevProjectId(projectId)
             workspaceStore.getState().setSelectedRuntimeSessionId(sessionId)
@@ -568,6 +986,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             side="left"
             panes={panesOfSide('left')}
             visiblePane={visiblePaneOf('left')}
+            runtime={props.runtime}
+            runtimeSessionId={selectedSession() || undefined}
+            capabilityOf={capabilityOf}
             onShow={showPane}
             onCollapse={() => collapseSide('left')}
             onToggleFullWidth={setPaneFullWidth}
@@ -628,6 +1049,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             side="right"
             panes={panesOfSide('right')}
             visiblePane={visiblePaneOf('right')}
+            runtime={props.runtime}
+            runtimeSessionId={selectedSession() || undefined}
+            capabilityOf={capabilityOf}
             onShow={showPane}
             onCollapse={() => collapseSide('right')}
             onToggleFullWidth={setPaneFullWidth}
@@ -709,10 +1133,45 @@ function UtilitySplitter(props: {
   )
 }
 
+/**
+ * Truthful per-pane provider state: real panes mount where a provider
+ * contract exists (browser/devices); panes whose UI surface is owned by
+ * another slice name their capability and its exact state — never a generic
+ * placeholder.
+ */
+function PaneProviderState(props: {
+  title: string
+  capability: DevCapability
+  state?: { granted: boolean; reason?: string }
+}) {
+  return (
+    <div class="dev-pane-state">
+      <p class="dev-pane-state__line">
+        <Show
+          when={props.state}
+          fallback={`Requires ${props.capability}, which has not been reported by this provider yet.`}
+        >
+          <Show
+            when={props.state!.granted}
+            fallback={`${props.title} requires ${props.capability}, which is unavailable${
+              props.state!.reason ? ` (${props.state!.reason})` : ''
+            }.`}
+          >
+            {`${props.title} is connected through ${props.capability}. This pane's interactive surface is delivered by its owning provider slice.`}
+          </Show>
+        </Show>
+      </p>
+    </div>
+  )
+}
+
 function UtilitySlot(props: {
   side: 'left' | 'right'
   panes: readonly DevUtilityPreference[]
   visiblePane: DevUtilityPreference | undefined
+  runtime: DevRuntimeService
+  runtimeSessionId: string | undefined
+  capabilityOf(pane: DevUtilityPane): { granted: boolean; reason?: string } | undefined
   onShow(pane: DevUtilityPane): void
   onCollapse(): void
   onToggleFullWidth(pane: DevUtilityPane, fullWidth: boolean): void
@@ -721,6 +1180,7 @@ function UtilitySlot(props: {
   const sideLabel = () => (props.side === 'left' ? 'Left' : 'Right')
   const visibleItem = () =>
     props.visiblePane ? utilityItemByPane.get(props.visiblePane.pane) : undefined
+  const runtimeReady = () => props.runtime.state().status === 'ready'
   const tabKeyDown = (event: KeyboardEvent, currentPane: DevUtilityPane) => {
     const panes = props.panes.map((entry) => entry.pane)
     const current = panes.indexOf(currentPane)
@@ -739,6 +1199,37 @@ function UtilitySlot(props: {
     const nextPane = panes[next]!
     props.onShow(nextPane)
     document.getElementById(`dev-utility-tab-${props.side}-${nextPane}`)?.focus()
+  }
+  const paneBody = (pane: DevUtilityPane) => {
+    if (pane === 'browser') {
+      return runtimeReady() ? (
+        <BrowserPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+      ) : (
+        <PaneProviderState
+          title="Browser"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
+    if (pane === 'devices') {
+      return runtimeReady() ? (
+        <DevicesPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+      ) : (
+        <PaneProviderState
+          title="Devices"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
+    return (
+      <PaneProviderState
+        title={utilityItemByPane.get(pane)!.title}
+        capability={PANE_CAPABILITY[pane]}
+        state={props.capabilityOf(pane)}
+      />
+    )
   }
   return (
     <aside
@@ -809,7 +1300,9 @@ function UtilitySlot(props: {
             <X aria-hidden="true" />
           </button>
         </div>
-        <p>This panel is ready for its dependency-owned service.</p>
+        <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
+          {paneBody(props.visiblePane!.pane)}
+        </Suspense>
       </div>
     </aside>
   )

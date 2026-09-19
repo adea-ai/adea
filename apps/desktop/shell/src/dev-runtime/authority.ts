@@ -19,6 +19,7 @@ export type DevAuthorityCode =
   | 'special_file_rejected'
   | 'identity_mismatch'
   | 'invalid_state'
+  | 'stale_generation'
   | 'stale_version'
   | 'corrupt_state'
   | 'unsupported_version'
