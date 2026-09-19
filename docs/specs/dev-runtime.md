@@ -1885,6 +1885,31 @@ Leases heartbeat every 15 seconds and become suspect after 45 seconds, but
 expiry never grants destructive deletion. Cleanup must reconcile the owner and
 prove it gone or obtain explicit release.
 
+### Worktree names and dependency templates
+
+Worktree names come from one fixed pool shared by the suggester and the
+retired-name registry. A name whose checkout was removed is retired forever —
+harness session stores key state by cwd — and retirement never evicts: completed
+tiers compact into a watermark so a repository stays bounded at roughly one
+pool of entries. Suggested names dedupe against live sibling directories plus
+every retired name and degrade to `-2`, `-3`, … suffix tiers rather than
+recycling. User-typed names that merely end in a spent tier number are never
+covered by the watermark. Registration cleanup failure restores the checkout;
+only proven removal retires the name.
+
+The per-project dependency-template cache holds one immutable dependency tree
+per project under the project's approved data location — never inside a
+worktree or the primary checkout. Validity binds package manager, lockfiles,
+manifests, and relevant config digests. A matching new worktree materializes
+the template through CoW file clones (same rules as `.worktreeinclude`) and
+skips the install; a stale or absent template falls back to normal bootstrap.
+Promotion is approved, locked (one build at a time per project), audited, and
+content-digest-verified at materialization; a promoted template is never
+mutated in place, carries no custom ACLs, and rebuilding never touches live
+worktrees. Templates appear in the retained-data breakdown (#424) and as
+explicit cleanup candidates; clearing one never touches worktrees or the
+primary checkout.
+
 ### Merge and cleanup
 
 Default merge-back is squash in a temporary detached worktree. The plan records
@@ -2438,6 +2463,13 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-18 — worktree lifecycle implementation detail (#397).** Added the
+  worktree-name retirement registry (fixed pool, permanent retirement,
+  watermark compaction) and the per-project dependency-template cache
+  (digest-validated, approved immutable promotion, one build per project,
+  CoW materialization with identity reproofs) to the Worktree lifecycle
+  section. Both follow the CoW-first materialization rule: per-file
+  `copyFile` clones, never stream loops and never bulk directory clones.
 - **2026-09-17 — foundation-gap resolution.** Defined the authoritative typed
   Dev provider projection and canonical Dev↔Chat `RuntimeSession` invariants;
   made layout preferences explicitly session-scoped; introduced the V2 utility
