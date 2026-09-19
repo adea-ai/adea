@@ -267,6 +267,16 @@ test('a corrupt stored appearance quarantines into the recovery envelope and sur
 test('cancel reverts the draft and the OS reduced-motion preference keeps the dialog operable', async ({
   page,
 }) => {
+  // This test lives outside the describe blocks, so it arranges its own page:
+  // a pinned preference from another scenario must not leak in, and the
+  // workspace must be loaded before the rail can open the dialog.
+  await page.addInitScript(() => {
+    window.localStorage.removeItem('appearance')
+    window.localStorage.removeItem('theme')
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('main')).toBeVisible()
+
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const dialog = await openAppearance(page)
 
