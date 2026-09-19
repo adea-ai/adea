@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.35.0](https://github.com/adea-ai/adea/compare/v0.34.0...v0.35.0) (2026-09-19)
+
+
+### Features
+
+* **terminal:** integrated terminal runtime — Bun PTY, sidecar, transport, replay, UX ([#396](https://github.com/adea-ai/adea/issues/396)) ([#518](https://github.com/adea-ai/adea/issues/518)) ([8e1b274](https://github.com/adea-ai/adea/commit/8e1b274b53eae2d3fd932e76311a42dba0d07bac))
+
 ## [0.34.0](https://github.com/adea-ai/adea/compare/v0.33.0...v0.34.0) (2026-09-19)
 
 
