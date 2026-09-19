@@ -1812,11 +1812,28 @@ Supervision rules:
   locations;
 - every spawn, signal, exit, adoption, drain, and crash-loop decision appends
   to a bounded secret-free audit ring; the snapshot exposes exact packaged
-  versions and digests for diagnostics.
+  versions and digests for diagnostics;
+- a component child's environment starts from a positive allowlist of host
+  keys plus the packaging lane's declared additions — the shell process's
+  whole environment is never inherited, so an injected or secret-shaped
+  variable cannot smuggle itself into a supervised process — and the
+  resolved argv array is handed to the OS verbatim, never as interpolated
+  shell text;
+- an update rollback is executed, not only planned: the failed artifact is
+  quarantined with its raw bytes retained, the explicit staged previous
+  install is restored to the bundle location only after it proves complete,
+  a missing previous install refuses the rollback (never an implicit one),
+  and a refused or failed rollback leaves the install layout unchanged;
+  component data locations are never read, moved, or deleted.
 
 This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
-`apps/desktop/tests/supervision-supervisor.test.ts`, and
-`apps/desktop/tests/supervision-records.test.ts`.
+`apps/desktop/tests/supervision-supervisor.test.ts`,
+`apps/desktop/tests/supervision-records.test.ts`,
+`apps/desktop/tests/supervision-env-contract.test.ts`,
+`apps/desktop/tests/supervision-failure-injection.test.ts`,
+`apps/desktop/tests/dev-runtime-vault-key-roles.test.ts`,
+`apps/desktop/tests/shell-injection-adversarial.test.ts`, and
+`apps/desktop/tests/updater-rollback.test.ts`.
 
 ### Shell integration and input
 
@@ -2653,6 +2670,21 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-19 — M10 #33/#34 substrate-gap closure: spawn environment
+  allowlist, executed rollback, and pinned failure-injection evidence.** The
+  "Local stack supervision" rules gain two bullets: a supervised component
+  child's environment starts from a positive allowlist of host keys plus the
+  packaging lane's declared additions (the shell's whole environment is never
+  inherited; argv arrays are handed to the OS verbatim), and an update
+  rollback is executed against the real install layout — the failed artifact
+  quarantined with raw bytes retained, the explicit staged previous install
+  restored only after it proves complete, an implicit rollback refused, and
+  component data locations never touched. No supervision state-machine
+  semantics changed. The paragraph is now also pinned by the
+  environment-contract, failure-injection (gateway loss, duplicate remote
+  command replay, host sleep/wake clock jump, supervision ledger expiry),
+  vault key-role-confusion, shell/argv/OSC injection adversarial, and
+  executed-rollback test files.
 - **2026-09-19 — Dev View product completion, preferences trust, and App
   Library activation trust (#395/#425).** Added the "Durable project/session
   authority (desktop host)" section: the shell register is the canonical,

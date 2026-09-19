@@ -35,6 +35,43 @@ export type ComponentCommand = {
   cwd?: string
 }
 
+/** Env keys a component child may inherit from the shell process — the same
+ *  positive allowlist the terminal spawn lane fences with (docs/specs/
+ *  dev-runtime.md, "Shell integration and input": the environment starts from
+ *  a positive allowlist). */
+const INHERIT_ENV_ALLOWLIST = [
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TZ',
+  'TMPDIR',
+  'SHELL',
+  'PATH',
+] as const
+
+/**
+ * The component spawn environment is a positive allowlist, never an inherited
+ * whole (issue #33: unbounded environment inheritance is rejected). Only
+ * allowlisted host keys are rebuilt, then the packaging lane's declared
+ * component additions are layered on top; every other inherited key —
+ * secret-shaped, IDE-injected, or hostile — stays in the shell process.
+ */
+export function buildComponentEnv(
+  inherited: Record<string, string | undefined>,
+  additions?: Record<string, string>
+): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const key of INHERIT_ENV_ALLOWLIST) {
+    const value = inherited[key]
+    if (typeof value === 'string') env[key] = value
+  }
+  for (const [key, value] of Object.entries(additions ?? {})) env[key] = value
+  return env
+}
+
 const PS_IDENTITY_ATTEMPTS = 20
 const PS_IDENTITY_RETRY_MS = 50
 
@@ -91,7 +128,10 @@ export function createProcessAdapter(
       const command = commands[spec.id]
       if (!command) throw new Error(`no packaged command registered for component ${spec.id}`)
       const child = Bun.spawn(command.argv, {
-        env: command.env ? { ...process.env, ...command.env } : process.env,
+        // argv arrays go to Bun.spawn verbatim — never interpolated shell
+        // text — and the environment is the positive allowlist plus the
+        // declared additions, never the shell's inherited whole.
+        env: buildComponentEnv(process.env, command.env),
         cwd: command.cwd,
         stdout: 'ignore',
         stderr: 'ignore',
