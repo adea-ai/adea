@@ -2086,6 +2086,15 @@ Navigation permits `http`/`https` only. Resolve and revalidate DNS/IP before
 connection and after redirects; block cloud metadata, loopback privileged
 routes, Unix sockets, private/LAN ranges unless the selected target is a proven
 Adea-owned loopback service on that runtime node. Redirects repeat policy.
+Policy is provider-controlled, never engine-controlled: the lane engine must
+obtain admission from the provider before opening every connection — the
+initial URL and every redirect target — and may connect only to the freshly
+resolved addresses that admission was computed on (DNS is re-resolved per hop,
+so rebinding between hops is refused). A redirect chain is bounded and a loop
+back onto an already-visited hop is refused. An engine-reported final URL is
+never trusted: the provider verifies it against its own admitted-hop ledger
+and reports the last admitted URL; an engine that lands elsewhere or bypasses
+the gate fails closed (lane crashed, typed `ssrf_blocked`).
 Downloads/uploads, clipboard, camera, microphone, geolocation, notifications,
 popups, and certificate exceptions are lane-specific and default denied.
 

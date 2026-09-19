@@ -259,7 +259,10 @@ describe('device session registry', () => {
     )
     processAlive = true
     const stopped = sessions.planStop(session.id, session.generation, 'confirm')
-    expect(stopped.shutdownArgv).toEqual(adbEmuKillArgv('Pixel_Tablet'))
+    // The registry owns the POLICY decision only; the engine executes the
+    // platform shutdown with the live serial (an AVD name is never a serial).
+    expect(stopped.shutdown).toBe('device')
+    expect(stopped.shutdownArgv).toBeUndefined()
     expect(sessions.markStopped(session.id).state).toBe('stopped')
   })
 
@@ -276,7 +279,7 @@ describe('device session registry', () => {
     const adopted = sessions.markLaunched(session.id, undefined)
     expect(adopted.startedByAdea).toBe(false)
     const stop = sessions.planStop(adopted.id, adopted.generation, 'confirm')
-    expect(stop.shutdownArgv).toBeUndefined()
+    expect(stop.shutdown).toBeUndefined()
     expect(sessions.markStopped(adopted.id).state).toBe('stopped')
   })
 
