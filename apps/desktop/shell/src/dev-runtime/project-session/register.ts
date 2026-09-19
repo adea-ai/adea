@@ -29,6 +29,10 @@ export type ProjectSessionRuntime = Readonly<{
   providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>>
   upsertProject(project: Project): void
   upsertSession(session: RuntimeSession): void
+  /** Read-only resolution for sibling slices (e.g. the harness substrate);
+   * it grants no authority — every gated operation re-checks its own
+   * scope/resource/generation bindings after resolving the record. */
+  getSession(runtimeSessionId: string): RuntimeSession | undefined
 }>
 
 type ProjectionRecord = Readonly<{
@@ -331,6 +335,9 @@ export function registerProjectSessionRuntime(input: {
         }
         save()
       }
+    },
+    getSession(runtimeSessionId) {
+      return record.sessions.find((entry) => entry.id === runtimeSessionId)
     },
   }
 }

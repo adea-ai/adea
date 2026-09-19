@@ -28,6 +28,9 @@ import {
   registerProjectSessionRuntime,
   type ProjectSessionRuntime,
 } from './project-session/register'
+import { registerHarnessRuntime, type HarnessRuntimeRegistration } from './harness/register'
+import type { AcpLaneDriver } from './harness/acp-lane'
+import type { ManagedPiDriver } from './harness/managed-pi-driver'
 import { registerTerminalRuntime, type TerminalRuntimeRegistration } from './terminal/register'
 import type { SidecarClient } from './terminal/sidecar/client'
 import { registerWorktreeRuntime } from './worktrees/register'
@@ -51,6 +54,8 @@ export type DevRuntimeHost = Readonly<{
   browserDevices: BrowserDeviceRuntime
   /** Present only when a verified scope exists at composition time. */
   projectSession?: ProjectSessionRuntime
+  /** Present only when a verified scope exists at composition time. */
+  harness?: HarnessRuntimeRegistration
   worktrees: ReturnType<typeof registerWorktreeRuntime>
   terminal?: TerminalRuntimeRegistration
   registration: DevRuntimeHostRegistration
@@ -77,6 +82,10 @@ export type CreateDevRuntimeHostInput = {
   publish?: (event: string, payload: unknown) => void
   /** Test seams: inject constructed subsystems instead of production ones. */
   worktreeService?: WorktreeService
+  /** Overrides the managed Pi driver (#31; tests inject scripted archives). */
+  managedPi?: ManagedPiDriver
+  /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
+  acpDriver?: AcpLaneDriver
 }
 
 export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRuntimeHost {
@@ -132,6 +141,19 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
             } satisfies DevError
           }
         },
+      })
+    : undefined
+
+  const harness = input.scope
+    ? registerHarnessRuntime({
+        authority: input.authority,
+        dataDir: input.dataDir,
+        scope: input.scope,
+        resolveSession: (runtimeSessionId) => projectSession?.getSession(runtimeSessionId),
+        persistSession: (session) => projectSession?.upsertSession(session),
+        ...(input.publish ? { publish: input.publish } : {}),
+        ...(input.managedPi ? { managedPi: input.managedPi } : {}),
+        ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
       })
     : undefined
 
@@ -213,6 +235,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     grants,
     browserDevices,
     ...(projectSession ? { projectSession } : {}),
+    ...(harness ? { harness } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(terminal ? { terminal } : {}),
     registration: Object.freeze({
