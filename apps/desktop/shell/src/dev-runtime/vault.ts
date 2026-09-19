@@ -8,6 +8,7 @@
 // secret cannot silently enter ordinary client state or a log line.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
 import {
@@ -89,27 +90,99 @@ function findRef(
   return record
 }
 
-/** The dedicated vault key is its own credential class, separate from the
- * local-content master key and from any runtime-node key material. */
-function loadVaultKey(vaultDir: string): Buffer {
-  const keyFile = join(vaultDir, 'vault.key')
-  if (existsSync(keyFile)) {
-    const key = readFileSync(keyFile)
-    if (key.byteLength === 32) return key
-    // Wrong-size or foreign key material is treated as corrupt state, never as
-    // a reason to silently replace it (that would brick every sealed record).
-    throw new DevAuthorityError('corrupt_state', 'vault key has an unexpected size')
+export type VaultKeyStore = Readonly<{
+  get(service: string, account: string): Buffer | undefined
+  set(service: string, account: string, key: Buffer): void
+  delete(service: string, account: string): void
+}>
+
+const VAULT_KEY_SERVICE = 'com.adea.desktop.dev-runtime'
+const VAULT_KEY_ACCOUNT = 'master-key-v1'
+
+/**
+ * The production adapter keeps the vault master key in macOS Keychain. A
+ * file-backed fallback is deliberately not provided: a local file is not an
+ * OS credential store and would turn a stolen app-data directory into the
+ * ability to decrypt every credential reference. Tests inject an in-memory
+ * adapter instead.
+ */
+export function createSystemVaultKeyStore(): VaultKeyStore {
+  if (process.platform !== 'darwin') {
+    throw new DevAuthorityError(
+      'auth_required',
+      'the credential vault requires an OS credential store on this platform'
+    )
+  }
+  const security = (args: string[], input?: Buffer): Buffer => {
+    try {
+      return execFileSync('/usr/bin/security', args, {
+        input,
+        encoding: 'buffer',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }) as Buffer
+    } catch {
+      throw new DevAuthorityError('auth_required', 'the OS credential store is unavailable')
+    }
+  }
+  return {
+    get(service, account) {
+      try {
+        const encoded = security(['find-generic-password', '-s', service, '-a', account, '-w'])
+          .toString('utf8')
+          .trim()
+        return Buffer.from(encoded, 'base64')
+      } catch {
+        // An absent item is the only case where initialization may create a
+        // key. Locked/denied stores fail closed in `set` below.
+        return undefined
+      }
+    },
+    set(service, account, key) {
+      if (key.byteLength !== 32) throw new DevAuthorityError('corrupt_state', 'invalid vault key')
+      security([
+        'add-generic-password',
+        '-U',
+        '-s',
+        service,
+        '-a',
+        account,
+        '-w',
+        key.toString('base64'),
+      ])
+    },
+    delete(service, account) {
+      try {
+        security(['delete-generic-password', '-s', service, '-a', account])
+      } catch {
+        // Deletion is idempotent when the item was already removed.
+      }
+    },
+  }
+}
+
+function loadVaultKey(keyStore: VaultKeyStore): Buffer {
+  const existing = keyStore.get(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+  if (existing) {
+    if (existing.byteLength !== 32)
+      throw new DevAuthorityError('corrupt_state', 'vault key has an unexpected size')
+    return existing
   }
   const key = randomBytes(32)
-  writeFileSync(keyFile, key, { mode: 0o600 })
+  keyStore.set(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT, key)
   return key
 }
 
-export function createCredentialVault(options: { dataDir: string; audit?: AuthorityAudit }) {
+export function createCredentialVault(options: {
+  dataDir: string
+  audit?: AuthorityAudit
+  /** Injectable only for deterministic tests and approved host adapters. */
+  credentialStore?: VaultKeyStore
+}) {
   const { dataDir, audit } = options
   const vaultDir = join(dataDir, 'dev-runtime', 'vault')
   mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
-  const vaultKey = loadVaultKey(vaultDir)
+  const vaultKeyStore = options.credentialStore ?? createSystemVaultKeyStore()
+  const vaultKey = loadVaultKey(vaultKeyStore)
   const store = createDurableJsonStore<CredentialRefRecord>({
     file: join(vaultDir, 'credentials.json'),
     schemaVersion: 1,
@@ -310,6 +383,8 @@ export function createCredentialVault(options: { dataDir: string; audit?: Author
     }
     save(all.map((entry) => (entry.id === record.id ? revoked : entry)))
     rmSync(sealedPath(record.id), { force: true })
+    // The master key remains in Keychain for other references; revoking one
+    // credential must never rotate or export it.
     log('vault.revoked', record.id, 'revoked')
     return revoked
   }

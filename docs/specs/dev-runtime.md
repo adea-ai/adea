@@ -1338,9 +1338,10 @@ all 133 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
-constructs typed commands but cannot read credential secret material; M10's
-channel adapter injects `channelId`, `clientCredentialId`, and `proof`. The host
-rejects a bare `DevCommand`.
+constructs typed commands but cannot read credential secret material; the
+injected desktop bridge sends them through the authenticated M10 channel and
+keeps the channel secret in its closure while binding `channelId`,
+`clientCredentialId`, and `proof`. The host rejects a bare `DevCommand`.
 
 Every registry operation has a strict unknown-key-rejecting request decoder in
 `packages/types/src/dev-runtime.ts`. The foundation decoder accepts typed error
@@ -1413,6 +1414,9 @@ A host refusal is not translated into local success.
 Defaults:
 
 - command expiry: 60 seconds; maximum accepted clock skew: 30 seconds;
+- credential-vault master keys are held by the host OS credential store (macOS
+  Keychain in the desktop lane), never by a `vault.key` file in app data;
+  unavailable or denied stores fail closed;
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -2387,6 +2391,8 @@ never truncates silently or allocates an unbounded fallback.
 | cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                   |
 | screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                  |
 | screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                               |
+
+Screenshot references include lane/profile provenance, origin, viewport, and redaction state. The bounded encoded bytes remain retrievable by reference until expiry; metadata-only capture records are not valid evidence.
 | metrics               | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours                                    |
 | usage refresh         | provider backoff plus 60-second manual-refresh floor                                                                                                    |
 | cleanup lock/lease    | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s                                                            |

@@ -15,14 +15,17 @@
 // input").
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  closeSync,
   existsSync,
+  fsyncSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   renameSync,
   statSync,
   unlinkSync,
-  writeFileSync,
+  writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
 
@@ -207,8 +210,23 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
     const path = segmentPath(footer)
     const temporary = join(sessionDir, `.${randomUUID()}.tmp`)
     try {
-      writeFileSync(temporary, fileBytes, { mode: 0o600 })
+      const handle = openSync(temporary, 'wx', 0o600)
+      try {
+        writeSync(handle, fileBytes)
+        fsyncSync(handle)
+      } finally {
+        closeSync(handle)
+      }
       renameSync(temporary, path)
+      // The segment is not considered durable until the rename is persisted.
+      // This matters on APFS and on crash recovery after a successful file
+      // fsync but before the directory entry reaches stable storage.
+      const directory = openSync(sessionDir, 'r')
+      try {
+        fsyncSync(directory)
+      } finally {
+        closeSync(directory)
+      }
     } catch (cause) {
       try {
         unlinkSync(temporary)
@@ -306,10 +324,15 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
     },
 
     checkpoint() {
+      // Keep the pending buffer until the complete file+directory durability
+      // sequence succeeds. A failed write must remain replayable and
+      // retryable rather than silently dropping terminal history.
       const chunks = openChunks
-      openChunks = []
-      openBytes = 0
       const written = writeSegment(chunks)
+      if (written.ok) {
+        openChunks = []
+        openBytes = 0
+      }
       // Retention is enforced after the atomic commit: oldest segments go
       // first, and the budget never grows by leaving garbage behind.
       if (written.ok) {

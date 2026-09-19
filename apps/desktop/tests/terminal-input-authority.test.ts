@@ -26,6 +26,16 @@ describe('terminal input authority', () => {
     }
   })
 
+  test('a second writer cannot retain the previous fence for the same generation', () => {
+    const authority = createInputAuthority(terminalId)
+    const first = authority.admit('terminal_user', 1)
+    const second = authority.admit('terminal_user', 1)
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (first.ok) expect(authority.admitChunk(first.fence).ok).toBe(false)
+    if (second.ok) expect(authority.admitChunk(second.fence).ok).toBe(true)
+  })
+
   test('rejects admissions behind the active generation', () => {
     const authority = createInputAuthority(terminalId)
     authority.admit('terminal_user', 3)

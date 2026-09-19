@@ -48,20 +48,20 @@ function handshakePayload(bootstrap: string, at = Date.now()) {
 describe('trusted loopback gate', () => {
   const policy = { shellHost: `${SHELL_HOST}:4789`, shellOrigin: SHELL_ORIGIN }
 
-  test('accepts the app window and non-browser local callers', () => {
+  test('accepts only the app window origin, including requests without fetch metadata', () => {
     expect(
       isTrustedLoopbackRequest(
         { host: `${SHELL_HOST}:4789`, origin: SHELL_ORIGIN, secFetchSite: 'same-origin' },
         policy
       )
     ).toBe(true)
-    expect(isTrustedLoopbackRequest({ host: `${SHELL_HOST}:4789` }, policy)).toBe(true)
     expect(
       isTrustedLoopbackRequest(
         { host: `${SHELL_HOST}:4789`, origin: SHELL_ORIGIN, secFetchSite: 'none' },
         policy
       )
     ).toBe(true)
+    expect(isTrustedLoopbackRequest({ host: `${SHELL_HOST}:4789` }, policy)).toBe(false)
   })
 
   test('refuses rebinding, cross-origin pages, and hostile fetch metadata', () => {
@@ -406,7 +406,7 @@ describe('channel gateway', () => {
   async function handshake(bootstrapValue: string) {
     const response = await fetch(`${origin}/__adea/handshake`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin },
       body: JSON.stringify({
         schemaVersion: 1,
         method: 'dev.runtime.handshake.v1',
@@ -451,6 +451,7 @@ describe('channel gateway', () => {
         'x-adea-nonce': nonce,
         'x-adea-timestamp': timestamp,
         'x-adea-proof': proof,
+        origin,
       },
       body,
     })
@@ -493,7 +494,7 @@ describe('channel gateway', () => {
   })
 
   test('serves the bridge script without embedding secrets', async () => {
-    const response = await fetch(`${origin}/__adea/bridge.js`)
+    const response = await fetch(`${origin}/__adea/bridge.js`, { headers: { origin } })
     expect(response.status).toBe(200)
     const script = await response.text()
     expect(script).toContain('__adeaDesktop')
@@ -504,7 +505,11 @@ describe('channel gateway', () => {
   test('refuses unauthenticated invoke and dev.* names on the legacy path', async () => {
     const refused = await fetch(`${origin}/__adea/invoke`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', host: `${SHELL_HOST}:${server.port}` },
+      headers: {
+        'content-type': 'application/json',
+        host: `${SHELL_HOST}:${server.port}`,
+        origin,
+      },
       body: '{"cmd":"adea_app_version"}',
     })
     expect(refused.status).toBe(401)
@@ -595,18 +600,21 @@ describe('channel gateway', () => {
           'x-adea-nonce': nonce,
           'x-adea-timestamp': timestamp,
           'x-adea-proof': proof,
+          origin,
         },
         body,
       })
     ).json()) as { token: string }
 
     const first = await fetch(
-      `${origin}/__adea/events?event=demo&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`
+      `${origin}/__adea/events?event=demo&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`,
+      { headers: { origin } }
     )
     expect(first.status).toBe(200)
     await first.body?.cancel()
     const second = await fetch(
-      `${origin}/__adea/events?event=demo&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`
+      `${origin}/__adea/events?event=demo&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`,
+      { headers: { origin } }
     )
     expect(second.status).toBe(401)
   })
@@ -619,7 +627,9 @@ describe('channel gateway', () => {
         }
       }
     })
-    const ws = new WebSocket(`ws://${SHELL_HOST}:${server.port}/__adea/channel`)
+    const ws = new WebSocket(`ws://${SHELL_HOST}:${server.port}/__adea/channel`, {
+      headers: { Origin: origin },
+    })
     const messages: { data: string | Uint8Array; binary: boolean }[] = []
     const waiters: ((message: { data: string | Uint8Array; binary: boolean }) => void)[] = []
     let closed: ((code: number) => void) | undefined
@@ -784,10 +794,23 @@ describe('channel gateway', () => {
     const bridge = window.__adeaDesktop as {
       invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
       listen: (event: string, handler: (payload: unknown) => void) => Promise<() => void>
+      devExecute: (command: DevCommand) => Promise<unknown>
     }
 
     const version = await bridge.invoke('adea_app_version')
     expect(typeof version).toBe('string')
+    const devReply = await bridge.devExecute({
+      schemaVersion: 1,
+      operation: 'dev.capability.snapshot',
+      requestId: randomUUID(),
+      nonce: Buffer.from(randomUUID()).toString('base64url'),
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      scope: SCOPE,
+      capabilities: [],
+      body: {},
+    })
+    expect(devReply).toMatchObject({ ok: true, operation: 'dev.capability.snapshot' })
 
     // The bridge keeps its channel secret out of the window object; the
     // frozen bridge property is deliberately non-enumerable and non-writable.

@@ -22,6 +22,7 @@ import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type { SidecarClient } from './sidecar/client'
 import type { ByteFrameMeta } from './sidecar/protocol'
 import { installWrapper, parseShellKind, type ShellKind } from './shell-integration'
+import { createInputAuthority, type InputFence } from './input-authority'
 
 const LIFECYCLE_TO_STATE: Record<string, TerminalState> = {
   creating: 'creating',
@@ -111,6 +112,7 @@ export function registerTerminalRuntime(
 ): TerminalRuntimeRegistration {
   const now = input.now ?? Date.now
   const registry = new Map<string, TerminalRegistryEntry>()
+  const inputAuthorities = new Map<string, ReturnType<typeof createInputAuthority>>()
   const readSessions = new Map<
     string,
     {
@@ -122,7 +124,12 @@ export function registerTerminalRuntime(
   >()
   const writeSessions = new Map<
     string,
-    { terminalId: string; generation: number; session: Parameters<StreamProvider>[0] }
+    {
+      terminalId: string
+      generation: number
+      session: Parameters<StreamProvider>[0]
+      fence?: InputFence
+    }
   >()
 
   async function snapshotFor(terminalId: string): Promise<SidecarSnapshot | null> {
@@ -300,6 +307,7 @@ export function registerTerminalRuntime(
         sidecarId: input.sidecar.welcome.pidStartIdentity,
       }
       registry.set(terminalId, entry)
+      inputAuthorities.set(terminalId, createInputAuthority(terminalId))
       const snapshot = await snapshotFor(terminalId)
       return recordFor(
         terminalId,
@@ -543,8 +551,25 @@ export function registerTerminalRuntime(
         session.close('stale_generation', 'input generation is stale')
         return
       }
+      const authority =
+        inputAuthorities.get(terminalId) ??
+        (() => {
+          const created = createInputAuthority(terminalId)
+          inputAuthorities.set(terminalId, created)
+          return created
+        })()
       const writeState = { terminalId, generation: grant.resource.generation, session }
       writeSessions.set(grant.grantId, writeState)
+      // The stream grant becomes the terminal's current input owner. A later
+      // grant atomically replaces this fence; every chunk from the old writer
+      // is rejected before reaching the PTY.
+      const admitted = authority.admit('terminal_user', grant.resource.generation)
+      if (!admitted.ok) {
+        session.close('stale_generation', admitted.message)
+        writeSessions.delete(grant.grantId)
+        return
+      }
+      writeState.fence = admitted.fence
       session.onFrame = (frame) => {
         if (frame.type !== 'input') {
           session.close('incompatible', 'write streams accept only input frames')
@@ -552,6 +577,11 @@ export function registerTerminalRuntime(
         }
         if (frame.generation !== grant.resource.generation) {
           session.close('stale_generation', 'input frame generation is stale')
+          writeSessions.delete(grant.grantId)
+          return
+        }
+        if (!writeState.fence || !authority.admitChunk(writeState.fence).ok) {
+          session.close('stale_generation', 'input writer no longer owns the terminal')
           writeSessions.delete(grant.grantId)
           return
         }

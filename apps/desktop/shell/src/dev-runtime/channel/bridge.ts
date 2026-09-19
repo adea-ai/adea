@@ -49,6 +49,23 @@ export function createBridgeScript(options: {
     return toBase64Url(bytes)
   }
 
+  function canonical(value) {
+    if (value === null || typeof value === 'boolean' || typeof value === 'number' || typeof value === 'string') return JSON.stringify(value)
+    if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']'
+    var keys = Object.keys(value).sort()
+    return '{' + keys.map(function (key) { return JSON.stringify(key) + ':' + canonical(value[key]) }).join(',') + '}'
+  }
+
+  function devProofMessage(open, command) {
+    return [
+      'adea-dev-command-proof:v1', open.channelId, open.clientCredentialId,
+      command.operation, command.requestId, command.nonce,
+      canonical(command.capabilities.slice().sort()), canonical(command.scope),
+      command.resource ? canonical(command.resource) : '', command.issuedAt,
+      command.expiresAt, command.idempotencyKey || '', canonical(command.body)
+    ].join(String.fromCharCode(31))
+  }
+
   function hmac(secret, message) {
     return crypto.subtle
       .importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
@@ -76,7 +93,7 @@ export function createBridgeScript(options: {
     if (!channel) {
       channel = fetch(SHELL_ORIGIN + '/__adea/handshake', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', origin: SHELL_ORIGIN },
         body: JSON.stringify({
           schemaVersion: 1,
           method: 'dev.runtime.handshake.v1',
@@ -134,11 +151,25 @@ export function createBridgeScript(options: {
                 'x-adea-nonce': nonce,
                 'x-adea-timestamp': timestamp,
                 'x-adea-proof': proof,
+                origin: SHELL_ORIGIN,
               },
               body: body,
             }),
           }
         })
+    })
+  }
+
+  function executeDev(command) {
+    return ensureChannel().then(function (open) {
+      return hmac(open.secret, devProofMessage(open, command)).then(function (proof) {
+        return signedRequest('/__adea/invoke', {
+          cmd: 'dev.runtime.execute.v1',
+          args: { command: command, proof: proof }
+        }).then(function (signed) {
+          return signed.responsePromise.then(function (response) { return response.json() })
+        })
+      })
     })
   }
 
@@ -200,7 +231,7 @@ export function createBridgeScript(options: {
   }
 
   Object.defineProperty(window, '__adeaDesktop', {
-    value: Object.freeze({ invoke: invoke, listen: listen }),
+    value: Object.freeze({ invoke: invoke, listen: listen, devExecute: executeDev }),
     configurable: false,
     writable: false,
   })

@@ -647,6 +647,11 @@ export type ScreenshotRef = Readonly<{
   id: string
   scope: Scope
   ownerId: string
+  laneKind: 'human_embedded' | 'task_owned' | 'user_context' | 'device'
+  profileId?: string
+  origin: string
+  viewport: Readonly<{ width: number; height: number; deviceScaleFactor: number }>
+  redacted: boolean
   contentType: 'image/png' | 'image/jpeg' | 'image/webp'
   byteLength: string
   width: number
@@ -1074,6 +1079,10 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'id',
         'scope',
         'ownerId',
+        'laneKind',
+        'origin',
+        'viewport',
+        'redacted',
         'contentType',
         'byteLength',
         'width',
@@ -1081,13 +1090,31 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'sha256',
         'expiresAt',
       ],
-      [],
+      ['profileId'],
       path
     )
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected lowercase UUID')
     decodeScope(item.scope, `${path}.scope`)
     stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    literal(
+      item.laneKind,
+      ['human_embedded', 'task_owned', 'user_context', 'device'],
+      `${path}.laneKind`
+    )
+    if (item.profileId !== undefined) stringValue(item.profileId, `${path}.profileId`, 1, 256)
+    stringValue(item.origin, `${path}.origin`, 1, 2048)
+    const viewport = record(item.viewport, `${path}.viewport`)
+    integerValue(viewport.width, `${path}.viewport.width`, 1, 4096)
+    integerValue(viewport.height, `${path}.viewport.height`, 1, 4096)
+    if (
+      typeof viewport.deviceScaleFactor !== 'number' ||
+      !Number.isFinite(viewport.deviceScaleFactor) ||
+      viewport.deviceScaleFactor <= 0 ||
+      viewport.deviceScaleFactor > 8
+    )
+      fail(`${path}.viewport.deviceScaleFactor`, 'expected a positive finite scale factor')
+    if (typeof item.redacted !== 'boolean') fail(`${path}.redacted`, 'expected boolean')
     literal(item.contentType, ['image/png', 'image/jpeg', 'image/webp'], `${path}.contentType`)
     uint64String(item.byteLength, `${path}.byteLength`)
     integerValue(item.width, `${path}.width`, 1, 4096)

@@ -371,9 +371,34 @@ export function createChannelGateway(input: {
       if (path === '/__adea/invoke' && request.method === 'POST') {
         if (!trusted(request)) return untrusted()
         const body = await readBody(request, MAX_CONTROL_BYTES)
-        authority.authenticateLegacyRequest({ headers: Object.fromEntries(request.headers), body })
+        const identity = authority.authenticateLegacyRequest({
+          headers: Object.fromEntries(request.headers),
+          body,
+        })
         const payload = parseJson(body) as { cmd?: unknown; args?: unknown }
         const cmd = typeof payload.cmd === 'string' ? payload.cmd : ''
+        if (cmd === 'dev.runtime.execute.v1') {
+          if (
+            payload.args === null ||
+            typeof payload.args !== 'object' ||
+            Array.isArray(payload.args) ||
+            Object.getPrototypeOf(payload.args) !== Object.prototype
+          ) {
+            return Response.json({ ok: false, error: 'invalid dev command frame' }, { status: 400 })
+          }
+          const args = payload.args as { command?: unknown; proof?: unknown }
+          return Response.json(
+            await authority.execute(
+              {
+                channelId: identity.channelId,
+                clientCredentialId: identity.clientCredentialId,
+                command: args.command,
+                proof: args.proof,
+              },
+              { trusted: true }
+            )
+          )
+        }
         if (!LEGACY_COMMAND_PATTERN.test(cmd) || cmd.startsWith('dev.')) {
           return Response.json({
             ok: false,

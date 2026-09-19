@@ -9,7 +9,7 @@ import { join } from 'node:path'
 
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
 import { createAuthorityAudit } from '../shell/src/dev-runtime/audit'
-import { createCredentialVault } from '../shell/src/dev-runtime/vault'
+import { createCredentialVault, type VaultKeyStore } from '../shell/src/dev-runtime/vault'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -25,7 +25,13 @@ const approval = { method: 'owner_dialog', reference: 'consent-2' } as const
 const SECRET = 'canary-secret-value-阅读'
 
 function vault(dataDir: string, audit?: ReturnType<typeof createAuthorityAudit>) {
-  return createCredentialVault({ dataDir, audit })
+  const keys = new Map<string, Buffer>()
+  const credentialStore: VaultKeyStore = {
+    get: (_service, account) => keys.get(account),
+    set: (_service, account, key) => keys.set(account, Buffer.from(key)),
+    delete: (_service, account) => keys.delete(account),
+  }
+  return createCredentialVault({ dataDir, audit, credentialStore })
 }
 
 function expectCode(run: () => unknown, code: DevAuthorityError['code']) {

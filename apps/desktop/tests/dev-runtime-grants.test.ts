@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
 import { createProjectGrantAuthority } from '../shell/src/dev-runtime/grants'
 import { createRootBookmarkAuthority } from '../shell/src/dev-runtime/roots'
-import { createCredentialVault } from '../shell/src/dev-runtime/vault'
+import { createCredentialVault, type VaultKeyStore } from '../shell/src/dev-runtime/vault'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -24,12 +24,23 @@ const otherScope = {
 } as const
 const approval = { method: 'owner_dialog', reference: 'consent-3' } as const
 const projectId = '00000000-0000-4000-8000-000000000020'
+const vaultKeys = new Map<string, Map<string, Buffer>>()
+
+function vaultStore(dataDir: string): VaultKeyStore {
+  const keys = vaultKeys.get(dataDir) ?? new Map<string, Buffer>()
+  vaultKeys.set(dataDir, keys)
+  return {
+    get: (_service, account) => keys.get(account),
+    set: (_service, account, key) => keys.set(account, Buffer.from(key)),
+    delete: (_service, account) => keys.delete(account),
+  }
+}
 
 function grantAuthority(dataDir: string) {
   return createProjectGrantAuthority({
     dataDir,
     roots: createRootBookmarkAuthority({ dataDir }),
-    vault: createCredentialVault({ dataDir }),
+    vault: createCredentialVault({ dataDir, credentialStore: vaultStore(dataDir) }),
   })
 }
 
@@ -108,7 +119,7 @@ describe('project grant authority', () => {
   test('binds only ready credential references from the same scope', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-grants-'))
     try {
-      const vault = createCredentialVault({ dataDir })
+      const vault = createCredentialVault({ dataDir, credentialStore: vaultStore(dataDir) })
       const root = mintRoot(dataDir, 'checkout')
       const grants = grantAuthority(dataDir)
       expectCode(

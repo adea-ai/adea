@@ -150,6 +150,15 @@ describe('navigation policy', () => {
     }
   })
 
+  test('rejects hexadecimal IPv4-mapped metadata answers', () => {
+    const decision = evaluateNavigation({
+      url: 'https://public.example.test/',
+      resolvedAddresses: [{ address: '::ffff:a9fe:a9fe', family: 6 }],
+      ownedServices: [],
+    })
+    expect(decision).toMatchObject({ allowed: false, code: 'ssrf_blocked' })
+  })
+
   test('blocks loopback unless the port is a proven Adea-owned service', () => {
     const denied = evaluateNavigation({
       url: 'http://127.0.0.1:4789/invoke',
@@ -211,7 +220,10 @@ describe('navigation policy', () => {
 
   test('IPv4-mapped and address-classification helpers', () => {
     expect(isPrivateOrLoopbackAddress('::ffff:127.0.0.1')).toBe(true)
+    expect(isPrivateOrLoopbackAddress('::ffff:7f00:1')).toBe(true)
+    expect(isPrivateOrLoopbackAddress('::ffff:a9fe:a9fe')).toBe(true)
     expect(isPrivateOrLoopbackAddress('::ffff:8.8.8.8')).toBe(false)
+    expect(isPrivateOrLoopbackAddress('::ffff:0808:0808')).toBe(false)
     expect(isPrivateOrLoopbackAddress('fe80::1')).toBe(true)
     expect(isLoopbackHostname('localhost')).toBe(true)
     expect(isLoopbackHostname('example.test')).toBe(false)
@@ -643,6 +655,8 @@ describe('diagnostics and screenshots', () => {
     expect(ref.width).toBe(1280)
     expect(ref.expiresAt).toBe('2026-10-18T12:00:00.000Z')
     expect(store.get(ref.id)?.sha256).toHaveLength(64)
+    expect(store.get(ref.id)?.origin).toBe('http://localhost:5173/')
+    expect([...store.getBytes(ref.id)!]).toEqual([1, 2, 3])
     expect(() =>
       store.record({
         bytes: new Uint8Array(25 * 1024 * 1024 + 1),
