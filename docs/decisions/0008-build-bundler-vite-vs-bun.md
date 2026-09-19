@@ -289,3 +289,39 @@ the same graph.
   above are reproducible with the commands in the tables.
 - `scripts/build-bundler-boundary.test.ts` pins the decision so a dormant Bun
   build path cannot reappear unnoticed.
+
+## Exception (2026-09-18, issue #396): the terminal sidecar ships as a compiled Bun executable
+
+`bun build --compile` is adopted for exactly one artifact: the detached
+versioned terminal sidecar entry
+(`apps/desktop/shell/src/dev-runtime/terminal/sidecar/entry.ts`). This is a
+process artifact, not a build path for workspace sources — the Vite/Rolldown
+decision above is unchanged for every app and package build surface.
+
+Why the exception is safe within this decision's terms:
+
+- The sidecar is a detached executable the supervisor spawns, not an output of
+  the application build graph. No app/package build configuration, plugin, or
+  output shape changes; `scripts/build-bundler-boundary.test.ts` continues to
+  pin the build surfaces.
+- A single versioned binary gives the adoption handshake exactly what
+  [dev-runtime.md](../specs/dev-runtime.md) requires to authenticate: one
+  executable identity, one artifact digest for the component manifest, and one
+  compatibility window per release — no runtime resolution of an entry script
+  against a changing checkout.
+- The packaging lane already ships Bun artifacts (the Electrobun shell main
+  process is Bun); the compile step adds no new runtime dependency.
+
+Measured spawn-time delta (same machine family as the tables above, Bun 1.4.0,
+macOS arm64; time from process start to the owner-only endpoint file on disk):
+
+| Launch                                    | Time to endpoint file                       |
+| ----------------------------------------- | ------------------------------------------- |
+| `bun run entry.ts` (script)               | 20–33 ms across 3 runs                      |
+| compiled binary, first launch after build | 878 ms (one-time macOS binary verification) |
+| compiled binary, warm launches            | 21–22 ms across 2 runs                      |
+
+Warm spawn is at parity with script launch (~20 ms); a freshly installed
+binary pays a one-time first-launch verification cost on macOS, which the
+supervisor's bounded startup window absorbs. The adoption rationale is the
+versioned single-file artifact and the cleaner handshake, not spawn speed.

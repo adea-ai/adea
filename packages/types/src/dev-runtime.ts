@@ -404,6 +404,59 @@ export type RuntimeConnectionInventorySnapshot = Readonly<{
   observedAt: string
 }>
 
+// ─── Terminal runtime (#396) ────────────────────────────────────────────────
+// Wire DTOs for the integrated terminal. Health is orthogonal to state; the
+// lifecycle machine and limits are normative in docs/specs/dev-runtime.md
+// ("Terminal protocol", "Sidecar adoption").
+
+export type TerminalState = 'creating' | 'running' | 'detached' | 'terminating' | 'exited'
+
+export type TerminalHealth = 'healthy' | 'degraded' | 'replay_required' | 'faulted'
+
+export type TerminalRecord = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  worktreeId: string
+  sidecarId: string
+  processRecordId: string
+  state: TerminalState
+  health: TerminalHealth
+  /** Canonical unsigned decimal: next output sequence (last + 1). */
+  lastSeq: string
+  generation: number
+}>
+
+export type TerminalCheckpoint = Readonly<{
+  id: string
+  terminalId: string
+  generation: number
+  /** Canonical unsigned decimal: checkpoint covers through this sequence. */
+  throughSequence: string
+  segmentSha256: string
+  /** Canonical unsigned decimal byte length. */
+  byteLength: string
+  createdAt: string
+}>
+
+export type TerminalSearchMatch = Readonly<{
+  terminalId: string
+  generation: number
+  sequence: string
+  byteOffset: string
+  preview: string
+}>
+
+export type ShellProfile = Readonly<{
+  id: string
+  scope: Scope
+  label: string
+  argv: readonly string[]
+  envAllowlistKeys: readonly string[]
+  builtin: boolean
+  version: number
+}>
+
 export const runtimeEventKinds = [
   'session.created',
   'session.starting',
@@ -1416,6 +1469,102 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.generation, `${path}.generation`, 0)
     return value
   }
+  if (name === 'TerminalRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'worktreeId',
+        'sidecarId',
+        'processRecordId',
+        'state',
+        'health',
+        'lastSeq',
+        'generation',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    if (!uuidPattern.test(stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`)))
+      fail(`${path}.runtimeSessionId`, 'expected lowercase UUID')
+    if (!uuidPattern.test(stringValue(item.worktreeId, `${path}.worktreeId`)))
+      fail(`${path}.worktreeId`, 'expected lowercase UUID')
+    stringValue(item.sidecarId, `${path}.sidecarId`, 1, 128)
+    stringValue(item.processRecordId, `${path}.processRecordId`, 1, 128)
+    literal(
+      item.state,
+      ['creating', 'running', 'detached', 'terminating', 'exited'],
+      `${path}.state`
+    )
+    literal(item.health, ['healthy', 'degraded', 'replay_required', 'faulted'], `${path}.health`)
+    uint64String(item.lastSeq, `${path}.lastSeq`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'TerminalCheckpoint') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'terminalId',
+        'generation',
+        'throughSequence',
+        'segmentSha256',
+        'byteLength',
+        'createdAt',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    if (!uuidPattern.test(stringValue(item.terminalId, `${path}.terminalId`)))
+      fail(`${path}.terminalId`, 'expected lowercase UUID')
+    integerValue(item.generation, `${path}.generation`, 0)
+    uint64String(item.throughSequence, `${path}.throughSequence`)
+    if (!sha256Pattern.test(stringValue(item.segmentSha256, `${path}.segmentSha256`)))
+      fail(`${path}.segmentSha256`, 'expected sha256')
+    uint64String(item.byteLength, `${path}.byteLength`)
+    timestamp(item.createdAt, `${path}.createdAt`)
+    return value
+  }
+  if (name === 'TerminalSearchMatch') {
+    const item = record(value, path)
+    exactKeys(item, ['terminalId', 'generation', 'sequence', 'byteOffset', 'preview'], [], path)
+    if (!uuidPattern.test(stringValue(item.terminalId, `${path}.terminalId`)))
+      fail(`${path}.terminalId`, 'expected lowercase UUID')
+    integerValue(item.generation, `${path}.generation`, 0)
+    uint64String(item.sequence, `${path}.sequence`)
+    uint64String(item.byteOffset, `${path}.byteOffset`)
+    stringValue(item.preview, `${path}.preview`, 0, 256)
+    return value
+  }
+  if (name === 'ShellProfile') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'label', 'argv', 'envAllowlistKeys', 'builtin', 'version'],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.label, `${path}.label`, 1, 128)
+    validateType('string[]<=16', item.argv, `${path}.argv`)
+    if ((item.argv as string[]).length === 0) fail(`${path}.argv`, 'argv must not be empty')
+    validateType('string[]<=64', item.envAllowlistKeys, `${path}.envAllowlistKeys`)
+    if (typeof item.builtin !== 'boolean') fail(`${path}.builtin`, 'expected boolean')
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
   fail(path, `unknown named type ${name}`)
 }
 
@@ -1534,6 +1683,30 @@ export function decodeCredentialRef(value: unknown): CredentialRef {
   return value as CredentialRef
 }
 
+/** Strict decoder for the terminal lifecycle record. */
+export function decodeTerminalRecord(value: unknown): TerminalRecord {
+  namedType('TerminalRecord', value, 'terminalRecord')
+  return value as TerminalRecord
+}
+
+/** Strict decoder for the durable terminal checkpoint record. */
+export function decodeTerminalCheckpoint(value: unknown): TerminalCheckpoint {
+  namedType('TerminalCheckpoint', value, 'terminalCheckpoint')
+  return value as TerminalCheckpoint
+}
+
+/** Strict decoder for a bounded durable-history search match. */
+export function decodeTerminalSearchMatch(value: unknown): TerminalSearchMatch {
+  namedType('TerminalSearchMatch', value, 'terminalSearchMatch')
+  return value as TerminalSearchMatch
+}
+
+/** Strict decoder for the host-admitted shell configuration DTO. */
+export function decodeShellProfile(value: unknown): ShellProfile {
+  namedType('ShellProfile', value, 'shellProfile')
+  return value as ShellProfile
+}
+
 /** Strict decoder for the M10 discovery HarnessInstallation read model. */
 export function decodeHarnessInstallation(value: unknown): HarnessInstallation {
   namedType('HarnessInstallation', value, 'harnessInstallation')
@@ -1601,6 +1774,19 @@ function decodeDevRuntimePage(
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Terminal slice (#396): attach/input return single-use stream grants.
+  'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
+  'dev.terminal.input': (value) => decodeDevStreamGrant(value),
+  'dev.terminal.create': (value) => decodeTerminalRecord(value),
+  'dev.terminal.detach': (value) => decodeTerminalRecord(value),
+  'dev.terminal.resize': (value) => decodeTerminalRecord(value),
+  'dev.terminal.signal': (value) => decodeTerminalRecord(value),
+  'dev.terminal.terminate': (value) => decodeTerminalRecord(value),
+  'dev.terminal.historyDelete': (value) => decodeTerminalRecord(value),
+  'dev.terminal.list': (value) => decodeDevRuntimePage(decodeTerminalRecord, value),
+  'dev.terminal.search': (value) => decodeDevRuntimePage(decodeTerminalSearchMatch, value),
+  'dev.terminal.shellProfiles': (value) => decodeDevRuntimePage(decodeShellProfile, value),
+  'dev.terminal.checkpoint': (value) => decodeTerminalCheckpoint(value),
   // #422 browser/device lanes. Page replies decode through the same strict
   // named-type validators the registry bodies use.
   'dev.browser.annotate': (value) => namedType('BrowserAnnotation', value, 'reply.value'),
