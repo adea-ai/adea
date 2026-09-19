@@ -36,6 +36,12 @@
       "development": "./src/devices/index.ts",
       "import": "./dist/devices/index.js"
     },
+    "./permissions": {
+      "types": "./dist/permissions/index.d.ts",
+      "solid": "./src/permissions/index.ts",
+      "development": "./src/permissions/index.ts",
+      "import": "./dist/permissions/index.js"
+    },
     "./terminal": {
       "types": "./dist/terminal/terminal-pane.d.ts",
       "solid": "./src/terminal/terminal-pane.tsx",

@@ -1,3 +1,5 @@
+export * from './desktop-permissions'
+
 export type WorkspaceSceneId = 'home' | 'work'
 
 export type WorkspaceViewMode = 'perspective' | 'orthographic'
