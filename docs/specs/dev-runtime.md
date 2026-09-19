@@ -2224,6 +2224,68 @@ module URL, arbitrary postinstall, or empty placeholder view. Optional rail
 items can hide/reorder, but active/core Chat/Dev/Virtual remain recoverable via
 App Library or Reset Navigation.
 
+## macOS permissions onboarding
+
+The permissions page (issue #471) reports macOS TCC permissions the shipped
+features depend on: `accessibility`, `screen_recording`, `notifications`,
+`automation_apple_events`, and `microphone`. No permission ships without a
+recorded feature reason in the page row metadata, and nothing is auto-granted,
+prompted in a loop, or probed from browser context.
+
+Status rides the guarded legacy invoke path behind the M10 channel gate —
+`desktop_permissions_snapshot` and `desktop_permissions_open_settings` — with
+DTOs in `packages/types/src/desktop-permissions.ts`. The shell measures the
+real host (`apps/desktop/shell/src/desktop-permissions.ts`) through fixed-argv
+commands with injectable runners; single-flight coordination means concurrent
+snapshots share one probe set. Every report carries its probe time; a re-check
+reflects System Settings changes within one interaction (focus-return triggers
+one, never a polling interval) and no app restart.
+
+Capability matrix (permission × what this lane can honestly report):
+
+| Permission              | Probe (fixed argv)                                    | granted | denied                        | not_determined                              | unavailable              |
+| ----------------------- | ----------------------------------------------------- | ------- | ----------------------------- | ------------------------------------------- | ------------------------ |
+| accessibility           | `osascript` System Events process count, 3 s deadline | exit 0  | assistive-access refusal text | probe deadline hit (consent prompt pending) | other failures           |
+| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline       | exit 0  | `errAEEventNotPermitted` text | probe deadline hit                          | other failures           |
+| screen_recording        | none in this lane (native helper lands with #472)     | —       | —                             | —                                           | `capability_unavailable` |
+| notifications           | none in this lane                                     | —       | —                             | —                                           | `capability_unavailable` |
+| microphone              | none in this lane                                     | —       | —                             | —                                           | `capability_unavailable` |
+
+`unavailable` is a first-class typed state (`capability_unavailable`,
+`unsupported_platform`), never a stand-in for denied or granted, and no
+fixture status exists in any production path (fixtures are E2E-only). A
+non-macOS host reports `hostPlatform: 'other'`; a lane with no shell (plain
+web tab) reports `hostPlatform: 'unknown'` and every row unavailable.
+
+Deep links are the frozen `x-apple.systempreferences` anchors
+(`Privacy_Accessibility`, `Privacy_ScreenCapture`,
+`com.apple.preference.notifications`, `Privacy_Automation`,
+`Privacy_Microphone`), resolved on macOS 13–15, held only in the shell's
+`SETTINGS_PANES` table: the client names a permission id and the shell opens
+that exact URL through fixed-argv `open`. No client string ever reaches argv,
+and no arbitrary URL can be opened.
+
+The page (`packages/dev-view/src/permissions/**`, a Solid pane with a pure
+DOM-free model) groups rows into System control and System interactions,
+shows per-permission purpose and the feature-level consequence of denial
+("Without it: computer-use sessions cannot start"), and offers Request only
+where a probe can actually surface the macOS consent prompt; a denied
+permission's repair path is the exact Settings pane, because macOS ignores
+re-prompts. Accessibility contract: all actions are real buttons in DOM order,
+status changes and action outcomes are announced through a polite live region
+(only on change — first paint stays quiet), the pane carries no transitions
+(reduced motion needs no override), and rem-based wrapping layout survives
+200% zoom. `packages/dev-view` consumes the page service port
+(`MacPermissionsPageService`); the desktop lane binds it in
+`apps/web/src/lib/desktop-permissions.ts`, and every other lane binds
+`createUnavailableMacPermissionsService`.
+
+Pinned by `packages/types/tests/desktop-permissions.test.ts`,
+`apps/desktop/tests/shell-permissions.test.ts` (probe outcomes, fixed argv,
+settings table, bridge commands), and
+`packages/dev-view/tests/permissions-model.test.ts` (presentation, action
+affordances, announcements, honest degradation).
+
 ## Data classification and redaction
 
 ```ts
@@ -2688,6 +2750,13 @@ files in the same commit:
   (`packages/types/tests/dev-runtime.test.ts`) — envelope, channel, stream,
   and state decoders;
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
+- macOS permissions (#471): `apps/desktop/tests/shell-permissions.test.ts`
+  pins the probe outcome matrix, fixed-argv discipline, settings deep-link
+  table, and the `desktop_permissions_*` bridge commands;
+  `packages/dev-view/tests/permissions-model.test.ts` pins presentation,
+  action affordances, live-region announcements, and honest degradation;
+  `packages/types/tests/desktop-permissions.test.ts` pins the DTO universes
+  and the permission-id guard;
 - desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
   process, browser, provider, cleanup;
   `apps/desktop/tests/terminal-pty-adapter.test.ts`,

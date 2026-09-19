@@ -1,0 +1,146 @@
+/*
+ * Permissions pane hooks (#471). Scoped to this package's own stylesheet —
+ * same arrangement as the browser pane: tokens come from theme.css via the
+ * same custom properties the shared dev-view hooks use, and class names stay
+ * in the sanctioned `dev-*` hook namespace. No transitions: status changes
+ * are instant, so reduced-motion needs no override, and rem-based sizing
+ * keeps the pane intact at 200% zoom.
+ */
+
+.dev-permissions {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+}
+
+.dev-permissions__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.dev-permissions__summary {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+.dev-permissions__notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  border-radius: 0.5rem;
+  color: var(--muted-foreground);
+}
+
+.dev-permissions__group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.dev-permissions__group-heading {
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background: color-mix(in srgb, var(--muted) 60%, transparent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.dev-permissions__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.dev-permissions__identity {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dev-permissions__title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dev-permissions__title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.dev-permissions__status {
+  padding: 0.05rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.dev-permissions__status[data-tone='ready'] {
+  border-color: color-mix(in srgb, var(--success) 35%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+}
+
+.dev-permissions__status[data-tone='blocked'] {
+  border-color: color-mix(in srgb, var(--destructive) 35%, transparent);
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+
+.dev-permissions__status[data-tone='attention'] {
+  border-color: color-mix(in srgb, var(--foreground) 25%, transparent);
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--accent-foreground);
+}
+
+.dev-permissions__purpose,
+.dev-permissions__hint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.dev-permissions__consequence {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.dev-permissions__consequence[data-active='true'] {
+  color: var(--destructive);
+}
+
+.dev-permissions__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}

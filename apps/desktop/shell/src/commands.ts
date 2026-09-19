@@ -14,6 +14,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from 'node:path'
 import { version as packagedVersion } from '../../package.json'
 import { resolveCloudOrigin } from './cloud-proxy'
+import { createMacPermissionService, type MacPermissionService } from './desktop-permissions'
 import { createUpdateManager } from './updates'
 
 // Update flow: compare this build against the signed `latest.json` feed the
@@ -62,13 +63,20 @@ function isAcceptableAuthorizationUrl(url: string): boolean {
 
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; error: string }
 
-export function createCommandSurface(dataDir: string) {
+export function createCommandSurface(
+  dataDir: string,
+  options?: { macPermissions?: MacPermissionService }
+) {
   const stateDir = join(dataDir, 'desktop-state')
   const contentDir = join(dataDir, 'local-content')
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   mkdirSync(contentDir, { recursive: true, mode: 0o700 })
 
   const updates = createUpdateManager({ appVersion: APP_VERSION, dataDir })
+  // macOS permission probes (issue #471). Injected in tests; production
+  // measures the real host through fixed-argv commands (see
+  // desktop-permissions.ts).
+  const macPermissions = options?.macPermissions ?? createMacPermissionService({})
 
   const keyFile = join(stateDir, 'device.key')
   function deviceKey(): Buffer {
@@ -289,6 +297,14 @@ export function createCommandSurface(dataDir: string) {
       reProbeFloorMs: 30_000,
       servedFromCache: false,
     }),
+    // macOS host permissions (issue #471): real TCC probes measured in the
+    // shell (desktop-permissions.ts), typed-unavailable where this lane has
+    // no probe. The client names a permission id; the shell owns the only
+    // copy of the System Settings deep links, so no client URL is ever opened.
+    desktop_permissions_snapshot: (args) =>
+      macPermissions.snapshot({ force: args?.force === true }),
+    desktop_permissions_open_settings: (args) =>
+      macPermissions.openSettings(String(args?.permissionId ?? '')),
     // App metadata for the client's version surface.
     adea_app_version: () => APP_VERSION,
   }

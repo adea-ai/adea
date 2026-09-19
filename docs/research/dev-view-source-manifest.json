@@ -699,6 +699,43 @@
         }
       ]
     },
+    "471-permissions-onboarding": {
+      "issue": 471,
+      "destinations": [
+        "packages/types/src/desktop-permissions.ts",
+        "packages/dev-view/src/permissions/**",
+        "apps/web/src/lib/desktop-permissions.ts",
+        "apps/desktop/shell/src/desktop-permissions.ts",
+        "apps/desktop/shell/src/commands.ts",
+        "docs/specs/dev-runtime.md"
+      ],
+      "units": [
+        {
+          "donor": "orca",
+          "source": [
+            "src/renderer/src/components/settings/DeveloperPermissionsPane.tsx",
+            "src/renderer/src/components/settings/DeveloperPermissionActions.tsx",
+            "src/renderer/src/components/settings/developer-permission-status.ts",
+            "src/renderer/src/components/notifications/mac-notification-permission-card.tsx"
+          ],
+          "tests": ["src/renderer/src/components/settings/DeveloperPermissionsPane.test.tsx"],
+          "action": "Translate the status pane and per-row action pattern (status chip copy and tone, Request vs Open Settings affordance, focus-return re-check, no nag loops) to a Solid pane over Adea tokens. States come only from the injected probe service port; the typed-unavailable service replaces the donor's Electron systemPreferences calls so the web lane renders honest Cannot-check rows. The donor's local-network connection test, USB/Bluetooth/Full Disk rows, and toast plumbing are out of M12 scope (no shipped feature needs them)."
+        },
+        {
+          "donor": "orca",
+          "source": [
+            "native/computer-use-macos/Sources/OrcaComputerUseMacOSCore/PermissionStatusSnapshot.swift",
+            "native/computer-use-macos/Sources/OrcaComputerUseMacOSCore/PermissionTrustSettling.swift"
+          ],
+          "tests": [
+            "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/PermissionStatusSnapshotTests.swift",
+            "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/PermissionTrustSettlingTests.swift",
+            "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ScreenCapturePermissionPreflightSafetyTests.swift"
+          ],
+          "action": "Translate the snapshot-with-injectable-probes structure and the single-flight refresh coordinator into the shell's fixed-argv probe registry: osascript Accessibility and Apple Events probes with a bounded deadline mapping a pending consent prompt to not_determined; the trust-settling poll collapses into the deadline semantics because a Bun lane has no synchronous AX trust API. Scripted runners replay the donor tests' outcome matrix."
+        }
+      ]
+    },
     "426-integration-release-gate": {
       "issue": 426,
       "destinations": [
