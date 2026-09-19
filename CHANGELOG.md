@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/adea-ai/adea/compare/v0.33.0...v0.34.0) (2026-09-19)
+
+
+### Features
+
+* **dev-view:** port the Zeron appearance composition ([#425](https://github.com/adea-ai/adea/issues/425)) ([#516](https://github.com/adea-ai/adea/issues/516)) ([4b36777](https://github.com/adea-ai/adea/commit/4b3677719a090269c099d032f79cde85f3ee0296))
+
 ## [0.33.0](https://github.com/adea-ai/adea/compare/v0.32.0...v0.33.0) (2026-09-18)
 
 
