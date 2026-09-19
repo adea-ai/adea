@@ -119,7 +119,7 @@ describe('real bun pty on this platform', () => {
       if (!adapter.capability.supported) return
       const spawned = adapter.spawn({
         shell: '/bin/sh',
-        args: ['-c', 'printf "héllo\\xffwörld"'],
+        args: ['-c', 'printf "héllo\\377wörld"'],
         cwd: '/tmp',
         cols: 80,
         rows: 24,
