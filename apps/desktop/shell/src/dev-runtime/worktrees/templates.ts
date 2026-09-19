@@ -112,7 +112,7 @@ async function listTemplateFiles(
   budgets: { maxFiles: number; maxTotalBytes: number; maxEntries: number }
 ): Promise<Array<{ relativePath: string; size: number; mtimeMs: number }>> {
   const glob = new Bun.Glob('**/*')
-  const files: Array<{ relativePath: string; size: number }> = []
+  const files: Array<{ relativePath: string; size: number; mtimeMs: number }> = []
   let entries = 0
   let totalBytes = 0
   for await (const entry of glob.scan({ cwd: templateRoot, onlyFiles: true, dot: true })) {

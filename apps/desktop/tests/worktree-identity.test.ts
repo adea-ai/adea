@@ -2,9 +2,9 @@
 // `repo-worktree-admin-fingerprint.test.ts` and
 // `worktree-removal-safety.test.ts` fixtures (MIT) plus Adea hardening.
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir, homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import {
   directoryIdentity,
@@ -151,9 +151,12 @@ describe('gitdir backlink proof', () => {
       const first = directoryIdentity(inner)
       expect(sameIdentity(first.identity, first.identity)).toBe(true)
 
-      // Replace the directory wholesale (delete + recreate).
-      rmSync(inner, { recursive: true, force: true })
-      mkdirSync(inner)
+      // Replace the directory atomically while the replacement already
+      // exists: guaranteed-distinct inode (delete+recreate can reuse the
+      // same inode on Linux ext4).
+      const replacement = join(dir, 'wt-replaced')
+      mkdirSync(replacement)
+      renameSync(replacement, inner)
       const second = directoryIdentity(inner)
       expect(sameIdentity(first.identity, second.identity)).toBe(false)
       expect(identityOfPath(inner).inode).toBe(second.identity.inode)
@@ -172,8 +175,9 @@ describe('isDangerousCleanupPath', () => {
     expect(isDangerousCleanupPath(repo, repo)).toBe(true)
     expect(isDangerousCleanupPath('/', repo)).toBe(true)
     expect(isDangerousCleanupPath(homedir(), repo)).toBe(true)
-    // A parent of the repo can never be a worktree cleanup.
-    expect(isDangerousCleanupPath('/Users', repo)).toBe(true)
+    // A parent of the repo can never be a worktree cleanup — derive it
+    // from the home directory so this holds on any platform.
+    expect(isDangerousCleanupPath(dirname(homedir()), repo)).toBe(true)
   })
 
   test('allows an ordinary sibling worktree path', () => {

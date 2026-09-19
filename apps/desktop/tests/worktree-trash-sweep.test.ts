@@ -9,6 +9,7 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  renameSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -112,9 +113,14 @@ describe('quarantine rename', () => {
     const dir = scratch()
     try {
       const { repo, worktree, identity } = quarantinable(dir, 'feature')
-      // Replace the directory wholesale after the identity was observed.
+      // Replace the directory atomically after the identity was observed:
+      // the replacement is created while the original still exists, so its
+      // inode is guaranteed distinct (delete+recreate can reuse the inode
+      // on Linux ext4).
+      const replaced = join(dir, 'worktree-replaced')
+      mkdirSync(replaced)
       rmSync(worktree, { recursive: true, force: true })
-      mkdirSync(worktree)
+      renameSync(replaced, worktree)
       writeFileSync(join(worktree, 'file.txt'), 'payload\n')
       expect(() =>
         quarantineWorktree({
