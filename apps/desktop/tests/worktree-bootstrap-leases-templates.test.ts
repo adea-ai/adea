@@ -12,6 +12,7 @@ import {
   readFileSync,
   readSync,
   rmSync,
+  statSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
@@ -510,7 +511,18 @@ describe('dependency-template cache', () => {
         }
       }
       const byteMs = Date.now() - byteStart
-      expect(cloneMs * 3).toBeLessThan(byteMs)
+      // Capability gate: FICLONE is CoW only on reflink-capable filesystems
+      // (APFS, btrfs, XFS, ZFS, ReFS/Dev Drive). On ext4 the flag silently
+      // degrades to a full byte copy, so the dominance ratio is meaningless
+      // there — record the capability instead of failing (CI Linux runners
+      // are ext4). Byte-exactness is still asserted above unconditionally.
+      const cloneBlocks = statSync(join(dir, 'clone.bin')).blocks
+      const sourceBlocks = statSync(large).blocks
+      if (cloneBlocks >= sourceBlocks) {
+        console.log('CoW dominance: filesystem did not clone (no reflink support) — ratio skipped')
+      } else {
+        expect(cloneMs * 3).toBeLessThan(byteMs)
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

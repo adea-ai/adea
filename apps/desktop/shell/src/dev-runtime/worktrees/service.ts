@@ -32,6 +32,7 @@ import { runGit, runGitChecked, gitRevParse } from './git-run'
 import {
   directoryIdentity,
   isDangerousCleanupPath,
+  isSafeWorktreeBaseDir,
   proveWorktreeRegistration,
   readRepoWorktreeAdminFingerprint,
   sameIdentity,
@@ -244,7 +245,7 @@ function allocateWorktreeName(input: {
 
 function resolveBaseDir(input: { worktreeBaseDir: string; repoCanonicalRoot: string }): string {
   const baseDir = resolve(input.worktreeBaseDir)
-  if (isDangerousCleanupPath(baseDir, input.repoCanonicalRoot)) {
+  if (!isSafeWorktreeBaseDir(baseDir, input.repoCanonicalRoot)) {
     throw new WorktreeError('dangerous_path', 'worktree base directory is a dangerous location')
   }
   const stat = lstatSync(baseDir, { throwIfNoEntry: false })

@@ -102,6 +102,44 @@ function containsPath(parentPath: string, childPath: string): boolean {
   )
 }
 
+/** Admit a worktree BASE directory. Unlike the deletion-target check below,
+ *  a base that CONTAINS the repo is the intended layout (worktrees are
+ *  siblings of the primary checkout inside one workspace). Refused: empty,
+ *  the repo/primary checkout itself, anything inside the primary checkout, a
+ *  filesystem root, or a well-known home shape (/home, /home/<u>, /root,
+ *  /Users/<u>, the home directory itself). */
+export function isSafeWorktreeBaseDir(baseDir: string, repoCanonicalRoot: string): boolean {
+  if (!baseDir.trim()) {
+    return false
+  }
+  const resolvedBase = resolve(baseDir)
+  const resolvedRepo = resolve(repoCanonicalRoot)
+  if (resolvedBase === resolvedRepo) {
+    return false
+  }
+  if (containsPath(resolvedRepo, resolvedBase)) {
+    // The base lives inside the primary checkout — worktrees would land in it.
+    return false
+  }
+  const rootPath = parse(resolvedBase).root
+  if (resolvedBase === rootPath) {
+    return false
+  }
+  if (
+    resolvedBase === '/home' ||
+    resolvedBase === '/root' ||
+    /^\/home\/[^/]+$/.test(resolvedBase) ||
+    /^\/Users\/[^/]+$/.test(resolvedBase)
+  ) {
+    return false
+  }
+  const homePath = homedir()
+  if (!!homePath && resolvedBase === resolve(homePath)) {
+    return false
+  }
+  return true
+}
+
 /** Refuse paths whose deletion can never be a routine worktree cleanup: empty,
  *  the repo/primary checkout itself, a filesystem root, an ancestor of the repo
  *  or the home directory, or a well-known home shape. */
