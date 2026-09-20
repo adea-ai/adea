@@ -296,6 +296,7 @@ const ActivityPane = lazy(() =>
 )
 const ResourcesPane = lazy(() =>
   import('./resources/resources-pane').then((module) => ({ default: module.ResourcesPane }))
+)
 /*
  * #399: Files/Source Control utility panes and the central editor leaf ride
  * their own lazy chunks inside the Dev boundary, exactly like the browser and
@@ -1446,11 +1447,6 @@ function UtilitySlot(props: {
       ) : (
         <PaneProviderState
           title="Source Control"
-          capability={PANE_CAPABILITY[pane]}
-          state={props.capabilityOf(pane)}
-        />
-      )
-    }
           capability={PANE_CAPABILITY[pane]}
           state={props.capabilityOf(pane)}
         />
