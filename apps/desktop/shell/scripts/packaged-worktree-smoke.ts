@@ -36,7 +36,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createHmac, randomUUID } from 'node:crypto'
 
 import {
@@ -439,6 +439,7 @@ function finish(
   bundleDigest: string,
   startedAt: string
 ): number {
+  mkdirSync(dirname(artifactPath), { recursive: true })
   writeFileSync(
     artifactPath,
     JSON.stringify(

@@ -42,7 +42,8 @@
 // history remains (no PID/port adoption fallback).
 //
 // Usage: bun apps/desktop/shell/scripts/packaged-terminal-smoke.ts [--app-bundle <path>] [--artifact <path>]
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -248,6 +249,7 @@ async function runHostPhase(dataDir: string, identity: string): Promise<void> {
     sidecarPid: adopted.endpoint.pid,
     sidecarPidStartIdentity: adopted.endpoint.pidStartIdentity,
   }
+  mkdirSync(dirname(outPath), { recursive: true })
   writeFileSync(outPath, JSON.stringify(facts, null, 2) + '\n', { mode: 0o600 })
   process.exit(0)
 }
@@ -259,6 +261,7 @@ function finish(
   startedAt: string,
   facts: HostAFacts | null
 ): number {
+  mkdirSync(dirname(artifactPath), { recursive: true })
   writeFileSync(
     artifactPath,
     JSON.stringify(

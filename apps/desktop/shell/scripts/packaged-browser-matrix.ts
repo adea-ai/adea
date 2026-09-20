@@ -21,7 +21,8 @@
 // provable here.
 //
 // Usage: bun apps/desktop/shell/scripts/packaged-browser-matrix.ts [--app-bundle <path>] [--artifact <path>]
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { join } from 'node:path'
 import { createHmac, randomUUID } from 'node:crypto'
 
@@ -454,6 +455,7 @@ async function main(): Promise<number> {
   )
 
   const ok = checks.every((entry) => entry.ok)
+  mkdirSync(dirname(artifactPath), { recursive: true })
   writeFileSync(
     artifactPath,
     JSON.stringify(
