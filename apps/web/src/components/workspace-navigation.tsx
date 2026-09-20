@@ -2,7 +2,7 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, untrack, Show } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
@@ -306,21 +306,31 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // Dev deep links: `devProject`/`devSession` seed the shared selection store
   // on arrival and follow it deterministically afterwards. A stale, archived,
   // or cross-project link converges on the recovered selection (Dev View
-  // corrects the store; this effect rewrites the URL) instead of pinning an
-  // invalid selection. Unknown query keys survive every patch because
+  // corrects the store; the effect below rewrites the URL) instead of pinning
+  // an invalid selection. Unknown query keys survive every patch because
   // `applySearch` spreads the current search.
+  //
+  // This effect is URL-driven only: the store reads are untracked because the
+  // store proxy's property reads would subscribe it to the very fields it
+  // writes. Tracked, Dev View's recovery correction (stale/archived session →
+  // live session) re-triggers this effect, which re-applies the now-stale URL
+  // over the corrected store, which re-triggers recovery — an infinite
+  // synchronous effect loop that never yields to the router's search patch,
+  // leaving the lazy Dev boundary permanently unresolved.
   createEffect(() => {
     if (view() !== 'dev') return
     const urlProject = currentSearch().devProject
     const urlSession = currentSearch().devSession
-    const store = workspaceStore.getState()
-    if (urlProject && urlProject !== store.selectedDevProjectId) {
-      store.setSelectedDevProjectId(urlProject)
-      if (urlSession) workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
-      return
-    }
-    if (urlSession && urlSession !== store.selectedRuntimeSessionId)
-      workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+    untrack(() => {
+      const store = workspaceStore.getState()
+      if (urlProject && urlProject !== store.selectedDevProjectId) {
+        store.setSelectedDevProjectId(urlProject)
+        if (urlSession) workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+        return
+      }
+      if (urlSession && urlSession !== store.selectedRuntimeSessionId)
+        workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+    })
   })
   createEffect(() => {
     if (view() !== 'dev') return
@@ -419,8 +429,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   createEffect(() => {
     const activeWorkspace = props.activeWorkspace
     if (!activeWorkspace) return
+    // Reconcile the store with the server-authoritative active workspace. The
+    // summary lands asynchronously, so this is a fill-in, not a user switch:
+    // `switchWorkspace` resets per-workspace context (drafts, panels, the Dev
+    // selection) and would wipe a deep-linked Dev selection seeded and
+    // recovered before the summary arrived. User-initiated switches (rail
+    // menu, `?workspace=`) go through `switchToWorkspace`, which performs the
+    // full reset deliberately.
     if (selectedWorkspaceId() !== activeWorkspace.id)
-      workspaceStore.getState().switchWorkspace(activeWorkspace.id, activeWorkspace.scene)
+      workspaceStore.getState().setSelectedWorkspaceId(activeWorkspace.id)
     workspaceStore.getState().setSelectedScene(activeWorkspace.scene)
     const currentScene = (search() as WorkspaceSearch).scene
     if (currentScene !== activeWorkspace.scene) void setScene(activeWorkspace.scene)
