@@ -344,19 +344,10 @@ describe('dev runtime composition', () => {
       // live worktree context gates each operation at dispatch time.
       expect(providers.some((operation) => operation.startsWith('dev.files.'))).toBe(true)
       expect(providers.some((operation) => operation.startsWith('dev.git.'))).toBe(true)
-      // The only unavailable files operations are the bulk-stream grants
-      // (file-bytes-v1 attach is not wired on this host); every control-path
-      // files/git operation is a reachable provider.
-      const filesUnavailable = typedUnavailable.filter((operation) =>
-        operation.startsWith('dev.files.')
-      )
-      expect(
-        filesUnavailable.every(
-          (operation) =>
-            operation === 'dev.files.readStream' || operation === 'dev.files.writeStream'
-        )
-      ).toBe(true)
-      expect(filesUnavailable.length).toBe(2)
+      // #399 residue: with the full-duplex gateway composed, the bulk-stream
+      // grant operations (file-bytes-v1) are reachable providers too, so the
+      // whole files family is served — nothing lingers typed-unavailable.
+      expect(typedUnavailable.some((operation) => operation.startsWith('dev.files.'))).toBe(false)
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.git.'))).toBe(false)
       // #423: the github family registers as reachable providers — none of
       // it may linger in the typed-unavailable tail.

@@ -70,12 +70,6 @@
       "body": "{ browserLaneId: string; expectedGeneration: integer; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<BrowserDiagnostic>"
     },
-    "dev.browser.inspect": {
-      "capabilities": ["dev.browser.read"],
-      "resource": "browser_lane:required",
-      "body": "{ browserLaneId: string; expectedGeneration: integer; targetId: string; selector?: string }",
-      "reply": "BrowserInspection"
-    },
     "dev.browser.input": {
       "capabilities": ["dev.browser.control"],
       "resource": "browser_lane:required",
@@ -85,6 +79,12 @@
         "protocol": "browser-frames-v1",
         "direction": "write"
       }
+    },
+    "dev.browser.inspect": {
+      "capabilities": ["dev.browser.read"],
+      "resource": "browser_lane:required",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; targetId: string; selector?: string }",
+      "reply": "BrowserInspection"
     },
     "dev.browser.laneClose": {
       "capabilities": ["dev.browser.control"],
@@ -306,6 +306,18 @@
       "body": "{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedIdentity: FileIdentity; failIfExists: true }",
       "reply": "FileEntry"
     },
+    "dev.files.copyTreeCommit": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "FileTreeMutationResult"
+    },
+    "dev.files.copyTreePlan": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedIdentity: FileIdentity; failIfExists: true }",
+      "reply": "MutationPlan"
+    },
     "dev.files.create": {
       "capabilities": ["dev.files.write"],
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
@@ -317,6 +329,18 @@
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
       "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; confirmationId: string }",
       "reply": "FileMutationResult"
+    },
+    "dev.files.deleteTreeCommit": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "FileTreeMutationResult"
+    },
+    "dev.files.deleteTreePlan": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; confirmationId: string }",
+      "reply": "MutationPlan"
     },
     "dev.files.list": {
       "capabilities": ["dev.files.read"],
@@ -351,6 +375,18 @@
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
       "body": "{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedIdentity: FileIdentity; failIfExists: true }",
       "reply": "FileEntry"
+    },
+    "dev.files.renameOverwriteCommit": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "FileEntry"
+    },
+    "dev.files.renameOverwritePlan": {
+      "capabilities": ["dev.files.write"],
+      "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
+      "body": "{ worktreeId: string; from: WorkspacePath; to: WorkspacePath; expectedFromIdentity: FileIdentity; expectedToIdentity: FileIdentity }",
+      "reply": "MutationPlan"
     },
     "dev.files.search": {
       "capabilities": ["dev.files.read"],

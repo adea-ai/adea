@@ -1349,7 +1349,7 @@ type DevOperation =
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
   | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
   | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
-  | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
+  | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream' | 'renameOverwritePlan' | 'renameOverwriteCommit' | 'deleteTreePlan' | 'deleteTreeCommit' | 'copyTreePlan' | 'copyTreeCommit'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
   | `dev.computeruse.${'capabilities' | 'lanes' | 'laneCreate' | 'laneClose' | 'consent' | 'attach' | 'input' | 'takeover' | 'release'}`
@@ -1589,7 +1589,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                         |
 | `dev.session`       | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                   |
 | `dev.harness`       | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                     |
-| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
+| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit`                                                                                                                     |
 | `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
 | `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
 | `dev.computeruse`   | `capabilities`, `lanes`, `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`, `release`                                                                                                                                          |
@@ -2245,27 +2245,62 @@ process. A fallback obeys equal or stricter limits.
 
 The desktop shell registers the control-path files/search operations
 (`dev.files.list`, `stat`, `read`, `write`, `create`, `rename`, `delete`,
-`copy`, `search`, `openExternal`) against the worktree service's canonical
-roots through a narrow worktree-resolution seam; `readStream`/`writeStream`
-stay typed-unavailable until the `file-bytes-v1` gateway attach lands. The
-provider re-proves the gate independently of it: envelope resource kind
-`workspace_root`, id, and live generation must match a registered ready
-worktree; each `WorkspacePath` must pin that worktree's root identity
-(cross-worktree substitution is `unauthorized_root`); the canonical grammar is
-re-validated; every symlink component is `symlink_rejected` (final symlinks
-are never followed); FIFOs/devices are `special_file_rejected`; containment is
-re-proven from the deepest existing ancestor immediately before each system
-call. Writes are CAS (`file_changed` carries the current mtime/size facts, no
-content) through an owner-only same-directory temp file, fsync, atomic rename,
-reviewed-permission preservation, and directory fsync; explicit `lf`/`crlf`
-policies never move a BOM. The worktree root itself is spelled `.` in
-`WorkspacePath.relativePath` (the only permitted `.` segment); renames and
-copies use hardlink-based fail-if-exists so a lost race is `path_collision`,
-never an overwrite. Search probes `rg` per call and reports
-`capability_unavailable` with install guidance when absent; matches, files
-with matches, emitted bytes, and the 30-second budget each terminate only the
-owned `rg` process. Errors and logs carry identity facts and paths — never
+`copy`, `search`, `openExternal`) plus the bulk-stream grants
+(`dev.files.readStream`, `dev.files.writeStream`) and the recursive/overwrite
+plan-commit pairs (`dev.files.renameOverwritePlan`/`Commit`,
+`dev.files.deleteTreePlan`/`Commit`, `dev.files.copyTreePlan`/`Commit`)
+against the worktree service's canonical roots through a narrow
+worktree-resolution seam. The provider re-proves the gate independently of it:
+envelope resource kind `workspace_root`, id, and live generation must match a
+registered ready worktree; each `WorkspacePath` must pin that worktree's root
+identity (cross-worktree substitution is `unauthorized_root`); the canonical
+grammar is re-validated; every symlink component is `symlink_rejected` (final
+symlinks are never followed); FIFOs/devices are `special_file_rejected`;
+containment is re-proven from the deepest existing ancestor immediately before
+each system call. Writes are CAS (`file_changed` carries the current mtime/size
+facts, no content) through an owner-only same-directory temp file, fsync,
+atomic rename, reviewed-permission preservation, and directory fsync; explicit
+`lf`/`crlf` policies never move a BOM. The worktree root itself is spelled `.`
+in `WorkspacePath.relativePath` (the only permitted `.` segment); renames and
+copies use hardlink-based fail-if-exists so a lost race is `path_collision`
+that names the destination, never an overwrite. Search probes `rg` per call and
+reports `capability_unavailable` with install guidance when absent; matches,
+files with matches, emitted bytes, and the 30-second budget each terminate only
+the owned `rg` process. Errors and logs carry identity facts and paths — never
 file contents or credentials.
+
+Bulk `file-bytes-v1` stream (gateway attach): the command halves mint
+single-use grants bound to the authenticated channel identity, the
+`workspace_root` resource at its live generation, and the CAS-pinned file
+identity (`readStream` also carries the byte offset/length; `writeStream`
+declares `byteLength`/`contentSha256` and is byte-exact — `lf`/`crlf` policies
+are control-path-only and refused with `invalid_state`). Grants expire in 60 s
+and are consumed by one attach; without a composed full-duplex gateway the two
+stream operations stay unregistered and typed-unavailable. The attached read
+direction re-proves worktree and file identity at attach and between credit
+windows, then pumps `data` frames capped at the grant's `maxFrameBytes`
+(64 KiB), with sequence numbers equal to byte offsets and at most 1 MiB of
+unacknowledged credit in flight. The attached write direction appends
+generation-stamped `input` chunks to an owner-only same-directory temp file,
+fsyncs, verifies the declared length and SHA-256 digest, re-proves the pinned
+identity, preserves reviewed permissions, and renames atomically into place;
+any mismatch, overrun, or post-mint drift discards the temp and reports
+`file_changed` — the target is never partially written.
+
+Overwrite renames are the one sanctioned clobber and ride an explicit
+plan/commit pair: the plan requires an existing destination (a free target
+belongs to `dev.files.rename`), pins BOTH identities — the moving source and
+the colliding destination named in the plan — and refuses a destination inside
+the source directory; the commit re-proves both pins immediately before the
+atomic rename. Recursive deletes and copies are bounded plan/commit pairs: the
+dry run enumerates every item (depth ≤ 64, ≤ 5,000 items, copy volume ≤ 256 MiB,
+per-file 64 MiB) into per-item steps carrying mtime/size facts, refuses any
+symlink or special file inside the tree outright (links are never followed
+out), and requires an explicit confirmation id for deletes; the commit re-walks
+and re-proves the whole tree against the plan (and the destination still free
+for copies) before deleting children-first or copying via atomic create-new,
+and refuses with `plan_stale`/`file_changed` on any drift. Plans expire after
+10 minutes; commits verify the plan digest and are single-use.
 
 ## Local git and diffs
 
@@ -3108,7 +3143,7 @@ never truncates silently or allocates an unbounded fallback.
 | watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                                                  |
 | include copy          | 1,000 regular files; 100 MiB total; 16 MiB/file                                                                                                         |
 | bootstrap/teardown    | 15 minutes/step; 10 MiB output; one owned process group                                                                                                 |
-| files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream; editable 8 MiB; preview 64 MiB; 30-second operation |
+| files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream (64 MiB, 64 KiB frames, 1 MiB read credit); editable 8 MiB; preview 64 MiB; 30-second operation; tree plans: depth 64, 5,000 items, 256 MiB copy volume, 10-minute plan TTL |
 | editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                            |
 | search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                               |
 | git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                           |
@@ -3269,6 +3304,29 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-20 — #399 residue: `file-bytes-v1` bulk stream, overwrite rename
+  plan/commit, and recursive delete/copy plans.** Added six
+  `dev.files.*Plan`/`*Commit` operations — `renameOverwrite` (pins BOTH the
+  moving source and the colliding destination identity; the one sanctioned
+  clobber), `deleteTree` (bounded dry-run enumeration: depth ≤ 64, ≤ 5,000
+  items, per-item mtime/size facts, symlink/special-file refusal, explicit
+  confirmation id), and `copyTree` (same enumeration plus a 256 MiB volume
+  budget; destination must be free) — with `FileTreeMutationResult` as the
+  commit reply DTO and `MutationPlan` as the plan reply. Plans expire after
+  10 minutes, commits verify the plan digest and are single-use, and every
+  commit re-proves the enumerated tree against the live lstat before
+  touching anything (`plan_stale`/`file_changed` on drift). The desktop
+  shell's files registrar additionally landed the `file-bytes-v1` gateway
+  attach: `readStream`/`writeStream` mint single-use 60 s grants bound to the
+  channel identity, the `workspace_root` resource generation, and the CAS
+  file identity; attached reads pump 64 KiB `data` frames at byte-offset
+  sequences with ≤ 1 MiB unacknowledged credit; attached writes accumulate
+  generation-stamped chunks in an owner-only same-directory temp file and
+  rename atomically only after length, digest, and identity re-proof —
+  any mismatch discards the temp and reports `file_changed`. Bulk writes are
+  byte-exact (`lf`/`crlf` policies are refused there with `invalid_state`);
+  without a composed gateway the two stream operations stay
+  typed-unavailable. Registry regenerated (total operations 161).
 - **2026-09-20 — #400 deferred residues closed: the ACP lane prompt handoff
   and the harness-in-PTY spawn path.** The two residues the merged launch
   slice explicitly deferred. (1) The ACP lane's silent deferral becomes a

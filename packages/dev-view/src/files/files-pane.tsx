@@ -1,12 +1,22 @@
 /*
  * Files pane (#399): virtualization-friendly lazy tree over `dev.files.list`,
  * client-side filter with quick-open ranking, git modified markers from
- * `dev.git.status`, and create/delete with explicit confirmation. Selecting a
- * file hands a WorkspacePath + identity to the central editor surface.
+ * `dev.git.status`, create/delete with explicit confirmation, rename with a
+ * plan/commit overwrite path, and recursive delete/copy of directories
+ * through their dry-run plan summaries (#399 residue). Selecting a file
+ * hands a WorkspacePath + identity to the central editor surface.
  */
 import type { FileEntry } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/ui/lib/utils'
-import { ChevronDown, ChevronRight, File as FileIcon, Folder, RefreshCw } from 'lucide-solid'
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  File as FileIcon,
+  Folder,
+  Pencil,
+  RefreshCw,
+} from 'lucide-solid'
 import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
@@ -37,6 +47,23 @@ export type FilesPaneProps = Readonly<{
 
 const LIST_PAGE = 500
 
+type MutationPlanSummary = {
+  id: string
+  digest: string
+  operation: string
+  steps: readonly { id: string; kind: string; targetId: string; dependsOn: readonly string[] }[]
+}
+
+/** A planned destructive tree mutation awaiting its explicit confirmed
+ *  commit: the dry-run summary is shown before the second click. */
+type PendingTreePlan = {
+  planId: string
+  digest: string
+  commitOperation: 'dev.files.deleteTreeCommit' | 'dev.files.copyTreeCommit'
+  items: number
+  summary: string
+}
+
 export function FilesPane(props: FilesPaneProps): JSX.Element {
   const scope = () => props.runtime.preferenceScope?.()
   const [worktree, setWorktree] = createSignal<WorktreeContext | undefined>()
@@ -48,6 +75,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   const [confirmDelete, setConfirmDelete] = createSignal<string | undefined>()
   const [creating, setCreating] = createSignal(false)
   const [newName, setNewName] = createSignal('')
+  // Rename flow (#399 residue): plain rename first; a named-collision
+  // refusal arms the explicit plan/commit overwrite confirm.
+  const [renaming, setRenaming] = createSignal<string | undefined>()
+  const [renameValue, setRenameValue] = createSignal('')
+  const [overwriteTarget, setOverwriteTarget] = createSignal<string | undefined>()
+  // A planned tree mutation awaiting its explicit confirmed commit.
+  const [pendingTree, setPendingTree] = createSignal<PendingTreePlan | undefined>()
 
   const [contextVersion, setContextVersion] = createSignal(0)
 
@@ -196,6 +230,10 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const context = worktree()
     const activeScope = scope()
     if (!context || !activeScope || !node.identity) return
+    if (node.kind === 'directory') {
+      await planTreeDelete(node)
+      return
+    }
     if (confirmDelete() !== node.relativePath) {
       setConfirmDelete(node.relativePath)
       return
@@ -218,6 +256,249 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         },
         { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
       )
+      await refresh()
+    } catch (reply) {
+      setNotice(describeError(reply))
+    }
+  }
+
+  // ── Rename (#399 residue) ─────────────────────────────────────────────────
+
+  function beginRename(node: FileTreeNode): void {
+    setNotice(undefined)
+    setOverwriteTarget(undefined)
+    setRenaming(node.relativePath)
+    setRenameValue(node.name)
+  }
+
+  /** Plain rename first: fail-if-exists, so a collision is refused with the
+   *  destination named — that refusal arms the explicit overwrite confirm. */
+  async function submitRename(): Promise<void> {
+    const context = worktree()
+    const activeScope = scope()
+    const from = renaming()
+    const name = renameValue().trim()
+    if (!context || !activeScope || !from || name.length === 0) return
+    if (name.includes('/') || name.includes('\\') || name.startsWith('.')) {
+      setNotice('names must be plain names without separators')
+      return
+    }
+    const parent = from.includes('/') ? from.slice(0, from.lastIndexOf('/') + 1) : ''
+    const to = `${parent}${name}`
+    try {
+      await executeOperation(
+        props.runtime,
+        activeScope,
+        'dev.files.rename',
+        {
+          worktreeId: context.worktreeId,
+          from: {
+            worktreeId: context.worktreeId,
+            rootIdentity: context.rootIdentity,
+            relativePath: from,
+          },
+          to: {
+            worktreeId: context.worktreeId,
+            rootIdentity: context.rootIdentity,
+            relativePath: to,
+          },
+          expectedIdentity: findNode(nodes(), from)?.identity,
+          failIfExists: true,
+        },
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      setRenaming(undefined)
+      setOverwriteTarget(undefined)
+      await refresh()
+    } catch (reply) {
+      const code = (reply as { error?: { code?: string } })?.error?.code
+      if (code === 'path_collision') {
+        setOverwriteTarget(to)
+        setNotice(`${to} already exists — overwrite it? This replaces the destination file.`)
+        return
+      }
+      setNotice(describeError(reply))
+    }
+  }
+
+  /** The confirmed overwrite: a plan pinning BOTH identities (source and the
+   *  collision), committed immediately by this explicit second click. */
+  async function commitOverwriteRename(): Promise<void> {
+    const context = worktree()
+    const activeScope = scope()
+    const from = renaming()
+    const to = overwriteTarget()
+    if (!context || !activeScope || !from || !to) return
+    try {
+      const liveFrom = await executeOperation<{ identity: FileEntry['identity'] }>(
+        props.runtime,
+        activeScope,
+        'dev.files.stat',
+        {
+          worktreeId: context.worktreeId,
+          path: {
+            worktreeId: context.worktreeId,
+            rootIdentity: context.rootIdentity,
+            relativePath: from,
+          },
+        },
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      const liveTo = await executeOperation<{ identity: FileEntry['identity'] }>(
+        props.runtime,
+        activeScope,
+        'dev.files.stat',
+        {
+          worktreeId: context.worktreeId,
+          path: {
+            worktreeId: context.worktreeId,
+            rootIdentity: context.rootIdentity,
+            relativePath: to,
+          },
+        },
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      const plan = await executeOperation<MutationPlanSummary>(
+        props.runtime,
+        activeScope,
+        'dev.files.renameOverwritePlan',
+        {
+          worktreeId: context.worktreeId,
+          from: {
+            worktreeId: context.worktreeId,
+            rootIdentity: context.rootIdentity,
+            relativePath: from,
+          },
+          to: {
+            worktreeId: context.worktreeId,
+            rootIdentity: context.rootIdentity,
+            relativePath: to,
+          },
+          expectedFromIdentity: liveFrom.identity,
+          expectedToIdentity: liveTo.identity,
+        },
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      await executeOperation(
+        props.runtime,
+        activeScope,
+        'dev.files.renameOverwriteCommit',
+        { planId: plan.id, planDigest: plan.digest },
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      setRenaming(undefined)
+      setOverwriteTarget(undefined)
+      await refresh()
+    } catch (reply) {
+      setNotice(describeError(reply))
+    }
+  }
+
+  // ── Recursive delete/copy (#399 residue) ─────────────────────────────────
+
+  /** Dry run: the plan enumerates every item (bounded, symlinks refused);
+   *  the pane shows the item count and arms the confirmed commit. */
+  async function planTreeDelete(node: FileTreeNode): Promise<void> {
+    const context = worktree()
+    const activeScope = scope()
+    if (!context || !activeScope || !node.identity) return
+    if (pendingTree()?.planId !== node.relativePath) {
+      try {
+        const plan = await executeOperation<MutationPlanSummary>(
+          props.runtime,
+          activeScope,
+          'dev.files.deleteTreePlan',
+          {
+            worktreeId: context.worktreeId,
+            path: {
+              worktreeId: context.worktreeId,
+              rootIdentity: context.rootIdentity,
+              relativePath: node.relativePath,
+            },
+            expectedIdentity: node.identity,
+            confirmationId: `files-delete-tree-${node.relativePath}`,
+          },
+          { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        )
+        setPendingTree({
+          planId: plan.id,
+          digest: plan.digest,
+          commitOperation: 'dev.files.deleteTreeCommit',
+          items: plan.steps.length,
+          summary: node.relativePath,
+        })
+        setNotice(`Delete ${node.relativePath}: ${plan.steps.length} items. Confirm to delete.`)
+      } catch (reply) {
+        setNotice(describeError(reply))
+      }
+      return
+    }
+    await commitPendingTree()
+  }
+
+  /** Copy arm: the first click plans the copy to `<path>-copy` and shows the
+   *  dry-run summary; the second click commits it. */
+  async function planTreeCopy(node: FileTreeNode): Promise<void> {
+    const context = worktree()
+    const activeScope = scope()
+    if (!context || !activeScope || !node.identity) return
+    const destination = `${node.relativePath}-copy`
+    if (pendingTree()?.summary !== `${node.relativePath} → ${destination}`) {
+      try {
+        const plan = await executeOperation<MutationPlanSummary>(
+          props.runtime,
+          activeScope,
+          'dev.files.copyTreePlan',
+          {
+            worktreeId: context.worktreeId,
+            from: {
+              worktreeId: context.worktreeId,
+              rootIdentity: context.rootIdentity,
+              relativePath: node.relativePath,
+            },
+            to: {
+              worktreeId: context.worktreeId,
+              rootIdentity: context.rootIdentity,
+              relativePath: destination,
+            },
+            expectedIdentity: node.identity,
+            failIfExists: true,
+          },
+          { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+        )
+        setPendingTree({
+          planId: plan.id,
+          digest: plan.digest,
+          commitOperation: 'dev.files.copyTreeCommit',
+          items: plan.steps.length,
+          summary: `${node.relativePath} → ${destination}`,
+        })
+        setNotice(
+          `Copy ${node.relativePath} to ${destination}: ${plan.steps.length} items. Confirm to copy.`
+        )
+      } catch (reply) {
+        setNotice(describeError(reply))
+      }
+      return
+    }
+    await commitPendingTree()
+  }
+
+  async function commitPendingTree(): Promise<void> {
+    const context = worktree()
+    const activeScope = scope()
+    const pending = pendingTree()
+    if (!context || !activeScope || !pending) return
+    setPendingTree(undefined)
+    try {
+      await executeOperation(
+        props.runtime,
+        activeScope,
+        pending.commitOperation,
+        { planId: pending.planId, planDigest: pending.digest },
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      setNotice(undefined)
       await refresh()
     } catch (reply) {
       setNotice(describeError(reply))
@@ -365,18 +646,83 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                     <Show when={markerBadge(markers().get(row.node.relativePath))}>
                       {(badge) => <span class="dev-files__badge">{badge()}</span>}
                     </Show>
-                    <Show when={!row.hasChildren}>
+                    <Show when={renaming() === row.node.relativePath}>
+                      <input
+                        class="dev-files__filter"
+                        aria-label={`Rename ${row.node.relativePath}`}
+                        value={renameValue()}
+                        onInput={(event) => setRenameValue(event.currentTarget.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            if (overwriteTarget()) void commitOverwriteRename()
+                            else void submitRename()
+                          }
+                          if (event.key === 'Escape') {
+                            setRenaming(undefined)
+                            setOverwriteTarget(undefined)
+                          }
+                        }}
+                      />
+                    </Show>
+                    <Show when={renaming() !== row.node.relativePath}>
+                      <button
+                        type="button"
+                        class="dev-files__delete"
+                        aria-label={`Rename ${row.node.relativePath}`}
+                        onClick={() => beginRename(row.node)}
+                      >
+                        <Pencil aria-hidden="true" />
+                      </button>
+                    </Show>
+                    <Show when={row.hasChildren && renaming() !== row.node.relativePath}>
                       <button
                         type="button"
                         class="dev-files__delete"
                         aria-label={
-                          confirmDelete() === row.node.relativePath
-                            ? `Confirm delete ${row.node.relativePath}`
-                            : `Delete ${row.node.relativePath}`
+                          pendingTree()?.commitOperation === 'dev.files.copyTreeCommit' &&
+                          pendingTree()?.summary ===
+                            `${row.node.relativePath} → ${row.node.relativePath}-copy`
+                            ? `Confirm copy ${row.node.relativePath}`
+                            : `Copy ${row.node.relativePath}`
                         }
-                        onClick={() => void deleteFile(row.node)}
+                        onClick={() => void planTreeCopy(row.node)}
                       >
-                        {confirmDelete() === row.node.relativePath ? 'Confirm' : 'Delete'}
+                        <Copy aria-hidden="true" />
+                      </button>
+                    </Show>
+                    <Show
+                      when={renaming() === row.node.relativePath && overwriteTarget() !== undefined}
+                      fallback={
+                        <Show when={renaming() !== row.node.relativePath}>
+                          <button
+                            type="button"
+                            class="dev-files__delete"
+                            aria-label={
+                              confirmDelete() === row.node.relativePath ||
+                              pendingTree()?.summary === row.node.relativePath
+                                ? `Confirm delete ${row.node.relativePath}`
+                                : `Delete ${row.node.relativePath}`
+                            }
+                            onClick={() => void deleteFile(row.node)}
+                          >
+                            {row.hasChildren
+                              ? pendingTree()?.summary === row.node.relativePath
+                                ? 'Confirm'
+                                : 'Delete'
+                              : confirmDelete() === row.node.relativePath
+                                ? 'Confirm'
+                                : 'Delete'}
+                          </button>
+                        </Show>
+                      }
+                    >
+                      <button
+                        type="button"
+                        class="dev-files__delete"
+                        aria-label={`Confirm overwrite ${overwriteTarget()}`}
+                        onClick={() => void commitOverwriteRename()}
+                      >
+                        Overwrite
                       </button>
                     </Show>
                   </div>

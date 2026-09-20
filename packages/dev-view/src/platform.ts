@@ -3,6 +3,8 @@ import type {
   DevCommand,
   DevErrorCode,
   DevReply,
+  DevStreamFrame,
+  DevStreamGrant,
   Scope,
 } from '@adea-ai/types/dev-runtime'
 import { devOperationDefinitions } from '@adea-ai/types/dev-runtime'
@@ -54,6 +56,27 @@ export type DevWorkspaceProjection = Readonly<{
   }>[]
 }>
 
+/** One attached, single-use stream socket over the authenticated channel
+ *  (`dev.runtime.stream.attach.v1`). */
+export type DevStreamTransportSocket = {
+  readonly open: boolean
+  send(frame: DevStreamFrame): void
+  close(code: number, reason: string): void
+}
+
+/** The host-side stream attach seam (#399 residue): attaches a minted
+ *  `DevStreamGrant` and hands back the socket. Panes consume it through the
+ *  pure file-stream model, never directly. */
+export type DevStreamTransport = {
+  connect(
+    grant: DevStreamGrant,
+    handlers: {
+      onFrame: (frame: DevStreamFrame) => void
+      onClose: (code: number, reason: string) => void
+    }
+  ): DevStreamTransportSocket
+}
+
 export interface DevRuntimeService {
   state(): DevRuntimeAvailability
   /** Resolves when an asynchronous runtime channel has finished binding. */
@@ -63,6 +86,10 @@ export interface DevRuntimeService {
   projection?(scope: Scope): Promise<DevWorkspaceProjection>
   capabilitySnapshot(scope: Scope): Promise<CapabilitySnapshot>
   execute(command: DevCommand): Promise<DevReply>
+  /** Optional bulk-stream attach surface: present only when the host can
+   *  attach minted stream grants; absent (or resolving undefined) keeps the
+   *  panes on the bounded control path. */
+  streams?(): DevStreamTransport | undefined
 }
 
 export function createUnavailableDevRuntimeService(options?: {

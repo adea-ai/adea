@@ -110,6 +110,56 @@ export function editingReadiness(read: FileReadResult): {
   return { editable: true }
 }
 
+/** The digest a bulk write grant declares (#399 residue): hex-encoded
+ *  SHA-256 over the exact bytes about to be streamed. */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const view = new Uint8Array(bytes.byteLength)
+  view.set(bytes)
+  const digest = await crypto.subtle.digest('SHA-256', view)
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/** Builds the same read shape the control path returns, from bytes the
+ *  bulk stream delivered (#399 residue): the whole file (eof), with the
+ *  provider's eol/encoding analysis mirrored client-side. */
+export function readResultFromBytes(
+  bytes: Uint8Array,
+  header: { entry: FileReadResult['entry']; offset?: string }
+): FileReadResult {
+  const hadBom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+  const body = hadBom ? bytes.slice(3) : bytes
+  let encoding: 'utf8' | 'binary' = 'utf8'
+  for (const byte of body) {
+    if (byte === 0) {
+      encoding = 'binary'
+      break
+    }
+  }
+  if (encoding === 'utf8') {
+    try {
+      new TextDecoder('utf-8', { fatal: true }).decode(body)
+    } catch {
+      encoding = 'binary'
+    }
+  }
+  let lf = 0
+  let crlf = 0
+  for (const [index, byte] of bytes.entries()) {
+    if (byte !== 0x0a) continue
+    if (index > 0 && bytes[index - 1] === 0x0d) crlf += 1
+    else lf += 1
+  }
+  const eol = lf + crlf === 0 ? 'none' : lf > 0 && crlf > 0 ? 'mixed' : crlf > 0 ? 'crlf' : 'lf'
+  return {
+    entry: header.entry,
+    offset: header.offset ?? '0',
+    bytes,
+    eof: true,
+    eol,
+    encoding,
+  }
+}
+
 /** The identity a save pins: everything the provider's CAS check compares. */
 export function saveIdentity(identity: FileIdentity): FileIdentity {
   return { ...identity }

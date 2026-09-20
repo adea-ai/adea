@@ -16,6 +16,8 @@ import {
   documentFromRead,
   documentToBytes,
   editingReadiness,
+  readResultFromBytes,
+  sha256Hex,
   type EditorDocument,
 } from './editor-document'
 import '../files/files-pane.css'
@@ -42,6 +44,18 @@ type FileReadReply = {
   eof: boolean
   eol: 'lf' | 'crlf' | 'mixed' | 'none'
   encoding: 'utf8' | 'binary'
+}
+
+// Inline control-path content is capped at 256 KiB (the control payload
+// limit); larger files open and save through the file-bytes-v1 bulk stream
+// when the host exposes a stream transport, and stay bounded read-only
+// previews otherwise (#399 residue).
+const CONTROL_INLINE_MAX = 256 * 1024
+const FILE_STREAM_MAX = 64 * 1024 * 1024
+
+/** The host stream transport, when this runtime can attach minted grants. */
+function streamTransportOf(runtime: DevRuntimeService) {
+  return runtime.streams?.() ?? undefined
 }
 
 export function CodeEditor(props: CodeEditorProps): JSX.Element {
@@ -93,7 +107,11 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
   async function load(): Promise<void> {
     try {
       setStatus('loading')
-      const read = await readWindow()
+      const streamSized = Number(props.identity.size) > CONTROL_INLINE_MAX
+      const read =
+        streamSized && Number(props.identity.size) <= FILE_STREAM_MAX
+          ? await streamOpen()
+          : await readWindow()
       setPinnedIdentity(read.entry.identity)
       const readiness = editingReadiness(read)
       if (!readiness.editable) {
@@ -124,6 +142,49 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
     }
   }
 
+  /** Bulk open: mint a file-bytes-v1 read grant, pump the bytes through the
+   *  lazy stream model, and feed them through the same document pipeline. */
+  async function streamOpen(): Promise<FileReadReply> {
+    const scope = props.runtime.preferenceScope?.()
+    if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
+    const transport = streamTransportOf(props.runtime)
+    if (!transport) throw { error: { code: 'unavailable', message: 'no stream transport' } }
+    const grant = await executeOperation<import('@adea-ai/types/dev-runtime').DevStreamGrant>(
+      props.runtime,
+      scope,
+      'dev.files.readStream',
+      {
+        worktreeId: props.worktree.worktreeId,
+        path: {
+          worktreeId: props.worktree.worktreeId,
+          rootIdentity: props.worktree.rootIdentity,
+          relativePath: props.relativePath,
+        },
+        expectedIdentity: pinnedIdentity(),
+        direction: 'read',
+      },
+      {
+        kind: 'workspace_root',
+        id: props.worktree.worktreeId,
+        generation: props.worktree.generation,
+      }
+    )
+    const { readFileViaStream } = await import('../files/file-stream')
+    const bytes = await readFileViaStream(transport, grant)
+    const entry: FileEntry = {
+      path: {
+        worktreeId: props.worktree.worktreeId,
+        rootIdentity: props.worktree.rootIdentity,
+        relativePath: props.relativePath,
+      },
+      identity: props.identity,
+      kind: 'file',
+      size: String(bytes.byteLength),
+      observedAt: new Date().toISOString(),
+    }
+    return readResultFromBytes(bytes, { entry })
+  }
+
   async function save(): Promise<void> {
     const currentDocument = document()
     const handle = mirror()
@@ -131,28 +192,11 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
     if (!currentDocument || !handle || !scope) return
     const content = documentToBytes(currentDocument, handle.getText(), 'preserve')
     try {
-      const written = await executeOperation<{ entry: { identity: FileIdentity } }>(
-        props.runtime,
-        scope,
-        'dev.files.write',
-        {
-          worktreeId: props.worktree.worktreeId,
-          path: {
-            worktreeId: props.worktree.worktreeId,
-            rootIdentity: props.worktree.rootIdentity,
-            relativePath: props.relativePath,
-          },
-          expectedIdentity: pinnedIdentity(),
-          content,
-          eolPolicy: 'preserve',
-        },
-        {
-          kind: 'workspace_root',
-          id: props.worktree.worktreeId,
-          generation: props.worktree.generation,
-        }
-      )
-      setPinnedIdentity(written.entry.identity)
+      if (content.byteLength > CONTROL_INLINE_MAX && streamTransportOf(props.runtime)) {
+        await streamSave(content)
+      } else {
+        await controlSave(content)
+      }
       setDirty(false)
       setConflict(false)
       setNotice(undefined)
@@ -164,6 +208,87 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
         setNotice(describeError(reply))
       }
     }
+  }
+
+  async function controlSave(content: Uint8Array): Promise<void> {
+    const scope = props.runtime.preferenceScope?.()
+    if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
+    const written = await executeOperation<{ entry: { identity: FileIdentity } }>(
+      props.runtime,
+      scope,
+      'dev.files.write',
+      {
+        worktreeId: props.worktree.worktreeId,
+        path: {
+          worktreeId: props.worktree.worktreeId,
+          rootIdentity: props.worktree.rootIdentity,
+          relativePath: props.relativePath,
+        },
+        expectedIdentity: pinnedIdentity(),
+        content,
+        eolPolicy: 'preserve',
+      },
+      {
+        kind: 'workspace_root',
+        id: props.worktree.worktreeId,
+        generation: props.worktree.generation,
+      }
+    )
+    setPinnedIdentity(written.entry.identity)
+  }
+
+  /** Bulk save: the grant pins the identity and declares length + digest;
+   *  the provider's atomic rename replaces the file only after a byte-exact,
+   *  digest-exact transfer. The live identity is re-read for the next CAS. */
+  async function streamSave(content: Uint8Array): Promise<void> {
+    const scope = props.runtime.preferenceScope?.()
+    if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
+    const transport = streamTransportOf(props.runtime)
+    if (!transport) throw { error: { code: 'unavailable', message: 'no stream transport' } }
+    const grant = await executeOperation<import('@adea-ai/types/dev-runtime').DevStreamGrant>(
+      props.runtime,
+      scope,
+      'dev.files.writeStream',
+      {
+        worktreeId: props.worktree.worktreeId,
+        path: {
+          worktreeId: props.worktree.worktreeId,
+          rootIdentity: props.worktree.rootIdentity,
+          relativePath: props.relativePath,
+        },
+        expectedIdentity: pinnedIdentity(),
+        byteLength: String(content.byteLength),
+        contentSha256: await sha256Hex(content),
+        eolPolicy: 'preserve',
+        direction: 'write',
+      },
+      {
+        kind: 'workspace_root',
+        id: props.worktree.worktreeId,
+        generation: props.worktree.generation,
+      }
+    )
+    const { writeFileViaStream } = await import('../files/file-stream')
+    await writeFileViaStream(transport, grant, content)
+    const live = await executeOperation<{ identity: FileIdentity }>(
+      props.runtime,
+      scope,
+      'dev.files.stat',
+      {
+        worktreeId: props.worktree.worktreeId,
+        path: {
+          worktreeId: props.worktree.worktreeId,
+          rootIdentity: props.worktree.rootIdentity,
+          relativePath: props.relativePath,
+        },
+      },
+      {
+        kind: 'workspace_root',
+        id: props.worktree.worktreeId,
+        generation: props.worktree.generation,
+      }
+    )
+    setPinnedIdentity(live.identity)
   }
 
   /** The explicit overwrite: re-stat for the live identity, then write. */

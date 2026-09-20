@@ -333,6 +333,10 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ? registerFilesRuntime({
         authority: input.authority,
         scope: input.scope,
+        // The bulk file-bytes-v1 stream registers on the gateway when the
+        // shell composed one; without it those operations stay
+        // typed-unavailable through the composition fallback.
+        ...(input.gateway ? { gateway: input.gateway } : {}),
         resolveWorktree: (worktreeId) => {
           const record = worktreeService?.getWorktree(input.scope!, worktreeId)
           if (!record) return undefined

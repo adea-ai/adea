@@ -212,6 +212,17 @@ export type FileMutationResult = Readonly<{
   state: 'deleted'
 }>
 
+/** Dry-run-enumerated tree mutation result (#399 recursive delete/copy).
+ *  `items` counts the entries the confirmed commit processed; `totalBytes`
+ *  carries the observed byte total for copies (zero for deletes). */
+export type FileTreeMutationResult = Readonly<{
+  path: WorkspacePath
+  state: 'deleted' | 'copied'
+  items: number
+  totalBytes: string
+  observedAt: string
+}>
+
 export type SearchMatch = Readonly<{
   path: WorkspacePath
   identity: FileIdentity
@@ -2257,6 +2268,17 @@ function namedType(name: string, value: unknown, path: string): unknown {
     literal(item.state, ['deleted'], `${path}.state`)
     return value
   }
+  if (name === 'FileTreeMutationResult') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'state', 'items', 'totalBytes', 'observedAt'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    literal(item.state, ['deleted', 'copied'], `${path}.state`)
+    integerValue(item.items, `${path}.items`, 0)
+    if (!uint64Pattern.test(stringValue(item.totalBytes, `${path}.totalBytes`)))
+      fail(`${path}.totalBytes`, 'expected canonical uint64 string')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
   if (name === 'SearchMatch') {
     const item = record(value, path)
     exactKeys(item, ['path', 'identity', 'line', 'column', 'preview', 'ranges'], [], path)
@@ -3672,6 +3694,15 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.files.openExternal': (value) => namedType('ExternalOpenResult', value, 'reply.value'),
   'dev.files.readStream': (value) => decodeDevStreamGrant(value),
   'dev.files.writeStream': (value) => decodeDevStreamGrant(value),
+  // Recursive/overwrite mutation pairs (#399): plans decode as MutationPlan,
+  // commits reply with the produced entry or the enumerated tree summary.
+  'dev.files.renameOverwritePlan': (value) => decodeMutationPlan(value),
+  'dev.files.renameOverwriteCommit': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.deleteTreePlan': (value) => decodeMutationPlan(value),
+  'dev.files.deleteTreeCommit': (value) =>
+    namedType('FileTreeMutationResult', value, 'reply.value'),
+  'dev.files.copyTreePlan': (value) => decodeMutationPlan(value),
+  'dev.files.copyTreeCommit': (value) => namedType('FileTreeMutationResult', value, 'reply.value'),
   // Local git slice (#399).
   'dev.git.status': (value) => namedType('GitStatus', value, 'reply.value'),
   'dev.git.history': (value) =>

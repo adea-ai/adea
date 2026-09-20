@@ -16,6 +16,7 @@
 // match/file/output/time budgets.
 import { createHash, randomUUID } from 'node:crypto'
 import {
+  chmodSync,
   closeSync,
   fstatSync,
   linkSync,
@@ -35,17 +36,23 @@ import {
 } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 
+import type { ChannelIdentity } from '../channel/authority'
+import type { ChannelGateway } from '../channel/server'
 import type {
   DevCommand,
   DevError,
   DevOperation,
   DevRuntimePage,
+  DevStreamFrame,
+  DevStreamGrant,
   ExternalOpenResult,
   FileEntry,
   FileIdentity,
   FileMutationResult,
   FileReadResult,
+  FileTreeMutationResult,
   FileWriteResult,
+  MutationPlan,
   Scope,
   SearchMatch,
 } from '../../../../../../packages/types/src/dev-runtime'
@@ -69,6 +76,11 @@ export type FilesRegistrarInput = {
   /** Fail-closed resolution of the live worktree record (undefined = no
    *  worktree context on this runtime node). */
   resolveWorktree(worktreeId: string): WorktreeRootContext | undefined
+  /** Full-duplex gateway: when present the `file-bytes-v1` bulk stream
+   *  (readStream/writeStream attach) is registered on it; without a gateway
+   *  the stream operations stay unregistered and the composition fallback
+   *  keeps them typed-unavailable. */
+  gateway?: Pick<ChannelGateway, 'registerStreamHandler'>
   /** External-editor/OS handoff seam (fixed argv, no shell); defaults to the
    *  macOS `open` handoff and refuses elsewhere. */
   openPath?: (absolutePath: string) => Promise<string | undefined>
@@ -86,6 +98,22 @@ const SEARCH_MATCH_CAP = 10_000
 const SEARCH_FILE_CAP = 1000
 const SEARCH_RESULT_BYTES_CAP = 1024 * 1024
 const SEARCH_TIMEOUT_MS = 30_000
+
+// Bulk `file-bytes-v1` stream bounds (dev-runtime spec, "Files and search"):
+// transfers above the 256 KiB control cap ride the stream, capped at the
+// bounded read/preview budget; every frame obeys the grant's maxFrameBytes;
+// read credit keeps at most one mebibyte in flight.
+const BULK_STREAM_MAX = 64 * 1024 * 1024
+const STREAM_FRAME_BYTES = 64 * 1024
+const STREAM_CREDIT_HIGH_WATER = 1024 * 1024
+
+// Recursive delete/copy plan bounds: bounded depth, bounded item count (each
+// enumerated item becomes one plan step), bounded copy volume. Any symlink
+// inside the tree refuses the whole plan — links are never followed out.
+const TREE_DEPTH_MAX = 64
+const TREE_ITEM_MAX = 5000
+const TREE_COPY_TOTAL_MAX = 256 * 1024 * 1024
+const PLAN_TTL_MS = 10 * 60_000
 
 function searchOffset(cursor: unknown): number {
   if (cursor === undefined) return 0
@@ -108,6 +136,47 @@ function devError(code: DevError['code'], message: string, retryable = false): D
 
 function nowIso(now: () => number): string {
   return new Date(now()).toISOString()
+}
+
+function sha256Text(text: string): string {
+  return createHash('sha256').update(text, 'utf8').digest('hex')
+}
+
+/** Compact mtime/size fact line for plan factVersions (identity facts only —
+ *  never content). */
+function identityFactLine(identity: unknown): string {
+  const candidate = identity as { mtimeNs?: unknown; size?: unknown } | undefined
+  return `${String(candidate?.mtimeNs ?? '0')}:${String(candidate?.size ?? '0')}`
+}
+
+/** The per-item identity facts a tree plan records (lstat-based, so symlink
+ *  rows can never appear here). */
+function plannedItemOf(relativePath: string, stats: BigStats): PlannedTreeItem {
+  return {
+    relativePath,
+    kind: stats.isDirectory() ? 'directory' : 'file',
+    size: String(stats.size),
+    mtimeNs: String(stats.mtimeNs),
+    mode: Number(stats.mode & 0o777n),
+  }
+}
+
+/** Step ids of a directory's direct children (delete plans delete children
+ *  before the parent: the dependency edge documents that order). */
+function directChildStepIds(
+  items: readonly PlannedTreeItem[],
+  directoryRelative: string,
+  stepIds: readonly string[]
+): string[] {
+  const prefix = `${directoryRelative}/`
+  const childIds: string[] = []
+  for (const [index, item] of items.entries()) {
+    if (!item.relativePath.startsWith(prefix)) continue
+    const rest = item.relativePath.slice(prefix.length)
+    if (rest.includes('/')) continue
+    childIds.push(stepIds[index] as string)
+  }
+  return childIds
 }
 
 // ─── Path safety ────────────────────────────────────────────────────────────
@@ -594,11 +663,86 @@ function probeRipgrep(rgPath: string): boolean {
 
 // ─── Registrar ──────────────────────────────────────────────────────────────
 
+/** One enumerated tree entry: the plan's per-item identity facts (the commit
+ *  re-proves every row against the live lstat before touching anything). */
+type PlannedTreeItem = {
+  relativePath: string
+  kind: 'file' | 'directory'
+  size: string
+  mtimeNs: string
+  mode: number
+}
+
+type FilePlanEntry = {
+  kind: 'rename_overwrite' | 'delete_tree' | 'copy_tree'
+  worktreeId: string
+  canonicalRoot: string
+  generation: number
+  expiresAt: number
+  digest: string
+  // rename_overwrite
+  fromRelative?: string
+  toRelative?: string
+  expectedFromIdentity?: FileIdentity
+  expectedToIdentity?: FileIdentity
+  // trees
+  rootRelative?: string
+  destinationRelative?: string
+  items?: readonly PlannedTreeItem[]
+  totalBytes?: bigint
+}
+
+type PendingStreamRecord = {
+  worktreeId: string
+  canonicalRoot: string
+  rootIdentity: FileIdentityValue
+  relativePath: string
+  absolute: string
+  expectedIdentity: FileIdentity
+  expiresAt: number
+}
+
+type PendingReadRecord = PendingStreamRecord & {
+  offset: bigint
+  declaredLength?: bigint
+}
+
+type PendingWriteRecord = PendingStreamRecord & {
+  declaredByteLength: bigint
+  declaredSha256: string
+}
+
+/** The narrow stream-session surface the file-bytes-v1 provider uses; the
+ *  gateway's full session satisfies it structurally. */
+type FileBytesSession = {
+  grant: DevStreamGrant
+  send: (frame: DevStreamFrame) => void
+  close: (
+    code: 'normal' | 'expired' | 'revoked' | 'stale_generation' | 'backpressure' | 'incompatible',
+    reason?: string
+  ) => void
+  onFrame?: (frame: DevStreamFrame) => void
+  onClose?: () => void
+}
+
 export function registerFilesRuntime(input: FilesRegistrarInput): {
   commands: readonly DevOperation[]
   registeredCommands: number
 } {
   const now = input.now ?? Date.now
+  const plans = new Map<string, FilePlanEntry>()
+  const pendingReads = new Map<string, PendingReadRecord>()
+  const pendingWrites = new Map<string, PendingWriteRecord>()
+
+  /** Grant records die with their grant: anything past its expiry window is
+   *  swept before each mint so an unattached grant cannot pin memory. */
+  function sweepPendingStreams(): void {
+    const at = now()
+    for (const [grantId, record] of pendingReads)
+      if (record.expiresAt <= at) pendingReads.delete(grantId)
+    for (const [grantId, record] of pendingWrites)
+      if (record.expiresAt <= at) pendingWrites.delete(grantId)
+  }
 
   /** Gate re-check shared by every operation: scope, resource binding, live
    *  generation, ready lifecycle, and the canonical root snapshot. */
@@ -641,7 +785,178 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
     }
   }
 
-  const handlers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
+  /** Re-proves the gate at stream-attach time: the worktree the grant was
+   *  minted against must still be live, ready, at the same generation, and
+   *  spelled by the same canonical root. Throws a typed DevError. */
+  function requireAttachableWorktree(record: PendingStreamRecord, generation: number): void {
+    const live = input.resolveWorktree(record.worktreeId)
+    if (!live || live.lifecycle !== 'ready')
+      throw devError('invalid_state', 'the worktree behind this stream is no longer ready')
+    if (live.generation !== generation)
+      throw devError(
+        'stale_generation',
+        'the worktree moved to a new generation after the grant was minted'
+      )
+    // Compare real paths: the mint stored the canonical (realpath) spelling.
+    if (realpathSync(live.canonicalRoot) !== record.canonicalRoot)
+      throw devError(
+        'unauthorized_root',
+        'the worktree canonical root changed after the grant was minted'
+      )
+  }
+
+  /** Plan halves resolve their worktree by the plan's binding, not the body:
+   *  scope, live record, generation, ready lifecycle, and the canonical-root
+   *  re-proof, exactly like requireLiveWorktree but with an explicit target. */
+  function requireWorktreeContextAt(
+    command: DevCommand,
+    worktreeId: string,
+    generation: number
+  ): { canonicalRoot: string; rootIdentity: FileIdentityValue } {
+    if (
+      command.scope.accountId !== input.scope.accountId ||
+      command.scope.workspaceId !== input.scope.workspaceId ||
+      command.scope.runtimeNodeId !== input.scope.runtimeNodeId
+    )
+      throw devError('unauthorized', 'files scope is not authorized on this runtime node')
+    const record = input.resolveWorktree(worktreeId)
+    if (!record)
+      throw devError('not_found', 'no worktree context exists for this operation on this node')
+    if (record.generation !== generation)
+      throw devError('stale_generation', 'resource generation does not match the worktree record')
+    if (record.lifecycle !== 'ready')
+      throw devError('invalid_state', 'files operations require a ready worktree')
+    const stats = lstatSync(record.canonicalRoot, { throwIfNoEntry: false })
+    if (!stats || stats.isSymbolicLink() || !stats.isDirectory())
+      throw devError('unauthorized_root', 'worktree canonical root is not a real directory')
+    return {
+      canonicalRoot: realpathSync(record.canonicalRoot),
+      rootIdentity: record.rootIdentity,
+    }
+  }
+
+  /** requireLiveWorktree plus the live generation, for plan halves. */
+  function requireLiveWorktreeExtended(command: DevCommand): {
+    worktreeId: string
+    canonicalRoot: string
+    rootIdentity: FileIdentityValue
+    generation: number
+  } {
+    const base = requireLiveWorktree(command)
+    const record = input.resolveWorktree(base.worktreeId)
+    if (!record) throw devError('not_found', 'no worktree context exists for this operation')
+    return { ...base, generation: record.generation }
+  }
+
+  /** Bounded pre-order enumeration of a directory tree. Symlinks anywhere
+   *  inside refuse the whole enumeration (links are never followed out),
+   *  special files refuse, and the depth/item budgets are hard caps. */
+  function enumerateTree(
+    canonicalRoot: string,
+    relativePath: string,
+    options: { maxItems?: number } = {}
+  ): { items: PlannedTreeItem[]; totalBytes: bigint } {
+    const maxItems = options.maxItems ?? TREE_ITEM_MAX
+    const rootAbsolute = resolveTargetPath(canonicalRoot, relativePath)
+    const rootStats = bigintLstat(rootAbsolute)
+    if (!rootStats) throw devError('not_found', 'path does not exist inside the worktree')
+    if (rootStats.isSymbolicLink())
+      throw devError('symlink_rejected', 'refusing to enumerate through a symlink')
+    if (!rootStats.isDirectory())
+      throw devError(
+        'special_file_rejected',
+        'recursive operations require a directory; use the single-path operations instead'
+      )
+    const items: PlannedTreeItem[] = [plannedItemOf(relativePath, rootStats)]
+    let totalBytes = 0n
+    const walk = (absolute: string, relativeChild: string, depth: number): void => {
+      if (depth > TREE_DEPTH_MAX)
+        throw devError('limit_exceeded', `tree exceeds the depth budget (${TREE_DEPTH_MAX})`)
+      const entries = readdirSync(absolute).toSorted((left, right) => left.localeCompare(right))
+      for (const entry of entries) {
+        if (items.length >= maxItems)
+          throw devError(
+            'limit_exceeded',
+            `tree exceeds the item budget (${maxItems} entries); operate on smaller batches`
+          )
+        const childAbsolute = join(absolute, entry)
+        const childStats = bigintLstat(childAbsolute)
+        if (!childStats)
+          throw devError('not_found', 'the tree changed while it was being enumerated')
+        if (childStats.isSymbolicLink())
+          throw devError(
+            'symlink_rejected',
+            `refusing to descend through symlink ${relativeChild}/${entry}`
+          )
+        const childRelative = `${relativeChild}/${entry}`
+        if (childStats.isDirectory()) {
+          items.push(plannedItemOf(childRelative, childStats))
+          walk(childAbsolute, childRelative, depth + 1)
+        } else if (childStats.isFile()) {
+          items.push(plannedItemOf(childRelative, childStats))
+          totalBytes += childStats.size
+        } else {
+          throw devError(
+            'special_file_rejected',
+            `refusing a special file inside the tree: ${childRelative}`
+          )
+        }
+      }
+    }
+    walk(rootAbsolute, relativePath, 0)
+    return { items, totalBytes }
+  }
+
+  /** Live plan lookup shared by every commit half: the plan must exist, be
+   *  unconsumed, inside its TTL, of the committing kind, presented with the
+   *  exact digest it published, and bound to the envelope resource. The
+   *  generation check happens in the handler once the worktree context is
+   *  resolved (the plan carries the worktree id). */
+  function liveFilePlan(
+    planId: string,
+    kind: FilePlanEntry['kind'],
+    planDigest: unknown,
+    resource: DevCommand['resource']
+  ): FilePlanEntry {
+    const entry = plans.get(planId)
+    if (!entry || entry.expiresAt <= now())
+      throw devError('plan_stale', 'the plan is unknown, expired, or already consumed')
+    if (entry.kind !== kind) throw devError('plan_stale', 'the plan does not match this operation')
+    if (entry.digest !== planDigest)
+      throw devError('plan_stale', 'the plan digest does not match the approved plan')
+    if (!resource || resource.kind !== 'workspace_root' || resource.id !== entry.worktreeId)
+      throw devError('identity_mismatch', 'the plan is bound to another worktree resource')
+    return entry
+  }
+
+  function consumeFilePlan(planId: string): void {
+    plans.delete(planId)
+  }
+
+  /** Re-proves every planned tree row against the live tree: same path set,
+   *  same order, same mtime/size facts. Any drift refuses the commit. */
+  function reprovePlannedTree(canonicalRoot: string, entry: FilePlanEntry): void {
+    const items = entry.items ?? []
+    const fresh = enumerateTree(canonicalRoot, entry.rootRelative as string)
+    if (
+      fresh.items.length !== items.length ||
+      fresh.items.some((item, index) => {
+        const planned = items[index]
+        return (
+          planned === undefined ||
+          item.relativePath !== planned.relativePath ||
+          item.kind !== planned.kind ||
+          item.mtimeNs !== planned.mtimeNs ||
+          item.size !== planned.size
+        )
+      })
+    )
+      throw devError('plan_stale', 'the tree changed since the plan was made')
+  }
+
+  const handlers: Partial<
+    Record<DevOperation, (command: DevCommand, identity?: ChannelIdentity) => unknown>
+  > = {
     'dev.files.stat': (command) => {
       const body = devOperationDecoders['dev.files.stat'].request(command.body)
       const { worktreeId, canonicalRoot, rootIdentity } = requireLiveWorktree(command)
@@ -774,6 +1089,115 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
       return result
     },
 
+    // Bulk byte streaming (#399 residue): the command halves mint single-use
+    // file-bytes-v1 stream grants (caller-identity-bound, resource- and
+    // generation-fenced, expiring); the byte halves live in the registered
+    // stream provider below.
+    'dev.files.readStream': (command, identity) => {
+      const body = devOperationDecoders['dev.files.readStream'].request(command.body)
+      if (body.direction !== 'read')
+        throw devError('identity_mismatch', 'readStream requests the read direction')
+      const { worktreeId, canonicalRoot, rootIdentity } = requireLiveWorktree(command)
+      const relativePath = workspaceRelativePath(worktreeId, body.path, rootIdentity)
+      const absolute = resolveTargetPath(canonicalRoot, relativePath)
+      proveContainment(canonicalRoot, absolute)
+      const stats = lstatSync(absolute, { throwIfNoEntry: false })
+      if (!stats) throw devError('not_found', 'file does not exist inside the worktree')
+      if (stats.isSymbolicLink())
+        throw devError('symlink_rejected', 'refusing to read through a symlink')
+      if (!stats.isFile())
+        throw devError('special_file_rejected', 'only regular files accept reads')
+      assertExpectedIdentity(absolute, body.expectedIdentity as FileIdentity)
+      const fileSize = BigInt(stats.size)
+      const offset = body.offset !== undefined ? BigInt(String(body.offset)) : 0n
+      if (offset > fileSize)
+        throw devError('invalid_state', 'read offset is past the end of the file')
+      const declaredLength = body.length !== undefined ? BigInt(String(body.length)) : undefined
+      const readableBytes = fileSize - offset
+      if (readableBytes > BigInt(BULK_STREAM_MAX))
+        throw devError(
+          'limit_exceeded',
+          'file exceeds the bulk stream budget (64 MiB); the bounded read window remains available'
+        )
+      if (declaredLength !== undefined && declaredLength > readableBytes)
+        throw devError('invalid_state', 'declared read length is longer than the file')
+      const grant = input.authority.mintStreamGrant({
+        identity: identity!,
+        protocol: 'file-bytes-v1',
+        scope: command.scope,
+        resource: {
+          kind: 'workspace_root',
+          id: worktreeId,
+          generation: command.resource!.generation,
+        },
+        direction: 'read',
+        fromSequence: offset.toString(),
+        maxFrameBytes: STREAM_FRAME_BYTES,
+      })
+      sweepPendingStreams()
+      pendingReads.set(grant.grantId, {
+        worktreeId,
+        canonicalRoot,
+        rootIdentity,
+        relativePath,
+        absolute,
+        expectedIdentity: body.expectedIdentity as FileIdentity,
+        offset,
+        ...(declaredLength !== undefined ? { declaredLength } : {}),
+        expiresAt: Date.parse(grant.expiresAt),
+      })
+      return grant
+    },
+
+    'dev.files.writeStream': (command, identity) => {
+      const body = devOperationDecoders['dev.files.writeStream'].request(command.body)
+      if (body.direction !== 'write')
+        throw devError('identity_mismatch', 'writeStream requests the write direction')
+      if (body.eolPolicy !== 'preserve')
+        throw devError(
+          'invalid_state',
+          'bulk stream writes are byte-exact; explicit eol policies apply on the control path'
+        )
+      const { worktreeId, canonicalRoot, rootIdentity } = requireLiveWorktree(command)
+      const relativePath = workspaceRelativePath(worktreeId, body.path, rootIdentity)
+      const absolute = resolveTargetPath(canonicalRoot, relativePath)
+      proveContainment(canonicalRoot, absolute)
+      requireRegularFileTarget(absolute, true)
+      assertExpectedIdentity(absolute, body.expectedIdentity as FileIdentity)
+      const declaredByteLength = BigInt(String(body.byteLength))
+      if (declaredByteLength > BigInt(BULK_STREAM_MAX))
+        throw devError(
+          'limit_exceeded',
+          'declared write exceeds the bulk stream budget (64 MiB); the control path accepts <= 256 KiB'
+        )
+      const grant = input.authority.mintStreamGrant({
+        identity: identity!,
+        protocol: 'file-bytes-v1',
+        scope: command.scope,
+        resource: {
+          kind: 'workspace_root',
+          id: worktreeId,
+          generation: command.resource!.generation,
+        },
+        direction: 'write',
+        fromSequence: '0',
+        maxFrameBytes: STREAM_FRAME_BYTES,
+      })
+      sweepPendingStreams()
+      pendingWrites.set(grant.grantId, {
+        worktreeId,
+        canonicalRoot,
+        rootIdentity,
+        relativePath,
+        absolute,
+        expectedIdentity: body.expectedIdentity as FileIdentity,
+        declaredByteLength,
+        declaredSha256: String(body.contentSha256),
+        expiresAt: Date.parse(grant.expiresAt),
+      })
+      return grant
+    },
+
     'dev.files.create': (command) => {
       const body = devOperationDecoders['dev.files.create'].request(command.body)
       const { worktreeId, canonicalRoot, rootIdentity } = requireLiveWorktree(command)
@@ -807,13 +1231,13 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
       const toAbsolute = resolveTargetPath(canonicalRoot, toRelative)
       proveContainment(canonicalRoot, toAbsolute)
       if (lstatSync(toAbsolute, { throwIfNoEntry: false }))
-        throw devError('path_collision', 'destination exists and failIfExists is true')
+        throw devError('path_collision', `destination already exists: ${toRelative}`)
       // link + unlink gives failIfExists semantics atomically (rename would
       // silently overwrite an existing destination).
       try {
         linkSync(fromAbsolute, toAbsolute)
       } catch {
-        throw devError('path_collision', 'destination exists and failIfExists is true')
+        throw devError('path_collision', `destination already exists: ${toRelative}`)
       }
       try {
         unlinkSync(fromAbsolute)
@@ -827,6 +1251,127 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
       }
       fsyncDirectory(dirname(toAbsolute))
       return toFileEntry(worktreeId, rootIdentity, toRelative, toAbsolute, nowIso(now))
+    },
+
+    // Overwrite renames are the one sanctioned clobber, so they ride an
+    // explicit plan/commit pair: the plan pins BOTH identities — the moving
+    // source and the colliding destination it will replace — and names the
+    // collision; the commit re-proves both and only then runs the atomic
+    // rename over the destination.
+    'dev.files.renameOverwritePlan': (command) => {
+      const body = devOperationDecoders['dev.files.renameOverwritePlan'].request(command.body)
+      const { worktreeId, canonicalRoot, rootIdentity, ...gate } =
+        requireLiveWorktreeExtended(command)
+      const fromRelative = workspaceRelativePath(worktreeId, body.from, rootIdentity)
+      const fromAbsolute = resolveTargetPath(canonicalRoot, fromRelative)
+      proveContainment(canonicalRoot, fromAbsolute)
+      if (!bigintLstat(fromAbsolute))
+        throw devError('not_found', 'rename source does not exist inside the worktree')
+      assertExpectedIdentity(fromAbsolute, body.expectedFromIdentity as FileIdentity)
+      const toRelative = workspaceRelativePath(worktreeId, body.to, rootIdentity)
+      if (fromRelative === toRelative)
+        throw devError('invalid_state', 'rename source and destination are identical')
+      const toAbsolute = resolveTargetPath(canonicalRoot, toRelative)
+      proveContainment(canonicalRoot, toAbsolute)
+      const toStats = lstatSync(toAbsolute, { throwIfNoEntry: false })
+      if (!toStats)
+        throw devError(
+          'not_found',
+          `overwrite plan requires an existing destination; the target ${toRelative} is free — use dev.files.rename`
+        )
+      // The explicit confirm binding: the caller pins the identity of the
+      // exact file the overwrite will destroy, not just its path.
+      assertExpectedIdentity(toAbsolute, body.expectedToIdentity as FileIdentity)
+      // A directory rename may never swallow its own subtree.
+      if (
+        containsPath(fromAbsolute, toAbsolute) &&
+        fromAbsolute !== toAbsolute &&
+        toStats.isDirectory()
+      )
+        throw devError('invalid_state', 'destination sits inside the source directory')
+      const digest = sha256Text(
+        JSON.stringify({
+          kind: 'rename_overwrite',
+          worktreeId,
+          generation: gate.generation,
+          from: fromRelative,
+          to: toRelative,
+          fromIdentity: body.expectedFromIdentity,
+          toIdentity: body.expectedToIdentity,
+        })
+      )
+      const planId = randomUUID()
+      plans.set(planId, {
+        kind: 'rename_overwrite',
+        worktreeId,
+        canonicalRoot,
+        generation: gate.generation,
+        fromRelative,
+        toRelative,
+        expectedFromIdentity: body.expectedFromIdentity as FileIdentity,
+        expectedToIdentity: body.expectedToIdentity as FileIdentity,
+        expiresAt: now() + PLAN_TTL_MS,
+        digest,
+      })
+      return {
+        id: planId,
+        operation: 'dev.files.renameOverwriteCommit' as DevOperation,
+        scope: input.scope,
+        resource: { kind: 'workspace_root', id: worktreeId, generation: gate.generation },
+        factVersions: {
+          generation: String(gate.generation),
+          fromIdentity: identityFactLine(body.expectedFromIdentity),
+          toIdentity: identityFactLine(body.expectedToIdentity),
+        },
+        steps: [
+          {
+            id: 'rename_overwrite',
+            kind: 'file_rename_overwrite',
+            targetId: toRelative,
+            dependsOn: [],
+          },
+        ],
+        blockers: [],
+        requiredApprovalIds: [],
+        digest,
+        expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(),
+      } satisfies MutationPlan
+    },
+
+    'dev.files.renameOverwriteCommit': (command) => {
+      const body = devOperationDecoders['dev.files.renameOverwriteCommit'].request(command.body)
+      const planId = String(body.planId)
+      // Paired commit: the body names the plan, so the envelope resource is
+      // validated against the plan's bound worktree before anything runs.
+      const entry = liveFilePlan(planId, 'rename_overwrite', body.planDigest, command.resource)
+      if (
+        entry.fromRelative === undefined ||
+        entry.toRelative === undefined ||
+        entry.expectedFromIdentity === undefined ||
+        entry.expectedToIdentity === undefined
+      )
+        throw devError('plan_stale', 'the plan is not an overwrite rename')
+      const generation = command.resource?.generation ?? entry.generation
+      const { canonicalRoot, rootIdentity } = requireWorktreeContextAt(
+        command,
+        entry.worktreeId,
+        generation
+      )
+      if (entry.generation !== generation)
+        throw devError('stale_generation', 'the plan is bound to another worktree generation')
+      if (entry.canonicalRoot !== canonicalRoot)
+        throw devError('unauthorized_root', 'the plan is bound to another canonical root')
+      const fromAbsolute = resolveTargetPath(canonicalRoot, entry.fromRelative)
+      const toAbsolute = resolveTargetPath(canonicalRoot, entry.toRelative)
+      proveContainment(canonicalRoot, fromAbsolute)
+      proveContainment(canonicalRoot, toAbsolute)
+      // Both pins re-proven immediately before the atomic rename.
+      assertExpectedIdentity(fromAbsolute, entry.expectedFromIdentity)
+      assertExpectedIdentity(toAbsolute, entry.expectedToIdentity)
+      renameSync(fromAbsolute, toAbsolute)
+      fsyncDirectory(dirname(toAbsolute))
+      consumeFilePlan(planId)
+      return toFileEntry(entry.worktreeId, rootIdentity, entry.toRelative, toAbsolute, nowIso(now))
     },
 
     'dev.files.delete': (command) => {
@@ -848,6 +1393,101 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
         path: { worktreeId, rootIdentity: { ...rootIdentity }, relativePath },
         previousIdentity: fileIdentityOf(stats),
         state: 'deleted',
+      }
+      return result
+    },
+
+    // Recursive deletes ride an explicit bounded plan: the dry run
+    // enumerates every item (bounded depth/items, symlinks refused outright)
+    // into per-item steps with identity facts, and the confirmed commit
+    // re-proves the whole tree before deleting anything.
+    'dev.files.deleteTreePlan': (command) => {
+      const body = devOperationDecoders['dev.files.deleteTreePlan'].request(command.body)
+      const { worktreeId, canonicalRoot, rootIdentity, ...gate } =
+        requireLiveWorktreeExtended(command)
+      const relativePath = workspaceRelativePath(worktreeId, body.path, rootIdentity)
+      if (relativePath.length === 0 || relativePath === '.')
+        throw devError('invalid_state', 'the worktree root itself is not a delete target')
+      if (typeof body.confirmationId !== 'string' || body.confirmationId.length < 6)
+        throw devError('invalid_state', 'recursive delete requires an explicit confirmation id')
+      const { items } = enumerateTree(canonicalRoot, relativePath)
+      const digest = sha256Text(
+        JSON.stringify({ kind: 'delete_tree', worktreeId, generation: gate.generation, items })
+      )
+      const planId = randomUUID()
+      plans.set(planId, {
+        kind: 'delete_tree',
+        worktreeId,
+        canonicalRoot,
+        generation: gate.generation,
+        rootRelative: relativePath,
+        items,
+        expiresAt: now() + PLAN_TTL_MS,
+        digest,
+      })
+      const stepIds = items.map((_, index) => `item-${index}`)
+      const steps = items.map((item, index) => ({
+        id: stepIds[index] as string,
+        kind: item.kind === 'directory' ? 'dir_delete' : 'file_delete',
+        targetId: item.relativePath,
+        dependsOn:
+          item.kind === 'directory' ? directChildStepIds(items, item.relativePath, stepIds) : [],
+      }))
+      return {
+        id: planId,
+        operation: 'dev.files.deleteTreeCommit' as DevOperation,
+        scope: input.scope,
+        resource: { kind: 'workspace_root', id: worktreeId, generation: gate.generation },
+        factVersions: {
+          generation: String(gate.generation),
+          root: identityFactLine(rootIdentity),
+          items: String(items.length),
+        },
+        steps,
+        blockers: [],
+        requiredApprovalIds: [],
+        digest,
+        expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(),
+      } satisfies MutationPlan
+    },
+
+    'dev.files.deleteTreeCommit': (command) => {
+      const body = devOperationDecoders['dev.files.deleteTreeCommit'].request(command.body)
+      const planId = String(body.planId)
+      const entry = liveFilePlan(planId, 'delete_tree', body.planDigest, command.resource)
+      if (entry.rootRelative === undefined || entry.items === undefined)
+        throw devError('plan_stale', 'the plan is not a recursive delete')
+      const generation = command.resource?.generation ?? entry.generation
+      const { canonicalRoot, rootIdentity } = requireWorktreeContextAt(
+        command,
+        entry.worktreeId,
+        generation
+      )
+      if (entry.generation !== generation)
+        throw devError('stale_generation', 'the plan is bound to another worktree generation')
+      if (entry.canonicalRoot !== canonicalRoot)
+        throw devError('unauthorized_root', 'the plan is bound to another canonical root')
+      reprovePlannedTree(canonicalRoot, entry)
+      // Pre-order enumeration reversed: children always delete before their
+      // parent directories.
+      for (const item of entry.items.toReversed()) {
+        const absolute = join(canonicalRoot, item.relativePath)
+        proveContainment(canonicalRoot, absolute)
+        if (item.kind === 'directory') rmdirSync(absolute)
+        else unlinkSync(absolute)
+      }
+      fsyncDirectory(dirname(join(canonicalRoot, entry.rootRelative)))
+      consumeFilePlan(planId)
+      const result: FileTreeMutationResult = {
+        path: {
+          worktreeId: entry.worktreeId,
+          rootIdentity: { ...rootIdentity },
+          relativePath: entry.rootRelative,
+        },
+        state: 'deleted',
+        items: entry.items.length,
+        totalBytes: '0',
+        observedAt: nowIso(now),
       }
       return result
     },
@@ -874,6 +1514,155 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
         throw devError('path_collision', 'destination exists and failIfExists is true')
       atomicCreateNew(toAbsolute, readFileSync(fromAbsolute), sourceStats.mode & 0o777)
       return toFileEntry(worktreeId, rootIdentity, toRelative, toAbsolute, nowIso(now))
+    },
+
+    // Recursive copies: the plan enumerates and validates every
+    // source/destination pair under the item/depth/volume budgets (spec:
+    // no recursive copy without an explicit plan); the commit re-proves the
+    // source tree and the free destination before copying anything.
+    'dev.files.copyTreePlan': (command) => {
+      const body = devOperationDecoders['dev.files.copyTreePlan'].request(command.body)
+      const { worktreeId, canonicalRoot, rootIdentity, ...gate } =
+        requireLiveWorktreeExtended(command)
+      const fromRelative = workspaceRelativePath(worktreeId, body.from, rootIdentity)
+      const fromAbsolute = resolveTargetPath(canonicalRoot, fromRelative)
+      proveContainment(canonicalRoot, fromAbsolute)
+      if (!bigintLstat(fromAbsolute))
+        throw devError('not_found', 'source does not exist inside the worktree')
+      assertExpectedIdentity(fromAbsolute, body.expectedIdentity as FileIdentity)
+      const toRelative = workspaceRelativePath(worktreeId, body.to, rootIdentity)
+      if (fromRelative === toRelative)
+        throw devError('invalid_state', 'copy source and destination are identical')
+      const toAbsolute = resolveTargetPath(canonicalRoot, toRelative)
+      proveContainment(canonicalRoot, toAbsolute)
+      if (lstatSync(toAbsolute, { throwIfNoEntry: false }))
+        throw devError('path_collision', `destination already exists: ${toRelative}`)
+      if (containsPath(fromAbsolute, toAbsolute))
+        throw devError('invalid_state', 'destination sits inside the source directory')
+      const { items, totalBytes } = enumerateTree(canonicalRoot, fromRelative)
+      if (totalBytes > BigInt(TREE_COPY_TOTAL_MAX))
+        throw devError(
+          'limit_exceeded',
+          'tree exceeds the copy volume budget (256 MiB); copy smaller batches'
+        )
+      const digest = sha256Text(
+        JSON.stringify({
+          kind: 'copy_tree',
+          worktreeId,
+          generation: gate.generation,
+          from: fromRelative,
+          to: toRelative,
+          items,
+          totalBytes: totalBytes.toString(),
+        })
+      )
+      const planId = randomUUID()
+      plans.set(planId, {
+        kind: 'copy_tree',
+        worktreeId,
+        canonicalRoot,
+        generation: gate.generation,
+        rootRelative: fromRelative,
+        destinationRelative: toRelative,
+        items,
+        totalBytes,
+        expiresAt: now() + PLAN_TTL_MS,
+        digest,
+      })
+      const stepIdByPath = new Map(items.map((item, index) => [item.relativePath, `item-${index}`]))
+      const steps = items.map((item) => {
+        const lastSlash = item.relativePath.lastIndexOf('/')
+        const parentRelative = lastSlash === -1 ? undefined : item.relativePath.slice(0, lastSlash)
+        const parentStepId =
+          parentRelative === undefined ? undefined : stepIdByPath.get(parentRelative)
+        return {
+          id: stepIdByPath.get(item.relativePath) as string,
+          kind: item.kind === 'directory' ? 'copy_dir' : 'copy_file',
+          targetId: `${toRelative}${item.relativePath.slice(fromRelative.length)}`,
+          dependsOn: parentStepId === undefined ? [] : [parentStepId],
+        }
+      })
+      return {
+        id: planId,
+        operation: 'dev.files.copyTreeCommit' as DevOperation,
+        scope: input.scope,
+        resource: { kind: 'workspace_root', id: worktreeId, generation: gate.generation },
+        factVersions: {
+          generation: String(gate.generation),
+          source: identityFactLine(body.expectedIdentity),
+          items: String(items.length),
+          totalBytes: totalBytes.toString(),
+        },
+        steps,
+        blockers: [],
+        requiredApprovalIds: [],
+        digest,
+        expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(),
+      } satisfies MutationPlan
+    },
+
+    'dev.files.copyTreeCommit': (command) => {
+      const body = devOperationDecoders['dev.files.copyTreeCommit'].request(command.body)
+      const planId = String(body.planId)
+      const entry = liveFilePlan(planId, 'copy_tree', body.planDigest, command.resource)
+      if (
+        entry.rootRelative === undefined ||
+        entry.destinationRelative === undefined ||
+        entry.items === undefined ||
+        entry.totalBytes === undefined
+      )
+        throw devError('plan_stale', 'the plan is not a recursive copy')
+      const generation = command.resource?.generation ?? entry.generation
+      const { canonicalRoot, rootIdentity } = requireWorktreeContextAt(
+        command,
+        entry.worktreeId,
+        generation
+      )
+      if (entry.generation !== generation)
+        throw devError('stale_generation', 'the plan is bound to another worktree generation')
+      if (entry.canonicalRoot !== canonicalRoot)
+        throw devError('unauthorized_root', 'the plan is bound to another canonical root')
+      // The source tree must be exactly what the plan enumerated and the
+      // destination must still be free before anything is written.
+      reprovePlannedTree(canonicalRoot, entry)
+      const destinationRoot = join(canonicalRoot, entry.destinationRelative)
+      if (lstatSync(destinationRoot, { throwIfNoEntry: false }))
+        throw devError('path_collision', `destination already exists: ${entry.destinationRelative}`)
+      const sourcePrefixLength = entry.rootRelative.length
+      for (const item of entry.items) {
+        const destinationRelative = `${entry.destinationRelative}${item.relativePath.slice(sourcePrefixLength)}`
+        const destinationAbsolute = join(canonicalRoot, destinationRelative)
+        proveContainment(canonicalRoot, destinationAbsolute)
+        if (item.kind === 'directory') {
+          try {
+            mkdirSync(destinationAbsolute, { recursive: false, mode: 0o755 })
+          } catch {
+            throw devError('path_collision', `destination already exists: ${destinationRelative}`)
+          }
+        } else {
+          if (BigInt(item.size) > BigInt(COPY_BUDGET_MAX))
+            throw devError('limit_exceeded', `source exceeds the copy budget: ${item.relativePath}`)
+          atomicCreateNew(
+            destinationAbsolute,
+            readFileSync(join(canonicalRoot, item.relativePath)),
+            item.mode || 0o644
+          )
+        }
+      }
+      fsyncDirectory(dirname(destinationRoot))
+      consumeFilePlan(planId)
+      const result: FileTreeMutationResult = {
+        path: {
+          worktreeId: entry.worktreeId,
+          rootIdentity: { ...rootIdentity },
+          relativePath: entry.destinationRelative,
+        },
+        state: 'copied',
+        items: entry.items.length,
+        totalBytes: entry.totalBytes.toString(),
+        observedAt: nowIso(now),
+      }
+      return result
     },
 
     'dev.files.openExternal': async (command) => {
@@ -944,19 +1733,268 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
     },
   }
 
+  // ── file-bytes-v1 stream provider (bulk byte halves) ─────────────────────
+
+  /** Serves one attached read stream: re-proves the worktree and file
+   *  identity at attach, then pumps bounded frames under client ack credit
+   *  (at most one mebibyte in flight). Sequence numbers are byte offsets, so
+   *  a client can always position what it received. */
+  function attachReadSession(session: FileBytesSession, grant: DevStreamGrant): void {
+    const pending = pendingReads.get(grant.grantId)
+    pendingReads.delete(grant.grantId)
+    if (!pending) {
+      session.close('incompatible', 'no pending bulk read is bound to this grant')
+      return
+    }
+    const record: PendingReadRecord = pending
+    const refuse = (error: DevError): void => {
+      try {
+        session.send({ type: 'error', error })
+      } catch {
+        /* socket already gone */
+      }
+      session.close('incompatible', error.message)
+    }
+    try {
+      requireAttachableWorktree(record, grant.resource.generation)
+      assertExpectedIdentity(record.absolute, record.expectedIdentity)
+    } catch (error) {
+      refuse(mapFilesError(error) as DevError)
+      return
+    }
+    let nextOffset = record.offset
+    const endOffset =
+      record.declaredLength !== undefined ? record.offset + record.declaredLength : undefined
+    let fd: number | undefined
+    let outstanding = 0
+    let finished = false
+    const release = (): void => {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd)
+        } catch {
+          /* already closed */
+        }
+        fd = undefined
+      }
+    }
+    session.onClose = release
+    session.onFrame = (frame) => {
+      if (frame.type !== 'ack') {
+        session.close('incompatible', 'read streams accept only ack frames')
+        return
+      }
+      outstanding = Math.max(0, outstanding - frame.availableCreditBytes)
+      pump()
+    }
+    function pump(): void {
+      if (finished) return
+      try {
+        // Re-prove identity between credit windows: a file rewritten mid-read
+        // ends the stream instead of serving torn bytes.
+        assertExpectedIdentity(record.absolute, record.expectedIdentity)
+        if (fd === undefined) fd = openSync(record.absolute, 'r')
+        while (outstanding < STREAM_CREDIT_HIGH_WATER) {
+          if (endOffset !== undefined && nextOffset >= endOffset) break
+          const budget =
+            endOffset !== undefined ? Number(endOffset - nextOffset) : STREAM_FRAME_BYTES
+          const chunkLength = Math.min(STREAM_FRAME_BYTES, budget)
+          if (chunkLength <= 0) break
+          const window = Buffer.alloc(chunkLength)
+          const read = readSync(fd, window, 0, chunkLength, Number(nextOffset))
+          if (read === 0) break
+          const bytes = window.subarray(0, read)
+          session.send({ type: 'data', sequence: nextOffset.toString(), bytes })
+          outstanding += read
+          nextOffset += BigInt(read)
+          if (read < chunkLength) break // fstat EOF
+        }
+        const fileSize = BigInt(fstatSync(fd).size)
+        const drained =
+          nextOffset >= fileSize || (endOffset !== undefined && nextOffset >= endOffset)
+        if (drained && outstanding === 0) {
+          finished = true
+          release()
+          session.close('normal', 'bulk read complete')
+        }
+      } catch (error) {
+        finished = true
+        release()
+        refuse(mapFilesError(error) as DevError)
+      }
+    }
+    pump()
+  }
+
+  /** Serves one attached write stream: chunks land in an owner-only
+   *  same-directory temp file, are digest-tracked as they arrive, and only a
+   *  byte-exact, digest-exact, identity-clean transfer is renamed into
+   *  place. Anything else discards the temp and reports `file_changed`. */
+  function attachWriteSession(session: FileBytesSession, grant: DevStreamGrant): void {
+    const pending = pendingWrites.get(grant.grantId)
+    pendingWrites.delete(grant.grantId)
+    if (!pending) {
+      session.close('incompatible', 'no pending bulk write is bound to this grant')
+      return
+    }
+    const record: PendingWriteRecord = pending
+    const refuse = (error: DevError): void => {
+      try {
+        session.send({ type: 'error', error })
+      } catch {
+        /* socket already gone */
+      }
+      session.close('normal', error.message)
+    }
+    try {
+      requireAttachableWorktree(record, grant.resource.generation)
+      assertExpectedIdentity(record.absolute, record.expectedIdentity)
+    } catch (error) {
+      refuse(mapFilesError(error) as DevError)
+      return
+    }
+    const temp = join(dirname(record.absolute), `.adea-tmp-${randomUUID()}`)
+    const digest = createHash('sha256')
+    let received = 0n
+    let settled = false
+    let fd: number | undefined
+    const discard = (): void => {
+      if (fd !== undefined) {
+        try {
+          closeSync(fd)
+        } catch {
+          /* already closed */
+        }
+        fd = undefined
+      }
+      try {
+        unlinkSync(temp)
+      } catch {
+        /* nothing to clean */
+      }
+    }
+    session.onClose = () => {
+      if (!settled) discard()
+    }
+    session.onFrame = (frame) => {
+      if (settled) {
+        session.close('incompatible', 'the write already settled')
+        return
+      }
+      if (frame.type !== 'input') {
+        session.close('incompatible', 'write streams accept only input frames')
+        return
+      }
+      if (frame.generation !== grant.resource.generation) {
+        session.close('stale_generation', 'input frame generation is stale')
+        return
+      }
+      if (BigInt(frame.sequence) !== received || frame.bytes.byteLength === 0) {
+        settled = true
+        discard()
+        refuse(devError('file_changed', 'write chunks must be contiguous; the write was discarded'))
+        return
+      }
+      if (received + BigInt(frame.bytes.byteLength) > record.declaredByteLength) {
+        settled = true
+        discard()
+        refuse(
+          devError(
+            'file_changed',
+            'received bytes exceed the declared length; the write was discarded'
+          )
+        )
+        return
+      }
+      try {
+        if (fd === undefined) fd = openSync(temp, 'wx', 0o600)
+        writeSync(fd, frame.bytes)
+        digest.update(frame.bytes)
+        received += BigInt(frame.bytes.byteLength)
+        if (received === record.declaredByteLength) {
+          settled = true
+          finalize()
+        }
+      } catch (error) {
+        settled = true
+        discard()
+        refuse(mapFilesError(error) as DevError)
+      }
+    }
+    /** The transfer is byte-complete: fsync, verify the declared digest,
+     *  re-prove the pinned identity, preserve the reviewed permissions, and
+     *  rename atomically into place. */
+    function finalize(): void {
+      try {
+        if (fd !== undefined) {
+          fsyncSync(fd)
+          closeSync(fd)
+          fd = undefined
+        }
+        if (digest.digest('hex') !== record.declaredSha256)
+          throw devError(
+            'file_changed',
+            'received bytes do not match the declared sha256; the write was discarded'
+          )
+        assertExpectedIdentity(record.absolute, record.expectedIdentity)
+        const existing = bigintLstat(record.absolute)
+        const mode = existing ? Number(existing.mode & 0o777n) || 0o644 : 0o644
+        chmodSync(temp, mode)
+        renameSync(temp, record.absolute)
+        fsyncDirectory(dirname(record.absolute))
+        session.close('normal', 'bulk write complete')
+      } catch (error) {
+        discard()
+        refuse(mapFilesError(error) as DevError)
+      }
+    }
+    // A declared-empty write never receives a chunk; finalize immediately.
+    if (record.declaredByteLength === 0n) {
+      settled = true
+      finalize()
+    }
+  }
+
+  function registerStreamProvider(): void {
+    if (!input.gateway) return
+    input.gateway.registerStreamHandler('file-bytes-v1', (session) => {
+      const grant = session.grant
+      if (grant.resource.kind !== 'workspace_root') {
+        session.close('incompatible', 'file streams bind workspace_root resources')
+        return
+      }
+      if (grant.direction === 'read') attachReadSession(session, grant)
+      else attachWriteSession(session, grant)
+    })
+  }
+
   let registeredCommands = 0
+  const registeredOperations: DevOperation[] = []
   for (const [operation, handler] of Object.entries(handlers)) {
     if (!handler) continue
-    input.authority.registerCommandProvider(operation as DevOperation, async (command) => {
-      try {
-        return await handler(command)
-      } catch (error) {
-        throw mapFilesError(error)
+    // Without a full-duplex gateway there is no attach path for a minted
+    // file-bytes-v1 grant, so the stream command halves stay unregistered
+    // and the composition fallback reports them typed-unavailable.
+    if (
+      !input.gateway &&
+      (operation === 'dev.files.readStream' || operation === 'dev.files.writeStream')
+    )
+      continue
+    input.authority.registerCommandProvider(
+      operation as DevOperation,
+      async (command, identity) => {
+        try {
+          return await handler(command, identity)
+        } catch (error) {
+          throw mapFilesError(error)
+        }
       }
-    })
+    )
     registeredCommands += 1
+    registeredOperations.push(operation as DevOperation)
   }
-  return { commands: Object.keys(handlers) as DevOperation[], registeredCommands }
+  registerStreamProvider()
+  return { commands: registeredOperations, registeredCommands }
 }
 
 /** macOS handoff: fixed argv `open <path>` — no shell, no interpolation. */

@@ -64,6 +64,14 @@ function rootIdentityPinned(): FileIdentity {
   return { ...roots.identity.identity }
 }
 
+type CapturedStreamProvider = (session: {
+  grant: import('../../../packages/types/src/dev-runtime').DevStreamGrant
+  send: (frame: unknown) => void
+  close: (code: string, reason?: string) => void
+  onFrame?: (frame: unknown) => void
+  onClose?: () => void
+}) => void
+
 function runtime(options: { lifecycle?: string; resolve?: (id: string) => boolean } = {}) {
   const authority = createChannelAuthority({
     shellHost: '127.0.0.1',
@@ -85,6 +93,45 @@ function runtime(options: { lifecycle?: string; resolve?: (id: string) => boolea
     rgPath: () => 'rg',
   })
   return { authority, registered }
+}
+
+/** A registrar wired to a capturing gateway: stream providers register on it,
+ *  and `handleAttach` drives the captured provider with a scripted session. */
+function runtimeWithGateway(
+  options: { lifecycle?: string; resolve?: (id: string) => boolean } = {}
+) {
+  const providers = new Map<string, CapturedStreamProvider>()
+  const gateway = {
+    registerStreamHandler: (protocol: string, provider: CapturedStreamProvider) => {
+      providers.set(protocol, provider)
+    },
+  }
+  const authority = createChannelAuthority({
+    shellHost: '127.0.0.1',
+    shellOrigin: 'https://127.0.0.1:4789',
+  })
+  const registered = registerFilesRuntime({
+    authority,
+    scope,
+    gateway,
+    resolveWorktree: (worktreeId) => {
+      if (options.resolve && !options.resolve(worktreeId)) return undefined
+      if (!roots) return undefined
+      return {
+        canonicalRoot: roots.root,
+        rootIdentity: { ...roots.identity.identity },
+        generation,
+        lifecycle: options.lifecycle ?? 'ready',
+      }
+    },
+    rgPath: () => 'rg',
+  })
+  return {
+    authority,
+    registered,
+    streamProtocols: [...providers.keys()],
+    provider: (protocol: string) => providers.get(protocol),
+  }
 }
 
 function handshakeChannel(authority: ReturnType<typeof createChannelAuthority>) {
@@ -177,23 +224,37 @@ function filesResource(expected = generation) {
 }
 
 describe('files/search provider', () => {
-  test('registers exactly the dev.files read/write control operations', () => {
+  test('registers exactly the dev.files control and plan operations', () => {
     const { registered } = runtime()
+    // Without a full-duplex gateway the bulk-stream halves stay unregistered
+    // (composition reports them typed-unavailable).
     expect(registered.commands.toSorted()).toEqual(
       [
         'dev.files.copy',
+        'dev.files.copyTreeCommit',
+        'dev.files.copyTreePlan',
         'dev.files.create',
         'dev.files.delete',
+        'dev.files.deleteTreeCommit',
+        'dev.files.deleteTreePlan',
         'dev.files.list',
         'dev.files.openExternal',
         'dev.files.read',
         'dev.files.rename',
+        'dev.files.renameOverwriteCommit',
+        'dev.files.renameOverwritePlan',
         'dev.files.search',
         'dev.files.stat',
         'dev.files.write',
       ].toSorted()
     )
-    expect(registered.registeredCommands).toBe(10)
+    expect(registered.registeredCommands).toBe(16)
+
+    const gateway = runtimeWithGateway()
+    expect(gateway.registered.commands).toContain('dev.files.readStream')
+    expect(gateway.registered.commands).toContain('dev.files.writeStream')
+    expect(gateway.registered.registeredCommands).toBe(18)
+    expect(gateway.streamProtocols).toEqual(['file-bytes-v1'])
   })
 
   test('stat and list report identity, kind, and paged entries through the gate', async () => {
