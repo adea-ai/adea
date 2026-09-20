@@ -67,10 +67,36 @@ export type AcpSpawnFailure = { ok: false; code: DevErrorCode; message: string }
 export type AcpSpawnSuccess = { ok: true; handshake: AcpHandshake }
 
 /**
+ * One prompt-delivery handoff into a live ACP lane (#400). The host hands the
+ * run/session-bound prompt to the lane adapter; the lane's protocol delivers
+ * it over the structured transport. The prompt is control-plane content — the
+ * lane never logs it and the host's provenance event carries counts, never
+ * text.
+ */
+export type AcpPromptDeliveryRequest = Readonly<{
+  harnessRunId: string
+  prompt: string
+}>
+
+/**
+ * The lane's delivery verdict. `ok: true` carries the structured-transport
+ * provenance (the driver's process identity and the delivered byte count);
+ * `ok: false` is a TYPED refusal — the host records a degraded fact, never a
+ * fabricated turn event and never a silent skip.
+ */
+export type AcpPromptDeliveryResult =
+  | Readonly<{ ok: true; bytes: number; processIdentity: string }>
+  | Readonly<{ ok: false; code: DevErrorCode; message: string }>
+
+/**
  * The driver seam: one ACP-compatible harness connection. The production
  * driver spawns the harness executable (fixed argv) and performs the
  * initialize handshake; tests inject scripted drivers. The driver receives
  * only host-resolved installation facts — never renderer-supplied argv.
+ *
+ * `deliverPrompt` is the structured-transport prompt seam (#400). It is
+ * optional: a driver that does not implement it makes every handoff refuse
+ * typed (`capability_unavailable`) instead of pretending the prompt shipped.
  */
 export type AcpLaneDriver = Readonly<{
   driverId: string
@@ -81,6 +107,12 @@ export type AcpLaneDriver = Readonly<{
     installation: ResolvedHarnessInstallation
   }): Promise<AcpSpawnSuccess | AcpSpawnFailure>
   close(input: { connectionId: string; processIdentity: string }): Promise<void>
+  deliverPrompt?(input: {
+    connectionId: string
+    processIdentity: string
+    harnessRunId: string
+    prompt: string
+  }): Promise<AcpPromptDeliveryResult>
 }>
 
 export type StoredAcpConnection = Readonly<{
@@ -126,6 +158,20 @@ export type AcpLane = Readonly<{
   readyFor(runtimeSessionId: string): AcpConnection | undefined
   connect(input: AcpLaneConnectInput): Promise<AcpConnection>
   close(input: { acpConnectionId: string; expectedGeneration: number }): Promise<AcpConnection>
+  /**
+   * #400: the typed prompt-delivery handoff. The host hands the prompt to
+   * the lane adapter, which delivers through its structured transport or
+   * refuses with the contract code. Generation-fenced like every lane
+   * mutation; never touches the PTY input stream and never fabricates a
+   * harness turn event — the harness's own tier owns those.
+   */
+  deliverPrompt(input: {
+    acpConnectionId: string
+    expectedGeneration: number
+    runtimeSessionId: string
+    harnessRunId: string
+    prompt: string
+  }): Promise<AcpPromptDeliveryResult>
 }>
 
 export type AcpLaneFailure = Readonly<{
@@ -496,5 +542,80 @@ export function createAcpLane(input: AcpLaneInput): AcpLane {
     return found ? projectConnection(found) : undefined
   }
 
-  return Object.freeze({ list, readyFor, connect, close })
+  async function deliverPrompt(deliverInput: {
+    acpConnectionId: string
+    expectedGeneration: number
+    runtimeSessionId: string
+    harnessRunId: string
+    prompt: string
+  }): Promise<AcpPromptDeliveryResult> {
+    const record = load().find((entry) => entry.id === deliverInput.acpConnectionId)
+    if (!record) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'ACP connection is not registered on this runtime node',
+      }
+    }
+    if (record.runtimeSessionId !== deliverInput.runtimeSessionId) {
+      return {
+        ok: false,
+        code: 'identity_mismatch',
+        message: 'ACP connection belongs to another runtime session',
+      }
+    }
+    if (record.state !== 'ready') {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: `ACP connection is ${record.state}; only a ready lane delivers prompts`,
+      }
+    }
+    if (record.generation !== deliverInput.expectedGeneration) {
+      return {
+        ok: false,
+        code: 'stale_generation',
+        message: 'ACP connection generation conflict',
+      }
+    }
+    if (!input.driver.deliverPrompt) {
+      return {
+        ok: false,
+        code: 'capability_unavailable',
+        message: `ACP driver ${input.driver.driverId} does not implement structured prompt delivery`,
+      }
+    }
+    try {
+      const result = await input.driver.deliverPrompt({
+        connectionId: record.id,
+        processIdentity: record.processIdentity ?? record.id,
+        harnessRunId: deliverInput.harnessRunId,
+        prompt: deliverInput.prompt,
+      })
+      input.audit?.append(
+        result.ok
+          ? {
+              action: 'harness.acp.prompt_delivered',
+              subjectId: record.id,
+              outcome: 'granted',
+              detail: { harnessRunId: deliverInput.harnessRunId, bytes: String(result.bytes) },
+            }
+          : {
+              action: 'harness.acp.prompt_refused',
+              subjectId: record.id,
+              outcome: 'denied',
+              detail: { harnessRunId: deliverInput.harnessRunId, code: result.code },
+            }
+      )
+      return result
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'unavailable',
+        message: error instanceof Error ? error.message : 'ACP prompt delivery failed',
+      }
+    }
+  }
+
+  return Object.freeze({ list, readyFor, connect, close, deliverPrompt })
 }

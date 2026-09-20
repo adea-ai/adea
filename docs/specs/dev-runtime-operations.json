@@ -819,13 +819,13 @@
     "dev.session.launchDefault": {
       "capabilities": ["dev.session.manage"],
       "resource": "runtime_session:required",
-      "body": "{ runtimeSessionId: string; expectedGeneration: integer; agentProfileId: string; agentProfileVersion: integer; modelId?: string; initialPrompt?: string(1..65536) }",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; agentProfileId: string; agentProfileVersion: integer; modelId?: string; initialPrompt?: string(1..65536); attachTerminal?: boolean }",
       "reply": "HarnessRun"
     },
     "dev.session.launchHarness": {
       "capabilities": ["dev.session.manage"],
       "resource": "runtime_session:required",
-      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessInstallationId: string; agentProfileId: string; agentProfileVersion: integer; modelId?: string; initialPrompt?: string(1..65536) }",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessInstallationId: string; agentProfileId: string; agentProfileVersion: integer; modelId?: string; initialPrompt?: string(1..65536); attachTerminal?: boolean }",
       "reply": "HarnessRun"
     },
     "dev.session.list": {

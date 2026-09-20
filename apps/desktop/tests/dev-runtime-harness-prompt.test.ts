@@ -49,7 +49,10 @@ import { TERMINAL_LIMITS } from '../shell/src/dev-runtime/terminal/limits'
 import { createFakePtyAdapter } from './fixtures/fake-pty'
 import { createLoopbackPair } from './fixtures/loopback-duplex'
 import { createManagedPiDriver } from '../shell/src/dev-runtime/harness/managed-pi-driver'
-import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
+import type {
+  AcpLaneDriver,
+  AcpPromptDeliveryResult,
+} from '../shell/src/dev-runtime/harness/acp-lane'
 import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 
 const SHELL_HOST = '127.0.0.1'
@@ -117,6 +120,36 @@ function noopAcpDriver(): AcpLaneDriver {
       }
     },
     async close() {},
+  }
+}
+
+/** An ACP driver whose structured transport accepts (or refuses) the #400
+ * prompt handoff, recording every delivery request it receives. */
+function scriptedHandoffDriver(
+  result: AcpPromptDeliveryResult
+): AcpLaneDriver & { deliveries: Array<{ prompt: string; harnessRunId: string }> } {
+  const deliveries: Array<{ prompt: string; harnessRunId: string }> = []
+  return {
+    driverId: 'scripted-acp-handoff',
+    driverVersion: '1',
+    deliveries,
+    async spawn() {
+      return {
+        ok: true,
+        handshake: {
+          protocolVersion: '1',
+          capabilities: ['session'],
+          sessionOperations: ['session.new'],
+          history: 'unavailable' as const,
+          processIdentity: 'scripted-handoff-pid',
+        },
+      }
+    },
+    async close() {},
+    async deliverPrompt(input) {
+      deliveries.push({ prompt: input.prompt, harnessRunId: input.harnessRunId })
+      return result
+    },
   }
 }
 
@@ -500,12 +533,180 @@ describe('launch → guarded PTY prompt delivery (#400 residue)', () => {
         )
       )
       expect(launched).toMatchObject({ state: 'starting' })
-      // The terminal PTY received NOTHING; no host turn event was fabricated
-      // over the lane's own tier.
+      // The terminal PTY received NOTHING. The scripted driver implements no
+      // delivery seam, so the typed handoff refused: the host records the
+      // degraded fact naming the driver gap — never a silent skip, never a
+      // fabricated turn event over the lane's own tier.
       expect(shell.ptyProcesses()).toHaveLength(1)
       expect(shell.ptyProcesses()[0]!.written).toHaveLength(0)
-      expect(promptEventsOf(shell, session.id)).toHaveLength(0)
+      const events = promptEventsOf(shell, session.id)
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({ kind: 'capability.degraded', source: 'host' })
+      const payload = events[0]!.payload as { transport: string; reason: string }
+      expect(payload.transport).toBe('acp')
+      expect(payload.reason).toContain('does not implement structured prompt delivery')
       void terminal
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe('launch → ACP lane prompt handoff (#400 residue)', () => {
+  /** Seeds one ACP-capable installation into the discovery inventory. */
+  async function seedAcpInstallation(shell: Awaited<ReturnType<typeof boot>>, id: string) {
+    const { mkdirSync: mkdir, writeFileSync: write } = await import('node:fs')
+    const entry = {
+      id,
+      scope: SCOPE_A,
+      family: 'opencode',
+      displayName: 'OpenCode (ACP)',
+      driverId: 'local-executable',
+      driverVersion: '1',
+      provenance: 'user_managed',
+      executableIdentity: '/opt/homebrew/bin/opencode',
+      executableLabel: 'opencode',
+      protocol: 'acp',
+      acpAvailability: 'available',
+      acpVersion: '1',
+      version: '1.2.3',
+      auth: 'ready',
+      health: 'healthy',
+      compatibility: 'compatible',
+      capabilities: ['native', 'acp', 'models', 'resume'],
+      sessionOperations: ['session.new'],
+      entitlementHints: ['user_managed'],
+      limitations: [],
+      transport: 'direct_local',
+      models: [],
+      observedAt: new Date().toISOString(),
+      generation: 1,
+    }
+    const dir = join(shell.dataDir, 'dev-runtime', 'discovery')
+    mkdir(dir, { recursive: true, mode: 0o700 })
+    write(
+      join(dir, 'inventory.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        savedAt: new Date().toISOString(),
+        records: [{ kind: 'connection', entry }],
+      })
+    )
+  }
+
+  async function connectLane(
+    channel: Awaited<ReturnType<ReturnType<typeof boot>['openChannel']>>,
+    session: { id: string; generation: number },
+    installationId: string
+  ): Promise<{ id: string; generation: number }> {
+    return okValue(
+      await channel.execute(
+        commandFor(
+          'dev.harness.acpConnect',
+          SCOPE_A,
+          {
+            runtimeSessionId: session.id,
+            expectedGeneration: session.generation,
+            harnessInstallationId: installationId,
+          },
+          { resource: sessionResource(session) }
+        )
+      )
+    ) as unknown as { id: string; generation: number }
+  }
+
+  test('an accepted handoff delivers through the lane and records acp provenance once', async () => {
+    const installationId = randomUUID()
+    const driver = scriptedHandoffDriver({
+      ok: true,
+      bytes: 12,
+      processIdentity: 'scripted-handoff-pid',
+    })
+    const shell = await boot({ acpDriver: driver })
+    try {
+      await seedAcpInstallation(shell, installationId)
+      const channel = await shell.openChannel()
+      const session = await sessionReady(shell, channel)
+      await createTerminal(channel, session.id)
+      const connection = await connectLane(channel, session, installationId)
+
+      const launched = okValue(
+        await channel.execute(launchCommand(session, installationId, 'handoff prompt'))
+      ) as unknown as { id: string }
+
+      // The lane adapter received the run/session-bound request with the
+      // verbatim prompt; the PTY input stream received nothing.
+      expect(driver.deliveries).toHaveLength(1)
+      expect(driver.deliveries[0]).toMatchObject({
+        prompt: 'handoff prompt',
+        harnessRunId: launched.id,
+      })
+      expect(shell.ptyProcesses()[0]!.written).toHaveLength(0)
+
+      // The host recorded the handoff as provenance: ONE host turn.user_input
+      // event, transport acp, lane identity — never the prompt text.
+      const events = promptEventsOf(shell, session.id)
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({
+        kind: 'turn.user_input',
+        source: 'host',
+        classification: 'workspace_private',
+      })
+      expect(events[0]!.payload).toMatchObject({
+        harnessRunId: launched.id,
+        transport: 'acp',
+        acpConnectionId: connection.id,
+        acpConnectionGeneration: connection.generation,
+        bytes: 12,
+        processIdentity: 'scripted-handoff-pid',
+      })
+      expect(JSON.stringify(events[0]!.payload)).not.toContain('handoff prompt')
+
+      // Idempotent relaunch returns the live run and never re-hands off.
+      const relaunched = okValue(
+        await channel.execute(
+          launchCommand(
+            { ...session, generation: session.generation + 1 },
+            installationId,
+            'handoff prompt'
+          )
+        )
+      )
+      expect(relaunched.id).toBe(launched.id)
+      expect(driver.deliveries).toHaveLength(1)
+      expect(promptEventsOf(shell, session.id)).toHaveLength(1)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('a typed lane refusal records capability.degraded and never fabricates delivery', async () => {
+    const installationId = randomUUID()
+    const driver = scriptedHandoffDriver({
+      ok: false,
+      code: 'unsupported_version',
+      message: 'lane refused the prompt',
+    })
+    const shell = await boot({ acpDriver: driver })
+    try {
+      await seedAcpInstallation(shell, installationId)
+      const channel = await shell.openChannel()
+      const session = await sessionReady(shell, channel)
+      await createTerminal(channel, session.id)
+      await connectLane(channel, session, installationId)
+      const launched = okValue(
+        await channel.execute(launchCommand(session, installationId, 'refused prompt'))
+      )
+      expect(launched).toMatchObject({ state: 'starting' })
+      expect(driver.deliveries).toHaveLength(1)
+      expect(shell.ptyProcesses()[0]!.written).toHaveLength(0)
+      const events = promptEventsOf(shell, session.id)
+      expect(events).toHaveLength(1)
+      expect(events[0]).toMatchObject({ kind: 'capability.degraded', source: 'host' })
+      const payload = events[0]!.payload as { transport: string; reason: string }
+      expect(payload.transport).toBe('acp')
+      expect(payload.reason).toBe('unsupported_version: lane refused the prompt')
+      expect(JSON.stringify(events[0]!.payload)).not.toContain('refused prompt')
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

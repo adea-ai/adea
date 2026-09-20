@@ -28,7 +28,6 @@ import {
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
-import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import {
   createDesktopIdentityAuthority,
@@ -918,7 +917,105 @@ describe('ACP lane (#32)', () => {
     expect(runsBody).not.toContain('model: ')
     const connectBody = devOperationDefinitions['dev.harness.acpConnect'].body
     expect(connectBody).not.toContain('prompt')
+    // The #400 prompt handoff stays a host-internal lane seam: no launch
+    // body grew an ACP delivery field either.
+    expect(devOperationDefinitions['dev.session.launchHarness'].body).not.toContain('acp')
   })
+
+  test('the lane prompt handoff is typed, generation-fenced, and session-bound (#400)', async () => {
+    const events: Array<{ prompt: string; harnessRunId: string }> = []
+    const installationId = randomUUID()
+    const driver: AcpLaneDriver = {
+      ...scriptedAcpDriver({}),
+      async deliverPrompt(input) {
+        events.push({ prompt: input.prompt, harnessRunId: input.harnessRunId })
+        return { ok: true, bytes: input.prompt.length, processIdentity: 'scripted-pid-identity' }
+      },
+    }
+    const shell = await boot({
+      acpDriver: driver,
+      seedAcpInstallation: { id: installationId },
+    })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      const connected = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.harness.acpConnect',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              harnessInstallationId: installationId,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      ) as unknown as { id: string; generation: number }
+      const lane = shell.host().harness!.lane
+
+      // Acceptance: the run/session-bound request reaches the driver.
+      const delivered = await lane.deliverPrompt({
+        acpConnectionId: connected.id,
+        expectedGeneration: connected.generation,
+        runtimeSessionId: session.id,
+        harnessRunId: 'run-handoff-1',
+        prompt: 'lane-level prompt',
+      })
+      expect(delivered).toEqual({
+        ok: true,
+        bytes: 'lane-level prompt'.length,
+        processIdentity: 'scripted-pid-identity',
+      })
+      expect(events).toEqual([{ prompt: 'lane-level prompt', harnessRunId: 'run-handoff-1' }])
+
+      // Foreign session: identity mismatch, the driver never sees it.
+      const foreign = await lane.deliverPrompt({
+        acpConnectionId: connected.id,
+        expectedGeneration: connected.generation,
+        runtimeSessionId: 'another-session',
+        harnessRunId: 'run-handoff-2',
+        prompt: 'nope',
+      })
+      expect(foreign).toMatchObject({ ok: false, code: 'identity_mismatch' })
+
+      // Stale lane generation: fenced like every lane mutation.
+      const stale = await lane.deliverPrompt({
+        acpConnectionId: connected.id,
+        expectedGeneration: connected.generation + 5,
+        runtimeSessionId: session.id,
+        harnessRunId: 'run-handoff-3',
+        prompt: 'nope',
+      })
+      expect(stale).toMatchObject({ ok: false, code: 'stale_generation' })
+
+      // Unknown connection id: typed not_found.
+      const unknown = await lane.deliverPrompt({
+        acpConnectionId: randomUUID(),
+        expectedGeneration: 1,
+        runtimeSessionId: session.id,
+        harnessRunId: 'run-handoff-4',
+        prompt: 'nope',
+      })
+      expect(unknown).toMatchObject({ ok: false, code: 'not_found' })
+      expect(events).toHaveLength(1)
+
+      // A closed lane delivers nothing.
+      await lane.close({ acpConnectionId: connected.id, expectedGeneration: connected.generation })
+      const closed = await lane.deliverPrompt({
+        acpConnectionId: connected.id,
+        expectedGeneration: connected.generation + 1,
+        runtimeSessionId: session.id,
+        harnessRunId: 'run-handoff-5',
+        prompt: 'nope',
+      })
+      expect(closed).toMatchObject({ ok: false, code: 'invalid_state' })
+      expect(events).toHaveLength(1)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
 })
 
 describe('harness digest anchors', () => {

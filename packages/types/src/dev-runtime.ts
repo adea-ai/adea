@@ -765,6 +765,15 @@ export type HarnessRun = Readonly<{
   installationId: string
   agentProfile: AgentProfileRef
   modelId?: string
+  /**
+   * Present when the run was launched with the `attachTerminal` intent: the
+   * harness process was spawned as the sidecar PTY child of this terminal,
+   * at this terminal generation (#400). The binding is provenance of where
+   * the run's process lives — exit facts are still only ever OBSERVED
+   * through the sidecar, never assumed.
+   */
+  terminalId?: string
+  terminalGeneration?: number
   state: HarnessRunState
   generation: number
   startedAt?: string
@@ -2916,7 +2925,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'generation',
         'version',
       ],
-      ['modelId', 'startedAt', 'finishedAt'],
+      ['modelId', 'startedAt', 'finishedAt', 'terminalId', 'terminalGeneration'],
       path
     )
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
@@ -2926,6 +2935,9 @@ function namedType(name: string, value: unknown, path: string): unknown {
     stringValue(item.installationId, `${path}.installationId`, 1, 256)
     namedType('AgentProfileRef', item.agentProfile, `${path}.agentProfile`)
     if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
+    if (item.terminalId !== undefined) stringValue(item.terminalId, `${path}.terminalId`, 1, 256)
+    if (item.terminalGeneration !== undefined)
+      integerValue(item.terminalGeneration, `${path}.terminalGeneration`, 1)
     literal(
       item.state,
       [

@@ -285,6 +285,12 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         ...(input.managedPi ? { managedPi: input.managedPi } : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
         ...(terminal ? { deliverPrompt: terminal.deliverPrompt } : {}),
+        ...(terminal
+          ? {
+              spawnHarnessTerminal: terminal.spawnHarnessTerminal,
+              observeTerminalExit: terminal.onTerminalExited,
+            }
+          : {}),
       })
     : undefined
 

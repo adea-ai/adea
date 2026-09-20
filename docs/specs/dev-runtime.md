@@ -474,6 +474,9 @@ type HarnessRun = {
   installationId: string
   agentProfile: AgentProfileRef
   modelId?: string
+  /** Present when launched with the attachTerminal intent (#400). */
+  terminalId?: string
+  terminalGeneration?: number
   state: HarnessRunState
   generation: number
   startedAt?: string
@@ -2317,6 +2320,49 @@ Changing AgentProfile does not silently select credentials. Changing harness
 does not rename the profile. A linked donor persona's inherited provider/model
 behavior is not the Adea identity model.
 
+### Harness-in-PTY spawn (attachTerminal)
+
+`dev.session.launchHarness` and `dev.session.launchDefault` accept an optional
+`attachTerminal` intent: the harness process launches INSIDE the runtime
+session's terminal instead of over a protocol lane. The terminal runtime owns
+the spawn and the process; the harness register only binds and observes:
+
+- **Spawn** happens at launch step 5, BEFORE the run record and its
+  `run.starting` fact exist: the terminal runtime's harness spawn seam creates
+  a NEW terminal bound to the session — the same sidecar `terminal.create`
+  path, worktree-resolved cwd, registry and input-authority registration as
+  `dev.terminal.create` — whose PTY child is the host-resolved installation
+  executable identity alone (`argv[0]` with no extra arguments; never
+  renderer-supplied argv, never shell interpolation). The spawned harness is
+  therefore a first-class terminal process: listed by `dev.terminal.list`,
+  writable through the guarded input authority, and prompt-deliverable
+  through the same fenced path as any PTY-backed launch.
+- **Binding**: on success the run record carries `terminalId` and
+  `terminalGeneration` from birth (the `HarnessRun` DTO fields are the
+  wire-visible binding), and the `run.starting` payload records transport
+  `pty_process` with the terminal identity. A spawn failure refuses the
+  launch with typed `spawn_failed` and fabricates NO run record — nothing
+  that never existed is never reported. An `attachTerminal` launch on a host
+  with no terminal runtime refuses `capability_unavailable` before any
+  record exists. The launch remains idempotent: a repeat launch of the same
+  installation/profile returns the live run and spawns nothing.
+- **Exit observation** derives later run status ONLY from sidecar-OBSERVED
+  terminations (the exited notice). The first notice naming the bound
+  terminal is the consumed observation — a terminal exits exactly once;
+  notices for other terminals never move the run or consume the
+  subscription, and a notice carrying a foreign generation is consumed
+  without applying. The observed exit code maps through the canonical run
+  machine: 0 → `completed`, non-zero → `failed`, null (the process ended by
+  signal) → `disconnected` — a signal is never treated as an exit status. A
+  mapping that would be an illegal edge (e.g. `completed` from `starting`)
+  demotes to the always-legal `disconnected` with the observed code preserved
+  in the transition detail and event payload — never silently rewritten. A
+  terminal-state run (cancelled, …) is never overwritten; cancelling the run
+  signals nothing — the terminal runtime owns the process, and terminating it
+  stays the terminal runtime's confirmed `dev.terminal.terminate` decision.
+  Each applied observation appends the canonical `run.*`/`session.*` events
+  and mirrors the gate's observed-status publication.
+
 ### Initial prompt delivery
 
 `dev.session.launchHarness` and `dev.session.launchDefault` accept an optional
@@ -2338,10 +2384,23 @@ split is explicit and scoped to the harness kind:
   launch never re-delivers; reconcile/retry after ambiguity is a caller
   decision.
 - **ACP-launched harnesses** never use this path: while a live ACP lane is
-  bound to the session, the lane adapter owns prompt delivery through the
-  structured transport (native/ACP outranks guarded PTY), and the host writes
-  nothing to the PTY input stream and appends no turn events over the lane's
-  own tier.
+  bound to the session, the host hands the prompt to the lane adapter through
+  the typed handoff (`lane.deliverPrompt` — run id, session id, connection id
+  and expected generation, prompt). The handoff is generation-fenced and
+  session-bound like every lane mutation; the lane's protocol delivers over
+  the structured transport (native/ACP outranks guarded PTY), and the host
+  writes nothing to the PTY input stream. An accepted handoff records ONE
+  host `turn.user_input` provenance event (`workspace_private`) whose payload
+  carries transport `acp`, the lane's connection id/generation, the delivered
+  byte count, and the lane's process identity — never the prompt text, and
+  never a harness turn event over the lane's own tier (the harness fabricates
+  nothing here; the host fabricates nothing there). A typed lane refusal —
+  foreign session (`identity_mismatch`), non-ready lane (`invalid_state`),
+  stale generation (`stale_generation`), unknown connection (`not_found`),
+  or a driver that implements no delivery seam
+  (`capability_unavailable`) — appends a host `capability.degraded` event
+  naming the reason. Both facts dedupe on `host:prompt:<runId>`, so the
+  handoff, like the PTY submit, happens at most once per run.
 
 Delivery provenance is canonical and auditable: a delivered submit appends an
 authoritative host `turn.user_input` event with `workspace_private`
@@ -3179,6 +3238,42 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-20 — #400 deferred residues closed: the ACP lane prompt handoff
+  and the harness-in-PTY spawn path.** The two residues the merged launch
+  slice explicitly deferred. (1) The ACP lane's silent deferral becomes a
+  typed handoff: `lane.deliverPrompt` (host-internal lane seam, no new
+  operation; total operations unchanged at 155) receives the run/session-bound
+  prompt, is generation-fenced and session-bound like every lane mutation,
+  and either delivers through the lane's structured transport or refuses
+  typed (`identity_mismatch`/`invalid_state`/`stale_generation`/`not_found`,
+  or `capability_unavailable` for a driver without a delivery seam). An
+  accepted handoff records one host `turn.user_input` provenance event
+  (transport `acp`, connection identity, byte count, process identity);
+  refusals record `capability.degraded`; both dedupe on `host:prompt:<runId>`;
+  the host never touches the PTY input stream while a lane is live and never
+  fabricates a harness turn event over the lane's tier. "Initial prompt
+  delivery" updated; pinned by `dev-runtime-harness-prompt.test.ts` and the
+  lane-level fence test in `dev-runtime-harness.test.ts`. (2) The
+  harness-in-PTY spawn path: `dev.session.launchHarness` and
+  `dev.session.launchDefault` accept an optional `attachTerminal` body flag,
+  and the launch spawns the host-resolved installation executable (argv[0]
+  alone) as the PTY child of a NEW session-bound terminal through the
+  terminal runtime's `terminal.create` spawn patterns — BEFORE the run record
+  and `run.starting` exist, so a failed spawn refuses typed `spawn_failed`
+  with no fabricated run and an absent terminal runtime refuses
+  `capability_unavailable`. The run DTO carries `terminalId`/
+  `terminalGeneration` (additive, strict decoder updated; registry artifact
+  regenerated), `run.starting` records transport `pty_process`, and later
+  status derives ONLY from sidecar-OBSERVED terminations: first notice
+  naming the bound terminal consumed, foreign terminals/generations inert,
+  0 → completed, non-zero → failed, null (signalled) → disconnected (a
+  signal is never an exit status), illegal edges demote to `disconnected`
+  preserving the observed code, terminal states never overwritten, cancel
+  signals nothing. New "Harness-in-PTY spawn (attachTerminal)" section; the
+  Agents pane surfaces the binding additively ("in terminal" badge). Pinned
+  by `dev-runtime-harness-pty-spawn.test.ts` (real in-process sidecar over
+  the fake PTY plus a register-level rig with scripted exit subscription and
+  injected clock).
 - **2026-09-20 — repository registry providers and project archive/update
   (#398 follow-up).** The previously typed-unavailable `dev.repo.adopt`/
   `authorize`/`inspect`/`refresh` and `dev.project.update`/`archive`

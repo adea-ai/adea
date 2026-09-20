@@ -77,6 +77,16 @@ export function HarnessStatusPane(props: {
             </span>
           )}
         </Show>
+        <Show when={status().run?.terminalId}>
+          {(terminalId) => (
+            <span
+              class="dev-row-badge"
+              title={`Harness process runs in terminal ${terminalId()} (attachTerminal launch)`}
+            >
+              in terminal
+            </span>
+          )}
+        </Show>
       </p>
       <p>Default harness: {defaultLabel()}</p>
       <Show when={status().terminalFallback}>

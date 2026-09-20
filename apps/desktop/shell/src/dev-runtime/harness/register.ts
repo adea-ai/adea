@@ -53,7 +53,7 @@ import { createSessionEventLog, type SessionEventLog } from './events'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
 import { createRunHistoryStore, type RunHistoryStore } from './runs'
-import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, runEventKind } from './status'
+import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, canTransitionRun, runEventKind } from './status'
 
 export type HarnessRuntimeInput = {
   authority: ChannelAuthority
@@ -78,9 +78,48 @@ export type HarnessRuntimeInput = {
    * records a typed non-delivery instead of pretending the prompt shipped.
    */
   deliverPrompt?: PromptDeliverySeam
+  /**
+   * #400 residue: harness-in-PTY spawn (the terminal runtime's spawn seam).
+   * Spawns the host-resolved harness executable as the PTY child of a new
+   * terminal bound to the runtime session and reports the binding. Absent on
+   * hosts without a terminal runtime — an `attachTerminal` launch then
+   * refuses typed before any run record exists.
+   */
+  spawnHarnessTerminal?: HarnessPtySpawnSeam
+  /**
+   * #400 residue: sidecar-OBSERVED terminal terminations. The register
+   * derives bound-run status only from these observed facts — a signal is
+   * never treated as an exit status, and the register never signals a
+   * process the terminal runtime owns.
+   */
+  observeTerminalExit?: TerminalExitSubscription
   audit?: AuthorityAudit
   now?: () => number
 }
+
+/**
+ * The terminal runtime's harness-in-PTY spawn verdict. `ok: true` binds the
+ * run to the terminal id/generation; `ok: false` is the typed spawn refusal.
+ */
+export type HarnessPtySpawnResult =
+  | Readonly<{ ok: true; terminalId: string; terminalGeneration: number }>
+  | Readonly<{ ok: false; code: string; message: string }>
+
+export type HarnessPtySpawnSeam = (request: {
+  runtimeSessionId: string
+  worktreeId: string
+  /** Host-resolved harness executable identity; never renderer-supplied. */
+  shell: string
+}) => HarnessPtySpawnResult | Promise<HarnessPtySpawnResult>
+
+/** One sidecar-observed terminal termination. `exitCode: null` is a signal. */
+export type TerminalExitNotice = Readonly<{
+  terminalId: string
+  generation: number
+  exitCode: number | null
+}>
+
+export type TerminalExitSubscription = (cb: (notice: TerminalExitNotice) => void) => () => void
 
 /** A launch's initial-prompt delivery request into the session's PTY. */
 export type PromptDeliveryRequest = Readonly<{
@@ -341,6 +380,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     modelId?: string
     state: HarnessRunState
     generation: number
+    terminalId?: string
+    terminalGeneration?: number
   }): HarnessRun {
     if (!Number.isSafeInteger(params.agentProfileVersion) || params.agentProfileVersion < 1) {
       throw devError('invalid_state', 'agentProfileVersion must be a positive version integer')
@@ -358,6 +399,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         capabilityPolicyVersion: params.agentProfileVersion,
       },
       ...(params.modelId !== undefined ? { modelId: params.modelId } : {}),
+      ...(params.terminalId !== undefined && params.terminalGeneration !== undefined
+        ? { terminalId: params.terminalId, terminalGeneration: params.terminalGeneration }
+        : {}),
       state: params.state,
       generation: params.generation,
       startedAt: at,
@@ -395,10 +439,14 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   /**
    * #400 residue: initial-prompt delivery for a launched run (launch
    * transaction steps 6-7). The transport split is explicit:
-   * - a live ACP lane owns the session's structured transport, so its lane
-   *   adapter delivers the prompt — the host defers without touching the
-   *   PTY input stream and no host turn event is fabricated over the
-   *   lane's own tier;
+   * - a live ACP lane owns the session's structured transport, so the host
+   *   hands the prompt to the lane adapter through the typed handoff
+   *   (`lane.deliverPrompt`). An accepted handoff records ONE host
+   *   `turn.user_input` provenance fact — transport `acp`, the lane's
+   *   connection identity/generation and byte count, never the prompt text,
+   *   never a harness turn event over the lane's own tier (the harness
+   *   fabricates nothing here and the host fabricates nothing there). A
+   *   typed lane refusal appends `capability.degraded` naming the reason;
    * - otherwise a PTY-backed launch delivers through the terminal runtime's
    *   fenced input authority exactly once (dedupe key `host:prompt:<runId>`,
    *   and the idempotent-launch early return precedes delivery, so a retry
@@ -418,7 +466,55 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }): Promise<void> {
     const sourceEventId = `host:prompt:${params.run.id}`
     const liveLane = lane.readyFor(params.session.id)
-    if (liveLane) return
+    if (liveLane) {
+      let result: Awaited<ReturnType<typeof lane.deliverPrompt>>
+      try {
+        result = await lane.deliverPrompt({
+          acpConnectionId: liveLane.id,
+          expectedGeneration: liveLane.generation,
+          runtimeSessionId: params.session.id,
+          harnessRunId: params.run.id,
+          prompt: params.prompt,
+        })
+      } catch (error) {
+        result = {
+          ok: false,
+          code: 'unavailable',
+          message: error instanceof Error ? error.message : 'ACP prompt handoff failed',
+        }
+      }
+      if (result.ok) {
+        appendEventFact({
+          session: params.session,
+          harnessRunId: params.run.id,
+          kind: 'turn.user_input',
+          classification: 'workspace_private',
+          payload: {
+            harnessRunId: params.run.id,
+            transport: 'acp',
+            acpConnectionId: liveLane.id,
+            acpConnectionGeneration: liveLane.generation,
+            bytes: result.bytes,
+            processIdentity: result.processIdentity,
+          },
+          sourceEventId,
+        })
+        return
+      }
+      appendEventFact({
+        session: params.session,
+        harnessRunId: params.run.id,
+        kind: 'capability.degraded',
+        payload: {
+          harnessRunId: params.run.id,
+          transport: 'acp',
+          acpConnectionId: liveLane.id,
+          reason: `${result.code}: ${result.message}`,
+        },
+        sourceEventId,
+      })
+      return
+    }
     if (!input.deliverPrompt) {
       appendEventFact({
         session: params.session,
@@ -478,10 +574,88 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     })
   }
 
+  /**
+   * #400 residue: derives a bound run's status from a sidecar-OBSERVED
+   * terminal termination. The first notice naming the bound terminal is the
+   * consumed observation (a terminal exits exactly once); notices for other
+   * terminals never move the run. The observation is applied only when it
+   * carries the bound generation, and never overwrites a terminal state (a
+   * cancelled run stays cancelled). The observed exit code maps through the
+   * canonical machine: 0 → completed, non-zero → failed, null (signalled) →
+   * disconnected — a signal is never treated as an exit status. A mapping
+   * that would be an illegal edge (e.g. completed from `starting`) demotes
+   * to the always-legal `disconnected`, with the observed code preserved in
+   * the transition detail and event payload — never silently rewritten.
+   */
+  function observeBoundRunExit(run: HarnessRun, session: RuntimeSession): void {
+    if (!input.observeTerminalExit || run.terminalId === undefined) return
+    const unsubscribe = input.observeTerminalExit((notice: TerminalExitNotice) => {
+      // A notice naming another terminal is not this run's process; keep
+      // listening. The bound terminal exits exactly once, so the first
+      // notice that names it is consumed.
+      if (notice.terminalId !== run.terminalId) return
+      unsubscribe()
+      if (notice.generation !== run.terminalGeneration) return
+      const current = runs.get(run.id)
+      if (!current || RUN_TERMINAL_STATES.includes(current.state)) return
+      const desired: HarnessRunState =
+        notice.exitCode === 0 ? 'completed' : notice.exitCode !== null ? 'failed' : 'disconnected'
+      const outcome: HarnessRunState = canTransitionRun(current.state, desired)
+        ? desired
+        : 'disconnected'
+      const observedDetail =
+        notice.exitCode === null
+          ? 'terminal process ended by signal (no exit status observed)'
+          : `terminal exit ${notice.exitCode}`
+      const detail =
+        outcome === desired ? observedDetail : `${observedDetail}; run demoted to disconnected`
+      try {
+        runs.observe({ runId: run.id, to: outcome, source: 'host', observedAt: iso(), detail })
+      } catch {
+        return // an illegal edge can no longer be applied; the record stays truthful
+      }
+      const live = input.resolveSession(session.id) ?? session
+      appendEventFact({
+        session: live,
+        harnessRunId: run.id,
+        kind: runEventKind(outcome) ?? 'run.disconnected',
+        payload: {
+          harnessRunId: run.id,
+          terminalId: run.terminalId,
+          terminalGeneration: run.terminalGeneration ?? notice.generation,
+          exitCode: notice.exitCode,
+          detail,
+        },
+        sourceEventId: `host:run-exit:${run.id}:${notice.generation}`,
+      })
+      const sessionKind = sessionKindFor(outcome)
+      if (sessionKind) {
+        appendEventFact({
+          session: live,
+          harnessRunId: run.id,
+          kind: sessionKind,
+          payload: { harnessRunId: run.id },
+          sourceEventId: `host:session-exit:${run.id}:${notice.generation}`,
+        })
+      }
+      publish('run.status', {
+        harnessRunId: run.id,
+        runtimeSessionId: session.id,
+        from: current.state,
+        to: outcome,
+      })
+    })
+  }
+
   /** The shared launch transaction body for launchHarness/launchDefault:
    * idempotent on a live identical run, fenced to one active run, and
-   * emitting the canonical created/starting facts. The optional initial
-   * prompt delivers exactly once per run, after the run facts land. */
+   * emitting the canonical created/starting facts. With the `attachTerminal`
+   * intent the harness executable spawns into the session's terminal BEFORE
+   * the run record exists (argv pre-`starting`): a failed spawn refuses the
+   * launch typed without fabricating a run, and a successful spawn binds the
+   * run to the terminal id/generation whose sidecar exit facts drive later
+   * status. The optional initial prompt delivers exactly once per run, after
+   * the run facts land. */
   async function launchRun(params: {
     session: RuntimeSession
     installationId: string
@@ -489,6 +663,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     agentProfileVersion: number
     modelId?: string
     initialPrompt?: string
+    attachTerminal?: boolean
   }): Promise<HarnessRun> {
     const active = activeRunFor(params.session.id)
     if (
@@ -507,16 +682,42 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     }
     const installation = requireLaunchInstallation(params.installationId)
     requireAutoLaunchable(installation)
+    // #400 residue: harness-in-PTY spawn (pre-`starting`, pre-record). The
+    // argv template is the host-resolved installation executable identity —
+    // never renderer input. The terminal runtime owns the process: this
+    // register only binds the terminal identity and OBSERVES its exit.
+    let spawned: { terminalId: string; terminalGeneration: number } | undefined
+    if (params.attachTerminal) {
+      if (!input.spawnHarnessTerminal) {
+        throw devError(
+          'capability_unavailable',
+          'no terminal runtime is composed on this host; the harness cannot launch into a terminal'
+        )
+      }
+      const spawn = await input.spawnHarnessTerminal({
+        runtimeSessionId: params.session.id,
+        worktreeId: params.session.worktreeId,
+        shell: installation.executableIdentity,
+      })
+      if (!spawn.ok) {
+        throw devError('spawn_failed', `harness terminal spawn failed: ${spawn.message}`)
+      }
+      spawned = { terminalId: spawn.terminalId, terminalGeneration: spawn.terminalGeneration }
+    }
     const run = createRun({
       session: params.session,
       installationId: params.installationId,
       agentProfileId: params.agentProfileId,
       agentProfileVersion: params.agentProfileVersion,
       ...(params.modelId !== undefined ? { modelId: params.modelId } : {}),
+      ...(spawned
+        ? { terminalId: spawned.terminalId, terminalGeneration: spawned.terminalGeneration }
+        : {}),
       state: 'starting',
       generation: 1,
     })
     runs.append(run)
+    if (spawned) observeBoundRunExit(run, params.session)
     const nextSession = applySession(params.session, {
       activeHarnessRunId: run.id,
       lifecycle: 'active',
@@ -531,6 +732,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         agentProfileId: run.agentProfile.id,
         agentProfileVersion: run.agentProfile.version,
         ...(run.modelId !== undefined ? { modelId: run.modelId } : {}),
+        ...(spawned
+          ? { terminalId: run.terminalId, terminalGeneration: run.terminalGeneration }
+          : {}),
       },
       sourceEventId: `host:run-created:${run.id}`,
     })
@@ -538,7 +742,17 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       session: nextSession,
       harnessRunId: run.id,
       kind: 'run.starting',
-      payload: { harnessRunId: run.id, executableLabel: installation.executableLabel },
+      payload: {
+        harnessRunId: run.id,
+        executableLabel: installation.executableLabel,
+        ...(spawned
+          ? {
+              transport: 'pty_process',
+              terminalId: run.terminalId,
+              terminalGeneration: run.terminalGeneration,
+            }
+          : {}),
+      },
       sourceEventId: `host:run-starting:${run.id}`,
     })
     appendEventFact({
@@ -889,6 +1103,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         agentProfileVersion: body.agentProfileVersion as number,
         ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
         ...(typeof body.initialPrompt === 'string' ? { initialPrompt: body.initialPrompt } : {}),
+        ...(body.attachTerminal === true ? { attachTerminal: true } : {}),
       })
     },
     'dev.session.launchDefault': async (command) => {
@@ -939,6 +1154,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
             ? { modelId: resolution.preference.modelId }
             : {}) as { modelId?: string }),
         ...(typeof body.initialPrompt === 'string' ? { initialPrompt: body.initialPrompt } : {}),
+        ...(body.attachTerminal === true ? { attachTerminal: true } : {}),
       })
     },
     'dev.session.resumeHarness': (command) => {

@@ -102,6 +102,36 @@ export type TerminalRuntimeRegistration = {
   >
   /** Detaches every stream; PTY sessions and their history live on. */
   dispose(): void
+  /**
+   * #400 residue: harness-in-PTY spawn. Spawns a HOST-RESOLVED harness
+   * executable (never renderer-supplied argv) as the PTY child of a new
+   * terminal bound to the runtime session — the same sidecar spawn path
+   * `dev.terminal.create` uses — registers it like any terminal, and binds
+   * the caller to the terminal id/generation. The process the run lives in
+   * is therefore observable through the terminal runtime and its exit is
+   * OBSERVED through the sidecar (`onTerminalExited`), never assumed and
+   * never signalled from outside the terminal runtime's ownership.
+   */
+  spawnHarnessTerminal(request: {
+    runtimeSessionId: string
+    worktreeId: string
+    /** The host-resolved harness executable identity (absolute argv[0]). */
+    shell: string
+    cols?: number
+    rows?: number
+  }): Promise<
+    | { ok: true; terminalId: string; terminalGeneration: number }
+    | { ok: false; code: DevError['code']; message: string }
+  >
+  /**
+   * #400 residue: subscribes to sidecar-OBSERVED terminal terminations (the
+   * exited notice carries the observed exit code, or null when the process
+   * ended by signal — a signal is never treated as an exit status). Returns
+   * the unsubscribe function.
+   */
+  onTerminalExited(
+    cb: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+  ): () => void
 }
 
 function devError(code: DevError['code'], message: string, retryable = false): DevError {
@@ -148,6 +178,12 @@ export function registerTerminalRuntime(
       session: Parameters<StreamProvider>[0]
       fence?: InputFence
     }
+  >()
+  /** #400: fan-out for sidecar-observed terminal terminations. The sidecar
+   * client allows one onExited handler, so the register owns it and fans out
+   * to every subscriber. */
+  const exitObservers = new Set<
+    (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
   >()
 
   async function snapshotFor(terminalId: string): Promise<SidecarSnapshot | null> {
@@ -674,6 +710,16 @@ export function registerTerminalRuntime(
           }
           readSessions.delete(subscriberId)
         }
+        // #400: the sidecar OBSERVED this termination — fan it out so bound
+        // consumers (harness-in-PTY runs) derive status from an observed
+        // fact, never an assumed one.
+        for (const observer of exitObservers) {
+          try {
+            observer(notice)
+          } catch {
+            /* an observer's failure never breaks the terminal runtime */
+          }
+        }
       },
     })
   }
@@ -794,9 +840,82 @@ export function registerTerminalRuntime(
     }
   }
 
+  // ── #400 residue: harness-in-PTY spawn ───────────────────────────────────
+  //
+  // A harness launch with the `attachTerminal` intent spawns the harness
+  // executable as the PTY child of a NEW terminal bound to the runtime
+  // session. The spawn reuses exactly the `dev.terminal.create` patterns —
+  // worktree-resolved cwd, sidecar.create, registry + input-authority
+  // registration — so the harness process is a first-class terminal process:
+  // observable through the terminal runtime, writable through the guarded
+  // input authority, and its exit OBSERVED through the sidecar's exited
+  // notice. The argv[0] is the host-resolved installation executable
+  // identity; this seam never accepts renderer-supplied argv.
+
+  async function spawnHarnessTerminal(request: {
+    runtimeSessionId: string
+    worktreeId: string
+    shell: string
+    cols?: number
+    rows?: number
+  }): Promise<
+    | { ok: true; terminalId: string; terminalGeneration: number }
+    | { ok: false; code: DevError['code']; message: string }
+  > {
+    if (request.shell.length === 0 || request.shell.includes('\0')) {
+      return { ok: false, code: 'identity_mismatch', message: 'harness executable is unresolved' }
+    }
+    const cwd = input.resolveWorktreeRoot(request.worktreeId)
+    if (cwd === null) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'worktree root is not authorized on this runtime node',
+      }
+    }
+    const cols = request.cols ?? 80
+    const rows = request.rows ?? 24
+    const terminalId = randomUUID()
+    const created = await input.sidecar.create({
+      terminalId,
+      generation: 1,
+      cols,
+      rows,
+      cwd,
+      shell: request.shell,
+      args: [],
+    })
+    if (!created.ok) {
+      const failure = sidecarFailure(created.code, created.message)
+      return { ok: false, code: failure.code, message: failure.message }
+    }
+    const entry: TerminalRegistryEntry = {
+      scope: input.scope,
+      runtimeSessionId: request.runtimeSessionId,
+      worktreeId: request.worktreeId,
+      generation: 1,
+      processRecordId: randomUUID(),
+      sidecarId: input.sidecar.welcome.pidStartIdentity,
+    }
+    registry.set(terminalId, entry)
+    inputAuthorities.set(terminalId, createInputAuthority(terminalId))
+    return { ok: true, terminalId, terminalGeneration: entry.generation }
+  }
+
+  function onTerminalExited(
+    cb: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+  ): () => void {
+    exitObservers.add(cb)
+    return () => {
+      exitObservers.delete(cb)
+    }
+  }
+
   return {
     commands: Object.keys(handlers) as DevOperation[],
     deliverPrompt,
+    spawnHarnessTerminal,
+    onTerminalExited,
     dispose() {
       for (const [, state] of readSessions) {
         try {
