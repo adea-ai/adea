@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 
 async function openAppearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance' }).click()
   const dialog = page.getByRole('dialog', { name: 'Appearance' })
-  await expect(dialog).toBeVisible()
+  // Like the App Library dialog, the appearance dialog is code-split; on a
+  // cold dev server its chunk transform can outlive the default expect
+  // timeout, so retry the open until the dialog settles.
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Appearance' }).click()
+    await expect(dialog).toBeVisible()
+  }).toPass({ timeout: 30_000 })
   return dialog
 }
 
@@ -161,14 +166,27 @@ test.describe('appearance', () => {
 
 async function openNavigationTab(page: Page) {
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
-  await rail.getByRole('button', { name: 'App Library' }).click()
   const library = page.getByRole('dialog', { name: 'App Library' })
-  await expect(library).toBeVisible()
+  // The App Library dialog is code-split and fetched on first open. A cold dev
+  // server transforms that chunk on demand and may re-run the dependency
+  // optimizer mid-import, which can outlive the default expect timeout or
+  // reload the page and drop the panel state — so retry the open until the
+  // dialog settles instead of trusting a single click.
+  await expect(async () => {
+    await rail.getByRole('button', { name: 'App Library' }).click()
+    await expect(library).toBeVisible()
+  }).toPass({ timeout: 30_000 })
   await library.getByRole('tab', { name: /Navigation/ }).click()
   return { rail, library }
 }
 
 test.describe('rail customization', () => {
+  // The first rail test after a cold dev-server boot also pays for the
+  // on-demand module transforms of the whole workspace shell (the page
+  // navigation alone can take half a minute), which does not fit the default
+  // per-test budget.
+  test.setTimeout(180_000)
+
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.removeItem('adea:rail-preferences:v1')
@@ -181,8 +199,11 @@ test.describe('rail customization', () => {
     page,
   }) => {
     const rail = page.getByRole('navigation', { name: 'Global navigation' })
+    // The rail renders once the workspace shell hydrates; on a cold dev server
+    // the shell's on-demand module transforms can push that past half a minute
+    // (60s matches the boot-latency budget the other specs use for rail waits).
     await expect(rail.getByRole('button', { name: 'Virtual view' })).toBeVisible({
-      timeout: 30_000,
+      timeout: 60_000,
     })
 
     let { library } = await openNavigationTab(page)

@@ -54,9 +54,19 @@ export function ModalDialog(props: {
   return (
     <Show when={props.open}>
       <Dialog open onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
-        {/* oxlint-disable-next-line shadcn/require-static-classes -- ModalDialog forwards
-            the caller's class onto DialogContent by design; the contract flows through. */}
-        <DialogContent ref={setContent} class={cn('conventional-dialog', props.class)}>
+        {/* The title element also registers its id for `aria-labelledby`
+            through a mount effect; if that registration is ever lost (a
+            remount racing its effect under load) the dialog would render
+            heading-first but nameless. The explicit label keeps the
+            accessible name stable independent of that registration. */}
+        <DialogContent
+          ref={setContent}
+          // ModalDialog forwards the caller's class onto DialogContent by
+          // design; the contract flows through.
+          // oxlint-disable-next-line shadcn/require-static-classes
+          class={cn('conventional-dialog', props.class)}
+          aria-label={props.title}
+        >
           <DialogHeader class="conventional-dialog__header">
             <Show
               when={props.headerLeading}
