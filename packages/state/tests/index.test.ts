@@ -92,3 +92,31 @@ test('switchWorkspace starts a fresh workspace context with its configured scene
     threadRootMessageId: null,
   })
 })
+
+test('switchWorkspace preserves the Dev selection family when asked', () => {
+  workspaceStore.setState({
+    selectedWorkspaceId: 'workspace-work',
+    selectedScene: 'work',
+    selectedRoomId: 'room-work',
+    selectedChannelId: 'channel-work',
+    drafts: { 'channel-work': 'unsent work' },
+    selectedDevProjectId: 'project-recovered',
+    selectedRuntimeSessionId: 'session-recovered',
+    selectedDevPaneId: 'pane-work',
+  })
+
+  workspaceStore.getState().switchWorkspace('workspace-next', 'work', {
+    preserveDevSelection: true,
+  })
+
+  expect(workspaceStore.getState()).toMatchObject({
+    selectedWorkspaceId: 'workspace-next',
+    // The freshly recovered Dev deep-link selection survives the reconcile.
+    selectedDevProjectId: 'project-recovered',
+    selectedRuntimeSessionId: 'session-recovered',
+    // Only the Dev selection family survives; the context reset still runs.
+    selectedRoomId: null,
+    selectedChannelId: null,
+    drafts: {},
+  })
+})

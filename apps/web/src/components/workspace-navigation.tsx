@@ -437,7 +437,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     // menu, `?workspace=`) go through `switchToWorkspace`, which performs the
     // full reset deliberately.
     if (selectedWorkspaceId() !== activeWorkspace.id)
-      workspaceStore.getState().setSelectedWorkspaceId(activeWorkspace.id)
+      workspaceStore
+        .getState()
+        .switchWorkspace(activeWorkspace.id, activeWorkspace.scene, {
+          // A summary arrival that lands after a Dev deep link seeded (and
+          // Dev View recovered) the selection must reconcile the workspace
+          // without wiping that freshly recovered selection.
+          preserveDevSelection: true,
+        })
     workspaceStore.getState().setSelectedScene(activeWorkspace.scene)
     const currentScene = (search() as WorkspaceSearch).scene
     if (currentScene !== activeWorkspace.scene) void setScene(activeWorkspace.scene)
