@@ -2837,6 +2837,37 @@ listing without a source is truthful-empty rather than fabricated:
   `executesNothing: true` always; unavailable facts, an expired policy, or a
   non-approved state produce blockers and `matched: false` — automatic
   background cleanup can never run on an unprovable state.
+- The composition constructs and holds the supervision engine when the
+  component manifest is available (`componentManifest`): the engine's durable
+  launch/exit journal lives under `<data dir>/dev-runtime/supervision/`, and
+  the resources surface binds to that engine — listings join the journal
+  against the engine's live snapshot, and the stop commit delegates to the
+  engine's public stop with its identity re-proof. Without a manifest (and
+  without a scripted engine override) the listings stay truthful-empty and
+  stop fails closed with `capability_unavailable`.
+- Metrics sample through the bounded process-sampler seam: one fixed-argv,
+  read-only `ps` observation per pull (`ps -o pid=,time=,rss= -p <pids>`;
+  the composition's default sampler; tests script the transport) with a
+  5-second command timeout, a 1 MiB output cap, and 64 PIDs per invocation.
+  `time` is the OS cumulative CPU time (the history derives monotonic
+  deltas), `rss` the resident set size. Rows `ps` did not report are absent
+  from the reply — never numeric zero.
+- The retained-data breakdown is a read-only byte projection over the owning
+  slices' stores — terminal checkpoint segments under the owner-only runtime
+  root (`protected: true`; deletion stays the terminal's own re-proved
+  path), the browser lanes' bounded screenshot retention, and the
+  dependency-template cache's promoted records. Each source is
+  independently best-effort: an unreadable source contributes nothing
+  (absent, never zero) and is never rewritten or moved by the projection.
+- Cleanup-policy evaluation facts come from a read-only adapter over the
+  worktree service: the durable worktree record, the lease store's live
+  views (active and suspect leases count as live), and fixed-argv read-only
+  git observation (`status --porcelain`, upstream `rev-parse`, `rev-list`
+  counts). An unknown worktree returns no facts at all; a failed git read
+  or push state that cannot be proven leaves that fact absent, and facts
+  the adapter cannot prove at all (PR merge state, attached owned
+  resources) stay absent by design — every predicate over an absent fact
+  fails closed.
 
 ### Runtime activity
 

@@ -17,6 +17,7 @@ import {
   type DevCommand,
   type DevOperation,
   type DevReply,
+  type RetainedDataRecord,
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
@@ -30,6 +31,11 @@ import {
 } from '../shell/src/dev-runtime/channel/identity'
 import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
+import {
+  decodeComponentManifest,
+  type ComponentManifest,
+} from '../shell/src/supervision/component-manifest'
+import type { SupervisionAdapter } from '../shell/src/supervision/supervisor'
 
 const SHELL_HOST = '127.0.0.1'
 const SHELL_PORT = 4789
@@ -112,6 +118,16 @@ async function boot(
     publish?: (event: string, payload: unknown) => void
     /** Fresh-install boot: no binding exists before composition. */
     unbound?: boolean
+    /** #424: compose a component manifest in (binds the supervision engine). */
+    componentManifest?: ComponentManifest
+    /** #424: scripted supervision process adapter for the bound engine. */
+    supervisionAdapter?: SupervisionAdapter
+    /** #424: scripted process sampler (replaces the real `ps` sampler). */
+    sampleProcesses?: (
+      pids: readonly number[]
+    ) => Promise<readonly { pid: number; cpuSeconds?: number; residentBytes?: number }[]>
+    /** #424: scripted retained-data source. */
+    retainedData?: () => readonly RetainedDataRecord[]
   } = {}
 ): Promise<Boot> {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-composition-'))
@@ -171,6 +187,10 @@ async function boot(
     resolveDns: () => Promise.resolve([]),
     ...(options.publish ? { publish: options.publish } : {}),
     ...(options.sidecar ? { sidecar: options.sidecar as never } : {}),
+    ...(options.componentManifest ? { componentManifest: options.componentManifest } : {}),
+    ...(options.supervisionAdapter ? { supervisionAdapter: options.supervisionAdapter } : {}),
+    ...(options.sampleProcesses ? { sampleProcesses: options.sampleProcesses } : {}),
+    ...(options.retainedData ? { retainedData: options.retainedData } : {}),
   }
   let host = createDevRuntimeHost(compositionInput)
   // Mirror bun/index.ts: a re-bind under a new scope recomposes the host
@@ -405,6 +425,196 @@ describe('dev runtime composition', () => {
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.terminal.'))).toBe(
         false
       )
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('#424: without a bound engine, resource listings stay truthful-empty and stop fails closed', async () => {
+    const shell = await boot()
+    try {
+      // No component manifest was composed in: no engine is held.
+      expect(shell.currentHost().supervision).toBeUndefined()
+      expect(shell.currentHost().supervisionRecords).toBeUndefined()
+      const channel = await shell.openChannel()
+      const processes = await channel.execute(commandFor('dev.resources.processes', SCOPE_A, {}))
+      expect(processes).toMatchObject({ ok: true, value: { items: [] } })
+      const snapshot = await channel.execute(commandFor('dev.resources.snapshot', SCOPE_A, {}))
+      expect(snapshot).toMatchObject({
+        ok: true,
+        value: { processes: [], ports: [], metrics: [], retainedData: [] },
+      })
+      // The destructive stop path refuses closed: without the engine the
+      // composition cannot prove process ownership, so it never signals.
+      const stopped = await channel.execute(
+        commandFor(
+          'dev.resources.stopPlan',
+          SCOPE_A,
+          { processRecordId: 'record-invented', expectedGeneration: 1, reason: 'test' },
+          { resource: { kind: 'process', id: 'record-invented', generation: 1 } }
+        )
+      )
+      expect(stopped).toMatchObject({ ok: false, error: { code: 'capability_unavailable' } })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('#424: a composed manifest binds the engine — listings prove from the journal and stop delegates to it', async () => {
+    const decoded = decodeComponentManifest({
+      schemaVersion: 1,
+      components: [
+        {
+          id: 'dev-runtime-sidecar',
+          product: 'Dev Runtime sidecar (test)',
+          version: '1.0.0',
+          platform: 'universal',
+          arch: 'universal',
+          digestSha256: 'a'.repeat(64),
+          signature: 'test-signature',
+          compatibility: { minAppVersion: '0.0.1', maxAppVersion: '99.0.0' },
+          installLocation: 'Resources/app/dev-runtime-sidecar',
+          dataLocation: 'dev-runtime-sidecar',
+          startupPhase: 0,
+          dependsOn: [],
+          healthProbe: { kind: 'process', intervalMs: 15_000, unhealthyAfterMs: 45_000 },
+          protocol: null,
+          rollbackTargetVersion: null,
+          required: true,
+        },
+      ],
+    })
+    expect(decoded.ok).toBe(true)
+    const signals: Array<{ pid: number; signal: string }> = []
+    let identityProofs = 0
+    let alive = false
+    const scriptedAdapter: SupervisionAdapter = {
+      async spawn() {
+        alive = true
+        return {
+          identity: {
+            pid: 4711,
+            pidStartIdentity: 'start-4711',
+            executableIdentity: '/exe/sidecar',
+          },
+          processGroup: 'pg-4711',
+        }
+      },
+      async currentIdentity(pid) {
+        identityProofs += 1
+        if (!alive) return null
+        return {
+          pid,
+          pidStartIdentity: 'start-4711',
+          executableIdentity: '/exe/sidecar',
+          processGroup: 'pg-4711',
+        }
+      },
+      async probe() {
+        return alive ? 'responsive' : 'unresponsive'
+      },
+      async signalIdentity(identity, signalName) {
+        signals.push({ pid: identity.pid, signal: signalName })
+        alive = false
+      },
+    }
+    const shell = await boot({
+      componentManifest: decoded.ok ? decoded.manifest : undefined,
+      supervisionAdapter: scriptedAdapter,
+      sampleProcesses: async (pids) =>
+        pids.map((pid) => ({ pid, cpuSeconds: 1.25, residentBytes: 8 * 1024 * 1024 })),
+      retainedData: () => [
+        {
+          id: 'ret-1',
+          ownerId: 'proj-1',
+          kind: 'dependency_template',
+          byteLength: '4096',
+          protected: false,
+          observedAt: new Date().toISOString(),
+        },
+      ],
+    })
+    try {
+      const host = shell.currentHost()
+      expect(host.supervision).toBeDefined()
+      expect(host.supervisionRecords).toBeDefined()
+      // The engine starts the component through its adapter; the durable
+      // journal records the launch under the composition's data dir.
+      const started = await host.supervision!.start({
+        componentId: 'dev-runtime-sidecar',
+        idempotencyKey: 'composition-test',
+      })
+      expect(started).toMatchObject({ ok: true })
+      if (!started.ok) return
+      const recordId = started.value.processRecordId
+
+      const channel = await shell.openChannel()
+      const processes = await channel.execute(commandFor('dev.resources.processes', SCOPE_A, {}))
+      expect(processes).toMatchObject({
+        ok: true,
+        value: {
+          items: [
+            {
+              id: recordId,
+              pid: 4711,
+              startIdentity: 'start-4711',
+              generation: 1,
+              state: 'running',
+            },
+          ],
+        },
+      })
+      // The snapshot pulls one bounded sample through the sampler seam and
+      // reports the retained-data source verbatim.
+      const snapshot = await channel.execute(commandFor('dev.resources.snapshot', SCOPE_A, {}))
+      expect(snapshot).toMatchObject({
+        ok: true,
+        value: {
+          retainedData: [{ id: 'ret-1', kind: 'dependency_template', byteLength: '4096' }],
+        },
+      })
+      if (snapshot.ok) {
+        expect(snapshot.value.metrics).toHaveLength(1)
+        expect(snapshot.value.metrics[0]).toMatchObject({
+          processRecordId: recordId,
+          residentBytes: '8388608',
+          confidence: 'measured',
+        })
+        // The first sample for an owner carries no cpuPercent (never 0).
+        expect(snapshot.value.metrics[0]?.cpuPercent).toBeUndefined()
+      }
+
+      // Stop is a plan/commit pair bound to the envelope resource; the commit
+      // delegates to the engine's public stop, which re-proves the launch
+      // identity immediately before the signal (exactly one, to the owned PID).
+      const planReply = await channel.execute(
+        commandFor(
+          'dev.resources.stopPlan',
+          SCOPE_A,
+          { processRecordId: recordId, expectedGeneration: 1, reason: 'composition test' },
+          { resource: { kind: 'process', id: recordId, generation: 1 } }
+        )
+      )
+      expect(planReply).toMatchObject({
+        ok: true,
+        value: { resource: { kind: 'process', id: recordId, generation: 1 } },
+      })
+      if (!planReply.ok) return
+      const commitReply = await channel.execute(
+        commandFor(
+          'dev.resources.stopCommit',
+          SCOPE_A,
+          { planId: planReply.value.id, planDigest: planReply.value.digest },
+          { resource: { kind: 'process', id: recordId, generation: 1 } }
+        )
+      )
+      expect(commitReply).toMatchObject({
+        ok: true,
+        value: { id: recordId, pid: 4711, state: 'exited' },
+      })
+      expect(signals).toEqual([{ pid: 4711, signal: 'SIGTERM' }])
+      // The ownership re-proof plus the exit observation both ran.
+      expect(identityProofs).toBeGreaterThanOrEqual(2)
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

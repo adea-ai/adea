@@ -10,11 +10,21 @@
 // Ownership: browser/device internals (#422), terminal internals (#396),
 // worktree internals (#397), and supervision (#185) are other slices' code —
 // this file only composes their existing registration seams.
+import { join } from 'node:path'
+
 import {
   devOperationDefinitions,
   type DevError,
   type DevOperation,
 } from '../../../../../packages/types/src/dev-runtime'
+import type { ComponentManifest } from '../supervision/component-manifest'
+import { createRecordStore } from '../supervision/records'
+import { createProcessAdapter } from '../supervision/process-adapter'
+import {
+  createSupervisor,
+  type Supervisor,
+  type SupervisionAdapter,
+} from '../supervision/supervisor'
 import type { ChannelAuthority } from './channel/authority'
 import type { ChannelGateway } from './channel/server'
 import type { DesktopIdentityAuthority } from './channel/identity'
@@ -44,6 +54,9 @@ import {
   type CleanupFacts,
   type CleanupPolicyAuthority,
 } from './resources/policy'
+import { createProcessSampler } from './resources/sample-processes'
+import { createRetainedDataProjection } from './resources/retained-data'
+import { createCleanupWorktreeFacts } from './resources/cleanup-facts'
 import { createUsageService, type UsageService } from './usage/service'
 import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
@@ -87,6 +100,11 @@ export type DevRuntimeHost = Readonly<{
   terminal?: TerminalRuntimeRegistration
   /** Present only when a verified scope exists at composition time. */
   resources?: ReturnType<typeof registerResourcesRuntime>
+  /** Present only when the component manifest was composed in (#424): the
+   *  held supervision engine other slices register their processes with. */
+  supervision?: Supervisor
+  /** The durable launch/exit journal the held engine appends to (#424). */
+  supervisionRecords?: { list(): readonly SupervisionRecord[] }
   /** Present only when a verified scope exists at composition time. */
   cleanupPolicies?: CleanupPolicyAuthority
   usage?: UsageService
@@ -125,23 +143,43 @@ export type CreateDevRuntimeHostInput = {
   macPermissions?: MacPermissionService
   /** Overrides the computer-use input engine (#472; tests inject scripted ones). */
   computerUseEngine?: ComputerUseEngine
-  /** Samples OS metrics for the supervised PIDs (bounded, pull-based). */
+  /** Samples OS metrics for the supervised PIDs (bounded, pull-based).
+   *  #424: absent composes the real fixed-argv `ps` sampler. */
   sampleProcesses?: (
     pids: readonly number[]
   ) => Promise<readonly ResourceSample[]> | readonly ResourceSample[]
+  /** #424: the bundled component manifest. When present the composition
+   *  constructs and holds the M10 supervision engine over its durable
+   *  journal and binds the resources surface to it: listings prove from the
+   *  journal joined against the engine's live snapshot, and stop delegates
+   *  to the engine's public stop (identity re-proven before any signal).
+   *  Without it (and without a scripted `supervision` override) resource
+   *  listings stay truthful-empty and process stop fails closed. */
+  componentManifest?: ComponentManifest
+  /** #424: overrides the supervision process adapter (tests script one;
+   *  production defaults to the fixed-argv host adapter). Requires
+   *  `componentManifest`. */
+  supervisionAdapter?: SupervisionAdapter
+  /** #424: overrides the supervision journal directory (defaults to
+   *  `<dataDir>/dev-runtime/supervision`). Requires `componentManifest`. */
+  supervisionRecordsDir?: string
   /** #424: narrow read-only view of the supervision engine (snapshot plus
-   * the public stop API). Without it resource listings stay truthful-empty
-   * and process stop fails closed with `capability_unavailable`. */
+   *  the public stop API). Overrides the engine the composition constructs
+   *  from `componentManifest` (tests script one). Without either, resource
+   *  listings stay truthful-empty and process stop fails closed with
+   *  `capability_unavailable`. */
   supervision?: ResourcesSupervisionView
-  /** #424: the same durable journal the supervision engine appends to;
-   * resource inventory entries are proven from it. */
+  /** #424: the durable journal inventory entries are proven from. Overrides
+   *  the journal of the constructed engine (tests script one). */
   supervisionRecords?: { list(): readonly SupervisionRecord[] }
-  /** #424: retained-data breakdown source (terminal/checkpoint/templates). */
+  /** #424: retained-data breakdown source (terminal/checkpoint/templates).
+   *  Absent composes the real read-only projection over the local stores. */
   retainedData?: () => readonly RetainedDataRecord[]
   /** #424: usage adapter cache; a default empty service is composed without it. */
   usage?: UsageService
   /** #424: live worktree facts for cleanup-policy evaluation; absence fails
-   * the evaluation closed (never satisfied). */
+   *  the evaluation closed (never satisfied). Absent composes the real
+   *  read-only adapter over the worktree service when one is composed. */
   cleanupWorktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
   /** #423: scripted gh transport (tests inject one; production spawns `gh`). */
   runGh?: GhRunner
@@ -402,31 +440,80 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       })
     : undefined
 
+  // #424: when the component manifest is composed in, the composition
+  // constructs and holds the M10 supervision engine over its durable journal
+  // (launch/exit records under the data dir). The engine starts nothing on
+  // its own — it is deterministic over its adapter seam, and the resources
+  // surface consumes it read-only: the snapshot, the journal, and the public
+  // stop API (which re-proves launch identity before any signal, TM-004).
+  // Without a manifest nothing is constructed and the resources surface
+  // keeps its truthful-empty contract.
+  let supervisor: Supervisor | undefined
+  let supervisionJournal: { list(): readonly SupervisionRecord[] } | undefined
+  if (input.componentManifest && input.scope) {
+    const records = createRecordStore(
+      input.supervisionRecordsDir ?? join(input.dataDir, 'dev-runtime', 'supervision')
+    )
+    supervisor = createSupervisor({
+      manifest: input.componentManifest,
+      adapter: input.supervisionAdapter ?? createProcessAdapter({}),
+      records,
+    })
+    supervisionJournal = records
+  }
+
   // #424 runtime resources, usage, activity, and safe cleanup. The listing
-  // providers compose the #422 port inventory and the injected supervision
-  // view read-only; the destructive stop path re-checks the envelope
+  // providers compose the #422 port inventory and the supervision view
+  // read-only; the destructive stop path re-checks the envelope
   // resource binding, the live generation, and the plan digest, and then
   // delegates the side effect to the supervision engine's public API.
   let resources: ReturnType<typeof registerResourcesRuntime> | undefined
   let cleanupPolicies: CleanupPolicyAuthority | undefined
   let usage = input.usage
   if (input.scope) {
+    // The real seams: the constructed engine (a scripted view overrides it),
+    // the bounded `ps` sampler, the read-only retained-data projection over
+    // the local stores, and the read-only cleanup facts from the composed
+    // worktree service. Every default is truthful: failures of a source
+    // leave that source absent, never fabricated.
+    const supervisionView = input.supervision ?? supervisor
+    const supervisionRecords = input.supervisionRecords ?? supervisionJournal
+    const sampleProcesses = input.sampleProcesses ?? createProcessSampler()
+    const retainedData =
+      input.retainedData ??
+      createRetainedDataProjection({
+        scope: input.scope,
+        runtimeRoot: input.runtimeRoot,
+        screenshots: browserDevices.screenshots,
+        templateRecordsPath: join(
+          input.dataDir,
+          'dev-runtime',
+          'worktrees',
+          'templates',
+          'records.json'
+        ),
+      })
+    const worktreeFacts =
+      input.cleanupWorktreeFacts ??
+      (worktreeService
+        ? createCleanupWorktreeFacts({ worktrees: worktreeService, scope: input.scope })
+        : undefined)
     resources = registerResourcesRuntime({
       authority: input.authority,
       scope: input.scope,
       ports: browserDevices.ports,
-      ...(input.supervision ? { supervision: input.supervision } : {}),
-      ...(input.supervisionRecords ? { supervisionRecords: input.supervisionRecords } : {}),
-      ...(input.retainedData ? { retainedData: input.retainedData } : {}),
+      ...(supervisionView ? { supervision: supervisionView } : {}),
+      ...(supervisionRecords ? { supervisionRecords } : {}),
+      retainedData,
       ...(input.usage ? { usage: input.usage } : {}),
-      ...(input.sampleProcesses ? { sampleProcesses: input.sampleProcesses } : {}),
+      sampleProcesses,
     })
     cleanupPolicies = createCleanupPolicyAuthority({
       authority: input.authority,
       dataDir: input.dataDir,
       scope: input.scope,
       approvalVerifier: input.approvalVerifier,
-      ...(input.cleanupWorktreeFacts ? { worktreeFacts: input.cleanupWorktreeFacts } : {}),
+      ...(worktreeFacts ? { worktreeFacts } : {}),
     })
     usage = usage ?? createUsageService({ adapters: [] })
   }
@@ -484,6 +571,8 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(github ? { github } : {}),
     ...(terminal ? { terminal } : {}),
     ...(resources ? { resources } : {}),
+    ...(supervisor ? { supervision: supervisor } : {}),
+    ...(supervisionJournal ? { supervisionRecords: supervisionJournal } : {}),
     ...(cleanupPolicies ? { cleanupPolicies } : {}),
     ...(usage ? { usage } : {}),
     registration: Object.freeze({
