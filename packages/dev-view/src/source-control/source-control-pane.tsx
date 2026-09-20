@@ -419,7 +419,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
  */
 function RemoteSection(props: {
   runtime: DevRuntimeService
-  scope: ReturnType<DevRuntimeService['preferenceScope']> | undefined
+  scope?: ReturnType<NonNullable<DevRuntimeService['preferenceScope']>>
   worktree: WorktreeContext | undefined
   status: GitStatusReply | undefined
   onNotice(message: string | undefined): void

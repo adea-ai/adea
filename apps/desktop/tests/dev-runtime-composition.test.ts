@@ -339,7 +339,9 @@ describe('dev runtime composition', () => {
       ).toBe(true)
       expect(filesUnavailable.length).toBe(2)
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.git.'))).toBe(false)
-      expect(typedUnavailable.some((operation) => operation.startsWith('dev.github.'))).toBe(true)
+      // #423: the github family registers as reachable providers — none of
+      // it may linger in the typed-unavailable tail.
+      expect(typedUnavailable.some((operation) => operation.startsWith('dev.github.'))).toBe(false)
       // #424: resources/usage/cleanup-policy providers register on a verified
       // scope; listings without a bound supervision engine are truthful-empty
       // and destructive stops fail closed with `capability_unavailable`.
@@ -575,10 +577,13 @@ describe('dev runtime composition', () => {
       const channel = await shell.openChannel()
       const unavailable = shell.currentHost().registration.typedUnavailable
       expect(unavailable.length).toBeGreaterThan(0)
-      // dev.project.scan/import/create gained real providers (#398); the
-      // GitHub surface (#400) remains the registry sample of a documented
-      // typed refusal.
-      const sample = unavailable.find((operation) => operation === 'dev.github.account')!
+      // dev.project.scan/import/create gained real providers (#398) and the
+      // github family registered too (#423); the sample of a documented
+      // typed refusal moves with whatever the registry still lacks.
+      // dev.terminal.list: null resource, all-optional body — the envelope
+      // decodes and the typed-unavailable provider names the missing host
+      // adapter without any other wiring.
+      const sample = unavailable.find((operation) => operation === 'dev.terminal.list')!
       const reply = await channel.execute(commandFor(sample, SCOPE_A, {}))
       expect(reply).toMatchObject({
         ok: false,
