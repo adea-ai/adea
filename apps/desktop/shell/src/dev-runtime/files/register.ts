@@ -86,6 +86,18 @@ const SEARCH_MATCH_CAP = 10_000
 const SEARCH_FILE_CAP = 1000
 const SEARCH_RESULT_BYTES_CAP = 1024 * 1024
 const SEARCH_TIMEOUT_MS = 30_000
+
+function searchOffset(cursor: unknown): number {
+  if (cursor === undefined) return 0
+  const decoded = Number(Buffer.from(String(cursor), 'base64url').toString('utf8'))
+  if (!Number.isSafeInteger(decoded) || decoded < 0)
+    throw devError('not_found', 'unknown search cursor')
+  return decoded
+}
+
+function searchCursor(offset: number): string {
+  return Buffer.from(String(offset)).toString('base64url')
+}
 const SEARCH_PREVIEW_MAX = 2000
 
 const ABSENT_IDENTITY: FileIdentity = { mtimeNs: '0', size: '0' }
@@ -891,7 +903,12 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
           'no ripgrep binary is available on this runtime node; install rg for project search',
           true
         )
-      const matchCap = Math.min(Number(body.limit ?? SEARCH_MATCH_CAP), SEARCH_MATCH_CAP)
+      const limit = Math.min(Number(body.limit ?? SEARCH_MATCH_CAP), SEARCH_MATCH_CAP)
+      const start = searchOffset(body.cursor)
+      // Collect one look-ahead match so the bounded page can advertise a
+      // cursor. The cap remains global; hitting it is an intentional partial
+      // result rather than an unbounded search.
+      const matchCap = Math.min(start + limit + 1, SEARCH_MATCH_CAP)
       const matches = await runRipgrep({
         rgPath,
         canonicalRoot,
@@ -917,8 +934,10 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
           // Vanished; drop.
         }
       }
+      const hasMore = resolved.length > start + limit
       const page: DevRuntimePage<SearchMatch> = {
-        items: resolved.slice(0, matchCap),
+        items: resolved.slice(start, start + limit),
+        ...(hasMore ? { nextCursor: searchCursor(start + limit) } : {}),
         observedAt: nowIso(now),
       }
       return page

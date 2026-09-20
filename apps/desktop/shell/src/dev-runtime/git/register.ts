@@ -404,8 +404,63 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       const pinned = candidate.rootIdentity as FileIdentityValue | undefined
       if (!pinMatches(pinned, rootIdentity))
         throw devError('unauthorized_root', 'pathspec root identity does not match this worktree')
-      return candidate.relativePath
+      return safeGitPathspec(candidate.relativePath)
     })
+  }
+
+  /** Git pathspecs and revisions are argv values, but Git still interprets
+   *  pathspec magic and leading-dash revisions. Keep the provider's canonical
+   *  relative-path/ref grammar stricter than Git's parser. */
+  function safeGitPathspec(value: string): string {
+    if (
+      value !== '.' &&
+      (value.includes('\0') ||
+        value.includes('\\') ||
+        value.startsWith('/') ||
+        value.split('/').some((part) => part.length === 0 || part === '.' || part === '..'))
+    )
+      throw devError('invalid_state', 'git pathspec must be a normalized worktree-relative path')
+    if (value.startsWith(':')) throw devError('invalid_state', 'git pathspec magic is not allowed')
+    return value
+  }
+
+  function safeGitRef(value: string): string {
+    if (
+      value.length === 0 ||
+      value.length > 512 ||
+      value.startsWith('-') ||
+      value.startsWith('/') ||
+      value.endsWith('/') ||
+      value.endsWith('.') ||
+      /[\s\0]/.test(value) ||
+      value.includes('..') ||
+      value.includes('@{') ||
+      value.includes('//')
+    )
+      throw devError('invalid_state', 'git ref is not safe')
+    return value
+  }
+
+  function safeGitRemote(value: string): string {
+    if (
+      value.length === 0 ||
+      value.length > 256 ||
+      value.startsWith('-') ||
+      value.startsWith('/') ||
+      value.endsWith('/') ||
+      /[\s\0]/.test(value) ||
+      value.includes('..') ||
+      value.includes('@{') ||
+      value.includes('//')
+    )
+      throw devError('invalid_state', 'git remote name is not safe')
+    return value
+  }
+
+  function safeGitRefspec(value: string): string {
+    if (value.length === 0 || value.length > 512 || value.startsWith('-') || /[\s\0]/.test(value))
+      throw devError('invalid_state', 'git refspec is not safe')
+    return value
   }
 
   /** Deterministic staged-state fingerprint for compare-and-swap commits:
@@ -466,7 +521,15 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       return [...PATHSAFE_CONFIG, 'diff', '--cached', '--no-color', '--no-ext-diff', '--unified=3']
     if (ref === undefined || ref.length === 0)
       throw devError('invalid_state', 'commit diff requires a ref')
-    return [...PATHSAFE_CONFIG, 'diff-tree', '--no-color', '-p', '--root', '--unified=3', ref]
+    return [
+      ...PATHSAFE_CONFIG,
+      'diff-tree',
+      '--no-color',
+      '-p',
+      '--root',
+      '--unified=3',
+      safeGitRef(ref),
+    ]
   }
 
   const handlers: Partial<Record<DevOperation, (command: DevCommand) => unknown>> = {
@@ -491,7 +554,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
         `--max-count=${limit + 1}`,
         `--skip=${skip}`,
         `--format=${format}`,
-        ...(body.ref !== undefined ? [String(body.ref)] : []),
+        ...(body.ref !== undefined ? [safeGitRef(String(body.ref))] : []),
       ]
       const result = await runGit(args, {
         cwd: canonicalRoot,
@@ -637,11 +700,11 @@ export function registerGitRuntime(input: GitRegistrarInput): {
     'dev.git.fetch': async (command) => {
       const body = devOperationDecoders['dev.git.fetch'].request(command.body)
       const { canonicalRoot } = requireLiveWorktree(command)
-      const remoteName = String(body.remoteName)
+      const remoteName = safeGitRemote(String(body.remoteName))
       const refsBefore = await remoteRefShas(canonicalRoot, remoteName)
       const args = ['fetch', ...(body.prune === true ? ['--prune'] : []), remoteName]
       if (Array.isArray(body.refspecs) && body.refspecs.length > 0)
-        args.push(...(body.refspecs as string[]).slice(0, 64))
+        args.push(...(body.refspecs as string[]).slice(0, 64).map(safeGitRefspec))
       const fetched = await runGit(args, {
         cwd: canonicalRoot,
         timeoutMs: GIT_CHILD_TIMEOUT_MS,
@@ -1046,6 +1109,18 @@ function workspaceRelativeSpec(
     !pinMatches(candidate.rootIdentity, rootIdentity)
   )
     throw devError('identity_mismatch', 'diff path is not bound to this worktree')
+  if (candidate.relativePath.startsWith(':'))
+    throw devError('invalid_state', 'git pathspec magic is not allowed')
+  if (
+    candidate.relativePath !== '.' &&
+    (candidate.relativePath.includes('\0') ||
+      candidate.relativePath.includes('\\') ||
+      candidate.relativePath.startsWith('/') ||
+      candidate.relativePath
+        .split('/')
+        .some((part) => part.length === 0 || part === '.' || part === '..'))
+  )
+    throw devError('invalid_state', 'git pathspec must be a normalized worktree-relative path')
   return candidate.relativePath
 }
 

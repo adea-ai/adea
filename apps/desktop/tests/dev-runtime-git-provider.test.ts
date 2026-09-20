@@ -316,6 +316,37 @@ describe('local git provider', () => {
     if (commitDiff.ok) expect(commitDiff.value.items.length).toBeGreaterThanOrEqual(1)
   })
 
+  test('rejects Git option/pathspec injection before spawning a child', async () => {
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+    const unsafeHistory = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.history', { worktreeId: WORKTREE_ID, ref: '--output=/tmp/escape' })
+    )
+    expect(unsafeHistory.ok).toBe(false)
+    if (!unsafeHistory.ok) expect(unsafeHistory.error.code).toBe('invalid_state')
+
+    const unsafePath = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.stage', {
+        worktreeId: WORKTREE_ID,
+        paths: [wsPath(':(top)')],
+      })
+    )
+    expect(unsafePath.ok).toBe(false)
+    if (!unsafePath.ok) expect(unsafePath.error.code).toBe('invalid_state')
+
+    const unsafeRemote = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.fetch', { worktreeId: WORKTREE_ID, remoteName: '--upload-pack=echo' })
+    )
+    expect(unsafeRemote.ok).toBe(false)
+    if (!unsafeRemote.ok) expect(unsafeRemote.error.code).toBe('invalid_state')
+  })
+
   test('fetch reports before/after refs from a local bare remote with redacted errors', async () => {
     const base = mkdtempSync(join(tmpdir(), 'adea-gitremote-'))
     scratch.push(base)

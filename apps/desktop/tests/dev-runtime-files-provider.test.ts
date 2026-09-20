@@ -610,6 +610,36 @@ describe('files/search provider', () => {
         expect(first.preview).toContain('needle')
         expect(first.ranges.length).toBeGreaterThan(0)
         expect(first.path.rootIdentity.device).toBe(rootIdentityPinned().device)
+
+        const firstPage = await execute(
+          channel,
+          authority,
+          makeCommand(
+            'dev.files.search',
+            { worktreeId: WORKTREE_ID, query: 'needle', limit: 1 },
+            filesResource()
+          )
+        )
+        expect(firstPage.ok).toBe(true)
+        if (!firstPage.ok) return
+        expect(firstPage.value.items).toHaveLength(1)
+        expect(typeof firstPage.value.nextCursor).toBe('string')
+        const secondPage = await execute(
+          channel,
+          authority,
+          makeCommand(
+            'dev.files.search',
+            {
+              worktreeId: WORKTREE_ID,
+              query: 'needle',
+              limit: 1,
+              cursor: firstPage.value.nextCursor,
+            },
+            filesResource()
+          )
+        )
+        expect(secondPage.ok).toBe(true)
+        if (secondPage.ok) expect(secondPage.value.items).toHaveLength(1)
       }
     } else {
       expect(search.ok).toBe(false)
