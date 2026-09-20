@@ -1069,7 +1069,8 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await settings.getByRole('tab', { name: 'Agents' }).focus()
   await page.keyboard.press('End')
-  await expect(settings.getByRole('tab', { name: 'Integrations & capabilities' })).toBeFocused()
+  // 'permissions' is the newest section, so it owns the End edge now.
+  await expect(settings.getByRole('tab', { name: 'Permissions' })).toBeFocused()
   await page.keyboard.press('Home')
   await expect(settings.getByRole('tab', { name: 'Account & app' })).toBeFocused()
   await settings.getByRole('tab', { name: 'Agents' }).click()
