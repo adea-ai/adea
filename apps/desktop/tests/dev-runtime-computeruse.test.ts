@@ -43,7 +43,6 @@ import {
   type ComputerUseRuntimeInput,
 } from '../shell/src/dev-runtime/computeruse/register'
 import type { ChannelAuthority, ChannelIdentity } from '../shell/src/dev-runtime/channel/authority'
-import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import type { MacPermissionService } from '../shell/src/desktop-permissions'
 
 const scope = {
