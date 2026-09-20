@@ -34,9 +34,9 @@
 // child's own signal log.
 //
 // Usage: bun apps/desktop/shell/scripts/supervision-smoke.ts [--app-bundle <path>] [--artifact <path>]
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve as resolvePath } from 'node:path'
+import { dirname, join, resolve as resolvePath } from 'node:path'
 
 import {
   BUN_INSTALL_LABEL,
@@ -674,6 +674,7 @@ async function main(): Promise<number> {
       },
       evidence,
     }
+    mkdirSync(dirname(artifactPath), { recursive: true })
     writeFileSync(artifactPath, JSON.stringify(artifact, null, 2) + '\n', { mode: 0o600 })
     console.log(`artifact: ${artifactPath}`)
   }

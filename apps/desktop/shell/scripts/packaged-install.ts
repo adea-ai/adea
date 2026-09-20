@@ -12,7 +12,7 @@
 //
 // Pure resolution over the real bundle: no side effects beyond reading files.
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 
 import {
@@ -77,6 +77,10 @@ export function resolveInstallLocation(appBundle: string, label: string): Instal
  *  uses for its summary). */
 export function findAppBundle(buildRoot: string, depth = 0): string | null {
   if (depth > 6) return null
+  // The packaged lane targets the DEV channel build; a stable-channel
+  // Adea.app must never be picked by accident.
+  const preferred = join(buildRoot, 'dev-macos-arm64', 'Adea-dev.app')
+  if (existsSync(preferred)) return preferred
   let entries
   try {
     entries = readdirSync(buildRoot, { withFileTypes: true })

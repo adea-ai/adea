@@ -20,6 +20,11 @@ const shellScripts = path.join(root, 'apps/desktop/shell/scripts')
 // Electrobun stages the .app bundle under the shell build directory.
 function findAppBundle(dir, depth = 0) {
   if (depth > 6) return null
+  // The packaged lane targets the DEV channel build. A stable-channel
+  // Adea.app (auto-update artefact) may also live under build/ — it lacks
+  // the bundled dev-runtime sidecar, so it must never be picked by accident.
+  const preferred = path.join(dir, 'dev-macos-arm64', 'Adea-dev.app')
+  if (require('node:fs').existsSync(preferred)) return preferred
   let entries
   try {
     entries = readdirSync(dir, { withFileTypes: true })
