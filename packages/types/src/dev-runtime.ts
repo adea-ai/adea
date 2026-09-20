@@ -623,6 +623,34 @@ export type ManagedPiStatus = Readonly<{
   generation: number
 }>
 
+// One user-expressed harness preference on a runtime node (#400), versioned
+// per account/workspace/runtime node. Preferences reference installations by
+// stable ID and never store credential values. A disabled preference is never
+// auto-launched. On a clean desktop the STORED list is empty: the effective
+// projection synthesizes the managed-Pi-first root default until the user
+// expresses a preference (owner decision, 2026-09-16).
+export type HarnessPreference = Readonly<{
+  scope: Scope
+  harnessInstallationId: string
+  enabled: boolean
+  sortKey: string
+  projectId?: string
+  default: boolean
+  agentProfileId?: string
+  modelId?: string
+  version: number
+}>
+
+/** The mutable patch for `dev.harness.preferenceUpdate`. Clearing the
+ * preferred profile/model is a whole-record reset (`preferenceReset`). */
+export type HarnessPreferenceMutableFields = Readonly<{
+  enabled?: boolean
+  default?: boolean
+  sortKey?: string
+  agentProfileId?: string
+  modelId?: string
+}>
+
 export type AcpConnectionState = 'connecting' | 'ready' | 'disconnected' | 'closed' | 'failed'
 export type AcpHistoryCapability = 'available' | 'unavailable'
 
@@ -2802,6 +2830,42 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.nextCursor !== undefined) stringValue(item.nextCursor, `${path}.nextCursor`, 1, 512)
     return value
   }
+  // #400 harness preference DTOs. A preference is a user-expressed overlay on
+  // the root-default projection; the mutable-fields patch never carries
+  // credential values because none exist in the model.
+  if (name === 'HarnessPreference') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['scope', 'harnessInstallationId', 'enabled', 'sortKey', 'default', 'version'],
+      ['projectId', 'agentProfileId', 'modelId'],
+      path
+    )
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
+    if (typeof item.enabled !== 'boolean') fail(`${path}.enabled`, 'expected boolean')
+    stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
+    if (typeof item.default !== 'boolean') fail(`${path}.default`, 'expected boolean')
+    if (item.projectId !== undefined) stringValue(item.projectId, `${path}.projectId`, 1, 256)
+    if (item.agentProfileId !== undefined)
+      stringValue(item.agentProfileId, `${path}.agentProfileId`, 1, 128)
+    if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'HarnessPreferenceMutableFields') {
+    const item = record(value, path)
+    exactKeys(item, [], ['enabled', 'default', 'sortKey', 'agentProfileId', 'modelId'], path)
+    if (item.enabled !== undefined && typeof item.enabled !== 'boolean')
+      fail(`${path}.enabled`, 'expected boolean')
+    if (item.default !== undefined && typeof item.default !== 'boolean')
+      fail(`${path}.default`, 'expected boolean')
+    if (item.sortKey !== undefined) stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
+    if (item.agentProfileId !== undefined)
+      stringValue(item.agentProfileId, `${path}.agentProfileId`, 1, 128)
+    if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
+    return value
+  }
   fail(path, `unknown named type ${name}`)
 }
 
@@ -3242,6 +3306,25 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.session.cancelHarness': (value) => decodeHarnessRun(value),
   'dev.session.launchHarness': (value) => decodeHarnessRun(value),
   'dev.session.resumeHarness': (value) => decodeHarnessRun(value),
+  // #400 harness launch orchestration: preferences read/update/reset, the
+  // observed run-status transition, the default-harness launch, and the
+  // runtime-events-v1 stream grant.
+  'dev.harness.preferences': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('HarnessPreference', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.harness.preferenceUpdate': (value) => namedType('HarnessPreference', value, 'reply.value'),
+  'dev.harness.preferenceReset': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('HarnessPreference', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.harness.runStatus': (value) => decodeHarnessRun(value),
+  'dev.session.launchDefault': (value) => decodeHarnessRun(value),
+  'dev.session.events': (value) => decodeDevStreamGrant(value),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {

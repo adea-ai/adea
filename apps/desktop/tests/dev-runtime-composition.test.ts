@@ -270,9 +270,17 @@ describe('dev runtime composition', () => {
         'dev.harness.acpConnections',
         'dev.harness.acpClose',
         'dev.harness.runs',
+        // #400 launch orchestration: preferences/root default, observed run
+        // status, the default-harness launch, and the runtime-events-v1 grant.
+        'dev.harness.preferences',
+        'dev.harness.preferenceUpdate',
+        'dev.harness.preferenceReset',
+        'dev.harness.runStatus',
         'dev.session.launchHarness',
+        'dev.session.launchDefault',
         'dev.session.resumeHarness',
         'dev.session.cancelHarness',
+        'dev.session.events',
         'dev.worktree.list',
         'dev.worktree.create',
         'dev.worktree.archive',

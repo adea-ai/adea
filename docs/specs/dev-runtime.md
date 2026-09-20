@@ -1344,7 +1344,8 @@ type DevOperation =
   | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
-  | `dev.session.${'create' | 'get' | 'list' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
@@ -1583,7 +1584,8 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.repo`          | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                             |
 | `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                  |
 | `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                         |
-| `dev.session`       | `create`, `get`, `list`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                    |
+| `dev.session`       | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                   |
+| `dev.harness`       | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                     |
 | `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
 | `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
 | `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
@@ -1611,6 +1613,7 @@ Capability/resource binding is deny-by-default:
 | worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                          |
 | terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                          |
 | session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                   |
+| harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
 | files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity         |
 | git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request      |
 | browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                      |
@@ -2220,6 +2223,88 @@ retains ready worktree and terminal.
 Changing AgentProfile does not silently select credentials. Changing harness
 does not rename the profile. A linked donor persona's inherited provider/model
 behavior is not the Adea identity model.
+
+### Launch orchestration, preferences, and the root default
+
+Preferences are the user-expressed overlay on a runtime node, stored per
+account/workspace/runtime node keyed by stable harness-installation ID (plus
+an optional project scope for per-project defaults). A preference records
+enabled, order (`sortKey`), default, and optional preferred profile/model;
+credential values do not exist in the model and are never persisted. A
+disabled harness is never auto-launched.
+
+Root-default policy (owner decision, 2026-09-16): on a **clean desktop** — no
+stored preference of any kind — the effective preference list synthesizes
+**managed Pi as the enabled global default** from the ready managed
+installation; nothing is written until the user expresses a preference.
+Discovered user-installed harnesses enter the ordering only through user
+action. `dev.harness.preferenceReset` clears the stored overlay (scope-wide,
+or per project), so the managed-Pi-first projection returns.
+
+`dev.session.launchDefault` resolves the launch candidate in strict order —
+project default (enabled), then global default (enabled), then the managed-Pi
+root default — and requires an explicit AgentProfile from the caller; the
+model resolves as explicit body → preference default → the harness's own
+default. An explicit default that names an existing but unlaunchable
+installation (auth not ready, unhealthy, missing) refuses with that typed
+reason and never silently launches a different harness; with no resolvable
+default the typed `capability_unavailable` carries the managed-Pi install
+remediation. Launch is idempotent (the same installation/profile on a live run
+returns that run), fenced to one active run per session, and emits
+`run.created`/`run.starting` canonical events. `dev.harness.preferenceUpdate`
+creates records addressed as version 0 and fences updates by optimistic
+version (`stale_version`); setting a default clears its sibling defaults in
+the same scope slice.
+
+### Observed run status
+
+Run status transitions follow the canonical machine (see "Runtime session and
+harness run") and are applied only from OBSERVED facts — the gate operation
+`dev.harness.runStatus` (scope + `runtime_session` resource + generation
+fenced) records each transition with its source
+(native/ACP/authenticated-hook/terminal-fallback/host) and observed time,
+mirroring the supervision discipline: a signal is never treated as an exit and
+an unknown protocol response never becomes success. Same-state re-observation
+is an idempotent replay that changes nothing; illegal edges refuse with
+`invalid_state`; terminal states refuse re-observation with
+`already_completed`; terminal transitions stamp `finishedAt`. Legal
+transitions append the matching `run.*` (and session-lifecycle) canonical
+events so Dev and Chat observe the same fact through the same stream. The
+per-run transition journal is host-side diagnostic history bounded at 50
+entries and never crosses the wire inside the `HarnessRun` DTO.
+
+### Run history retention
+
+`HarnessRun` records persist durably per scope with bounded retention:
+at most 200 runs, evicting the oldest TERMINAL runs first and never an active
+run. History reads (`dev.harness.runs`) are newest-first with bounded pages
+(default 100, maximum 500) and an opaque cursor. Resume remains
+resume-as-new-generation under the same canonical `RuntimeSession`.
+
+### The runtime-events-v1 stream
+
+`dev.session.events` mints a read-direction `runtime-events-v1` stream grant
+through the channel authority against the CALLER's authenticated identity —
+bound to channel, scope, resource generation, single-use at attach, and
+expiring — the same pattern as `dev.browser.attach`; archived sessions keep
+their history readable (only the generation binding must hold). The stream
+serves the canonical event log: append-only, sequence-ordered per (session,
+generation) with canonical uint64 `seq`; dedupe on
+`(runtimeSessionId, generation, source, sourceEventId)` where the identical
+event is an ignored duplicate and a different event under the same key is
+`idempotency_conflict`; bounded retention (oldest dropped first per session —
+1,000 events/session, 5,000/scope); reads are bounded ascending windows
+(page maximum 500, default 100). The host appends `session.*`/`run.*`
+lifecycle facts (session created via the register's publishes; run
+created/starting/resumed/cancelled; observed status transitions) as
+`authoritative` host events with `workspace_metadata` classification; harness
+turn/tool/approval events arrive only through their own tiers and are never
+fabricated here. At attach the handler replays at most the newest 500 events
+of the granted generation from (or after) `fromSequence`, streams live
+append-matched events as CBOR `data` frames, accepts only `ack` control
+frames, and closes `stale_generation` when the session moves to a newer
+generation — grants minted under an old generation are inert, never
+ambiguous.
 
 ## Browser and device lanes
 
@@ -3206,6 +3291,35 @@ files in the same commit:
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind
   behavior, and the typed-unavailable host capability results;
+- `apps/desktop/tests/dev-runtime-harness-launch.test.ts` pins the #400
+  launch orchestration: the clean-desktop managed-Pi root default, user
+  preference authority (version fencing, default exclusivity, disabled-never-
+  auto-launched), typed refusals for unlaunchable explicit defaults, the
+  launchDefault resolution order with the install remediation gap, and the
+  observed `dev.harness.runStatus` machine (legal edges, illegal edges,
+  terminal refusals, generation/scope fencing, canonical event emission);
+- `apps/desktop/tests/dev-runtime-harness-status.test.ts` pins the pure
+  transition table edge-by-edge, idempotent same-state replays, typed
+  refusal codes, event-kind mapping, and the bounded run-history store
+  (terminal-first eviction that never drops a live run, the 50-entry
+  transition journal, scope isolation) on injected clocks;
+- `apps/desktop/tests/dev-runtime-harness-events.test.ts` pins the canonical
+  event log (per-generation sequencing, dedupe vs `idempotency_conflict`,
+  bounded retention, bounded reads, scope isolation, live subscriptions),
+  the `dev.session.events` grant path (caller-identity binding, single-use
+  attach with channel-secret proof, foreign-channel refusal), and the
+  runtime-events-v1 handler (bounded newest-frame replay, live push,
+  stale-generation close, read-only discipline);
+- `packages/types/tests/dev-runtime-harness.test.ts` pins the #400 wire
+  contract: every new request body and success reply (preferences, run
+  status, launchDefault, the events stream grant) decodes strictly and
+  credential-shaped or malformed extras fail closed;
+- `packages/dev-view/tests/harness-status-model.test.ts` and
+  `packages/dev-view/tests/run-history-model.test.ts` pin the Agents/History
+  pane presentation models: truthful status labels (unknown stays unknown),
+  terminal-fallback surfacing, installation display distinctions, bounded
+  newest-first history rows, injected-clock elapsed times, and
+  redaction-by-construction;
 - `apps/desktop/tests/project-scan.test.ts` pins the monorepo scanner's
   prune-first discovery, workspace declaration parsing, symlink refusal,
   ignore handling (including the negation diagnostic), malformed-manifest

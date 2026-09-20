@@ -317,6 +317,121 @@ describe('dev.harness success replies', () => {
   })
 })
 
+describe('#400 launch orchestration wire contract', () => {
+  const preference = {
+    scope,
+    harnessInstallationId: installationId,
+    enabled: true,
+    sortKey: '0000000000',
+    default: true,
+    version: 1,
+  }
+
+  test('request bodies decode and reject unknown keys or bad shapes', () => {
+    expect(() =>
+      devOperationDecoders['dev.harness.preferences'].request({ projectId: 'p1' })
+    ).not.toThrow()
+    expect(() =>
+      devOperationDecoders['dev.harness.preferences'].request({ projectId: 'p1', extra: 1 })
+    ).toThrow()
+    expect(() =>
+      devOperationDecoders['dev.harness.preferenceUpdate'].request({
+        installationId,
+        expectedVersion: 0,
+        patch: { enabled: true, default: true, modelId: 'model-1' },
+      })
+    ).not.toThrow()
+    expect(() =>
+      devOperationDecoders['dev.harness.preferenceUpdate'].request({
+        installationId,
+        expectedVersion: 0,
+        patch: { secretValue: 'nope' },
+      })
+    ).toThrow()
+    expect(() => devOperationDecoders['dev.harness.preferenceReset'].request({})).not.toThrow()
+    expect(() =>
+      devOperationDecoders['dev.harness.runStatus'].request({
+        runtimeSessionId: sessionId,
+        expectedGeneration: 2,
+        harnessRunId: runId,
+        state: 'working',
+        source: 'acp',
+      })
+    ).not.toThrow()
+    expect(() =>
+      devOperationDecoders['dev.harness.runStatus'].request({
+        runtimeSessionId: sessionId,
+        expectedGeneration: 2,
+        harnessRunId: runId,
+        state: 'teleporting',
+        source: 'acp',
+      })
+    ).toThrow()
+    expect(() =>
+      devOperationDecoders['dev.session.launchDefault'].request({
+        runtimeSessionId: sessionId,
+        expectedGeneration: 2,
+        agentProfileId: 'profile-1',
+        agentProfileVersion: 3,
+      })
+    ).not.toThrow()
+    expect(() =>
+      devOperationDecoders['dev.session.launchDefault'].request({
+        runtimeSessionId: sessionId,
+        expectedGeneration: 2,
+        agentProfileId: 'profile-1',
+      })
+    ).toThrow()
+    expect(() =>
+      devOperationDecoders['dev.session.events'].request({
+        runtimeSessionId: sessionId,
+        expectedGeneration: 2,
+        direction: 'read',
+        fromSequence: '42',
+      })
+    ).not.toThrow()
+    expect(() =>
+      devOperationDecoders['dev.session.events'].request({
+        runtimeSessionId: sessionId,
+        expectedGeneration: 2,
+        direction: 'write',
+      })
+    ).toThrow()
+  })
+
+  test('preference pages/records, run status, and the events grant decode as replies', () => {
+    expect(() =>
+      decodeDevReply(reply('dev.harness.preferences', { items: [preference], observedAt: now }))
+    ).not.toThrow()
+    expect(() => decodeDevReply(reply('dev.harness.preferenceUpdate', preference))).not.toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.harness.preferenceReset', { items: [], observedAt: now }))
+    ).not.toThrow()
+    // Credential-shaped extras never pass the strict preference decoder.
+    expect(() =>
+      decodeDevReply(reply('dev.harness.preferenceUpdate', { ...preference, token: 'secret' }))
+    ).toThrow()
+    expect(() => decodeDevReply(reply('dev.harness.runStatus', harnessRun))).not.toThrow()
+    expect(() => decodeDevReply(reply('dev.session.launchDefault', harnessRun))).not.toThrow()
+    const grant = {
+      schemaVersion: 1,
+      grantId: '00000000-0000-4000-8000-0000000000f1',
+      protocol: 'runtime-events-v1',
+      channelId: '00000000-0000-4000-8000-00000000000a',
+      scope,
+      resource: { kind: 'runtime_session', id: sessionId, generation: 2 },
+      direction: 'read',
+      fromSequence: '0',
+      expiresAt: now,
+      maxFrameBytes: 65536,
+    }
+    expect(() => decodeDevReply(reply('dev.session.events', grant))).not.toThrow()
+    expect(() =>
+      decodeDevReply(reply('dev.session.events', { ...grant, fromSequence: 'not-a-number' }))
+    ).toThrow()
+  })
+})
+
 describe('dev.harness request decoders', () => {
   test('every registry operation exposes a strict request decoder', () => {
     for (const operation of [

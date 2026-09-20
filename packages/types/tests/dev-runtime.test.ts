@@ -72,7 +72,7 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
-    expect(devOperations).toHaveLength(148)
+    expect(devOperations).toHaveLength(158)
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',

@@ -212,14 +212,23 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     })
   }
 
-  const harness = input.scope
+  let harness: HarnessRuntimeRegistration | undefined
+  // The shell event bus fans out to the host publisher AND the harness
+  // event-log ingester, so the canonical stream carries the register's
+  // session lifecycle facts alongside the harness run facts.
+  const publish = (event: string, payload: unknown): void => {
+    input.publish?.(event, payload)
+    harness?.ingestSessionPublish(event, payload)
+  }
+  harness = input.scope
     ? registerHarnessRuntime({
         authority: input.authority,
         dataDir: input.dataDir,
         scope: input.scope,
         resolveSession: (runtimeSessionId) => projectSession?.getSession(runtimeSessionId),
         persistSession: (session) => projectSession?.upsertSession(session),
-        ...(input.publish ? { publish: input.publish } : {}),
+        publish,
+        ...(input.gateway ? { gateway: input.gateway } : {}),
         ...(input.managedPi ? { managedPi: input.managedPi } : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
       })

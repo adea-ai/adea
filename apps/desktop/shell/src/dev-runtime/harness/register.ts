@@ -1,6 +1,7 @@
-// Harness runtime registration (issues #31/#32): wires the managed-Pi
-// driver, the ACP lane adapter, and the canonical-session run operations
-// onto the M10 command registry.
+// Harness runtime registration (#31/#32 substrate, #400 launch orchestration):
+// wires the managed-Pi driver, the ACP lane adapter, and the canonical-session
+// run operations onto the M10 command registry, and registers the
+// `dev.session.events` runtime-events-v1 stream.
 //
 // Everything here runs behind the M10 gate — envelope, capability set,
 // replay, expiry, and scope admission have passed before a handler runs.
@@ -12,49 +13,47 @@
 // - runs and connections bind to the canonical RuntimeSession identity.
 //   Dev and Chat share the same runtimeSessionId; this slice never invents
 //   a second session type;
-// - genuine host absence (no managed Pi toolchain/archive, no ACP harness)
-//   surfaces as typed contract errors — never a fabricated session or run.
+// - genuine host absence (no managed Pi toolchain/archive, no ACP harness,
+//   no launchable default) surfaces as typed contract errors — never a
+//   fabricated session or run.
+//
+// Ownership boundary: this slice owns launch orchestration, status, history,
+// and the event stream — never the harness's internal loop. No prompt
+// rewriting, no compaction, no tool interception; status transitions are
+// applied only from OBSERVED facts carried by the gate or by this register's
+// own launch/resume/cancel decisions.
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
 
 import type { AuthorityAudit } from '../audit'
 import { createRuntimeConnectionInventory } from '../discovery/inventory'
+import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
+import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type {
   AcpConnectionState,
   DevCommand,
   DevError,
   DevOperation,
+  HarnessPreference,
+  HarnessPreferenceMutableFields,
   HarnessRun,
   HarnessRunState,
   ManagedPiStatus,
+  RuntimeEvent,
   RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
-import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
-import type { ChannelAuthority } from '../channel/authority'
-import { createDurableJsonStore } from '../host-store'
+import { devOperationDecoders, encodeCbor } from '../../../../../../packages/types/src/dev-runtime'
 import {
   createAcpLane,
   type AcpLane,
   type AcpLaneDriver,
   type ResolvedHarnessInstallation,
 } from './acp-lane'
+import { createSessionEventLog, type SessionEventLog } from './events'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
-
-const RUN_ACTIVE_STATES: readonly HarnessRunState[] = [
-  'resolving',
-  'starting',
-  'working',
-  'awaiting_input',
-  'awaiting_approval',
-]
-
-const RUN_TERMINAL_STATES: readonly HarnessRunState[] = [
-  'completed',
-  'failed',
-  'cancelled',
-  'disconnected',
-]
+import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
+import { createRunHistoryStore, type RunHistoryStore } from './runs'
+import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, runEventKind } from './status'
 
 export type HarnessRuntimeInput = {
   authority: ChannelAuthority
@@ -67,6 +66,8 @@ export type HarnessRuntimeInput = {
   persistSession: (session: RuntimeSession) => void
   /** Shell event bus; harness changes publish so Dev and Chat share them. */
   publish?: (event: string, payload: unknown) => void
+  /** Full-duplex gateway; the runtime-events-v1 stream serves through it. */
+  gateway?: ChannelGateway
   /** Overrides the managed Pi driver (tests inject scripted archives). */
   managedPi?: ManagedPiDriver
   /** Overrides the ACP lane driver (tests inject scripted handshakes). */
@@ -79,6 +80,18 @@ export type HarnessRuntimeRegistration = Readonly<{
   commands: readonly DevOperation[]
   managedPi: ManagedPiDriver
   lane: AcpLane
+  /** Canonical event log backing dev.session.events (test/ops seam). */
+  events: SessionEventLog
+  /** Preference authority implementing the root-default policy. */
+  preferences: HarnessPreferenceAuthority
+  /** Bounded run history store (test/ops seam). */
+  history: RunHistoryStore
+  /**
+   * Ingests shell-bus session facts (dev.session.updated) into the canonical
+   * event log so the stream carries the register's session lifecycle too.
+   * Harness publishes are emitted, never re-ingested.
+   */
+  ingestSessionPublish(event: string, payload: unknown): void
 }>
 
 function devError(code: DevError['code'], message: string, retryable = false): DevError {
@@ -93,8 +106,6 @@ function sameScope(left: Scope, right: Scope): boolean {
   )
 }
 
-type StoredHarnessRun = HarnessRun
-
 /**
  * Resolves a harness installation from the substrate's authorities: the
  * managed Pi driver first, then the M10 #30 discovery inventory read (never
@@ -104,6 +115,11 @@ type InstallationResolution =
   | { kind: 'managed'; status: ManagedPiStatus }
   | { kind: 'connection'; installation: ResolvedHarnessInstallation }
   | undefined
+
+type ProviderHandler = (
+  command: DevCommand,
+  identity?: ChannelIdentity
+) => unknown | Promise<unknown>
 
 export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRuntimeRegistration {
   const now = input.now ?? Date.now
@@ -122,26 +138,21 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   })
   // The M10 #30 inventory read is store-backed: read() never probes.
   const inventory = createRuntimeConnectionInventory({ dataDir: input.dataDir, sources: [] })
-  const runs = createRunStore()
+  const runs = createRunHistoryStore({ dataDir: input.dataDir, scope: input.scope })
+  const events = createSessionEventLog({ dataDir: input.dataDir, scope: input.scope })
+  const preferences = createHarnessPreferenceAuthority({
+    dataDir: input.dataDir,
+    scope: input.scope,
+    // The root default anchors to the READY managed installation only; a
+    // clean desktop without it has no auto-launch candidate at all.
+    managedInstallationId: () => {
+      const status = managedPi.status()
+      return status.state === 'ready' ? status.installationId : undefined
+    },
+  })
 
-  function createRunStore(): {
-    list(): HarnessRun[]
-    get(id: string): HarnessRun | undefined
-    append(run: HarnessRun): void
-    replace(run: HarnessRun): void
-  } {
-    const store = createDurableJsonStore<StoredHarnessRun>({
-      file: join(input.dataDir, 'dev-runtime', 'harness', 'runs.json'),
-      schemaVersion: 1,
-      label: 'harness runs',
-    })
-    const all = () => store.load().records.filter((run) => sameScope(run.scope, input.scope))
-    return {
-      list: all,
-      get: (id) => all().find((run) => run.id === id),
-      append: (run) => store.save([...all(), run]),
-      replace: (run) => store.save(all().map((entry) => (entry.id === run.id ? run : entry))),
-    }
+  function iso(): string {
+    return new Date(now()).toISOString()
   }
 
   function requireScope(command: DevCommand): void {
@@ -241,10 +252,48 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         retryable: true,
         message: 'the managed Pi installation is not ready on this host',
         remediation: { action: 'dev.harness.managedPiInstall' },
-        observedAt: new Date(now()).toISOString(),
+        observedAt: iso(),
       } satisfies DevError
     }
     return resolution.installation
+  }
+
+  /** Auto-launch guard (spec: a missing, unauthenticated, incompatible, or
+   * unhealthy installation is never auto-launched). Explicit selection
+   * surfaces the same facts as typed launch refusals. */
+  function requireAutoLaunchable(installation: ResolvedHarnessInstallation): void {
+    if (installation.auth !== 'ready') {
+      throw devError(
+        'auth_required',
+        `harness authentication is ${installation.auth}; it cannot launch until the owner authorizes it`
+      )
+    }
+    if (installation.health !== 'healthy') {
+      throw devError(
+        'unavailable',
+        `harness health is ${installation.health}; it is never auto-launched in that state`
+      )
+    }
+  }
+
+  function appendEventFact(event: {
+    session: RuntimeSession
+    harnessRunId?: string
+    kind: RuntimeEvent['kind']
+    payload?: unknown
+    sourceEventId: string
+  }): void {
+    events.append({
+      runtimeSessionId: event.session.id,
+      generation: event.session.generation,
+      ...(event.harnessRunId !== undefined ? { harnessRunId: event.harnessRunId } : {}),
+      kind: event.kind,
+      source: 'host',
+      confidence: 'authoritative',
+      classification: 'workspace_metadata',
+      payload: event.payload ?? {},
+      sourceEventId: event.sourceEventId,
+    })
   }
 
   function createRun(params: {
@@ -259,7 +308,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     if (!Number.isSafeInteger(params.agentProfileVersion) || params.agentProfileVersion < 1) {
       throw devError('invalid_state', 'agentProfileVersion must be a positive version integer')
     }
-    const at = new Date(now()).toISOString()
+    const at = iso()
     return {
       id: randomUUID(),
       scope: { ...input.scope },
@@ -301,14 +350,147 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     input.publish?.('dev.harness.updated', {
       kind,
       scope: input.scope,
-      observedAt: new Date(now()).toISOString(),
+      observedAt: iso(),
       ...detail,
     })
   }
 
-  const providers: Partial<
-    Record<DevOperation, (command: DevCommand) => unknown | Promise<unknown>>
-  > = {
+  /** The shared launch transaction body for launchHarness/launchDefault:
+   * idempotent on a live identical run, fenced to one active run, and
+   * emitting the canonical created/starting facts. */
+  function launchRun(params: {
+    session: RuntimeSession
+    installationId: string
+    agentProfileId: string
+    agentProfileVersion: number
+    modelId?: string
+  }): HarnessRun {
+    const active = activeRunFor(params.session.id)
+    if (
+      active &&
+      active.installationId === params.installationId &&
+      active.agentProfile.id === params.agentProfileId &&
+      active.agentProfile.version === params.agentProfileVersion
+    ) {
+      return active
+    }
+    if (active) {
+      throw devError(
+        'invalid_state',
+        'a harness run is already active for this session; cancel it before launching another installation'
+      )
+    }
+    const installation = requireLaunchInstallation(params.installationId)
+    requireAutoLaunchable(installation)
+    const run = createRun({
+      session: params.session,
+      installationId: params.installationId,
+      agentProfileId: params.agentProfileId,
+      agentProfileVersion: params.agentProfileVersion,
+      ...(params.modelId !== undefined ? { modelId: params.modelId } : {}),
+      state: 'starting',
+      generation: 1,
+    })
+    runs.append(run)
+    const nextSession = applySession(params.session, {
+      activeHarnessRunId: run.id,
+      lifecycle: 'active',
+    })
+    appendEventFact({
+      session: nextSession,
+      harnessRunId: run.id,
+      kind: 'run.created',
+      payload: {
+        harnessRunId: run.id,
+        installationId: run.installationId,
+        agentProfileId: run.agentProfile.id,
+        agentProfileVersion: run.agentProfile.version,
+        ...(run.modelId !== undefined ? { modelId: run.modelId } : {}),
+      },
+      sourceEventId: `host:run-created:${run.id}`,
+    })
+    appendEventFact({
+      session: nextSession,
+      harnessRunId: run.id,
+      kind: 'run.starting',
+      payload: { harnessRunId: run.id, executableLabel: installation.executableLabel },
+      sourceEventId: `host:run-starting:${run.id}`,
+    })
+    appendEventFact({
+      session: nextSession,
+      harnessRunId: run.id,
+      kind: 'session.starting',
+      payload: { harnessRunId: run.id },
+      sourceEventId: `host:session-starting:${run.id}`,
+    })
+    publish('run.created', {
+      harnessRunId: run.id,
+      runtimeSessionId: nextSession.id,
+      generation: nextSession.generation,
+    })
+    return run
+  }
+
+  // ── dev.session.events: the runtime-events-v1 stream ────────────────────
+  //
+  // The grant is minted through the channel authority against the CALLER'S
+  // authenticated identity — bound to channel, scope, resource generation,
+  // single-use at attach, and expiring (the browser-frames pattern). The
+  // gateway handler replays the bounded window then streams live events;
+  // a newer session generation closes the stream `stale_generation`.
+
+  const serveRuntimeEvents: StreamProvider = (stream) => {
+    const grant = stream.grant
+    if (grant.resource.kind !== 'runtime_session') {
+      stream.close('incompatible', 'runtime-events-v1 binds runtime_session resources')
+      return
+    }
+    if (grant.direction !== 'read') {
+      stream.close('incompatible', 'runtime-events-v1 is a read-only stream')
+      return
+    }
+    const runtimeSessionId = grant.resource.id
+    const generation = grant.resource.generation
+    const sendEvent = (event: RuntimeEvent): void => {
+      stream.send({
+        type: 'data',
+        sequence: event.seq,
+        bytes: encodeCbor(event),
+      })
+    }
+    // Bounded newest-frame replay: at most the newest 500 events of the
+    // granted generation, never older than the requested fromSequence.
+    const REPLAY_LIMIT = 500n
+    const latest = BigInt(events.latestSequence(runtimeSessionId, generation))
+    const requested = BigInt(grant.fromSequence)
+    const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
+    const from = requested > BigInt(windowStart) ? requested.toString() : windowStart
+    for (const event of events.read(runtimeSessionId, {
+      fromSequence: from,
+      generation,
+      limit: 500,
+    })) {
+      sendEvent(event)
+    }
+    const unsubscribe = events.subscribe(runtimeSessionId, (event) => {
+      if (event.generation > generation) {
+        // The session moved on (transfer/resume bumped the generation):
+        // grants minted under the old generation are inert, never ambiguous.
+        stream.close('stale_generation', 'the runtime session moved to a newer generation')
+        return
+      }
+      if (event.generation < generation) return
+      sendEvent(event)
+    })
+    stream.onClose = unsubscribe
+    stream.onFrame = (frame) => {
+      if (frame.type !== 'ack') {
+        stream.close('incompatible', 'read streams accept only ack frames')
+      }
+    }
+  }
+
+  const providers: Partial<Record<DevOperation, ProviderHandler>> = {
     // ── #31: managed Pi installation lifecycle ────────────────────────────
     'dev.harness.managedPiStatus': (command) => {
       requireScope(command)
@@ -359,7 +541,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           : {}),
         ...(typeof body.state === 'string' ? { state: body.state as AcpConnectionState } : {}),
       })
-      return { items, observedAt: new Date(now()).toISOString() }
+      return { items, observedAt: iso() }
     },
     'dev.harness.acpClose': async (command) => {
       requireScope(command)
@@ -385,11 +567,96 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       return connection
     },
 
+    // ── #400: harness preferences (root-default policy) ───────────────────
+    'dev.harness.preferences': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.harness.preferences'].request(command.body)
+      const items = preferences.effective(
+        typeof body.projectId === 'string' ? (body.projectId as string) : undefined
+      )
+      return { items, observedAt: iso() }
+    },
+    'dev.harness.preferenceUpdate': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.harness.preferenceUpdate'].request(command.body)
+      const installationId = body.installationId as string
+      const projectId = typeof body.projectId === 'string' ? (body.projectId as string) : undefined
+      const expectedVersion = body.expectedVersion as number
+      const patch = body.patch as HarnessPreferenceMutableFields
+      // The installation must exist on this node: the managed installation
+      // once ready, or a discovered inventory entry. Credential values do not
+      // exist in the model, so nothing secret can be persisted here.
+      const resolution = resolveInstallation(installationId)
+      if (!resolution) {
+        throw devError('not_found', 'harness installation is not registered on this runtime node')
+      }
+      const stored = preferences
+        .stored()
+        .find(
+          (record) =>
+            record.harnessInstallationId === installationId &&
+            (record.projectId ?? undefined) === projectId
+        )
+      if (stored && stored.version !== expectedVersion) {
+        throw {
+          code: 'stale_version',
+          retryable: false,
+          message: `harness preference moved on: version ${stored.version}`,
+          currentVersion: stored.version,
+        } satisfies DevError
+      }
+      if (!stored && expectedVersion !== 0) {
+        throw {
+          code: 'stale_version',
+          retryable: false,
+          message: 'harness preference does not exist yet; address it as version 0',
+          currentVersion: 0,
+        } satisfies DevError
+      }
+      const record: HarnessPreference = {
+        scope: input.scope,
+        harnessInstallationId: installationId,
+        enabled: patch.enabled ?? stored?.enabled ?? true,
+        // New records append to the ordering; updates keep their position
+        // unless the patch moves them.
+        sortKey:
+          patch.sortKey ?? stored?.sortKey ?? String(preferences.stored().length).padStart(10, '0'),
+        ...(projectId !== undefined ? { projectId } : {}),
+        default: patch.default ?? stored?.default ?? false,
+        ...(patch.agentProfileId !== undefined
+          ? { agentProfileId: patch.agentProfileId }
+          : stored?.agentProfileId !== undefined
+            ? { agentProfileId: stored.agentProfileId }
+            : {}),
+        ...(patch.modelId !== undefined
+          ? { modelId: patch.modelId }
+          : stored?.modelId !== undefined
+            ? { modelId: stored.modelId }
+            : {}),
+        version: (stored?.version ?? 0) + 1,
+      }
+      preferences.upsert(record)
+      publish('preference.updated', {
+        harnessInstallationId: installationId,
+        ...(projectId !== undefined ? { projectId } : {}),
+      })
+      return record
+    },
+    'dev.harness.preferenceReset': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.harness.preferenceReset'].request(command.body)
+      preferences.clear(typeof body.projectId === 'string' ? (body.projectId as string) : undefined)
+      // Reset-to-discovered: the stored overlay is gone, so the effective
+      // projection returns to managed-Pi-first on a clean machine.
+      return { items: preferences.effective(), observedAt: iso() }
+    },
+
     // ── Run status/history read model ─────────────────────────────────────
     'dev.harness.runs': (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.harness.runs'].request(command.body)
-      const items = runs
+      const limit = Math.min(typeof body.limit === 'number' ? (body.limit as number) : 100, 500)
+      const itemsAll = runs
         .list()
         .filter((run) =>
           typeof body.runtimeSessionId === 'string'
@@ -403,10 +670,80 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         )
         .filter((run) => (typeof body.state === 'string' ? run.state === body.state : true))
         .toSorted((left, right) => (right.startedAt ?? '').localeCompare(left.startedAt ?? ''))
-      return { items, observedAt: new Date(now()).toISOString() }
+      const cursor = typeof body.cursor === 'string' ? (body.cursor as string) : undefined
+      const seeked = cursor ? itemsAll.filter((run) => (run.startedAt ?? '') < cursor) : itemsAll
+      const items = seeked.slice(0, limit)
+      return {
+        items,
+        observedAt: iso(),
+        ...(seeked.length > items.length && items.length > 0
+          ? { nextCursor: items[items.length - 1]!.startedAt ?? '' }
+          : {}),
+      }
+    },
+    'dev.harness.runStatus': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.harness.runStatus'].request(command.body)
+      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      requireSessionResource(command, session)
+      requireGeneration(command, session)
+      const run = runs.get(body.harnessRunId as string)
+      if (!run) throw devError('not_found', 'harness run not found')
+      if (run.runtimeSessionId !== session.id) {
+        throw devError('identity_mismatch', 'harness run belongs to another runtime session')
+      }
+      if (RUN_TERMINAL_STATES.includes(run.state)) {
+        throw devError('already_completed', `harness run is already ${run.state}`)
+      }
+      const observedAt = iso()
+      const next = runs.observe({
+        runId: run.id,
+        to: body.state as HarnessRunState,
+        source: body.source as RuntimeEvent['source'],
+        observedAt,
+        ...(typeof body.detail === 'string' ? { detail: body.detail as string } : {}),
+      })
+      // An idempotent same-state re-observation changes nothing and appends
+      // nothing; a real transition surfaces as canonical events so Dev and
+      // Chat observe the same fact through the same stream, never through a
+      // private side channel.
+      if (next.version !== run.version) {
+        const kind = runEventKind(next.state)
+        if (kind) {
+          appendEventFact({
+            session,
+            harnessRunId: next.id,
+            kind,
+            payload: {
+              harnessRunId: next.id,
+              from: run.state,
+              to: next.state,
+              source: body.source,
+            },
+            sourceEventId: `host:run-status:${next.id}:${next.version}:${next.state}`,
+          })
+          const sessionKind = sessionKindFor(next.state)
+          if (sessionKind) {
+            appendEventFact({
+              session,
+              harnessRunId: next.id,
+              kind: sessionKind,
+              payload: { harnessRunId: next.id },
+              sourceEventId: `host:session-status:${next.id}:${next.version}:${next.state}`,
+            })
+          }
+        }
+        publish('run.status', {
+          harnessRunId: next.id,
+          runtimeSessionId: session.id,
+          from: run.state,
+          to: next.state,
+        })
+      }
+      return next
     },
 
-    // ── Canonical-session run operations (#400's launch surface) ──────────
+    // ── Canonical-session run operations (launch surface) ─────────────────
     'dev.session.launchHarness': (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.launchHarness'].request(command.body)
@@ -414,45 +751,62 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       requireSessionResource(command, session)
       requireGeneration(command, session)
       requireLaunchableSession(session)
-      const installationId = body.harnessInstallationId as string
-      // Launch is idempotent: the same installation/profile/model on a live
-      // run returns that run instead of duplicating a process decision.
-      const active = activeRunFor(session.id)
-      if (
-        active &&
-        active.installationId === installationId &&
-        active.agentProfile.id === (body.agentProfileId as string) &&
-        active.agentProfile.version === (body.agentProfileVersion as number)
-      ) {
-        return active
+      return launchRun({
+        session,
+        installationId: body.harnessInstallationId as string,
+        agentProfileId: body.agentProfileId as string,
+        agentProfileVersion: body.agentProfileVersion as number,
+        ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
+      })
+    },
+    'dev.session.launchDefault': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.session.launchDefault'].request(command.body)
+      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      requireSessionResource(command, session)
+      requireGeneration(command, session)
+      requireLaunchableSession(session)
+      // Launch orchestration: project default → global default → managed-Pi
+      // root default. An explicit default that names an unlaunchable
+      // installation refuses with its typed reason (never silently launches
+      // something else); with NO explicit default and no ready managed Pi the
+      // typed gap carries the install remediation.
+      const resolution = preferences.resolveDefault(session.projectId)
+      if (!resolution) {
+        throw {
+          code: 'capability_unavailable',
+          retryable: true,
+          message: 'no launchable harness default exists on this runtime node',
+          remediation: { action: 'dev.harness.managedPiInstall' },
+          observedAt: iso(),
+        } satisfies DevError
       }
-      if (active) {
-        throw devError(
-          'invalid_state',
-          'a harness run is already active for this session; cancel it before launching another installation'
-        )
+      const installationId =
+        resolution.kind === 'root_default'
+          ? managedPi.status().installationId
+          : resolution.preference.harnessInstallationId
+      if (!installationId) {
+        throw {
+          code: 'capability_unavailable',
+          retryable: true,
+          message: 'the managed Pi installation is not ready on this host',
+          remediation: { action: 'dev.harness.managedPiInstall' },
+          observedAt: iso(),
+        } satisfies DevError
       }
-      requireLaunchInstallation(installationId)
-      const run = createRun({
+      return launchRun({
         session,
         installationId,
         agentProfileId: body.agentProfileId as string,
         agentProfileVersion: body.agentProfileVersion as number,
-        ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
-        state: 'starting',
-        generation: 1,
+        // Model precedence: explicit body → preference default → harness's
+        // own default (no modelId at all).
+        ...((typeof body.modelId === 'string'
+          ? { modelId: body.modelId as string }
+          : resolution.kind === 'preference' && resolution.preference.modelId !== undefined
+            ? { modelId: resolution.preference.modelId }
+            : {}) as { modelId?: string }),
       })
-      runs.append(run)
-      const nextSession = applySession(session, {
-        activeHarnessRunId: run.id,
-        lifecycle: 'active',
-      })
-      publish('run.created', {
-        harnessRunId: run.id,
-        runtimeSessionId: nextSession.id,
-        generation: nextSession.generation,
-      })
-      return run
     },
     'dev.session.resumeHarness': (command) => {
       requireScope(command)
@@ -470,8 +824,20 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       // Resume creates a new run generation under the SAME session; it never
       // reuses the stale run's write authority.
       if (RUN_ACTIVE_STATES.includes(prior.state)) {
-        const ended: HarnessRun = { ...prior, state: 'disconnected', version: prior.version + 1 }
-        runs.replace(ended)
+        runs.observe({
+          runId: prior.id,
+          to: 'disconnected',
+          source: 'host',
+          observedAt: iso(),
+          detail: 'superseded by resume',
+        })
+        appendEventFact({
+          session: { ...session, generation: session.generation },
+          harnessRunId: prior.id,
+          kind: 'run.disconnected',
+          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
+          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
+        })
       }
       const run = createRun({
         session,
@@ -486,6 +852,20 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       const nextSession = applySession(session, {
         activeHarnessRunId: run.id,
         lifecycle: 'active',
+      })
+      appendEventFact({
+        session: nextSession,
+        harnessRunId: run.id,
+        kind: 'run.resumed',
+        payload: { harnessRunId: run.id, resumedFrom: prior.id },
+        sourceEventId: `host:run-resumed:${run.id}`,
+      })
+      appendEventFact({
+        session: nextSession,
+        harnessRunId: run.id,
+        kind: 'session.resumed',
+        payload: { harnessRunId: run.id },
+        sourceEventId: `host:session-resumed:${run.id}`,
       })
       publish('run.resumed', {
         harnessRunId: run.id,
@@ -509,13 +889,16 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       if (RUN_TERMINAL_STATES.includes(run.state)) {
         throw devError('already_completed', `harness run is already ${run.state}`)
       }
-      const cancelled: HarnessRun = {
-        ...run,
-        state: 'cancelled',
-        finishedAt: new Date(now()).toISOString(),
-        version: run.version + 1,
-      }
-      runs.replace(cancelled)
+      const observedAt = iso()
+      const next = runs.observe({
+        runId: run.id,
+        to: 'cancelled',
+        source: 'host',
+        observedAt,
+        ...(typeof body.confirmationId === 'string'
+          ? { detail: `confirmation ${body.confirmationId as string}` }
+          : {}),
+      })
       // A live ACP lane bound to this session loses its transport authority
       // with the run; close is best-effort and generation-fenced by the lane.
       const live = lane.readyFor(session.id)
@@ -528,23 +911,111 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         activeHarnessRunId: undefined,
         lifecycle: 'disconnected',
       })
+      appendEventFact({
+        session: nextSession,
+        harnessRunId: next.id,
+        kind: 'run.cancelled',
+        payload: { harnessRunId: next.id },
+        sourceEventId: `host:run-cancelled:${next.id}:${next.version}`,
+      })
+      appendEventFact({
+        session: nextSession,
+        harnessRunId: next.id,
+        kind: 'session.cancelled',
+        payload: { harnessRunId: next.id },
+        sourceEventId: `host:session-cancelled:${next.id}:${next.version}`,
+      })
       publish('run.cancelled', {
-        harnessRunId: cancelled.id,
+        harnessRunId: next.id,
         runtimeSessionId: nextSession.id,
         generation: nextSession.generation,
       })
-      return cancelled
+      return next
+    },
+
+    // ── dev.session.events: grant minting (the stream attach path) ────────
+    'dev.session.events': (command, identity) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.session.events'].request(command.body)
+      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      requireSessionResource(command, session)
+      // Archived sessions keep their history readable: events are records,
+      // not live authority. Only the generation binding must hold.
+      if (!identity) {
+        throw devError('capability_unavailable', 'channel stream grant unavailable', true)
+      }
+      return input.authority.mintStreamGrant({
+        identity,
+        protocol: 'runtime-events-v1',
+        scope: command.scope,
+        resource: {
+          kind: 'runtime_session',
+          id: session.id,
+          generation: session.generation,
+        },
+        direction: 'read',
+        fromSequence:
+          typeof body.fromSequence === 'string' ? (body.fromSequence as string) : undefined,
+      })
     },
   }
 
   for (const [operation, provider] of Object.entries(providers)) {
-    input.authority.registerCommandProvider(operation as DevOperation, provider)
+    input.authority.registerCommandProvider(operation as DevOperation, provider!)
+  }
+
+  // The stream is registered only when a gateway can actually serve it:
+  // grants are never minted for a stream no handler can attach.
+  input.authority.registerStreamProvider('runtime-events-v1')
+  input.gateway?.registerStreamHandler('runtime-events-v1', serveRuntimeEvents)
+
+  function ingestSessionPublish(event: string, payload: unknown): void {
+    if (event !== 'dev.session.updated') return
+    const detail = payload as {
+      kind?: string
+      runtimeSessionId?: string
+      generation?: number
+      archived?: boolean
+      observedAt?: string
+    }
+    if (!detail || typeof detail.runtimeSessionId !== 'string') return
+    if (detail.kind !== 'session.created') return
+    const session = input.resolveSession(detail.runtimeSessionId)
+    if (!session || session.archived) return
+    appendEventFact({
+      session: { ...session, generation: detail.generation ?? session.generation },
+      kind: 'session.created',
+      payload: { runtimeSessionId: session.id, projectId: session.projectId },
+      sourceEventId: `host:session-created:${session.id}`,
+      ...(detail.observedAt !== undefined ? { occurredAt: detail.observedAt } : {}),
+    })
   }
 
   return {
     commands: Object.keys(providers) as DevOperation[],
     managedPi,
     lane,
+    events,
+    preferences,
+    history: runs,
+    ingestSessionPublish,
+  }
+}
+
+function sessionKindFor(state: HarnessRunState): RuntimeEvent['kind'] | undefined {
+  switch (state) {
+    case 'working':
+      return 'session.ready'
+    case 'completed':
+      return 'session.completed'
+    case 'failed':
+      return 'session.failed'
+    case 'cancelled':
+      return 'session.cancelled'
+    case 'disconnected':
+      return 'session.disconnected'
+    default:
+      return undefined
   }
 }
 

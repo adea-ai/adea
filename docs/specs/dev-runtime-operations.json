@@ -596,6 +596,30 @@
       "body": "{}",
       "reply": "ManagedPiStatus"
     },
+    "dev.harness.preferenceReset": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": null,
+      "body": "{ projectId?: string }",
+      "reply": "Page<HarnessPreference>"
+    },
+    "dev.harness.preferenceUpdate": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": null,
+      "body": "{ installationId: string; projectId?: string; expectedVersion: integer(0..2147483647); patch: HarnessPreferenceMutableFields }",
+      "reply": "HarnessPreference"
+    },
+    "dev.harness.preferences": {
+      "capabilities": ["dev.harness.read"],
+      "resource": null,
+      "body": "{ projectId?: string }",
+      "reply": "Page<HarnessPreference>"
+    },
+    "dev.harness.runStatus": {
+      "capabilities": ["dev.harness.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string; state: 'resolving'|'starting'|'working'|'awaiting_input'|'awaiting_approval'|'completed'|'failed'|'cancelled'|'disconnected'|'unknown'; source: 'native'|'acp'|'authenticated_hook'|'terminal_fallback'|'host'; detail?: string(0..512) }",
+      "reply": "HarnessRun"
+    },
     "dev.harness.runs": {
       "capabilities": ["dev.harness.read"],
       "resource": null,
@@ -779,6 +803,12 @@
       "resource": "runtime_session:required",
       "body": "{ runtimeSessionId: string }",
       "reply": "RuntimeSession"
+    },
+    "dev.session.launchDefault": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; agentProfileId: string; agentProfileVersion: integer; modelId?: string }",
+      "reply": "HarnessRun"
     },
     "dev.session.launchHarness": {
       "capabilities": ["dev.session.manage"],
