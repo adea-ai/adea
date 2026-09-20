@@ -2,9 +2,17 @@
  * Source Control pane (#399): local branch/status read model, stage/unstage,
  * explicit discard with a per-file confirmation step, a CAS local commit with
  * a validated message, fetch, paged history, and a bounded plain-text diff
- * fallback. Remote push/PR flows are the separate GitHub issue.
+ * fallback. The remote section (#423) layers GitHub push, draft-PR creation,
+ * PR/check state, and update-branch — every mutation through its plan/commit
+ * pair, all provider text rendered as untrusted bounded plain text.
  */
-import type { DiffHunk, GitStatus } from '@adea-ai/types/dev-runtime'
+import type {
+  DiffHunk,
+  GitStatus,
+  GitHubCheck,
+  GitHubPullRequest,
+  GitHubRepository,
+} from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/ui/lib/utils'
 import { Download, GitCommitHorizontal, RefreshCw } from 'lucide-solid'
 import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
@@ -17,6 +25,15 @@ import {
   statusLabel,
   type RenderedDiffLine,
 } from './source-control-model'
+import {
+  aheadBehindLabel,
+  checksLabel,
+  pullRequestStateLabel,
+  reviewDecisionLabel,
+  summarizeChecks,
+  truncateUntrusted,
+  type CheckSummary,
+} from './remote-model'
 import {
   executeOperation,
   resolveWorktreeContext,
@@ -295,6 +312,14 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           </p>
         )}
       </Show>
+      <RemoteSection
+        runtime={props.runtime}
+        scope={scope()}
+        worktree={worktree()}
+        status={status()}
+        onNotice={setNotice}
+        onRefresh={() => void refresh()}
+      />
       <Show
         when={worktree()}
         fallback={
@@ -385,6 +410,321 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   )
 }
 
+/*
+ * Remote (#423): GitHub availability, push (plan/commit with a second-press
+ * confirmation), draft-PR creation for the current branch, PR/check state,
+ * and update-branch preview + explicit commit. Every provider-derived string
+ * passes through `truncateUntrusted` and renders as a Solid text node —
+ * check names, PR titles, and error text can never become markup or commands.
+ */
+function RemoteSection(props: {
+  runtime: DevRuntimeService
+  scope: ReturnType<DevRuntimeService['preferenceScope']> | undefined
+  worktree: WorktreeContext | undefined
+  status: GitStatusReply | undefined
+  onNotice(message: string | undefined): void
+  onRefresh(): void
+}): JSX.Element {
+  const [repository, setRepository] = createSignal<GitHubRepository | undefined>()
+  const [pullRequest, setPullRequest] = createSignal<GitHubPullRequest | undefined>()
+  const [checks, setChecks] = createSignal<readonly GitHubCheck[]>([])
+  const [prBase, setPrBase] = createSignal('main')
+  const [pushArmed, setPushArmed] = createSignal(false)
+  const [updateArmed, setUpdateArmed] = createSignal(false)
+  const [remoteNotice, setRemoteNotice] = createSignal<string | undefined>()
+
+  const remoteAvailable = () => props.worktree?.repoId !== undefined
+
+  createResource(remoteAvailable, async (available) => {
+    setRemoteNotice(undefined)
+    if (!available || !props.scope) return
+    try {
+      await executeOperation(props.runtime, props.scope, 'dev.github.account', {})
+    } catch (reply) {
+      setRemoteNotice(describeError(reply))
+      return
+    }
+    await loadRepository()
+    await loadPullRequest()
+  })
+
+  async function loadRepository(): Promise<void> {
+    const activeScope = props.scope
+    const repoId = props.worktree?.repoId
+    if (!activeScope || !repoId) return
+    try {
+      const repo = await executeOperation<GitHubRepository>(
+        props.runtime,
+        activeScope,
+        'dev.github.repository',
+        { repoId },
+        { kind: 'repository', id: repoId, generation: 0 }
+      )
+      setRepository(repo)
+      setRemoteNotice(undefined)
+    } catch (reply) {
+      setRepository(undefined)
+      setRemoteNotice(describeError(reply))
+    }
+  }
+
+  async function loadPullRequest(): Promise<void> {
+    const activeScope = props.scope
+    const repoId = props.worktree?.repoId
+    if (!activeScope || !repoId) return
+    try {
+      const page = await executeOperation<{ items: readonly GitHubPullRequest[] }>(
+        props.runtime,
+        activeScope,
+        'dev.github.pullRequests',
+        { repoId, state: 'open', limit: 50 },
+        { kind: 'repository', id: repoId, generation: 0 }
+      )
+      const headRef = props.status?.headRef
+      setPullRequest(page.items.find((pr) => headRef !== undefined && pr.headRef === headRef))
+    } catch (reply) {
+      setPullRequest(undefined)
+      setRemoteNotice(describeError(reply))
+    }
+  }
+
+  async function push(): Promise<void> {
+    const activeScope = props.scope
+    const context = props.worktree
+    const current = props.status
+    const repoId = context?.repoId
+    const ref = current?.headRef
+    const headSha = current?.headSha
+    if (!activeScope || !context || !repoId || !ref || !headSha) return
+    // Plan first, then an explicit second press on the same button commits.
+    if (!pushArmed()) {
+      setPushArmed(true)
+      setRemoteNotice(`push ${ref}: press again to confirm`)
+      return
+    }
+    setPushArmed(false)
+    setRemoteNotice(undefined)
+    try {
+      const plan = await executeOperation<{ id: string; digest: string; blockers: readonly { message: string }[] }>(
+        props.runtime,
+        activeScope,
+        'dev.github.pushPlan',
+        { repoId, worktreeId: context.worktreeId, ref, expectedLocalSha: headSha },
+        { kind: 'repository', id: repoId, generation: 0 }
+      )
+      if (plan.blockers.length > 0) {
+        setRemoteNotice(plan.blockers.map((blocker) => truncateUntrusted(blocker.message)).join('; '))
+        return
+      }
+      await executeOperation(
+        props.runtime,
+        activeScope,
+        'dev.github.pushCommit',
+        { planId: plan.id, planDigest: plan.digest },
+        { kind: 'repository', id: repoId, generation: 0 }
+      )
+      setRemoteNotice(`pushed ${truncateUntrusted(ref)}`)
+      props.onRefresh()
+    } catch (reply) {
+      setRemoteNotice(describeError(reply))
+    }
+  }
+
+  async function createDraftPullRequest(): Promise<void> {
+    const activeScope = props.scope
+    const repoId = props.worktree?.repoId
+    const ref = props.status?.headRef
+    if (!activeScope || !repoId || !ref) return
+    const base = prBase().trim()
+    if (base.length === 0 || base === ref) {
+      setRemoteNotice('a distinct base branch is required')
+      return
+    }
+    try {
+      const pr = await executeOperation<GitHubPullRequest>(
+        props.runtime,
+        activeScope,
+        'dev.github.createPullRequest',
+        { repoId, headRef: ref, baseRef: base, title: truncateUntrusted(ref, 200), body: '', draft: true },
+        { kind: 'repository', id: repoId, generation: 0 }
+      )
+      setPullRequest(pr)
+      setRemoteNotice(pr.reconciled === true ? 'existing pull request found' : 'draft pull request created')
+    } catch (reply) {
+      setRemoteNotice(describeError(reply))
+    }
+  }
+
+  async function loadChecks(): Promise<void> {
+    const activeScope = props.scope
+    const pr = pullRequest()
+    if (!activeScope || !pr) return
+    try {
+      const page = await executeOperation<{ items: readonly GitHubCheck[] }>(
+        props.runtime,
+        activeScope,
+        'dev.github.checks',
+        { pullRequestId: pr.id, limit: 100 },
+        { kind: 'pull_request', id: pr.id, generation: 0 }
+      )
+      setChecks(page.items)
+    } catch (reply) {
+      setRemoteNotice(describeError(reply))
+    }
+  }
+
+  async function updateBranch(): Promise<void> {
+    const activeScope = props.scope
+    const context = props.worktree
+    const pr = pullRequest()
+    if (!activeScope || !context || !pr) return
+    if (!updateArmed()) {
+      setUpdateArmed(true)
+      setRemoteNotice(`merge ${pr.baseRef} into ${pr.headRef}: press again to confirm`)
+      return
+    }
+    setUpdateArmed(false)
+    setRemoteNotice(undefined)
+    try {
+      const plan = await executeOperation<{ id: string; digest: string; blockers: readonly { message: string }[] }>(
+        props.runtime,
+        activeScope,
+        'dev.github.updateBranchPlan',
+        {
+          pullRequestId: pr.id,
+          worktreeId: context.worktreeId,
+          expectedGeneration: context.generation,
+          strategy: 'merge',
+          expectedHeadSha: pr.headSha,
+          expectedBaseSha: pr.baseSha,
+        },
+        { kind: 'pull_request', id: pr.id, generation: context.generation }
+      )
+      if (plan.blockers.length > 0) {
+        setRemoteNotice(plan.blockers.map((blocker) => truncateUntrusted(blocker.message)).join('; '))
+        return
+      }
+      const result = await executeOperation<{ state: string; conflictedPaths?: readonly string[] }>(
+        props.runtime,
+        activeScope,
+        'dev.github.updateBranchCommit',
+        { planId: plan.id, planDigest: plan.digest },
+        { kind: 'pull_request', id: pr.id, generation: context.generation }
+      )
+      if (result.state === 'conflicted') {
+        setRemoteNotice(
+          `merge conflicted in ${(result.conflictedPaths ?? []).length} path(s); abort with git merge --abort`
+        )
+      } else {
+        setRemoteNotice(`branch ${result.state}`)
+      }
+      props.onRefresh()
+      await loadPullRequest()
+    } catch (reply) {
+      setRemoteNotice(describeError(reply))
+    }
+  }
+
+  const checkSummary = (): CheckSummary => summarizeChecks(checks())
+
+  return (
+    <Show when={remoteAvailable()}>
+      <p class="dev-sc__section-title">Remote</p>
+      <Show when={remoteNotice()}>
+        {(shown) => (
+          <p class="dev-terminal-muted dev-sc__section-title" role="alert">
+            {shown()}
+          </p>
+        )}
+      </Show>
+      <div class="dev-sc__actions">
+        <button type="button" class="dev-button" onClick={() => void loadRepository()}>
+          Refresh remote
+        </button>
+        <Show
+          when={props.status?.headSha}
+          fallback={<span class="dev-terminal-muted">no commits to push</span>}
+        >
+          <button type="button" class="dev-button" onClick={() => void push()}>
+            {pushArmed() ? 'Confirm push' : 'Push'}
+          </button>
+        </Show>
+      </div>
+      <Show when={repository()}>
+        {(repo) => (
+          <div class="dev-files__row">
+            <span class="dev-files__name">
+              {truncateUntrusted(repo().fullName)} ({truncateUntrusted(repo().defaultBranch)},{' '}
+              {repo().freshness})
+            </span>
+          </div>
+        )}
+      </Show>
+      <Show
+        when={pullRequest()}
+        fallback={
+          <div class="dev-sc__actions">
+            <input
+              aria-label="Base branch for the new pull request"
+              placeholder="base branch"
+              value={prBase()}
+              onInput={(event) => setPrBase(event.currentTarget.value)}
+            />
+            <button type="button" class="dev-button" onClick={() => void createDraftPullRequest()}>
+              Create draft PR
+            </button>
+          </div>
+        }
+      >
+        {(pr) => (
+          <>
+            <div class="dev-files__row">
+              <span class="dev-files__name">
+                #{pr().number} {truncateUntrusted(pr().title)} — {pullRequestStateLabel(pr())}
+                <Show when={reviewDecisionLabel(pr().reviewDecision)}>
+                  {(decision) => <> — {decision()}</>}
+                </Show>
+              </span>
+            </div>
+            <Show when={pr().aheadBehind}>
+              {(aheadBehind) => (
+                <div class="dev-files__row">
+                  <span class="dev-terminal-muted">{aheadBehindLabel(aheadBehind())}</span>
+                </div>
+              )}
+            </Show>
+            <div class="dev-files__row">
+              <span class="dev-files__badge">{checksLabel(checkSummary())}</span>
+              <button type="button" class="dev-files__delete" onClick={() => void loadChecks()}>
+                Load checks
+              </button>
+            </div>
+            <div class="dev-sc__list">
+              <For each={checks()}>
+                {(check) => (
+                  <div class="dev-files__row">
+                    <span class="dev-files__name" title={truncateUntrusted(check.name, 400)}>
+                      {truncateUntrusted(check.name)}
+                    </span>
+                    <span class="dev-files__badge">
+                      {check.conclusion ?? check.status}
+                    </span>
+                  </div>
+                )}
+              </For>
+            </div>
+            <div class="dev-sc__actions">
+              <button type="button" class="dev-button" onClick={() => void updateBranch()}>
+                {updateArmed() ? 'Confirm update branch' : 'Update branch (merge base)'}
+              </button>
+            </div>
+          </>
+        )}
+      </Show>
+    </Show>
+  )
+}
+
 function StatusRow(props: {
   entry: StatusEntry
   kind: 'staged' | 'unstaged' | 'untracked' | 'conflicted'
@@ -447,5 +787,7 @@ function toWorkspacePath(
 
 function describeError(reply: unknown): string {
   const error = reply as { error?: { code?: string; message?: string } }
-  return `${error?.error?.code ?? 'error'}: ${error?.error?.message ?? 'operation failed'}`
+  const code = error?.error?.code ?? 'error'
+  const message = truncateUntrusted(error?.error?.message ?? 'operation failed')
+  return `${code}: ${message}`
 }

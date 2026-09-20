@@ -15,6 +15,7 @@ export type WorktreeContext = Readonly<{
   generation: number
   rootIdentity: { device?: string; inode?: string; mtimeNs: string; size: string }
   branchLabel?: string
+  repoId?: string
 }>
 
 type WorktreeListItem = {
@@ -24,6 +25,7 @@ type WorktreeListItem = {
   archived: boolean
   rootIdentity: WorktreeContext['rootIdentity']
   headRef?: string
+  repoId?: string
 }
 
 type Page<T> = { items: readonly T[] }
@@ -49,6 +51,7 @@ export async function resolveWorktreeContext(
     generation: ready.generation,
     rootIdentity: ready.rootIdentity,
     ...(ready.headRef !== undefined ? { branchLabel: ready.headRef } : {}),
+    ...(ready.repoId !== undefined ? { repoId: ready.repoId } : {}),
   }
 }
 

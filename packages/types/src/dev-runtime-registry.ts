@@ -568,6 +568,20 @@ export const devOperationDefinitions = {
     resource: { kind: 'repository', idField: 'repoId' },
     stream: null,
   },
+  'dev.github.updateBranchCommit': {
+    body: '{ planId: string; planDigest: sha256 }',
+    capabilities: ['dev.github.write'],
+    reply: 'GitUpdateBranchResult',
+    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    stream: null,
+  },
+  'dev.github.updateBranchPlan': {
+    body: "{ pullRequestId: string; worktreeId: string; expectedGeneration: integer; strategy: 'merge'; expectedHeadSha: sha; expectedBaseSha: sha }",
+    capabilities: ['dev.github.write'],
+    reply: 'MutationPlan',
+    resource: { kind: 'pull_request', idField: 'pullRequestId' },
+    stream: null,
+  },
   'dev.github.updateCommit': {
     body: '{ planId: string; planDigest: sha256 }',
     capabilities: ['dev.github.write'],

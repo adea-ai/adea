@@ -280,6 +280,136 @@ export type GitCheckpoint = Readonly<{
   label?: string
 }>
 
+// ─── GitHub remote source control (#423) ────────────────────────────────────
+//
+// Host-neutral DTOs: GitHub response objects never enter UI state. Every
+// field is decoded strictly from the provider transport (`gh` JSON is
+// untrusted input), and fields the API cannot prove stay absent rather than
+// fabricated. `version` is the provider's local optimistic-concurrency token
+// for a read model: it bumps whenever the server-side `updatedAt` moves.
+
+export type GitHubAccount = Readonly<{
+  provider: 'github'
+  host: string
+  login: string
+  name?: string
+  profileUrl?: string
+  observedAt: string
+}>
+
+export type GitHubRepository = Readonly<{
+  repoId: string
+  provider: 'github'
+  host: string
+  owner: string
+  name: string
+  fullName: string
+  defaultBranch: string
+  url: string
+  visibility: 'public' | 'private'
+  fork: boolean
+  freshness: 'fresh' | 'stale'
+  observedAt: string
+}>
+
+export type GitHubAheadBehind = Readonly<{
+  ahead: number
+  behind: number
+}>
+
+export type GitHubPullRequest = Readonly<{
+  id: string
+  repoId: string
+  number: number
+  host: string
+  owner: string
+  repo: string
+  title: string
+  body?: string
+  state: 'open' | 'closed' | 'merged'
+  draft: boolean
+  headRef: string
+  headSha: string
+  baseRef: string
+  baseSha: string
+  authorLogin?: string
+  url: string
+  mergeable: 'mergeable' | 'conflicting' | 'unknown'
+  reviewDecision?: 'approved' | 'changes_requested' | 'review_required'
+  aheadBehind?: GitHubAheadBehind
+  labels: readonly string[]
+  version: number
+  updatedAt: string
+  observedAt: string
+  /** createPullRequest reconciled onto an already-open PR instead of duplicating. */
+  reconciled?: boolean
+}>
+
+export type GitHubCheck = Readonly<{
+  id: string
+  name: string
+  status: 'queued' | 'in_progress' | 'completed'
+  conclusion?:
+    | 'success'
+    | 'failure'
+    | 'neutral'
+    | 'cancelled'
+    | 'skipped'
+    | 'timed_out'
+    | 'action_required'
+    | 'stale'
+  detailsUrl?: string
+  startedAt?: string
+  completedAt?: string
+}>
+
+export type GitHubIssue = Readonly<{
+  id: string
+  number: number
+  title: string
+  state: 'open' | 'closed'
+  url: string
+  labels: readonly string[]
+  milestone?: string
+  updatedAt: string
+}>
+
+export type GitHubMilestone = Readonly<{
+  id: string
+  number: number
+  title: string
+  state: 'open' | 'closed'
+  dueOn?: string
+  openIssues: number
+  closedIssues: number
+  url: string
+}>
+
+export type GitPushResult = Readonly<{
+  repoId: string
+  worktreeId: string
+  ref: string
+  remoteName: string
+  headSha: string
+  remoteSha: string
+  forced: boolean
+  upstreamSet: boolean
+  observedAt: string
+}>
+
+export type GitUpdateBranchResult = Readonly<{
+  pullRequestId: string
+  worktreeId: string
+  strategy: 'merge'
+  state: 'merged' | 'conflicted' | 'up_to_date'
+  previousHeadSha: string
+  headSha?: string
+  conflictedPaths?: readonly string[]
+  /** Exact recovery actions when state is `conflicted`; never executed implicitly. */
+  recovery?: Readonly<{ abort: string; continue: string }>
+  observedAt: string
+}>
+
 export type PaneLeaf = Readonly<{
   kind: 'leaf'
   id: string
@@ -1249,6 +1379,10 @@ const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/
 const uint64Pattern = /^(?:0|[1-9]\d*)$/
 const sha256Pattern = /^[0-9a-f]{64}$/
 const gitShaPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+// Stable provider-scoped identifiers minted by the GitHub provider slice
+// (#423): `gh:<owner>/<repo>#<number>` for PRs/issues, `ghm:` for milestones.
+const githubPullRequestIdPattern = /^gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
+const githubMilestoneIdPattern = /^ghm:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
 const authorityBodyKeys = new Set([
   'schemaVersion',
   'operation',
@@ -2200,6 +2334,247 @@ function namedType(name: string, value: unknown, path: string): unknown {
       fail(`${path}.treeSha`, 'expected git sha')
     timestamp(item.createdAt, `${path}.createdAt`)
     if (item.label !== undefined) stringValue(item.label, `${path}.label`, 0, 128)
+    return value
+  }
+  // #423 GitHub remote source-control DTOs. Strict shapes over untrusted
+  // provider transport; unknowable provider facts stay absent.
+  if (name === 'GitHubAccount') {
+    const item = record(value, path)
+    exactKeys(item, ['provider', 'host', 'login', 'observedAt'], ['name', 'profileUrl'], path)
+    literal(item.provider, ['github'], `${path}.provider`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.login, `${path}.login`, 1, 100)
+    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 0, 256)
+    if (item.profileUrl !== undefined) stringValue(item.profileUrl, `${path}.profileUrl`, 1, 512)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitHubRepository') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'repoId',
+        'provider',
+        'host',
+        'owner',
+        'name',
+        'fullName',
+        'defaultBranch',
+        'url',
+        'visibility',
+        'fork',
+        'freshness',
+        'observedAt',
+      ],
+      [],
+      path
+    )
+    stringValue(item.repoId, `${path}.repoId`, 1, 128)
+    literal(item.provider, ['github'], `${path}.provider`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.owner, `${path}.owner`, 1, 100)
+    stringValue(item.name, `${path}.name`, 1, 100)
+    stringValue(item.fullName, `${path}.fullName`, 1, 201)
+    stringValue(item.defaultBranch, `${path}.defaultBranch`, 1, 256)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    literal(item.visibility, ['public', 'private'], `${path}.visibility`)
+    if (typeof item.fork !== 'boolean') fail(`${path}.fork`, 'expected boolean')
+    literal(item.freshness, ['fresh', 'stale'], `${path}.freshness`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitHubAheadBehind') {
+    const item = record(value, path)
+    exactKeys(item, ['ahead', 'behind'], [], path)
+    integerValue(item.ahead, `${path}.ahead`, 0)
+    integerValue(item.behind, `${path}.behind`, 0)
+    return value
+  }
+  if (name === 'GitHubPullRequest') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'repoId',
+        'number',
+        'host',
+        'owner',
+        'repo',
+        'title',
+        'state',
+        'draft',
+        'headRef',
+        'headSha',
+        'baseRef',
+        'baseSha',
+        'url',
+        'mergeable',
+        'labels',
+        'version',
+        'updatedAt',
+        'observedAt',
+      ],
+      [
+        'body',
+        'authorLogin',
+        'reviewDecision',
+        'aheadBehind',
+        'reconciled',
+      ],
+      path
+    )
+    if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
+    stringValue(item.repoId, `${path}.repoId`, 1, 128)
+    integerValue(item.number, `${path}.number`, 1)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.owner, `${path}.owner`, 1, 100)
+    stringValue(item.repo, `${path}.repo`, 1, 100)
+    stringValue(item.title, `${path}.title`, 0, 1024)
+    if (item.body !== undefined) stringValue(item.body, `${path}.body`, 0, 65_536)
+    literal(item.state, ['open', 'closed', 'merged'], `${path}.state`)
+    if (typeof item.draft !== 'boolean') fail(`${path}.draft`, 'expected boolean')
+    stringValue(item.headRef, `${path}.headRef`, 1, 512)
+    if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+      fail(`${path}.headSha`, 'expected git sha')
+    stringValue(item.baseRef, `${path}.baseRef`, 1, 512)
+    if (!gitShaPattern.test(stringValue(item.baseSha, `${path}.baseSha`)))
+      fail(`${path}.baseSha`, 'expected git sha')
+    if (item.authorLogin !== undefined)
+      stringValue(item.authorLogin, `${path}.authorLogin`, 1, 100)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    literal(item.mergeable, ['mergeable', 'conflicting', 'unknown'], `${path}.mergeable`)
+    if (item.reviewDecision !== undefined)
+      literal(
+        item.reviewDecision,
+        ['approved', 'changes_requested', 'review_required'],
+        `${path}.reviewDecision`
+      )
+    if (item.aheadBehind !== undefined)
+      namedType('GitHubAheadBehind', item.aheadBehind, `${path}.aheadBehind`)
+    if (!Array.isArray(item.labels)) fail(`${path}.labels`, 'expected array')
+    item.labels.forEach((label: unknown, index: number) =>
+      stringValue(label, `${path}.labels[${index}]`, 0, 256)
+    )
+    integerValue(item.version, `${path}.version`, 0)
+    timestamp(item.updatedAt, `${path}.updatedAt`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    if (item.reconciled !== undefined && typeof item.reconciled !== 'boolean')
+      fail(`${path}.reconciled`, 'expected boolean')
+    return value
+  }
+  if (name === 'GitHubCheck') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'name', 'status'], ['conclusion', 'detailsUrl', 'startedAt', 'completedAt'], path)
+    stringValue(item.id, `${path}.id`, 1, 64)
+    stringValue(item.name, `${path}.name`, 1, 256)
+    literal(item.status, ['queued', 'in_progress', 'completed'], `${path}.status`)
+    if (item.conclusion !== undefined)
+      literal(
+        item.conclusion,
+        [
+          'success',
+          'failure',
+          'neutral',
+          'cancelled',
+          'skipped',
+          'timed_out',
+          'action_required',
+          'stale',
+        ],
+        `${path}.conclusion`
+      )
+    if (item.detailsUrl !== undefined) stringValue(item.detailsUrl, `${path}.detailsUrl`, 1, 512)
+    if (item.startedAt !== undefined) timestamp(item.startedAt, `${path}.startedAt`)
+    if (item.completedAt !== undefined) timestamp(item.completedAt, `${path}.completedAt`)
+    return value
+  }
+  if (name === 'GitHubIssue') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'number', 'title', 'state', 'url', 'labels', 'updatedAt'], ['milestone'], path)
+    if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
+    integerValue(item.number, `${path}.number`, 1)
+    stringValue(item.title, `${path}.title`, 0, 1024)
+    literal(item.state, ['open', 'closed'], `${path}.state`)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    if (!Array.isArray(item.labels)) fail(`${path}.labels`, 'expected array')
+    item.labels.forEach((label: unknown, index: number) =>
+      stringValue(label, `${path}.labels[${index}]`, 0, 256)
+    )
+    if (item.milestone !== undefined) stringValue(item.milestone, `${path}.milestone`, 0, 256)
+    timestamp(item.updatedAt, `${path}.updatedAt`)
+    return value
+  }
+  if (name === 'GitHubMilestone') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'number', 'title', 'state', 'openIssues', 'closedIssues', 'url'], ['dueOn'], path)
+    if (!githubMilestoneIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected ghm:<owner>/<repo>#<number>')
+    integerValue(item.number, `${path}.number`, 1)
+    stringValue(item.title, `${path}.title`, 0, 512)
+    literal(item.state, ['open', 'closed'], `${path}.state`)
+    if (item.dueOn !== undefined) timestamp(item.dueOn, `${path}.dueOn`)
+    integerValue(item.openIssues, `${path}.openIssues`, 0)
+    integerValue(item.closedIssues, `${path}.closedIssues`, 0)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    return value
+  }
+  if (name === 'GitPushResult') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['repoId', 'worktreeId', 'ref', 'remoteName', 'headSha', 'remoteSha', 'forced', 'upstreamSet', 'observedAt'],
+      [],
+      path
+    )
+    stringValue(item.repoId, `${path}.repoId`, 1, 128)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    stringValue(item.ref, `${path}.ref`, 1, 512)
+    stringValue(item.remoteName, `${path}.remoteName`, 1, 256)
+    if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+      fail(`${path}.headSha`, 'expected git sha')
+    if (!gitShaPattern.test(stringValue(item.remoteSha, `${path}.remoteSha`)))
+      fail(`${path}.remoteSha`, 'expected git sha')
+    for (const key of ['forced', 'upstreamSet'] as const)
+      if (typeof item[key] !== 'boolean') fail(`${path}.${key}`, 'expected boolean')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitUpdateBranchResult') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['pullRequestId', 'worktreeId', 'strategy', 'state', 'previousHeadSha', 'observedAt'],
+      ['headSha', 'conflictedPaths', 'recovery'],
+      path
+    )
+    if (!githubPullRequestIdPattern.test(stringValue(item.pullRequestId, `${path}.pullRequestId`)))
+      fail(`${path}.pullRequestId`, 'expected gh:<owner>/<repo>#<number>')
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    literal(item.strategy, ['merge'], `${path}.strategy`)
+    literal(item.state, ['merged', 'conflicted', 'up_to_date'], `${path}.state`)
+    if (!gitShaPattern.test(stringValue(item.previousHeadSha, `${path}.previousHeadSha`)))
+      fail(`${path}.previousHeadSha`, 'expected git sha')
+    if (item.headSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+        fail(`${path}.headSha`, 'expected git sha')
+    }
+    if (item.conflictedPaths !== undefined) {
+      if (!Array.isArray(item.conflictedPaths)) fail(`${path}.conflictedPaths`, 'expected array')
+      item.conflictedPaths.forEach((entry: unknown, index: number) =>
+        stringValue(entry, `${path}.conflictedPaths[${index}]`, 1, 4096)
+      )
+    }
+    if (item.recovery !== undefined) {
+      const recovery = record(item.recovery, `${path}.recovery`)
+      exactKeys(recovery, ['abort', 'continue'], [], `${path}.recovery`)
+      stringValue(recovery.abort, `${path}.recovery.abort`, 1, 256)
+      stringValue(recovery.continue, `${path}.recovery.continue`, 1, 256)
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
   if (name === 'BrowserAnnotationInput') {
@@ -3160,6 +3535,38 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.git.checkpoint': (value) => namedType('GitCheckpoint', value, 'reply.value'),
   'dev.git.restorePlan': (value) => decodeMutationPlan(value),
   'dev.git.restoreCommit': (value) => namedType('GitStatus', value, 'reply.value'),
+  // GitHub remote slice (#423): host-neutral DTOs decoded strictly from the
+  // `gh`/git transport; mutations reply with re-read server truth.
+  'dev.github.account': (value) => namedType('GitHubAccount', value, 'reply.value'),
+  'dev.github.checks': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('GitHubCheck', item, path), value, 'reply.value'),
+  'dev.github.createPullRequest': (value) =>
+    namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.issues': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('GitHubIssue', item, path), value, 'reply.value'),
+  'dev.github.mergeCommit': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.mergePlan': (value) => decodeMutationPlan(value),
+  'dev.github.milestones': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubMilestone', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.pullRequest': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.pullRequests': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubPullRequest', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.pushCommit': (value) => namedType('GitPushResult', value, 'reply.value'),
+  'dev.github.pushPlan': (value) => decodeMutationPlan(value),
+  'dev.github.repository': (value) => namedType('GitHubRepository', value, 'reply.value'),
+  'dev.github.updateBranchCommit': (value) =>
+    namedType('GitUpdateBranchResult', value, 'reply.value'),
+  'dev.github.updateBranchPlan': (value) => decodeMutationPlan(value),
+  'dev.github.updateCommit': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.updatePlan': (value) => decodeMutationPlan(value),
   // Terminal slice (#396): attach/input return single-use stream grants.
   'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
   'dev.terminal.input': (value) => decodeDevStreamGrant(value),

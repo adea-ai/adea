@@ -524,6 +524,18 @@
       "body": "{ repoId: string; refresh?: boolean }",
       "reply": "GitHubRepository"
     },
+    "dev.github.updateBranchCommit": {
+      "capabilities": ["dev.github.write"],
+      "resource": "pull_request:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitUpdateBranchResult"
+    },
+    "dev.github.updateBranchPlan": {
+      "capabilities": ["dev.github.write"],
+      "resource": "pull_request:required",
+      "body": "{ pullRequestId: string; worktreeId: string; expectedGeneration: integer; strategy: 'merge'; expectedHeadSha: sha; expectedBaseSha: sha }",
+      "reply": "MutationPlan"
+    },
     "dev.github.updateCommit": {
       "capabilities": ["dev.github.write"],
       "resource": "pull_request:required",

@@ -51,6 +51,11 @@ import type { WorktreeService } from './worktrees/service'
 import { registerProjectScanRuntime } from './projects/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
+import {
+  registerGithubRuntime,
+  type GhRunner,
+  type GithubRepoContext,
+} from './github/register'
 import { createCredentialVault, type CredentialVault } from './vault'
 
 export type DevProviderKind = 'provider' | 'typed_unavailable'
@@ -78,6 +83,8 @@ export type DevRuntimeHost = Readonly<{
   files?: ReturnType<typeof registerFilesRuntime>
   /** Present only when a verified scope exists at composition time (#399). */
   git?: ReturnType<typeof registerGitRuntime>
+  /** Present only when a verified scope exists at composition time (#423). */
+  github?: ReturnType<typeof registerGithubRuntime>
   terminal?: TerminalRuntimeRegistration
   /** Present only when a verified scope exists at composition time. */
   resources?: ReturnType<typeof registerResourcesRuntime>
@@ -134,6 +141,8 @@ export type CreateDevRuntimeHostInput = {
   /** #424: live worktree facts for cleanup-policy evaluation; absence fails
    * the evaluation closed (never satisfied). */
   cleanupWorktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
+  /** #423: scripted gh transport (tests inject one; production spawns `gh`). */
+  runGh?: GhRunner
 }
 
 export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRuntimeHost {
@@ -302,6 +311,41 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       })
     : undefined
 
+  // GitHub remote source control (#423): the remote layer on the local git
+  // lane. Repositories resolve through the worktree service's registered
+  // records (their canonical roots are the only push roots), worktrees stay
+  // generation-fenced, and gh is reached through the bounded runner seam —
+  // without a verified scope the operations stay typed-unavailable through
+  // the composition fallback.
+  const registeredRepos = (worktreeService?: WorktreeService) => (): readonly GithubRepoContext[] =>
+    (worktreeService?.listRepos(input.scope!) ?? []).map((repo) => ({
+      repoId: repo.id,
+      canonicalRoot: repo.canonicalRoot,
+      ...(repo.remote !== undefined ? { remote: repo.remote } : {}),
+      ...(repo.defaultBranch !== undefined ? { defaultBranch: repo.defaultBranch } : {}),
+    }))
+  const github = input.scope
+    ? registerGithubRuntime({
+        authority: input.authority,
+        scope: input.scope,
+        resolveRepo: (repoId) =>
+          registeredRepos(worktreeService)().find((repo) => repo.repoId === repoId),
+        listRepos: registeredRepos(worktreeService),
+        resolveWorktree: (worktreeId) => {
+          const record = worktreeService?.getWorktree(input.scope!, worktreeId)
+          if (!record) return undefined
+          return {
+            canonicalRoot: record.canonicalRoot,
+            rootIdentity: record.rootIdentity,
+            generation: record.generation,
+            lifecycle: record.lifecycle,
+            repoId: record.repoId,
+          }
+        },
+        ...(input.runGh ? { runGh: input.runGh } : {}),
+      })
+    : undefined
+
   const terminal =
     input.sidecar && input.scope && input.gateway
       ? registerTerminalRuntime({
@@ -393,6 +437,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(files ? { files } : {}),
     ...(git ? { git } : {}),
+    ...(github ? { github } : {}),
     ...(terminal ? { terminal } : {}),
     ...(resources ? { resources } : {}),
     ...(cleanupPolicies ? { cleanupPolicies } : {}),
