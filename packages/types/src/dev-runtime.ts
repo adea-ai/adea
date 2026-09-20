@@ -4,6 +4,7 @@ import {
   devRuntimeTransportMethods,
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
+import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 
 export {
   devOperationDefinitions,
@@ -820,6 +821,69 @@ export type DeviceInventoryItem = Readonly<{
   observedAt: string
 }>
 
+// ─── #472 computer-use lanes ────────────────────────────────────────────────
+// A computer-use lane is a session-scoped grant over the execution host's
+// real desktop. The wire shape mirrors BrowserLane: immutable identity,
+// generation fences every authority transfer, and no capability state is
+// embedded — capability truth lives in the capability report, probed through
+// the #471 permissions substrate, never asserted by callers.
+
+export const computerUseLaneStates = ['idle', 'granted', 'suspended', 'closed', 'crashed'] as const
+export type ComputerUseLaneState = (typeof computerUseLaneStates)[number]
+
+export type ComputerUseLane = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  state: ComputerUseLaneState
+  automationOwner: 'none' | 'agent' | 'human_takeover'
+  generation: number
+}>
+
+export const computerUseCapabilityIds = ['input', 'capture', 'ax_tree'] as const
+export type ComputerUseCapabilityId = (typeof computerUseCapabilityIds)[number]
+
+/**
+ * One capability row of the report. `state` mirrors the honest probe
+ * taxonomy: `available` only when a probe plus host tool prove it, `denied`
+ * when the TCC service refused, `not_determined` when a consent prompt is
+ * pending, and `unavailable` (with `missingPiece`) when this lane has no way
+ * to prove or provide the capability — never a stand-in for denied/granted.
+ */
+export type ComputerUseCapabilityRow = Readonly<{
+  id: ComputerUseCapabilityId
+  state: 'available' | 'denied' | 'not_determined' | 'unavailable'
+  /** Present exactly when `state` is `unavailable`. */
+  unavailableReason?: 'capability_unavailable' | 'unsupported_platform'
+  /** The exact missing piece for `unavailable` rows. */
+  missingPiece?: string
+  /** The #471 permission the capability depends on, when one does. */
+  permissionId?: MacPermissionId
+  probedAt: string
+}>
+
+export type ComputerUseCapabilityReport = Readonly<{
+  hostPlatform: 'macos' | 'other' | 'unknown'
+  capabilities: readonly ComputerUseCapabilityRow[]
+  probedAt: string
+}>
+
+/**
+ * An issuance-backed, single-use consent record. It binds one owner
+ * confirmation to one lane/generation, carries the digest of the #471
+ * permission snapshot it was minted against, and expires within 60 seconds.
+ */
+export type ComputerUseConsent = Readonly<{
+  consentId: string
+  computerUseLaneId: string
+  runtimeSessionId: string
+  scope: Scope
+  generation: number
+  permissionDigest: string
+  createdAt: string
+  expiresAt: string
+}>
+
 export type PortRecord = Readonly<{
   id: string
   scope: Scope
@@ -1170,6 +1234,105 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.generation, `${path}.generation`, 0)
     return value
   }
+  // #472 computer-use lanes. Shapes mirror the spec's "Computer use lanes"
+  // section; capability rows carry their own probe time and never embed a
+  // caller-supplied state.
+  if (name === 'ComputerUseLane') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'runtimeSessionId', 'state', 'automationOwner', 'generation'],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    literal(item.state, computerUseLaneStates, `${path}.state`)
+    literal(item.automationOwner, ['none', 'agent', 'human_takeover'], `${path}.automationOwner`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'ComputerUseCapabilityRow') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'state', 'probedAt'],
+      ['unavailableReason', 'missingPiece', 'permissionId'],
+      path
+    )
+    literal(item.id, computerUseCapabilityIds, `${path}.id`)
+    literal(item.state, ['available', 'denied', 'not_determined', 'unavailable'], `${path}.state`)
+    if (item.unavailableReason !== undefined) {
+      if (item.state !== 'unavailable')
+        fail(`${path}.unavailableReason`, 'state is not unavailable')
+      literal(
+        item.unavailableReason,
+        ['capability_unavailable', 'unsupported_platform'],
+        `${path}.unavailableReason`
+      )
+    }
+    if (item.missingPiece !== undefined) {
+      if (item.state !== 'unavailable') fail(`${path}.missingPiece`, 'state is not unavailable')
+      stringValue(item.missingPiece, `${path}.missingPiece`, 1, 512)
+    }
+    if (item.permissionId !== undefined) {
+      if (!isMacPermissionId(item.permissionId))
+        fail(`${path}.permissionId`, 'unknown permission id')
+    }
+    timestamp(item.probedAt, `${path}.probedAt`)
+    return value
+  }
+  if (name === 'ComputerUseCapabilityReport') {
+    const item = record(value, path)
+    exactKeys(item, ['hostPlatform', 'capabilities', 'probedAt'], [], path)
+    literal(item.hostPlatform, ['macos', 'other', 'unknown'], `${path}.hostPlatform`)
+    if (!Array.isArray(item.capabilities)) fail(`${path}.capabilities`, 'expected array')
+    if (item.capabilities.length > computerUseCapabilityIds.length)
+      fail(`${path}.capabilities`, 'more capability rows than capability ids')
+    const seen = new Set<string>()
+    item.capabilities.forEach((entry, index) => {
+      const row = namedType(
+        'ComputerUseCapabilityRow',
+        entry,
+        `${path}.capabilities[${index}]`
+      ) as ComputerUseCapabilityRow
+      if (seen.has(row.id)) fail(`${path}.capabilities`, 'duplicate capability row')
+      seen.add(row.id)
+    })
+    timestamp(item.probedAt, `${path}.probedAt`)
+    return value
+  }
+  if (name === 'ComputerUseConsent') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'consentId',
+        'computerUseLaneId',
+        'runtimeSessionId',
+        'scope',
+        'generation',
+        'permissionDigest',
+        'createdAt',
+        'expiresAt',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.consentId, `${path}.consentId`)))
+      fail(`${path}.consentId`, 'expected lowercase UUID')
+    stringValue(item.computerUseLaneId, `${path}.computerUseLaneId`, 1, 256)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    decodeScope(item.scope, `${path}.scope`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    if (!sha256Pattern.test(stringValue(item.permissionDigest, `${path}.permissionDigest`)))
+      fail(`${path}.permissionDigest`, 'expected sha256')
+    timestamp(item.createdAt, `${path}.createdAt`)
+    timestamp(item.expiresAt, `${path}.expiresAt`)
+    return value
+  }
   if (name === 'BrowserTarget') {
     const item = record(value, path)
     exactKeys(item, ['id', 'browserLaneId', 'type', 'url', 'title', 'generation'], [], path)
@@ -1358,6 +1521,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
   if (name === 'CleanupBlocker') return decodeCleanupBlocker(value, path)
   if (name === "DeviceSession['kind']")
     return literal(value, ['responsive', 'ios_simulator', 'android_emulator', 'physical'], path)
+  if (name === "ComputerUseLane['state']") return literal(value, computerUseLaneStates, path)
   if (name === 'DeviceGesture') {
     const item = record(value, path)
     const kind = literal(item.kind, ['tap', 'swipe', 'key', 'text'], `${path}.kind`)
@@ -2356,6 +2520,20 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
       'reply.value'
     ),
   'dev.browser.viewport': (value) => namedType('BrowserLane', value, 'reply.value'),
+  // #472 computer-use lanes. Stream-grant replies decode like the
+  // browser/device attach/input pairs; capability/consent replies use the
+  // strict named-type validators above.
+  'dev.computeruse.attach': (value) => decodeDevStreamGrant(value),
+  'dev.computeruse.capabilities': (value) =>
+    namedType('ComputerUseCapabilityReport', value, 'reply.value'),
+  'dev.computeruse.consent': (value) => namedType('ComputerUseConsent', value, 'reply.value'),
+  'dev.computeruse.input': (value) => decodeDevStreamGrant(value),
+  'dev.computeruse.laneClose': (value) => namedType('ComputerUseLane', value, 'reply.value'),
+  'dev.computeruse.laneCreate': (value) => namedType('ComputerUseLane', value, 'reply.value'),
+  'dev.computeruse.lanes': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('ComputerUseLane', item, path), value),
+  'dev.computeruse.release': (value) => namedType('ComputerUseLane', value, 'reply.value'),
+  'dev.computeruse.takeover': (value) => namedType('ComputerUseLane', value, 'reply.value'),
   'dev.device.attach': (value) => decodeDevStreamGrant(value),
   'dev.device.input': (value) => decodeDevStreamGrant(value),
   'dev.device.list': (value) =>

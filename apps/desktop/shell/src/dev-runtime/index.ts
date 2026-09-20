@@ -24,6 +24,9 @@ import { createProjectGrantAuthority, type ProjectGrantAuthority } from './grant
 import { createRootBookmarkAuthority, type RootBookmarkAuthority } from './roots'
 import { registerBrowserDeviceRuntime, type BrowserDeviceRuntime } from './browser/register'
 import type { AdeaOwnedService } from './browser/navigation-policy'
+import { registerComputerUseRuntime, type ComputerUseRuntime } from './computeruse/register'
+import type { ComputerUseEngine } from './computeruse/engine'
+import type { MacPermissionService } from '../desktop-permissions'
 import {
   registerProjectSessionRuntime,
   type ProjectSessionRuntime,
@@ -53,6 +56,7 @@ export type DevRuntimeHost = Readonly<{
   vault: CredentialVault
   grants: ProjectGrantAuthority
   browserDevices: BrowserDeviceRuntime
+  computerUse: ComputerUseRuntime
   /** Present only when a verified scope exists at composition time. */
   projectSession?: ProjectSessionRuntime
   /** Present only when a verified scope exists at composition time. */
@@ -87,6 +91,10 @@ export type CreateDevRuntimeHostInput = {
   managedPi?: ManagedPiDriver
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
+  /** Overrides the #471 permission service for the computer-use lanes (#472). */
+  macPermissions?: MacPermissionService
+  /** Overrides the computer-use input engine (#472; tests inject scripted ones). */
+  computerUseEngine?: ComputerUseEngine
 }
 
 export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRuntimeHost {
@@ -187,6 +195,16 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(input.ownedServices ? { ownedServices: input.ownedServices } : {}),
   })
 
+  // #472 computer-use lanes: session-scoped grants whose consent gate
+  // consumes the #471 permission substrate. The default input engine is the
+  // real fixed-argv host tooling; tests inject a scripted engine.
+  const computerUse = registerComputerUseRuntime({
+    authority: input.authority,
+    ...(input.gateway ? { gateway: input.gateway } : {}),
+    ...(input.macPermissions ? { macPermissions: input.macPermissions } : {}),
+    ...(input.computerUseEngine ? { engine: input.computerUseEngine } : {}),
+  })
+
   const worktrees = input.scope
     ? registerWorktreeRuntime({
         authority: input.authority,
@@ -255,6 +273,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     vault,
     grants,
     browserDevices,
+    computerUse,
     ...(projectSession ? { projectSession } : {}),
     ...(harness ? { harness } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },

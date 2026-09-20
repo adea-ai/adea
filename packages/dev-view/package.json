@@ -36,6 +36,12 @@
       "development": "./src/devices/index.ts",
       "import": "./dist/devices/index.js"
     },
+    "./computeruse": {
+      "types": "./dist/computeruse/index.d.ts",
+      "solid": "./src/computeruse/index.ts",
+      "development": "./src/computeruse/index.ts",
+      "import": "./dist/computeruse/index.js"
+    },
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",
       "solid": "./src/permissions/index.ts",
