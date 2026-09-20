@@ -5,6 +5,7 @@
 // its raw bytes retained (never silently dropped), and retention is bounded.
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -125,8 +126,12 @@ export function createRecordStore(
 ): RecordStore {
   const maxRecords = options?.maxRecords ?? DEFAULT_MAX_RECORDS
   mkdirSync(dir, { recursive: true, mode: 0o700 })
+  // Creation modes do not tighten permissions on an existing journal. Reassert
+  // the owner-only contract before reading or appending any launch identity.
+  chmodSync(dir, 0o700)
   const path = join(dir, RECORDS_FILE)
   if (!existsSync(path)) writeFileSync(path, '', { mode: 0o600 })
+  chmodSync(path, 0o600)
 
   const { records: loaded, corrupt } = loadRecords(path)
   let records = loaded
@@ -139,6 +144,7 @@ export function createRecordStore(
       `${existing}${corrupt.map((line) => (line.endsWith('\n') ? line : `${line}\n`)).join('')}`,
       { mode: 0o600 }
     )
+    chmodSync(quarantinePath, 0o600)
     persistRecords(path, records)
   }
 

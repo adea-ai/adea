@@ -238,6 +238,17 @@ describe('project grant authority', () => {
         rootBookmarkId: root.id,
         approval: approved(GRANT_ACTION),
       })
+      const forged: OwnerApproval = {
+        method: 'owner_dialog',
+        reference: 'never-issued-duplicate-grant',
+        scope,
+        issuedAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      expectCode(
+        () => grants.create({ scope, projectId, rootBookmarkId: root.id, approval: forged }),
+        'unauthorized'
+      )
       const duplicate = grants.create({
         scope,
         projectId,

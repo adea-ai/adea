@@ -469,7 +469,12 @@ export function createCredentialVault(options: {
         entry.state !== 'revoked'
     )
     if (existing) {
-      if (existing.state === 'ready') return existing
+      if (existing.state === 'ready') {
+        // Idempotency does not waive the owner-approval contract. Consume the
+        // fresh, action-bound approval even for a durable no-op.
+        approvalVerifier.consume(approval, input.scope, 'enroll a credential')
+        return existing
+      }
       // 'unknown' means the sealed material is unreadable: this explicit
       // re-enrollment repairs the record under the owner's fresh approval.
       approvalVerifier.consume(approval, input.scope, 'enroll a credential')

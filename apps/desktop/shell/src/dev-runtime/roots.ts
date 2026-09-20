@@ -229,7 +229,10 @@ export function createRootBookmarkAuthority(options: {
         entry.canonicalRoot === canonicalRoot
     )
     if (existing && existing.state === 'active') {
-      // Durable mutations are idempotent: re-minting a live root is a no-op.
+      // Idempotency does not waive the owner-approval contract. Consume the
+      // fresh, action-bound approval even for a durable no-op so a forged
+      // structural record can never receive a successful mutation response.
+      approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
       return existing
     }
     if (existing && existing.state === 'stale') {

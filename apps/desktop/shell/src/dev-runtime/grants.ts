@@ -123,7 +123,10 @@ export function createProjectGrantAuthority(options: {
         entry.state === 'active'
     )
     if (existing) {
-      // Durable mutations are idempotent: re-granting a live pair is a no-op.
+      // Idempotency does not waive the owner-approval contract. Consume the
+      // fresh, action-bound approval even for a durable no-op so a forged
+      // structural record can never receive a successful mutation response.
+      approvalVerifier.consume(approval, input.scope, 'grant a project its root')
       return existing
     }
 

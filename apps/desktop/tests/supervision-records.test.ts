@@ -150,11 +150,14 @@ describe('supervision record store', () => {
     expect(DEFAULT_MAX_RECORDS).toBe(1_000)
   })
 
-  test('records live owner-only', () => {
+  test('records live owner-only, including when reopening loose files', () => {
     const dir = temporaryDirectory()
     try {
+      mkdirSync(dir, { recursive: true, mode: 0o755 })
+      writeFileSync(join(dir, 'records.jsonl'), '', { mode: 0o644 })
       createRecordStore(dir)
-      // Owner read/write only (0o600); the directory itself is 0o700.
+      // Creation modes do not protect an existing journal; reopening must
+      // tighten both the directory and the launch-identity file.
       expect(statSync(join(dir, 'records.jsonl')).mode & 0o777).toBe(0o600)
       expect(statSync(dir).mode & 0o777).toBe(0o700)
     } finally {
