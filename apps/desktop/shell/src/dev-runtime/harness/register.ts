@@ -72,9 +72,44 @@ export type HarnessRuntimeInput = {
   managedPi?: ManagedPiDriver
   /** Overrides the ACP lane driver (tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
+  /**
+   * #400 residue: guarded PTY prompt delivery (the terminal runtime's input
+   * authority). Absent on hosts without a terminal runtime — delivery then
+   * records a typed non-delivery instead of pretending the prompt shipped.
+   */
+  deliverPrompt?: PromptDeliverySeam
   audit?: AuthorityAudit
   now?: () => number
 }
+
+/** A launch's initial-prompt delivery request into the session's PTY. */
+export type PromptDeliveryRequest = Readonly<{
+  runtimeSessionId: string
+  harnessRunId: string
+  prompt: string
+}>
+
+/**
+ * The terminal runtime's delivery verdict (its guarded fenced-write result).
+ * `ok: true` carries the fenced-write provenance; `ok: false` is a typed
+ * non-delivery the launch transaction records. The register defers to a live
+ * ACP lane BEFORE calling the seam — the explicit split: an ACP lane owns the
+ * session's structured transport, so its lane adapter delivers the prompt and
+ * the host never touches the PTY input stream.
+ */
+export type PromptDeliveryResult =
+  | Readonly<{
+      ok: true
+      terminalId: string
+      terminalGeneration: number
+      chunks: number
+      bytes: number
+    }>
+  | Readonly<{ ok: false; code: string; message: string }>
+
+export type PromptDeliverySeam = (
+  request: PromptDeliveryRequest
+) => PromptDeliveryResult | Promise<PromptDeliveryResult>
 
 export type HarnessRuntimeRegistration = Readonly<{
   commands: readonly DevOperation[]
@@ -282,6 +317,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     kind: RuntimeEvent['kind']
     payload?: unknown
     sourceEventId: string
+    /** Defaults to workspace_metadata; user-content facts are workspace_private. */
+    classification?: RuntimeEvent['classification']
   }): void {
     events.append({
       runtimeSessionId: event.session.id,
@@ -290,7 +327,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       kind: event.kind,
       source: 'host',
       confidence: 'authoritative',
-      classification: 'workspace_metadata',
+      classification: event.classification ?? 'workspace_metadata',
       payload: event.payload ?? {},
       sourceEventId: event.sourceEventId,
     })
@@ -355,16 +392,104 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     })
   }
 
+  /**
+   * #400 residue: initial-prompt delivery for a launched run (launch
+   * transaction steps 6-7). The transport split is explicit:
+   * - a live ACP lane owns the session's structured transport, so its lane
+   *   adapter delivers the prompt — the host defers without touching the
+   *   PTY input stream and no host turn event is fabricated over the
+   *   lane's own tier;
+   * - otherwise a PTY-backed launch delivers through the terminal runtime's
+   *   fenced input authority exactly once (dedupe key `host:prompt:<runId>`,
+   *   and the idempotent-launch early return precedes delivery, so a retry
+   *   never re-delivers). Delivery provenance lands as a canonical host
+   *   event — `turn.user_input` for the delivered submit (the host performed
+   *   this write; it never claims the harness consumed it), or
+   *   `capability.degraded` naming the typed reason when nothing shipped.
+   *   The prompt text itself stays in the control plane only — the event
+   *   payload carries fenced-write provenance, never content.
+   * A delivery failure does NOT fail the launch (partial failure retains the
+   * terminal/worktree) and never retries blindly.
+   */
+  async function deliverInitialPrompt(params: {
+    session: RuntimeSession
+    run: HarnessRun
+    prompt: string
+  }): Promise<void> {
+    const sourceEventId = `host:prompt:${params.run.id}`
+    const liveLane = lane.readyFor(params.session.id)
+    if (liveLane) return
+    if (!input.deliverPrompt) {
+      appendEventFact({
+        session: params.session,
+        harnessRunId: params.run.id,
+        kind: 'capability.degraded',
+        payload: {
+          harnessRunId: params.run.id,
+          transport: 'pty_input',
+          reason: 'no terminal runtime is composed on this host',
+        },
+        sourceEventId,
+      })
+      return
+    }
+    let result: PromptDeliveryResult
+    try {
+      result = await input.deliverPrompt({
+        runtimeSessionId: params.session.id,
+        harnessRunId: params.run.id,
+        prompt: params.prompt,
+      })
+    } catch (error) {
+      result = {
+        ok: false,
+        code: 'invalid_state',
+        message: error instanceof Error ? error.message : 'prompt delivery failed',
+      }
+    }
+    if (result.ok) {
+      appendEventFact({
+        session: params.session,
+        harnessRunId: params.run.id,
+        kind: 'turn.user_input',
+        classification: 'workspace_private',
+        payload: {
+          harnessRunId: params.run.id,
+          transport: 'pty_input',
+          terminalId: result.terminalId,
+          terminalGeneration: result.terminalGeneration,
+          chunks: result.chunks,
+          bytes: result.bytes,
+        },
+        sourceEventId,
+      })
+      return
+    }
+    appendEventFact({
+      session: params.session,
+      harnessRunId: params.run.id,
+      kind: 'capability.degraded',
+      payload: {
+        harnessRunId: params.run.id,
+        transport: 'pty_input',
+        reason: `${result.code}: ${result.message}`,
+      },
+      sourceEventId,
+    })
+  }
+
   /** The shared launch transaction body for launchHarness/launchDefault:
    * idempotent on a live identical run, fenced to one active run, and
-   * emitting the canonical created/starting facts. */
-  function launchRun(params: {
+   * emitting the canonical created/starting facts. The optional initial
+   * prompt delivers exactly once per run, after the run facts land. */
+  async function launchRun(params: {
     session: RuntimeSession
     installationId: string
     agentProfileId: string
     agentProfileVersion: number
     modelId?: string
-  }): HarnessRun {
+    initialPrompt?: string
+  }): Promise<HarnessRun> {
     const active = activeRunFor(params.session.id)
     if (
       active &&
@@ -423,6 +548,12 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       payload: { harnessRunId: run.id },
       sourceEventId: `host:session-starting:${run.id}`,
     })
+    // Delivery runs after the run facts land and before the publish, so the
+    // stream reads created → starting → (user_input | degraded) as one
+    // transaction and Dev/Chat observe the delivery through the same channel.
+    if (params.initialPrompt !== undefined && params.initialPrompt.length > 0) {
+      await deliverInitialPrompt({ session: nextSession, run, prompt: params.initialPrompt })
+    }
     publish('run.created', {
       harnessRunId: run.id,
       runtimeSessionId: nextSession.id,
@@ -744,7 +875,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     },
 
     // ── Canonical-session run operations (launch surface) ─────────────────
-    'dev.session.launchHarness': (command) => {
+    'dev.session.launchHarness': async (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.launchHarness'].request(command.body)
       const session = resolveSessionOrThrow(body.runtimeSessionId as string)
@@ -757,9 +888,10 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         agentProfileId: body.agentProfileId as string,
         agentProfileVersion: body.agentProfileVersion as number,
         ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
+        ...(typeof body.initialPrompt === 'string' ? { initialPrompt: body.initialPrompt } : {}),
       })
     },
-    'dev.session.launchDefault': (command) => {
+    'dev.session.launchDefault': async (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.launchDefault'].request(command.body)
       const session = resolveSessionOrThrow(body.runtimeSessionId as string)
@@ -806,6 +938,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           : resolution.kind === 'preference' && resolution.preference.modelId !== undefined
             ? { modelId: resolution.preference.modelId }
             : {}) as { modelId?: string }),
+        ...(typeof body.initialPrompt === 'string' ? { initialPrompt: body.initialPrompt } : {}),
       })
     },
     'dev.session.resumeHarness': (command) => {

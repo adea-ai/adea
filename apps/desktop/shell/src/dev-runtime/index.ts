@@ -223,6 +223,23 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     })
   }
 
+  // #400 residue: the terminal runtime composes before the harness runtime so
+  // the launch transaction can deliver initial prompts through its guarded
+  // input-authority seam (PTY-backed launches only; ACP lanes deliver through
+  // their own adapter).
+  const terminal =
+    input.sidecar && input.scope && input.gateway
+      ? registerTerminalRuntime({
+          authority: input.authority,
+          gateway: input.gateway,
+          sidecar: input.sidecar,
+          scope: input.scope,
+          runtimeRoot: input.runtimeRoot,
+          resolveWorktreeRoot: (worktreeId) =>
+            worktreeService?.getWorktree(input.scope!, worktreeId)?.canonicalRoot ?? null,
+        })
+      : undefined
+
   let harness: HarnessRuntimeRegistration | undefined
   // The shell event bus fans out to the host publisher AND the harness
   // event-log ingester, so the canonical stream carries the register's
@@ -242,6 +259,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         ...(input.gateway ? { gateway: input.gateway } : {}),
         ...(input.managedPi ? { managedPi: input.managedPi } : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
+        ...(terminal ? { deliverPrompt: terminal.deliverPrompt } : {}),
       })
     : undefined
 
@@ -348,19 +366,6 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         ...(input.runGh ? { runGh: input.runGh } : {}),
       })
     : undefined
-
-  const terminal =
-    input.sidecar && input.scope && input.gateway
-      ? registerTerminalRuntime({
-          authority: input.authority,
-          gateway: input.gateway,
-          sidecar: input.sidecar,
-          scope: input.scope,
-          runtimeRoot: input.runtimeRoot,
-          resolveWorktreeRoot: (worktreeId) =>
-            worktreeService?.getWorktree(input.scope!, worktreeId)?.canonicalRoot ?? null,
-        })
-      : undefined
 
   // #424 runtime resources, usage, activity, and safe cleanup. The listing
   // providers compose the #422 port inventory and the injected supervision

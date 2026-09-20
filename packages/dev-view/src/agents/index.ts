@@ -10,3 +10,4 @@ export {
   type InstallationDisplayState,
 } from './harness-status-model'
 export { HarnessStatusPane, harnessStateDotClass } from './harness-status-pane'
+export { HarnessStatusSection, type HarnessStatusSectionProps } from './harness-status-section'

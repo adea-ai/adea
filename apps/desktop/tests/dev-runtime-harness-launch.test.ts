@@ -637,6 +637,155 @@ describe('harness preferences and the root default (#400)', () => {
   }, 60_000)
 })
 
+describe('preference reset-to-defaults contract (#400 residue)', () => {
+  const PROJECT_B = '00000000-0000-4000-8000-0000000000ac'
+
+  async function expressPreferences(
+    channel: Awaited<ReturnType<Boot['openChannel']>>,
+    installationId: string
+  ) {
+    // A global default with a preferred model plus a project-scoped default:
+    // the full stored overlay.
+    okValue(
+      await channel.execute(
+        commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+          installationId,
+          expectedVersion: 0,
+          patch: { enabled: true, default: true, modelId: 'test-model' },
+        })
+      )
+    )
+    okValue(
+      await channel.execute(
+        commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+          installationId,
+          expectedVersion: 0,
+          projectId: PROJECT_B,
+          patch: { enabled: true, default: true },
+        })
+      )
+    )
+  }
+
+  test('scope-wide reset clears the whole stored overlay; nothing but managed-Pi-first remains', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: installationId },
+    })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      await expressPreferences(channel, installationId)
+      expect(
+        (
+          okValue(await channel.execute(commandFor('dev.harness.preferences', SCOPE_A, {})))
+            .items as unknown[]
+        ).length
+      ).toBe(2)
+
+      // Reset the WHOLE overlay.
+      const reset = okValue(
+        await channel.execute(commandFor('dev.harness.preferenceReset', SCOPE_A, {}))
+      )
+      const items = reset.items as Array<Record<string, unknown>>
+      // Exactly the synthesized managed root default remains: no user record
+      // (enabled flag, ordering, global/project defaults, preferred model)
+      // survived — those live only in the cleared overlay.
+      expect(items).toHaveLength(1)
+      expect(items[0]).toMatchObject({
+        harnessInstallationId: shell.managedPiStatus().installationId,
+        enabled: true,
+        default: true,
+      })
+      expect(items[0]!.projectId).toBeUndefined()
+
+      // Reset returns to version-0 addressing: the installation is
+      // re-addressable fresh, with no stale-version memory.
+      const recreated = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceUpdate', SCOPE_A, {
+            installationId,
+            expectedVersion: 0,
+            patch: { enabled: true },
+          })
+        )
+      )
+      expect(recreated).toMatchObject({ version: 1, enabled: true })
+
+      // What persists: the managed installation stays ready (discovery and
+      // runs are never touched by a preference reset).
+      expect(shell.managedPiStatus()).toMatchObject({ state: 'ready' })
+      okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('per-project reset clears only that project slice; global defaults persist', async () => {
+    const installationId = randomUUID()
+    const shell = await boot({
+      archiveResolver: DEFAULT_ARCHIVE,
+      seedAcpInstallation: { id: installationId },
+    })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      await expressPreferences(channel, installationId)
+
+      const reset = okValue(
+        await channel.execute(
+          commandFor('dev.harness.preferenceReset', SCOPE_A, { projectId: PROJECT_B })
+        )
+      )
+      const items = reset.items as Array<Record<string, unknown>>
+      // The global default record survives; the project slice is gone.
+      expect(items.some((item) => item.projectId === undefined && item.default === true)).toBe(true)
+      expect(items.some((item) => item.projectId === PROJECT_B)).toBe(false)
+
+      // The surviving global default still resolves for a project launch.
+      const session = await createSession(shell.host(), channel)
+      const launched = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      expect(launched.installationId).toBe(installationId)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test('reset without any stored preference is an idempotent no-op', async () => {
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
+    try {
+      const channel = await shell.openChannel()
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const reset = okValue(
+        await channel.execute(commandFor('dev.harness.preferenceReset', SCOPE_A, {}))
+      )
+      const items = reset.items as Array<Record<string, unknown>>
+      expect(items).toHaveLength(1)
+      expect(items[0]).toMatchObject({
+        harnessInstallationId: shell.managedPiStatus().installationId,
+        default: true,
+      })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
 describe('observed run status through the gate (#400)', () => {
   async function launchFirst(shell: Boot, channel: Awaited<ReturnType<Boot['openChannel']>>) {
     await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))

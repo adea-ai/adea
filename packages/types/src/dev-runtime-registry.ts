@@ -905,14 +905,14 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.session.launchDefault': {
-    body: '{ runtimeSessionId: string; expectedGeneration: integer; agentProfileId: string; agentProfileVersion: integer; modelId?: string }',
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; agentProfileId: string; agentProfileVersion: integer; modelId?: string; initialPrompt?: string(1..65536) }',
     capabilities: ['dev.session.manage'],
     reply: 'HarnessRun',
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: null,
   },
   'dev.session.launchHarness': {
-    body: '{ runtimeSessionId: string; expectedGeneration: integer; harnessInstallationId: string; agentProfileId: string; agentProfileVersion: integer; modelId?: string }',
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; harnessInstallationId: string; agentProfileId: string; agentProfileVersion: integer; modelId?: string; initialPrompt?: string(1..65536) }',
     capabilities: ['dev.session.manage'],
     reply: 'HarnessRun',
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },

@@ -298,6 +298,21 @@ const ResourcesPane = lazy(() =>
   import('./resources/resources-pane').then((module) => ({ default: module.ResourcesPane }))
 )
 /*
+ * #400: the Agents pane's harness status and the History pane's run history
+ * ride their own lazy chunks inside the Dev boundary, exactly like the browser
+ * and device panes; each renders only while its utility pane is visible.
+ */
+const HarnessStatusSection = lazy(() =>
+  import('./agents/harness-status-section').then((module) => ({
+    default: module.HarnessStatusSection,
+  }))
+)
+const RunHistorySection = lazy(() =>
+  import('./history/run-history-section').then((module) => ({
+    default: module.RunHistorySection,
+  }))
+)
+/*
  * #399: Files/Source Control utility panes and the central editor leaf ride
  * their own lazy chunks inside the Dev boundary, exactly like the browser and
  * device panes; the editor's CodeMirror family loads one dynamic import
@@ -1431,9 +1446,11 @@ function UtilitySlot(props: {
         />
       )
     }
-    // #424: the Agents pane carries the Activity section (running harness
-    // runs, attention states, elapsed time, and stop controls); History keeps
-    // its provider-state placeholder until its own slice lands.
+    // #424 + #400: the Agents pane carries the harness status surface (the
+    // session's run state, default harness, and preference rows) above the
+    // Activity section (running harness runs, attention states, elapsed time,
+    // and stop controls). History mounts its bounded run-history rows; both
+    // keep their provider-state fallback when the runtime is unavailable.
     if (pane === 'agents') {
       return runtimeReady() ? (
         <Suspense
@@ -1445,11 +1462,33 @@ function UtilitySlot(props: {
             />
           }
         >
+          <HarnessStatusSection runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
           <ActivityPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
         </Suspense>
       ) : (
         <PaneProviderState
           title="Agents"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
+    if (pane === 'history') {
+      return runtimeReady() ? (
+        <Suspense
+          fallback={
+            <PaneProviderState
+              title="History"
+              capability={PANE_CAPABILITY[pane]}
+              state={props.capabilityOf(pane)}
+            />
+          }
+        >
+          <RunHistorySection runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+        </Suspense>
+      ) : (
+        <PaneProviderState
+          title="History"
           capability={PANE_CAPABILITY[pane]}
           state={props.capabilityOf(pane)}
         />

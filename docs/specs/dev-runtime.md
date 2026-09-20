@@ -2224,6 +2224,43 @@ Changing AgentProfile does not silently select credentials. Changing harness
 does not rename the profile. A linked donor persona's inherited provider/model
 behavior is not the Adea identity model.
 
+### Initial prompt delivery
+
+`dev.session.launchHarness` and `dev.session.launchDefault` accept an optional
+bounded `initialPrompt` (1–64 KiB) delivered as launch step 7. The transport
+split is explicit and scoped to the harness kind:
+
+- **PTY-backed launches** deliver through the terminal runtime's guarded input
+  authority. The host acquires the session's live terminal as the
+  `prompt_delivery` input source at the terminal's current generation — the
+  TerminalInputAuthority single-writer contract: an equal-generation takeover
+  atomically displaces the current writer (a user's write stream is rejected
+  on its next chunk, before the PTY), every chunk is re-admitted against the
+  fence so a partial prompt cannot cross an ownership change, and the fence is
+  released after the submit. Delivery is ONE bounded submit — the verbatim
+  prompt plus a single Enter terminator, written in ≤1 KiB revalidated chunks;
+  no shell interpolation, no bracketed-paste rewriting, no retry. It happens
+  exactly once per run: the idempotent-launch early return precedes delivery
+  and the provenance event dedupes on `host:prompt:<runId>`, so a retried
+  launch never re-delivers; reconcile/retry after ambiguity is a caller
+  decision.
+- **ACP-launched harnesses** never use this path: while a live ACP lane is
+  bound to the session, the lane adapter owns prompt delivery through the
+  structured transport (native/ACP outranks guarded PTY), and the host writes
+  nothing to the PTY input stream and appends no turn events over the lane's
+  own tier.
+
+Delivery provenance is canonical and auditable: a delivered submit appends an
+authoritative host `turn.user_input` event with `workspace_private`
+classification whose payload carries the fenced-write provenance (run id,
+`pty_input` transport, terminal id and generation, chunk/byte counts) and
+never the prompt text — prompt content stays in the control plane only. A
+typed non-delivery (no terminal runtime composed, no live terminal for the
+session, refused or interrupted fenced write) appends a host
+`capability.degraded` event naming the reason. A delivery failure never fails
+the launch (partial failure retains the terminal/worktree) and never silently
+masquerades as delivered.
+
 ### Launch orchestration, preferences, and the root default
 
 Preferences are the user-expressed overlay on a runtime node, stored per
@@ -2569,7 +2606,18 @@ listing without a source is truthful-empty rather than fabricated:
 
 ### Runtime activity
 
-The Agents pane carries an Activity section built from `dev.harness.runs`
+The Agents pane mounts the harness status surface above the Activity section:
+the session's derived run state (idle stays idle, `unknown` stays unknown, a
+fallback-only transport offers jump-to-terminal instead of implying structured
+events), the effective default harness, and the preference rows with their
+installation display states, all projected through the pure status model from
+`dev.harness.runs` / `dev.harness.preferences` / `dev.harness.managedPiStatus`.
+The History pane mounts the bounded run-history rows (newest-first,
+redacted by construction, resume/jump affordances through caller-owned
+callbacks only). Both ride their own lazy chunks inside the Dev boundary and
+render their capability state truthfully when the runtime is unavailable.
+
+The Agents pane also carries an Activity section built from `dev.harness.runs`
 (event provenance: the harness substrate's run records). Rows show the
 agent/profile, model, state, and elapsed time; `awaiting_input` and
 `awaiting_approval` states are attention-ranked first, so the pane answers
@@ -2976,6 +3024,22 @@ by M14 and is not a hidden M12 acceptance criterion.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-20 — #400 launch residues: initial prompt delivery, runtime-events
+  e2e proof, pane mounts, and reset pinning.** `dev.session.launchHarness` and
+  `dev.session.launchDefault` accept an optional bounded `initialPrompt`
+  (1–64 KiB; total operations unchanged) delivered per launch step 7: guarded
+  PTY input for PTY-backed launches (the terminal input authority's
+  `prompt_delivery` single-writer takeover, per-chunk re-admission, one
+  bounded submit, exactly-once per run via the idempotent-launch early return
+  plus `host:prompt:<runId>` dedupe), explicit deferral to the ACP lane
+  adapter while a live ACP lane owns the session, and canonical
+  provenance-only `turn.user_input` (`workspace_private`) or
+  `capability.degraded` events — never prompt content in the event log, never
+  a launch failure from a delivery failure. New "Initial prompt delivery"
+  section. The Agents pane mounts the harness status surface and the History
+  pane the run-history rows (lazy-chunked, per "Runtime activity"). The
+  reset-to-defaults contract (scope-wide vs per-project reset, version-0
+  re-addressing, discovery/runs untouched) is documented and pinned.
 - **2026-09-19 — supervised computer-use lanes (#472, planning slice).**
   Added the `dev.computeruse` operation family (`capabilities`, `lanes`,
   `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`,
@@ -3310,6 +3374,17 @@ files in the same commit:
   attach with channel-secret proof, foreign-channel refusal), and the
   runtime-events-v1 handler (bounded newest-frame replay, live push,
   stale-generation close, read-only discipline);
+  `apps/desktop/tests/harness-events-channel.test.ts` proves the full
+  websocket attach end-to-end over a real channel gateway (grant mint →
+  signed attach → `opened` → bounded CBOR replay → live push → ack →
+  single-use attach replay refusal → generation-fenced `stale_generation`
+  close);
+- `apps/desktop/tests/dev-runtime-harness-prompt.test.ts` pins the
+  launch→prompt-delivery residues: exactly-once fenced delivery into the
+  session PTY through the `prompt_delivery` input authority (with provenance
+  events and no prompt content), typed non-delivery without a live terminal,
+  ACP-lane deferral, and single-writer fencing (a superseded user writer is
+  rejected before the PTY);
 - `packages/types/tests/dev-runtime-harness.test.ts` pins the #400 wire
   contract: every new request body and success reply (preferences, run
   status, launchDefault, the events stream grant) decodes strictly and

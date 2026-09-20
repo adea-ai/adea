@@ -22,7 +22,7 @@ import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type { SidecarClient } from './sidecar/client'
 import type { ByteFrameMeta } from './sidecar/protocol'
 import { installWrapper, parseShellKind, type ShellKind } from './shell-integration'
-import { createInputAuthority, type InputFence } from './input-authority'
+import { createInputAuthority, fencedWrite, type InputFence } from './input-authority'
 
 const LIFECYCLE_TO_STATE: Record<string, TerminalState> = {
   creating: 'creating',
@@ -82,6 +82,24 @@ export type RegisterTerminalRuntimeInput = {
 
 export type TerminalRuntimeRegistration = {
   readonly commands: readonly DevOperation[]
+  /**
+   * #400 residue: guarded prompt delivery into a runtime session's PTY.
+   * Acquires the terminal's input authority as the `prompt_delivery` source
+   * (the TerminalInputAuthority single-writer contract), writes the prompt
+   * through the fenced chunk writer, and releases. Never a raw sidecar write:
+   * an in-flight user writer loses ownership atomically and its later chunks
+   * are rejected before reaching the PTY.
+   */
+  deliverPrompt(input: { runtimeSessionId: string; prompt: string }): Promise<
+    | {
+        ok: true
+        terminalId: string
+        terminalGeneration: number
+        chunks: number
+        bytes: number
+      }
+    | { ok: false; code: DevError['code']; message: string }
+  >
   /** Detaches every stream; PTY sessions and their history live on. */
   dispose(): void
 }
@@ -665,8 +683,120 @@ export function registerTerminalRuntime(
   }
   registerStreamProvider()
 
+  // ── #400 residue: guarded prompt delivery (launch → PTY input) ───────────
+  //
+  // The launch transaction delivers the initial prompt through the strongest
+  // supported channel; for PTY-backed launches that is this guarded write
+  // path. Delivery is fenced exactly like a client write stream — one
+  // `prompt_delivery` owner, per-chunk re-admission, explicit release — so a
+  // prompt cannot interleave with a user's paste or cross an ownership
+  // change. It is bounded to ONE submit (the verbatim prompt plus a single
+  // Enter terminator); reconcile/retry stays a caller decision, never an
+  // automatic re-delivery (spec: a timeout/ambiguous acknowledgement does
+  // not retry prompt delivery blindly).
+
+  const PROMPT_CHUNK_BYTES = 1024
+
+  async function deliverPrompt(request: { runtimeSessionId: string; prompt: string }): Promise<
+    | {
+        ok: true
+        terminalId: string
+        terminalGeneration: number
+        chunks: number
+        bytes: number
+      }
+    | { ok: false; code: DevError['code']; message: string }
+  > {
+    // The session's newest registered terminal is the delivery target; an
+    // absent or non-live terminal is a typed non-delivery, never a silent
+    // skip and never a fabricated write.
+    let target: { terminalId: string; entry: TerminalRegistryEntry } | undefined
+    for (const [terminalId, entry] of registry) {
+      if (entry.runtimeSessionId === request.runtimeSessionId) target = { terminalId, entry }
+    }
+    if (!target) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'no terminal is attached to this runtime session',
+      }
+    }
+    const snapshot = await snapshotFor(target.terminalId)
+    if (!snapshot || snapshot.lifecycle !== 'running') {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'the runtime session terminal is not live',
+      }
+    }
+    const authority =
+      inputAuthorities.get(target.terminalId) ??
+      (() => {
+        const created = createInputAuthority(target.terminalId)
+        inputAuthorities.set(target.terminalId, created)
+        return created
+      })()
+    // Acquisition: an equal-generation takeover is the designed ownership
+    // transfer. The authority keeps generations monotonic while the source
+    // discriminates user typing, chat sends, and this automated delivery, so
+    // the audit trail names the writer.
+    const admitted = authority.admit('prompt_delivery', target.entry.generation)
+    if (!admitted.ok) {
+      return { ok: false, code: admitted.code, message: admitted.message }
+    }
+    const fence = admitted.fence
+    const payload = new TextEncoder().encode(
+      request.prompt.endsWith('\n') ? request.prompt : `${request.prompt}\n`
+    )
+    const chunks: Uint8Array[] = []
+    for (let offset = 0; offset < payload.byteLength; offset += PROMPT_CHUNK_BYTES) {
+      chunks.push(
+        payload.subarray(offset, Math.min(offset + PROMPT_CHUNK_BYTES, payload.byteLength))
+      )
+    }
+    const writes: Promise<unknown>[] = []
+    let writeError: { code: string; message: string } | undefined
+    try {
+      const fenced = fencedWrite(authority, fence, chunks, (chunk) => {
+        writes.push(
+          input.sidecar.writeInput(target.terminalId, chunk).then((written) => {
+            if (!written.ok && !writeError) {
+              writeError = { code: written.code, message: written.message }
+            }
+          })
+        )
+      })
+      // Byte order is preserved by the sidecar duplex; the awaits only collect
+      // the correlated write results.
+      for (const pending of writes) await pending
+      if (writeError) {
+        const mapped = sidecarFailure(writeError.code, writeError.message)
+        return { ok: false, code: mapped.code, message: mapped.message }
+      }
+      if (fenced.stopped) {
+        return {
+          ok: false,
+          code: 'stale_generation',
+          message: 'prompt delivery lost the terminal input ownership mid-write',
+        }
+      }
+      return {
+        ok: true,
+        terminalId: target.terminalId,
+        terminalGeneration: target.entry.generation,
+        chunks: fenced.written,
+        bytes: payload.byteLength,
+      }
+    } finally {
+      // Release only while the fence is still current; a taken-over fence
+      // stays with its new owner.
+      authority.releaseFence(fence)
+    }
+  }
+
   return {
     commands: Object.keys(handlers) as DevOperation[],
+    deliverPrompt,
     dispose() {
       for (const [, state] of readSessions) {
         try {

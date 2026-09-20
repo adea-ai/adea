@@ -215,6 +215,38 @@ describe('dev.harness command bodies', () => {
       )
     ).not.toThrow()
   })
+
+  test('launch bodies accept a bounded initialPrompt and refuse oversized or empty ones', () => {
+    const base = {
+      runtimeSessionId: sessionId,
+      expectedGeneration: 1,
+      harnessInstallationId: installationId,
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 3,
+    }
+    expect(() =>
+      decodeDevCommand(command('dev.session.launchHarness', { ...base, initialPrompt: 'ship it' }))
+    ).not.toThrow()
+    expect(() =>
+      decodeDevCommand(
+        command('dev.session.launchHarness', { ...base, initialPrompt: 'x'.repeat(65_537) })
+      )
+    ).toThrow()
+    expect(() =>
+      decodeDevCommand(command('dev.session.launchHarness', { ...base, initialPrompt: '' }))
+    ).toThrow()
+    expect(() =>
+      decodeDevCommand(
+        command('dev.session.launchDefault', {
+          runtimeSessionId: sessionId,
+          expectedGeneration: 1,
+          agentProfileId: 'profile-1',
+          agentProfileVersion: 1,
+          initialPrompt: 'ship it',
+        })
+      )
+    ).not.toThrow()
+  })
 })
 
 describe('dev.harness success replies', () => {
