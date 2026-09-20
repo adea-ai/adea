@@ -101,6 +101,9 @@ export type CreateDevRuntimeHostInput = {
   /** Required: durable single-use owner-approval authority (M10 #34). */
   approvalVerifier: OwnerApprovalVerifier
   audit?: AuthorityAudit
+  /** Deterministic environments inject the vault's key store; production
+   *  omits it and the vault uses the OS credential store. */
+  credentialStore?: import('./vault').VaultKeyStore
   /** Owner-only runtime root for content-addressed terminal wrappers. */
   runtimeRoot: string
   /** Adopted terminal sidecar; without it terminal stays typed-unavailable. */
@@ -160,6 +163,9 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     dataDir: input.dataDir,
     ...(input.audit ? { audit: input.audit } : {}),
     approvalVerifier: input.approvalVerifier,
+    // Deterministic environments (Linux CI, tests) inject a scripted store;
+    // production omits it and the vault uses the OS credential store.
+    ...(input.credentialStore ? { credentialStore: input.credentialStore } : {}),
   })
   const grants = createProjectGrantAuthority({
     dataDir: input.dataDir,

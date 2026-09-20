@@ -54,7 +54,11 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // delta is the donor-ported appearance dialog + its painters and helpers
 // (+9.4KB), all inside the lazy `appearance` chunk that only loads when the
 // dialog opens — the eager shell is unchanged, and the chunk count is flat.
-const CLIENT_JS_BUDGET_BYTES = 1_020_000
+// Raised from 1_020_000 when the M12 feature surface landed intentionally
+// lazy chunks: editor-mirror (CodeMirror, ~312kB), source-control (~17kB),
+// resources (~12kB), files (~9kB), permissions (~8kB), agents/history. The
+// per-chunk dev-view budget (check-dev-view-bundle) still guards eager bloat.
+const CLIENT_JS_BUDGET_BYTES = 1_600_000
 const CLIENT_JS_FILE_BUDGET = 50
 if (javascriptBytes > CLIENT_JS_BUDGET_BYTES)
   throw new Error(

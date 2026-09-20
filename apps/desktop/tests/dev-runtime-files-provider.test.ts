@@ -590,7 +590,15 @@ describe('files/search provider', () => {
     writeFileSync(join(fixtureRoot(), 'searchable.txt'), 'needle one\nplain\nneedle two\n')
     const { authority } = runtime()
     const channel = handshakeChannel(authority)
-    const probe = Bun.spawnSync(['rg', '--version'], { stdout: 'ignore', stderr: 'ignore' })
+    // A missing rg binary makes spawnSync throw on some runners; absence and
+    // spawn-failure are the same "degrades typed" condition.
+    let rgPresent = false
+    try {
+      rgPresent =
+        Bun.spawnSync(['rg', '--version'], { stdout: 'ignore', stderr: 'ignore' }).exitCode === 0
+    } catch {
+      rgPresent = false
+    }
     const search = await execute(
       channel,
       authority,
@@ -600,7 +608,7 @@ describe('files/search provider', () => {
         filesResource()
       )
     )
-    if (probe.exitCode === 0) {
+    if (rgPresent) {
       expect(search.ok).toBe(true)
       if (search.ok) {
         expect(search.value.items.length).toBe(2)

@@ -154,6 +154,18 @@ async function boot(
     scope: identity.currentScope(),
     identity,
     approvalVerifier: createOwnerApprovalVerifier({ dataDir }),
+    // Deterministic key store: the OS `security` CLI does not exist on the
+    // Linux unit lane, and the vault must construct identically everywhere.
+    credentialStore: (() => {
+      const keys = new Map<string, Buffer>()
+      return {
+        get: (service: string, account: string) => keys.get(`${service}\u0000${account}`),
+        set: (service: string, account: string, key: Buffer) =>
+          void keys.set(`${service}\u0000${account}`, key),
+        delete: (service: string, account: string) =>
+          void keys.delete(`${service}\u0000${account}`),
+      }
+    })(),
     runtimeRoot: join(dataDir, 'dev-runtime', 'runtime'),
     runLsof: () => Promise.resolve(''),
     resolveDns: () => Promise.resolve([]),
