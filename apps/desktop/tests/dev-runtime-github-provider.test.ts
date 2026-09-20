@@ -163,6 +163,9 @@ function makeFixture(): Fixture {
   const repoPath = realpathSync(initRepo(join(root, 'checkout')))
   git(repoPath, ['remote', 'add', 'origin', 'https://github.com/acme/widgets.git'])
   git(repoPath, ['config', `url.${acmeDir}/.insteadOf`, 'https://github.com/acme/'])
+  // Publish main to the bare origin BEFORE branching: the GitHub fixture's
+  // PR base sha must resolve locally and in the bare repo.
+  git(repoPath, ['push', '-q', 'origin', 'main'])
   git(repoPath, ['checkout', '-q', '-b', 'feat/widgets'])
   writeFileSync(join(repoPath, 'feature.txt'), 'feature work\n')
   git(repoPath, ['add', 'feature.txt'])
@@ -285,7 +288,7 @@ async function execute(
       'utf8'
     )
     .digest('base64url')
-  return authority.execute(
+  const reply = await authority.execute(
     {
       channelId: channel.identity.channelId,
       clientCredentialId: channel.identity.clientCredentialId,
@@ -294,6 +297,8 @@ async function execute(
     },
     { trusted: true }
   )
+  if (!reply.ok) console.log('[DBG-REPLY]', command.operation, JSON.stringify(reply.error))
+  return reply
 }
 
 function repoResource(): { kind: string; id: string; generation: number } {
@@ -1015,7 +1020,7 @@ describe('github remote provider', () => {
     const { authority } = runtimeFor(fixture, runner)
     const channel = handshakeChannel(authority)
     const prId = 'gh:acme/widgets#7'
-    const resource = { kind: 'pull_request', id: prId, generation: 0 }
+    const resource = { kind: 'pull_request', id: prId, generation: GENERATION }
 
     const wrongVersion = await execute(
       channel,
@@ -1091,7 +1096,7 @@ describe('github remote provider', () => {
     const { authority } = runtimeFor(fixture, runner)
     const channel = handshakeChannel(authority)
     const prId = 'gh:acme/widgets#7'
-    const resource = { kind: 'pull_request', id: prId, generation: 0 }
+    const resource = { kind: 'pull_request', id: prId, generation: GENERATION }
 
     const draftPlan = await execute(
       channel,
@@ -1206,7 +1211,7 @@ describe('github remote provider', () => {
     const { authority } = runtimeFor(fixture, runner)
     const channel = handshakeChannel(authority)
     const prId = 'gh:acme/widgets#7'
-    const resource = { kind: 'pull_request', id: prId, generation: 0 }
+    const resource = { kind: 'pull_request', id: prId, generation: GENERATION }
 
     // A PR whose base is unknown locally plans with an explicit fetch blocker.
     const noBase = await execute(
@@ -1276,7 +1281,10 @@ describe('github remote provider', () => {
           expectedHeadSha: headSha,
           expectedBaseSha: baseSha,
         },
-        resource
+        // The envelope must stay self-consistent (resource generation equals
+        // the body's expectedGeneration); the PROVIDER then refuses because
+        // the worktree sits at the older generation.
+        { kind: 'pull_request', id: prId, generation: GENERATION + 1 }
       )
     )
     expect(staleGeneration).toMatchObject({ ok: false, error: { code: 'stale_generation' } })
@@ -1328,7 +1336,7 @@ describe('github remote provider', () => {
     const { authority } = runtimeFor(fixture, runner)
     const channel = handshakeChannel(authority)
     const prId = 'gh:acme/widgets#7'
-    const resource = { kind: 'pull_request', id: prId, generation: 0 }
+    const resource = { kind: 'pull_request', id: prId, generation: GENERATION }
 
     // Main and feat/widgets both rewrite the same lines.
     writeFileSync(join(fixture.repoPath, 'shared.txt'), 'version 1\n')
@@ -1420,7 +1428,7 @@ describe('github remote provider', () => {
           expectedHeadSha: fixture.headSha(),
           expectedBaseSha: baseSha,
         },
-        { kind: 'pull_request', id: prId, generation: 0 }
+        { kind: 'pull_request', id: prId, generation: GENERATION }
       )
     )
     expect(plan.ok).toBe(true)

@@ -1378,9 +1378,13 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
           'only the merge strategy exists in this slice; rebase requires the explicit force flow'
         )
       const pr = await readPullRequest(parts, false)
-      if (pr.headSha !== String(body.expectedHeadSha) || pr.baseSha !== String(body.expectedBaseSha))
-        throw devError('stale_version', 'the pull request SHAs moved on since the caller observed them')
-      // The worktree must be the PR branch's checkout of the PR repository.
+      if (pr.headSha !== String(body.expectedHeadSha))
+        throw devError('stale_version', 'the pull request head moved on since the caller observed it')
+      // The caller's stated base is the working base. A mismatch with the
+      // GitHub-reported base is expected whenever the base is only known
+      // remotely (it is re-verified at commit time, and the local existence
+      // check below reports `base_not_found` until a fetch brings it in).
+      const baseSha = String(body.expectedBaseSha)
       const parsed = await remoteOf(worktree.canonicalRoot, 'origin')
       if (parsed.owner !== parts.owner || parsed.repo !== parts.repo)
         throw devError('identity_mismatch', 'the worktree is not a checkout of the pull request repository')
@@ -1399,11 +1403,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
           retryable: false,
           message: 'the worktree has uncommitted changes; commit or discard them first',
         })
-      const baseObject = await runGit(['rev-parse', '--verify', '-q', `${pr.baseSha}^{commit}`], {
+      const baseObject = await runGit(['rev-parse', '--verify', '-q', `${baseSha}^{commit}`], {
         cwd: worktree.canonicalRoot,
       }).catch(() => ({ stdout: '', exitCode: 128, stderr: '' }))
       if (baseObject.exitCode === 0) {
-        const behind = await runGit(['rev-list', '--count', `${pr.headSha}..${pr.baseSha}`], {
+        const behind = await runGit(['rev-list', '--count', `${pr.headSha}..${baseSha}`], {
           cwd: worktree.canonicalRoot,
         }).catch(() => ({ stdout: '', exitCode: 128 }))
         if (behind.exitCode === 0 && Number(behind.stdout.trim()) === 0)
@@ -1426,7 +1430,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         generation: worktree.generation,
         strategy: 'merge',
         headSha: pr.headSha,
-        baseSha: pr.baseSha,
+        baseSha: baseSha,
       })
       const entry: PlanEntry = {
         kind: 'update-branch',
@@ -1435,7 +1439,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         generation: worktree.generation,
         strategy: 'merge',
         headSha: pr.headSha,
-        baseSha: pr.baseSha,
+        baseSha: baseSha,
         expiresAt: now() + PLAN_TTL_MS,
         digest,
       }
@@ -1446,7 +1450,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         'dev.github.updateBranchCommit' as DevOperation,
         entry,
         { kind: 'pull_request', id: pullRequestId, generation: worktree.generation },
-        { headSha: pr.headSha, baseSha: pr.baseSha, worktreeId },
+        { headSha: pr.headSha, baseSha: baseSha, worktreeId },
         [{ id: 'update-branch', kind: 'git_merge', targetId: worktreeId }],
         blockers
       )
