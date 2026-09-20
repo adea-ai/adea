@@ -7,9 +7,11 @@
 // Runtime contract requires: unknown state is never coerced into success and
 // the input is never silently rewritten or deleted.
 import {
+  chmodSync,
   closeSync,
   existsSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -46,7 +48,20 @@ export function createDurableJsonStore<T>(options: {
     throw new DevAuthorityError(code, `${label} store was retained unread (${code})`)
   }
 
+  function ensureOwnerOnly(): void {
+    const directory = dirname(file)
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    chmodSync(directory, 0o700)
+    if (!existsSync(file)) return
+    const stats = lstatSync(file)
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw new DevAuthorityError('corrupt_state', `${label} store is not a regular file`)
+    }
+    chmodSync(file, 0o600)
+  }
+
   function load(): StoreEnvelope<T> {
+    ensureOwnerOnly()
     if (!existsSync(file)) return { schemaVersion, savedAt: '', records: [] }
     const raw = readFileSync(file, 'utf8')
     let parsed: unknown
@@ -64,12 +79,12 @@ export function createDurableJsonStore<T>(options: {
   }
 
   function save(records: ReadonlyArray<T>): void {
+    ensureOwnerOnly()
     const envelope: StoreEnvelope<T> = {
       schemaVersion,
       savedAt: new Date().toISOString(),
       records,
     }
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
     const temporary = `${file}.tmp-${process.pid}-${Date.now()}`
     const handle = openSync(temporary, 'wx', 0o600)
     try {
