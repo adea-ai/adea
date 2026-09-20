@@ -8,7 +8,6 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
-  decodeCbor,
   encodeCbor,
   type DevCommand,
   type DevStreamGrant,
@@ -97,7 +96,7 @@ function snapshotWith(
 /** Scripted #471 permission service: always reports the given snapshot. */
 function scriptedPermissions(
   initial: MacPermissionsSnapshot,
-  options: { onSnapshot?: (calls: number) => void } = {}
+  scriptOptions: { onSnapshot?: (calls: number) => void } = {}
 ): MacPermissionService & { set(next: MacPermissionsSnapshot): void } {
   let current = initial
   let calls = 0
@@ -111,7 +110,7 @@ function scriptedPermissions(
       current = next
     },
     onSnapshot: undefined,
-    ...options,
+    ...scriptOptions,
     async openSettings(permissionId) {
       return { permissionId, settingsUrl: `x-apple.systempreferences:${permissionId}` }
     },
@@ -386,17 +385,17 @@ describe('computer-use capability report', () => {
   })
 })
 
-describe('computer-use consent gate', () => {
-  function gateFor(permissions: MacPermissionService, clock: { now: number } = { now: 0 }) {
-    const capabilities = createComputerUseCapabilityService({ permissions })
-    return createConsentGate({
-      permissions,
-      capabilities,
-      now: () => clock.now,
-      nowIso: () => new Date(clock.now).toISOString(),
-    })
-  }
+function gateFor(permissions: MacPermissionService, clock: { now: number } = { now: 0 }) {
+  const capabilities = createComputerUseCapabilityService({ permissions })
+  return createConsentGate({
+    permissions,
+    capabilities,
+    now: () => clock.now,
+    nowIso: () => new Date(clock.now).toISOString(),
+  })
+}
 
+describe('computer-use consent gate', () => {
   test('issuance requires an owner confirmation', async () => {
     const gate = gateFor(scriptedPermissions(snapshotWith('granted')))
     await expect(
@@ -416,7 +415,7 @@ describe('computer-use consent gate', () => {
         lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
         confirmationId: 'confirm',
       })
-      .catch((error: unknown) => error as ComputerUseGateError)
+      .catch((cause: unknown) => cause as ComputerUseGateError)
     expect(error).toBeInstanceOf(ComputerUseGateError)
     expect(error.code).toBe('permission_denied')
     expect(error.remediation).toEqual({
@@ -433,7 +432,7 @@ describe('computer-use consent gate', () => {
         lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
         confirmationId: 'confirm',
       })
-      .catch((error: unknown) => error as ComputerUseGateError)
+      .catch((cause: unknown) => cause as ComputerUseGateError)
     expect(error.remediation?.action).toBe('request_permission')
   }, 2000)
 
@@ -445,7 +444,7 @@ describe('computer-use consent gate', () => {
         lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
         confirmationId: 'confirm',
       })
-      .catch((error: unknown) => error as ComputerUseGateError)
+      .catch((cause: unknown) => cause as ComputerUseGateError)
     expect(error.code).toBe('capability_unavailable')
   }, 2000)
 
@@ -521,24 +520,24 @@ describe('computer-use consent gate', () => {
   }, 2000)
 })
 
-describe('computer-use engine (fixed argv, scripted runner)', () => {
-  function runner(outcomes: Record<string, unknown> = {}) {
-    const calls: string[][] = []
-    return {
-      calls,
-      runner: async (argv: readonly string[]) => {
-        calls.push([...argv])
-        return {
-          exitCode: outcomes.exitCode === undefined ? 0 : (outcomes.exitCode as number | null),
-          stdout: (outcomes.stdout as string) ?? '',
-          stderr: (outcomes.stderr as string) ?? '',
-          timedOut: (outcomes.timedOut as boolean) ?? false,
-          spawnFailed: (outcomes.spawnFailed as boolean) ?? false,
-        }
-      },
-    }
+function runner(outcomes: Record<string, unknown> = {}) {
+  const calls: string[][] = []
+  return {
+    calls,
+    runner: async (argv: readonly string[]) => {
+      calls.push([...argv])
+      return {
+        exitCode: outcomes.exitCode === undefined ? 0 : (outcomes.exitCode as number | null),
+        stdout: (outcomes.stdout as string) ?? '',
+        stderr: (outcomes.stderr as string) ?? '',
+        timedOut: (outcomes.timedOut as boolean) ?? false,
+        spawnFailed: (outcomes.spawnFailed as boolean) ?? false,
+      }
+    },
   }
+}
 
+describe('computer-use engine (fixed argv, scripted runner)', () => {
   test('text is escaped into an inert AppleScript literal (no argv injection)', () => {
     expect(escapeAppleScriptString('before" & do shell script "pwned')).toBe(
       'before\\" & do shell script \\"pwned'
@@ -758,7 +757,7 @@ describe('dev.computeruse.* providers', () => {
         { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
         { kind: 'computeruse_lane', id: lane.id, generation: 1 }
       )
-    ).catch((error: unknown) => error)
+    ).catch((cause: unknown) => cause)
     expect((error as ComputerUseGateError).code).toBe('permission_denied')
     expect(lanes.get(lane.id).state).toBe('idle')
   })
@@ -966,7 +965,7 @@ describe('computer-use registration', () => {
   })
 
   test('write-direction frames route through the authority gate; refusals close the stream', async () => {
-    const { lanes, streamHandler, runtime } = harness()
+    const { lanes, streamHandler } = harness()
     const lane = lanes.create({ scope, runtimeSessionId: sessionId })
     const outcomes: { code: string; reason?: string }[] = []
     const sent: unknown[] = []
