@@ -2954,15 +2954,65 @@ Required layers:
 
 Named evidence commands (root `package.json`; each exits nonzero on failure
 and prints a retained summary under git-ignored `artifacts/dev-runtime/`):
-`test:packaged` (Electrobun shell build), `test:security:dev-runtime`
-(shell-channel/browser/vault/terminal-input suites),
-`test:performance:dev-runtime`, `test:soak:dev-runtime`, and
+`test:packaged` (the packaged macOS evidence lane, below),
+`test:security:dev-runtime` (shell-channel/browser/vault/terminal-input
+suites), `test:performance:dev-runtime`, `test:soak:dev-runtime`, and
 `test:bundle:dev-view` (lazy-chunk boundary). The visual lane
 (`test:e2e:visual` plus the `Workspace visual lane` workflow) renders every
 document of `apps/web/e2e/conventional-workspace.spec.ts` without CSS
 transitions (`apps/web/e2e/helpers/visual.ts`) so captures are always the
 settled frame; baseline regeneration stays a single owner-run pass on the
 final merged tree.
+
+`test:packaged` is the packaged macOS evidence lane: it builds the
+Electrobun `.app` (including the **bundled terminal sidecar component**,
+staged by the packaging lane at `Contents/Resources/app/dev-runtime-sidecar/`
+from the same source entry), then runs the packaged proof suite against the
+real bundled layout and retains one JSON artifact per proof under
+git-ignored `artifacts/packaged/`:
+
+1. **Install-location resolution + supervision proofs** (`supervision-smoke`):
+   every packaged component's manifest label resolves inside the `.app` with
+   its real SHA-256 digest (the sidecar on the bundled Bun runtime
+   `Contents/MacOS/bun`, the launcher resolution-only), and the four
+   supervision proofs run with the sidecar launched from the bundled layout.
+   A missing bundle is a labeled dev fallback, never packaged evidence.
+2. **Terminal replay across a host restart** (`packaged-terminal-smoke`): a
+   packaged sidecar boot, a separate host process creating a real PTY
+   session with a durable checkpoint history exceeding the memory ring
+   (eviction), the host exiting, and a fresh host re-adopting the same live
+   sidecar — durable search serves the new host, the ring replays its
+   covered window exactly once in order, and live delivery continues.
+   **Known transport boundary:** the below-ring durable-bridge replay is
+   blocked by a socket backpressure defect (Bun unix `socket.write()` drops
+   writes past the send buffer; `SocketDuplex.send` never checks
+   writability), reproduced on the dev and packaged entries and recorded by
+   `packaged-transport-defect-probe` in
+   `artifacts/packaged/terminal-transport-defect.json`; the probe is a
+   finding recorder — when it stops reproducing, the replay lane must be
+   extended to prove the bridge.
+3. **Worktree digest containment** (`packaged-worktree-smoke`): worktree
+   creation through the production registrar over the M10 gate, dependency-
+   template promotion and per-file CoW materialization into a registrar-
+   created worktree, post-promotion digest-tamper refusal
+   (`identity_mismatch`, nothing cloned), and envelope generation fencing
+   (`stale_generation`). Host-side modules run on the packaged lane; running
+   them inside the packaged app process arrives with the production
+   composition root and stays named work, not packaged evidence.
+4. **Browser/devices matrix** (`packaged-browser-matrix`): lane registration
+   through the M10 gate with per-kind profile identities, fail-closed
+   navigation without a serving engine (`capability_unavailable`), the SSRF
+   regression matrix on the per-hop admission gate, the typed capability
+   matrix (host toolchains as typed available/unavailable with guidance),
+   and real host device inventory through the gate. The real browser lane
+   engine (Bun.WebView / CDP navigation + screenshots through the admission
+   gate) is explicitly out of scope until a serving engine exists; it is
+   recorded as typed-unavailable, never faked.
+
+The `bun test` wrappers in `apps/desktop/tests/` shell out to the same
+scripts and skip loudly when the bundle has not been built; the packaged
+lane is the enforcement point. Run packaged test files one at a time in
+fresh worktrees.
 
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but the local packaged macOS path must
@@ -2975,6 +3025,23 @@ by M14 and is not a hidden M12 acceptance criterion.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-09-20 — packaged macOS evidence lane (M12 packaged-evidence wave,
+  #396/#397/#422/#185 re-closure evidence).** `test:packaged` now builds the
+  bundled terminal sidecar component into the `.app`
+  (`Contents/Resources/app/dev-runtime-sidecar/`) and runs the packaged proof
+  suite against the real bundled layout, retaining one artifact per proof
+  under `artifacts/packaged/`: install-location resolution with real artifact
+  digests feeding the component manifest, the supervision proofs on the
+  bundled layout, terminal durable-checkpoint replay across a host restart,
+  worktree template materialization + digest-tamper refusal through the
+  production registrar, and the browser/devices packaged matrix without a
+  real engine (typed capability states; the engine lane stays named
+  out-of-scope). Records the sidecar transport finding: Bun unix socket
+  writes drop past the send buffer and the sidecar duplex never checks
+  writability, so below-ring durable-bridge replay is blocked until the
+  transport drains (`packaged-transport-defect-probe` retains the
+  reproduction). No supervision or replay state-machine semantics changed.
 
 - **2026-09-19 — supervised computer-use lanes (#472, planning slice).**
   Added the `dev.computeruse` operation family (`capabilities`, `lanes`,

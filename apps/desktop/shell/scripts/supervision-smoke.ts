@@ -2,8 +2,13 @@
 // rules against REAL processes on the packaged app path — the same lane the
 // terminal PTY smoke uses (repository-pinned Bun, macOS-gated).
 //
-// Four proofs, each one an acceptance behavior of `docs/specs/dev-runtime.md`
+// Five proofs, each one an acceptance behavior of `docs/specs/dev-runtime.md`
 // ("Local stack supervision"):
+//   0. install-location resolution (packaged mode) — every packaged
+//      component's manifest label resolves to a real bundled artifact inside
+//      the .app (containment + existence + SHA-256 digest), and the sidecar
+//      command is built from the bundled layout: the packaged sidecar entry
+//      executed by the bundled Bun runtime;
 //   1. launch-record identity — the durable launch record carries the real
 //      observed PID, start identity, executable identity, and process group;
 //   2. observed exit — a stop is confirmed only when `ps` no longer sees the
@@ -17,22 +22,33 @@
 //      journals an expected exit for a dead one, and never adopts — or
 //      signals — a forged record whose identity fails the real-OS recheck.
 //
-// What this lane is NOT: a full packaged application run. The supervised
-// `dev-runtime-sidecar` component is the real bundled sidecar entry; the
-// remaining components are real processes from the smoke stand-in. The missing
-// piece for a complete packaged run is the Electrobun-bundled app binary plus
-// the packaging lane's install-location resolution feeding the component
-// manifest (see the spec's supervision section). Nothing here fakes evidence:
-// every assertion reads OS state (`ps`) or the child's own signal log.
+// What this lane is NOT: a full packaged application run. In packaged mode
+// (`--app-bundle <path to .app>`) the supervised `dev-runtime-sidecar`
+// component is the REAL packaged sidecar from the bundled layout; the
+// smoke-graceful/smoke-stubborn components are the smoke's own real child
+// processes (they exist to prove SIGTERM defiance). In dev-fallback mode
+// (no bundle given or found) the sidecar runs from the source tree and the
+// output says so — packaged evidence must come from the packaged lane
+// (`bun run test:packaged`), which passes `--app-bundle` explicitly.
+// Nothing here fakes evidence: every assertion reads OS state (`ps`) or the
+// child's own signal log.
 //
-// Usage: bun apps/desktop/shell/scripts/supervision-smoke.ts
+// Usage: bun apps/desktop/shell/scripts/supervision-smoke.ts [--app-bundle <path>] [--artifact <path>]
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve as resolvePath } from 'node:path'
 
+import {
+  BUN_INSTALL_LABEL,
+  buildPackagedManifest,
+  findAppBundle,
+  resolvePackagedComponents,
+  type PackagedIdentity,
+} from './packaged-install'
 import {
   decodeComponentManifest,
   type ComponentManifest,
+  type ComponentSpec,
 } from '../src/supervision/component-manifest'
 import { createProcessAdapter, observeIdentity } from '../src/supervision/process-adapter'
 import { createRecordStore, RECORDS_FILE } from '../src/supervision/records'
@@ -41,7 +57,7 @@ import { readEndpointFile } from '../src/dev-runtime/terminal/sidecar/endpoint-f
 
 const HERE = import.meta.dir
 const CHILD_SCRIPT = join(HERE, 'supervision-smoke-child.ts')
-const SIDECAR_ENTRY = join(HERE, '../src/dev-runtime/terminal/sidecar/entry.ts')
+const DEV_SIDECAR_ENTRY = join(HERE, '../src/dev-runtime/terminal/sidecar/entry.ts')
 
 // Bounded real windows: generous enough for a Bun child to react under load,
 // short enough that the smoke stays under its per-test timeout.
@@ -50,9 +66,26 @@ const KILL_GRACE_MS = 3_000
 const PROBE_DELAY_MS = 100
 
 const failures: string[] = []
+const evidence: Array<{ proof: string; check: string; ok: boolean; detail?: string }> = []
+let currentProof = 'setup'
 
 const POLL_STEP_MS = 100
 const POLL_LIMIT_MS = 8_000
+
+function check(condition: boolean, description: string, evidenceDetail?: string): void {
+  evidence.push({
+    proof: currentProof,
+    check: description,
+    ok: condition,
+    ...(evidenceDetail !== undefined ? { detail: evidenceDetail } : {}),
+  })
+  if (condition) {
+    console.log(`  ok: ${description}${evidenceDetail ? ` — ${evidenceDetail}` : ''}`)
+  } else {
+    failures.push(description)
+    console.error(`  FAIL: ${description}${evidenceDetail ? ` — ${evidenceDetail}` : ''}`)
+  }
+}
 
 /** Polls a real-OS condition inside a bounded window; reaping and exit take
  *  a beat after a signal, so proofs assert settled state, not a race. A
@@ -77,22 +110,23 @@ function gone(pid: number): boolean {
   return observeIdentity(pid) === null
 }
 
-function check(condition: boolean, description: string, evidence?: string): void {
-  if (condition) {
-    console.log(`  ok: ${description}${evidence ? ` — ${evidence}` : ''}`)
-  } else {
-    failures.push(description)
-    console.error(`  FAIL: ${description}${evidence ? ` — ${evidence}` : ''}`)
-  }
+type ResolvedPackaged = ReturnType<typeof resolvePackagedComponents>
+
+type SmokeMode = {
+  name: 'packaged' | 'dev-fallback'
+  appBundle: string | null
+  packaged: ResolvedPackaged | null
 }
 
-function smokeManifest(): ComponentManifest {
+let mode: SmokeMode = { name: 'dev-fallback', appBundle: null, packaged: null }
+
+function devManifest(): ComponentManifest {
   const decoded = decodeComponentManifest({
     schemaVersion: 1,
     components: [
       {
         id: 'dev-runtime-sidecar',
-        product: 'Dev Runtime terminal sidecar (bundled entry)',
+        product: 'Dev Runtime terminal sidecar (dev fallback entry)',
         version: 'smoke',
         platform: 'universal',
         arch: 'universal',
@@ -108,6 +142,20 @@ function smokeManifest(): ComponentManifest {
         rollbackTargetVersion: null,
         required: false,
       },
+      ...smokeFixtureSpecs(),
+    ],
+  })
+  if (!decoded.ok) throw new Error(`smoke manifest rejected: ${decoded.reason}`)
+  return decoded.manifest
+}
+
+/** The smoke's own fixture components: real child processes that exist to
+ *  prove observed exit and SIGTERM defiance. They are smoke fixtures, not
+ *  packaged components — their install labels stay dev-mode labels. */
+function smokeFixtureSpecs(): ComponentSpec[] {
+  const decoded = decodeComponentManifest({
+    schemaVersion: 1,
+    components: [
       {
         id: 'smoke-graceful',
         product: 'Supervision smoke graceful component',
@@ -146,20 +194,50 @@ function smokeManifest(): ComponentManifest {
       },
     ],
   })
-  if (!decoded.ok) throw new Error(`smoke manifest rejected: ${decoded.reason}`)
-  return decoded.manifest
+  if (!decoded.ok) throw new Error(`smoke fixture manifest rejected: ${decoded.reason}`)
+  return decoded.manifest.components
+}
+
+/** The manifest for the selected mode: the packaged components resolved from
+ *  the bundled layout plus the smoke fixtures, or the labeled dev fallback
+ *  (sidecar from the source tree) when no bundle was given or found. */
+function smokeManifest(appBundle: string | null): ComponentManifest {
+  if (!appBundle) return devManifest()
+  const packaged = resolvePackagedComponents(appBundle)
+  const merged = decodeComponentManifest({
+    schemaVersion: 1,
+    components: [...packaged.specs, ...smokeFixtureSpecs()],
+  })
+  if (!merged.ok) throw new Error(`merged smoke manifest rejected: ${merged.reason}`)
+  return merged.manifest
 }
 
 function commandsFor(
   sidecarDataDir: string,
-  childLog: string
+  childLog: string,
+  appBundle: string | null
 ): Record<string, { argv: string[]; env?: Record<string, string> }> {
+  if (appBundle) {
+    // Packaged mode: the sidecar command comes from the packaging lane's
+    // install-location resolution (bundled Bun + packaged sidecar entry).
+    const commands = resolvePackagedComponents(appBundle).commands(sidecarDataDir)
+    return {
+      ...commands,
+      'smoke-graceful': { argv: [process.execPath, CHILD_SCRIPT, '--signal-log', childLog] },
+      'smoke-stubborn': {
+        argv: [process.execPath, CHILD_SCRIPT, '--signal-log', childLog, '--stubborn'],
+      },
+    }
+  }
   return {
     // Direct execution (no `bun run` indirection): the supervised pid is the
     // process that actually runs the script.
     'dev-runtime-sidecar': {
-      argv: [process.execPath, SIDECAR_ENTRY, '--data-dir', sidecarDataDir],
-      env: { ADEA_SIDECAR_VERSION: 'smoke', ADEA_SIDECAR_IDENTITY: 'adea-terminal-sidecar@smoke' },
+      argv: [process.execPath, DEV_SIDECAR_ENTRY, '--data-dir', sidecarDataDir],
+      env: {
+        ADEA_SIDECAR_VERSION: 'smoke',
+        ADEA_SIDECAR_IDENTITY: 'adea-terminal-sidecar@smoke',
+      },
     },
     'smoke-graceful': { argv: [process.execPath, CHILD_SCRIPT, '--signal-log', childLog] },
     'smoke-stubborn': {
@@ -176,8 +254,8 @@ function makeSmoke(root: string): {
   const sidecarDataDir = join(root, 'sidecar-data')
   const childLog = join(root, 'child-signals.log')
   const supervisor = createSupervisor({
-    manifest: smokeManifest(),
-    adapter: createProcessAdapter(commandsFor(sidecarDataDir, childLog)),
+    manifest: smokeManifest(mode.appBundle),
+    adapter: createProcessAdapter(commandsFor(sidecarDataDir, childLog, mode.appBundle)),
     records: createRecordStore(join(root, 'records')),
     stopGraceMs: STOP_GRACE_MS,
     killGraceMs: KILL_GRACE_MS,
@@ -199,7 +277,67 @@ function withRoot(name: string): string {
   return mkdtempSync(join(tmpdir(), `adea-supervision-smoke-${name}-`))
 }
 
+/** PROOF 0 (packaged mode): the packaging lane's install-location resolution
+ *  feeds the component manifest from the REAL bundled layout. Every manifest
+ *  component's label must resolve to a regular file inside the .app whose
+ *  SHA-256 equals the manifest digest, and the sidecar command must be built
+ *  from the bundled layout: the packaged sidecar entry executed by the
+ *  bundled Bun runtime. */
+async function proof0InstallLocationResolution(packaged: PackagedIdentity): Promise<void> {
+  currentProof = 'proof-0-install-location-resolution'
+  console.log('PROOF 0 install-location resolution from the bundled layout')
+  const built = buildPackagedManifest(packaged.appBundle)
+  const bundleRoot = resolvePath(packaged.appBundle)
+  check(
+    built.manifest.components.length >= 2,
+    'the packaged manifest carries packaged components',
+    built.manifest.components.map((entry) => entry.id).join(', ')
+  )
+  for (const component of built.manifest.components) {
+    const resolution = built.identity.resolutions.find(
+      (entry) => entry.ok && entry.label === component.installLocation
+    )
+    if (!resolution || !resolution.ok) {
+      check(false, `install label resolves inside the bundle: ${component.id}`)
+      continue
+    }
+    check(
+      resolution.absolutePath.startsWith(bundleRoot + '/'),
+      `install label resolves inside the bundle: ${component.id} (${component.installLocation})`,
+      resolution.absolutePath
+    )
+    check(
+      component.digestSha256 === resolution.digestSha256,
+      `manifest digest equals the bundled artifact digest: ${component.id}`,
+      resolution.digestSha256.slice(0, 16) + '…'
+    )
+  }
+  const bunResolution = built.identity.resolutions.find(
+    (entry) => entry.ok && entry.label === BUN_INSTALL_LABEL
+  )
+  check(
+    bunResolution !== undefined,
+    'the bundled Bun runtime resolves from the bundle layout',
+    BUN_INSTALL_LABEL
+  )
+  const sidecarCommand = built.commands(join(tmpdir(), 'adea-proof0-probe'))['dev-runtime-sidecar']
+  const bunPath = bunResolution && bunResolution.ok ? bunResolution.absolutePath : ''
+  check(
+    sidecarCommand !== undefined &&
+      sidecarCommand.argv[0] === bunPath &&
+      sidecarCommand.argv[0] !== process.execPath,
+    'the packaged sidecar runs on the bundled Bun runtime, not the smoke toolchain',
+    String(sidecarCommand?.argv[0])
+  )
+  check(
+    sidecarCommand?.argv[1]?.includes('dev-runtime-sidecar/entry.js') === true,
+    'the sidecar argv points at the packaged sidecar entry',
+    String(sidecarCommand?.argv[1])
+  )
+}
+
 async function proof1LaunchRecordIdentity(): Promise<void> {
+  currentProof = 'proof-1-launch-record-identity'
   console.log('PROOF 1 launch-record identity against the bundled sidecar entry')
   const root = withRoot('launch')
   try {
@@ -259,6 +397,7 @@ async function proof1LaunchRecordIdentity(): Promise<void> {
 }
 
 async function proof2ObservedExit(): Promise<void> {
+  currentProof = 'proof-2-observed-exit'
   console.log('PROOF 2 observed exit: a signal is never treated as an exit')
   const root = withRoot('exit')
   try {
@@ -320,6 +459,7 @@ async function proof2ObservedExit(): Promise<void> {
 }
 
 async function proof3SigkillEscalation(): Promise<void> {
+  currentProof = 'proof-3-sigkill-escalation'
   console.log('PROOF 3 SIGKILL escalation for a SIGTERM-defying component')
   const root = withRoot('escalate')
   const childLog = join(root, 'child-signals.log')
@@ -368,6 +508,7 @@ async function proof3SigkillEscalation(): Promise<void> {
 }
 
 async function proof4ReconcileAfterRestart(): Promise<void> {
+  currentProof = 'proof-4-reconcile-after-restart'
   console.log('PROOF 4 reconcile after supervisor restart (adoption, refusal, forgery)')
   const root = withRoot('reconcile')
   try {
@@ -458,15 +599,85 @@ async function proof4ReconcileAfterRestart(): Promise<void> {
   }
 }
 
+function argValue(name: string): string | undefined {
+  const index = process.argv.indexOf(name)
+  return index >= 0 ? process.argv[index + 1] : undefined
+}
+
 async function main(): Promise<number> {
   if (process.platform !== 'darwin') {
     console.error('supervision-smoke: darwin-only (ps lstart/pgid identity semantics)')
     return 2
   }
+  const startedAt = new Date().toISOString()
+  // Mode resolution: an explicit --app-bundle wins; otherwise the lane
+  // auto-detects the Electrobun output. A missing bundle is a labeled dev
+  // fallback, never packaged evidence.
+  const explicitBundle = argValue('--app-bundle')
+  const artifactPath = argValue('--artifact')
+  const appBundle =
+    explicitBundle ??
+    findAppBundle(join(HERE, '..', 'build')) ??
+    findAppBundle(join(HERE, '..', '..', '..', 'apps', 'desktop', 'shell', 'build'))
+  if (appBundle) {
+    try {
+      const packaged = resolvePackagedComponents(appBundle)
+      mode = { name: 'packaged', appBundle, packaged }
+      // Absorb the OS's one-time first-exec verification of the freshly
+      // linked bundled binaries before any timed readiness proof.
+      const warm = Bun.spawnSync([appBundle + '/Contents/MacOS/bun', '--version'])
+      if (warm.exitCode !== 0) throw new Error('the bundled Bun runtime failed to execute')
+    } catch (error) {
+      console.error(
+        'supervision-smoke: the app bundle was found but its packaged manifest failed resolution:',
+        error instanceof Error ? error.message : error
+      )
+      return 2
+    }
+  } else {
+    mode = { name: 'dev-fallback', appBundle: null, packaged: null }
+  }
+  console.log(
+    `MODE: ${mode.name}${mode.appBundle ? ` (${mode.appBundle})` : ' (dev stand-in sidecar entry — not packaged evidence)'}`
+  )
+
+  if (mode.packaged) await proof0InstallLocationResolution(mode.packaged.identity)
+  currentProof = 'proof-1-launch-record-identity'
   await proof1LaunchRecordIdentity()
+  currentProof = 'proof-2-observed-exit'
   await proof2ObservedExit()
+  currentProof = 'proof-3-sigkill-escalation'
   await proof3SigkillEscalation()
+  currentProof = 'proof-4-reconcile-after-restart'
   await proof4ReconcileAfterRestart()
+
+  if (artifactPath) {
+    const artifact = {
+      lane: 'supervision-smoke',
+      spec: 'docs/specs/dev-runtime.md#local-stack-supervision',
+      mode: mode.name,
+      appBundle: mode.appBundle,
+      packaged: mode.packaged
+        ? {
+            version: mode.packaged.identity.version,
+            channel: mode.packaged.identity.channel,
+            resolutions: mode.packaged.identity.resolutions,
+          }
+        : null,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      bun: process.versions.bun,
+      command: 'bun apps/desktop/shell/scripts/supervision-smoke.ts',
+      totals: {
+        checks: evidence.length,
+        failed: failures.length,
+      },
+      evidence,
+    }
+    writeFileSync(artifactPath, JSON.stringify(artifact, null, 2) + '\n', { mode: 0o600 })
+    console.log(`artifact: ${artifactPath}`)
+  }
+
   if (failures.length > 0) {
     console.error(`SUPERVISION-SMOKE FAILED: ${failures.length} check(s) failed`)
     for (const failure of failures) console.error(`  - ${failure}`)
