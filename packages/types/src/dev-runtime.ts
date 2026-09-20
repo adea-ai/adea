@@ -2416,13 +2416,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'updatedAt',
         'observedAt',
       ],
-      [
-        'body',
-        'authorLogin',
-        'reviewDecision',
-        'aheadBehind',
-        'reconciled',
-      ],
+      ['body', 'authorLogin', 'reviewDecision', 'aheadBehind', 'reconciled'],
       path
     )
     if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
@@ -2442,8 +2436,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
     stringValue(item.baseRef, `${path}.baseRef`, 1, 512)
     if (!gitShaPattern.test(stringValue(item.baseSha, `${path}.baseSha`)))
       fail(`${path}.baseSha`, 'expected git sha')
-    if (item.authorLogin !== undefined)
-      stringValue(item.authorLogin, `${path}.authorLogin`, 1, 100)
+    if (item.authorLogin !== undefined) stringValue(item.authorLogin, `${path}.authorLogin`, 1, 100)
     stringValue(item.url, `${path}.url`, 1, 512)
     literal(item.mergeable, ['mergeable', 'conflicting', 'unknown'], `${path}.mergeable`)
     if (item.reviewDecision !== undefined)
@@ -2467,7 +2460,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   if (name === 'GitHubCheck') {
     const item = record(value, path)
-    exactKeys(item, ['id', 'name', 'status'], ['conclusion', 'detailsUrl', 'startedAt', 'completedAt'], path)
+    exactKeys(
+      item,
+      ['id', 'name', 'status'],
+      ['conclusion', 'detailsUrl', 'startedAt', 'completedAt'],
+      path
+    )
     stringValue(item.id, `${path}.id`, 1, 64)
     stringValue(item.name, `${path}.name`, 1, 256)
     literal(item.status, ['queued', 'in_progress', 'completed'], `${path}.status`)
@@ -2493,7 +2491,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   if (name === 'GitHubIssue') {
     const item = record(value, path)
-    exactKeys(item, ['id', 'number', 'title', 'state', 'url', 'labels', 'updatedAt'], ['milestone'], path)
+    exactKeys(
+      item,
+      ['id', 'number', 'title', 'state', 'url', 'labels', 'updatedAt'],
+      ['milestone'],
+      path
+    )
     if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
     integerValue(item.number, `${path}.number`, 1)
@@ -2510,7 +2513,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   if (name === 'GitHubMilestone') {
     const item = record(value, path)
-    exactKeys(item, ['id', 'number', 'title', 'state', 'openIssues', 'closedIssues', 'url'], ['dueOn'], path)
+    exactKeys(
+      item,
+      ['id', 'number', 'title', 'state', 'openIssues', 'closedIssues', 'url'],
+      ['dueOn'],
+      path
+    )
     if (!githubMilestoneIdPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected ghm:<owner>/<repo>#<number>')
     integerValue(item.number, `${path}.number`, 1)
@@ -2526,7 +2534,17 @@ function namedType(name: string, value: unknown, path: string): unknown {
     const item = record(value, path)
     exactKeys(
       item,
-      ['repoId', 'worktreeId', 'ref', 'remoteName', 'headSha', 'remoteSha', 'forced', 'upstreamSet', 'observedAt'],
+      [
+        'repoId',
+        'worktreeId',
+        'ref',
+        'remoteName',
+        'headSha',
+        'remoteSha',
+        'forced',
+        'upstreamSet',
+        'observedAt',
+      ],
       [],
       path
     )
@@ -3539,11 +3557,18 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // `gh`/git transport; mutations reply with re-read server truth.
   'dev.github.account': (value) => namedType('GitHubAccount', value, 'reply.value'),
   'dev.github.checks': (value) =>
-    decodeDevRuntimePage((item, path) => namedType('GitHubCheck', item, path), value, 'reply.value'),
-  'dev.github.createPullRequest': (value) =>
-    namedType('GitHubPullRequest', value, 'reply.value'),
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubCheck', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.createPullRequest': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
   'dev.github.issues': (value) =>
-    decodeDevRuntimePage((item, path) => namedType('GitHubIssue', item, path), value, 'reply.value'),
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubIssue', item, path),
+      value,
+      'reply.value'
+    ),
   'dev.github.mergeCommit': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
   'dev.github.mergePlan': (value) => decodeMutationPlan(value),
   'dev.github.milestones': (value) =>

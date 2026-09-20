@@ -375,6 +375,7 @@ describe('github remote provider', () => {
     const fixture = makeFixture()
     fixtures.push(fixture)
     // A runner that models a missing binary exactly like the default one does.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping -- fixture intentionally models a stable absent binary
     const absent: GhRunner = async () => ({
       stdout: '',
       stderr: 'spawn gh ENOENT',
@@ -394,7 +395,11 @@ describe('github remote provider', () => {
       runGh: absent,
     })
     const absentChannel = handshakeChannel(absentAuthority)
-    const absentReply = await execute(absentChannel, absentAuthority, makeCommand('dev.github.account', {}))
+    const absentReply = await execute(
+      absentChannel,
+      absentAuthority,
+      makeCommand('dev.github.account', {})
+    )
     expect(absentReply).toMatchObject({
       ok: false,
       error: { code: 'capability_unavailable' },
@@ -489,8 +494,7 @@ describe('github remote provider', () => {
         return {
           stdout: prJson({ headSha, baseSha, updatedAt }),
         }
-      if (path.startsWith('repos/acme/widgets/compare/main...'))
-        return { stdout: COMPARE_JSON }
+      if (path.startsWith('repos/acme/widgets/compare/main...')) return { stdout: COMPARE_JSON }
       if (path === 'repos/acme/widgets/pulls/7/reviews?per_page=100')
         return { stdout: REVIEWS_JSON }
       return { exitCode: 1, stderr: 'unexpected' }
@@ -601,7 +605,10 @@ describe('github remote provider', () => {
     )
     expect(reply.ok).toBe(true)
     if (!reply.ok) return
-    expect(reply.value.items.map((check: { name: string }) => check.name)).toEqual(['build', 'lint'])
+    expect(reply.value.items.map((check: { name: string }) => check.name)).toEqual([
+      'build',
+      'lint',
+    ])
     expect(reply.value.items[1]).toMatchObject({ status: 'completed', conclusion: 'success' })
     devOperationDecoders['dev.github.checks'].reply({
       schemaVersion: 1,
@@ -659,7 +666,8 @@ describe('github remote provider', () => {
       makeCommand('dev.github.issues', { repoId: REPO_ID }, repoResource())
     )
     expect(issues.ok).toBe(true)
-    if (issues.ok) expect(issues.value.items.map((issue: { number: number }) => issue.number)).toEqual([423])
+    if (issues.ok)
+      expect(issues.value.items.map((issue: { number: number }) => issue.number)).toEqual([423])
     const milestones = await execute(
       channel,
       authority,
@@ -1085,7 +1093,10 @@ describe('github remote provider', () => {
         return { stdout: prJson({ headSha, baseSha: headSha, draft }) }
       if (path.startsWith('repos/acme/widgets/compare/')) return { stdout: COMPARE_JSON }
       if (path.endsWith('/reviews?per_page=100')) return { stdout: REVIEWS_JSON }
-      if (path === 'repos/acme/widgets/pulls/7/check-runs?per_page=100' || path.endsWith('/check-runs?per_page=100'))
+      if (
+        path === 'repos/acme/widgets/pulls/7/check-runs?per_page=100' ||
+        path.endsWith('/check-runs?per_page=100')
+      )
         return { stdout: CHECK_RUNS_JSON }
       if (path === 'repos/acme/widgets/pulls/7/merge' && args.includes('PUT')) {
         mergeCalled += 1
@@ -1155,7 +1166,9 @@ describe('github remote provider', () => {
       authority: driftAuthority,
       scope,
       resolveRepo: (repoId) =>
-        repoId === REPO_ID ? { repoId, canonicalRoot: fixture.repoPath, defaultBranch: 'main' } : undefined,
+        repoId === REPO_ID
+          ? { repoId, canonicalRoot: fixture.repoPath, defaultBranch: 'main' }
+          : undefined,
       listRepos: () => [],
       resolveWorktree: () => undefined,
       runGh: driftRunner,
@@ -1204,7 +1217,10 @@ describe('github remote provider', () => {
     const { runner } = ghFixture((path) => {
       if (path === 'repos/acme/widgets/pulls/7')
         return {
-          stdout: prJson({ headSha: fixture.headSha(), baseSha: fixture.bareSha('refs/heads/main') }),
+          stdout: prJson({
+            headSha: fixture.headSha(),
+            baseSha: fixture.bareSha('refs/heads/main'),
+          }),
         }
       return { exitCode: 1, stderr: 'unexpected' }
     })
@@ -1329,7 +1345,10 @@ describe('github remote provider', () => {
     const { runner } = ghFixture((path) => {
       if (path === 'repos/acme/widgets/pulls/7')
         return {
-          stdout: prJson({ headSha: fixture.headSha(), baseSha: fixture.bareSha('refs/heads/main') }),
+          stdout: prJson({
+            headSha: fixture.headSha(),
+            baseSha: fixture.bareSha('refs/heads/main'),
+          }),
         }
       return { exitCode: 1, stderr: 'unexpected' }
     })

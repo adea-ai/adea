@@ -51,11 +51,7 @@ import type { WorktreeService } from './worktrees/service'
 import { registerProjectScanRuntime } from './projects/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
-import {
-  registerGithubRuntime,
-  type GhRunner,
-  type GithubRepoContext,
-} from './github/register'
+import { registerGithubRuntime, type GhRunner, type GithubRepoContext } from './github/register'
 import { createCredentialVault, type CredentialVault } from './vault'
 
 export type DevProviderKind = 'provider' | 'typed_unavailable'
@@ -317,6 +313,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   // generation-fenced, and gh is reached through the bounded runner seam —
   // without a verified scope the operations stay typed-unavailable through
   // the composition fallback.
+  // oxlint-disable-next-line no-shadow -- parameter intentionally overrides the optional outer service for the fallback seam
   const registeredRepos = (worktreeService?: WorktreeService) => (): readonly GithubRepoContext[] =>
     (worktreeService?.listRepos(input.scope!) ?? []).map((repo) => ({
       repoId: repo.id,

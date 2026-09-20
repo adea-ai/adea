@@ -858,12 +858,12 @@
 }
 
 .dev-archive-action:hover {
-  background: var(--dev-hover, rgba(128, 128, 128, 0.12));
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
 }
 
 .dev-archive-action--destructive {
-  color: var(--dev-danger, #c53c2b);
-  border-color: color-mix(in srgb, var(--dev-danger, #c53c2b) 40%, transparent);
+  color: var(--destructive);
+  border-color: color-mix(in srgb, var(--destructive) 40%, transparent);
 }
 
 .dev-archive-shelf__handoff {

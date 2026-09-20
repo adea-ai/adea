@@ -120,10 +120,7 @@ function persistRecords(path: string, records: SupervisionRecord[]): void {
  * and journal are owner-only from creation. Corrupt lines found on load are
  * moved to the quarantine file and counted; they never block recovery.
  */
-export function createRecordStore(
-  dir: string,
-  options?: { maxRecords?: number }
-): RecordStore {
+export function createRecordStore(dir: string, options?: { maxRecords?: number }): RecordStore {
   const maxRecords = options?.maxRecords ?? DEFAULT_MAX_RECORDS
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   // Creation modes do not tighten permissions on an existing journal. Reassert

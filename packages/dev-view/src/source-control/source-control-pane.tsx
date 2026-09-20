@@ -505,7 +505,11 @@ function RemoteSection(props: {
     setPushArmed(false)
     setRemoteNotice(undefined)
     try {
-      const plan = await executeOperation<{ id: string; digest: string; blockers: readonly { message: string }[] }>(
+      const plan = await executeOperation<{
+        id: string
+        digest: string
+        blockers: readonly { message: string }[]
+      }>(
         props.runtime,
         activeScope,
         'dev.github.pushPlan',
@@ -513,7 +517,9 @@ function RemoteSection(props: {
         { kind: 'repository', id: repoId, generation: 0 }
       )
       if (plan.blockers.length > 0) {
-        setRemoteNotice(plan.blockers.map((blocker) => truncateUntrusted(blocker.message)).join('; '))
+        setRemoteNotice(
+          plan.blockers.map((blocker) => truncateUntrusted(blocker.message)).join('; ')
+        )
         return
       }
       await executeOperation(
@@ -545,11 +551,20 @@ function RemoteSection(props: {
         props.runtime,
         activeScope,
         'dev.github.createPullRequest',
-        { repoId, headRef: ref, baseRef: base, title: truncateUntrusted(ref, 200), body: '', draft: true },
+        {
+          repoId,
+          headRef: ref,
+          baseRef: base,
+          title: truncateUntrusted(ref, 200),
+          body: '',
+          draft: true,
+        },
         { kind: 'repository', id: repoId, generation: 0 }
       )
       setPullRequest(pr)
-      setRemoteNotice(pr.reconciled === true ? 'existing pull request found' : 'draft pull request created')
+      setRemoteNotice(
+        pr.reconciled === true ? 'existing pull request found' : 'draft pull request created'
+      )
     } catch (reply) {
       setRemoteNotice(describeError(reply))
     }
@@ -586,7 +601,11 @@ function RemoteSection(props: {
     setUpdateArmed(false)
     setRemoteNotice(undefined)
     try {
-      const plan = await executeOperation<{ id: string; digest: string; blockers: readonly { message: string }[] }>(
+      const plan = await executeOperation<{
+        id: string
+        digest: string
+        blockers: readonly { message: string }[]
+      }>(
         props.runtime,
         activeScope,
         'dev.github.updateBranchPlan',
@@ -601,7 +620,9 @@ function RemoteSection(props: {
         { kind: 'pull_request', id: pr.id, generation: context.generation }
       )
       if (plan.blockers.length > 0) {
-        setRemoteNotice(plan.blockers.map((blocker) => truncateUntrusted(blocker.message)).join('; '))
+        setRemoteNotice(
+          plan.blockers.map((blocker) => truncateUntrusted(blocker.message)).join('; ')
+        )
         return
       }
       const result = await executeOperation<{ state: string; conflictedPaths?: readonly string[] }>(
@@ -706,9 +727,7 @@ function RemoteSection(props: {
                     <span class="dev-files__name" title={truncateUntrusted(check.name, 400)}>
                       {truncateUntrusted(check.name)}
                     </span>
-                    <span class="dev-files__badge">
-                      {check.conclusion ?? check.status}
-                    </span>
+                    <span class="dev-files__badge">{check.conclusion ?? check.status}</span>
                   </div>
                 )}
               </For>

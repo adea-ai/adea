@@ -30,7 +30,10 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { decodeComponentManifest, type ComponentManifest } from '../src/supervision/component-manifest'
+import {
+  decodeComponentManifest,
+  type ComponentManifest,
+} from '../src/supervision/component-manifest'
 import { createProcessAdapter, observeIdentity } from '../src/supervision/process-adapter'
 import { createRecordStore, RECORDS_FILE } from '../src/supervision/records'
 import { createSupervisor, type Supervisor } from '../src/supervision/supervisor'
@@ -76,9 +79,7 @@ function gone(pid: number): boolean {
 
 function check(condition: boolean, description: string, evidence?: string): void {
   if (condition) {
-    console.log(
-      `  ok: ${description}${evidence ? ` — ${evidence}` : ''}`
-    )
+    console.log(`  ok: ${description}${evidence ? ` — ${evidence}` : ''}`)
   } else {
     failures.push(description)
     console.error(`  FAIL: ${description}${evidence ? ` — ${evidence}` : ''}`)
@@ -241,7 +242,10 @@ async function proof1LaunchRecordIdentity(): Promise<void> {
       componentId: string
     }
     check(record.identity.pid === launch.identity.pid, 'the durable journal holds the same launch')
-    check(record.generation === 1 && record.componentId === 'dev-runtime-sidecar', 'journal fields match the launch')
+    check(
+      record.generation === 1 && record.componentId === 'dev-runtime-sidecar',
+      'journal fields match the launch'
+    )
     const snapshot = supervisor.snapshot().components.find((c) => c.id === 'dev-runtime-sidecar')
     check(
       snapshot?.state === 'running' && snapshot.launch?.identity.pid === launch.identity.pid,
@@ -278,10 +282,11 @@ async function proof2ObservedExit(): Promise<void> {
         stopped.value.exitDetail
       )
     }
-    check(observeIdentity(pid) === null || (await eventually(() => gone(pid))), 'ps no longer sees the stopped identity')
-    const exited = supervisor
-      .audit()
-      .filter((event) => event.kind === 'exit')
+    check(
+      observeIdentity(pid) === null || (await eventually(() => gone(pid))),
+      'ps no longer sees the stopped identity'
+    )
+    const exited = supervisor.audit().filter((event) => event.kind === 'exit')
     check(exited.length === 1, 'exactly one exit event was journaled, after observation')
 
     // An already-dead process: the stop confirms via observation and never
@@ -296,7 +301,10 @@ async function proof2ObservedExit(): Promise<void> {
       'second generation reaches readiness'
     )
     process.kill(second.value.identity.pid, 'SIGKILL')
-    check(await eventually(() => gone(second.value.identity.pid)), 'the out-of-band kill was fully observed (reaped)')
+    check(
+      await eventually(() => gone(second.value.identity.pid)),
+      'the out-of-band kill was fully observed (reaped)'
+    )
     const afterDeath = await supervisor.stop('smoke-graceful')
     check(afterDeath.ok, 'stop of an already-dead process confirms through observation')
     if (afterDeath.ok) {
@@ -341,7 +349,10 @@ async function proof3SigkillEscalation(): Promise<void> {
       await eventually(() => readFileSync(childLog, 'utf8').includes('SIGTERM')),
       'child testimony: SIGTERM was delivered and ignored before escalation'
     )
-    check(await eventually(() => gone(pid)), 'the SIGKILL ended the process and the exit was observed')
+    check(
+      await eventually(() => gone(pid)),
+      'the SIGKILL ended the process and the exit was observed'
+    )
     const signals = supervisor
       .audit()
       .filter((event) => event.kind === 'signal' && event.detail.startsWith('SIG'))
@@ -393,10 +404,15 @@ async function proof4ReconcileAfterRestart(): Promise<void> {
     const third = makeSmoke(root).supervisor
     await third.reconcile()
     const refused = third.snapshot().components.find((c) => c.id === 'smoke-graceful')
-    check(refused?.state === 'idle', 'a dead persisted launch is not adopted', `state ${refused?.state}`)
+    check(
+      refused?.state === 'idle',
+      'a dead persisted launch is not adopted',
+      `state ${refused?.state}`
+    )
     const journal = readFileSync(join(root, 'records', RECORDS_FILE), 'utf8')
     check(
-      journal.includes(processRecordId) && journal.includes('not observable after supervisor restart'),
+      journal.includes(processRecordId) &&
+        journal.includes('not observable after supervisor restart'),
       'the unadoptable launch was journaled exited (expected), never left dangling'
     )
 

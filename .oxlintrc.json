@@ -1,17 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "jsPlugins": [
-    "@shadcn/lint"
-  ],
+  "jsPlugins": ["@shadcn/lint"],
   "settings": {
     "shadcn": {
-      "ui": [
-        "@adea-ai/ui/components",
-        "@adea-ai/workspace-ui"
-      ],
-      "componentImports": [
-        "^#components/"
-      ],
+      "ui": ["@adea-ai/ui/components", "@adea-ai/workspace-ui"],
+      "componentImports": ["^#components/"],
       "note": "Design-system rules: use variants and theme tokens from packages/ui. See packages/ui/src/styles/theme.css for colors."
     }
   },
@@ -110,9 +103,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "packages/ui/src/components/**"
-      ],
+      "files": ["packages/ui/src/components/**"],
       "rules": {
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",

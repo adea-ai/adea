@@ -12,24 +12,24 @@
 import { describe, expect, test } from 'bun:test'
 
 describe.skipIf(process.platform !== 'darwin')('packaged supervision smoke', () => {
-  test(
-    'launch-record identity, observed exit, SIGKILL escalation, and reconcile-after-restart on real processes',
-    async () => {
-      const proc = Bun.spawnSync(
-        [process.execPath, 'run', new URL('../shell/scripts/supervision-smoke.ts', import.meta.url).pathname],
-        { stdout: 'pipe', stderr: 'pipe', env: process.env }
-      )
-      const output = `${proc.stdout.toString()}${proc.stderr.toString()}`
-      // Keep the evidence visible in failure output.
-      console.log(output)
-      expect(proc.exitCode).toBe(0)
-      expect(output).toContain('PROOF 1 launch-record identity')
-      expect(output).toContain('PROOF 2 observed exit')
-      expect(output).toContain('PROOF 3 SIGKILL escalation')
-      expect(output).toContain('PROOF 4 reconcile after supervisor restart')
-      expect(output).toContain('SUPERVISION-SMOKE PASS')
-      expect(output).not.toContain('FAIL:')
-    },
-    180_000
-  )
+  test('launch-record identity, observed exit, SIGKILL escalation, and reconcile-after-restart on real processes', async () => {
+    const proc = Bun.spawnSync(
+      [
+        process.execPath,
+        'run',
+        new URL('../shell/scripts/supervision-smoke.ts', import.meta.url).pathname,
+      ],
+      { stdout: 'pipe', stderr: 'pipe', env: process.env }
+    )
+    const output = `${proc.stdout.toString()}${proc.stderr.toString()}`
+    // Keep the evidence visible in failure output.
+    console.log(output)
+    expect(proc.exitCode).toBe(0)
+    expect(output).toContain('PROOF 1 launch-record identity')
+    expect(output).toContain('PROOF 2 observed exit')
+    expect(output).toContain('PROOF 3 SIGKILL escalation')
+    expect(output).toContain('PROOF 4 reconcile after supervisor restart')
+    expect(output).toContain('SUPERVISION-SMOKE PASS')
+    expect(output).not.toContain('FAIL:')
+  }, 180_000)
 })

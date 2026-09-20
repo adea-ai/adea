@@ -87,6 +87,7 @@ export function reviewDecisionLabel(
  *  The pane renders it through Solid text nodes, so it can never become HTML
  *  or a command — this helper only keeps it short and printable. */
 export function truncateUntrusted(text: string, budget = 200): string {
+  // oxlint-disable-next-line no-control-regex -- stripping provider control characters is intentional
   const printable = text.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
   return printable.length > budget ? `${printable.slice(0, budget - 1)}…` : printable
 }

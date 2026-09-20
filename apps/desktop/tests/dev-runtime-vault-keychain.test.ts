@@ -19,14 +19,20 @@ import {
 } from '../shell/src/dev-runtime/vault'
 
 /** Runner that throws the given classified failure for every invocation. */
-function failingRunner(reason: KeychainAccessError['reason'], message: string): SecurityCommandRunner {
+function failingRunner(
+  reason: KeychainAccessError['reason'],
+  message: string
+): SecurityCommandRunner {
   return () => {
     throw new KeychainAccessError(reason, message)
   }
 }
 
 /** Runner with an item-not-found find and a classified write failure. */
-function failingWriteRunner(reason: KeychainAccessError['reason'], message: string): SecurityCommandRunner {
+function failingWriteRunner(
+  reason: KeychainAccessError['reason'],
+  message: string
+): SecurityCommandRunner {
   return (args) => {
     if (args[0] === 'find-generic-password') {
       throw new KeychainAccessError('item_not_found', 'absent', 44)

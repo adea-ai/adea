@@ -3,7 +3,17 @@ import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/ui/components/theme-toggle'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
-import { Bell, Bot, Database, EyeOff, Link2, Mic, MonitorCog, ShieldCheck, UserRound } from 'lucide-solid'
+import {
+  Bell,
+  Bot,
+  Database,
+  EyeOff,
+  Link2,
+  Mic,
+  MonitorCog,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-solid'
 import { createEffect, createSignal, For, lazy, onCleanup, Show, type JSX } from 'solid-js'
 
 import { CapabilityList } from './capability-card'
@@ -490,7 +500,9 @@ export function WorkspaceSettingsDialog(props: {
                 <ShieldCheck aria-hidden="true" />
                 <div>
                   <h3>{settingsSectionLabels.permissions}</h3>
-                  <p>macOS capabilities this app is granted, with the system panes that control them.</p>
+                  <p>
+                    macOS capabilities this app is granted, with the system panes that control them.
+                  </p>
                 </div>
               </header>
               <PermissionsPane service={props.permissionsService} />

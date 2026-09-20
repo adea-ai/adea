@@ -72,7 +72,7 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
-    expect(devOperations).toHaveLength(158)
+    expect(devOperations).toHaveLength(155)
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',
@@ -191,7 +191,7 @@ describe('Dev Runtime command envelope', () => {
 
   test('accepts every paired commit whose immutable plan owns the target binding', () => {
     const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
-    expect(pairedCommits).toHaveLength(9)
+    expect(pairedCommits).toHaveLength(10)
     for (const operation of pairedCommits) {
       const value = command(operation, {
         planId: 'plan-1',

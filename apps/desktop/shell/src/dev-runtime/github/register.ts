@@ -238,6 +238,7 @@ export function parseGitHubRemote(rawUrl: string, trustedHosts: readonly string[
   const url = rawUrl.trim()
   if (url.length === 0 || url.length > 2048)
     throw devError('invalid_state', 'remote URL is malformed')
+  // oxlint-disable-next-line no-control-regex -- remote validation intentionally rejects control characters
   if (/[\s\u0000-\u001f]/.test(url))
     throw devError('invalid_state', 'remote URL contains whitespace or control characters')
   let host: string | undefined
@@ -407,7 +408,8 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       )
     if (result.exitCode === GH_EXIT_AUTH || /gh auth|authentication required/i.test(stderr))
       return devError('unauthenticated', `gh is not authenticated for this operation: ${stderr}`)
-    if (/rate limit/i.test(stderr)) return devError('rate_limited', `GitHub rate limit was hit: ${stderr}`, true)
+    if (/rate limit/i.test(stderr))
+      return devError('rate_limited', `GitHub rate limit was hit: ${stderr}`, true)
     if (/HTTP 404|not found/i.test(stderr))
       return devError('not_found', `${operation} target was not found on the remote: ${stderr}`)
     if (/HTTP 403|resource not accessible/i.test(stderr))
@@ -470,6 +472,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
 
   /** gh api argument builder: explicit --hostname keeps credentials scoped to
    *  their host; never a token, never shell text. */
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- kept local with the provider's transport seam
   function apiArgs(host: string, path: string, extra: readonly string[] = []): string[] {
     return ['api', path, '--hostname', host, ...extra]
   }
@@ -554,7 +557,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     const name = str(item.name, 'repository.name', 100)
     const visibility =
       item.visibility !== undefined && item.visibility !== null
-        ? literal(String(item.visibility).replace('in', ''), ['public', 'private'], 'repository.visibility')
+        ? literal(
+            String(item.visibility).replace('in', ''),
+            ['public', 'private'],
+            'repository.visibility'
+          )
         : bool(item.private, 'repository.private')
           ? 'private'
           : 'public'
@@ -586,13 +593,18 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     const repo = str(baseRepo.name, 'pullRequest.base.repo.name', 100)
     const head = obj(item.head, 'pullRequest.head')
     const merged = item.merged === undefined ? false : bool(item.merged, 'pullRequest.merged')
-    const state = merged ? ('merged' as const) : literal(item.state, ['open', 'closed'] as const, 'pullRequest.state')
+    const state = merged
+      ? ('merged' as const)
+      : literal(item.state, ['open', 'closed'] as const, 'pullRequest.state')
     const labels = arr(item.labels ?? [], 'pullRequest.labels').map((label, index) =>
       str(obj(label, `pullRequest.labels[${index}]`).name, `pullRequest.labels[${index}].name`, 256)
     )
     const updatedAt = requiredIsoTimestamp(item.updated_at, 'pullRequest.updated_at')
     const draft = item.draft === undefined ? false : bool(item.draft, 'pullRequest.draft')
-    const authorLogin = item.user === undefined || item.user === null ? undefined : optStr(obj(item.user, 'pullRequest.user').login, 'pullRequest.user.login', 100)
+    const authorLogin =
+      item.user === undefined || item.user === null
+        ? undefined
+        : optStr(obj(item.user, 'pullRequest.user').login, 'pullRequest.user.login', 100)
     const body = optStr(item.body, 'pullRequest.body', BODY_MAX)
     return {
       id: pullRequestIdOf(owner, repo, number),
@@ -612,7 +624,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       ...(authorLogin !== undefined ? { authorLogin } : {}),
       url: str(item.html_url, 'pullRequest.html_url', 512),
       mergeable:
-        item.mergeable === true ? 'mergeable' : item.mergeable === false ? 'conflicting' : 'unknown',
+        item.mergeable === true
+          ? 'mergeable'
+          : item.mergeable === false
+            ? 'conflicting'
+            : 'unknown',
       labels,
       version,
       updatedAt,
@@ -622,7 +638,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
 
   function mapCheck(payload: unknown): GitHubCheck {
     const item = obj(payload, 'check')
-    const status = literal(item.status, ['queued', 'in_progress', 'completed'] as const, 'check.status')
+    const status = literal(
+      item.status,
+      ['queued', 'in_progress', 'completed'] as const,
+      'check.status'
+    )
     const conclusion =
       item.conclusion === undefined || item.conclusion === null
         ? undefined
@@ -707,10 +727,13 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
   function serverPageOf<T>(items: readonly T[], start: number, limit: number): DevRuntimePage<T> {
     const withinPage = start % limit
     const slice = items.slice(withinPage, withinPage + limit)
-    const hasMore = items.length > withinPage + slice.length || (items.length === limit && withinPage === 0)
+    const hasMore =
+      items.length > withinPage + slice.length || (items.length === limit && withinPage === 0)
     return {
       items: slice,
-      ...(hasMore ? { nextCursor: Buffer.from(String(start + slice.length)).toString('base64url') } : {}),
+      ...(hasMore
+        ? { nextCursor: Buffer.from(String(start + slice.length)).toString('base64url') }
+        : {}),
       observedAt: iso(now()),
     }
   }
@@ -730,6 +753,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     return version
   }
 
+  // oxlint-disable-next-line unicorn/consistent-function-scoping -- kept local with the provider's cache state
   function prCacheKey(parts: { owner: string; repo: string; number: number }): string {
     return `pr:${parts.owner}/${parts.repo}#${parts.number}`
   }
@@ -742,20 +766,29 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     refresh: boolean
   ): Promise<GitHubPullRequest> {
     const cacheKey = prCacheKey(parts)
-    const payload = await ghJson(apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`), {
-      cacheKey,
-      allowCached: !refresh,
-    })
+    const payload = await ghJson(
+      apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}`),
+      {
+        cacheKey,
+        allowCached: !refresh,
+      }
+    )
     const pr = mapPullRequest(
       payload,
       repoIdForRemote(parts),
-      prVersionFor(cacheKey, requiredIsoTimestamp(obj(payload, 'pullRequest').updated_at, 'pullRequest.updated_at'))
+      prVersionFor(
+        cacheKey,
+        requiredIsoTimestamp(obj(payload, 'pullRequest').updated_at, 'pullRequest.updated_at')
+      )
     )
     if (pr.state !== 'open') return pr
     let aheadBehind: GitHubAheadBehind | undefined
     try {
       const compare = await ghJson(
-        apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/compare/${encodeURIComponent(pr.baseRef)}...${pr.headSha}`)
+        apiArgs(
+          DEFAULT_HOST,
+          `repos/${parts.owner}/${parts.repo}/compare/${encodeURIComponent(pr.baseRef)}...${pr.headSha}`
+        )
       )
       const compareItem = obj(compare, 'compare')
       aheadBehind = {
@@ -769,7 +802,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     try {
       const reviews = decodeJsonList(
         await ghJson(
-          apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}/reviews?per_page=100`)
+          apiArgs(
+            DEFAULT_HOST,
+            `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}/reviews?per_page=100`
+          )
         ),
         'reviews'
       )
@@ -788,7 +824,8 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     const latest = new Map<string, string>()
     for (const review of reviews) {
       const item = obj(review, 'review')
-      const user = item.user === undefined || item.user === null ? undefined : obj(item.user, 'review.user')
+      const user =
+        item.user === undefined || item.user === null ? undefined : obj(item.user, 'review.user')
       const login = user !== undefined ? str(user.login, 'review.user.login', 100) : ''
       const state = str(item.state, 'review.state', 32)
       if (login.length > 0) latest.set(login, state)
@@ -805,7 +842,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     headSha: string
   ): Promise<readonly GitHubCheck[]> {
     const payload = await ghJson(
-      apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/commits/${headSha}/check-runs?per_page=100`)
+      apiArgs(
+        DEFAULT_HOST,
+        `repos/${parts.owner}/${parts.repo}/commits/${headSha}/check-runs?per_page=100`
+      )
     )
     return decodeJsonList(payload, 'check_runs')
       .map((entry) => mapCheck(entry))
@@ -870,7 +910,8 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       const parsed = await remoteOf(record.canonicalRoot, 'origin')
       const cacheKey = `repo:${parsed.owner}/${parsed.repo}`
       const entry = cache.get(cacheKey)
-      const stale = entry !== undefined && now() - entry.observedAt < cacheTtlMs && body.refresh !== true
+      const stale =
+        entry !== undefined && now() - entry.observedAt < cacheTtlMs && body.refresh !== true
       const payload = await ghJson(apiArgs(parsed.host, `repos/${parsed.owner}/${parsed.repo}`), {
         cacheKey,
         allowCached: stale,
@@ -981,7 +1022,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         throw devError('base_not_found', `ref ${ref} is unknown to this worktree`)
       const localSha = resolved.stdout.trim()
       if (localSha !== String(body.expectedLocalSha))
-        throw devError('stale_version', 'the ref moved on since the caller observed it; re-read before planning')
+        throw devError(
+          'stale_version',
+          'the ref moved on since the caller observed it; re-read before planning'
+        )
       const parsed = await remoteOf(worktree.canonicalRoot, 'origin')
       const leaseSha = forced
         ? String((body.forceWithLease as { expectedRemoteSha: string }).expectedRemoteSha)
@@ -999,7 +1043,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       if (tracking.exitCode === 0 && SHA_PATTERN.test(tracking.stdout.trim())) {
         remoteSha = tracking.stdout.trim()
         if (forced && remoteSha !== leaseSha)
-          throw devError('stale_version', 'the remote ref moved on since the expected sha was observed')
+          throw devError(
+            'stale_version',
+            'the remote ref moved on since the expected sha was observed'
+          )
         if (!forced && remoteSha !== localSha) {
           const ancestor = await runGit(['merge-base', '--is-ancestor', remoteSha, localSha], {
             cwd: worktree.canonicalRoot,
@@ -1048,7 +1095,12 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         'dev.github.pushCommit' as DevOperation,
         entry,
         { kind: 'repository', id: record.repoId, generation: worktree.generation },
-        { localSha, ...(remoteSha !== undefined ? { remoteSha } : {}), ref, repository: `${parsed.owner}/${parsed.repo}` },
+        {
+          localSha,
+          ...(remoteSha !== undefined ? { remoteSha } : {}),
+          ref,
+          repository: `${parsed.owner}/${parsed.repo}`,
+        },
         [{ id: 'push', kind: 'git_push', targetId: worktreeId }],
         blockers
       )
@@ -1084,7 +1136,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       const args = ['push', '-q']
       if (entry.kindOfPush === 'force') {
         if (entry.remoteSha === undefined)
-          throw devError('stale_version', 'force push requires the expected remote sha observed at plan time')
+          throw devError(
+            'stale_version',
+            'force push requires the expected remote sha observed at plan time'
+          )
         args.push(`--force-with-lease=${entry.ref}:${entry.remoteSha}`)
       } else if (!hadUpstream) {
         // Upstream selection: a first push binds the tracking ref.
@@ -1167,7 +1222,8 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         // Ambiguous delivery (timeout / network loss / 5xx): re-search before
         // failing, so a created-but-unreported PR is reconciled, not duplicated.
         const code = (error as { code?: unknown }).code
-        if (code !== 'remote_unavailable' && code !== 'timeout' && code !== 'unavailable') throw error
+        if (code !== 'remote_unavailable' && code !== 'timeout' && code !== 'unavailable')
+          throw error
         const recovered = await searchOpenPullRequest(parsed, headRef, baseRef)
         if (recovered === undefined) throw error
         const pr = mapPullRequest(recovered, record.repoId, 0)
@@ -1186,7 +1242,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       const parts = prIdParts(pullRequestId)
       const pr = await readPullRequest(parts, false)
       if (pr.version !== Number(body.expectedVersion))
-        throw devError('stale_version', 'the pull request read model moved on; refresh before planning')
+        throw devError(
+          'stale_version',
+          'the pull request read model moved on; refresh before planning'
+        )
       const patch = body.patch as Record<string, unknown>
       const normalizedPatch: Record<string, unknown> = {}
       for (const key of ['title', 'body', 'draft', 'baseRef'] as const)
@@ -1240,8 +1299,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
           'converting an opened pull request back to draft is not supported by this provider'
         )
       const extra: string[] = ['--method', 'PATCH']
-      if (patch.title !== undefined) extra.push('-f', `title=${String(patch.title).slice(0, TITLE_MAX)}`)
-      if (patch.body !== undefined) extra.push('-f', `body=${String(patch.body).slice(0, BODY_MAX)}`)
+      if (patch.title !== undefined)
+        extra.push('-f', `title=${String(patch.title).slice(0, TITLE_MAX)}`)
+      if (patch.body !== undefined)
+        extra.push('-f', `body=${String(patch.body).slice(0, BODY_MAX)}`)
       if (patch.baseRef !== undefined) {
         const baseRef = String(patch.baseRef)
         if (!REF_PATTERN.test(baseRef))
@@ -1258,7 +1319,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       const pr = mapPullRequest(
         updated,
         repoIdForRemote(parts),
-        prVersionFor(cacheKey, requiredIsoTimestamp(obj(updated, 'pullRequest').updated_at, 'pullRequest.updated_at'))
+        prVersionFor(
+          cacheKey,
+          requiredIsoTimestamp(obj(updated, 'pullRequest').updated_at, 'pullRequest.updated_at')
+        )
       )
       plans.delete(String(body.planId))
       return pr
@@ -1278,7 +1342,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         throw devError('invalid_state', `the pull request is ${pr.state}, not open`)
       if (pr.draft) throw devError('invalid_state', 'draft pull requests cannot be merged')
       if (pr.headSha !== String(body.expectedHeadSha))
-        throw devError('stale_version', 'the pull request head moved on since the caller observed it')
+        throw devError(
+          'stale_version',
+          'the pull request head moved on since the caller observed it'
+        )
       const method = body.method as 'merge' | 'squash' | 'rebase'
       const blockers: DevError[] = []
       if (pr.mergeable === 'conflicting')
@@ -1300,7 +1367,11 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         checks = []
       }
       for (const check of checks) {
-        if (check.status !== 'completed' || check.conclusion === 'failure' || check.conclusion === 'timed_out')
+        if (
+          check.status !== 'completed' ||
+          check.conclusion === 'failure' ||
+          check.conclusion === 'timed_out'
+        )
           blockers.push({
             code: 'invalid_state',
             retryable: false,
@@ -1342,7 +1413,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       if (current.state !== 'open')
         throw devError('invalid_state', `the pull request is ${current.state}, not open`)
       if (current.headSha !== entry.headSha)
-        throw devError('stale_version', 'the pull request head moved on since the merge plan was made')
+        throw devError(
+          'stale_version',
+          'the pull request head moved on since the merge plan was made'
+        )
       const merged = await ghJson(
         apiArgs(DEFAULT_HOST, `repos/${parts.owner}/${parts.repo}/pulls/${parts.number}/merge`, [
           '--method',
@@ -1384,7 +1458,10 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         )
       const pr = await readPullRequest(parts, false)
       if (pr.headSha !== String(body.expectedHeadSha))
-        throw devError('stale_version', 'the pull request head moved on since the caller observed it')
+        throw devError(
+          'stale_version',
+          'the pull request head moved on since the caller observed it'
+        )
       // The caller's stated base is the working base. A mismatch with the
       // GitHub-reported base is expected whenever the base is only known
       // remotely (it is re-verified at commit time, and the local existence
@@ -1392,16 +1469,23 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       const baseSha = String(body.expectedBaseSha)
       const parsed = await remoteOf(worktree.canonicalRoot, 'origin')
       if (parsed.owner !== parts.owner || parsed.repo !== parts.repo)
-        throw devError('identity_mismatch', 'the worktree is not a checkout of the pull request repository')
-      const headNow = await runGit(['rev-parse', 'HEAD'], { cwd: worktree.canonicalRoot }).catch(() => ({
-        stdout: '',
-        exitCode: 128,
-        stderr: '',
-      }))
+        throw devError(
+          'identity_mismatch',
+          'the worktree is not a checkout of the pull request repository'
+        )
+      const headNow = await runGit(['rev-parse', 'HEAD'], { cwd: worktree.canonicalRoot }).catch(
+        () => ({
+          stdout: '',
+          exitCode: 128,
+          stderr: '',
+        })
+      )
       if (headNow.exitCode !== 0 || headNow.stdout.trim() !== pr.headSha)
         throw devError('invalid_state', 'the worktree HEAD is not the pull request head')
       const blockers: DevError[] = []
-      const dirty = await runGit(['status', '--porcelain=v1', '-z'], { cwd: worktree.canonicalRoot })
+      const dirty = await runGit(['status', '--porcelain=v1', '-z'], {
+        cwd: worktree.canonicalRoot,
+      })
       if (dirty.exitCode !== 0 || dirty.stdout.length > 0)
         blockers.push({
           code: 'dirty',
@@ -1476,16 +1560,23 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         throw devError('invalid_state', 'update branch requires a ready worktree')
       if (worktree.generation !== entry.generation)
         throw devError('stale_generation', 'the worktree moved on since the plan was made')
-      const headNow = await runGit(['rev-parse', 'HEAD'], { cwd: worktree.canonicalRoot }).catch(() => ({
-        stdout: '',
-        exitCode: 128,
-        stderr: '',
-      }))
+      const headNow = await runGit(['rev-parse', 'HEAD'], { cwd: worktree.canonicalRoot }).catch(
+        () => ({
+          stdout: '',
+          exitCode: 128,
+          stderr: '',
+        })
+      )
       if (headNow.exitCode !== 0 || headNow.stdout.trim() !== entry.headSha)
         throw devError('stale_version', 'the worktree HEAD moved on since the plan was made')
-      const dirty = await runGit(['status', '--porcelain=v1', '-z'], { cwd: worktree.canonicalRoot })
+      const dirty = await runGit(['status', '--porcelain=v1', '-z'], {
+        cwd: worktree.canonicalRoot,
+      })
       if (dirty.exitCode !== 0 || dirty.stdout.length > 0)
-        throw devError('dirty', 'the worktree has uncommitted changes; the plan expected a clean tree')
+        throw devError(
+          'dirty',
+          'the worktree has uncommitted changes; the plan expected a clean tree'
+        )
       const merge = await runGit(['merge', '--no-edit', entry.baseSha], {
         cwd: worktree.canonicalRoot,
         maxOutputBytes: 1024 * 1024,
@@ -1494,7 +1585,9 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         // Conflict: leave the state exactly as git produced it (recoverable,
         // never silently aborted or reset) and report the exact paths plus the
         // explicit abort/continue actions.
-        const status = await runGit(['status', '--porcelain=v1', '-z'], { cwd: worktree.canonicalRoot })
+        const status = await runGit(['status', '--porcelain=v1', '-z'], {
+          cwd: worktree.canonicalRoot,
+        })
         const conflicted = status.stdout
           .split(NUL)
           .filter((field) => field.length > 3 && /^(?:U|AA|DD)/.test(field.slice(0, 2)))
@@ -1557,7 +1650,9 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       maxOutputBytes: 1024 * 1024,
     }).catch(() => ({ stdout: '', exitCode: 128, stderr: '' }))
     const entry = listing.stdout.trim().split('\t')[0]?.trim()
-    return listing.exitCode === 0 && entry !== undefined && SHA_PATTERN.test(entry) ? entry : undefined
+    return listing.exitCode === 0 && entry !== undefined && SHA_PATTERN.test(entry)
+      ? entry
+      : undefined
   }
 
   async function searchOpenPullRequest(
