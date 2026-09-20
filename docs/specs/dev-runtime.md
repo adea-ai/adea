@@ -1756,6 +1756,22 @@ the reply is a resync anchored at the oldest covered sequence, deterministically
 derived from live coverage, and the same anchor on every retry. Backpressure
 never blocks draining the PTY itself.
 
+The anchor rule covers live streams too: a subscriber that crosses the
+per-subscriber high-water mid-stream — or whose cursor the ring has pruned
+past — receives a `resync` notice on its live connection (sidecar control
+frame `resync { terminalId, subscriberId, checkpointSequence }`; shell stream
+frame `resync { reason: 'checkpoint_required', checkpointSequence }`), routed
+to the connection that owns the subscriber, sequenced after the last chunk
+that subscriber received, and emitted exactly once per gap (the subscriber is
+latched until it re-attaches, so fresh credit or new output never produces
+duplicate resync storms). The notice is an optimization hint, not a
+correctness dependency: it never fabricates bytes, and a client that misses it
+still recovers through the durable replay contract above — its next attach
+resolves coverage or returns the current anchor exactly as attach time does.
+Pinned by `apps/desktop/tests/terminal-manager.test.ts`,
+`apps/desktop/tests/terminal-sidecar.test.ts`, and
+`apps/desktop/tests/terminal-channel.test.ts`.
+
 ### Sidecar transport writes
 
 The framed unix-socket stream between the shell and the sidecar is a byte

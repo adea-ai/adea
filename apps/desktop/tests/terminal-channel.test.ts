@@ -239,6 +239,7 @@ async function makeHarness(platform: NodeJS.Platform = 'darwin') {
   return {
     authority,
     registration,
+    service,
     sidecar,
     fake,
     runtimeRoot,
@@ -509,6 +510,56 @@ describe('terminal runtime over the m10 gate', () => {
       { type: 'resync', reason: 'checkpoint_required', checkpointSequence: firstAnchor },
     ])
     expect(stream.closes[0]).toContain('backpressure')
+  })
+
+  test('a live stream past the mid-stream high-water resyncs once, anchored like attach time', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const attachReply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!attachReply.ok) throw new Error('attach failed')
+    const grant = decodeDevStreamGrant(attachReply.value)
+    const stream = harness.openStream(grant)
+    await Bun.sleep(20)
+    // Inject the fault past the live attach: chunks flow with no ack credit
+    // ever returned, so the subscriber crosses the mid-stream high-water (the
+    // third pending chunk trips it; two alone never leave undelivered work).
+    for (let index = 0; index < 3; index += 1) {
+      harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61 + index))
+      await Bun.sleep(8)
+    }
+    await Bun.sleep(20)
+    // The client-visible event: the data chunks before the pause, then ONE
+    // resync carrying the same deterministic anchor the attach-time path
+    // returns (the ring's oldest covered sequence), then the backpressure
+    // close. Bytes are never fabricated: each frame holds its exact chunk.
+    const dataFrames = stream.frames.filter((frame) => frame.type === 'data')
+    expect(dataFrames.map((frame) => (frame.type === 'data' ? frame.sequence : ''))).toEqual([
+      '0',
+      '1',
+    ])
+    expect(dataFrames.map((frame) => (frame.type === 'data' ? [...frame.bytes] : []))).toEqual([
+      Array.from(new Uint8Array(24).fill(0x61)),
+      Array.from(new Uint8Array(24).fill(0x62)),
+    ])
+    const coverage = harness.service.manager.coverage(terminalId)
+    expect(coverage).toBeDefined()
+    if (!coverage) return
+    expect(stream.frames.filter((frame) => frame.type === 'resync')).toEqual([
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: coverage.oldestSeq },
+    ])
+    expect(stream.closes[0]).toContain('backpressure')
+    // One notice per gap: further output and fresh credit never re-notice the
+    // latched subscriber, and no further data is delivered on the old stream.
+    harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x64))
+    stream.send({ type: 'ack', throughSequence: '1', availableCreditBytes: 48 })
+    await Bun.sleep(15)
+    expect(stream.frames.filter((frame) => frame.type === 'resync')).toHaveLength(1)
+    expect(stream.frames.filter((frame) => frame.type === 'data')).toHaveLength(2)
   })
 
   test('two concurrent writers cannot both write: the displaced fence is inert', async () => {

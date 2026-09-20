@@ -131,6 +131,26 @@ export function createSidecarService(options: SidecarServiceOptions) {
           bytes: chunk.bytes,
         })
       },
+      onResync: (notice) => {
+        // A live subscriber crossed the mid-stream high-water (or the ring
+        // pruned past its cursor): tell the connection that owns it, using the
+        // same deterministic anchor (the oldest ring sequence) the attach-time
+        // resync path returns. The manager latches the subscriber into
+        // `needsResync` BEFORE emitting, so this surfaces exactly one notice
+        // per gap — never a duplicate resync storm. Ordering on the duplex is
+        // FIFO: the notice follows the last chunk that subscriber received,
+        // so a client resyncing from the anchor recovers exactly the span it
+        // missed, exactly once, from the ring or the durable checkpoints.
+        for (const connection of connections) {
+          if (connection.subscribers.get(notice.subscriberId) !== notice.terminalId) continue
+          send(connection, {
+            type: 'resync',
+            terminalId: notice.terminalId,
+            subscriberId: notice.subscriberId,
+            checkpointSequence: notice.checkpointSequence,
+          })
+        }
+      },
       onExit: (notice) => {
         exitCodes.set(notice.terminalId, notice.exitCode)
         sinks.get(notice.terminalId)?.checkpoint()

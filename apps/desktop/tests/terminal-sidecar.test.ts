@@ -879,3 +879,192 @@ describe('durable replay across the ring boundary', () => {
     }
   }, 20_000)
 })
+
+/** Wires one loopback client whose resync/data events land in the given records. */
+async function connectTrackingClient(
+  harness: Awaited<ReturnType<typeof midStreamHarness>>,
+  received: FrameRecord[],
+  resyncs: Array<{ terminalId: string; subscriberId: string; checkpointSequence: string }>
+): Promise<SidecarClient> {
+  return harness.connect({
+    onDataFrame: (meta, bytes) => received.push({ meta, bytes }),
+    onResync: (notice) => resyncs.push(notice),
+  })
+}
+
+describe('mid-stream resync propagation to live clients', () => {
+  // Deterministic chunk boundaries: maxChunkBytes equals the emitted block, so
+  // every emit flushes exactly one ring chunk synchronously (no batch-timer
+  // jitter). The 48-byte ring holds two chunks; the 72-byte high-water trips
+  // on the subscriber's third unacknowledged chunk, one prune after the
+  // anchor has moved off sequence 0.
+  async function midStreamHarness() {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-sidecar-resync-'))
+    const runtimeRoot = join(dataDir, 'dev-runtime')
+    mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
+    const credential = newSidecarCredential()
+    const fake = createFakePtyAdapter()
+    const service = createSidecarService({
+      runtimeRoot,
+      ptyAdapter: fake.adapter,
+      sidecarVersion: '1.0.0-test',
+      credential,
+      executableIdentity,
+      pidStartIdentity: 'test-start-identity',
+      managerLimits: {
+        ...TERMINAL_LIMITS,
+        maxChunkBytes: 24,
+        ringMaxBytes: 48,
+        subscriberHighWaterBytes: 72,
+      },
+    })
+    async function connect(handlers: {
+      onDataFrame?: (meta: ByteFrameMeta, bytes: Uint8Array) => void
+      onResync: (notice: {
+        terminalId: string
+        subscriberId: string
+        checkpointSequence: string
+      }) => void
+    }): Promise<SidecarClient> {
+      const [clientSide, serverSide] = createLoopbackPair()
+      service.handleConnection(serverSide)
+      const connected = await connectSidecarClient({
+        duplex: clientSide,
+        scope,
+        credential: Buffer.from(credential).toString('base64url'),
+        nonce: `resync-nonce-${Math.random()}`,
+        onDataFrame: handlers.onDataFrame,
+        onResync: handlers.onResync,
+      })
+      if (!connected.ok) throw new Error(`sidecar connect failed: ${connected.code}`)
+      return connected.client
+    }
+    return {
+      service,
+      fake,
+      runtimeRoot,
+      connect,
+      cleanup: () => rmSync(dataDir, { recursive: true, force: true }),
+    }
+  }
+
+  test('a live subscriber past the mid-stream high-water gets exactly one resync, anchored at the ring oldest sequence', async () => {
+    const harness = await midStreamHarness()
+    try {
+      const resyncs: Array<{
+        terminalId: string
+        subscriberId: string
+        checkpointSequence: string
+      }> = []
+      const received: FrameRecord[] = []
+      const client = await connectTrackingClient(harness, received, resyncs)
+      await createTerminal(client)
+      const attached = await client.attach({ terminalId, subscriberId: 'sub-slow', sinceSeq: '0' })
+      expect(attached).toMatchObject({
+        ok: true,
+        value: { resyncRequired: false, replayed: 0 },
+      })
+      // Inject the fault past the live attach: four full chunks with no acks
+      // ever. The subscriber crosses the high-water mid-stream.
+      for (let index = 0; index < 4; index += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61 + index))
+      }
+      await Bun.sleep(20)
+      // Ordering across the notice is exactly once: the chunks before the
+      // pause arrive in order, byte-preserving, then ONE resync, then nothing.
+      expect(received.map((frame) => frame.meta.seq)).toEqual(['0', '1', '2'])
+      expect(received.map((frame) => [...frame.bytes])).toEqual([
+        Array.from(new Uint8Array(24).fill(0x61)),
+        Array.from(new Uint8Array(24).fill(0x62)),
+        Array.from(new Uint8Array(24).fill(0x63)),
+      ])
+      const coverage = harness.service.manager.coverage(terminalId)
+      expect(coverage).toBeDefined()
+      if (!coverage) return
+      // The full wire message the client observes (sidecar protocol control
+      // frame, relayed verbatim by the shell-side client).
+      expect(resyncs).toEqual([
+        {
+          type: 'resync',
+          terminalId,
+          subscriberId: 'sub-slow',
+          // Same deterministic anchor the attach-time resync path returns.
+          checkpointSequence: coverage.oldestSeq,
+        },
+      ])
+      // Anchor parity, both directions, with the ring frozen at the notice's
+      // state: make the durable span genuinely unavailable (checkpoint to a
+      // segment, then remove it — the retention-boundary shape) and attach
+      // below the ring. The attach-time path resolves to the exact anchor the
+      // mid-stream notice carried, never a fabricated partial replay.
+      const checkpointed = await client.checkpoint(terminalId)
+      expect(checkpointed.ok).toBe(true)
+      const sessionDir = join(harness.runtimeRoot, terminalId)
+      const segments = readdirSync(sessionDir)
+        .filter((name) => name.startsWith('seg-'))
+        .toSorted()
+      expect(segments.length).toBeGreaterThan(0)
+      for (const segment of segments) rmSync(join(sessionDir, segment))
+      const parity = await client.attach({ terminalId, subscriberId: 'sub-parity', sinceSeq: '0' })
+      expect(parity).toMatchObject({
+        ok: true,
+        value: { resyncRequired: true, checkpointSequence: resyncs[0]!.checkpointSequence },
+      })
+      // The PTY keeps draining after the pause, and neither fresh credit nor
+      // new output re-notices the latched subscriber: one notice per gap.
+      const nextSeqAtNotice = coverage.nextSeq
+      harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x68))
+      await Bun.sleep(10)
+      expect(Number(harness.service.manager.coverage(terminalId)!.nextSeq)).toBeGreaterThan(
+        Number(nextSeqAtNotice)
+      )
+      const acknowledged = await client.acknowledge(terminalId, 'sub-slow', 4096)
+      expect(acknowledged.ok).toBe(true)
+      harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x69))
+      await Bun.sleep(10)
+      expect(received.map((frame) => frame.meta.seq)).toEqual(['0', '1', '2'])
+      expect(resyncs).toHaveLength(1)
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
+
+  test('the notice is addressed to the connection that owns the subscriber, never broadcast', async () => {
+    const harness = await midStreamHarness()
+    try {
+      const resyncsA: Array<{ subscriberId: string; checkpointSequence: string }> = []
+      const resyncsB: Array<{ subscriberId: string; checkpointSequence: string }> = []
+      const receivedA: FrameRecord[] = []
+      const receivedB: FrameRecord[] = []
+      const clientA = await connectTrackingClient(harness, receivedA, resyncsA)
+      const clientB = await connectTrackingClient(harness, receivedB, resyncsB)
+      await createTerminal(clientA)
+      await clientA.attach({ terminalId, subscriberId: 'sub-a', sinceSeq: '0' })
+      await clientB.attach({ terminalId, subscriberId: 'sub-b', sinceSeq: '0' })
+      for (let index = 0; index < 4; index += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x71 + index))
+      }
+      await Bun.sleep(20)
+      // Each connection observes only its own subscriber's notice — same
+      // anchor, addressed routing, one notice per subscriber.
+      expect(resyncsA).toEqual([
+        {
+          type: 'resync',
+          terminalId,
+          subscriberId: 'sub-a',
+          checkpointSequence: expect.any(String),
+        },
+      ])
+      expect(resyncsB).toEqual([
+        {
+          type: 'resync',
+          terminalId,
+          subscriberId: 'sub-b',
+          checkpointSequence: resyncsA[0]!.checkpointSequence,
+        },
+      ])
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
+})
