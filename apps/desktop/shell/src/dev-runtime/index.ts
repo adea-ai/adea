@@ -49,6 +49,8 @@ import type { RetainedDataRecord, Scope } from '../../../../../packages/types/sr
 import { registerWorktreeRuntime } from './worktrees/register'
 import type { WorktreeService } from './worktrees/service'
 import { registerProjectScanRuntime } from './projects/register'
+import { registerFilesRuntime } from './files/register'
+import { registerGitRuntime } from './git/register'
 import { createCredentialVault, type CredentialVault } from './vault'
 
 export type DevProviderKind = 'provider' | 'typed_unavailable'
@@ -72,6 +74,10 @@ export type DevRuntimeHost = Readonly<{
   /** Present only when a verified scope exists at composition time. */
   harness?: HarnessRuntimeRegistration
   worktrees: ReturnType<typeof registerWorktreeRuntime>
+  /** Present only when a verified scope exists at composition time (#399). */
+  files?: ReturnType<typeof registerFilesRuntime>
+  /** Present only when a verified scope exists at composition time (#399). */
+  git?: ReturnType<typeof registerGitRuntime>
   terminal?: TerminalRuntimeRegistration
   /** Present only when a verified scope exists at composition time. */
   resources?: ReturnType<typeof registerResourcesRuntime>
@@ -250,6 +256,43 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       })
     : undefined
 
+  // Files/search + local git (#399): the providers consume the worktree
+  // service's canonical roots through the same narrow resolution seam the
+  // terminal uses; without a verified scope (or a worktree context) the
+  // operations stay typed-unavailable through the composition fallback.
+  const files = input.scope
+    ? registerFilesRuntime({
+        authority: input.authority,
+        scope: input.scope,
+        resolveWorktree: (worktreeId) => {
+          const record = worktreeService?.getWorktree(input.scope!, worktreeId)
+          if (!record) return undefined
+          return {
+            canonicalRoot: record.canonicalRoot,
+            rootIdentity: record.rootIdentity,
+            generation: record.generation,
+            lifecycle: record.lifecycle,
+          }
+        },
+      })
+    : undefined
+  const git = input.scope
+    ? registerGitRuntime({
+        authority: input.authority,
+        scope: input.scope,
+        resolveWorktree: (worktreeId) => {
+          const record = worktreeService?.getWorktree(input.scope!, worktreeId)
+          if (!record) return undefined
+          return {
+            canonicalRoot: record.canonicalRoot,
+            rootIdentity: record.rootIdentity,
+            generation: record.generation,
+            lifecycle: record.lifecycle,
+          }
+        },
+      })
+    : undefined
+
   const terminal =
     input.sidecar && input.scope && input.gateway
       ? registerTerminalRuntime({
@@ -339,6 +382,8 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(projectSession ? { projectSession } : {}),
     ...(harness ? { harness } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
+    ...(files ? { files } : {}),
+    ...(git ? { git } : {}),
     ...(terminal ? { terminal } : {}),
     ...(resources ? { resources } : {}),
     ...(cleanupPolicies ? { cleanupPolicies } : {}),

@@ -2111,6 +2111,32 @@ result budget, 1 MiB emitted result bytes, 30 seconds, 1,000 files with matches;
 return partial/budget reason. Cancellation terminates only the owned `rg`
 process. A fallback obeys equal or stricter limits.
 
+### Shipped provider slice (M12 #399)
+
+The desktop shell registers the control-path files/search operations
+(`dev.files.list`, `stat`, `read`, `write`, `create`, `rename`, `delete`,
+`copy`, `search`, `openExternal`) against the worktree service's canonical
+roots through a narrow worktree-resolution seam; `readStream`/`writeStream`
+stay typed-unavailable until the `file-bytes-v1` gateway attach lands. The
+provider re-proves the gate independently of it: envelope resource kind
+`workspace_root`, id, and live generation must match a registered ready
+worktree; each `WorkspacePath` must pin that worktree's root identity
+(cross-worktree substitution is `unauthorized_root`); the canonical grammar is
+re-validated; every symlink component is `symlink_rejected` (final symlinks
+are never followed); FIFOs/devices are `special_file_rejected`; containment is
+re-proven from the deepest existing ancestor immediately before each system
+call. Writes are CAS (`file_changed` carries the current mtime/size facts, no
+content) through an owner-only same-directory temp file, fsync, atomic rename,
+reviewed-permission preservation, and directory fsync; explicit `lf`/`crlf`
+policies never move a BOM. The worktree root itself is spelled `.` in
+`WorkspacePath.relativePath` (the only permitted `.` segment); renames and
+copies use hardlink-based fail-if-exists so a lost race is `path_collision`,
+never an overwrite. Search probes `rg` per call and reports
+`capability_unavailable` with install guidance when absent; matches, files
+with matches, emitted bytes, and the 30-second budget each terminate only the
+owned `rg` process. Errors and logs carry identity facts and paths — never
+file contents or credentials.
+
 ## Local git and diffs
 
 Git commands run through the per-repo mutation/read scheduler with argv arrays,
@@ -2128,6 +2154,37 @@ large/binary/generated diffs use bounded plain-text/metadata fallbacks.
 
 Remote URLs are redacted before DTO, cache, log, or UI. Preserve full nested
 namespace paths; never truncate GitLab subgroups. Embedded user-info is removed.
+
+### Shipped provider slice (M12 #399)
+
+The desktop shell registers the local-git operations (`dev.git.status`,
+`history`, `diff`, `stage`, `unstage`, `commit`, `fetch`, `checkpoint`,
+`discardPlan`/`discardCommit`, `restorePlan`/`restoreCommit`) over the worktree
+service's canonical roots, through the bounded argv-only runner with
+`LC_ALL=C`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`. Status parses
+`--porcelain=v1 -z --branch --untracked-files=all` (unmodified sides are
+reported as `.`; untracked entries carry `?`); the compare-and-swap commit
+fingerprint is the sha256 of `git ls-files --stage -z`, and a mismatch is
+`stale_version` with no side effect. History and diffs use NUL-delimited
+machine formats with cursor paging; `diff-tree --root` serves commit diffs;
+diff lines carry a renderer budget and truncate explicitly. Checkpoints are
+commits built through a temporary index (`read-tree`/`add -A`/`write-tree`
+under `GIT_INDEX_FILE`), published as
+`refs/adea/checkpoints/<worktreeId>/<checkpointId>` — the branch and the real
+index are never touched. Restore and discard are plan/commit pairs whose
+envelope resource is validated against the plan's bound worktree and
+generation before digest evaluation; discard refuses untracked paths as plan
+blockers (explicit deletion stays out of the plan), and restore sources only
+the checkpoint ref, never moving HEAD. Fetch reports `for-each-ref` before and
+after maps for the named remote and fails `remote_unavailable` with
+credential-redacted errors.
+
+### Canonical byte encoding in proofs
+
+The command-proof canonical JSON encodes a `Uint8Array` body field (the
+registry DSL `Uint8Array<=N`) deterministically as the tagged lowercase-hex
+string `u8:<hex>`, so byte-carrying commands (`dev.files.write`,
+`dev.files.create`) proof byte-identically on both sides of the channel.
 
 ## Harness registry and launch
 

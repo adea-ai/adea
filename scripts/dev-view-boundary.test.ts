@@ -37,7 +37,7 @@ describe('Dev View dependency and bundle boundaries', () => {
 
   test('keeps privileged libraries and donor frameworks out of the shared package', () => {
     const manifest = read('packages/dev-view/package.json')
-    for (const forbidden of ['@codemirror', 'electron', 'react', 'zustand', '@pierre/']) {
+    for (const forbidden of ['electron', 'react', 'zustand', '@pierre/']) {
       expect(manifest).not.toContain(`"${forbidden}`)
     }
     // Issue #396 moved the xterm family into the terminal slice: it must be
@@ -50,6 +50,34 @@ describe('Dev View dependency and bundle boundaries', () => {
       expect(source).not.toMatch(/^import .*@adea-ai\/dev-view/m)
     }
     expect(read('packages/dev-view/src/index.ts')).not.toContain('./terminal')
+    // Issue #399 moves the CodeMirror family into the editor slice under the
+    // same rule: manifest-visible (MIT, pinned), statically imported only by
+    // the lazy `src/editor` sources, and reachable through the `./editor`
+    // subpath — never through the shared package root.
+    expect(manifest).toContain('"@codemirror/view"')
+    const editorSources = [...sourceTree('packages/dev-view/src/editor')]
+    expect(editorSources.length).toBeGreaterThan(0)
+    for (const source of editorSources) {
+      expect(source).not.toMatch(/^import .*@adea-ai\/dev-view/m)
+    }
+    expect(read('packages/dev-view/src/index.ts')).not.toContain('./editor')
+    const mirrorSource = read('packages/dev-view/src/editor/editor-mirror.ts')
+    expect(mirrorSource).toContain('@codemirror/view')
+    // Path-aware walk: no file outside `src/editor` may reference the family.
+    const codemirrorOffenders: string[] = []
+    const walkSources = (relativeDir: string): void => {
+      const absolute = resolve(root, relativeDir)
+      for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+        const child = `${relativeDir}/${entry.name}`
+        if (entry.isDirectory()) walkSources(child)
+        else if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
+          if (!child.includes('/src/editor/') && read(child).includes('@codemirror'))
+            codemirrorOffenders.push(child)
+        }
+      }
+    }
+    walkSources('packages/dev-view/src')
+    expect(codemirrorOffenders).toEqual([])
     const source = [
       read('packages/dev-view/src/dev-workspace-entry.tsx'),
       read('packages/dev-view/src/layout/operations.ts'),

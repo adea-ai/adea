@@ -56,6 +56,7 @@ import {
   countLeaves,
   createLayoutState,
   focusPane,
+  listLeaves,
   neighborLeaf,
   normalizeLayout,
   resizeSplit,
@@ -295,6 +296,22 @@ const ActivityPane = lazy(() =>
 )
 const ResourcesPane = lazy(() =>
   import('./resources/resources-pane').then((module) => ({ default: module.ResourcesPane }))
+/*
+ * #399: Files/Source Control utility panes and the central editor leaf ride
+ * their own lazy chunks inside the Dev boundary, exactly like the browser and
+ * device panes; the editor's CodeMirror family loads one dynamic import
+ * deeper still (inside the editor slice).
+ */
+const FilesPane = lazy(() =>
+  import('./files/files-pane').then((module) => ({ default: module.FilesPane }))
+)
+const SourceControlPane = lazy(() =>
+  import('./source-control/source-control-pane').then((module) => ({
+    default: module.SourceControlPane,
+  }))
+)
+const CodeEditor = lazy(() =>
+  import('./editor/code-editor').then((module) => ({ default: module.CodeEditor }))
 )
 
 function focusPaneElement(leafId: string) {
@@ -309,6 +326,26 @@ function focusPaneElement(leafId: string) {
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
+  // #399: the file the central editor leaf shows. Open files are session-local
+  // leaves in the split model — selecting a file focuses (or creates) the
+  // editor leaf beside the active terminal; it never builds a tab forest.
+  const [activeEditorFile, setActiveEditorFile] = createSignal<
+    | {
+        worktreeId: string
+        generation: number
+        rootIdentity: { device?: string; inode?: string; mtimeNs: string; size: string }
+        relativePath: string
+        identity: {
+          device?: string
+          inode?: string
+          birthtimeNs?: string
+          mtimeNs: string
+          size: string
+          contentSha256?: string
+        }
+      }
+    | undefined
+  >(undefined)
   const [projectedGroups, setProjectedGroups] = createSignal<readonly DevGroupFixture[]>([])
   // Fixture mode keeps a local, reorderable copy: `props.groups` itself is
   // readonly E2E input and never mutates.
@@ -504,6 +541,40 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       items.map((item) => (item.side === side ? { ...item, visible: item.pane === pane } : item))
     )
     schedulePreferences()
+  }
+  /** #399: focus the editor leaf, splitting from the focused pane when the
+   *  initial layout was closed. Keeps one editor leaf; files replace in it. */
+  const openFileInEditorLeaf = (file: {
+    worktreeId: string
+    generation: number
+    rootIdentity: { device?: string; inode?: string; mtimeNs: string; size: string }
+    relativePath: string
+    identity: {
+      device?: string
+      inode?: string
+      birthtimeNs?: string
+      mtimeNs: string
+      size: string
+      contentSha256?: string
+    }
+  }) => {
+    setActiveEditorFile(file)
+    const existing = listLeaves(layout().center).find((leaf) => leaf.pane === 'editor')
+    if (existing) {
+      updateLayout((state) => focusPane(state, existing.id))
+      focusPaneElement(existing.id)
+      return
+    }
+    const suffix = ++nextPaneId
+    updateLayout((state) =>
+      splitPane(state, state.focusedLeafId, {
+        direction: 'row',
+        placement: 'after',
+        leaf: { kind: 'leaf', id: `dev-editor-${suffix}`, pane: 'editor' },
+        splitId: `dev-split-${suffix}`,
+      })
+    )
+    focusPaneElement(`dev-editor-${suffix}`)
   }
   const collapseSide = (side: 'left' | 'right') => {
     setUtilityPreferences((items) =>
@@ -1067,6 +1138,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             onCollapse={() => collapseSide('left')}
             onToggleFullWidth={setPaneFullWidth}
             onResize={setPaneSize}
+            onOpenFile={openFileInEditorLeaf}
           />
         </Show>
         <Show when={visiblePaneOf('left') && !leftFullWidth()}>
@@ -1086,6 +1158,27 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           <DevLayoutView
             state={layout()}
             unavailable={runtimeState().status === 'unavailable'}
+            renderEditorLeaf={() => {
+              const file = activeEditorFile()
+              if (!file) return undefined
+              const scope = props.runtime.preferenceScope?.()
+              if (!scope) return undefined
+              return (
+                <Suspense fallback={<p class="dev-pane-state__line">Loading editor…</p>}>
+                  <CodeEditor
+                    runtime={props.runtime}
+                    worktree={{
+                      worktreeId: file.worktreeId,
+                      generation: file.generation,
+                      rootIdentity: file.rootIdentity,
+                    }}
+                    relativePath={file.relativePath}
+                    identity={file.identity}
+                    onClose={() => setActiveEditorFile(undefined)}
+                  />
+                </Suspense>
+              )
+            }}
             onClose={(leafId) => {
               let nextFocusId = layout().focusedLeafId
               updateLayout((state) => {
@@ -1127,6 +1220,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             runtimeSessionId={selectedSession() || undefined}
             capabilityOf={capabilityOf}
             onShow={showPane}
+            onOpenFile={openFileInEditorLeaf}
             onCollapse={() => collapseSide('right')}
             onToggleFullWidth={setPaneFullWidth}
             onResize={setPaneSize}
@@ -1247,6 +1341,20 @@ function UtilitySlot(props: {
   runtimeSessionId: string | undefined
   capabilityOf(pane: DevUtilityPane): { granted: boolean; reason?: string } | undefined
   onShow(pane: DevUtilityPane): void
+  onOpenFile(file: {
+    worktreeId: string
+    generation: number
+    rootIdentity: { device?: string; inode?: string; mtimeNs: string; size: string }
+    relativePath: string
+    identity: {
+      device?: string
+      inode?: string
+      birthtimeNs?: string
+      mtimeNs: string
+      size: string
+      contentSha256?: string
+    }
+  }): void
   onCollapse(): void
   onToggleFullWidth(pane: DevUtilityPane, fullWidth: boolean): void
   onResize(pane: DevUtilityPane, size: number): void
@@ -1316,6 +1424,33 @@ function UtilitySlot(props: {
       ) : (
         <PaneProviderState
           title="Agents"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
+    if (pane === 'files') {
+      return runtimeReady() ? (
+        <FilesPane runtime={props.runtime} onOpenFile={props.onOpenFile} />
+      ) : (
+        <PaneProviderState
+          title="Files"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
+    if (pane === 'source_control') {
+      return runtimeReady() ? (
+        <SourceControlPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+      ) : (
+        <PaneProviderState
+          title="Source Control"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
           capability={PANE_CAPABILITY[pane]}
           state={props.capabilityOf(pane)}
         />

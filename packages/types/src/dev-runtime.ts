@@ -179,6 +179,107 @@ export type WorkspacePath = Readonly<{
   relativePath: string
 }>
 
+// ─── Files / search DTOs (#399) ─────────────────────────────────────────────
+// Exact shapes from the dev-runtime spec; the registry `reply` names resolve
+// to these types and reject unknown keys.
+
+export type FileEntry = Readonly<{
+  path: WorkspacePath
+  identity: FileIdentity
+  kind: 'file' | 'directory' | 'symlink' | 'special'
+  size: string
+  observedAt: string
+}>
+
+export type FileReadResult = Readonly<{
+  entry: FileEntry
+  offset: string
+  bytes: Uint8Array
+  eof: boolean
+  eol: 'lf' | 'crlf' | 'mixed' | 'none'
+  encoding: 'utf8' | 'binary'
+}>
+
+export type FileWriteResult = Readonly<{
+  entry: FileEntry
+  previousIdentity: FileIdentity
+  atomic: true
+}>
+
+export type FileMutationResult = Readonly<{
+  path: WorkspacePath
+  previousIdentity: FileIdentity
+  state: 'deleted'
+}>
+
+export type SearchMatch = Readonly<{
+  path: WorkspacePath
+  identity: FileIdentity
+  line: number
+  column: number
+  preview: string
+  ranges: ReadonlyArray<{ start: number; end: number }>
+}>
+
+export type ExternalOpenResult = Readonly<{
+  accepted: true
+  path: WorkspacePath
+  applicationLabel?: string
+}>
+
+// ─── Local git / diff DTOs (#399) ───────────────────────────────────────────
+
+export type GitStatusEntry = Readonly<{
+  path: WorkspacePath
+  staged: string
+  unstaged: string
+  untracked: boolean
+}>
+
+export type GitStatus = Readonly<{
+  worktreeId: string
+  headRef?: string
+  headSha?: string
+  indexSha: string
+  entries: ReadonlyArray<GitStatusEntry>
+  observedAt: string
+}>
+
+export type GitCommit = Readonly<{
+  sha: string
+  parents: ReadonlyArray<string>
+  authorName: string
+  authoredAt: string
+  subject: string
+  body?: string
+}>
+
+export type DiffHunk = Readonly<{
+  path: WorkspacePath
+  oldPath?: WorkspacePath
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: ReadonlyArray<{ kind: 'context' | 'add' | 'delete'; text: string }>
+}>
+
+export type GitFetchResult = Readonly<{
+  remoteName: string
+  before: Readonly<Record<string, string>>
+  after: Readonly<Record<string, string>>
+  observedAt: string
+}>
+
+export type GitCheckpoint = Readonly<{
+  id: string
+  worktreeId: string
+  baseSha?: string
+  treeSha: string
+  createdAt: string
+  label?: string
+}>
+
 export type PaneLeaf = Readonly<{
   kind: 'leaf'
   id: string
@@ -1218,12 +1319,13 @@ function splitTopLevel(source: string, separator: string): string[] {
     else if (character === '(') parentheses += 1
     else if (character === ')') parentheses -= 1
     else if (character === '<') {
-      // `<=` is a bound operator in this contract DSL (string[]<=32), not a
-      // generic opener; counting it left the rest of the body mis-split
-      // whenever a bounded array preceded another field.
+      // `<=N` is an inclusive cap in the registry DSL, not a nesting open:
+      // without this, every field after a `Uint8Array<=N` / `T[]<=N` field
+      // was swallowed and rejected as an unknown key.
       if (source[index + 1] !== '=') angles += 1
-    } else if (character === '>') angles -= 1
-    else if (
+    } else if (character === '>') {
+      if (angles > 0) angles -= 1
+    } else if (
       character === separator &&
       braces === 0 &&
       brackets === 0 &&
@@ -1891,14 +1993,185 @@ function namedType(name: string, value: unknown, path: string): unknown {
     stringValue(item.worktreeId, `${path}.worktreeId`, 1)
     namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
     const relative = stringValue(item.relativePath, `${path}.relativePath`, 1)
-    if (
-      relative.includes('\0') ||
-      relative.includes('\\') ||
-      relative.startsWith('/') ||
-      /^[A-Za-z]:/.test(relative) ||
-      relative.split('/').some((part) => !part || part === '.' || part === '..')
+    if (relative !== '.') {
+      // '.' is the canonical spelling of the worktree root itself; every
+      // other path must be a normalized relative path.
+      if (
+        relative.includes('\0') ||
+        relative.includes('\\') ||
+        relative.startsWith('/') ||
+        /^[A-Za-z]:/.test(relative) ||
+        relative.split('/').some((part) => !part || part === '.' || part === '..')
+      )
+        fail(`${path}.relativePath`, 'expected normalized relative path')
+    }
+    return value
+  }
+  if (name === 'FileEntry') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'identity', 'kind', 'size', 'observedAt'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    namedType('FileIdentity', item.identity, `${path}.identity`)
+    literal(item.kind, ['file', 'directory', 'symlink', 'special'], `${path}.kind`)
+    if (!uint64Pattern.test(stringValue(item.size, `${path}.size`)))
+      fail(`${path}.size`, 'expected uint64 string')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'FileReadResult') {
+    const item = record(value, path)
+    exactKeys(item, ['entry', 'offset', 'bytes', 'eof', 'eol', 'encoding'], [], path)
+    namedType('FileEntry', item.entry, `${path}.entry`)
+    if (!uint64Pattern.test(stringValue(item.offset, `${path}.offset`)))
+      fail(`${path}.offset`, 'expected uint64 string')
+    if (!(item.bytes instanceof Uint8Array)) fail(`${path}.bytes`, 'expected Uint8Array')
+    if (typeof item.eof !== 'boolean') fail(`${path}.eof`, 'expected boolean')
+    literal(item.eol, ['lf', 'crlf', 'mixed', 'none'], `${path}.eol`)
+    literal(item.encoding, ['utf8', 'binary'], `${path}.encoding`)
+    return value
+  }
+  if (name === 'FileWriteResult') {
+    const item = record(value, path)
+    exactKeys(item, ['entry', 'previousIdentity', 'atomic'], [], path)
+    namedType('FileEntry', item.entry, `${path}.entry`)
+    namedType('FileIdentity', item.previousIdentity, `${path}.previousIdentity`)
+    if (item.atomic !== true) fail(`${path}.atomic`, 'expected true')
+    return value
+  }
+  if (name === 'FileMutationResult') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'previousIdentity', 'state'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    namedType('FileIdentity', item.previousIdentity, `${path}.previousIdentity`)
+    literal(item.state, ['deleted'], `${path}.state`)
+    return value
+  }
+  if (name === 'SearchMatch') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'identity', 'line', 'column', 'preview', 'ranges'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    namedType('FileIdentity', item.identity, `${path}.identity`)
+    integerValue(item.line, `${path}.line`, 1)
+    integerValue(item.column, `${path}.column`, 1)
+    stringValue(item.preview, `${path}.preview`, 0, 4096)
+    if (!Array.isArray(item.ranges)) fail(`${path}.ranges`, 'expected array')
+    item.ranges.forEach((entry: unknown, index: number) => {
+      const rangePath = `${path}.ranges[${index}]`
+      const range = record(entry, rangePath)
+      exactKeys(range, ['start', 'end'], [], rangePath)
+      const start = integerValue(range.start, `${rangePath}.start`, 0)
+      const end = integerValue(range.end, `${rangePath}.end`, 0)
+      if (end < start) fail(rangePath, 'range end must not precede start')
+    })
+    return value
+  }
+  if (name === 'ExternalOpenResult') {
+    const item = record(value, path)
+    exactKeys(item, ['accepted', 'path'], ['applicationLabel'], path)
+    if (item.accepted !== true) fail(`${path}.accepted`, 'expected true')
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    if (item.applicationLabel !== undefined)
+      stringValue(item.applicationLabel, `${path}.applicationLabel`, 1, 128)
+    return value
+  }
+  if (name === 'GitStatus') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['worktreeId', 'indexSha', 'entries', 'observedAt'],
+      ['headRef', 'headSha'],
+      path
     )
-      fail(`${path}.relativePath`, 'expected normalized relative path')
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1)
+    if (item.headRef !== undefined) stringValue(item.headRef, `${path}.headRef`, 1, 512)
+    if (item.headSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+        fail(`${path}.headSha`, 'expected git sha')
+    }
+    if (!sha256Pattern.test(stringValue(item.indexSha, `${path}.indexSha`)))
+      fail(`${path}.indexSha`, 'expected sha256')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    if (!Array.isArray(item.entries)) fail(`${path}.entries`, 'expected array')
+    item.entries.forEach((entry: unknown, index: number) => {
+      const entryPath = `${path}.entries[${index}]`
+      const entryItem = record(entry, entryPath)
+      exactKeys(entryItem, ['path', 'staged', 'unstaged', 'untracked'], [], entryPath)
+      namedType('WorkspacePath', entryItem.path, `${entryPath}.path`)
+      stringValue(entryItem.staged, `${entryPath}.staged`, 1, 8)
+      stringValue(entryItem.unstaged, `${entryPath}.unstaged`, 1, 8)
+      if (typeof entryItem.untracked !== 'boolean')
+        fail(`${entryPath}.untracked`, 'expected boolean')
+    })
+    return value
+  }
+  if (name === 'GitCommit') {
+    const item = record(value, path)
+    exactKeys(item, ['sha', 'parents', 'authorName', 'authoredAt', 'subject'], ['body'], path)
+    if (!gitShaPattern.test(stringValue(item.sha, `${path}.sha`)))
+      fail(`${path}.sha`, 'expected git sha')
+    if (!Array.isArray(item.parents)) fail(`${path}.parents`, 'expected array')
+    item.parents.forEach((parent: unknown, index: number) => {
+      if (!gitShaPattern.test(stringValue(parent, `${path}.parents[${index}]`)))
+        fail(`${path}.parents[${index}]`, 'expected git sha')
+    })
+    stringValue(item.authorName, `${path}.authorName`, 1, 256)
+    timestamp(item.authoredAt, `${path}.authoredAt`)
+    stringValue(item.subject, `${path}.subject`, 1, 4096)
+    if (item.body !== undefined) stringValue(item.body, `${path}.body`, 0, 65_536)
+    return value
+  }
+  if (name === 'DiffHunk') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['path', 'oldStart', 'oldLines', 'newStart', 'newLines', 'lines'],
+      ['oldPath'],
+      path
+    )
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    if (item.oldPath !== undefined) namedType('WorkspacePath', item.oldPath, `${path}.oldPath`)
+    integerValue(item.oldStart, `${path}.oldStart`, 0)
+    integerValue(item.oldLines, `${path}.oldLines`, 0)
+    integerValue(item.newStart, `${path}.newStart`, 0)
+    integerValue(item.newLines, `${path}.newLines`, 0)
+    if (!Array.isArray(item.lines)) fail(`${path}.lines`, 'expected array')
+    item.lines.forEach((entry: unknown, index: number) => {
+      const linePath = `${path}.lines[${index}]`
+      const line = record(entry, linePath)
+      exactKeys(line, ['kind', 'text'], [], linePath)
+      literal(line.kind, ['context', 'add', 'delete'], `${linePath}.kind`)
+      stringValue(line.text, `${linePath}.text`, 0, 65_536)
+    })
+    return value
+  }
+  if (name === 'GitFetchResult') {
+    const item = record(value, path)
+    exactKeys(item, ['remoteName', 'before', 'after', 'observedAt'], [], path)
+    stringValue(item.remoteName, `${path}.remoteName`, 1, 256)
+    for (const key of ['before', 'after'] as const) {
+      const refs = record(item[key], `${path}.${key}`)
+      for (const [ref, sha] of Object.entries(refs)) {
+        stringValue(ref, `${path}.${key} ref`, 1, 512)
+        if (!gitShaPattern.test(stringValue(sha, `${path}.${key}.${ref}`)))
+          fail(`${path}.${key}.${ref}`, 'expected git sha')
+      }
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitCheckpoint') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'worktreeId', 'treeSha', 'createdAt'], ['baseSha', 'label'], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1)
+    if (item.baseSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.baseSha, `${path}.baseSha`)))
+        fail(`${path}.baseSha`, 'expected git sha')
+    }
+    if (!gitShaPattern.test(stringValue(item.treeSha, `${path}.treeSha`)))
+      fail(`${path}.treeSha`, 'expected git sha')
+    timestamp(item.createdAt, `${path}.createdAt`)
+    if (item.label !== undefined) stringValue(item.label, `${path}.label`, 0, 128)
     return value
   }
   if (name === 'BrowserAnnotationInput') {
@@ -2788,6 +3061,41 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.group.delete': (value) => decodeGroup(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Files/search slice (#399): strict DTO decoders installed by the
+  // operation-owning provider slice before its handlers register.
+  'dev.files.list': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('FileEntry', item, path), value, 'reply.value'),
+  'dev.files.stat': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.read': (value) => namedType('FileReadResult', value, 'reply.value'),
+  'dev.files.write': (value) => namedType('FileWriteResult', value, 'reply.value'),
+  'dev.files.create': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.rename': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.delete': (value) => namedType('FileMutationResult', value, 'reply.value'),
+  'dev.files.copy': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.search': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('SearchMatch', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.files.openExternal': (value) => namedType('ExternalOpenResult', value, 'reply.value'),
+  'dev.files.readStream': (value) => decodeDevStreamGrant(value),
+  'dev.files.writeStream': (value) => decodeDevStreamGrant(value),
+  // Local git slice (#399).
+  'dev.git.status': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.history': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('GitCommit', item, path), value, 'reply.value'),
+  'dev.git.diff': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('DiffHunk', item, path), value, 'reply.value'),
+  'dev.git.stage': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.unstage': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.discardPlan': (value) => decodeMutationPlan(value),
+  'dev.git.discardCommit': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.commit': (value) => namedType('GitCommit', value, 'reply.value'),
+  'dev.git.fetch': (value) => namedType('GitFetchResult', value, 'reply.value'),
+  'dev.git.checkpoint': (value) => namedType('GitCheckpoint', value, 'reply.value'),
+  'dev.git.restorePlan': (value) => decodeMutationPlan(value),
+  'dev.git.restoreCommit': (value) => namedType('GitStatus', value, 'reply.value'),
   // Terminal slice (#396): attach/input return single-use stream grants.
   'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
   'dev.terminal.input': (value) => decodeDevStreamGrant(value),
@@ -3620,11 +3928,19 @@ const devCapabilityUniverse = Object.freeze([
   ]),
 ])
 
-/** Deterministic JSON with recursively sorted object keys (UTF-8). */
+/** Deterministic JSON with recursively sorted object keys (UTF-8). Byte
+ *  body fields (`Uint8Array<=N` in the registry DSL) encode as the tagged
+ *  lowercase-hex form `u8:<hex>` so a command that carries bytes proofs
+ *  byte-identically on both sides of the channel. */
 export function canonicalDevCommandJson(value: unknown): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value)
   if (typeof value === 'string') return JSON.stringify(value)
+  if (value instanceof Uint8Array) {
+    let hex = ''
+    for (const byte of value) hex += byte.toString(16).padStart(2, '0')
+    return JSON.stringify(`u8:${hex}`)
+  }
   if (Array.isArray(value)) return `[${value.map(canonicalDevCommandJson).join(',')}]`
   if (typeof value === 'object') {
     const object = value as Record<string, unknown>

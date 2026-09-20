@@ -54,6 +54,24 @@
       "development": "./src/permissions/index.ts",
       "import": "./dist/permissions/index.js"
     },
+    "./files": {
+      "types": "./dist/files/index.d.ts",
+      "solid": "./src/files/index.ts",
+      "development": "./src/files/index.ts",
+      "import": "./dist/files/index.js"
+    },
+    "./source-control": {
+      "types": "./dist/source-control/index.d.ts",
+      "solid": "./src/source-control/index.ts",
+      "development": "./src/source-control/index.ts",
+      "import": "./dist/source-control/index.js"
+    },
+    "./editor": {
+      "types": "./dist/editor/code-editor.d.ts",
+      "solid": "./src/editor/code-editor.tsx",
+      "development": "./src/editor/code-editor.tsx",
+      "import": "./dist/editor/code-editor.js"
+    },
     "./terminal": {
       "types": "./dist/terminal/terminal-pane.d.ts",
       "solid": "./src/terminal/terminal-pane.tsx",
@@ -72,6 +90,11 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "workspace:*",
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.15.0",
     "@xterm/addon-serialize": "^0.13.0",
