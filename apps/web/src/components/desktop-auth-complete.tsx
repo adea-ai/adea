@@ -19,7 +19,11 @@ export function DesktopAuthComplete() {
   // `adea://` handoff all need the browser. A server render shows the
   // in-progress state until hydration runs this.
   onMount(() => {
-    const fragment = window.location.hash
+    // The fragment arrives pre-hydration and is gone by the time this runs
+    // (router normalization restores the server-side URL); read the capture.
+    const fragment =
+      (window as { __ADEA_INITIAL_HASH__?: string }).__ADEA_INITIAL_HASH__ ??
+      window.location.hash
     const errorParams = new URLSearchParams(fragment.startsWith('#') ? fragment.slice(1) : '')
     if (errorParams.get('error') === 'early_access') {
       // Return the app to a recoverable state: the pending attempt fails

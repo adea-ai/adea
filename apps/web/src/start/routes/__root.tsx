@@ -65,6 +65,13 @@ function Document(props: { children: JSX.Element }) {
         <HydrationScript />
         <HeadContent />
         <ThemeScript />
+        <script
+          // Router hydration normalization restores the server-side URL and
+          // drops the boot-time fragment (hashes never reach the server). The
+          // desktop-auth complete page consumes that fragment post-hydration,
+          // so it must be captured here, at first script execution.
+          innerHTML={`window.__ADEA_INITIAL_HASH__ ??= window.location.hash`}
+        />
       </head>
       <body>
         {props.children}
