@@ -1772,6 +1772,22 @@ Restart loops allow 5 failures in 10 minutes, then stop and surface
 `crash_loop`. Window/app close detaches; explicit termination signals only the
 owned process group after start-identity recheck.
 
+Entry-side ownership belt (test-infra hardening): a boot on a data dir whose
+endpoint record names a live process with the same executable identity and a
+matching `ps` start identity supersedes that predecessor — SIGTERM, bounded
+grace, then SIGKILL — before binding, and unlinks the stale endpoint and
+socket. A record naming a dead, recycled, or replaced process is unlinked and
+never signalled. A signalled entry force-exits if its graceful checkpoint
+flush exceeds a bounded grace (segment writes are atomic), and a live entry
+whose endpoint file disappears (data dir removed under it — the unrecoverable
+case: no future adoption can target it, and production cleanup never deletes
+a live sidecar's data location) exits through the same graceful path, so a
+leaked lane cannot park an unadoptable process — and its PTY children —
+behind the test runner's end-of-run child reaping. The packaged macOS test
+lanes rely on this belt: `bun test` runs every file on one shared thread, so
+a real-process lane must bound its own readiness windows and never leave its
+child behind.
+
 ### Local stack supervision
 
 The desktop shell is the one supervisor for the bundled local stack (M10
@@ -2970,6 +2986,18 @@ pass before M12 release. M12 also requires authorized fake
 RuntimeConnection/revocation/scope-isolation fixtures against the shared remote
 adapter. Production remote RuntimeConnection certification is explicitly owned
 by M14 and is not a hidden M12 acceptance criterion.
+
+Real-process lane contract (packaged macOS smokes): `bun test` executes every
+test file on one shared process thread, so a synchronous stall in any file
+silences the whole runner at apparent zero CPU — the last printed file header
+(often the real-PTY smoke) is not evidence of where a run is stuck. Every
+real-process lane therefore owns its own truth: deadline-based readiness
+polls (never fixed attempt counts sized for an idle machine), a per-test
+budget with headroom over the sum of its inner bounds, drained child pipes,
+and teardown that escalates SIGTERM to SIGKILL on observed exit so no
+evidence lane can leak a sidecar orphan or hang the shared runner. Fixture
+helpers that shell out synchronously (`git` in the worktree fixtures) pass an
+explicit spawn timeout for the same reason.
 
 ## Spec changes
 

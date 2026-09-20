@@ -48,6 +48,9 @@ export function git(dir: string, args: string[]): { stdout: string; code: number
     },
     stdout: 'pipe',
     stderr: 'pipe',
+    // `bun test` runs every file on one shared thread: a git invocation stuck
+    // on a lock here would freeze the whole runner forever. Bound it.
+    timeout: 60_000,
   })
   return {
     stdout: proc.stdout.toString(),
@@ -129,6 +132,8 @@ export function clone(dir: string, from: string): string {
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     stdout: 'pipe',
     stderr: 'pipe',
+    // Same shared-thread bound as git() above.
+    timeout: 60_000,
   })
   if (proc.exitCode !== 0) throw new Error(`clone failed: ${proc.stderr.toString()}`)
   git(dir, ['config', 'user.email', 'adea@example.com'])
