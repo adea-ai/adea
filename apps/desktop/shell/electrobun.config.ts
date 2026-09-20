@@ -16,6 +16,12 @@ export default {
     // bundled main process. Staged by apps/desktop/scripts/client.mjs.
     copy: {
       '../../web/dist-desktop/client': 'client',
+      // The Dev Runtime terminal sidecar is a bundled supervised component
+      // (M10 #185 / #396): the packaging lane bundles the entry into
+      // build/sidecar-dist and stages it at
+      // Contents/Resources/app/dev-runtime-sidecar — the install location
+      // shell/scripts/packaged-install.ts resolves for the component manifest.
+      'build/sidecar-dist': 'dev-runtime-sidecar',
     },
     mac: {
       bundleCEF: true,
