@@ -260,13 +260,16 @@ function keychainFailure(error: KeychainAccessError): DevAuthorityError {
 export function createSystemVaultKeyStore(options?: {
   runSecurity?: SecurityCommandRunner
 }): VaultKeyStore {
-  if (process.platform !== 'darwin') {
+  const injectedRunner = options?.runSecurity
+  // A scripted runner is platform-independent by design (deterministic tests
+  // and approved host adapters); only the production path, which shells out
+  // to the macOS `security` CLI, requires darwin.
+  if (!injectedRunner && process.platform !== 'darwin') {
     throw new DevAuthorityError(
       'auth_required',
       'the credential vault requires an OS credential store on this platform'
     )
   }
-  const injectedRunner = options?.runSecurity
   const runClassified = (args: string[], input?: Buffer): SecurityRun => {
     if (!injectedRunner) return classifySecurityRun(args, input)
     try {
