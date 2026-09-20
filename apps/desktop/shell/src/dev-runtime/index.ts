@@ -22,6 +22,7 @@ import type { OwnerApprovalVerifier } from './authority'
 import type { AuthorityAudit } from './audit'
 import { createProjectGrantAuthority, type ProjectGrantAuthority } from './grants'
 import { createRootBookmarkAuthority, type RootBookmarkAuthority } from './roots'
+import type { SupervisionRecord } from '../supervision/records'
 import { registerBrowserDeviceRuntime, type BrowserDeviceRuntime } from './browser/register'
 import type { AdeaOwnedService } from './browser/navigation-policy'
 import { registerComputerUseRuntime, type ComputerUseRuntime } from './computeruse/register'
@@ -36,6 +37,15 @@ import type { AcpLaneDriver } from './harness/acp-lane'
 import type { ManagedPiDriver } from './harness/managed-pi-driver'
 import { registerTerminalRuntime, type TerminalRuntimeRegistration } from './terminal/register'
 import type { SidecarClient } from './terminal/sidecar/client'
+import { registerResourcesRuntime, type ResourcesSupervisionView } from './resources/register'
+import type { ResourceSample } from './resources/metrics'
+import {
+  createCleanupPolicyAuthority,
+  type CleanupFacts,
+  type CleanupPolicyAuthority,
+} from './resources/policy'
+import { createUsageService, type UsageService } from './usage/service'
+import type { RetainedDataRecord, Scope } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
 import type { WorktreeService } from './worktrees/service'
 import { registerProjectScanRuntime } from './projects/register'
@@ -63,6 +73,11 @@ export type DevRuntimeHost = Readonly<{
   harness?: HarnessRuntimeRegistration
   worktrees: ReturnType<typeof registerWorktreeRuntime>
   terminal?: TerminalRuntimeRegistration
+  /** Present only when a verified scope exists at composition time. */
+  resources?: ReturnType<typeof registerResourcesRuntime>
+  /** Present only when a verified scope exists at composition time. */
+  cleanupPolicies?: CleanupPolicyAuthority
+  usage?: UsageService
   registration: DevRuntimeHostRegistration
 }>
 
@@ -95,6 +110,24 @@ export type CreateDevRuntimeHostInput = {
   macPermissions?: MacPermissionService
   /** Overrides the computer-use input engine (#472; tests inject scripted ones). */
   computerUseEngine?: ComputerUseEngine
+  /** Samples OS metrics for the supervised PIDs (bounded, pull-based). */
+  sampleProcesses?: (
+    pids: readonly number[]
+  ) => Promise<readonly ResourceSample[]> | readonly ResourceSample[]
+  /** #424: narrow read-only view of the supervision engine (snapshot plus
+   * the public stop API). Without it resource listings stay truthful-empty
+   * and process stop fails closed with `capability_unavailable`. */
+  supervision?: ResourcesSupervisionView
+  /** #424: the same durable journal the supervision engine appends to;
+   * resource inventory entries are proven from it. */
+  supervisionRecords?: { list(): readonly SupervisionRecord[] }
+  /** #424: retained-data breakdown source (terminal/checkpoint/templates). */
+  retainedData?: () => readonly RetainedDataRecord[]
+  /** #424: usage adapter cache; a default empty service is composed without it. */
+  usage?: UsageService
+  /** #424: live worktree facts for cleanup-policy evaluation; absence fails
+   * the evaluation closed (never satisfied). */
+  cleanupWorktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
 }
 
 export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRuntimeHost {
@@ -230,6 +263,35 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         })
       : undefined
 
+  // #424 runtime resources, usage, activity, and safe cleanup. The listing
+  // providers compose the #422 port inventory and the injected supervision
+  // view read-only; the destructive stop path re-checks the envelope
+  // resource binding, the live generation, and the plan digest, and then
+  // delegates the side effect to the supervision engine's public API.
+  let resources: ReturnType<typeof registerResourcesRuntime> | undefined
+  let cleanupPolicies: CleanupPolicyAuthority | undefined
+  let usage = input.usage
+  if (input.scope) {
+    resources = registerResourcesRuntime({
+      authority: input.authority,
+      scope: input.scope,
+      ports: browserDevices.ports,
+      ...(input.supervision ? { supervision: input.supervision } : {}),
+      ...(input.supervisionRecords ? { supervisionRecords: input.supervisionRecords } : {}),
+      ...(input.retainedData ? { retainedData: input.retainedData } : {}),
+      ...(input.usage ? { usage: input.usage } : {}),
+      ...(input.sampleProcesses ? { sampleProcesses: input.sampleProcesses } : {}),
+    })
+    cleanupPolicies = createCleanupPolicyAuthority({
+      authority: input.authority,
+      dataDir: input.dataDir,
+      scope: input.scope,
+      approvalVerifier: input.approvalVerifier,
+      ...(input.cleanupWorktreeFacts ? { worktreeFacts: input.cleanupWorktreeFacts } : {}),
+    })
+    usage = usage ?? createUsageService({ adapters: [] })
+  }
+
   // Everything without a reachable provider gets an explicit typed refusal,
   // so a registered-but-unimplemented operation can never masquerade as
   // success or as an unknown command.
@@ -278,6 +340,9 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(harness ? { harness } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(terminal ? { terminal } : {}),
+    ...(resources ? { resources } : {}),
+    ...(cleanupPolicies ? { cleanupPolicies } : {}),
+    ...(usage ? { usage } : {}),
     registration: Object.freeze({
       matrix: Object.freeze(matrix),
       providers: Object.freeze(providers),

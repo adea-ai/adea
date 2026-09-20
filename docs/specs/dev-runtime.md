@@ -1027,6 +1027,10 @@ type ResourceMetric = {
   writeBytes?: string
   observedAt: string
   confidence: 'authoritative' | 'measured' | 'estimated'
+  processRecordId?: string
+  runtimeSessionId?: string
+  worktreeId?: string
+  generation?: number
 }
 type UsageRecord = {
   id: string
@@ -1035,18 +1039,26 @@ type UsageRecord = {
   quantity: string
   unit: string
   costMicros?: string
-  source: string
+  source: 'official_api' | 'harness_protocol' | 'local_transcript_estimate'
   confidence: 'authoritative' | 'measured' | 'estimated'
   observedAt: string
+  accountLabel?: string
+  period?: { from: string; to: string }
+  remaining?: string
+  capturedAt?: string
+  expiresAt?: string
+  failure?: { code: DevErrorCode; message: string }
 }
 type RetainedDataRecord = {
   id: string
   ownerId: string
-  kind: 'terminal' | 'checkpoint' | 'screenshot' | 'browser_profile' | 'log'
+  kind: 'terminal' | 'checkpoint' | 'screenshot' | 'browser_profile' | 'log' | 'dependency_template'
   byteLength: string
   protected: boolean
   expiresAt?: string
   observedAt: string
+  scope?: Scope
+  label?: string
 }
 type ResourceSnapshot = {
   processes: ProcessRecord[]
@@ -2367,6 +2379,64 @@ current-behavior review.
 External telemetry is off by default. If enabled, scrub paths, commands,
 project/worktree names, environment, exception messages/frames, SDK contexts,
 attachments, terminal/prompts, and credentials before egress.
+
+### Host provider policy (M12 #424)
+
+The shell serves `dev.resources.*` from proven sources only, and every
+listing without a source is truthful-empty rather than fabricated:
+
+- The process inventory joins the supervision engine's durable launch/exit
+  journal against its live snapshot. A launch is listed `running` (and only a
+  `running` row offers a stop) when journal identity, live PID, PID start
+  identity, executable identity, and launch generation all match; a reused
+  PID or replaced executable renders as `unknown`, and a journaled exit
+  renders as `exited` for a bounded retention window. Exited-but-unrecorded
+  and never-journaled processes are not listed at all.
+- Ports come from the #422 inventory (launch/session metadata confirmed by a
+  loopback-only scan); unknown listeners are `unknown` with no stop path.
+- Metrics are pull-based: a bounded sample is recorded when the snapshot or
+  metrics surface is read, never on a timer. CPU is a monotonic delta
+  between consecutive samples of one owner; the first sample carries no
+  `cpuPercent`, and unobservable values stay absent (never numeric zero).
+  History is bounded to 720 points per owner and 24 hours.
+- Usage adapters are sequenced by a cache service with exponential backoff
+  plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
+  floor. A failed poll stores an explicit typed-failure row (quantity
+  `unknown`, never 0) and never blocks the listing or any other lane.
+  Official-API adapters require a fixed reviewed endpoint (HTTPS off
+  loopback), host allowlisting, DNS revalidation that denies private and
+  metadata ranges, `redirect: 'error'`, a bounded 5-second fetch, and a
+  vault credential — without a credential they report `auth_required` and
+  never touch the network.
+- Stopping a process is a plan/commit pair bound to the envelope resource
+  `{kind: 'process', id: processRecordId, generation}`. The plan mints the
+  supervision engine's stop confirmation; the commit re-checks the binding,
+  the live generation, the plan digest, and the still-proven inventory entry
+  before calling the engine's public stop API — which re-proves the launch
+  identity immediately before any signal (TM-004). The first attempt is
+  graceful; a retry after an unconfirmed stop window escalates explicitly.
+  Failures map typed (`ownership_unproven`, `stale_generation`,
+  `already_completed`, `plan_stale`, `timeout`) and never signal PIDs
+  directly.
+- Cleanup policies are durable drafts that become approved only through a
+  single-use owner approval; approval fails closed (`auth_required`) without
+  the owner approval authority. Evaluation observes facts only and returns
+  `executesNothing: true` always; unavailable facts, an expired policy, or a
+  non-approved state produce blockers and `matched: false` — automatic
+  background cleanup can never run on an unprovable state.
+
+### Runtime activity
+
+The Agents pane carries an Activity section built from `dev.harness.runs`
+(event provenance: the harness substrate's run records). Rows show the
+agent/profile, model, state, and elapsed time; `awaiting_input` and
+`awaiting_approval` states are attention-ranked first, so the pane answers
+"what needs me?" without terminal scrolling. Stop controls ride the
+session-scoped, generation-fenced `dev.session.cancelHarness` command and
+are disabled while the session generation is unknown. The toolbar resources
+detail sheet shows the process/port inventory, metric summaries, provider
+usage cards, and the retained-data breakdown with cleanup context; absent
+capability renders as typed states.
 
 ## Appearance and App Library
 

@@ -286,6 +286,20 @@ describe('dev runtime composition', () => {
         'dev.worktree.cleanupResume',
         'dev.device.list',
         'dev.browser.lanes',
+        // #424 runtime resources, usage, and cleanup policies.
+        'dev.resources.snapshot',
+        'dev.resources.processes',
+        'dev.resources.ports',
+        'dev.resources.metrics',
+        'dev.resources.retainedData',
+        'dev.resources.usage',
+        'dev.resources.stopPlan',
+        'dev.resources.stopCommit',
+        'dev.cleanupPolicy.list',
+        'dev.cleanupPolicy.createDraft',
+        'dev.cleanupPolicy.approve',
+        'dev.cleanupPolicy.disable',
+        'dev.cleanupPolicy.evaluate',
       ] as const
       for (const operation of expectedProviders) {
         expect(providers).toContain(operation)
@@ -302,8 +316,14 @@ describe('dev runtime composition', () => {
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.files.'))).toBe(true)
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.git.'))).toBe(true)
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.github.'))).toBe(true)
+      // #424: resources/usage/cleanup-policy providers register on a verified
+      // scope; listings without a bound supervision engine are truthful-empty
+      // and destructive stops fail closed with `capability_unavailable`.
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.resources.'))).toBe(
-        true
+        false
+      )
+      expect(typedUnavailable.some((operation) => operation.startsWith('dev.cleanupPolicy.'))).toBe(
+        false
       )
       // No sidecar: terminal stays typed-unavailable, not unknown.
       expect(typedUnavailable.some((operation) => operation.startsWith('dev.terminal.'))).toBe(true)

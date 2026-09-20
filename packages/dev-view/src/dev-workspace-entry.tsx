@@ -19,10 +19,13 @@ import type {
   DevReply,
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/ui/dev-view.css'
+// #424: the resources sheet rides the resources pane's scoped hooks.
+import './resources/resources-pane.css'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
   Columns2,
   Files,
+  Gauge,
   GitBranch,
   History,
   Laptop,
@@ -286,6 +289,13 @@ const BrowserPane = lazy(() =>
 const DevicesPane = lazy(() =>
   import('./devices/devices-pane').then((module) => ({ default: module.DevicesPane }))
 )
+// #424: the Agents pane's Activity section and the toolbar resources sheet.
+const ActivityPane = lazy(() =>
+  import('./resources/activity-pane').then((module) => ({ default: module.ActivityPane }))
+)
+const ResourcesPane = lazy(() =>
+  import('./resources/resources-pane').then((module) => ({ default: module.ResourcesPane }))
+)
 
 function focusPaneElement(leafId: string) {
   requestAnimationFrame(() => {
@@ -330,6 +340,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
    */
   const [recoveryNotice, setRecoveryNotice] = createSignal('')
   const [archiveHandoff, setArchiveHandoff] = createSignal<string | undefined>()
+  // #424: the runtime-resources detail sheet (processes/ports/usage/retained
+  // data) opens from the toolbar; Escape always closes it.
+  const [resourcesSheetOpen, setResourcesSheetOpen] = createSignal(false)
   const runtimeState = createMemo(() => props.runtime.state())
   const fixtureMode = () => props.groups !== undefined
 
@@ -933,6 +946,15 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
               }
               onClick={() => toggleUtilityGroup(['agents', 'history'])}
             />
+            <button
+              type="button"
+              class="dev-icon-button"
+              aria-label="Runtime resources"
+              aria-pressed={resourcesSheetOpen()}
+              onClick={() => setResourcesSheetOpen(!resourcesSheetOpen())}
+            >
+              <Gauge aria-hidden="true" />
+            </button>
           </Show>
           <button
             type="button"
@@ -955,6 +977,35 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <p class="dev-recovery-banner" role="status">
           {recoveryMessage()}
         </p>
+      </Show>
+
+      <Show when={resourcesSheetOpen()}>
+        <div
+          class="dev-resources-sheet"
+          role="dialog"
+          aria-label="Runtime resources"
+          onKeyDown={(event: KeyboardEvent) => {
+            if (event.key === 'Escape') setResourcesSheetOpen(false)
+          }}
+        >
+          <div class="dev-resources-sheet__bar">
+            <span>Runtime resources</span>
+            <button
+              type="button"
+              class="dev-icon-button"
+              aria-label="Close runtime resources"
+              onClick={() => setResourcesSheetOpen(false)}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </div>
+          <Suspense fallback={<p class="dev-resources__note">Loading…</p>}>
+            <ResourcesPane
+              runtime={props.runtime}
+              runtimeSessionId={selectedSession() || undefined}
+            />
+          </Suspense>
+        </div>
       </Show>
 
       <div class="dev-workspace__body">
@@ -1241,6 +1292,30 @@ function UtilitySlot(props: {
       ) : (
         <PaneProviderState
           title="Devices"
+          capability={PANE_CAPABILITY[pane]}
+          state={props.capabilityOf(pane)}
+        />
+      )
+    }
+    // #424: the Agents pane carries the Activity section (running harness
+    // runs, attention states, elapsed time, and stop controls); History keeps
+    // its provider-state placeholder until its own slice lands.
+    if (pane === 'agents') {
+      return runtimeReady() ? (
+        <Suspense
+          fallback={
+            <PaneProviderState
+              title="Agents"
+              capability={PANE_CAPABILITY[pane]}
+              state={props.capabilityOf(pane)}
+            />
+          }
+        >
+          <ActivityPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+        </Suspense>
+      ) : (
+        <PaneProviderState
+          title="Agents"
           capability={PANE_CAPABILITY[pane]}
           state={props.capabilityOf(pane)}
         />

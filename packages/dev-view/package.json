@@ -42,6 +42,12 @@
       "development": "./src/computeruse/index.ts",
       "import": "./dist/computeruse/index.js"
     },
+    "./resources": {
+      "types": "./dist/resources/index.d.ts",
+      "solid": "./src/resources/index.ts",
+      "development": "./src/resources/index.ts",
+      "import": "./dist/resources/index.js"
+    },
     "./permissions": {
       "types": "./dist/permissions/index.d.ts",
       "solid": "./src/permissions/index.ts",

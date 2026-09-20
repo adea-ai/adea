@@ -898,6 +898,128 @@ export type PortRecord = Readonly<{
   observedAt: string
 }>
 
+// #424 runtime resources: processes, metrics, usage, and retained data. A
+// process row exists only when the host can prove it from a launch record
+// (durable journal entry matched against the supervision snapshot); a reused
+// PID or an unprovable launch is never listed as owned, so no stop path can
+// exist for it.
+export type ProcessOwnerKind =
+  | 'terminal'
+  | 'harness'
+  | 'server'
+  | 'browser'
+  | 'device'
+  | 'bootstrap'
+  | 'git'
+
+export type ProcessRecord = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId?: string
+  worktreeId?: string
+  ownerKind: ProcessOwnerKind
+  ownerId: string
+  pid: number
+  startIdentity: string
+  executableIdentity: string
+  processGroupIdentity?: string
+  generation: number
+  state: 'starting' | 'running' | 'stopping' | 'exited' | 'unknown'
+}>
+
+export type ResourceMetric = Readonly<{
+  ownerId: string
+  cpuPercent?: number
+  residentBytes?: string
+  readBytes?: string
+  writeBytes?: string
+  observedAt: string
+  confidence: 'authoritative' | 'measured' | 'estimated'
+  // #424 additive isolation: every point is keyed by runtime node scope and
+  // launch generation so metrics from another node or generation never merge.
+  processRecordId?: string
+  runtimeSessionId?: string
+  worktreeId?: string
+  generation?: number
+}>
+
+export type UsageSource = 'official_api' | 'harness_protocol' | 'local_transcript_estimate'
+
+export type UsageRecord = Readonly<{
+  id: string
+  ownerId: string
+  provider: string
+  quantity: string
+  unit: string
+  costMicros?: string
+  source: UsageSource
+  confidence: 'authoritative' | 'measured' | 'estimated'
+  observedAt: string
+  // #424 additive adapter-contract fields: safe display label, period,
+  // remaining, freshness, and the typed failure when the adapter could not
+  // observe usage (failure rows carry explicit `unknown` quantities, never 0).
+  accountLabel?: string
+  period?: Readonly<{ from: string; to: string }>
+  remaining?: string
+  capturedAt?: string
+  expiresAt?: string
+  failure?: Readonly<{ code: DevErrorCode; message: string }>
+}>
+
+export type RetainedDataRecord = Readonly<{
+  id: string
+  ownerId: string
+  kind: 'terminal' | 'checkpoint' | 'screenshot' | 'browser_profile' | 'log' | 'dependency_template'
+  byteLength: string
+  protected: boolean
+  expiresAt?: string
+  observedAt: string
+  // #424 additive: scope isolation and a safe display label for breakdowns.
+  scope?: Scope
+  label?: string
+}>
+
+export type ResourceSnapshot = Readonly<{
+  processes: readonly ProcessRecord[]
+  ports: readonly PortRecord[]
+  metrics: readonly ResourceMetric[]
+  retainedData: readonly RetainedDataRecord[]
+  observedAt: string
+}>
+
+export type CleanupPredicate = Readonly<
+  | { kind: 'clean' }
+  | { kind: 'pushed' }
+  | { kind: 'pull_request_merged' }
+  | { kind: 'no_active_leases' }
+  | { kind: 'no_active_owned_resources' }
+  | { kind: 'archived_for'; seconds: number }
+>
+
+export type CleanupPolicy = Readonly<{
+  id: string
+  scope: Scope
+  projectId: string
+  version: number
+  state: 'draft' | 'approved' | 'disabled' | 'expired' | 'superseded'
+  approvedBy?: string
+  approvedAt?: string
+  expiresAt?: string
+  predicates: readonly CleanupPredicate[]
+  allowedSteps: readonly CleanupStepKind[]
+}>
+
+export type CleanupPolicyEvaluation = Readonly<{
+  policyId: string
+  worktreeId: string
+  matched: boolean
+  facts: Readonly<Record<string, string>>
+  blockers: readonly CleanupBlocker[]
+  evaluatedAt: string
+  /** Evaluation observes facts only; it never executes a cleanup step. */
+  executesNothing: true
+}>
+
 export type CleanupBlocker = Readonly<{
   code: DevErrorCode
   resourceId?: string
@@ -1137,6 +1259,7 @@ const cleanupSteps = [
   'delete_branch',
   'prune_retained_data',
 ] as const
+export type CleanupStepKind = (typeof cleanupSteps)[number]
 
 function namedType(name: string, value: unknown, path: string): unknown {
   if (name === 'ArchiveRecord') {
@@ -1515,6 +1638,205 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.generation !== undefined) integerValue(item.generation, `${path}.generation`, 0)
     literal(item.state, ['observed', 'stale', 'gone'], `${path}.state`)
     timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  // #424 runtime-resource DTOs.
+  if (name === 'ProcessRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'ownerKind',
+        'ownerId',
+        'pid',
+        'startIdentity',
+        'executableIdentity',
+        'generation',
+        'state',
+      ],
+      ['runtimeSessionId', 'worktreeId', 'processGroupIdentity'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    decodeScope(item.scope, `${path}.scope`)
+    literal(
+      item.ownerKind,
+      ['terminal', 'harness', 'server', 'browser', 'device', 'bootstrap', 'git'],
+      `${path}.ownerKind`
+    )
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    integerValue(item.pid, `${path}.pid`, 1)
+    stringValue(item.startIdentity, `${path}.startIdentity`, 1, 256)
+    stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 1024)
+    if (item.runtimeSessionId !== undefined)
+      stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    if (item.worktreeId !== undefined) stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    if (item.processGroupIdentity !== undefined)
+      stringValue(item.processGroupIdentity, `${path}.processGroupIdentity`, 1, 256)
+    integerValue(item.generation, `${path}.generation`, 0)
+    literal(item.state, ['starting', 'running', 'stopping', 'exited', 'unknown'], `${path}.state`)
+    return value
+  }
+  if (name === 'ResourceMetric') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['ownerId', 'observedAt', 'confidence'],
+      [
+        'cpuPercent',
+        'residentBytes',
+        'readBytes',
+        'writeBytes',
+        'processRecordId',
+        'runtimeSessionId',
+        'worktreeId',
+        'generation',
+      ],
+      path
+    )
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    if (item.cpuPercent !== undefined) finiteNumber(item.cpuPercent, `${path}.cpuPercent`, 0, 1e6)
+    for (const key of ['residentBytes', 'readBytes', 'writeBytes'] as const)
+      if (item[key] !== undefined) stringValue(item[key], `${path}.${key}`, 1, 40)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    literal(item.confidence, ['authoritative', 'measured', 'estimated'], `${path}.confidence`)
+    if (item.processRecordId !== undefined)
+      stringValue(item.processRecordId, `${path}.processRecordId`, 1, 256)
+    if (item.runtimeSessionId !== undefined)
+      stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    if (item.worktreeId !== undefined) stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    if (item.generation !== undefined) integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'UsageRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'ownerId', 'provider', 'quantity', 'unit', 'source', 'confidence', 'observedAt'],
+      ['costMicros', 'accountLabel', 'period', 'remaining', 'capturedAt', 'expiresAt', 'failure'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    stringValue(item.provider, `${path}.provider`, 1, 128)
+    stringValue(item.quantity, `${path}.quantity`, 1, 64)
+    stringValue(item.unit, `${path}.unit`, 1, 64)
+    if (item.costMicros !== undefined) stringValue(item.costMicros, `${path}.costMicros`, 1, 64)
+    literal(
+      item.source,
+      ['official_api', 'harness_protocol', 'local_transcript_estimate'],
+      `${path}.source`
+    )
+    literal(item.confidence, ['authoritative', 'measured', 'estimated'], `${path}.confidence`)
+    if (item.accountLabel !== undefined)
+      stringValue(item.accountLabel, `${path}.accountLabel`, 1, 256)
+    if (item.period !== undefined) {
+      const period = record(item.period, `${path}.period`)
+      exactKeys(period, ['from', 'to'], [], `${path}.period`)
+      timestamp(period.from, `${path}.period.from`)
+      timestamp(period.to, `${path}.period.to`)
+    }
+    if (item.remaining !== undefined) stringValue(item.remaining, `${path}.remaining`, 1, 64)
+    if (item.capturedAt !== undefined) timestamp(item.capturedAt, `${path}.capturedAt`)
+    if (item.expiresAt !== undefined) timestamp(item.expiresAt, `${path}.expiresAt`)
+    if (item.failure !== undefined) {
+      const failure = record(item.failure, `${path}.failure`)
+      exactKeys(failure, ['code', 'message'], [], `${path}.failure`)
+      literal(failure.code, devErrorCodes, `${path}.failure.code`)
+      stringValue(failure.message, `${path}.failure.message`, 1, 4096)
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'RetainedDataRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'ownerId', 'kind', 'byteLength', 'protected', 'observedAt'],
+      ['expiresAt', 'scope', 'label'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    literal(
+      item.kind,
+      ['terminal', 'checkpoint', 'screenshot', 'browser_profile', 'log', 'dependency_template'],
+      `${path}.kind`
+    )
+    stringValue(item.byteLength, `${path}.byteLength`, 1, 40)
+    if (typeof item.protected !== 'boolean') fail(`${path}.protected`, 'expected boolean')
+    if (item.expiresAt !== undefined) timestamp(item.expiresAt, `${path}.expiresAt`)
+    if (item.scope !== undefined) decodeScope(item.scope, `${path}.scope`)
+    if (item.label !== undefined) stringValue(item.label, `${path}.label`, 1, 256)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'ResourceSnapshot') {
+    const item = record(value, path)
+    exactKeys(item, ['processes', 'ports', 'metrics', 'retainedData', 'observedAt'], [], path)
+    if (!Array.isArray(item.processes)) fail(`${path}.processes`, 'expected array')
+    if (!Array.isArray(item.ports)) fail(`${path}.ports`, 'expected array')
+    if (!Array.isArray(item.metrics)) fail(`${path}.metrics`, 'expected array')
+    if (!Array.isArray(item.retainedData)) fail(`${path}.retainedData`, 'expected array')
+    for (const [index, entry] of item.processes.entries())
+      namedType('ProcessRecord', entry, `${path}.processes[${index}]`)
+    for (const [index, entry] of item.ports.entries())
+      namedType('PortRecord', entry, `${path}.ports[${index}]`)
+    for (const [index, entry] of item.metrics.entries())
+      namedType('ResourceMetric', entry, `${path}.metrics[${index}]`)
+    for (const [index, entry] of item.retainedData.entries())
+      namedType('RetainedDataRecord', entry, `${path}.retainedData[${index}]`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'CleanupPolicy') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'projectId', 'version', 'state', 'predicates', 'allowedSteps'],
+      ['approvedBy', 'approvedAt', 'expiresAt'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.projectId, `${path}.projectId`, 1, 256)
+    integerValue(item.version, `${path}.version`, 1)
+    literal(item.state, ['draft', 'approved', 'disabled', 'expired', 'superseded'], `${path}.state`)
+    if (!Array.isArray(item.predicates)) fail(`${path}.predicates`, 'expected array')
+    for (const [index, entry] of item.predicates.entries())
+      namedType('CleanupPredicate', entry, `${path}.predicates[${index}]`)
+    if (!Array.isArray(item.allowedSteps)) fail(`${path}.allowedSteps`, 'expected array')
+    for (const [index, entry] of item.allowedSteps.entries())
+      namedType('CleanupStepKind', entry, `${path}.allowedSteps[${index}]`)
+    if (item.approvedBy !== undefined) stringValue(item.approvedBy, `${path}.approvedBy`, 1, 256)
+    if (item.approvedAt !== undefined) timestamp(item.approvedAt, `${path}.approvedAt`)
+    if (item.expiresAt !== undefined) timestamp(item.expiresAt, `${path}.expiresAt`)
+    return value
+  }
+  if (name === 'CleanupPolicyEvaluation') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['policyId', 'worktreeId', 'matched', 'facts', 'blockers', 'evaluatedAt', 'executesNothing'],
+      [],
+      path
+    )
+    stringValue(item.policyId, `${path}.policyId`, 1, 256)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    if (typeof item.matched !== 'boolean') fail(`${path}.matched`, 'expected boolean')
+    if (typeof item.facts !== 'object' || item.facts === null || Array.isArray(item.facts))
+      fail(`${path}.facts`, 'expected record')
+    for (const [key, entry] of Object.entries(item.facts))
+      stringValue(entry, `${path}.facts.${key}`, 0, 256)
+    if (!Array.isArray(item.blockers)) fail(`${path}.blockers`, 'expected array')
+    for (const [index, entry] of item.blockers.entries())
+      decodeCleanupBlocker(entry, `${path}.blockers[${index}]`)
+    timestamp(item.evaluatedAt, `${path}.evaluatedAt`)
+    if (item.executesNothing !== true)
+      fail(`${path}.executesNothing`, 'evaluation must never execute')
     return value
   }
   if (name === 'MutationPlan') return decodeMutationPlan(value)
@@ -2555,6 +2877,45 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // provider and its resource side.
   'dev.resources.ports': (value) =>
     decodeDevRuntimePage((item, path) => namedType('PortRecord', item, path), value, 'reply.value'),
+  // #424 runtime resources, usage, activity, and safe cleanup.
+  'dev.resources.snapshot': (value) => namedType('ResourceSnapshot', value, 'reply.value'),
+  'dev.resources.processes': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('ProcessRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.metrics': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('ResourceMetric', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.retainedData': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('RetainedDataRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.usage': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('UsageRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.stopPlan': (value) => namedType('MutationPlan', value, 'reply.value'),
+  'dev.resources.stopCommit': (value) => namedType('ProcessRecord', value, 'reply.value'),
+  'dev.cleanupPolicy.list': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('CleanupPolicy', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.cleanupPolicy.createDraft': (value) => namedType('CleanupPolicy', value, 'reply.value'),
+  'dev.cleanupPolicy.approve': (value) => namedType('CleanupPolicy', value, 'reply.value'),
+  'dev.cleanupPolicy.disable': (value) => namedType('CleanupPolicy', value, 'reply.value'),
+  'dev.cleanupPolicy.evaluate': (value) =>
+    namedType('CleanupPolicyEvaluation', value, 'reply.value'),
   // #31/#32 harness substrate: managed-Pi status/install, ACP lane
   // connections, run status/history, and the session-mapped launch/resume/
   // cancel replies whose DTO lands with the owning provider slice.

@@ -1,0 +1,213 @@
+/*
+ * Resources pane hooks (#424). Scoped to this package; tokens come from
+ * theme.css via the same variables the shared dev-view hooks use.
+ */
+
+/* The toolbar detail sheet overlay (z-index rides the shared dialog scale). */
+
+.dev-resources-sheet {
+  position: absolute;
+  inset-block-start: 3.25rem;
+  inset-inline-end: 0.5rem;
+  z-index: var(--z-dialog, 50);
+  display: flex;
+  max-height: min(32rem, calc(100% - 4rem));
+  width: min(24rem, calc(100% - 1rem));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card, var(--background));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+.dev-resources-sheet__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.375rem 0.5rem;
+  border-block-end: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
+.dev-resources {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.dev-resources__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dev-resources__title {
+  font-weight: 600;
+}
+
+.dev-resources__refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.75rem;
+  block-size: 1.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.dev-resources__section h3 {
+  margin-block: 0 0.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.dev-resources__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dev-resources__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.dev-resources__row--alert {
+  border-color: var(--destructive);
+}
+
+.dev-resources__row-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.dev-resources__row-title {
+  font-size: 0.8125rem;
+}
+
+.dev-resources__row-detail {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.dev-resources__row-detail--error {
+  color: var(--destructive);
+}
+
+.dev-resources__stop {
+  border: 1px solid var(--destructive);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--destructive);
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+}
+
+.dev-resources__cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  padding: 0.125rem 0.5rem;
+}
+
+.dev-resources__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--destructive);
+  border-radius: 0.5rem;
+}
+
+.dev-resources__confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dev-resources__note {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.dev-resources__unavailable {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.dev-resources__error {
+  color: var(--destructive);
+  font-size: 0.8125rem;
+}
+
+/* Activity section (Agents pane, #424). */
+
+.dev-activity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.dev-activity__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.25rem 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.dev-activity__row--attention {
+  border-color: var(--destructive);
+}
+
+.dev-activity__row-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.dev-activity__badge {
+  flex-shrink: 0;
+  border-radius: 9999px;
+  padding: 0 0.375rem;
+  font-size: 0.6875rem;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+
+.dev-activity__badge--attention {
+  color: var(--destructive);
+  border-color: var(--destructive);
+}
+
+.dev-activity__badge--running {
+  color: var(--foreground);
+}
