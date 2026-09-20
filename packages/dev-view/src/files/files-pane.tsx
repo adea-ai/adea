@@ -83,6 +83,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         },
         ...(cursor ? { cursor } : {}),
         limit: LIST_PAGE,
+        ...(cursor !== undefined ? { cursor } : {}),
       },
       { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
     )
