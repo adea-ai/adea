@@ -66,6 +66,8 @@ export function DevSidebarShell(props: {
   archiveHandoffMessage?: string
   /** Registry add/scan surface slot (#398); absent in E2E fixture mode. */
   addProject?: JSX.Element
+  /** Repository registry surface slot (#398 follow-up); absent in fixture mode. */
+  repoRegistry?: JSX.Element
   onArchiveRestore(runtimeSessionId: string): void
   onArchiveRequestDelete(runtimeSessionId: string): void
   onArchiveCancelDelete(): void
@@ -88,6 +90,7 @@ export function DevSidebarShell(props: {
         <input type="search" placeholder="Filter projects" />
       </label>
       <Show when={props.addProject}>{props.addProject}</Show>
+      <Show when={props.repoRegistry}>{props.repoRegistry}</Show>
       <nav aria-label="Dev projects">
         <Show
           when={props.groups.length > 0}

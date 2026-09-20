@@ -2110,6 +2110,26 @@ decoder still fails closed. Git children run through the bounded, argv-only
 fixed time and output budgets) — never a shell, never credential material in
 arguments or environment.
 
+The Dev View sidebar is the registry's client surface and adds no authority
+of its own. The repository panel rides a lazy chunk inside the Dev boundary
+and reads the authoritative state through the authenticated command path only
+(`dev.project.list`, `dev.repo.list`, `dev.project.bookmarks`,
+`dev.repo.credentialRefs`); every reply item passes the strict
+`Project`/`Repo`/`RootBookmark`/`CredentialRef` decoders before rendering, and
+a success value that fails strict decode fails closed as a registry error
+instead of rendering a guessed row. Mutations are explicit user actions:
+`dev.repo.adopt` names an owner-picked authorized bookmark (the binding's own
+bookmark is the default — a client never supplies a path),
+`dev.repo.authorize` binds a vault `CredentialRef` chosen from the refs the
+runtime already serves, so secret material never enters the client, and
+`dev.repo.inspect`/`dev.repo.refresh` surface the typed lifecycle verbatim
+(`stale` and `unavailable` render as states, not errors). `dev.project.archive`
+passes the same explicit confirmation gate as the archive shelf; refusals
+(live sessions, `stale_version`) surface as typed non-blocking notices and the
+view reloads the authoritative state rather than keeping a fabricated outcome.
+A runtime without the registry providers answers `capability_unavailable`, and
+the panel renders that typed-unavailable state instead of dead controls.
+
 ## Worktree lifecycle
 
 ### Creation

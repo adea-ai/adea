@@ -329,6 +329,16 @@ const SourceControlPane = lazy(() =>
 const CodeEditor = lazy(() =>
   import('./editor/code-editor').then((module) => ({ default: module.CodeEditor }))
 )
+/*
+ * #398 follow-up: the sidebar repository registry panel rides its own lazy
+ * chunk exactly like the utility panes — the client budget the bundle check
+ * enforces leaves no room for it in the Dev shell chunk.
+ */
+const RepoRegistryPanel = lazy(() =>
+  import('./sidebar/repo-registry-panel').then((module) => ({
+    default: module.RepoRegistryPanel,
+  }))
+)
 
 function focusPaneElement(leafId: string) {
   requestAnimationFrame(() => {
@@ -1147,6 +1157,17 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
                 onImported={() => void loadProjection()}
                 announce={setAnnouncement}
               />
+            ) : undefined
+          }
+          repoRegistry={
+            !fixtureMode() && activeScope() ? (
+              <Suspense fallback={<p class="dev-tree-empty">Loading repositories…</p>}>
+                <RepoRegistryPanel
+                  scope={activeScope()!}
+                  execute={(command) => props.runtime.execute(command)}
+                  announce={setAnnouncement}
+                />
+              </Suspense>
             ) : undefined
           }
           onArchiveRestore={(id) => void restoreFromArchive(id)}
