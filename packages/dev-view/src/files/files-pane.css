@@ -69,6 +69,40 @@
   background: color-mix(in srgb, var(--secondary) 55%, transparent);
 }
 
+/* Keep indentation in CSS instead of using a dynamic inline style. Deeper
+ * paths are capped so an unusually deep tree cannot push controls off-screen. */
+.dev-files__row[data-depth='1'] {
+  padding-inline-start: 1.5rem;
+}
+
+.dev-files__row[data-depth='2'] {
+  padding-inline-start: 2.5rem;
+}
+
+.dev-files__row[data-depth='3'] {
+  padding-inline-start: 3.5rem;
+}
+
+.dev-files__row[data-depth='4'] {
+  padding-inline-start: 4.5rem;
+}
+
+.dev-files__row[data-depth='5'] {
+  padding-inline-start: 5.5rem;
+}
+
+.dev-files__row[data-depth='6'] {
+  padding-inline-start: 6.5rem;
+}
+
+.dev-files__row[data-depth='7'] {
+  padding-inline-start: 7.5rem;
+}
+
+.dev-files__row[data-depth='8'] {
+  padding-inline-start: 8.5rem;
+}
+
 .dev-files__icon {
   flex-shrink: 0;
   width: 0.85rem;

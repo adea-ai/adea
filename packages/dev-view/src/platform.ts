@@ -56,6 +56,8 @@ export type DevWorkspaceProjection = Readonly<{
 
 export interface DevRuntimeService {
   state(): DevRuntimeAvailability
+  /** Resolves when an asynchronous runtime channel has finished binding. */
+  ready?: Promise<void>
   /** Authoritative preference scope, absent until a runtime channel is bound. */
   preferenceScope?(): Scope | undefined
   projection?(scope: Scope): Promise<DevWorkspaceProjection>

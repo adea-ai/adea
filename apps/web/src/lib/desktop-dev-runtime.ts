@@ -51,6 +51,7 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
     })
 
   return {
+    ready: projectedScope.then(() => undefined),
     state: () =>
       shellScope
         ? { status: 'ready' as const }
@@ -60,9 +61,12 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
           },
     preferenceScope: () => shellScope,
     projection: async (requestedScope) => {
-      const scope = (await projectedScope) ?? requestedScope
-      if (shellScope && !sameScope(scope, shellScope)) {
-        throw new Error(bindRefusal?.message ?? 'requested scope does not match the shell binding')
+      const scope = await projectedScope
+      if (!scope) {
+        throw new Error(bindRefusal?.message ?? 'identity scope is unbound')
+      }
+      if (!sameScope(scope, requestedScope)) {
+        throw new Error('requested scope does not match the shell binding')
       }
       const [groups, projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.group.list', scope, {}),
@@ -72,22 +76,17 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
       return toProjection(groups, projects, sessions)
     },
     capabilitySnapshot: async (requestedScope) => {
-      const scope = (await projectedScope) ?? requestedScope
-      if (shellScope && !sameScope(scope, shellScope)) {
-        return {
-          scope: requestedScope,
-          granted: [],
-          unavailable: [],
-          channelGeneration: 0,
-          observedAt: new Date().toISOString(),
-        }
+      const scope = await projectedScope
+      if (!scope || !sameScope(scope, requestedScope)) {
+        return unavailable.capabilitySnapshot(requestedScope)
       }
       const command = buildDevCommand({
         operation: 'dev.capability.snapshot',
         scope,
         body: {},
       })
-      return readSnapshot(await execute(command), scope)
+      const reply = await execute(command)
+      return reply.ok ? readSnapshot(reply, scope) : unavailable.capabilitySnapshot(requestedScope)
     },
     execute: async (command) => {
       try {
@@ -119,7 +118,8 @@ function createBoundService(options: {
 }): DevRuntimeService {
   const { shellScope } = options
   const execute = options.execute
-  if (!execute) return createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+  const unavailable = createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
+  if (!execute) return unavailable
   return {
     state: () => ({ status: 'ready' }),
     preferenceScope: () => shellScope,
@@ -137,7 +137,10 @@ function createBoundService(options: {
         scope: requestedScope,
         body: {},
       })
-      return readSnapshot(await execute(command), requestedScope)
+      const reply = await execute(command)
+      return reply.ok
+        ? readSnapshot(reply, requestedScope)
+        : unavailable.capabilitySnapshot(requestedScope)
     },
     execute: async (command) => {
       try {

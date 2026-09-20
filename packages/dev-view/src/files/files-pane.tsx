@@ -63,7 +63,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     }
   })
 
-  async function loadDirectory(context: WorktreeContext, relativePath: string): Promise<void> {
+  async function loadDirectory(
+    context: WorktreeContext,
+    relativePath: string,
+    cursor?: string
+  ): Promise<void> {
     const activeScope = scope()
     if (!activeScope) return
     const page = await executeOperation<{ items: readonly FileEntry[]; nextCursor?: string }>(
@@ -77,12 +81,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           rootIdentity: context.rootIdentity,
           relativePath: relativePath.length === 0 ? '.' : relativePath,
         },
+        ...(cursor ? { cursor } : {}),
         limit: LIST_PAGE,
       },
       { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
     )
     setNodes((current) => mergeListing(current, page.items))
-    if (page.nextCursor) await loadDirectory(context, relativePath)
+    if (page.nextCursor) await loadDirectory(context, relativePath, page.nextCursor)
   }
 
   async function refreshMarkers(): Promise<void> {
@@ -323,7 +328,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                 {(row) => (
                   <div
                     class={cn('dev-files__row', { 'dev-files__row--dir': row.hasChildren })}
-                    style={{ '--dev-files-depth': String(row.depth) }}
+                    data-depth={Math.min(row.depth, 8)}
                   >
                     <Show
                       when={row.hasChildren}

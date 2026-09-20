@@ -381,6 +381,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   // #424: the runtime-resources detail sheet (processes/ports/usage/retained
   // data) opens from the toolbar; Escape always closes it.
   const [resourcesSheetOpen, setResourcesSheetOpen] = createSignal(false)
+  const [runtimeBindingReady, setRuntimeBindingReady] = createSignal(false)
   const runtimeState = createMemo(() => props.runtime.state())
   const fixtureMode = () => props.groups !== undefined
 
@@ -430,12 +431,22 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       )
       return
     }
-    void loadProjection()
+    const ready = props.runtime.ready
+    if (ready) {
+      void ready.then(() => {
+        setRuntimeBindingReady(true)
+        return loadProjection()
+      })
+    } else {
+      setRuntimeBindingReady(true)
+      void loadProjection()
+    }
   })
 
   const capabilityOf = (pane: DevUtilityPane) => capabilities().get(PANE_CAPABILITY[pane])
 
   createEffect(() => {
+    if (props.runtime.ready && !runtimeBindingReady()) return
     const scope = activeScope()
     if (!scope || fixtureMode()) return
     void props.runtime.capabilitySnapshot(scope).then((snapshot) => {
@@ -642,6 +653,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
       await loadProjection()
       return false
     }
+    await loadProjection()
     return true
   }
 
@@ -782,6 +794,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           projectId: String(raw.projectId ?? ''),
           title: typeof raw.displayName === 'string' ? raw.displayName : String(raw.id),
           archivedAt: 'recently',
+          ...(typeof raw.generation === 'number' ? { generation: raw.generation } : {}),
         }))
       )
     )
@@ -796,14 +809,26 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     }
     const scope = activeScope()
     if (!scope) return
-    // The authoritative generation lives in the session record; the register
-    // binds archive transitions to it. Read it before the transition.
+    // The authoritative generation is carried by the archive list record; the
+    // register binds archive transitions to it. Never send a wildcard/zero
+    // generation because the host rejects stale resource bindings.
+    const archived = archiveShelf().items.find((item) => item.id === runtimeSessionId)
+    if (archived?.generation === undefined) {
+      setArchiveHandoff(
+        'Restore failed: the session generation is unavailable; refresh Archived sessions.'
+      )
+      return
+    }
     const reply = await props.runtime.execute(
       buildDevCommand({
         operation: 'dev.session.get',
         scope,
         body: { runtimeSessionId },
-        resource: { kind: 'runtime_session', id: runtimeSessionId, generation: 0 },
+        resource: {
+          kind: 'runtime_session',
+          id: runtimeSessionId,
+          generation: archived.generation,
+        },
       })
     )
     if (!reply.ok) {

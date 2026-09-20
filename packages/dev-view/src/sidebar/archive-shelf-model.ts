@@ -14,6 +14,8 @@ export type ArchivedSessionSummary = Readonly<{
   projectId: string
   title: string
   archivedAt: string
+  /** Current session generation for resource-bound restore commands. */
+  generation?: number
 }>
 
 export type ArchiveShelfState = Readonly<{
