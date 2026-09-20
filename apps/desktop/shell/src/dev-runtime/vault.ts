@@ -97,6 +97,17 @@ export type VaultKeyStore = Readonly<{
   delete(service: string, account: string): void
 }>
 
+/** Deterministic in-memory key store for tests and non-darwin CI: same
+ *  VaultKeyStore contract as the OS keychain adapter, no durability. */
+export function createInMemoryVaultKeyStore(): VaultKeyStore {
+  const keys = new Map<string, Buffer>()
+  return {
+    get: (service, account) => keys.get(`${service}\u0000${account}`),
+    set: (service, account, key) => void keys.set(`${service}\u0000${account}`, key),
+    delete: (service, account) => void keys.delete(`${service}\u0000${account}`),
+  }
+}
+
 const VAULT_KEY_SERVICE = 'com.adea.desktop.dev-runtime'
 const VAULT_KEY_ACCOUNT = 'master-key-v1'
 

@@ -43,6 +43,7 @@ import {
   type ComputerUseRuntimeInput,
 } from '../shell/src/dev-runtime/computeruse/register'
 import type { ChannelAuthority, ChannelIdentity } from '../shell/src/dev-runtime/channel/authority'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import type { MacPermissionService } from '../shell/src/desktop-permissions'
 
 const scope = {
@@ -336,6 +337,7 @@ describe('computer-use lane registry', () => {
 describe('computer-use capability report', () => {
   test('granted accessibility means input is available; capture and AX-tree are honestly unavailable', async () => {
     const capabilities = createComputerUseCapabilityService({
+      platform: 'darwin',
       permissions: scriptedPermissions(snapshotWith('granted')),
     })
     const report = await capabilities.report()

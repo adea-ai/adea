@@ -29,6 +29,7 @@ import {
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import type { ChannelIdentity } from '../shell/src/dev-runtime/channel/authority'
 import {
@@ -311,6 +312,7 @@ async function boot(): Promise<Boot> {
   }
   await identityAuthority.bind({ session: SESSION, claimed: SCOPE_A })
   const host = createDevRuntimeHost({
+    credentialStore: createInMemoryVaultKeyStore(),
     authority,
     gateway: gateway as never,
     dataDir,

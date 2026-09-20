@@ -28,12 +28,14 @@ import {
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import {
   createDesktopIdentityAuthority,
   type DesktopIdentityVerifier,
 } from '../shell/src/dev-runtime/channel/identity'
 import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
 import {
   createManagedPiDriver,
@@ -201,6 +203,9 @@ async function boot(options: HarnessBootOptions = {}): Promise<Boot> {
     identity,
     approvalVerifier: createOwnerApprovalVerifier({ dataDir }),
     runtimeRoot: join(dataDir, 'dev-runtime', 'runtime'),
+    // Deterministic key store: the OS `security` CLI does not exist on the
+    // Linux unit lane, and the vault must construct identically everywhere.
+    credentialStore: createInMemoryVaultKeyStore(),
     runLsof: () => Promise.resolve(''),
     resolveDns: () => Promise.resolve([]),
     worktreeService: fakeWorktreeService,

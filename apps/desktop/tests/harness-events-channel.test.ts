@@ -26,6 +26,7 @@ import {
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import {
   createDesktopIdentityAuthority,
@@ -123,6 +124,7 @@ beforeAll(async () => {
     shellOrigin,
   })
   host = createDevRuntimeHost({
+    credentialStore: createInMemoryVaultKeyStore(),
     authority,
     gateway,
     dataDir,

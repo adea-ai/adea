@@ -29,6 +29,7 @@ import {
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import {
   createDesktopIdentityAuthority,
@@ -208,6 +209,7 @@ async function boot(
     seedInventoryConnection(dataDir, SCOPE_A, options.seedAcpInstallation)
   }
   const host = createDevRuntimeHost({
+    credentialStore: createInMemoryVaultKeyStore(),
     authority,
     gateway,
     dataDir,
