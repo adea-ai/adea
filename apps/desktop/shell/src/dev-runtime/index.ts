@@ -45,7 +45,7 @@ import {
   type CleanupPolicyAuthority,
 } from './resources/policy'
 import { createUsageService, type UsageService } from './usage/service'
-import type { RetainedDataRecord, Scope } from '../../../../../packages/types/src/dev-runtime'
+import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
 import type { WorktreeService } from './worktrees/service'
 import { registerProjectScanRuntime } from './projects/register'
