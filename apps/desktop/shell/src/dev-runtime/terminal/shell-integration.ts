@@ -20,10 +20,14 @@
 // payload digest (docs/specs/dev-runtime.md, "Shell integration and input").
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmdirSync,
   statSync,
   unlinkSync,
@@ -545,12 +549,28 @@ export function installWrapper(options: {
   const contentSha256 = createHash('sha256').update(content, 'utf8').digest('hex')
   const wrappersDir = join(options.runtimeRoot, 'wrappers')
   mkdirSync(wrappersDir, { recursive: true, mode: 0o700 })
+  chmodSync(wrappersDir, 0o700)
   const path = join(
     wrappersDir,
     `${options.shellKind}-${contentSha256.slice(0, 32)}.adea.${options.shellKind}`
   )
-  const reused = existsSync(path)
-  if (!reused) writeFileSync(path, content, { mode: 0o600 })
+  let reused = false
+  try {
+    const existing = lstatSync(path)
+    reused = existing.isFile() && createHash('sha256').update(readFileSync(path)).digest('hex') === contentSha256
+    if ((existing.mode & 0o777) !== 0o600) chmodSync(path, 0o600)
+  } catch {
+    reused = false
+  }
+  if (!reused) {
+    // Never execute a mutated or symlinked file at a trusted content address.
+    // Replace through an owner-only temporary sibling so readers see either
+    // the verified old wrapper or the complete new one.
+    const temporary = `${path}.tmp-${randomBytes(8).toString('hex')}`
+    writeFileSync(temporary, content, { mode: 0o600 })
+    chmodSync(temporary, 0o600)
+    renameSync(temporary, path)
+  }
   return { path, contentSha256, reused }
 }
 

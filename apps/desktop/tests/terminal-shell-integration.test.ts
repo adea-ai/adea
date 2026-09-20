@@ -5,7 +5,15 @@
 // passthrough, and containment-proven history deletion.
 import { describe, expect, test } from 'bun:test'
 import { createHash, createHmac } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -134,6 +142,13 @@ describe('shell integration wrappers', () => {
       expect(second.path).toBe(first.path)
       expect(second.reused).toBe(true)
       expect(second.contentSha256).toBe(first.contentSha256)
+      // A file at the expected address is not trusted if its contents were
+      // replaced; the next install repairs it before any shell executes it.
+      writeFileSync(first.path, 'tampered wrapper')
+      const repaired = installWrapper({ runtimeRoot: root, shellKind: 'zsh', features })
+      expect(repaired.reused).toBe(false)
+      expect(readFileSync(first.path, 'utf8')).toBe(wrapperContent('zsh', features))
+      expect(statSync(first.path).mode & 0o777).toBe(0o600)
       // A different feature set is a different content address.
       const narrower = installWrapper({
         runtimeRoot: root,
