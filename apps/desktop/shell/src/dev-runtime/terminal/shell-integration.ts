@@ -557,7 +557,9 @@ export function installWrapper(options: {
   let reused = false
   try {
     const existing = lstatSync(path)
-    reused = existing.isFile() && createHash('sha256').update(readFileSync(path)).digest('hex') === contentSha256
+    reused =
+      existing.isFile() &&
+      createHash('sha256').update(readFileSync(path)).digest('hex') === contentSha256
     if ((existing.mode & 0o777) !== 0o600) chmodSync(path, 0o600)
   } catch {
     reused = false
