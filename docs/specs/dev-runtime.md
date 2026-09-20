@@ -1756,6 +1756,37 @@ the reply is a resync anchored at the oldest covered sequence, deterministically
 derived from live coverage, and the same anchor on every retry. Backpressure
 never blocks draining the PTY itself.
 
+### Sidecar transport writes
+
+The framed unix-socket stream between the shell and the sidecar is a byte
+stream: the framing tolerates no lost, duplicated, or reordered byte. Bun unix
+`write()` accepts only what fits the kernel send buffer and silently discards
+the remainder (it does not queue it), and `socket.buffered` is unusable on
+unix sockets — a fire-and-forget write path therefore loses every burst larger
+than the buffer and misaligns the framed stream (the M12 packaged evidence
+lane reproduced this: 19,838 of 20,000 framed writes lost). Both directions of
+the transport consequently write through one serialized, drain-aware pump per
+connection:
+
+- writes are FIFO and exactly-once. A write that is not fully accepted
+  requeues its unaccepted remainder and pauses until the socket reports
+  `drain`, with a bounded polling fallback so a missed wakeup can never stall
+  the stream;
+- an idle socket writes through synchronously: keystroke-sized interactive
+  traffic takes no queueing path and its latency is unchanged;
+- the pending queue is bounded (8 MiB per connection by default; the kernel
+  send buffer is additional). Exhaustion is explicit, never a silent
+  mid-stream drop — that would corrupt the framing: the writer stops
+  accepting, reports `queue_overflow`, and closes the connection so the peer
+  sees a clean close and can reconnect and resync from durable history;
+- the wire format is unchanged. This is write scheduling, not framing;
+  existing clients and hosts interoperate byte for byte.
+
+Regression coverage (zero loss, exact order under multi-megabyte floods on the
+real socket pair, on both the dev and packaged entries, plus the explicit
+overflow behavior) is pinned by
+`apps/desktop/tests/terminal-transport-backpressure.test.ts`.
+
 ### Sidecar adoption
 
 The sidecar has an owner-only endpoint file containing protocol version,

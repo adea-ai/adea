@@ -19,6 +19,11 @@ import { dirname } from 'node:path'
 import { createBunPtyAdapter } from '../pty-adapter'
 import { endpointFilePath, readEndpointFile, writeEndpointFile } from './endpoint-file'
 import { createSidecarService, newSidecarCredential } from './service'
+import {
+  createBackpressuredSocketWriter,
+  type BackpressuredSocketWriter,
+  type SocketWriterSocket,
+} from './socket-writer'
 import { SIDECAR_PROTOCOL, type ByteDuplex } from './protocol'
 
 function argValue(name: string): string | undefined {
@@ -120,14 +125,21 @@ const service = createSidecarService({
   pidStartIdentity: pidStartIdentity(),
 })
 
-/** Adapts Bun's listen-mode socket callbacks to the ByteDuplex seam. */
+/**
+ * Adapts Bun's listen-mode socket callbacks to the ByteDuplex seam.
+ *
+ * Writes go through the backpressured socket writer: Bun's unix write()
+ * silently drops what does not fit the kernel send buffer, so frames are
+ * serialized through a bounded queue that pauses on write() under-acceptance
+ * and resumes on the socket's drain event (issue #396 transport defect).
+ */
 class SocketDuplex implements ByteDuplex {
   private readonly dataCallbacks = new Set<(bytes: Uint8Array) => void>()
   private readonly closeCallbacks = new Set<() => void>()
-  private socket: { write(data: Uint8Array | string): number; end(): number | void } | null = null
+  private writer: BackpressuredSocketWriter | null = null
 
-  attach(socket: { write(data: Uint8Array | string): number; end(): number | void }): void {
-    this.socket = socket
+  attach(socket: SocketWriterSocket): void {
+    this.writer = createBackpressuredSocketWriter(socket)
   }
 
   deliver(data: Uint8Array): void {
@@ -138,9 +150,13 @@ class SocketDuplex implements ByteDuplex {
     for (const callback of this.closeCallbacks) callback()
   }
 
+  /** The socket's drain callback; resumes a paused write pump. */
+  notifyDrain(): void {
+    this.writer?.notifyDrain()
+  }
+
   send(bytes: Uint8Array): void {
-    // Bun listen-mode sockets expose write()/end(), not send().
-    this.socket?.write(bytes)
+    this.writer?.send(bytes)
   }
 
   onData(callback: (bytes: Uint8Array) => void): () => void {
@@ -158,7 +174,8 @@ class SocketDuplex implements ByteDuplex {
   }
 
   close(): void {
-    this.socket?.end()
+    // Bounded flush, then end; the shutdown belt force-exits regardless.
+    void this.writer?.close()
   }
 }
 
@@ -173,12 +190,16 @@ const server = Bun.listen({
   socket: {
     open(socket) {
       const duplex = new SocketDuplex()
-      duplex.attach(socket as { write(data: Uint8Array | string): number; end(): number | void })
+      duplex.attach(socket as SocketWriterSocket)
       connections.set(socket, duplex)
       service.handleConnection(duplex)
     },
     data(socket, data) {
       connections.get(socket)?.deliver(new Uint8Array(data))
+    },
+    // The writer's pump resumes when the kernel send buffer empties.
+    drain(socket) {
+      connections.get(socket)?.notifyDrain()
     },
     close(socket) {
       connections.get(socket)?.closeRemote()
