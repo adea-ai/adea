@@ -590,6 +590,46 @@ export type ProjectScanPage = Readonly<{
   nextCursor?: string
 }>
 
+// A repository binding (#398): the canonical remote identity is redacted
+// before any DTO — embedded user-info is removed, the full nested namespace
+// path is preserved, and the credential secret never enters a reply.
+export type RedactedRemote = Readonly<{
+  provider: 'github' | 'gitlab' | 'other'
+  host: string
+  ownerPath: string
+  displayUrl: string
+}>
+
+// One authorized source: a git checkout or a plain folder bound to the
+// runtime through an authorized root bookmark. `lifecycle` is repo truth:
+// `authorizing` (binding known, identity not yet proven), `ready` (adopted
+// and proven), `stale` (remote could not be re-proven), `unavailable`
+// (canonical root missing on disk), `refreshing` (transient, never
+// persisted as a reply state).
+export type Repo = Readonly<{
+  id: string
+  scope: Scope
+  kind: 'git' | 'folder'
+  lifecycle: 'authorizing' | 'ready' | 'unavailable' | 'stale' | 'refreshing'
+  canonicalRoot: string
+  gitCommonDirIdentity?: FileIdentity
+  remote?: RedactedRemote
+  defaultRef?: string
+  projectIds: readonly string[]
+  version: number
+}>
+
+// Read-only `dev.repo.inspect` reply: repo record plus fresh on-disk facts
+// computed from the canonical root with local git reads only — no network.
+export type RepoInspection = Readonly<{
+  repo: Repo
+  rootIdentity: FileIdentity
+  headRef?: string
+  headSha?: string
+  dirty: boolean
+  observedAt: string
+}>
+
 // A RootBookmark is a durable grant that a directory or repository root has
 // been authorized by the owner. M10's authorized-root flow mints and revokes
 // bookmarks; M12 consumes them but cannot mint one.
@@ -3173,6 +3213,59 @@ function namedType(name: string, value: unknown, path: string): unknown {
     stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
     return value
   }
+  // Repository registry DTOs (#398 follow-up). `host` is a proven remote
+  // host (never empty when the remote is present); `ownerPath`/`displayUrl`
+  // may legitimately be empty for pathless or unparseable remotes.
+  if (name === 'RedactedRemote') {
+    const item = record(value, path)
+    exactKeys(item, ['provider', 'host', 'ownerPath', 'displayUrl'], [], path)
+    literal(item.provider, ['github', 'gitlab', 'other'], `${path}.provider`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.ownerPath, `${path}.ownerPath`, 0, 1024)
+    stringValue(item.displayUrl, `${path}.displayUrl`, 0, 2048)
+    return value
+  }
+  if (name === 'Repo') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'kind', 'lifecycle', 'canonicalRoot', 'projectIds', 'version'],
+      ['gitCommonDirIdentity', 'remote', 'defaultRef'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    literal(item.kind, ['git', 'folder'], `${path}.kind`)
+    literal(
+      item.lifecycle,
+      ['authorizing', 'ready', 'unavailable', 'stale', 'refreshing'],
+      `${path}.lifecycle`
+    )
+    const canonicalRoot = stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
+    if (canonicalRoot.includes('\0')) fail(`${path}.canonicalRoot`, 'expected path without NUL')
+    if (item.gitCommonDirIdentity !== undefined)
+      namedType('FileIdentity', item.gitCommonDirIdentity, `${path}.gitCommonDirIdentity`)
+    if (item.remote !== undefined) namedType('RedactedRemote', item.remote, `${path}.remote`)
+    if (item.defaultRef !== undefined) stringValue(item.defaultRef, `${path}.defaultRef`, 1, 256)
+    validateType('string[]<=128', item.projectIds, `${path}.projectIds`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'RepoInspection') {
+    const item = record(value, path)
+    exactKeys(item, ['repo', 'rootIdentity', 'dirty', 'observedAt'], ['headRef', 'headSha'], path)
+    namedType('Repo', item.repo, `${path}.repo`)
+    namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
+    if (item.headRef !== undefined) stringValue(item.headRef, `${path}.headRef`, 1, 256)
+    if (item.headSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+        fail(`${path}.headSha`, 'expected git sha')
+    }
+    if (typeof item.dirty !== 'boolean') fail(`${path}.dirty`, 'expected boolean')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
   if (name === 'ProjectScanEntry') {
     const item = record(value, path)
     exactKeys(
@@ -3478,6 +3571,24 @@ export function decodeProject(value: unknown): Project {
   return value as Project
 }
 
+/** Strict decoder for the redacted remote identity DTO (#398). */
+export function decodeRedactedRemote(value: unknown): RedactedRemote {
+  namedType('RedactedRemote', value, 'redactedRemote')
+  return value as RedactedRemote
+}
+
+/** Strict decoder for the repository registry record (#398). */
+export function decodeRepo(value: unknown): Repo {
+  namedType('Repo', value, 'repo')
+  return value as Repo
+}
+
+/** Strict decoder for the `dev.repo.inspect` reply (#398). */
+export function decodeRepoInspection(value: unknown): RepoInspection {
+  namedType('RepoInspection', value, 'repoInspection')
+  return value as RepoInspection
+}
+
 /** Strict decoder for one scanner recommendation (#398). */
 export function decodeProjectScanEntry(value: unknown): ProjectScanEntry {
   namedType('ProjectScanEntry', value, 'projectScanEntry')
@@ -3510,14 +3621,25 @@ function decodeDevRuntimePage(
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
   // Project registry (#398): import/create mint Project records, scan returns
   // a bounded preview page, and the group lifecycle commands return Group.
+  // update/archive reply with the re-read Project record (same decoder).
   'dev.project.import': (value) => decodeProject(value),
   'dev.project.create': (value) => decodeProject(value),
+  'dev.project.update': (value) => decodeProject(value),
+  'dev.project.archive': (value) => decodeProject(value),
   'dev.project.scan': (value) => decodeProjectScanPage(value),
   'dev.group.create': (value) => decodeGroup(value),
   'dev.group.update': (value) => decodeGroup(value),
   'dev.group.delete': (value) => decodeGroup(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Repository registry (#398 follow-up): adopt/authorize/refresh reply with
+  // the re-read Repo record, inspect with fresh read-only facts, and list
+  // with a bounded Repo page.
+  'dev.repo.adopt': (value) => decodeRepo(value),
+  'dev.repo.authorize': (value) => decodeRepo(value),
+  'dev.repo.refresh': (value) => decodeRepo(value),
+  'dev.repo.inspect': (value) => decodeRepoInspection(value),
+  'dev.repo.list': (value) => decodeDevRuntimePage(decodeRepo, value),
   // Files/search slice (#399): strict DTO decoders installed by the
   // operation-owning provider slice before its handlers register.
   'dev.files.list': (value) =>

@@ -49,6 +49,7 @@ import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-r
 import { registerWorktreeRuntime } from './worktrees/register'
 import type { WorktreeService } from './worktrees/service'
 import { registerProjectScanRuntime } from './projects/register'
+import { registerRepoRuntime } from './repos/register'
 import { registerFilesRuntime } from './files/register'
 import { registerGitRuntime } from './git/register'
 import { registerGithubRuntime, type GhRunner, type GithubRepoContext } from './github/register'
@@ -72,6 +73,8 @@ export type DevRuntimeHost = Readonly<{
   computerUse: ComputerUseRuntime
   /** Present only when a verified scope exists at composition time. */
   projectSession?: ProjectSessionRuntime
+  /** Present only when a verified scope exists at composition time. */
+  repos?: ReturnType<typeof registerRepoRuntime>
   /** Present only when a verified scope exists at composition time. */
   harness?: HarnessRuntimeRegistration
   worktrees: ReturnType<typeof registerWorktreeRuntime>
@@ -222,6 +225,28 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       },
     })
   }
+
+  // The repository registry (#398): adopt/authorize/inspect/refresh over the
+  // project register's import-minted bindings. Every proof revalidates the
+  // authorized bookmark through the roots authority; the vault seam resolves
+  // credential references without exposing secret material; git reads run
+  // through the bounded argv-only runner.
+  const repos = input.scope
+    ? registerRepoRuntime({
+        authority: input.authority,
+        dataDir: input.dataDir,
+        scope: input.scope,
+        validateRootBookmark: (rootBookmarkId) => {
+          const bookmark = roots.validate({ scope: input.scope!, bookmarkId: rootBookmarkId })
+          return { canonicalRoot: bookmark.canonicalRoot }
+        },
+        resolveCredentialRef: (credentialRefId) => {
+          const credential = vault.get({ scope: input.scope!, credentialRefId })
+          return { id: credential.id, host: credential.host, state: credential.state }
+        },
+        findRepoBindings: (repoId) => projectSession?.findRepoBindings(repoId) ?? [],
+      })
+    : undefined
 
   // #400 residue: the terminal runtime composes before the harness runtime so
   // the launch transaction can deliver initial prompts through its guarded
@@ -441,6 +466,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     browserDevices,
     computerUse,
     ...(projectSession ? { projectSession } : {}),
+    ...(repos ? { repos } : {}),
     ...(harness ? { harness } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(files ? { files } : {}),

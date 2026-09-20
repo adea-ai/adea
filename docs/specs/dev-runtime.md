@@ -1983,6 +1983,83 @@ session rows render the canonical `RuntimeSession` lifecycle from the register
 (states outside the historical `active`/`ready`/`archived` set render a
 neutral dot with their own accessible name, never a coerced state).
 
+## Project archive/update and the repository registry
+
+`dev.project.update` and `dev.project.archive` are served by the durable
+project/session register. Both carry the `project` envelope resource whose
+generation must equal the record's optimistic `version` (projects carry no
+`generation` field). `update` patches only `ProjectMutableFields` (name,
+group membership, preferred runtime node, default base ref, bootstrap
+workflow, default harness) under the expected version; an unknown group in
+`patch.groupIds` refuses the whole update before any write, the membership
+delta (adds and removals together) commits in one atomic snapshot write that
+bumps each affected group's version, and an archived project is frozen —
+`update` refuses with `invalid_state` until the project is unarchived.
+`archive` is a navigation-lifecycle flip only: `archived: true` refuses with
+`invalid_state` while any non-archived session on the project is still live
+(`preparing`, `ready`, `active`, `disconnected` — archive never stops or
+deletes anything), refuses a flip to the current state, bumps the version,
+and `archived: false` restores `ready`. Both publish a `dev.project.updated`
+shell event; both replies decode through the strict `Project` decoder.
+
+`dev.repo.adopt`, `dev.repo.authorize`, `dev.repo.inspect`, and
+`dev.repo.refresh` form the repository registry (a companion register owning
+`dev-runtime/repos/registry.json` with the same atomic fsync+rename store,
+single-scope validation, and corrupt-state fail-closed behavior as the
+project/session authority). A repoId becomes known through the
+`Project.repos` binding an import mints; the binding names
+`(repoId, rootBookmarkId, canonicalRoot)` and proves nothing on disk. The
+canonical root never comes from a command body — it is the binding's or the
+durable record's root, and containment is re-proven through the roots
+authority's fail-closed bookmark recheck immediately before every proof and
+every git read (unknown, revoked, drifted, or replaced bookmarks refuse;
+`unauthorized_root` when the root does not cover the repo path). Adopt-time
+proof re-derives kind exactly like the #397 registrar (`.git` directory is a
+repository, a `.git` file is a linked worktree and refuses, bare `HEAD`
+refuses, anything else is a folder), re-stats the replacement-proof directory
+identity, and reads canonical git facts locally only: the remote from
+`remote.origin.url` config (the configured URL, never `remote get-url`, so
+insteadOf rewrites cannot mask the true origin) and the default ref from the
+origin HEAD symbolic ref with local `init.defaultBranch` as fallback.
+
+- `adopt { repoId, rootBookmarkId, expectedVersion }` re-proves the binding
+  under the named authorized bookmark and persists the durable record
+  (`kind`, identities, redacted remote, `defaultRef`, project ids) with
+  lifecycle `ready`. A not-yet-materialized binding adopts at version 1 (the
+  initial version every registry record carries); an existing record requires
+  the exact current version and persists at version + 1.
+- `authorize { repoId, credentialRefId, expectedVersion }` runs the same
+  proof, then resolves the vault reference fail-closed (unknown refs are
+  `not_found`), requires it `ready`, requires a git repository with a
+  configured origin remote, and refuses with `identity_mismatch` unless the
+  credential's host equals the remote's proven host. The binding is recorded
+  durably on the repo record; secret material never enters the registry, a
+  reply, an event, or a log.
+- `inspect { repoId, refresh? }` is read-only and network-free: fresh facts
+  (`rootIdentity`, `headRef`/`headSha`, `dirty`) are computed from the
+  canonical root with bounded local git reads; a vanished checkout reports
+  lifecycle `unavailable` in the reply without mutating the record.
+  `refresh: true` additionally runs the full proof and persists the canonical
+  facts — but only when they actually moved (a proof that changes nothing is
+  not a mutation and does not bump the version).
+- `refresh { repoId, expectedVersion }` re-proves containment and canonical
+  identity and probes the remote offline-safe with a bounded
+  `git ls-remote origin HEAD` (10 s/1 MiB; git transport applies any
+  insteadOf rewrite itself, exactly like the #397 fetch and #423 remote
+  probes). A probe failure is typed truth — the durable record degrades to
+  lifecycle `stale` — never a crash and never a fabricated success; a
+  vanished checkout persists `unavailable`. A refresh that proves nothing new
+  keeps the version. The envelope resource for every repo operation binds
+  `repository:<repoId>` at the record's current `version` (a `Repo` carries
+  no `generation` field), so a stale client loses before the record is read.
+
+Replies decode through the strict provider-owned `Repo`/`RepoInspection`
+decoders (and the `Repo` page for `dev.repo.list`); a success DTO without its
+decoder still fails closed. Git children run through the bounded, argv-only
+#397 runner (`LC_ALL=C`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`,
+fixed time and output budgets) — never a shell, never credential material in
+arguments or environment.
+
 ## Worktree lifecycle
 
 ### Creation
@@ -3102,6 +3179,27 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-20 — repository registry providers and project archive/update
+  (#398 follow-up).** The previously typed-unavailable `dev.repo.adopt`/
+  `authorize`/`inspect`/`refresh` and `dev.project.update`/`archive`
+  operations gained reachable production providers (total operations
+  unchanged). The project/session register serves `dev.project.update` /
+  `dev.project.archive`: mutable-field patches with group-membership
+  consistency, archived-project freeze, and an archive flip that refuses
+  while any session on the project is live; both bind the `project` resource
+  at the record's version and publish `dev.project.updated`. A new durable
+  repository registry (`dev-runtime/repos/registry.json`) serves the repo
+  family over the import-minted `Project.repos` bindings: adopt re-proves
+  kind/identity/containment under the authorized bookmark and records the
+  canonical remote and default ref from local git config only; authorize
+  binds a vault credential reference whose host must equal the remote's
+  proven host; inspect computes read-only facts network-free; refresh probes
+  the remote offline-safe (`git ls-remote origin HEAD`) and degrades the
+  durable record to `stale`/`unavailable` typed truth. Strict
+  `Repo`/`RepoInspection` decoders (plus the `dev.repo.list` page) installed;
+  `dev.project.list`/`dev.project.get` reply decoders remain an explicit
+  handoff for the project-registry slice. No acceptance criteria changed.
+
 - **2026-09-20 — packaged macOS evidence lane (M12 packaged-evidence wave,
   #396/#397/#422/#185 re-closure evidence).** `test:packaged` now builds the
   bundled terminal sidecar component into the `.app`
@@ -3355,7 +3453,10 @@ files in the same commit:
 - `packages/types` contract/property tests — envelope and state decoders;
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and
   `CredentialRef` grant DTOs and the success page decoders for
-  `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34);
+  `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34), and the
+  `Repo`/`RepoInspection` registry DTOs with the reply-decoder matrix for
+  `dev.repo.adopt`/`authorize`/`inspect`/`refresh`/`list` and
+  `dev.project.update`/`archive` (#398 follow-up);
 - `packages/types/tests/dev-runtime-computeruse.test.ts` — #472 wire
   contract: every `dev.computeruse.*` request body and success reply decodes,
   authority fields are rejected, stale generations and forged consent ids
@@ -3402,7 +3503,14 @@ files in the same commit:
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
   project/session authority: restart survival without fixtures, transactional
   archive records, scope/generation/version rejection, fail-closed corruption,
-  and the legacy-seed migration;
+  and the legacy-seed migration; `apps/desktop/tests/repo-registry.test.ts`
+  pins the repository registry (#398 follow-up): adopt-time
+  containment/identity proof with durable restart, unknown/stale/foreign-scope
+  refusals, out-of-root containment refusal before any write, read-only
+  inspect facts with dirty detection and stale-generation fencing,
+  host-matched credential authorization, offline-safe refresh (`stale` /
+  `unavailable` typed truth, version kept when nothing moved), and remote
+  redaction;
   `packages/ui/tests/appearance.test.ts` pins the storage-level recovery
   envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
   pins the compiled trusted entry registry and every activation rejection;

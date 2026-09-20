@@ -106,6 +106,10 @@ function expectCode(run: () => unknown, code: DevAuthorityError['code']) {
       expect(error.code).toBe(code)
       return
     }
+    // Resource-binding refusals are plain DevError-shaped objects, which the
+    // channel surfaces verbatim; assert them by the same contract code.
+    const candidate = error as { code?: unknown }
+    if (candidate && typeof candidate === 'object' && candidate.code === code) return
     throw error
   }
   throw new Error(`expected DevAuthorityError ${code}`)
@@ -489,6 +493,217 @@ describe('project/session authority store', () => {
       expect(existsSync(join(legacyDir, 'authority.json'))).toBeTrue()
       // The unread original is never deleted by the migration.
       expect(existsSync(join(legacyDir, 'projection.json'))).toBeTrue()
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  // #398 follow-up: project update/archive. These carry a project resource
+  // binding whose generation equals the record's optimistic version.
+  function projectCommand(body: Record<string, unknown>, version: number): DevCommand {
+    return {
+      ...command(body),
+      capabilities: ['dev.project.manage'],
+      resource: {
+        kind: 'project',
+        id: (body.projectId as string) ?? project.id,
+        generation: version,
+      },
+    } as DevCommand
+  }
+
+  test('dev.project.update patches mutable fields, keeps group membership consistent, and fences versions', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const runtime = seedRuntime(dataDir)
+      const update = provider(runtime, 'dev.project.update')
+      const groupB = '00000000-0000-4000-8000-000000000011'
+      runtime.upsertGroup({
+        id: groupB,
+        scope,
+        name: 'Platform',
+        projectIds: [],
+        sortKey: 'platform',
+        version: 1,
+      })
+
+      // Unknown group in the patch refuses the whole update.
+      expectCode(
+        () =>
+          update(
+            projectCommand(
+              {
+                projectId: project.id,
+                expectedVersion: project.version,
+                patch: { groupIds: [groupB, '00000000-0000-4000-8000-0000000000ff'] },
+              },
+              project.version
+            )
+          ),
+        'not_found'
+      )
+
+      // Stale version and a wrong/missing resource binding refuse.
+      expectCode(
+        () =>
+          update(
+            projectCommand(
+              { projectId: project.id, expectedVersion: 99, patch: { name: 'Late' } },
+              99
+            )
+          ),
+        'stale_version'
+      )
+      expectCode(
+        () =>
+          update({
+            ...projectCommand(
+              { projectId: project.id, expectedVersion: project.version, patch: {} },
+              project.version
+            ),
+            resource: { kind: 'group', id: project.id, generation: project.version },
+          } as DevCommand),
+        'identity_mismatch'
+      )
+
+      const updated = update(
+        projectCommand(
+          {
+            projectId: project.id,
+            expectedVersion: project.version,
+            patch: {
+              name: 'Adea Platform',
+              groupIds: [groupB],
+              defaultBaseRef: 'refs/heads/main',
+            },
+          },
+          project.version
+        )
+      ) as Project
+      expect(updated.name).toBe('Adea Platform')
+      expect(updated.groupIds).toEqual([groupB])
+      expect(updated.defaultBaseRef).toBe('refs/heads/main')
+      expect(updated.version).toBe(project.version + 1)
+
+      // Membership moved atomically: the old group lost the project (version
+      // bump), the new one gained it.
+      const groups = provider(runtime, 'dev.group.list')(command({})) as {
+        items: Array<{ id: string; projectIds: string[]; version: number }>
+      }
+      const product = groups.items.find((entry) => entry.id === group.id)!
+      const platform = groups.items.find((entry) => entry.id === groupB)!
+      expect(product.projectIds).toEqual([])
+      expect(product.version).toBe(group.version + 1)
+      expect(platform.projectIds).toEqual([project.id])
+
+      // The update persists across a restart.
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      const persisted = provider(
+        restarted,
+        'dev.project.get'
+      )(command({ projectId: project.id })) as Project
+      expect(persisted.name).toBe('Adea Platform')
+      expect(persisted.groupIds).toEqual([groupB])
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('dev.project.archive refuses while sessions are live and flips lifecycle durably', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const runtime = seedRuntime(dataDir)
+      const archive = provider(runtime, 'dev.project.archive')
+      const sessionArchive = provider(runtime, 'dev.session.archive')
+
+      // A live (non-archived, execution-state) session blocks archiving.
+      expectCode(
+        () =>
+          archive(
+            projectCommand(
+              { projectId: project.id, expectedVersion: project.version, archived: true },
+              project.version
+            )
+          ),
+        'invalid_state'
+      )
+
+      // Archive the session, then the project flips to archived.
+      sessionArchive(
+        command({ runtimeSessionId: session.id, expectedGeneration: session.generation })
+      )
+      const archived = archive(
+        projectCommand(
+          { projectId: project.id, expectedVersion: project.version, archived: true },
+          project.version
+        )
+      ) as Project
+      expect(archived.lifecycle).toBe('archived')
+      expect(archived.version).toBe(project.version + 1)
+
+      // Re-archiving is invalid; a stale version refuses; unarchive restores.
+      expectCode(
+        () =>
+          archive(
+            projectCommand(
+              { projectId: project.id, expectedVersion: archived.version, archived: true },
+              archived.version
+            )
+          ),
+        'invalid_state'
+      )
+      expectCode(
+        () =>
+          archive(
+            projectCommand({ projectId: project.id, expectedVersion: 99, archived: false }, 99)
+          ),
+        'stale_version'
+      )
+      const restored = archive(
+        projectCommand(
+          { projectId: project.id, expectedVersion: archived.version, archived: false },
+          archived.version
+        )
+      ) as Project
+      expect(restored.lifecycle).toBe('ready')
+      expect(restored.version).toBe(archived.version + 1)
+
+      // The flip persists across a restart.
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      const persisted = provider(
+        restarted,
+        'dev.project.get'
+      )(command({ projectId: project.id })) as Project
+      expect(persisted.lifecycle).toBe('ready')
+      expect(persisted.version).toBe(restored.version)
+
+      // An archived project is frozen for edits.
+      const update = provider(restarted, 'dev.project.update')
+      const restartedArchive = provider(restarted, 'dev.project.archive')
+      const reArchived = restartedArchive(
+        projectCommand(
+          { projectId: project.id, expectedVersion: restored.version, archived: true },
+          restored.version
+        )
+      ) as Project
+      expectCode(
+        () =>
+          update(
+            projectCommand(
+              { projectId: project.id, expectedVersion: reArchived.version, patch: { name: 'X' } },
+              reArchived.version
+            )
+          ),
+        'invalid_state'
+      )
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }

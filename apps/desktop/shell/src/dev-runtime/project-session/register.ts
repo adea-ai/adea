@@ -18,6 +18,13 @@ import type { ChannelAuthority } from '../channel/authority'
 import { DevAuthorityError } from '../authority'
 import { createDurableJsonStore } from '../host-store'
 
+export type ProjectRepoBindingView = Readonly<{
+  repoId: string
+  rootBookmarkId: string
+  canonicalRoot: string
+  projectId: string
+}>
+
 export type ProjectSessionRuntime = Readonly<{
   providers: Partial<Record<DevOperation, (command: DevCommand) => unknown>>
   upsertGroup(group: Group): void
@@ -27,6 +34,12 @@ export type ProjectSessionRuntime = Readonly<{
    * it grants no authority — every gated operation re-checks its own
    * scope/resource/generation bindings after resolving the record. */
   getSession(runtimeSessionId: string): RuntimeSession | undefined
+  /** Read-only resolution for the repository registry (#398): the binding
+   * triples minted at import, one per project that binds the repo. They name
+   * the authorized bookmark and canonical root; they prove nothing at use
+   * time — the repo registry re-proves containment and identity through the
+   * roots authority itself. */
+  findRepoBindings(repoId: string): readonly ProjectRepoBindingView[]
   /** Test/ops introspection: the durable archive journal, oldest first. */
   archiveRecords(): readonly ArchiveRecord[]
 }>
@@ -80,6 +93,14 @@ const SESSION_STATES: ReadonlySet<string> = new Set([
   'cancelled',
 ])
 const ARCHIVE_STATES: ReadonlySet<string> = new Set(['archived', 'restoring', 'restored'])
+/** Session states that still reference execution; archive refuses while any
+ * session on the project is in one of these and not itself archived. */
+const LIVE_SESSION_STATES: ReadonlySet<string> = new Set([
+  'preparing',
+  'ready',
+  'active',
+  'disconnected',
+])
 const SESSION_PROJECTIONS: ReadonlySet<string> = new Set([
   'structured',
   'authenticated_hook',
@@ -229,6 +250,23 @@ function requireGroupResource(command: DevCommand, groupId: string): void {
     throw devError('identity_mismatch', 'resource kind must be group')
   }
   if (resource.id !== groupId) {
+    throw devError('identity_mismatch', 'resource id does not match the request body')
+  }
+}
+
+/** Project operations carry a project resource binding. Projects fence
+ * through their optimistic version alone, so the envelope's numeric
+ * generation must equal that version (spec: a record without a `generation`
+ * field binds its resource generation to its `version`). */
+function requireProjectResource(command: DevCommand, projectId: string): void {
+  const resource = command.resource
+  if (resource === undefined) {
+    throw devError('identity_mismatch', 'operation requires a project resource binding')
+  }
+  if (resource.kind !== 'project') {
+    throw devError('identity_mismatch', 'resource kind must be project')
+  }
+  if (resource.id !== projectId) {
     throw devError('identity_mismatch', 'resource id does not match the request body')
   }
 }
@@ -383,6 +421,17 @@ export function registerProjectSessionRuntime(input: {
       version: session.version,
       archived: session.archived,
       lifecycle: session.lifecycle,
+      observedAt: new Date().toISOString(),
+    })
+  }
+
+  function publishProject(project: Project, kind: string): void {
+    input.publish?.('dev.project.updated', {
+      kind,
+      projectId: project.id,
+      scope: project.scope,
+      version: project.version,
+      lifecycle: project.lifecycle,
       observedAt: new Date().toISOString(),
     })
   }
@@ -656,6 +705,127 @@ export function registerProjectSessionRuntime(input: {
       save()
       return created
     },
+    'dev.project.update': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.project.update'].request(command.body)
+      const projectId = body.projectId as string
+      const expectedVersion = body.expectedVersion as number
+      const patch = body.patch as {
+        name?: string
+        groupIds?: string[]
+        preferredRuntimeNodeId?: string
+        defaultBaseRef?: string
+        bootstrapWorkflowId?: string
+        defaultHarnessId?: string
+      }
+      requireProjectResource(command, projectId)
+      const project = record.projects.find((entry) => entry.id === projectId)
+      if (!project) throw new DevAuthorityError('not_found', `project ${projectId} is unknown`)
+      if (project.version !== expectedVersion)
+        throw new DevAuthorityError(
+          'stale_version',
+          `project ${project.id} moved on: version ${project.version}`,
+          project.version
+        )
+      if (project.lifecycle === 'archived')
+        throw new DevAuthorityError(
+          'invalid_state',
+          `project ${project.id} is archived; unarchive it before editing`
+        )
+      // Group membership is validated against known groups before any write:
+      // an unknown group in the patch refuses the whole update.
+      const nextGroupIds = patch.groupIds ?? project.groupIds
+      for (const groupId of nextGroupIds)
+        if (!record.groups.some((group) => group.id === groupId))
+          throw new DevAuthorityError('not_found', `group ${groupId} is unknown`)
+      const next: Project = {
+        ...project,
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.groupIds !== undefined ? { groupIds: [...patch.groupIds] } : {}),
+        ...(patch.preferredRuntimeNodeId !== undefined
+          ? { preferredRuntimeNodeId: patch.preferredRuntimeNodeId }
+          : {}),
+        ...(patch.defaultBaseRef !== undefined ? { defaultBaseRef: patch.defaultBaseRef } : {}),
+        ...(patch.bootstrapWorkflowId !== undefined
+          ? { bootstrapWorkflowId: patch.bootstrapWorkflowId }
+          : {}),
+        ...(patch.defaultHarnessId !== undefined
+          ? { defaultHarnessId: patch.defaultHarnessId }
+          : {}),
+        version: project.version + 1,
+      }
+      // One atomic snapshot write keeps the project and every affected
+      // group's membership ordering consistent (adds and removals together).
+      const before = new Set(project.groupIds)
+      const after = new Set(next.groupIds)
+      record = {
+        ...record,
+        projects: record.projects.map((entry) => (entry.id === project.id ? next : entry)),
+        groups: record.groups.map((group) => {
+          const gained = after.has(group.id) && !before.has(group.id)
+          const lost = before.has(group.id) && !after.has(group.id)
+          if (!gained && !lost) return group
+          return {
+            ...group,
+            projectIds: gained
+              ? [...group.projectIds, project.id]
+              : group.projectIds.filter((id) => id !== project.id),
+            version: group.version + 1,
+          }
+        }),
+      }
+      save()
+      publishProject(next, 'project.updated')
+      return next
+    },
+    'dev.project.archive': (command) => {
+      requireScope(command, input.scope)
+      const body = devOperationDecoders['dev.project.archive'].request(command.body)
+      const projectId = body.projectId as string
+      const expectedVersion = body.expectedVersion as number
+      const archived = body.archived as boolean
+      requireProjectResource(command, projectId)
+      const project = record.projects.find((entry) => entry.id === projectId)
+      if (!project) throw new DevAuthorityError('not_found', `project ${projectId} is unknown`)
+      if (project.version !== expectedVersion)
+        throw new DevAuthorityError(
+          'stale_version',
+          `project ${project.id} moved on: version ${project.version}`,
+          project.version
+        )
+      if (archived === (project.lifecycle === 'archived'))
+        throw new DevAuthorityError(
+          'invalid_state',
+          `project ${project.id} is ${archived ? 'already archived' : 'not archived'}`
+        )
+      if (archived) {
+        // Archive is navigation metadata only — it never stops or deletes —
+        // so it refuses while any session on the project is still live.
+        const live = record.sessions.filter(
+          (session) =>
+            session.projectId === project.id &&
+            !session.archived &&
+            LIVE_SESSION_STATES.has(session.lifecycle)
+        )
+        if (live.length > 0)
+          throw new DevAuthorityError(
+            'invalid_state',
+            `project ${project.id} still has ${live.length} live session(s); archive them first`
+          )
+      }
+      const next: Project = {
+        ...project,
+        lifecycle: archived ? 'archived' : 'ready',
+        version: project.version + 1,
+      }
+      record = {
+        ...record,
+        projects: record.projects.map((entry) => (entry.id === project.id ? next : entry)),
+      }
+      save()
+      publishProject(next, archived ? 'project.archived' : 'project.unarchived')
+      return next
+    },
     'dev.session.create': (command) => {
       requireScope(command, input.scope)
       const body = command.body as {
@@ -840,6 +1010,18 @@ export function registerProjectSessionRuntime(input: {
     },
     getSession(runtimeSessionId) {
       return record.sessions.find((entry) => entry.id === runtimeSessionId)
+    },
+    findRepoBindings(repoId) {
+      return record.projects.flatMap((project) =>
+        (project.repos ?? [])
+          .filter((repo) => repo.repoId === repoId)
+          .map((repo) => ({
+            repoId: repo.repoId,
+            rootBookmarkId: repo.rootBookmarkId,
+            canonicalRoot: repo.canonicalRoot,
+            projectId: project.id,
+          }))
+      )
     },
     archiveRecords: () => [...record.archiveRecords],
   }
