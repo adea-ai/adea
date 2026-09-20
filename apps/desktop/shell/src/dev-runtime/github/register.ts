@@ -1097,8 +1097,13 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         maxOutputBytes: 1024 * 1024,
       }).catch((error: unknown) => ({ stdout: '', exitCode: 128, stderr: String(error) }))
       if (pushed.exitCode !== 0) throw pushFailure(pushed.stderr)
-      // Re-read server truth before reporting success.
+      // Re-read server truth before reporting success. A successful local
+      // push is not enough: if verification cannot observe the remote, keep
+      // the plan retryable and return a typed failure instead of fabricating
+      // the local SHA as server truth.
       const remoteNow = await lsRemoteSha(worktree.canonicalRoot, entry.ref)
+      if (remoteNow === undefined)
+        throw devError('remote_unavailable', 'push completed but remote verification failed', true)
       plans.delete(String(body.planId))
       return {
         repoId: entry.repoId,
@@ -1106,7 +1111,7 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         ref: entry.ref,
         remoteName: 'origin',
         headSha: entry.localSha,
-        remoteSha: remoteNow ?? entry.localSha,
+        remoteSha: remoteNow,
         forced: entry.kindOfPush === 'force',
         upstreamSet: entry.kindOfPush === 'normal' && !hadUpstream,
         observedAt: iso(now()),
