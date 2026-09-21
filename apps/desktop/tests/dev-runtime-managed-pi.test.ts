@@ -638,9 +638,6 @@ describe('managed Pi ownership boundary (#31)', () => {
 // pinned by source: without this line the zero-config flow silently degrades
 // to the explicit dev.harness.managedPiInstall command.
 test('the packaged shell composition opts into the managed Pi boot warm', () => {
-  const entry = readFileSync(
-    join(import.meta.dir, '../shell/src/bun/index.ts'),
-    'utf8'
-  )
+  const entry = readFileSync(join(import.meta.dir, '../shell/src/bun/index.ts'), 'utf8')
   expect(entry).toContain('managedPiAutoInstall: true')
 })

@@ -26,6 +26,7 @@ import {
   type DesktopIdentityVerifier,
 } from '../shell/src/dev-runtime/channel/identity'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
+import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
 import {
   adoptShellTerminalSidecar,
@@ -140,6 +141,10 @@ async function boot(options: {
     scope: identity.currentScope(),
     identity,
     approvalVerifier: createOwnerApprovalVerifier({ dataDir }),
+    // The system keychain is darwin-only; these boot tests assert reconcile
+    // semantics, not vault plumbing, so the composition gets the in-memory
+    // store the same way the harness boots do.
+    credentialStore: createInMemoryVaultKeyStore(),
     runtimeRoot: join(dataDir, 'dev-runtime', 'runtime'),
     ...(options.manifest ? { componentManifest: options.manifest } : {}),
     ...(options.adapter ? { supervisionAdapter: options.adapter } : {}),

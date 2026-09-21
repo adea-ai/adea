@@ -61,6 +61,11 @@ export const BASELINED_ORIGINS = [
     origin: 'https://github.com',
     reason: 'the releases page the desktop update flow opens for manual install (shell process)',
   },
+  {
+    origin: 'https://releases.adea.ai',
+    reason:
+      'the pinned managed-Pi archive the shell process downloads for the zero-config install (never the webview)',
+  },
 ]
 
 /** Read the canonical origin from the module that owns it. */
