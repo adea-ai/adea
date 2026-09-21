@@ -19,6 +19,10 @@
 // The engine is deterministic: the clock is injected and every process side
 // effect goes through the `SupervisionAdapter` seam, so restart policy and
 // PID-reuse races are unit-testable. The packaged lane wires a real adapter.
+// The engine's exit/unhealthy observations also surface as typed
+// `SupervisionEvent`s through an optional (late-attachable) sink — the live
+// shell-event surface over the durable journal, bounded per component and
+// kind so a crash storm cannot flood the event stream.
 import { randomUUID } from 'node:crypto'
 
 import type { ComponentId, ComponentManifest, ComponentSpec } from './component-manifest'
@@ -83,6 +87,82 @@ export type AuditEvent = {
   generation: number | null
   detail: string
 }
+
+/**
+ * A live supervision observation: the typed shell-event surface over the
+ * engine's exit/unhealthy decisions (issue #185 follow-up). Every field is an
+ * engine-authored fact — component id, generation, PID, ISO timestamp, and
+ * the same bounded detail strings the audit ring carries — so the payload is
+ * secret-free by construction and safe on the wire. Events are the LIVE
+ * surface only: the durable launch/exit journal and the audit ring record
+ * every decision regardless of emission.
+ *
+ * `suppressed` is the crash-storm bound's coalescing counter: the number of
+ * events of the same component AND kind that were dropped from this live
+ * surface since the previous emitted one (see the emission bound below). A
+ * consumer that receives `suppressed > 0` reconciles from the snapshot and
+ * the journal, which never elide anything.
+ */
+export type SupervisionEvent =
+  | {
+      kind: 'exit'
+      at: string
+      componentId: ComponentId
+      generation: number
+      processRecordId: string
+      /** false = crash or external kill; true = operator/upgrade stop or a
+       *  persisted launch proven unadoptable at reconcile. */
+      expected: boolean
+      exitDetail: string
+      suppressed: number
+    }
+  | {
+      kind: 'start'
+      at: string
+      componentId: ComponentId
+      generation: number
+      pid: number
+      processRecordId: string
+      /** `start` = boot/explicit start, `restart` = operator restart,
+       *  `auto-restart` = the engine's crash-policy replacement. */
+      cause: 'start' | 'restart' | 'auto-restart'
+      suppressed: number
+    }
+  | {
+      kind: 'crash_loop'
+      at: string
+      componentId: ComponentId
+      generation: number
+      failuresInWindow: number
+      suppressed: number
+    }
+  | {
+      kind: 'unhealthy'
+      at: string
+      componentId: ComponentId
+      generation: number
+      detail: string
+      suppressed: number
+    }
+
+/**
+ * The crash-storm bound on the LIVE event surface (issue #185 follow-up; the
+ * durable journal and audit ring are unaffected). Per component AND per event
+ * kind, at most `SUPERVISION_EVENT_MAX_PER_KIND` emissions per sliding
+ * `SUPERVISION_EVENT_WINDOW_MS`; anything beyond is coalesced — dropped from
+ * the live surface, counted, and surfaced as `suppressed` on that component
+ * and kind's next emitted event. The numbers are aligned with the engine's
+ * own restart policy (5 failures / 10 minutes bounds one crash episode to 5
+ * exits + 5 replacement starts), so an engine-native crash storm is never
+ * coalesced; any emission source FASTER than the policy — a watcher hammering
+ * unresponsive recycles, a scripted operator restart loop — is capped at the
+ * numbers below per component and kind, and can never flood the event stream.
+ */
+export const SUPERVISION_EVENT_WINDOW_MS = 60_000
+export const SUPERVISION_EVENT_MAX_PER_KIND = 5
+
+/** How the launched generation came about (the `start` event's `cause`). */
+export type SupervisionStartCause = 'start' | 'restart' | 'auto-restart'
 
 export type SupervisionSnapshot = {
   components: Array<{
@@ -149,6 +229,16 @@ export type Supervisor = {
   sessionsDrained(componentId: ComponentId): Promise<SupervisionResult<null>>
   snapshot(): SupervisionSnapshot
   audit(): readonly AuditEvent[]
+  /**
+   * Attaches (or with `undefined` detaches) the live-event sink. The sink is
+   * called synchronously inside engine decisions with a typed
+   * {@link SupervisionEvent}; it must never throw (a throwing sink is the
+   * caller's bug and would surface inside the engine action) and it must not
+   * re-enter the engine. Production attaches the shell event bus after the
+   * composition holds the engine; before any sink is attached events are
+   * simply not emitted (the journal and audit ring still record everything).
+   */
+  setEventSink(sink: ((event: SupervisionEvent) => void) | undefined): void
 }
 
 export function createSupervisor(input: {
@@ -165,6 +255,9 @@ export function createSupervisor(input: {
   terminationProbeDelayMs?: number
   /** Test seam for the probe delay; production sleeps for real. */
   delay?: (ms: number) => Promise<void>
+  /** Live-event sink (see `setEventSink`); absent constructs the engine
+   *  without emission until a sink is attached. */
+  onEvent?: (event: SupervisionEvent) => void
 }): Supervisor {
   const now = input.now ?? Date.now
   const records: RecordStore = input.records ?? createInMemoryRecords()
@@ -194,6 +287,33 @@ export function createSupervisor(input: {
     { componentId: ComponentId; generation: number; expiresAt: number }
   >()
   const auditRing: AuditEvent[] = []
+
+  // Live-event surface (issue #185 follow-up): the sink is optional and
+  // late-attachable (the composition attaches the shell event bus after the
+  // host construction returns). Emission is bounded per component and kind —
+  // SUPERVISION_EVENT_MAX_PER_KIND per SUPERVISION_EVENT_WINDOW_MS on the
+  // injected clock — with the coalesced count surfaced on the next emitted
+  // event. The journal and audit ring never see this bound.
+  let eventSink: ((event: SupervisionEvent) => void) | undefined = input.onEvent
+  const eventWindows = new Map<string, number[]>()
+  const eventSuppressed = new Map<string, number>()
+
+  function emitEvent(event: SupervisionEvent): void {
+    const sink = eventSink
+    if (!sink) return
+    const key = `${event.componentId}\u0000${event.kind}`
+    const horizon = now() - SUPERVISION_EVENT_WINDOW_MS
+    const window = (eventWindows.get(key) ?? []).filter((at) => at >= horizon)
+    if (window.length >= SUPERVISION_EVENT_MAX_PER_KIND) {
+      eventSuppressed.set(key, (eventSuppressed.get(key) ?? 0) + 1)
+      return
+    }
+    window.push(now())
+    eventWindows.set(key, window)
+    const suppressed = eventSuppressed.get(key) ?? 0
+    eventSuppressed.set(key, 0)
+    sink(suppressed > 0 ? { ...event, suppressed } : event)
+  }
 
   // Crash-loop history survives app restarts: unexpected exits journaled in
   // the durable records seed the failure window, and a window that is already
@@ -250,6 +370,14 @@ export function createSupervisor(input: {
       runtime.generation,
       'restart policy exhausted; supervision stopped'
     )
+    emitEvent({
+      kind: 'crash_loop',
+      at: new Date(now()).toISOString(),
+      componentId: runtime.spec.id,
+      generation: runtime.generation,
+      failuresInWindow: runtime.failures.length,
+      suppressed: 0,
+    })
   }
 
   /**
@@ -276,6 +404,16 @@ export function createSupervisor(input: {
       }
       records.append(exited)
       audit('exit', runtime.spec.id, launch.generation, 'unexpected exit')
+      emitEvent({
+        kind: 'exit',
+        at: exited.at,
+        componentId: runtime.spec.id,
+        generation: exited.generation,
+        processRecordId: exited.processRecordId,
+        expected: false,
+        exitDetail: exited.exitDetail,
+        suppressed: 0,
+      })
     }
     runtime.failures.push(now())
     pruneFailures(runtime)
@@ -283,14 +421,19 @@ export function createSupervisor(input: {
       enterCrashLoop(runtime)
       return { ok: true, value: 'crash_loop' }
     }
-    const restarted = await startRuntime(runtime, `auto-restart-${runtime.generation + 1}-${now()}`)
+    const restarted = await startRuntime(
+      runtime,
+      `auto-restart-${runtime.generation + 1}-${now()}`,
+      'auto-restart'
+    )
     if (!restarted.ok) return restarted
     return { ok: true, value: 'restarted' }
   }
 
   async function startRuntime(
     runtime: ComponentRuntime,
-    idempotencyKey: string
+    idempotencyKey: string,
+    cause: SupervisionStartCause
   ): Promise<SupervisionResult<LaunchRecordPublic>> {
     if (runtime.state === 'crash_loop') {
       return fail(
@@ -357,6 +500,16 @@ export function createSupervisor(input: {
       generation,
       `launched ${runtime.spec.product} ${runtime.spec.version}`
     )
+    emitEvent({
+      kind: 'start',
+      at: launch.startedAt,
+      componentId: launch.componentId,
+      generation: launch.generation,
+      pid: launch.identity.pid,
+      processRecordId: launch.processRecordId,
+      cause,
+      suppressed: 0,
+    })
     let keys = completedKeys.get(runtime.spec.id)
     if (!keys) {
       keys = new Map()
@@ -478,6 +631,16 @@ export function createSupervisor(input: {
     }
     records.append(exited)
     audit('exit', runtime.spec.id, exited.generation, detail)
+    emitEvent({
+      kind: 'exit',
+      at: exited.at,
+      componentId: runtime.spec.id,
+      generation: exited.generation,
+      processRecordId: exited.processRecordId,
+      expected: true,
+      exitDetail: detail,
+      suppressed: 0,
+    })
     return exited
   }
 
@@ -485,7 +648,7 @@ export function createSupervisor(input: {
     async start({ componentId, idempotencyKey }) {
       const runtime = runtimes.get(componentId)
       if (!runtime) return fail('not_found', `unknown component ${componentId}`)
-      return startRuntime(runtime, idempotencyKey)
+      return startRuntime(runtime, idempotencyKey, 'start')
     },
 
     async reconcile() {
@@ -523,6 +686,16 @@ export function createSupervisor(input: {
             exitDetail: 'not observable after supervisor restart',
           })
           audit('adoption', componentId, record.generation, 'persisted launch could not be adopted')
+          emitEvent({
+            kind: 'exit',
+            at: new Date(now()).toISOString(),
+            componentId,
+            generation: record.generation,
+            processRecordId: record.processRecordId,
+            expected: true,
+            exitDetail: 'not observable after supervisor restart',
+            suppressed: 0,
+          })
           continue
         }
         runtime.generation = record.generation
@@ -632,7 +805,7 @@ export function createSupervisor(input: {
           outcome.value.alreadyGone ? 'already gone' : 'signalled; exit observed (operator restart)'
         )
       }
-      return startRuntime(runtime, `operator-restart-${now()}`)
+      return startRuntime(runtime, `operator-restart-${now()}`, 'restart')
     },
 
     async reportUnexpectedExit(componentId) {
@@ -646,9 +819,18 @@ export function createSupervisor(input: {
       const runtime = runtimes.get(componentId)
       if (!runtime) return fail('not_found', `unknown component ${componentId}`)
       if (!runtime.launch) return fail('invalid_state', `${componentId} has no running process`)
-      // Recycle only after the recycle is observed: signal, escalate inside
-      // the bounded window, and count the failure (with its restart) once the
-      // process provably exited.
+      // The unhealthy observation is itself an event: consumers see the
+      // recycle decision before the exit it produces (signal, escalate inside
+      // the bounded window, count the failure once the process provably
+      // exited).
+      emitEvent({
+        kind: 'unhealthy',
+        at: new Date(now()).toISOString(),
+        componentId: runtime.spec.id,
+        generation: runtime.generation,
+        detail: 'unresponsive observation; recycle scheduled',
+        suppressed: 0,
+      })
       const outcome = await terminateAndObserve(runtime, { escalate: true })
       if (!outcome.ok) return outcome
       return recordUnexpectedExit(runtime)
@@ -750,6 +932,10 @@ export function createSupervisor(input: {
 
     audit(): readonly AuditEvent[] {
       return auditRing
+    },
+
+    setEventSink(sink) {
+      eventSink = sink
     },
   }
 }

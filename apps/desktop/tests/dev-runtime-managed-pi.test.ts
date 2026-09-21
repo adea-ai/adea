@@ -10,7 +10,7 @@ import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import type { Scope } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
@@ -29,6 +29,14 @@ import {
   MANAGED_PI_PINNED_VERSION,
   type ManagedPiDriverInput,
 } from '../shell/src/dev-runtime/harness/managed-pi-driver'
+import {
+  MANAGED_PI_COMPONENT_ID,
+  MANAGED_PI_INSTALL_LABEL,
+  managedPiComponentSpec,
+  resolveDataDirInstall,
+  resolveManagedPiInstall,
+  resolvePackagedComponents,
+} from '../shell/scripts/packaged-install'
 
 const SCOPE: Scope = {
   accountId: '00000000-0000-4000-8000-000000010001',
@@ -96,6 +104,23 @@ function writeCache(installRoot: string, bytes: Uint8Array): string {
   const file = join(cacheDir, PINNED_ARCHIVE_FILE)
   writeFileSync(file, bytes, { mode: 0o600 })
   return file
+}
+
+/** A minimal packaged .app layout so `resolvePackagedComponents`' bundled
+ *  labels resolve against real files, exactly as the composition does. */
+function makeFixtureAppBundle(): string {
+  const bundle = join(mkdtempSync(join(tmpdir(), 'adea-manifest-fixture-')), 'Adea-fixture.app')
+  const appDir = join(bundle, 'Contents/Resources/app')
+  mkdirSync(join(appDir, 'dev-runtime-sidecar'), { recursive: true })
+  mkdirSync(join(bundle, 'Contents/MacOS'), { recursive: true })
+  writeFileSync(join(appDir, 'dev-runtime-sidecar/entry.js'), 'export const sidecar = true\n')
+  writeFileSync(join(bundle, 'Contents/MacOS/bun'), '#!/bin/sh\n')
+  writeFileSync(join(bundle, 'Contents/MacOS/launcher'), 'launcher-bytes')
+  writeFileSync(
+    join(bundle, 'Contents/Resources/version.json'),
+    JSON.stringify({ version: '9.9.9', channel: 'dev' })
+  )
+  return bundle
 }
 
 /** The scripted too-old runtime for the fetch-guard seam. */
@@ -629,6 +654,130 @@ describe('managed Pi ownership boundary (#31)', () => {
       'status',
     ])
     expect(surface.join(',')).not.toMatch(/prompt|model|profile|plan|compact|context/i)
+  })
+})
+
+// The managed Pi as a packaged manifest component (#185 follow-up): the
+// supervision surface registers the driver's pinned installation with
+// truthful-absence semantics. Install ownership stays with the driver — the
+// manifest lane only resolves and observes; it never installs.
+describe('managed Pi manifest component registration (#185 follow-up)', () => {
+  test('the packaged manifest registers the managed Pi from the driver build-time pin', () => {
+    const bundle = makeFixtureAppBundle()
+    try {
+      const packaged = resolvePackagedComponents(bundle)
+      const component = packaged.specs.find((spec) => spec.id === MANAGED_PI_COMPONENT_ID)
+      expect(component).toMatchObject({
+        installKind: 'managed-data-dir',
+        version: MANAGED_PI_PINNED_VERSION,
+        digestSha256: expectedDigest(),
+        protocol: null,
+        required: false,
+        startupPhase: 1,
+      })
+      expect(component?.healthProbe).toEqual({
+        kind: 'process',
+        intervalMs: 15_000,
+        unhealthyAfterMs: 45_000,
+      })
+      // The bundled components stay bundled; the managed Pi is absent from
+      // the bundle resolution set (it is never an artifact of the .app).
+      expect(packaged.identity.resolutions.map((entry) => entry.label)).not.toContain(
+        MANAGED_PI_INSTALL_LABEL
+      )
+      // The engine's command resolves the pinned data-dir path; the spawn
+      // observes the driver's install result (typed spawn_failed before the
+      // first ensure) — the lane never installs.
+      const dataDir = tempDir()
+      try {
+        const command = packaged.commands(dataDir)[MANAGED_PI_COMPONENT_ID]
+        expect(command?.argv).toEqual([join(dataDir, MANAGED_PI_INSTALL_LABEL)])
+      } finally {
+        rmSync(dataDir, { recursive: true, force: true })
+      }
+    } finally {
+      rmSync(bundle.slice(0, bundle.lastIndexOf('/Adea-fixture.app')), {
+        recursive: true,
+        force: true,
+      })
+    }
+  })
+
+  test('a fresh data dir resolves the install label as truthfully absent', () => {
+    const dataDir = tempDir()
+    try {
+      const resolution = resolveManagedPiInstall(dataDir)
+      expect(resolution).toMatchObject({
+        ok: true,
+        absent: true,
+        label: MANAGED_PI_INSTALL_LABEL,
+      })
+      if (resolution.ok && resolution.absent) {
+        expect(resolution.absolutePath).toBe(join(dataDir, MANAGED_PI_INSTALL_LABEL))
+        expect(resolution.reason).toContain('not installed yet')
+      }
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a real driver install flips the resolution to present with the pinned digest', async () => {
+    const dataDir = tempDir()
+    try {
+      const driver = createManagedPiDriver(
+        driverInput({ dataDir, resolvePinnedArchive: () => Promise.resolve(PINNED_ARCHIVE) })
+      )
+      const status = await driver.ensureInstalled()
+      expect(status).toMatchObject({ state: 'ready', resolvedVersion: MANAGED_PI_PINNED_VERSION })
+      const resolution = resolveManagedPiInstall(dataDir)
+      expect(resolution).toMatchObject({
+        ok: true,
+        absent: false,
+        digestMatchesPin: true,
+        digestSha256: expectedDigest(),
+        bytes: PINNED_ARCHIVE.byteLength,
+      })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('drifted install bytes are surfaced as a digest mismatch, never accepted', () => {
+    const dataDir = tempDir()
+    try {
+      const target = join(dataDir, MANAGED_PI_INSTALL_LABEL)
+      mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
+      const drifted = new TextEncoder().encode('drifted-bytes')
+      writeFileSync(target, drifted, { mode: 0o700 })
+      const resolution = resolveManagedPiInstall(dataDir)
+      expect(resolution).toMatchObject({
+        ok: true,
+        absent: false,
+        digestMatchesPin: false,
+        digestSha256: digestOf(drifted),
+      })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('escape and absolute data-dir labels are refused by the same containment', () => {
+    const dataDir = tempDir()
+    try {
+      expect(resolveDataDirInstall(dataDir, '../escape')).toMatchObject({ ok: false })
+      expect(resolveDataDirInstall(dataDir, '/etc/passwd')).toMatchObject({ ok: false })
+      expect(resolveDataDirInstall(dataDir, '')).toMatchObject({ ok: false })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('the shared component spec factory carries the pin without a bundle', () => {
+    const spec = managedPiComponentSpec()
+    expect(spec.id).toBe(MANAGED_PI_COMPONENT_ID)
+    expect(spec.installKind).toBe('managed-data-dir')
+    expect(spec.version).toBe(MANAGED_PI_PINNED_VERSION)
+    expect(spec.digestSha256).toBe(expectedDigest())
   })
 })
 

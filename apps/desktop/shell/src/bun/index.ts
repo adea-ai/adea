@@ -34,7 +34,7 @@ import {
   resolvePackagedComponents,
 } from '../../scripts/packaged-install'
 import { createProcessAdapter } from '../supervision/process-adapter'
-import type { SupervisionAdapter } from '../supervision/supervisor'
+import type { SupervisionAdapter, SupervisionEvent } from '../supervision/supervisor'
 import type { SidecarClient } from '../dev-runtime/terminal/sidecar/client'
 import {
   adoptShellTerminalSidecar,
@@ -294,7 +294,26 @@ function composeHost(): DevRuntimeHost {
     publish: (event, payload) => gateway.publish(event, payload),
   })
 }
-host = composeHost()
+
+// #185 follow-up: the supervision engine's exit/unhealthy observations ride
+// the shell event bus like `git.statusInvalidated`. The engine is composed
+// inside the Dev Runtime host, so the composition attaches the sink to the
+// held engine right after every recomposition — strictly before the queued
+// boot steps run any engine action, so no observation is missed. Each payload
+// is the engine's typed, secret-free `SupervisionEvent` (exit / start /
+// crash_loop / unhealthy) with the crash-storm coalescing counter; consumers
+// reconcile `suppressed > 0` from the snapshot and the durable journal.
+const SUPERVISION_EVENT_NAME = 'supervision.componentEvent'
+function attachSupervisionEventSink(target: DevRuntimeHost | undefined): void {
+  target?.supervision?.setEventSink((event: SupervisionEvent) => {
+    gateway.publish(SUPERVISION_EVENT_NAME, event)
+  })
+}
+function recomposeHost(): void {
+  host = composeHost()
+  attachSupervisionEventSink(host)
+}
+recomposeHost()
 
 // Boot adoption steps (#185/#396), serialized across recompositions. After
 // the composition holds the engine, the persisted launch journal is
@@ -323,7 +342,7 @@ async function adoptTerminalSidecar(): Promise<void> {
   if (sidecarClient !== adoption.client) {
     sidecarClient?.close()
     sidecarClient = adoption.client
-    host = composeHost()
+    recomposeHost()
   }
 }
 async function runBootSteps(): Promise<void> {
@@ -350,7 +369,7 @@ function queueBootSteps(): void {
   bootSteps = bootSteps.then(runBootSteps, runBootSteps)
 }
 identity.onBindingChanged(() => {
-  host = composeHost()
+  recomposeHost()
   queueBootSteps()
 })
 queueBootSteps()
