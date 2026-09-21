@@ -6,9 +6,11 @@
 // ("Local stack supervision"):
 //   0. install-location resolution (packaged mode) — every packaged
 //      component's manifest label resolves to a real bundled artifact inside
-//      the .app (containment + existence + SHA-256 digest), and the sidecar
+//      the .app (containment + existence + SHA-256 digest), the sidecar
 //      command is built from the bundled layout: the packaged sidecar entry
-//      executed by the bundled Bun runtime;
+//      executed by the bundled Bun runtime, and the production shell entry's
+//      own manifest loader resolves the same components from the bundled
+//      entry directory — the exact boot path the composition feeds;
 //   1. launch-record identity — the durable launch record carries the real
 //      observed PID, start identity, executable identity, and process group;
 //   2. observed exit — a stop is confirmed only when `ps` no longer sees the
@@ -42,6 +44,7 @@ import {
   BUN_INSTALL_LABEL,
   buildPackagedManifest,
   findAppBundle,
+  loadPackagedManifestForEntry,
   resolvePackagedComponents,
   type PackagedIdentity,
 } from './packaged-install'
@@ -334,6 +337,28 @@ async function proof0InstallLocationResolution(packaged: PackagedIdentity): Prom
     'the sidecar argv points at the packaged sidecar entry',
     String(sidecarCommand?.argv[1])
   )
+
+  // The production composition path (the #185 one-supervisor wiring): the
+  // shipped shell entry loads its manifest with the same loader from the
+  // bundled entry directory (`Contents/Resources/app`), so the component
+  // manifest the composition holds is resolved exactly like this proof's.
+  const entryLoad = loadPackagedManifestForEntry(join(packaged.appBundle, 'Contents/Resources/app'))
+  check(
+    entryLoad.ok && entryLoad.manifest.components.length === built.manifest.components.length,
+    'the production entry loader resolves the packaged manifest from the bundled layout',
+    entryLoad.ok
+      ? entryLoad.manifest.components.map((entry) => entry.id).join(', ')
+      : entryLoad.reason
+  )
+  if (entryLoad.ok) {
+    check(
+      entryLoad.manifest.components.every((entry) => {
+        const builtComponent = built.manifest.components.find((c) => c.id === entry.id)
+        return builtComponent !== undefined && builtComponent.digestSha256 === entry.digestSha256
+      }),
+      'the entry-loaded manifest digests equal the packaging lane resolutions'
+    )
+  }
 }
 
 async function proof1LaunchRecordIdentity(): Promise<void> {

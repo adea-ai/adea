@@ -231,3 +231,53 @@ export function buildPackagedManifest(appBundle: string): {
   if (!decoded.ok) throw new Error(`packaged manifest rejected: ${decoded.reason}`)
   return { manifest: decoded.manifest, identity: resolved.identity, commands: resolved.commands }
 }
+
+/** What the production shell entry loads at boot: the running bundle (when
+ *  the entry is packaged) and its strictly decoded component manifest, or the
+ *  typed reason the manifest is absent. An absent manifest is not an error —
+ *  it is the shell's truthful no-supervision state. */
+export type RunningManifestLoad =
+  | { ok: true; appBundle: string; manifest: ComponentManifest }
+  | { ok: false; appBundle: string | null; reason: string }
+
+/** Locates the .app bundle the running shell itself was launched from, given
+ *  the bundled main process's directory. In the packaged layout the entry
+ *  lives at `Contents/Resources/app`, so the bundle root is three levels up;
+ *  the candidate counts only when it is a `.app` carrying the bundled Bun
+ *  runtime (`Contents/MacOS/bun`). A repo dev run (and any test) resolves
+ *  null — never a mistaken bundle. */
+export function findRunningAppBundle(entryDir: string): string | null {
+  const bundleRoot = resolve(entryDir, '..', '..', '..')
+  if (!bundleRoot.endsWith('.app')) return null
+  if (!existsSync(join(bundleRoot, BUN_INSTALL_LABEL))) return null
+  return bundleRoot
+}
+
+/**
+ * The production shell entry's manifest load (the #185 one-supervisor wiring):
+ * locates the running bundle with `findRunningAppBundle` and resolves its
+ * packaged component manifest through `buildPackagedManifest`'s strict
+ * install-location resolution and decode. Not running packaged, or a bundle
+ * whose resolution or decode fails, returns `ok: false` with the reason — the
+ * caller then boots the truthful no-supervision composition. It never throws
+ * and never fabricates a manifest.
+ */
+export function loadPackagedManifestForEntry(entryDir: string): RunningManifestLoad {
+  const appBundle = findRunningAppBundle(entryDir)
+  if (!appBundle) {
+    return {
+      ok: false,
+      appBundle: null,
+      reason: 'the shell is not running from a packaged app bundle',
+    }
+  }
+  try {
+    return { ok: true, appBundle, manifest: buildPackagedManifest(appBundle).manifest }
+  } catch (error) {
+    return {
+      ok: false,
+      appBundle,
+      reason: error instanceof Error ? error.message : String(error),
+    }
+  }
+}

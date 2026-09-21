@@ -6,8 +6,8 @@
 // result; scope admission must precede capability checks; revoked nodes,
 // rebinds, workspace switches, and unbinds must fail closed.
 import { describe, expect, test } from 'bun:test'
-import { createCipheriv, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createCipheriv, createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -36,6 +36,10 @@ import {
   type ComponentManifest,
 } from '../shell/src/supervision/component-manifest'
 import type { SupervisionAdapter } from '../shell/src/supervision/supervisor'
+import {
+  findRunningAppBundle,
+  loadPackagedManifestForEntry,
+} from '../shell/scripts/packaged-install'
 
 const SHELL_HOST = '127.0.0.1'
 const SHELL_PORT = 4789
@@ -266,6 +270,67 @@ function commandFor(
     body,
     ...overrides,
   } as DevCommand
+}
+
+/** A minimal packaged .app layout on disk with real (tiny) artifacts, so the
+ *  packaging lane's install-location resolution and strict decode run against
+ *  actual bundled bytes exactly as the production shell entry does at boot
+ *  (`bun/index.ts` → `loadPackagedManifestForEntry(import.meta.dir)`). */
+function makeFixtureAppBundle(
+  options: { omit?: 'bun' | 'launcher'; sidecarIsDirectory?: boolean } = {}
+): string {
+  const bundle = join(mkdtempSync(join(tmpdir(), 'adea-fixture-app-')), 'Adea-fixture.app')
+  const appDir = join(bundle, 'Contents/Resources/app')
+  mkdirSync(join(appDir, 'dev-runtime-sidecar'), { recursive: true })
+  mkdirSync(join(bundle, 'Contents/MacOS'), { recursive: true })
+  if (options.sidecarIsDirectory) {
+    mkdirSync(join(appDir, 'dev-runtime-sidecar/entry.js'), { recursive: true })
+  } else {
+    writeFileSync(join(appDir, 'dev-runtime-sidecar/entry.js'), 'export const sidecar = true\n')
+  }
+  if (options.omit !== 'bun') writeFileSync(join(bundle, 'Contents/MacOS/bun'), '#!/bin/sh\n')
+  if (options.omit !== 'launcher') {
+    writeFileSync(join(bundle, 'Contents/MacOS/launcher'), 'launcher-bytes')
+  }
+  writeFileSync(
+    join(bundle, 'Contents/Resources/version.json'),
+    JSON.stringify({ version: '9.9.9', channel: 'dev' })
+  )
+  return bundle
+}
+
+/** Scripted supervision adapter: one component launch with a stable identity
+ *  the composition's engine can start and observe without OS state. */
+function scriptedSupervisionAdapter(): SupervisionAdapter {
+  let alive = false
+  return {
+    async spawn() {
+      alive = true
+      return {
+        identity: {
+          pid: 4711,
+          pidStartIdentity: 'start-4711',
+          executableIdentity: '/exe/sidecar',
+        },
+        processGroup: 'pg-4711',
+      }
+    },
+    async currentIdentity(pid) {
+      if (!alive) return null
+      return {
+        pid,
+        pidStartIdentity: 'start-4711',
+        executableIdentity: '/exe/sidecar',
+        processGroup: 'pg-4711',
+      }
+    },
+    async probe() {
+      return alive ? 'responsive' : 'unresponsive'
+    },
+    async signalIdentity() {
+      alive = false
+    },
+  }
 }
 
 describe('dev runtime composition', () => {
@@ -615,6 +680,131 @@ describe('dev runtime composition', () => {
       expect(signals).toEqual([{ pid: 4711, signal: 'SIGTERM' }])
       // The ownership re-proof plus the exit observation both ran.
       expect(identityProofs).toBeGreaterThanOrEqual(2)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('#185: the packaged entry loader resolves a fixture bundle and the composition boots the one supervisor', async () => {
+    const bundle = makeFixtureAppBundle()
+    try {
+      const entryDir = join(bundle, 'Contents/Resources/app')
+      // The entry directory resolves its own bundle two levels up; a repo-style
+      // dev-run directory never mistakes itself for a bundle.
+      expect(findRunningAppBundle(entryDir)).toBe(bundle)
+      expect(findRunningAppBundle(join(tmpdir(), 'adea-dev-run/src/bun'))).toBeNull()
+
+      const loaded = loadPackagedManifestForEntry(entryDir)
+      expect(loaded.ok).toBe(true)
+      if (!loaded.ok) return
+      expect(loaded.appBundle).toBe(bundle)
+      const sidecar = loaded.manifest.components.find((c) => c.id === 'dev-runtime-sidecar')
+      expect(sidecar).toBeDefined()
+      // Strict decode over real bundled bytes: the manifest digest is the
+      // artifact's actual SHA-256, and the version identity comes from the
+      // bundle's own version.json.
+      expect(sidecar?.digestSha256).toBe(
+        createHash('sha256')
+          .update(readFileSync(join(bundle, 'Contents/Resources/app/dev-runtime-sidecar/entry.js')))
+          .digest('hex')
+      )
+      expect(sidecar?.version).toBe('9.9.9')
+
+      // The composition, built exactly as bun/index.ts wires it with the
+      // loaded manifest, holds the engine and serves the listing from its
+      // journal joined against the live snapshot.
+      const shell = await boot({
+        componentManifest: loaded.manifest,
+        supervisionAdapter: scriptedSupervisionAdapter(),
+        sampleProcesses: async (pids) =>
+          pids.map((pid) => ({ pid, cpuSeconds: 1.25, residentBytes: 8 * 1024 * 1024 })),
+      })
+      try {
+        const host = shell.currentHost()
+        expect(host.supervision).toBeDefined()
+        expect(host.supervisionRecords).toBeDefined()
+        const started = await host.supervision!.start({
+          componentId: 'dev-runtime-sidecar',
+          idempotencyKey: 'fixture-boot',
+        })
+        expect(started).toMatchObject({ ok: true })
+        if (!started.ok) return
+        const channel = await shell.openChannel()
+        const processes = await channel.execute(commandFor('dev.resources.processes', SCOPE_A, {}))
+        expect(processes).toMatchObject({
+          ok: true,
+          value: {
+            items: [{ id: started.value.processRecordId, pid: 4711, state: 'running' }],
+          },
+        })
+      } finally {
+        rmSync(shell.dataDir, { recursive: true, force: true })
+      }
+    } finally {
+      rmSync(bundle.slice(0, bundle.lastIndexOf('/Adea-fixture.app')), {
+        recursive: true,
+        force: true,
+      })
+    }
+  })
+
+  test('#185: a dev run loads no packaged manifest and keeps the truthful no-supervision composition', async () => {
+    // No .app two levels up: the loader reports absence typed, without
+    // throwing, and the shell boots exactly as before the #185 wiring.
+    const absent = loadPackagedManifestForEntry(join(tmpdir(), 'adea-dev-run/src/bun'))
+    expect(absent).toMatchObject({ ok: false, appBundle: null })
+    const shell = await boot()
+    try {
+      expect(shell.currentHost().supervision).toBeUndefined()
+      expect(shell.currentHost().supervisionRecords).toBeUndefined()
+      const channel = await shell.openChannel()
+      const processes = await channel.execute(commandFor('dev.resources.processes', SCOPE_A, {}))
+      expect(processes).toMatchObject({ ok: true, value: { items: [] } })
+      // The destructive stop path still fails closed without an engine.
+      const stopped = await channel.execute(
+        commandFor(
+          'dev.resources.stopPlan',
+          SCOPE_A,
+          { processRecordId: 'record-invented', expectedGeneration: 1, reason: 'test' },
+          { resource: { kind: 'process', id: 'record-invented', generation: 1 } }
+        )
+      )
+      expect(stopped).toMatchObject({ ok: false, error: { code: 'capability_unavailable' } })
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('#185: a bundle with missing or non-artifact install entries fails closed to no supervision', async () => {
+    // A found bundle whose launcher label does not resolve refuses the whole
+    // manifest — it never describes an artifact the bundle does not contain.
+    const missingLauncher = makeFixtureAppBundle({ omit: 'launcher' })
+    const missing = loadPackagedManifestForEntry(join(missingLauncher, 'Contents/Resources/app'))
+    expect(missing.ok).toBe(false)
+    if (!missing.ok) {
+      expect(missing.appBundle).toBe(missingLauncher)
+      expect(missing.reason).toContain('Contents/MacOS/launcher')
+    }
+    rmSync(missingLauncher.slice(0, missingLauncher.lastIndexOf('/Adea-fixture.app')), {
+      recursive: true,
+      force: true,
+    })
+
+    // An install label resolving to a directory is not an artifact either.
+    const directoryBundle = makeFixtureAppBundle({ sidecarIsDirectory: true })
+    const directory = loadPackagedManifestForEntry(join(directoryBundle, 'Contents/Resources/app'))
+    expect(directory.ok).toBe(false)
+    if (!directory.ok) expect(directory.reason).toContain('is not a regular file')
+    rmSync(directoryBundle.slice(0, directoryBundle.lastIndexOf('/Adea-fixture.app')), {
+      recursive: true,
+      force: true,
+    })
+
+    // Both failures map to the entry's one degraded decision: no manifest is
+    // composed in, no engine is held — truthful absence, never fabricated state.
+    const shell = await boot()
+    try {
+      expect(shell.currentHost().supervision).toBeUndefined()
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

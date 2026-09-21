@@ -1920,6 +1920,16 @@ This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
 `apps/desktop/tests/shell-injection-adversarial.test.ts`, and
 `apps/desktop/tests/updater-rollback.test.ts`.
 
+The one-supervisor wiring is the packaged shell entry's: it loads the bundled
+component manifest at boot (strict packaging-lane resolution over the running
+`.app`, never a hand-written copy) and composes the engine in through the
+composition root's `componentManifest` input, so the shipped shell — not only
+the packaged evidence lane — constructs and holds the one supervision engine
+(the "Host provider policy (M12 #424)" composition bullet pins the degraded
+contract when the manifest is absent). The wiring is pinned by
+`apps/desktop/tests/dev-runtime-composition.test.ts` (fixture-bundle boot,
+absent-manifest truthfulness, fail-closed install-resolution failures).
+
 ### Shell integration and input
 
 Wrapper files are content addressed and owner-only. Commands are argv arrays,
@@ -2864,7 +2874,14 @@ listing without a source is truthful-empty rather than fabricated:
   against the engine's live snapshot, and the stop commit delegates to the
   engine's public stop with its identity re-proof. Without a manifest (and
   without a scripted engine override) the listings stay truthful-empty and
-  stop fails closed with `capability_unavailable`.
+  stop fails closed with `capability_unavailable`. The packaged shell entry
+  supplies the manifest in production: at boot it locates the `.app` it
+  itself runs from (`Contents/Resources/app` → bundle root) and loads the
+  component manifest through the packaging lane's strict install-location
+  resolution (`loadPackagedManifestForEntry`); a repo dev run has no bundle,
+  and a found bundle whose resolution or decode fails loads nothing — the
+  shell logs the reason and boots the same truthful no-supervision
+  composition, never a fabricated manifest.
 - Metrics sample through the bounded process-sampler seam: one fixed-argv,
   read-only `ps` observation per pull (`ps -o pid=,time=,rss= -p <pids>`;
   the composition's default sampler; tests script the transport) with a
@@ -3307,9 +3324,14 @@ git-ignored `artifacts/packaged/`:
 1. **Install-location resolution + supervision proofs** (`supervision-smoke`):
    every packaged component's manifest label resolves inside the `.app` with
    its real SHA-256 digest (the sidecar on the bundled Bun runtime
-   `Contents/MacOS/bun`, the launcher resolution-only), and the four
-   supervision proofs run with the sidecar launched from the bundled layout.
-   A missing bundle is a labeled dev fallback, never packaged evidence.
+   `Contents/MacOS/bun`, the launcher resolution-only), the four
+   supervision proofs run with the sidecar launched from the bundled layout,
+   and proof 0 additionally exercises the production composition path: the
+   shell entry's own manifest loader (`loadPackagedManifestForEntry`) must
+   resolve the same components with the same digests from the bundled entry
+   directory, so the install-location proofs run against the exact boot path
+   the shipped composition is fed from. A missing bundle is a labeled dev
+   fallback, never packaged evidence.
 2. **Terminal replay across a host restart** (`packaged-terminal-smoke`): a
    packaged sidecar boot, a separate host process creating a real PTY
    session with a durable checkpoint history exceeding the memory ring
@@ -3373,6 +3395,28 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — the shipped shell loads the packaged component manifest
+  (#185 one-supervisor wiring).** The last #185 code gap: the production
+  shell entry (`apps/desktop/shell/src/bun/index.ts`) never fed the
+  composition root's `componentManifest` seam, so the shipped shell kept
+  truthful-empty resource listings and never constructed the supervision
+  engine. The entry now loads the manifest at boot — it locates the `.app`
+  it runs from (`Contents/Resources/app` → bundle root) and resolves the
+  component manifest through the packaging lane's strict install-location
+  resolution (`loadPackagedManifestForEntry` in
+  `apps/desktop/shell/scripts/packaged-install.ts`), the same resolution the
+  packaged supervision smoke's proof 0 exercises. A repo dev run (no bundle)
+  and a found bundle whose resolution or strict decode fails (missing or
+  non-artifact install entries) load nothing: the shell logs the typed
+  reason and boots the truthful no-supervision composition — truthful-empty
+  listings, `capability_unavailable` stops — never fabricated state. The
+  packaged supervision smoke's proof 0 now also asserts the entry loader
+  resolves the same components and digests as the lane's own resolution, so
+  the install-location proofs exercise the real composition path. No
+  supervision state-machine semantics changed; no new registry operations.
+  "Local stack supervision", "Host provider policy (M12 #424)", and the
+  packaged-lane note updated; pinned by the three #185 wiring tests in
+  `apps/desktop/tests/dev-runtime-composition.test.ts`.
 - **2026-09-20 — #399 residue: `file-bytes-v1` bulk stream, overwrite rename
   plan/commit, and recursive delete/copy plans.** Added six
   `dev.files.*Plan`/`*Commit` operations — `renameOverwrite` (pins BOTH the

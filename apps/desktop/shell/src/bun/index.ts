@@ -24,6 +24,7 @@ import { createChannelAuthority } from '../dev-runtime/channel/authority'
 import { createChannelGateway, type SocketData } from '../dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../dev-runtime'
 import { createOwnerApprovalVerifier } from '../dev-runtime/authority'
+import { loadPackagedManifestForEntry } from '../../scripts/packaged-install'
 
 // The client is copied into the bundle (`electrobun.config.ts` build.copy), so
 // the packaged app serves `Resources/app/client`. Running from the repo
@@ -42,6 +43,20 @@ const CLOUD_ORIGIN = resolveCloudOrigin()
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
 const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
+
+// The packaged component manifest (M10 #185): when this process runs from the
+// bundled .app layout, the packaging lane's strict install-location resolution
+// loads the component manifest and the composition below constructs and holds
+// the one supervision engine over it. A dev run (repo checkout) has no bundle,
+// and a bundle whose manifest fails to load is degraded, not faked: the shell
+// boots exactly as before — truthful-empty resource listings and typed
+// `capability_unavailable` stops — never fabricated supervision state.
+const packagedManifest = loadPackagedManifestForEntry(import.meta.dir)
+if (!packagedManifest.ok && packagedManifest.appBundle) {
+  console.error(
+    `desktop shell: the packaged component manifest failed to load (${packagedManifest.reason}); the local stack runs without supervision`
+  )
+}
 
 // The durable, single-use owner-approval authority. Constructed first so the
 // composition cannot exist without it: vault, root, and grant authorities
@@ -126,6 +141,9 @@ function composeHost(): DevRuntimeHost {
     identity,
     approvalVerifier,
     runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
+    // #185: the packaged manifest feeds the one supervision engine; absent
+    // (dev run) or failed load keeps the truthful no-supervision composition.
+    ...(packagedManifest.ok ? { componentManifest: packagedManifest.manifest } : {}),
     runLsof: async () => {
       const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
         stdout: 'pipe',
