@@ -171,8 +171,11 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
     store.save(records)
   }
 
-  function projectDir(projectId: string): string {
-    return join(root, sha256(projectId).slice(0, 16))
+  function projectDir(scope: DevScope, projectId: string): string {
+    // Physical storage is scoped as well as the durable record. A project id
+    // alone is not an authority boundary and could make two tenants share a
+    // staging/ready tree after a restore or migration.
+    return join(root, sha256(JSON.stringify({ scope, projectId })).slice(0, 32))
   }
 
   function status(scope: DevScope, projectId: string): TemplateRecord | { state: 'absent' } {
@@ -205,7 +208,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         'a template build is already in progress for this project'
       )
     }
-    const dir = projectDir(input.projectId)
+    const dir = projectDir(input.scope, input.projectId)
     mkdirSync(dir, { recursive: true, mode: 0o700 })
     const stagingDir = join(dir, `staging-${Date.now()}-${newRecordId().slice(0, 8)}`)
     mkdirSync(stagingDir, { recursive: true, mode: 0o700 })
@@ -303,7 +306,15 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
     budgets?: { maxFiles?: number; maxTotalBytes?: number }
   }): Promise<{ copied: number; totalBytes: number; contentDigest: string }> {
     const record = findRecord(loadRecords(), input.scope, input.projectId)
-    if (!record || record.state !== 'ready' || !record.templatePath || !record.contentDigest) {
+    if (
+      !record ||
+      record.scope.accountId !== input.scope.accountId ||
+      record.scope.workspaceId !== input.scope.workspaceId ||
+      record.scope.runtimeNodeId !== input.scope.runtimeNodeId ||
+      record.state !== 'ready' ||
+      !record.templatePath ||
+      !record.contentDigest
+    ) {
       throw new WorktreeError(
         'invalid_state',
         'no ready dependency template exists for this project'
@@ -330,14 +341,29 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
       maxTotalBytes: input.budgets?.maxTotalBytes ?? TEMPLATE_MAX_TOTAL_BYTES,
       maxEntries: TEMPLATE_SCAN_MAX_ENTRIES,
     })
-    // Tamper check without re-reading content: the full content hash was
-    // proven once at promotion and the ready tree is immutable after rename,
-    // so a cheap stat-manifest fingerprint detects post-promotion changes.
+    // Cheap pre-check without re-reading: a stat-manifest mismatch fails fast
+    // before any content hashing.
     const statDigest = statManifestDigest(files)
     if (record.statDigest && statDigest !== record.statDigest) {
       throw new WorktreeError(
         'identity_mismatch',
         'dependency template content changed after promotion'
+      )
+    }
+    // Authoritative pre-clone proof: the promoted content digest is recomputed
+    // from the bytes on disk immediately before the first clone. Size/mtime
+    // fingerprints alone cannot prove content, and the ready tree is only
+    // immutable by policy — not by the filesystem.
+    const hasher = new Bun.CryptoHasher('sha256')
+    hasher.update(JSON.stringify(files.map((file) => [file.relativePath, file.size])))
+    for (const file of files) {
+      hasher.update(await hashFile(join(templateRoot, file.relativePath)))
+    }
+    const freshContentDigest = hasher.digest('hex')
+    if (freshContentDigest !== record.contentDigest) {
+      throw new WorktreeError(
+        'identity_mismatch',
+        'dependency template content digest does not match the promoted record'
       )
     }
 
@@ -363,7 +389,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         if (!current || current.dev !== verified.dev || current.ino !== verified.ino) {
           throw new WorktreeError(
             'path_escape',
-            `template destination parent changed during materialization: \${file.relativePath}`
+            `template destination parent changed during materialization: ${file.relativePath}`
           )
         }
       } else {
@@ -372,7 +398,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         if (parentReal !== destinationRoot && !parentReal.startsWith(destinationRoot + sep)) {
           throw new WorktreeError(
             'path_escape',
-            `template destination escapes the worktree: \${file.relativePath}`
+            `template destination escapes the worktree: ${file.relativePath}`
           )
         }
         const parentStats = lstatSync(destinationParent)
@@ -396,7 +422,7 @@ export function createTemplateCache(options: { dataDir: string; clock?: () => Da
         'cannot clear a project template while a build is in progress'
       )
     }
-    const dir = projectDir(projectId)
+    const dir = projectDir(scope, projectId)
     rmSync(dir, { force: true, recursive: true })
     persist(records.filter((entry) => entry.id !== record.id))
     return { cleared: true }

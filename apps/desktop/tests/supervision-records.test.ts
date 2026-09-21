@@ -15,7 +15,7 @@ import {
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import { createRecordStore } from '../shell/src/supervision/records'
+import { createRecordStore, DEFAULT_MAX_RECORDS } from '../shell/src/supervision/records'
 
 function launchRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -122,16 +122,21 @@ describe('supervision record store', () => {
   test('retention is bounded: the oldest records prune beyond the cap', () => {
     const dir = temporaryDirectory()
     try {
-      const store = createRecordStore(dir)
-      for (let i = 0; i < 1_100; i++) {
+      // The retention bound is injected so the prune semantics are proven
+      // deterministically: driving the default cap of 1,000 needs 1,001+
+      // real synchronous appends (~4 s of wall-clock I/O), which tripped the
+      // runner timeout under load. Production keeps the 1,000 default.
+      const maxRecords = 8
+      const store = createRecordStore(dir, { maxRecords })
+      for (let i = 0; i < maxRecords + 4; i++) {
         store.append(launchRecord({ processRecordId: `proc-${i}`, generation: i }))
       }
       const records = store.list()
-      expect(records.length).toBeLessThanOrEqual(1_000)
+      expect(records.length).toBe(maxRecords)
       const first = records[0] as { processRecordId?: string }
       const last = records[records.length - 1] as { processRecordId?: string }
-      expect(last.processRecordId).toBe('proc-1099')
-      expect(first.processRecordId).toBe('proc-100')
+      expect(last.processRecordId).toBe(`proc-${maxRecords + 3}`)
+      expect(first.processRecordId).toBe('proc-4')
       // The on-disk journal matches the bounded in-memory view.
       expect(readFileSync(join(dir, 'records.jsonl'), 'utf8').trim().split('\n')).toHaveLength(
         records.length
@@ -141,11 +146,18 @@ describe('supervision record store', () => {
     }
   })
 
-  test('records live owner-only', () => {
+  test('the production retention cap stays the 1,000-record default', () => {
+    expect(DEFAULT_MAX_RECORDS).toBe(1_000)
+  })
+
+  test('records live owner-only, including when reopening loose files', () => {
     const dir = temporaryDirectory()
     try {
+      mkdirSync(dir, { recursive: true, mode: 0o755 })
+      writeFileSync(join(dir, 'records.jsonl'), '', { mode: 0o644 })
       createRecordStore(dir)
-      // Owner read/write only (0o600); the directory itself is 0o700.
+      // Creation modes do not protect an existing journal; reopening must
+      // tighten both the directory and the launch-identity file.
       expect(statSync(join(dir, 'records.jsonl')).mode & 0o777).toBe(0o600)
       expect(statSync(dir).mode & 0o777).toBe(0o700)
     } finally {

@@ -12,13 +12,7 @@ import type {
   DeviceSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
-import {
-  adbEmuKillArgv,
-  DeviceSessionError,
-  emulatorBootArgv,
-  simctlBootArgv,
-  simctlShutdownArgv,
-} from './inventory'
+import { DeviceSessionError, emulatorBootArgv, simctlBootArgv } from './inventory'
 
 export { DeviceSessionError }
 
@@ -58,7 +52,7 @@ export type DeviceSessionRegistryOptions = Readonly<{
   now?: () => string
   randomId?: () => string
   /** Rechecks a launch record immediately before every stop; never PID alone. */
-  probeProcess?: (identity: DeviceProcessIdentity) => boolean
+  probeProcess?: (identity: DeviceProcessIdentity) => boolean | Promise<boolean>
 }>
 
 export function createDeviceSessionRegistry(options: DeviceSessionRegistryOptions = {}) {
@@ -184,7 +178,9 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
 
     /**
      * Stop: only an Adea-launched, still-identity-matching process is ever
-     * stopped. An unmanaged device detaches and stays alive.
+     * stopped. An unmanaged device detaches and stays alive. The engine
+     * executes the platform shutdown (it resolves the live emulator serial);
+     * the registry owns only the policy decision.
      */
     planStop(
       sessionId: string,
@@ -192,8 +188,8 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
       confirmationId?: string
     ): Readonly<{
       session: DeviceSessionRecord
-      shutdownArgv?: readonly string[]
-      executable?: string
+      /** 'device' = the engine must execute the shutdown; absent = detached. */
+      shutdown?: 'device'
     }> {
       const record = session(sessionId)
       if (record.generation !== expectedGeneration)
@@ -215,15 +211,7 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
         )
       if (!confirmationId)
         throw new DeviceSessionError('permission_denied', 'stopping a device requires confirmation')
-      const shutdownArgv =
-        record.kind === 'ios_simulator'
-          ? simctlShutdownArgv(record.inventoryId)
-          : adbEmuKillArgv(record.inventoryId)
-      return {
-        session: save({ ...record, state: 'stopping' }),
-        shutdownArgv,
-        executable: record.kind === 'ios_simulator' ? 'xcrun' : 'adb',
-      }
+      return { session: save({ ...record, state: 'stopping' }), shutdown: 'device' }
     },
 
     markStopped(sessionId: string): DeviceSessionRecord {

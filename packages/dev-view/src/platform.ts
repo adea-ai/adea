@@ -3,6 +3,8 @@ import type {
   DevCommand,
   DevErrorCode,
   DevReply,
+  DevStreamFrame,
+  DevStreamGrant,
   Scope,
 } from '@adea-ai/types/dev-runtime'
 import { devOperationDefinitions } from '@adea-ai/types/dev-runtime'
@@ -11,12 +13,83 @@ export type DevRuntimeAvailability =
   | Readonly<{ status: 'ready' }>
   | Readonly<{ status: 'unavailable'; reason: DevErrorCode }>
 
+/**
+ * The authoritative Dev workspace projection: groups, projects, and canonical
+ * `RuntimeSession` records from the runtime service. Optional versioning and
+ * freshness fields are carried when the provider maps them; the production
+ * selection uses them for reorder concurrency and stale detection, and never
+ * invents them when absent.
+ */
+export type DevWorkspaceProjection = Readonly<{
+  observedAt?: string
+  groups: readonly Readonly<{
+    id: string
+    name: string
+    version?: number
+    projects: readonly Readonly<{
+      id: string
+      name: string
+      repository: string
+      branch: string
+      version?: number
+      sessions: readonly Readonly<{
+        id: string
+        title: string
+        /**
+         * The canonical RuntimeSession lifecycle from the register (#398).
+         * States beyond the historical three render with a neutral status
+         * dot and their own accessible name instead of being coerced into
+         * `active`/`ready`.
+         */
+        state:
+          | 'preparing'
+          | 'ready'
+          | 'active'
+          | 'disconnected'
+          | 'completed'
+          | 'failed'
+          | 'cancelled'
+          | 'archived'
+        generation?: number
+      }>[]
+    }>[]
+  }>[]
+}>
+
+/** One attached, single-use stream socket over the authenticated channel
+ *  (`dev.runtime.stream.attach.v1`). */
+export type DevStreamTransportSocket = {
+  readonly open: boolean
+  send(frame: DevStreamFrame): void
+  close(code: number, reason: string): void
+}
+
+/** The host-side stream attach seam (#399 residue): attaches a minted
+ *  `DevStreamGrant` and hands back the socket. Panes consume it through the
+ *  pure file-stream model, never directly. */
+export type DevStreamTransport = {
+  connect(
+    grant: DevStreamGrant,
+    handlers: {
+      onFrame: (frame: DevStreamFrame) => void
+      onClose: (code: number, reason: string) => void
+    }
+  ): DevStreamTransportSocket
+}
+
 export interface DevRuntimeService {
   state(): DevRuntimeAvailability
+  /** Resolves when an asynchronous runtime channel has finished binding. */
+  ready?: Promise<void>
   /** Authoritative preference scope, absent until a runtime channel is bound. */
   preferenceScope?(): Scope | undefined
+  projection?(scope: Scope): Promise<DevWorkspaceProjection>
   capabilitySnapshot(scope: Scope): Promise<CapabilitySnapshot>
   execute(command: DevCommand): Promise<DevReply>
+  /** Optional bulk-stream attach surface: present only when the host can
+   *  attach minted stream grants; absent (or resolving undefined) keeps the
+   *  panes on the bounded control path. */
+  streams?(): DevStreamTransport | undefined
 }
 
 export function createUnavailableDevRuntimeService(options?: {

@@ -224,10 +224,19 @@ export function createBrowserLaneRegistry(options: BrowserLaneRegistryOptions = 
       return record
     },
 
+    /**
+     * Readies a lane from every legitimate source state: `provisioning`
+     * (first engine bind), `navigating` (a navigation completed), and
+     * `recovering` (crash recovery finished). Nothing else may claim ready.
+     */
     markReady(id: string): BrowserLaneRecord {
       const record = lane(id)
-      if (record.state !== 'provisioning')
-        throw new BrowserLaneError('invalid_state', `lane is ${record.state}, not provisioning`)
+      if (
+        record.state !== 'provisioning' &&
+        record.state !== 'navigating' &&
+        record.state !== 'recovering'
+      )
+        throw new BrowserLaneError('invalid_state', `lane is ${record.state}, not readyable`)
       return save({ ...record, state: 'ready' })
     },
 
@@ -262,14 +271,42 @@ export function createBrowserLaneRegistry(options: BrowserLaneRegistryOptions = 
       return { items, nextCursor }
     },
 
+    /**
+     * Enters the navigating state. Only `ready`, `provisioning` (a lane's
+     * first navigation completes provisioning), and `recovering` may
+     * navigate; a crashed lane recovers through this transition
+     * (crashed → recovering → navigating), so an engine fault never strands
+     * the lane. Suspended lanes must release takeover first; concurrent and
+     * closed lanes refuse.
+     */
     navigate(id: string): BrowserLaneRecord {
       const record = lane(id)
-      if (record.state === 'closed' || record.state === 'closing')
+      if (record.state === 'suspended')
+        throw new BrowserLaneError(
+          'invalid_state',
+          'lane is suspended under human takeover; release it before navigating'
+        )
+      if (record.state === 'navigating')
+        throw new BrowserLaneError('invalid_state', 'lane is already navigating')
+      if (record.state === 'closing' || record.state === 'closed')
         throw new BrowserLaneError('invalid_state', 'lane is closed')
-      if (record.state === 'crashed') return record
+      if (record.state === 'crashed') return save({ ...record, state: 'recovering' })
       return save({ ...record, state: 'navigating' })
     },
 
+    /** Explicit crashed → recovering entry; navigating also recovers. */
+    markRecovering(id: string): BrowserLaneRecord {
+      const record = lane(id)
+      if (record.state !== 'crashed' && record.state !== 'recovering')
+        throw new BrowserLaneError('invalid_state', `lane is ${record.state}, not crashed`)
+      return save({ ...record, state: 'recovering' })
+    },
+
+    /**
+     * Rolls a transient navigating state back so a failed or unavailable
+     * navigation leaves the lane usable. A provisioning lane stays
+     * provisioning (it may navigate again); navigating returns to ready.
+     */
     markIdle(id: string): BrowserLaneRecord {
       const record = lane(id)
       if (record.state === 'navigating') return save({ ...record, state: 'ready' })
@@ -278,6 +315,8 @@ export function createBrowserLaneRegistry(options: BrowserLaneRegistryOptions = 
 
     markCrashed(id: string): BrowserLaneRecord {
       const record = lane(id)
+      // A closed lane is terminal; a crash report must not resurrect state.
+      if (record.state === 'closed' || record.state === 'closing') return record
       return save({ ...record, state: 'crashed', automationOwner: 'none' })
     },
 

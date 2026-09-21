@@ -1,0 +1,347 @@
+/*
+ * Files / Source Control pane hooks (#399). Scoped to this package so the
+ * shared dev-view stylesheet stays with its owner; tokens come from theme.css
+ * via the same variables the other pane hooks use.
+ */
+
+.dev-files {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Quick-open picker (#399 residue): a pane-local overlay anchored under the
+ * toolbar, stacked on the named menu scale. */
+.dev-files__quickopen {
+  position: absolute;
+  inset-inline: 0.5rem;
+  top: 2.4rem;
+  z-index: var(--z-menu, 140);
+  display: flex;
+  max-height: 60%;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+}
+
+.dev-files__quickopen-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dev-files__quickopen-row--active {
+  background: color-mix(in srgb, var(--secondary) 72%, transparent);
+}
+
+.dev-files__quickopen-empty {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.dev-files__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-block-end: 1px solid var(--border);
+}
+
+.dev-files__filter {
+  min-width: 0;
+  flex: 1;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.8rem;
+}
+
+.dev-files__filter:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
+  outline-offset: 1px;
+}
+
+.dev-files__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.dev-files__tree {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+
+.dev-files__row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.125rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.8rem;
+  text-align: start;
+}
+
+.dev-files__row:hover {
+  background: color-mix(in srgb, var(--secondary) 55%, transparent);
+}
+
+/* Keep indentation in CSS instead of using a dynamic inline style. Deeper
+ * paths are capped so an unusually deep tree cannot push controls off-screen. */
+.dev-files__row[data-depth='1'] {
+  padding-inline-start: 1.5rem;
+}
+
+.dev-files__row[data-depth='2'] {
+  padding-inline-start: 2.5rem;
+}
+
+.dev-files__row[data-depth='3'] {
+  padding-inline-start: 3.5rem;
+}
+
+.dev-files__row[data-depth='4'] {
+  padding-inline-start: 4.5rem;
+}
+
+.dev-files__row[data-depth='5'] {
+  padding-inline-start: 5.5rem;
+}
+
+.dev-files__row[data-depth='6'] {
+  padding-inline-start: 6.5rem;
+}
+
+.dev-files__row[data-depth='7'] {
+  padding-inline-start: 7.5rem;
+}
+
+.dev-files__row[data-depth='8'] {
+  padding-inline-start: 8.5rem;
+}
+
+.dev-files__icon {
+  flex-shrink: 0;
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--muted-foreground);
+}
+
+.dev-files__name {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-files__badge {
+  flex-shrink: 0;
+  padding: 0 0.3rem;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--warning, #b45309) 22%, transparent);
+  color: var(--foreground);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.65rem;
+}
+
+.dev-files__delete {
+  flex-shrink: 0;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.65rem;
+  opacity: 0;
+}
+
+.dev-files__row:hover .dev-files__delete,
+.dev-files__delete:focus-visible {
+  opacity: 1;
+}
+
+.dev-files__delete:hover,
+.dev-files__delete[aria-label^='Confirm delete'] {
+  background: color-mix(in srgb, var(--destructive, #b91c1c) 18%, transparent);
+  color: var(--destructive, #b91c1c);
+  opacity: 1;
+}
+
+/* Source control */
+
+.dev-sc {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.dev-sc__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  font-size: 0.78rem;
+}
+
+.dev-sc__section-title {
+  padding: 0.25rem 0.5rem 0;
+  color: var(--muted-foreground);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dev-sc__list {
+  min-height: 0;
+  overflow-y: auto;
+  flex-shrink: 1;
+}
+
+.dev-sc__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.dev-sc__commit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+}
+
+.dev-sc__commit textarea {
+  min-height: 3rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+.dev-sc__diff {
+  max-height: 40%;
+  overflow: auto;
+  flex-shrink: 0;
+  padding: 0.25rem 0.5rem;
+  border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  background: color-mix(in srgb, var(--muted) 38%, transparent);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.7rem;
+  white-space: pre;
+}
+
+.dev-sc__diff-line--add {
+  color: var(--dev-diff-add, #16a34a);
+}
+
+.dev-sc__diff-line--delete {
+  color: var(--dev-diff-delete, #dc2626);
+}
+
+.dev-sc__diff-line--meta {
+  color: var(--muted-foreground);
+}
+
+/* Per-hunk staging (#399 residue): each hunk block carries its own always-
+ * visible stage/unstage affordance above the diff lines. */
+.dev-sc__diff-hunk {
+  padding-block-end: 0.3rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.dev-sc__diff-hunk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.dev-sc__hunk-action {
+  flex-shrink: 0;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--secondary) 45%, transparent);
+  color: var(--foreground);
+  font-size: 0.65rem;
+}
+
+.dev-sc__hunk-action:hover {
+  background: color-mix(in srgb, var(--secondary) 80%, transparent);
+}
+
+/* Editor surface (central leaf) */
+
+.dev-editor {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.dev-editor__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  font-size: 0.75rem;
+}
+
+.dev-editor__banner--conflict {
+  background: color-mix(in srgb, var(--warning, #b45309) 16%, transparent);
+}
+
+.dev-editor__surface {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.dev-editor__surface--hidden {
+  display: none;
+}
+
+.dev-editor__surface .cm-editor {
+  height: 100%;
+  font-size: 0.8rem;
+}
+
+.dev-editor__surface .cm-editor.cm-focused {
+  outline: none;
+}

@@ -4,7 +4,9 @@
 // All decisions run against an injected clock and a fake process adapter, so
 // restart policy and PID-reuse races are deterministic (TM-004).
 import { describe, expect, test } from 'bun:test'
-import { rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   decodeComponentManifest,
@@ -39,12 +41,15 @@ function manifestWith(...ids: string[]): ComponentManifest {
   return decoded.manifest
 }
 
-/** Fake adapter: processes live until the test exits or rekeys them. */
-function fakeAdapter() {
+/** Fake adapter: processes live until the test exits or rekeys them. A
+ *  well-behaved process dies on any signal; `diesOnlyOnKill` ignores SIGTERM;
+ *  `unkillable` ignores every signal so stop stays unconfirmed. */
+function fakeAdapter(mode: 'term' | 'kill-only' | 'never' = 'term') {
   let nextPid = 100
   const spawns: Array<{ componentId: string; generation: number }> = []
   const signals: Array<{ pid: number; signalName: string }> = []
   const live = new Map<number, { pidStartIdentity: string; executableIdentity: string }>()
+  const groups = new Map<number, string>()
   const adapter = {
     async spawn(spec: { id: string }, generation: number) {
       const pid = ++nextPid
@@ -55,27 +60,55 @@ function fakeAdapter() {
         executableIdentity: `bundle://${spec.id}@1.0.0`,
       }
       live.set(pid, identity)
+      groups.set(pid, `pgid-${pid}`)
       return { identity, processGroup: `pgid-${pid}` }
     },
     async currentIdentity(pid: number) {
-      return live.get(pid) ?? null
+      const identity = live.get(pid)
+      if (!identity) return null
+      // Group membership is observable in this fixture; a regrouped PID
+      // betrays it through the ownership proof.
+      return { ...identity, processGroup: groups.get(pid) ?? `pgid-${pid}` }
     },
     async probe() {
       return 'responsive' as const
     },
     async signalIdentity(identity: { pid: number }, signalName: string) {
       signals.push({ pid: identity.pid, signalName })
+      const lethal = mode === 'term' || (mode === 'kill-only' && signalName === 'SIGKILL')
+      if (lethal) {
+        live.delete(identity.pid)
+        groups.delete(identity.pid)
+      }
     },
     /** The owned process died unexpectedly (crash or external kill). */
     exit(pid: number) {
       live.delete(pid)
+      groups.delete(pid)
     },
     /** Simulates PID reuse by an unrelated process between scan and signal. */
     rekey(pid: number) {
       live.set(pid, { pidStartIdentity: `reused-${pid}`, executableIdentity: 'attacker' })
     },
+    /** Same PID and start identity, but a replaced executable artifact. */
+    swapExecutable(pid: number) {
+      const identity = live.get(pid)
+      if (identity) live.set(pid, { ...identity, executableIdentity: 'replaced-binary' })
+    },
+    /** The live process was moved into a foreign process group. */
+    regroup(pid: number, group: string) {
+      groups.set(pid, group)
+    },
   }
-  return { adapter: adapter as SupervisionAdapter, spawns, signals }
+  return {
+    adapter: adapter as SupervisionAdapter,
+    spawns,
+    signals,
+    rekey: adapter.rekey,
+    exit: adapter.exit,
+    swapExecutable: adapter.swapExecutable,
+    regroup: adapter.regroup,
+  }
 }
 
 function tickClock() {
@@ -145,7 +178,22 @@ describe('dependency-aware readiness', () => {
     expect(blocked).toMatchObject({ ok: false, code: 'capability_unavailable' })
 
     await supervisor.start({ componentId: 'cp', idempotencyKey: 'cp-1' })
-    const ready = await supervisor.start({ componentId: 'pi', idempotencyKey: 'pi-1' })
+    clock.advance(30_000)
+    const degradedDependency = await supervisor.start({
+      componentId: 'pi',
+      idempotencyKey: 'pi-degraded',
+    })
+    expect(degradedDependency).toMatchObject({ ok: false, code: 'capability_unavailable' })
+
+    clock.advance(15_000)
+    const unhealthyDependency = await supervisor.start({
+      componentId: 'pi',
+      idempotencyKey: 'pi-unhealthy',
+    })
+    expect(unhealthyDependency).toMatchObject({ ok: false, code: 'capability_unavailable' })
+
+    supervisor.heartbeat('cp')
+    const ready = await supervisor.start({ componentId: 'pi', idempotencyKey: 'pi-healthy' })
     expect(ready.ok).toBe(true)
   })
 
@@ -153,9 +201,106 @@ describe('dependency-aware readiness', () => {
     const { supervisor } = await runningSupervisor(['cp'])
     expect(supervisor.baselineReady()).toEqual({ ready: true, missing: [] })
   })
+
+  test('baseline readiness derives health at decision time, not from stored state', async () => {
+    const { supervisor, advance } = await runningSupervisor()
+    expect(supervisor.baselineReady()).toEqual({ ready: true, missing: [] })
+    // Past unhealthyAfterMs with no heartbeat, and no health() call in
+    // between: a stored 'healthy' flag alone would still report ready.
+    advance(50_000)
+    expect(supervisor.baselineReady()).toEqual({ ready: false, missing: ['cp'] })
+  })
 })
 
 describe('stop and identity recheck (TM-004)', () => {
+  test('operator stop confirmations are single-use and generation-bound', async () => {
+    const { supervisor } = await runningSupervisor()
+    const confirmation = supervisor.requestStop('cp')
+    expect(confirmation.ok).toBe(true)
+    if (!confirmation.ok) return
+    const stopped = await supervisor.stop('cp', {
+      confirmationId: confirmation.value.confirmationId,
+    })
+    expect(stopped.ok).toBe(true)
+    const replay = await supervisor.stop('cp', {
+      confirmationId: confirmation.value.confirmationId,
+    })
+    expect(replay.ok).toBe(false)
+    expect(replay.ok ? '' : replay.code).toBe('already_completed')
+  })
+
+  test('reconciliation adopts only a still-owned persisted launch', async () => {
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const recordsRoot = mkdtempSync(join(tmpdir(), 'adea-supervisor-'))
+    const records = createRecordStore(recordsRoot)
+    const first = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await first.start({ componentId: 'cp', idempotencyKey: 'initial' })
+    const revived = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await revived.reconcile()
+    expect(revived.snapshot().components[0]?.state).toBe('running')
+    fake.rekey(101)
+    const refused = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await refused.reconcile()
+    expect(refused.snapshot().components[0]?.state).toBe('idle')
+    // A launch nobody could adopt is journaled exited, never left dangling.
+    const journaled = records
+      .list()
+      .filter(
+        (record) =>
+          record.kind === 'exited' &&
+          record.exitDetail === 'not observable after supervisor restart'
+      )
+    expect(journaled).toHaveLength(1)
+    expect(journaled[0]?.expected).toBe(true)
+    rmSync(recordsRoot, { recursive: true, force: true })
+  })
+
+  test('reconciliation never clobbers a launch this supervisor already owns', async () => {
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const recordsRoot = mkdtempSync(join(tmpdir(), 'adea-supervisor-own-'))
+    const records = createRecordStore(recordsRoot)
+    const supervisor = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      records,
+      now: clock.now,
+    })
+    await supervisor.start({ componentId: 'cp', idempotencyKey: 'own' })
+    // A stale persisted record appears after this supervisor already started
+    // its own process (an app-level race between start and reconcile).
+    records.append({
+      kind: 'launched',
+      at: clock.now().toString(),
+      componentId: 'cp',
+      generation: 99,
+      processRecordId: 'stale-record',
+      identity: { pid: 555, pidStartIdentity: 'start-555', executableIdentity: 'stale' },
+      processGroup: 'pgid-555',
+    })
+    await supervisor.reconcile()
+    const component = supervisor.snapshot().components[0]
+    expect(component.launch?.identity.pid).toBe(101)
+    expect(component.generation).toBe(1)
+    rmSync(recordsRoot, { recursive: true, force: true })
+  })
+
   test('stop signals the recorded identity only after an immediate recheck', async () => {
     const { supervisor, signals } = await runningSupervisor()
     const stopped = await supervisor.stop('cp')
@@ -184,6 +329,98 @@ describe('stop and identity recheck (TM-004)', () => {
     await supervisor.stop('cp')
     const again = await supervisor.stop('cp')
     expect(again).toMatchObject({ ok: false, code: 'already_completed' })
+  })
+
+  test('a replaced executable at the same PID start identity is never signalled', async () => {
+    const { supervisor, adapter, signals } = await runningSupervisor()
+    adapter.swapExecutable(101)
+    const stopped = await supervisor.stop('cp')
+    expect(stopped).toMatchObject({ ok: false, code: 'ownership_unproven' })
+    expect(signals).toEqual([])
+  })
+
+  test('a process moved into a foreign process group is never signalled', async () => {
+    const { supervisor, adapter, signals } = await runningSupervisor()
+    adapter.regroup(101, 'attacker-pgid')
+    const stopped = await supervisor.stop('cp')
+    expect(stopped).toMatchObject({ ok: false, code: 'ownership_unproven' })
+    expect(signals).toEqual([])
+  })
+})
+
+describe('observed termination and escalation', () => {
+  test('stop waits for observed termination and escalates to SIGKILL inside the window', async () => {
+    const fake = fakeAdapter('kill-only')
+    const clock = tickClock()
+    const supervisor = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      now: clock.now,
+      // The probe delay advances the injected clock instead of sleeping.
+      delay: async () => clock.advance(250),
+    })
+    await supervisor.start({ componentId: 'cp', idempotencyKey: 'cp' })
+    const stopped = await supervisor.stop('cp', { escalate: true })
+    expect(stopped.ok).toBe(true)
+    expect(fake.signals).toEqual([
+      { pid: 101, signalName: 'SIGTERM' },
+      { pid: 101, signalName: 'SIGKILL' },
+    ])
+    expect(supervisor.snapshot().components[0].state).toBe('exited')
+  })
+
+  test('a stop is never confirmed while the process may still be alive', async () => {
+    const fake = fakeAdapter('never')
+    const clock = tickClock()
+    const recordsRoot = mkdtempSync(join(tmpdir(), 'adea-supervisor-unconfirmed-'))
+    try {
+      const supervisor = createSupervisor({
+        manifest: manifestWith('cp'),
+        adapter: fake.adapter,
+        records: createRecordStore(recordsRoot),
+        now: clock.now,
+        stopGraceMs: 1_000,
+        killGraceMs: 1_000,
+        delay: async () => clock.advance(500),
+      })
+      await supervisor.start({ componentId: 'cp', idempotencyKey: 'cp' })
+      const stopped = await supervisor.stop('cp', { escalate: true })
+      expect(stopped).toMatchObject({ ok: false, code: 'stop_unconfirmed' })
+      // The launch record and stopping state survive: the truth is not fabricated.
+      const component = supervisor.snapshot().components[0]
+      expect(component.state).toBe('stopping')
+      expect(component.launch?.identity.pid).toBe(101)
+      // No exit event was recorded for a process nobody observed exiting.
+      expect(supervisor.audit().filter((event) => event.kind === 'exit')).toEqual([])
+      // A late real exit reconciles: counted failure, supervised restart.
+      fake.exit(101)
+      const recycled = await supervisor.reportUnexpectedExit('cp')
+      expect(recycled).toMatchObject({ ok: true, value: 'restarted' })
+      expect(supervisor.snapshot().components[0]).toMatchObject({
+        state: 'running',
+        generation: 2,
+      })
+    } finally {
+      rmSync(recordsRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('a restart never starts a replacement while the old process may live', async () => {
+    const fake = fakeAdapter('never')
+    const clock = tickClock()
+    const supervisor = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      now: clock.now,
+      stopGraceMs: 500,
+      killGraceMs: 500,
+      delay: async () => clock.advance(500),
+    })
+    await supervisor.start({ componentId: 'cp', idempotencyKey: 'cp' })
+    const restarted = await supervisor.restart('cp')
+    expect(restarted).toMatchObject({ ok: false, code: 'stop_unconfirmed' })
+    expect(fake.spawns).toHaveLength(1)
+    expect(supervisor.snapshot().components[0]).toMatchObject({ state: 'stopping', generation: 1 })
   })
 })
 

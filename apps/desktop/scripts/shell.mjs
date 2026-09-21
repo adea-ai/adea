@@ -29,6 +29,24 @@ const client = spawnSync('bun', ['run', 'shell:client:build'], {
 })
 if (client.status !== 0) process.exit(client.status ?? 1)
 
+// The Dev Runtime terminal sidecar is a bundled component (M10 #185): bundle
+// its entry with the same toolchain into the directory the electrobun `copy`
+// stage picks up, so the packaged .app carries the real sidecar artifact the
+// component manifest resolves (shell/scripts/packaged-install.ts).
+const sidecar = spawnSync(
+  'bun',
+  [
+    'build',
+    'src/dev-runtime/terminal/sidecar/entry.ts',
+    '--outdir',
+    'build/sidecar-dist',
+    '--target=bun',
+    '--minify',
+  ],
+  { cwd: shellRoot, stdio: 'inherit', env: process.env }
+)
+if (sidecar.status !== 0) process.exit(sidecar.status ?? 1)
+
 const run = spawnSync('bunx', ['--bun', 'electrobun', mode === 'dev' ? 'dev' : 'build'], {
   cwd: shellRoot,
   stdio: 'inherit',

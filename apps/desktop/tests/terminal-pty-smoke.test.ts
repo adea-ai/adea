@@ -107,7 +107,12 @@ describe.skipIf(process.platform !== 'darwin')('packaged macOS real PTY smoke', 
   }
 
   test('spawn, bytes, resize, signal, exit, and durable search through a real sidecar PTY', async () => {
-    // 1. Boot the real sidecar binary entry and adopt it.
+    // 1. Boot the real sidecar binary entry and adopt it. `bun test` runs
+    // every file on one shared thread, so this lane owns its own teardown:
+    // pipes are drained (an undrained pipe can wedge the child), and the
+    // child gets SIGTERM with observed exit inside a bounded window before
+    // SIGKILL — a one-shot SIGTERM under a loaded machine is how leaked
+    // sidecar orphans are born.
     const child = Bun.spawn(
       [
         'bun',
@@ -126,9 +131,11 @@ describe.skipIf(process.platform !== 'darwin')('packaged macOS real PTY smoke', 
         stderr: 'pipe',
       }
     )
+    const drained = Promise.all([drain(child.stdout), drain(child.stderr)]).catch(() => {})
     try {
       let endpoint = null as ReturnType<typeof readEndpointFile>
-      for (let attempt = 0; attempt < 50 && !endpoint; attempt += 1) {
+      const readyDeadline = Date.now() + 10_000
+      while (!endpoint && Date.now() < readyDeadline) {
         endpoint = readEndpointFile(dataDir)
         if (!endpoint) await Bun.sleep(100)
       }
@@ -215,9 +222,12 @@ describe.skipIf(process.platform !== 'darwin')('packaged macOS real PTY smoke', 
       })
 
       // 4. The real PTY echoes; durable search proves the bytes landed.
-      // A login shell may take seconds to finish its startup files.
+      // A login shell may take many seconds to finish its startup files on a
+      // loaded machine; the poll budget covers that startup, not just the
+      // echo. Deadline-based like every other wait in this lane.
       let matched = false
-      for (let attempt = 0; attempt < 60 && !matched; attempt += 1) {
+      const searchDeadline = Date.now() + 45_000
+      while (!matched && Date.now() < searchDeadline) {
         await Bun.sleep(250)
         const searchReply = await execute('dev.terminal.search', {
           terminalId,
@@ -263,11 +273,38 @@ describe.skipIf(process.platform !== 'darwin')('packaged macOS real PTY smoke', 
       expect(exited).toBe(true)
       sidecar.close()
     } finally {
-      child.kill()
+      await stopSidecarChild(child)
+      await drained
     }
-  }, 30_000)
+  }, 180_000)
 
   afterAll(() => {
     rmSync(dataDir, { recursive: true, force: true })
   })
 })
+
+/** Reads a spawned stream to the end so the child's pipe never fills. */
+async function drain(stream: ReadableStream<Uint8Array> | null): Promise<void> {
+  if (!stream) return
+  const reader = stream.getReader()
+  for (;;) {
+    const { done } = await reader.read()
+    if (done) return
+  }
+}
+
+/** SIGTERM, observe the exit inside a bounded window, then SIGKILL. */
+async function stopSidecarChild(child: Bun.Subprocess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  child.kill()
+  const exitedGracefully = await Promise.race([
+    child.exited.then(
+      () => true,
+      () => false
+    ),
+    Bun.sleep(3_000).then(() => false),
+  ])
+  if (exitedGracefully) return
+  child.kill('SIGKILL')
+  await Promise.race([child.exited, Bun.sleep(1_000)])
+}

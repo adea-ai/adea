@@ -1,5 +1,6 @@
 import type { PaneLeaf, PaneNode, PaneSplit } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/ui/lib/utils'
+import type { JSX } from 'solid-js'
 import { Files, GripVertical, PanelRightOpen, TerminalSquare, X } from 'lucide-solid'
 import { Match, Show, Switch, createSignal } from 'solid-js'
 
@@ -8,6 +9,9 @@ import type { DevLayoutState } from './operations'
 export type DevLayoutViewProps = Readonly<{
   state: DevLayoutState
   unavailable: boolean
+  /** #399: renders the central editor leaf when a file is open; when it
+   *  returns undefined (or is omitted) the placeholder stays. */
+  renderEditorLeaf?(leaf: PaneLeaf): JSX.Element | undefined
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
@@ -46,6 +50,7 @@ function Pane(props: {
   leaf: PaneLeaf
   focused: boolean
   unavailable: boolean
+  renderEditorLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
   onClose(): string
   onFocus(): void
   onMoveTo(
@@ -124,17 +129,28 @@ function Pane(props: {
       <Show
         when={props.leaf.pane === 'terminal'}
         fallback={
-          <div class="dev-empty-state">
-            <PanelRightOpen aria-hidden="true" />
-            <h1>Choose a file to edit</h1>
-            <p>File authority will arrive through the authenticated Dev Runtime.</p>
-          </div>
+          props.leaf.pane === 'editor' ? (
+            (props.renderEditorLeaf?.(props.leaf) ?? (
+              <div class="dev-empty-state">
+                <PanelRightOpen aria-hidden="true" />
+                <h1>Choose a file to edit</h1>
+                <p>File authority will arrive through the authenticated Dev Runtime.</p>
+              </div>
+            ))
+          ) : (
+            <div class="dev-empty-state">
+              <PanelRightOpen aria-hidden="true" />
+              <h1>Choose a file to edit</h1>
+              <p>File authority will arrive through the authenticated Dev Runtime.</p>
+            </div>
+          )
         }
       >
         <div class="dev-terminal-placeholder">
           <p>$ dev runtime status</p>
           <p class="dev-terminal-muted">
-            Authenticated terminal transport is not available in this slice.
+            Terminal output rides the authenticated terminal-bytes-v1 stream; this provider does not
+            expose the attach seam yet, so no PTY is bound to this pane.
           </p>
           <Show when={props.unavailable}>
             <p>Capability state: unavailable</p>
@@ -161,6 +177,7 @@ function Split(props: {
   node: PaneSplit
   state: DevLayoutState
   unavailable: boolean
+  renderEditorLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
@@ -249,6 +266,7 @@ function LayoutNode(props: {
   node: PaneNode
   state: DevLayoutState
   unavailable: boolean
+  renderEditorLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
@@ -267,6 +285,7 @@ function LayoutNode(props: {
             leaf={leaf()}
             focused={props.state.focusedLeafId === leaf().id}
             unavailable={props.unavailable}
+            renderEditorLeaf={props.renderEditorLeaf}
             onClose={() => props.onClose(leaf().id)}
             onFocus={() => props.onFocus(leaf().id)}
             onMoveTo={props.onMoveTo}

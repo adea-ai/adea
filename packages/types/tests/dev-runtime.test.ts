@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   decodeCredentialRef,
+  decodeRepo,
+  decodeRepoInspection,
   decodeDevCommand,
   decodeDevReply,
   decodeRootBookmark,
@@ -72,7 +74,7 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
-    expect(devOperations).toHaveLength(133)
+    expect(devOperations).toHaveLength(163)
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',
@@ -87,6 +89,43 @@ describe('Dev Runtime operation registry', () => {
     expect(() =>
       devOperationDecoders['dev.capability.snapshot'].request({ injected: true })
     ).toThrow('unknown key')
+
+    // Hunk-level staging (#399 residue): the plan body carries structured
+    // DiffHunk selections and a stage/unstage direction; the commit pairs the
+    // plan id with its digest.
+    expect(
+      devOperationDecoders['dev.git.hunkStagingPlan'].request({
+        worktreeId: 'wt-1',
+        direction: 'stage',
+        hunks: [
+          {
+            path: {
+              worktreeId: 'wt-1',
+              rootIdentity: { mtimeNs: '1', size: '1' },
+              relativePath: 'src/index.ts',
+            },
+            oldStart: 1,
+            oldLines: 3,
+            newStart: 1,
+            newLines: 3,
+            lines: [{ kind: 'context', text: 'x' }],
+          },
+        ],
+      })
+    ).toMatchObject({ direction: 'stage' })
+    expect(() =>
+      devOperationDecoders['dev.git.hunkStagingPlan'].request({
+        worktreeId: 'wt-1',
+        direction: 'rebase',
+        hunks: [],
+      })
+    ).toThrow('direction')
+    expect(
+      devOperationDecoders['dev.git.hunkStagingCommit'].request({
+        planId: 'plan-1',
+        planDigest: 'a'.repeat(64),
+      })
+    ).toMatchObject({ planId: 'plan-1' })
 
     expect(
       devOperationDecoders['dev.browser.viewport'].request({
@@ -191,7 +230,7 @@ describe('Dev Runtime command envelope', () => {
 
   test('accepts every paired commit whose immutable plan owns the target binding', () => {
     const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
-    expect(pairedCommits).toHaveLength(9)
+    expect(pairedCommits).toHaveLength(14)
     for (const operation of pairedCommits) {
       const value = command(operation, {
         planId: 'plan-1',
@@ -437,7 +476,7 @@ describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
     expect(() =>
       decodeDevReply({
         ...bookmarksReply,
-        operation: 'dev.repo.authorize',
+        operation: 'dev.project.list',
         value: { items: [rootBookmark], observedAt },
       })
     ).toThrow('success DTO decoder is unavailable')
@@ -929,5 +968,174 @@ describe('Dev Runtime authenticated channel (M10 #33)', () => {
     expect(decodeCbor(trailing).byteLength).toBe(encoded.length)
     expect(() => encodeCbor(Number.NaN)).toThrow()
     expect(() => encodeCbor(undefined)).toThrow()
+  })
+})
+
+describe('repository registry DTOs (#398 follow-up)', () => {
+  const redactedRemote = {
+    provider: 'github',
+    host: 'github.com',
+    ownerPath: 'adea/adea',
+    displayUrl: 'https://github.com/adea/adea',
+  } as const
+
+  const repo = {
+    id: '00000000-0000-4000-8000-000000000030',
+    scope,
+    kind: 'git',
+    lifecycle: 'ready',
+    canonicalRoot: '/Users/dev/work/adea',
+    gitCommonDirIdentity: {
+      device: '1',
+      inode: '42',
+      mtimeNs: '1700000000000000000',
+      size: '4096',
+    },
+    remote: redactedRemote,
+    defaultRef: 'refs/heads/main',
+    projectIds: ['00000000-0000-4000-8000-000000000020'],
+    version: 1,
+  } as const
+
+  test('strictly decodes the Repo record with an optional redacted remote', () => {
+    expect(decodeRepo(repo)).toEqual(repo)
+    // Optional fields may be absent (folder workspaces carry neither).
+    expect(decodeRepo({ ...repo, remote: undefined, defaultRef: undefined })).toEqual({
+      ...repo,
+      remote: undefined,
+      defaultRef: undefined,
+    })
+    expect(() => decodeRepo({ ...repo, extra: true })).toThrow('unknown key')
+    expect(() => decodeRepo({ ...repo, id: 'repo-1' })).toThrow('UUID')
+    expect(() => decodeRepo({ ...repo, kind: 'symlink' })).toThrow('git')
+    expect(() => decodeRepo({ ...repo, lifecycle: 'refreshing' })).not.toThrow()
+    expect(() => decodeRepo({ ...repo, lifecycle: 'deployed' })).toThrow('lifecycle')
+    expect(() => decodeRepo({ ...repo, canonicalRoot: '/bad\0nul' })).toThrow('canonicalRoot')
+    expect(() => decodeRepo({ ...repo, version: 0 })).toThrow('integer')
+    // A redacted remote can never smuggle secret material: unknown keys and
+    // an empty proven host refuse.
+    expect(() => decodeRepo({ ...repo, remote: { ...redactedRemote, token: 'x' } })).toThrow(
+      'unknown key'
+    )
+    expect(() => decodeRepo({ ...repo, remote: { ...redactedRemote, host: '' } })).toThrow(
+      'string length'
+    )
+  })
+
+  test('strictly decodes the RepoInspection reply with git facts', () => {
+    const inspection = {
+      repo,
+      rootIdentity: { device: '1', inode: '42', mtimeNs: '1700000000000000000', size: '4096' },
+      headRef: 'refs/heads/main',
+      headSha: 'a'.repeat(40),
+      dirty: false,
+      observedAt: '2026-09-20T12:00:00.000Z',
+    }
+    expect(decodeRepoInspection(inspection)).toEqual(inspection)
+    expect(() => decodeRepoInspection({ ...inspection, extra: true })).toThrow('unknown key')
+    expect(() => decodeRepoInspection({ ...inspection, headSha: 'ZZZ' })).toThrow('git sha')
+    expect(() => decodeRepoInspection({ ...inspection, dirty: 'no' })).toThrow('boolean')
+    expect(() => decodeRepoInspection({ ...inspection, observedAt: 'yesterday' })).toThrow(
+      'timestamp'
+    )
+  })
+
+  test('installs reply decoders for the repository registry operations', () => {
+    const observedAt = '2026-09-20T12:00:00.000Z'
+    const requestId = '00000000-0000-4000-8000-000000000004'
+    for (const operation of ['dev.repo.adopt', 'dev.repo.authorize', 'dev.repo.refresh'] as const) {
+      const reply = {
+        schemaVersion: 1,
+        operation,
+        requestId,
+        ok: true,
+        value: repo,
+        observedAt,
+      }
+      expect(devOperationDecoders[operation].reply(reply)).toEqual(reply)
+    }
+    const inspectReply = {
+      schemaVersion: 1,
+      operation: 'dev.repo.inspect',
+      requestId,
+      ok: true,
+      value: {
+        repo,
+        rootIdentity: repo.gitCommonDirIdentity,
+        dirty: false,
+        observedAt,
+      },
+      observedAt,
+    }
+    expect(devOperationDecoders['dev.repo.inspect'].reply(inspectReply)).toEqual(inspectReply)
+    const listReply = {
+      schemaVersion: 1,
+      operation: 'dev.repo.list',
+      requestId,
+      ok: true,
+      value: { items: [repo], observedAt },
+      observedAt,
+    }
+    expect(devOperationDecoders['dev.repo.list'].reply(listReply)).toEqual(listReply)
+    // Project archive/update reply with the same strict Project decoder.
+    const project = {
+      id: '00000000-0000-4000-8000-000000000020',
+      scope,
+      name: 'Adea',
+      groupIds: [] as string[],
+      repoIds: [repo.id],
+      lifecycle: 'archived',
+      version: 2,
+    }
+    for (const operation of ['dev.project.update', 'dev.project.archive'] as const) {
+      const reply = {
+        schemaVersion: 1,
+        operation,
+        requestId,
+        ok: true,
+        value: project,
+        observedAt,
+      }
+      expect(devOperationDecoders[operation].reply(reply)).toEqual(reply)
+    }
+    // A stale lifecycle on the wire refuses instead of coercing.
+    expect(() =>
+      devOperationDecoders['dev.repo.adopt'].reply({
+        schemaVersion: 1,
+        operation: 'dev.repo.adopt',
+        requestId,
+        ok: true,
+        value: { ...repo, lifecycle: 'deployed' },
+        observedAt,
+      })
+    ).toThrow('lifecycle')
+  })
+
+  test('request bodies decode strictly from the registry DSL', () => {
+    expect(
+      devOperationDecoders['dev.repo.adopt'].request({
+        repoId: '00000000-0000-4000-8000-000000000030',
+        rootBookmarkId: '00000000-0000-4000-8000-000000000010',
+        expectedVersion: 1,
+      })
+    ).toMatchObject({ expectedVersion: 1 })
+    expect(() =>
+      devOperationDecoders['dev.repo.adopt'].request({ repoId: 'r', expectedVersion: 1 })
+    ).toThrow()
+    expect(() => devOperationDecoders['dev.repo.adopt'].request({ expectedVersion: 1 })).toThrow()
+    expect(
+      devOperationDecoders['dev.project.archive'].request({
+        projectId: '00000000-0000-4000-8000-000000000020',
+        expectedVersion: 2,
+        archived: true,
+      })
+    ).toMatchObject({ archived: true })
+    expect(() =>
+      devOperationDecoders['dev.project.archive'].request({
+        projectId: '00000000-0000-4000-8000-000000000020',
+        expectedVersion: 2,
+        archived: 'yes',
+      })
+    ).toThrow()
   })
 })

@@ -11,8 +11,10 @@
 import type {
   DevCommand,
   DevErrorCode,
+  DevStreamGrant,
   ScreenshotRef,
 } from '../../../../../../packages/types/src/dev-runtime'
+import type { ChannelIdentity } from '../channel/authority'
 
 import { CookieImportError } from './cookie-import'
 import { createLaneDiagnostics, type LaneDiagnostics } from './diagnostics'
@@ -26,6 +28,7 @@ import {
   evaluateNavigation,
   type AdeaOwnedService,
   type LaneHostAddress,
+  type NavigationDecisionCode,
 } from './navigation-policy'
 import { ScreenshotStoreError } from './screenshots'
 
@@ -41,6 +44,47 @@ export class DevCommandProviderError extends Error {
 }
 
 /** One navigation/target view of a lane owned by a live engine. */
+
+/**
+ * The provider's admission decision for one network hop. `pinnedAddresses`
+ * carries the freshly resolved addresses the decision was made on: an engine
+ * that cannot pin its connection to them (CDP request interception, native
+ * resolver hooks) MUST NOT treat the hop as admitted.
+ */
+export type LaneHopAdmission =
+  | Readonly<{
+      allowed: true
+      normalizedUrl: string
+      pinnedAddresses: readonly LaneHostAddress[]
+    }>
+  | Readonly<{ allowed: false; code: NavigationDecisionCode; reason: string }>
+
+export type LaneNavigationHooks = Readonly<{
+  /**
+   * Provider-controlled admission gate. The engine MUST call this before
+   * opening any network connection — the initial URL and EVERY redirect
+   * target — and MUST NOT connect until it resolves. The provider resolves
+   * DNS itself and re-runs the full navigation policy per hop, so a redirect
+   * to loopback, a private range, cloud metadata, or a rebound DNS answer is
+   * refused before the engine ever connects. On refusal the engine aborts
+   * the navigation (it must never follow the refused hop).
+   */
+  admitHop(targetUrl: string): Promise<LaneHopAdmission>
+}>
+
+export type LaneNavigationOutcome = Readonly<{
+  targetId: string
+  /**
+   * Where the engine landed. This value is NEVER trusted on its own: the
+   * provider verifies it equals the last URL its own gate admitted, and the
+   * reply reports the provider-admitted URL, not this one.
+   */
+  finalUrl: string
+  status?: number
+  /** The hops the engine actually connected to, in order, per the gate. */
+  hops: readonly Readonly<{ url: string; status: number }>[]
+}>
+
 export type LaneEngine = Readonly<{
   /** Lists live targets (pages/frames/workers) for the lane. */
   targets(lane: BrowserLaneRecord): readonly Readonly<{
@@ -66,11 +110,30 @@ export type LaneEngine = Readonly<{
       bounds?: { x: number; y: number; width: number; height: number }
     }>
   >
-  /** Applies a navigation inside the engine after policy admitted it. */
+  /**
+   * Applies a navigation inside the engine. Policy is NOT the engine's job:
+   * the provider hands it the admission gate and the engine must route every
+   * connection (initial URL and every redirect hop) through `hooks.admitHop`
+   * before connecting. A real engine implements this with per-request
+   * interception (for example CDP `Fetch.requestPaused`); it must never
+   * follow a redirect the gate refused and must never connect ahead of an
+   * admission.
+   */
   navigate(
     lane: BrowserLaneRecord,
-    url: string
-  ): Promise<Readonly<{ targetId: string; status?: number }>>
+    url: string,
+    hooks: LaneNavigationHooks
+  ): Promise<LaneNavigationOutcome>
+  /** Applies a viewport/emulation change to the lane's active target. */
+  applyViewport?(
+    lane: BrowserLaneRecord,
+    viewport: Readonly<{
+      width: number
+      height: number
+      deviceScaleFactor: number
+      mobile: boolean
+    }>
+  ): Promise<void>
 }>
 
 export type ScreenshotRecorder = Readonly<{
@@ -92,6 +155,13 @@ export type ScreenshotRecorder = Readonly<{
 
 export type BrowserProvidersInput = Readonly<{
   lanes: BrowserLaneRegistry
+  mintStreamGrant?: (input: {
+    identity: ChannelIdentity
+    scope: DevCommand['scope']
+    resource: { kind: 'browser_lane'; id: string; generation: number }
+    direction: 'read' | 'write'
+    fromSequence?: string
+  }) => DevStreamGrant
   diagnostics?: Map<string, LaneDiagnostics>
   /** Resolves a hostname to addresses for the SSRF/rebinding check. */
   resolveDns: (hostname: string) => Promise<readonly LaneHostAddress[]>
@@ -117,6 +187,16 @@ function assertScopeMatch(command: DevCommand, lane: BrowserLaneRecord): void {
 
 function body(command: DevCommand): Record<string, unknown> {
   return command.body as Record<string, unknown>
+}
+
+function refused(
+  laneId: string,
+  code: NavigationDecisionCode,
+  reason: string,
+  report: (laneId: string) => LaneDiagnostics
+): LaneHopAdmission {
+  report(laneId).policy(reason)
+  return { allowed: false, code, reason }
 }
 
 function requireString(value: unknown, field: string): string {
@@ -165,7 +245,109 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
     )
   }
 
-  const providers: Partial<Record<string, (command: DevCommand) => unknown | Promise<unknown>>> = {
+  /** Redirect ceiling; a chain longer than this is refused, never followed. */
+  const MAX_NAVIGATION_HOPS = 10
+  /**
+   * Per-lane ledger for one navigation: the URLs this provider's gate
+   * admitted, in order, and whether the engine already re-checked the
+   * initial hop once (a real engine's interception layer sees the initial
+   * request too; a SECOND sight of any admitted URL is a loop).
+   */
+  const navigationLedger = new Map<string, { urls: string[]; initialRegated: boolean }>()
+  /** The last URL a lane actually navigated to (the provider-admitted one). */
+  const lastAdmittedUrlByLane = new Map<string, string>()
+  /** Engine seam is mutable so the registrar can install a production engine. */
+  let engine = input.engine
+
+  /**
+   * The provider-controlled admission gate every hop passes — including the
+   * initial URL and every redirect target. DNS is resolved fresh per call
+   * and the full navigation policy re-runs, so a redirect to loopback, a
+   * private range, cloud metadata, or a rebound DNS answer is refused before
+   * the engine may connect. Admitted URLs are pinned to the addresses the
+   * decision was made on.
+   */
+  async function admitHopFor(
+    laneId: string,
+    targetUrl: string,
+    report: (id: string) => LaneDiagnostics
+  ): Promise<LaneHopAdmission> {
+    const ledger = navigationLedger.get(laneId) ?? { urls: [], initialRegated: false }
+    navigationLedger.set(laneId, ledger)
+    if (ledger.urls.length >= MAX_NAVIGATION_HOPS)
+      return refused(
+        laneId,
+        'navigation_blocked',
+        `redirect limit of ${MAX_NAVIGATION_HOPS} hops exceeded`,
+        report
+      )
+    let parsed: URL
+    try {
+      parsed = new URL(targetUrl)
+    } catch {
+      return refused(laneId, 'navigation_blocked', 'redirect target did not parse as a URL', report)
+    }
+    const normalized = parsed.href
+    // The engine may re-gate the initial URL exactly once (its interception
+    // layer observes the first request like any other). Any other revisit of
+    // an admitted URL is a redirect loop.
+    if (ledger.urls.length === 1 && ledger.urls[0] === normalized && !ledger.initialRegated) {
+      ledger.initialRegated = true
+      return revalidateTail(laneId, targetUrl, parsed, report)
+    }
+    if (ledger.urls.includes(normalized))
+      return refused(
+        laneId,
+        'navigation_blocked',
+        'redirect loop: target hop was already visited',
+        report
+      )
+    const resolved = await resolveFor(parsed)
+    const decision = evaluateNavigation({
+      url: targetUrl,
+      resolvedAddresses: resolved,
+      ownedServices: input.ownedServices(),
+    })
+    if (!decision.allowed)
+      return refused(
+        laneId,
+        decision.code,
+        `hop ${parsed.protocol}//${parsed.host} refused: ${decision.reason}`,
+        report
+      )
+    ledger.urls.push(decision.normalizedUrl)
+    return { allowed: true, normalizedUrl: decision.normalizedUrl, pinnedAddresses: resolved }
+  }
+
+  function resolveFor(hop: URL): Promise<readonly LaneHostAddress[]> {
+    return input.resolveDns(hop.hostname).catch(() => [] as LaneHostAddress[])
+  }
+
+  async function revalidateTail(
+    laneId: string,
+    url: string,
+    hop: URL,
+    report: (laneId: string) => LaneDiagnostics
+  ): Promise<LaneHopAdmission> {
+    const resolved = await resolveFor(hop)
+    const decision = evaluateNavigation({
+      url,
+      resolvedAddresses: resolved,
+      ownedServices: input.ownedServices(),
+    })
+    if (!decision.allowed)
+      return refused(
+        laneId,
+        decision.code,
+        `hop ${hop.protocol}//${hop.host} refused on re-check: ${decision.reason}`,
+        report
+      )
+    return { allowed: true, normalizedUrl: decision.normalizedUrl, pinnedAddresses: resolved }
+  }
+
+  const providers: Partial<
+    Record<string, (command: DevCommand, identity?: ChannelIdentity) => unknown | Promise<unknown>>
+  > = {
     'dev.browser.laneCreate': (command) => {
       const req = body(command)
       const runtimeSessionId = requireString(req.runtimeSessionId, 'runtimeSessionId')
@@ -211,41 +393,75 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
       const url = requireString(body(command).url, 'url')
-      const owned = input.ownedServices()
-      let resolved: LaneHostAddress[] = []
-      try {
-        resolved = [...(await input.resolveDns(new URL(url).hostname))]
-      } catch {
-        resolved = []
-      }
-      const decision = evaluateNavigation({
-        url,
-        resolvedAddresses: resolved,
-        ownedServices: owned,
-      })
-      if (!decision.allowed) {
-        diagnosticsFor(lane.id).policy(`navigation refused: ${decision.reason}`)
+      // First pass: the requested URL is evaluated before any state mutates,
+      // so a policy refusal never even enters `navigating`.
+      const initial = await admitHopFor(lane.id, url, diagnosticsFor)
+      if (!initial.allowed) {
+        diagnosticsFor(lane.id).policy(`navigation refused: ${initial.reason}`)
         throw new DevCommandProviderError(
-          decision.code === 'ssrf_blocked' ? 'ssrf_blocked' : 'navigation_blocked',
-          decision.reason
+          initial.code === 'ssrf_blocked' ? 'ssrf_blocked' : 'navigation_blocked',
+          initial.reason
         )
       }
       input.lanes.navigate(lane.id)
+      let engineViolatedContract = false
       try {
-        const result = input.engine
-          ? await input.engine.navigate(lane, decision.normalizedUrl)
+        const result = engine
+          ? await engine.navigate(lane, initial.normalizedUrl, {
+              admitHop: (targetUrl) => admitHopFor(lane.id, targetUrl, diagnosticsFor),
+            })
           : unavailableEngine()
+        // The engine's reported final URL is untrusted: it must equal the
+        // last URL this provider's own gate admitted. Anything else means the
+        // engine landed somewhere policy never admitted, or reported a hop it
+        // did not take — either way it can no longer be trusted.
+        const ledger = navigationLedger.get(lane.id)
+        navigationLedger.delete(lane.id)
+        const hopsTaken = ledger?.urls.length ?? 0
+        const finalUrl = ledger?.urls[hopsTaken - 1]
+        if (finalUrl === undefined || result.finalUrl !== finalUrl) {
+          engineViolatedContract = true
+          input.lanes.markCrashed(lane.id)
+          diagnosticsFor(lane.id).crash(
+            'lane engine violated navigation policy: reported a final URL the provider never admitted'
+          )
+          throw new DevCommandProviderError(
+            'ssrf_blocked',
+            'lane engine reported a final URL the navigation policy never admitted'
+          )
+        }
+        lastAdmittedUrlByLane.set(lane.id, finalUrl)
         const ready = input.lanes.markReady(lane.id)
+        if (hopsTaken > 1)
+          diagnosticsFor(lane.id).network(
+            'info',
+            `navigation admitted across ${hopsTaken} hops; landed on ${finalUrl}`
+          )
         return {
           browserLaneId: ready.id,
           targetId: result.targetId,
-          finalUrl: decision.normalizedUrl,
+          finalUrl,
           ...(result.status !== undefined ? { status: result.status } : {}),
           generation: ready.generation,
           observedAt: new Date().toISOString(),
         }
       } catch (error) {
-        if (error instanceof DevCommandProviderError) throw error
+        navigationLedger.delete(lane.id)
+        // A contract-violating engine was already crashed and diagnosed.
+        if (engineViolatedContract) throw error
+        if (error instanceof DevCommandProviderError) {
+          // A gate refusal (the engine aborted a redirect) and an unavailable
+          // engine both roll back the transient navigating state so recovery
+          // can retry; any other engine fault is terminal for this lane.
+          if (
+            error.code === 'capability_unavailable' ||
+            error.code === 'ssrf_blocked' ||
+            error.code === 'navigation_blocked'
+          ) {
+            input.lanes.markIdle(lane.id)
+            throw error
+          }
+        }
         input.lanes.markCrashed(lane.id)
         diagnosticsFor(lane.id).crash('lane crashed during navigation')
         throw new DevCommandProviderError(
@@ -257,7 +473,7 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
     },
     'dev.browser.targets': (command) => {
       const lane = laneFor(command)
-      const targets = input.engine ? input.engine.targets(lane) : unavailableEngine()
+      const targets = engine ? engine.targets(lane) : unavailableEngine()
       return {
         items: targets.map((target) => ({
           ...target,
@@ -270,25 +486,32 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
     'dev.browser.viewport': (command) => {
       const lane = laneFor(command)
       const req = body(command)
-      return input.lanes.viewport(lane.id, expectedGeneration(command), {
+      const viewport = {
         width: Number(req.width),
         height: Number(req.height),
         deviceScaleFactor: Number(req.deviceScaleFactor),
         mobile: req.mobile === true,
-      })
+      }
+      const updated = input.lanes.viewport(lane.id, expectedGeneration(command), viewport)
+      // Responsive emulation reaches the live target through the engine when
+      // one is attached; the registry state stays authoritative either way.
+      void engine?.applyViewport?.(updated, viewport)
+      return updated
     },
     'dev.browser.screenshot': async (command) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
       const req = body(command)
       const format = requireString(req.format, 'format') as 'png' | 'jpeg' | 'webp'
-      const capture = input.engine
-        ? await input.engine.screenshot(lane, {
+      const capture = engine
+        ? await engine.screenshot(lane, {
             targetId: typeof req.targetId === 'string' ? req.targetId : undefined,
             format,
             quality: typeof req.quality === 'number' ? req.quality : undefined,
           })
         : unavailableEngine()
+      // Provenance records the page the lane actually navigated to (the
+      // provider-admitted URL), never the bare lane state string.
       return input.screenshotRecorder.record({
         bytes: capture.bytes,
         format,
@@ -298,13 +521,16 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
           ownerId: lane.id,
           laneKind: lane.kind,
           profileId: lane.profileId,
-          origin: lane.state,
+          origin: lastAdmittedUrlByLane.get(lane.id) ?? 'about:blank',
           viewport: {
             width: lane.viewport.width,
             height: lane.viewport.height,
             deviceScaleFactor: lane.viewport.deviceScaleFactor,
           },
-          redacted: true,
+          // No redaction pass runs on captures today; recording `true` would
+          // be false provenance. The classification/redaction integration
+          // owns flipping this once it exists.
+          redacted: false,
         },
       })
     },
@@ -320,8 +546,8 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       assertGeneration(lane, expectedGeneration(command))
       const req = body(command)
       const targetId = requireString(req.targetId, 'targetId')
-      const inspection = input.engine
-        ? await input.engine.inspect(lane, {
+      const inspection = engine
+        ? await engine.inspect(lane, {
             targetId,
             selector: typeof req.selector === 'string' ? req.selector : undefined,
           })
@@ -358,18 +584,43 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       items: input.lanes.profilePolicies(),
       observedAt: new Date().toISOString(),
     }),
-    'dev.browser.attach': (command) => {
+    'dev.browser.attach': (command, identity) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
-      // The channel-bound stream-grant minting is supplied by the shell
-      // integration; without the transport binding the attach is
-      // typed-unavailable rather than a grant that could never attach.
-      return unavailableEngine()
+      const requestBody = body(command)
+      if (!identity || !input.mintStreamGrant)
+        throw new DevCommandProviderError(
+          'capability_unavailable',
+          'channel stream grant unavailable',
+          true
+        )
+      return input.mintStreamGrant({
+        identity,
+        scope: command.scope,
+        resource: { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+        direction: 'read',
+        fromSequence:
+          typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
+      })
     },
-    'dev.browser.input': (command) => {
+    'dev.browser.input': (command, identity) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
-      return unavailableEngine()
+      const requestBody = body(command)
+      if (!identity || !input.mintStreamGrant)
+        throw new DevCommandProviderError(
+          'capability_unavailable',
+          'channel stream grant unavailable',
+          true
+        )
+      return input.mintStreamGrant({
+        identity,
+        scope: command.scope,
+        resource: { kind: 'browser_lane', id: lane.id, generation: lane.generation },
+        direction: 'write',
+        fromSequence:
+          typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
+      })
     },
     'dev.browser.cookieImportPlan': (command) => {
       const lane = laneFor(command)
@@ -387,19 +638,28 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
 
   // Every handler is wrapped async so provider failures surface as typed
   // DevError codes through the M10 execute reply, never as raw throws.
-  const mapped: Partial<Record<string, (command: DevCommand) => Promise<unknown>>> = {}
+  const mapped: Partial<
+    Record<string, (command: DevCommand, identity?: ChannelIdentity) => Promise<unknown>>
+  > = {}
   for (const [operation, handler] of Object.entries(providers)) {
     if (!handler) continue
-    mapped[operation] = async (command: DevCommand) => {
+    mapped[operation] = async (command: DevCommand, identity?: ChannelIdentity) => {
       try {
-        return await handler(command)
+        return await handler(command, identity)
       } catch (error) {
         throw browserProviderError(error)
       }
     }
   }
 
-  return { providers: mapped, diagnosticsFor }
+  return {
+    providers: mapped,
+    diagnosticsFor,
+    /** Registrar composition seam: installs (or clears) the live lane engine. */
+    setEngine(next: LaneEngine | undefined): void {
+      engine = next
+    },
+  }
 }
 
 export function browserProviderError(error: unknown): DevCommandProviderError {

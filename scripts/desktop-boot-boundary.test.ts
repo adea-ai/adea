@@ -21,6 +21,9 @@ const SKIP = new Set([
   'build',
   'artifacts',
   '.turbo',
+  // The packaged evidence lane's scripts name hostile SSRF targets on purpose;
+  // they are offline proof tooling, never served by the shell.
+  'packaged-browser-matrix.ts',
 ])
 
 async function shellSources(): Promise<Array<{ path: string; source: string }>> {
@@ -31,7 +34,10 @@ async function shellSources(): Promise<Array<{ path: string; source: string }>> 
         if (!SKIP.has(item.name)) await walk(join(directory, item.name))
         continue
       }
-      if (SHELL_EXTENSIONS.some((extension) => item.name.endsWith(extension))) {
+      if (
+        !SKIP.has(item.name) &&
+        SHELL_EXTENSIONS.some((extension) => item.name.endsWith(extension))
+      ) {
         files.push(join(directory, item.name))
       }
     }

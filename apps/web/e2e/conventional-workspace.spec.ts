@@ -8,7 +8,9 @@
 // The spec mocks every workspace API response, so no database is needed.
 import { createHash } from 'node:crypto'
 
-import { expect, test, type Page } from '@playwright/test'
+// The visual helpers install transition suppression for every capture; see
+// helpers/visual.ts for the race this closes.
+import { expect, test, type Page } from './helpers/visual'
 
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
 
@@ -1067,7 +1069,8 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await settings.getByRole('tab', { name: 'Agents' }).focus()
   await page.keyboard.press('End')
-  await expect(settings.getByRole('tab', { name: 'Integrations & capabilities' })).toBeFocused()
+  // 'permissions' is the newest section, so it owns the End edge now.
+  await expect(settings.getByRole('tab', { name: 'Permissions' })).toBeFocused()
   await page.keyboard.press('Home')
   await expect(settings.getByRole('tab', { name: 'Account & app' })).toBeFocused()
   await settings.getByRole('tab', { name: 'Agents' }).click()

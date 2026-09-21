@@ -127,21 +127,20 @@ export type WorkspaceAppSurface = Readonly<{
   digest?: string
 }>
 
-export type WorkspaceAppActivation =
-  | Readonly<{ status: 'activatable'; entryId: string }>
-  | Readonly<{ status: 'activation-unavailable'; reason: 'not-installed' | 'catalog-only' }>
-
 /**
- * Activation authority for app surfaces: a bundled first-party entry id on an
- * installed app can activate; a catalog-only entry — installed metadata and
- * connectors notwithstanding — cannot execute UI code and says why.
+ * Activation authority for app surfaces lives in `./app-library`: trust
+ * resolves through the compiled first-party entry registry, then verified
+ * catalog/install-plan integrity. The names are re-exported here for
+ * existing consumers; nothing may activate on a manifest-supplied
+ * `bundledEntryId` alone.
  */
-export function workspaceAppActivation(plugin: WorkspacePlugin): WorkspaceAppActivation {
-  const app = plugin.appSurface
-  if (!app?.bundledEntryId) return { status: 'activation-unavailable', reason: 'catalog-only' }
-  if (!plugin.installed) return { status: 'activation-unavailable', reason: 'not-installed' }
-  return { status: 'activatable', entryId: app.bundledEntryId }
-}
+export {
+  resolveAppActivation,
+  trustedFirstPartyAppEntries,
+  workspaceAppActivation,
+  type TrustedFirstPartyEntry,
+  type WorkspaceAppActivation,
+} from './app-library'
 
 export type WorkspacePluginDefinition = Readonly<{
   auth: 'api-key' | 'oauth' | 'workspace'

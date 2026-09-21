@@ -15,6 +15,11 @@
       "types": "./dist/dev-runtime.d.ts",
       "development": "./src/dev-runtime.ts",
       "import": "./dist/dev-runtime.js"
+    },
+    "./desktop-permissions": {
+      "types": "./dist/desktop-permissions.d.ts",
+      "development": "./src/desktop-permissions.ts",
+      "import": "./dist/desktop-permissions.js"
     }
   },
   "scripts": {

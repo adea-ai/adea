@@ -441,13 +441,16 @@ export function createTerminalManager(options: TerminalManagerOptions) {
 
     /**
      * Attaches a subscriber. Covered `sinceSeq` replays exactly once in order
-     * before live delivery; coverage past the ring is a resync requirement
-     * anchored at the oldest covered sequence.
+     * before live delivery; coverage past the ring is resolvable by the
+     * caller's durable backlog (`preplayedBytes` keeps the high-water honest
+     * for chunks delivered before this call) or a resync requirement anchored
+     * at the oldest covered sequence.
      */
     attach(
       terminalId: string,
       subscriber: TerminalSubscriber,
-      sinceSeq: string
+      sinceSeq: string,
+      opts?: { preplayedBytes?: number }
     ): TerminalOk<AttachResult> {
       const session = sessions.get(terminalId)
       if (!session) return { ok: false, error: terminalError('not_found', 'terminal not found') }
@@ -476,12 +479,15 @@ export function createTerminalManager(options: TerminalManagerOptions) {
       const subscriberState: SubscriberState = {
         id: subscriber.id,
         deliver: subscriber.deliver,
-        outstandingBytes: 0,
+        outstandingBytes: opts?.preplayedBytes ?? 0,
         needsResync: false,
         nextUndeliveredSeq: Number(sinceSeq),
       }
       session.subscribers.set(subscriber.id, subscriberState)
       session.lifecycle = 'running'
+      // A fully covered live subscription is the healthy state; a prior
+      // resync marker no longer describes this terminal.
+      if (session.health === 'replay_required') session.health = 'healthy'
       let replayed = 0
       for (const entry of session.ring) {
         if (BigInt(entry.seq) < BigInt(sinceSeq)) continue

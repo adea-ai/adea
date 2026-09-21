@@ -17,6 +17,7 @@ import {
   sameScope,
   type DevScope,
   type OwnerApproval,
+  type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
 import { createDurableJsonStore } from './host-store'
@@ -51,8 +52,21 @@ export function createProjectGrantAuthority(options: {
   roots: RootBookmarkAuthority
   vault: CredentialVault
   audit?: AuthorityAudit
+  /**
+   * Required. The durable, scope-bound, single-use owner-approval authority;
+   * a grant authority without one cannot prove owner consent, so construction
+   * fails rather than accepting a caller-supplied reference string.
+   */
+  approvalVerifier: OwnerApprovalVerifier
 }) {
-  const { dataDir, roots, vault, audit } = options
+  const { dataDir, roots, vault, audit, approvalVerifier } = options
+  if (!approvalVerifier) {
+    // Startup guard for JavaScript callers that bypass the type.
+    throw new DevAuthorityError(
+      'auth_required',
+      'the project grant authority requires an owner approval verifier'
+    )
+  }
   const store = createDurableJsonStore<ProjectGrantRecord>({
     file: join(dataDir, 'dev-runtime', 'grants', 'grants.json'),
     schemaVersion: 1,
@@ -109,10 +123,14 @@ export function createProjectGrantAuthority(options: {
         entry.state === 'active'
     )
     if (existing) {
-      // Durable mutations are idempotent: re-granting a live pair is a no-op.
+      // Idempotency does not waive the owner-approval contract. Consume the
+      // fresh, action-bound approval even for a durable no-op so a forged
+      // structural record can never receive a successful mutation response.
+      approvalVerifier.consume(approval, input.scope, 'grant a project its root')
       return existing
     }
 
+    approvalVerifier.consume(approval, input.scope, 'grant a project its root')
     const record: ProjectGrantRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

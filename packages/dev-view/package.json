@@ -36,11 +36,65 @@
       "development": "./src/devices/index.ts",
       "import": "./dist/devices/index.js"
     },
+    "./computeruse": {
+      "types": "./dist/computeruse/index.d.ts",
+      "solid": "./src/computeruse/index.ts",
+      "development": "./src/computeruse/index.ts",
+      "import": "./dist/computeruse/index.js"
+    },
+    "./resources": {
+      "types": "./dist/resources/index.d.ts",
+      "solid": "./src/resources/index.ts",
+      "development": "./src/resources/index.ts",
+      "import": "./dist/resources/index.js"
+    },
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "solid": "./src/agents/index.ts",
+      "development": "./src/agents/index.ts",
+      "import": "./dist/agents/index.js"
+    },
+    "./history": {
+      "types": "./dist/history/index.d.ts",
+      "solid": "./src/history/index.ts",
+      "development": "./src/history/index.ts",
+      "import": "./dist/history/index.js"
+    },
+    "./permissions": {
+      "types": "./dist/permissions/index.d.ts",
+      "solid": "./src/permissions/index.ts",
+      "development": "./src/permissions/index.ts",
+      "import": "./dist/permissions/index.js"
+    },
+    "./files": {
+      "types": "./dist/files/index.d.ts",
+      "solid": "./src/files/index.ts",
+      "development": "./src/files/index.ts",
+      "import": "./dist/files/index.js"
+    },
+    "./source-control": {
+      "types": "./dist/source-control/index.d.ts",
+      "solid": "./src/source-control/index.ts",
+      "development": "./src/source-control/index.ts",
+      "import": "./dist/source-control/index.js"
+    },
+    "./editor": {
+      "types": "./dist/editor/code-editor.d.ts",
+      "solid": "./src/editor/code-editor.tsx",
+      "development": "./src/editor/code-editor.tsx",
+      "import": "./dist/editor/code-editor.js"
+    },
     "./terminal": {
       "types": "./dist/terminal/terminal-pane.d.ts",
       "solid": "./src/terminal/terminal-pane.tsx",
       "development": "./src/terminal/terminal-pane.tsx",
       "import": "./dist/terminal/terminal-pane.js"
+    },
+    "./files/file-stream": {
+      "types": "./dist/files/file-stream.d.ts",
+      "solid": "./src/files/file-stream.ts",
+      "development": "./src/files/file-stream.ts",
+      "import": "./dist/files/file-stream.js"
     }
   },
   "scripts": {
@@ -54,6 +108,11 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
     "@adea-ai/ui": "workspace:*",
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.8",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.15.0",
     "@xterm/addon-serialize": "^0.13.0",

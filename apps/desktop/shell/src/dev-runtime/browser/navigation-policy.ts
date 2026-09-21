@@ -63,18 +63,31 @@ function ipv4InPrivateRange(address: string): boolean {
 }
 
 function isCloudMetadataAddress(address: string): boolean {
-  // Link-local carries every major provider's metadata endpoint; the metadata
-  // host name resolves to it and is blocked by name too.
-  return address === '169.254.169.254' || address === 'fd00:ec2::254'
+  // Link-local carries every major provider's metadata endpoint; check the
+  // normalized IPv4 half too so hexadecimal mapped forms cannot bypass it.
+  const normalized = mappedIpv4FromIpv6(address) ?? address
+  return normalized === '169.254.169.254' || normalized === 'fd00:ec2::254'
+}
+
+function mappedIpv4FromIpv6(address: string): string | null {
+  const value = address.replace(/^\[|\]$/g, '').toLowerCase()
+  if (!value.startsWith('::ffff:')) return null
+  const mapped = value.slice('::ffff:'.length)
+  if (mapped.includes('.')) return ipv4ToInt(mapped) === null ? null : mapped
+  const groups = mapped.split(':')
+  if (groups.length !== 2 || !groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return null
+  const high = Number.parseInt(groups[0]!, 16)
+  const low = Number.parseInt(groups[1]!, 16)
+  return `${high >>> 8}.${high & 0xff}.${low >>> 8}.${low & 0xff}`
 }
 
 function isIpv6LoopbackOrPrivate(lowerAddress: string): boolean {
-  let value = lowerAddress.replace(/^\[|\]$/g, '')
-  // IPv4-mapped addresses must be judged by their IPv4 half.
-  if (value.startsWith('::ffff:')) {
-    const mapped = value.slice('::ffff:'.length)
-    return ipv4InPrivateRange(mapped)
-  }
+  const value = lowerAddress.replace(/^\[|\]$/g, '')
+  // IPv4-mapped addresses can be written as dotted decimal or compressed
+  // hexadecimal (for example ::ffff:7f00:1). Normalize both forms before
+  // applying the IPv4 private/link-local/loopback ranges.
+  const mapped = mappedIpv4FromIpv6(value)
+  if (mapped !== null) return ipv4InPrivateRange(mapped)
   if (value === '::1' || value === '::') return true
   if (value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea')) return true
   if (value.startsWith('feb')) return true

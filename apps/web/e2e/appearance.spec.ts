@@ -1,9 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 
 async function openAppearance(page: Page) {
-  await page.getByRole('button', { name: 'Appearance' }).click()
   const dialog = page.getByRole('dialog', { name: 'Appearance' })
-  await expect(dialog).toBeVisible()
+  // Like the App Library dialog, the appearance dialog is code-split; on a
+  // cold dev server its chunk transform can outlive the default expect
+  // timeout, so retry the open until the dialog settles.
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Appearance' }).click()
+    await expect(dialog).toBeVisible()
+  }).toPass({ timeout: 30_000 })
   return dialog
 }
 
@@ -161,14 +166,27 @@ test.describe('appearance', () => {
 
 async function openNavigationTab(page: Page) {
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
-  await rail.getByRole('button', { name: 'App Library' }).click()
   const library = page.getByRole('dialog', { name: 'App Library' })
-  await expect(library).toBeVisible()
+  // The App Library dialog is code-split and fetched on first open. A cold dev
+  // server transforms that chunk on demand and may re-run the dependency
+  // optimizer mid-import, which can outlive the default expect timeout or
+  // reload the page and drop the panel state — so retry the open until the
+  // dialog settles instead of trusting a single click.
+  await expect(async () => {
+    await rail.getByRole('button', { name: 'App Library' }).click()
+    await expect(library).toBeVisible()
+  }).toPass({ timeout: 30_000 })
   await library.getByRole('tab', { name: /Navigation/ }).click()
   return { rail, library }
 }
 
 test.describe('rail customization', () => {
+  // The first rail test after a cold dev-server boot also pays for the
+  // on-demand module transforms of the whole workspace shell (the page
+  // navigation alone can take half a minute), which does not fit the default
+  // per-test budget.
+  test.setTimeout(180_000)
+
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       window.localStorage.removeItem('adea:rail-preferences:v1')
@@ -181,7 +199,12 @@ test.describe('rail customization', () => {
     page,
   }) => {
     const rail = page.getByRole('navigation', { name: 'Global navigation' })
-    await expect(rail.getByRole('button', { name: 'Virtual view' })).toBeVisible()
+    // The rail renders once the workspace shell hydrates; on a cold dev server
+    // the shell's on-demand module transforms can push that past half a minute
+    // (60s matches the boot-latency budget the other specs use for rail waits).
+    await expect(rail.getByRole('button', { name: 'Virtual view' })).toBeVisible({
+      timeout: 60_000,
+    })
 
     let { library } = await openNavigationTab(page)
     const virtualRow = library
@@ -224,4 +247,70 @@ test.describe('rail customization', () => {
     // Chat is the active view; the rail keeps it rendered.
     await expect(rail.getByRole('button', { name: 'Chat view' })).toBeVisible()
   })
+})
+
+test('a corrupt stored appearance quarantines into the recovery envelope and survives a save', async ({
+  page,
+}) => {
+  // Seed an unreadable appearance document before the app loads.
+  await page.addInitScript(() => {
+    window.localStorage.setItem('appearance', '{"version":2,"mode":"da')
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('main')).toBeVisible()
+
+  // The corrupt value is quarantined byte-for-byte once the provider mounts
+  // (hydration is async, so poll instead of reading once).
+  let envelope: string | null = null
+  await expect
+    .poll(
+      async () => {
+        envelope = await page.evaluate(() => window.localStorage.getItem('appearance.recovery'))
+        return envelope
+      },
+      { timeout: 20_000 }
+    )
+    .toBeTruthy()
+  expect(JSON.parse(envelope!).raw).toBe('{"version":2,"mode":"da')
+
+  // Saving valid preferences must not destroy the quarantined original.
+  const dialog = await openAppearance(page)
+  await section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toBeHidden()
+  const kept = await page.evaluate(() => window.localStorage.getItem('appearance.recovery'))
+  expect(JSON.parse(kept!).raw).toBe('{"version":2,"mode":"da')
+  expect(
+    JSON.parse(await page.evaluate(() => window.localStorage.getItem('appearance')!)).mode
+  ).toBe('dark')
+})
+
+test('cancel reverts the draft and the OS reduced-motion preference keeps the dialog operable', async ({
+  page,
+}) => {
+  // This test lives outside the describe blocks, so it arranges its own page:
+  // a pinned preference from another scenario must not leak in, and the
+  // workspace must be loaded before the rail can open the dialog.
+  await page.addInitScript(() => {
+    window.localStorage.removeItem('appearance')
+    window.localStorage.removeItem('theme')
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('main')).toBeVisible()
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const dialog = await openAppearance(page)
+
+  await section(dialog, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(dialog).toBeHidden()
+  // Closing without saving restores the pre-open appearance.
+  await expect(page.locator('html')).not.toHaveClass(/dark/)
+
+  // Re-open under reduced motion: live previews still apply.
+  const reopened = await openAppearance(page)
+  await section(reopened, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  await reopened.getByRole('button', { name: 'Cancel' }).click()
 })

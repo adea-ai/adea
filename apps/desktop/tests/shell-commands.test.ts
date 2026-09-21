@@ -267,15 +267,32 @@ describe('desktop shell command surface', () => {
       mkdirSync(payloadDir, { recursive: true })
       writeFileSync(join(payloadDir, 'index.js'), 'export {}')
       const tarPath = join(workDir, 'archive.tar')
-      const makeTar = Bun.spawnSync(['tar', '-cf', tarPath, '-C', workDir, 'Adea.app'], {
-        stderr: 'pipe',
-      })
-      expect(makeTar.exitCode).toBe(0)
+      // Fixture builders degrade like the rg probe does: a missing tar or
+      // zstd on a restricted PATH skips the round-trip assertion (Bun
+      // spawnSync throws ENOENT instead of returning a nonzero exit) while
+      // the strategy pinning below stays asserted on every lane.
+      let tarOk = false
+      try {
+        tarOk =
+          Bun.spawnSync(['tar', '-cf', tarPath, '-C', workDir, 'Adea.app'], {
+            stderr: 'pipe',
+          }).exitCode === 0
+      } catch {
+        tarOk = false
+      }
       const archivePath = join(workDir, 'archive.tar.zst')
-      const makeZst = Bun.spawnSync(['zstd', '-f', tarPath, '-o', archivePath], {
-        stderr: 'pipe',
-      })
-      if (makeZst.exitCode !== 0) {
+      let roundTrip = false
+      if (tarOk) {
+        try {
+          roundTrip =
+            Bun.spawnSync(['zstd', '-f', tarPath, '-o', archivePath], {
+              stderr: 'pipe',
+            }).exitCode === 0
+        } catch {
+          roundTrip = false
+        }
+      }
+      if (!roundTrip) {
         // The suite pins the strategy below; decompression itself is
         // exercised wherever a zstd implementation exists (dev and CI do).
         console.warn('no zstd on PATH; skipping the round-trip assertion')

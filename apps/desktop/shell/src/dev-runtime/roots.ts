@@ -18,6 +18,7 @@ import {
   sameScope,
   type DevScope,
   type OwnerApproval,
+  type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
 import { createDurableJsonStore } from './host-store'
@@ -113,8 +114,23 @@ function pageOf(
   return { items, ...(nextCursor ? { nextCursor } : {}), observedAt: nowIso() }
 }
 
-export function createRootBookmarkAuthority(options: { dataDir: string; audit?: AuthorityAudit }) {
-  const { dataDir, audit } = options
+export function createRootBookmarkAuthority(options: {
+  dataDir: string
+  audit?: AuthorityAudit
+  /**
+   * Required. The durable, scope-bound, single-use owner-approval authority;
+   * minting a root bookmark without one cannot prove owner consent.
+   */
+  approvalVerifier: OwnerApprovalVerifier
+}) {
+  const { dataDir, audit, approvalVerifier } = options
+  if (!approvalVerifier) {
+    // Startup guard for JavaScript callers that bypass the type.
+    throw new DevAuthorityError(
+      'auth_required',
+      'the root bookmark authority requires an owner approval verifier'
+    )
+  }
   const storeDir = join(dataDir, 'dev-runtime', 'roots')
   const store = createDurableJsonStore<RootBookmarkRecord>({
     file: join(storeDir, 'bookmarks.json'),
@@ -213,10 +229,14 @@ export function createRootBookmarkAuthority(options: { dataDir: string; audit?: 
         entry.canonicalRoot === canonicalRoot
     )
     if (existing && existing.state === 'active') {
-      // Durable mutations are idempotent: re-minting a live root is a no-op.
+      // Idempotency does not waive the owner-approval contract. Consume the
+      // fresh, action-bound approval even for a durable no-op so a forged
+      // structural record can never receive a successful mutation response.
+      approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
       return existing
     }
     if (existing && existing.state === 'stale') {
+      approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
       // Owner re-authorization of the same canonical root refreshes identity.
       const refreshed: RootBookmarkRecord = {
         ...existing,
@@ -230,6 +250,7 @@ export function createRootBookmarkAuthority(options: { dataDir: string; audit?: 
       return refreshed
     }
 
+    approvalVerifier.consume(approval, input.scope, 'authorize a root bookmark')
     const record: RootBookmarkRecord = {
       id: newRecordId(),
       scope: { ...input.scope },

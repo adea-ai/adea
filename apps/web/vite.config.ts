@@ -10,6 +10,34 @@ import { forbiddenClientModule, PUBLIC_ENV_NAMES } from './start/client-policy.m
 const root = fileURLToPath(new URL('.', import.meta.url))
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url)).replaceAll('\\', '/')
 
+/**
+ * Dev-only alias for the bare `lucide-solid` specifier. The package's barrel
+ * statically imports the whole icon catalogue, so the default resolution
+ * (through the `solid` condition to the source tree) floods dev: ~2,100 icon
+ * requests per fresh browser context (7-10s hydration minimum, 30-120s cold
+ * server transforms) and a ~1,900-module SSR graph compiled on first render.
+ * Pre-bundling is not an option: vite's optimizer cannot compile Solid JSX,
+ * and a client-compiled artifact cannot be mixed with the SSR render anyway
+ * (hydration then throws "Failed attempt to create new DOM elements during
+ * hydration").
+ *
+ * `start/lucide-solid-dev-shim.jsx` re-exports exactly the icons the client
+ * graph imports, as deep imports. Both dev environments go through it, so
+ * they compile the same source modules (hydration matches) and only those
+ * modules enter the graph. The `.jsx` extension is deliberate: it keeps the
+ * shim outside vite's optimizable-entry set, so no optimizeDeps include or
+ * discovery can pre-bundle it. The production build never sees the alias: it
+ * keeps resolving the `solid` condition directly and tree-shakes the barrel
+ * as before. The shim is held in lock-step with the sources by
+ * scripts/lucide-dev-shim.test.ts.
+ */
+function lucideDevShimAlias() {
+  return {
+    find: /^lucide-solid$/,
+    replacement: fileURLToPath(new URL('./start/lucide-solid-dev-shim.jsx', import.meta.url)),
+  }
+}
+
 function protectClientGraph(): Plugin {
   return {
     name: 'adea-start-client-boundary',
@@ -59,7 +87,7 @@ function trimZodLocales(): Plugin {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root,
   // No automatic environment-variable prefixes: public values are enumerated below.
   envPrefix: [],
@@ -77,6 +105,10 @@ export default defineConfig({
         find: /^server-only$/,
         replacement: fileURLToPath(new URL('./src/start/server-only-shim.mjs', import.meta.url)),
       },
+      // Dev-only: route lucide-solid through the curated dev shim (see
+      // lucideDevShimAlias above). The production build keeps the `solid`
+      // condition so build output is unchanged.
+      ...(command === 'serve' ? [lucideDevShimAlias()] : []),
     ],
   },
   // Never stringify process.env or expose server credentials through VITE_*.
@@ -111,4 +143,4 @@ export default defineConfig({
     trimZodLocales(),
     protectClientGraph(),
   ],
-})
+}))

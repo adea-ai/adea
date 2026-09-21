@@ -29,7 +29,12 @@
         ]
       }
     ],
-    "shadcn/no-raw-colors": ["error", { "scanAllStrings": true }],
+    "shadcn/no-raw-colors": [
+      "error",
+      {
+        "scanAllStrings": true
+      }
+    ],
     "no-restricted-imports": [
       "error",
       {
@@ -51,7 +56,7 @@
               "next-themes",
               "lucide-react"
             ],
-            "message": "This is a Solid codebase — React libraries will not run. Use @adea-ai/ui components (@kobalte/core and @corvu primitives) and lucide-solid."
+            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/ui components (@kobalte/core and @corvu primitives) and lucide-solid."
           }
         ]
       }
@@ -61,6 +66,8 @@
       {
         "allow": [
           "__ADEA_DESKTOP_CLOUD_ORIGIN__",
+          "__ADEA_DEV_SCOPE__",
+          "__ADEA_INITIAL_HASH__",
           "__ADEA_NAVIGATION_START__",
           "__ADEA_RELEASE__",
           "__ADEA_SCENE_TELEMETRY_ENDPOINT__",
@@ -70,7 +77,12 @@
         ]
       }
     ],
-    "shadcn/no-arbitrary-values": ["error", { "scanAllStrings": true }],
+    "shadcn/no-arbitrary-values": [
+      "error",
+      {
+        "scanAllStrings": true
+      }
+    ],
     "shadcn/no-inline-styles": "error",
     "shadcn/no-unknown-classes": [
       "error",

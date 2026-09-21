@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   accentPresets,
+  APPEARANCE_RECOVERY_STORAGE_KEY,
   APPEARANCE_STORAGE_KEY,
   applyAppearanceToDocument,
   appearanceThemeScript,
@@ -269,6 +270,85 @@ describe('preference normalization and migration', () => {
     }
     expect(readAppearancePreferences(blocked)).toEqual(defaultAppearancePreferences)
     expect(() => writeAppearancePreferences(blocked, defaultAppearancePreferences)).not.toThrow()
+  })
+})
+
+function envelopeStorage(initial: Record<string, string> = {}) {
+  const store = new Map(Object.entries(initial))
+  return {
+    store,
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+  }
+}
+
+describe('storage-level read-modify-write with a recovery envelope', () => {
+  test('a corrupt JSON value is quarantined and survives a later valid write byte-for-byte', () => {
+    const corrupt = '{"version":2,"mode":"da'
+    const storage = envelopeStorage({ [APPEARANCE_STORAGE_KEY]: corrupt })
+    expect(readAppearancePreferences(storage)).toEqual(defaultAppearancePreferences)
+    const envelope = JSON.parse(storage.store.get(APPEARANCE_RECOVERY_STORAGE_KEY)!) as {
+      schemaVersion: number
+      reason: string
+      raw: string
+    }
+    expect(envelope.schemaVersion).toBe(1)
+    expect(envelope.reason).toBe('corrupt_json')
+    expect(envelope.raw).toBe(corrupt)
+    // Saving valid preferences must not destroy the unread original.
+    writeAppearancePreferences(storage, { ...defaultAppearancePreferences, mode: 'dark' })
+    expect(JSON.parse(storage.store.get(APPEARANCE_RECOVERY_STORAGE_KEY)!).raw).toBe(corrupt)
+    expect(readAppearancePreferences(storage).mode).toBe('dark')
+  })
+
+  test('a future-version record is quarantined and survives a later valid write', () => {
+    const future = JSON.stringify({ version: 3, mode: 'sepia', nextThing: true })
+    const storage = envelopeStorage({ [APPEARANCE_STORAGE_KEY]: future })
+    expect(readAppearancePreferences(storage)).toEqual(defaultAppearancePreferences)
+    const envelope = JSON.parse(storage.store.get(APPEARANCE_RECOVERY_STORAGE_KEY)!) as {
+      reason: string
+      raw: string
+    }
+    expect(envelope.reason).toBe('unsupported_record')
+    expect(envelope.raw).toBe(future)
+    writeAppearancePreferences(storage, defaultAppearancePreferences)
+    expect(JSON.parse(storage.store.get(APPEARANCE_RECOVERY_STORAGE_KEY)!).raw).toBe(future)
+  })
+
+  test('a quarantine is idempotent across repeated reads', () => {
+    const corrupt = 'not-json-at-all'
+    const storage = envelopeStorage({ [APPEARANCE_STORAGE_KEY]: corrupt })
+    readAppearancePreferences(storage)
+    readAppearancePreferences(storage)
+    expect(JSON.parse(storage.store.get(APPEARANCE_RECOVERY_STORAGE_KEY)!).raw).toBe(corrupt)
+  })
+
+  test('a valid v2 write/read round-trips and never creates a recovery envelope', () => {
+    const storage = envelopeStorage()
+    const preferences: AppearancePreferencesV2 = {
+      version: 2,
+      mode: 'light',
+      lightThemeId: 'contrast-light',
+      darkThemeId: 'contrast-dark',
+      accent: '#112233',
+      surface: 'translucent',
+      reduceTransparency: true,
+    }
+    writeAppearancePreferences(storage, preferences)
+    expect(readAppearancePreferences(storage)).toEqual(preferences)
+    expect(storage.store.has(APPEARANCE_RECOVERY_STORAGE_KEY)).toBeFalse()
+  })
+
+  test('the legacy theme key still migrates without deletion and writes no envelope', () => {
+    const storage = envelopeStorage({ [LEGACY_THEME_STORAGE_KEY]: 'dark' })
+    expect(readAppearancePreferences(storage).mode).toBe('dark')
+    expect(storage.store.get(LEGACY_THEME_STORAGE_KEY)).toBe('dark')
+    expect(storage.store.has(APPEARANCE_RECOVERY_STORAGE_KEY)).toBeFalse()
+    // A later write lands in the v2 key; the legacy key stays untouched.
+    writeAppearancePreferences(storage, { ...defaultAppearancePreferences, surface: 'frosted' })
+    expect(storage.store.get(LEGACY_THEME_STORAGE_KEY)).toBe('dark')
+    expect(JSON.parse(storage.store.get(APPEARANCE_STORAGE_KEY)!).surface).toBe('frosted')
   })
 })
 

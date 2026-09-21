@@ -189,5 +189,9 @@ test('desktop authentication ends on a clear browser success page', async ({ pag
   await expect(page.getByRole('heading', { name: 'You’re all set' })).toBeVisible()
   await expect(page.getByText('You can close this tab')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Open Adea' })).toBeVisible()
-  await expect(page).toHaveURL(/\/auth\/desktop\/complete$/)
+  // The callback strip runs at hydration, which on the dev server lands
+  // after ~2,200 bare-module requests (the lucide-solid barrel flood);
+  // give the address-bar assertion the same headroom the rest of the
+  // suite's hydration-sensitive assertions use.
+  await expect(page).toHaveURL(/\/auth\/desktop\/complete$/, { timeout: 60_000 })
 })

@@ -4,6 +4,7 @@ import {
   devRuntimeTransportMethods,
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
+import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 
 export {
   devOperationDefinitions,
@@ -178,6 +179,248 @@ export type WorkspacePath = Readonly<{
   relativePath: string
 }>
 
+// ─── Files / search DTOs (#399) ─────────────────────────────────────────────
+// Exact shapes from the dev-runtime spec; the registry `reply` names resolve
+// to these types and reject unknown keys.
+
+export type FileEntry = Readonly<{
+  path: WorkspacePath
+  identity: FileIdentity
+  kind: 'file' | 'directory' | 'symlink' | 'special'
+  size: string
+  observedAt: string
+}>
+
+export type FileReadResult = Readonly<{
+  entry: FileEntry
+  offset: string
+  bytes: Uint8Array
+  eof: boolean
+  eol: 'lf' | 'crlf' | 'mixed' | 'none'
+  encoding: 'utf8' | 'binary'
+}>
+
+export type FileWriteResult = Readonly<{
+  entry: FileEntry
+  previousIdentity: FileIdentity
+  atomic: true
+}>
+
+export type FileMutationResult = Readonly<{
+  path: WorkspacePath
+  previousIdentity: FileIdentity
+  state: 'deleted'
+}>
+
+/** Dry-run-enumerated tree mutation result (#399 recursive delete/copy).
+ *  `items` counts the entries the confirmed commit processed; `totalBytes`
+ *  carries the observed byte total for copies (zero for deletes). */
+export type FileTreeMutationResult = Readonly<{
+  path: WorkspacePath
+  state: 'deleted' | 'copied'
+  items: number
+  totalBytes: string
+  observedAt: string
+}>
+
+export type SearchMatch = Readonly<{
+  path: WorkspacePath
+  identity: FileIdentity
+  line: number
+  column: number
+  preview: string
+  ranges: ReadonlyArray<{ start: number; end: number }>
+}>
+
+export type ExternalOpenResult = Readonly<{
+  accepted: true
+  path: WorkspacePath
+  applicationLabel?: string
+}>
+
+// ─── Local git / diff DTOs (#399) ───────────────────────────────────────────
+
+export type GitStatusEntry = Readonly<{
+  path: WorkspacePath
+  staged: string
+  unstaged: string
+  untracked: boolean
+}>
+
+export type GitStatus = Readonly<{
+  worktreeId: string
+  headRef?: string
+  headSha?: string
+  indexSha: string
+  entries: ReadonlyArray<GitStatusEntry>
+  observedAt: string
+}>
+
+export type GitCommit = Readonly<{
+  sha: string
+  parents: ReadonlyArray<string>
+  authorName: string
+  authoredAt: string
+  subject: string
+  body?: string
+}>
+
+export type DiffHunk = Readonly<{
+  path: WorkspacePath
+  oldPath?: WorkspacePath
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+  lines: ReadonlyArray<{ kind: 'context' | 'add' | 'delete'; text: string }>
+}>
+
+export type GitFetchResult = Readonly<{
+  remoteName: string
+  before: Readonly<Record<string, string>>
+  after: Readonly<Record<string, string>>
+  observedAt: string
+}>
+
+export type GitCheckpoint = Readonly<{
+  id: string
+  worktreeId: string
+  baseSha?: string
+  treeSha: string
+  createdAt: string
+  label?: string
+}>
+
+// ─── GitHub remote source control (#423) ────────────────────────────────────
+//
+// Host-neutral DTOs: GitHub response objects never enter UI state. Every
+// field is decoded strictly from the provider transport (`gh` JSON is
+// untrusted input), and fields the API cannot prove stay absent rather than
+// fabricated. `version` is the provider's local optimistic-concurrency token
+// for a read model: it bumps whenever the server-side `updatedAt` moves.
+
+export type GitHubAccount = Readonly<{
+  provider: 'github'
+  host: string
+  login: string
+  name?: string
+  profileUrl?: string
+  observedAt: string
+}>
+
+export type GitHubRepository = Readonly<{
+  repoId: string
+  provider: 'github'
+  host: string
+  owner: string
+  name: string
+  fullName: string
+  defaultBranch: string
+  url: string
+  visibility: 'public' | 'private'
+  fork: boolean
+  freshness: 'fresh' | 'stale'
+  observedAt: string
+}>
+
+export type GitHubAheadBehind = Readonly<{
+  ahead: number
+  behind: number
+}>
+
+export type GitHubPullRequest = Readonly<{
+  id: string
+  repoId: string
+  number: number
+  host: string
+  owner: string
+  repo: string
+  title: string
+  body?: string
+  state: 'open' | 'closed' | 'merged'
+  draft: boolean
+  headRef: string
+  headSha: string
+  baseRef: string
+  baseSha: string
+  authorLogin?: string
+  url: string
+  mergeable: 'mergeable' | 'conflicting' | 'unknown'
+  reviewDecision?: 'approved' | 'changes_requested' | 'review_required'
+  aheadBehind?: GitHubAheadBehind
+  labels: readonly string[]
+  version: number
+  updatedAt: string
+  observedAt: string
+  /** createPullRequest reconciled onto an already-open PR instead of duplicating. */
+  reconciled?: boolean
+}>
+
+export type GitHubCheck = Readonly<{
+  id: string
+  name: string
+  status: 'queued' | 'in_progress' | 'completed'
+  conclusion?:
+    | 'success'
+    | 'failure'
+    | 'neutral'
+    | 'cancelled'
+    | 'skipped'
+    | 'timed_out'
+    | 'action_required'
+    | 'stale'
+  detailsUrl?: string
+  startedAt?: string
+  completedAt?: string
+}>
+
+export type GitHubIssue = Readonly<{
+  id: string
+  number: number
+  title: string
+  state: 'open' | 'closed'
+  url: string
+  labels: readonly string[]
+  milestone?: string
+  updatedAt: string
+}>
+
+export type GitHubMilestone = Readonly<{
+  id: string
+  number: number
+  title: string
+  state: 'open' | 'closed'
+  dueOn?: string
+  openIssues: number
+  closedIssues: number
+  url: string
+}>
+
+export type GitPushResult = Readonly<{
+  repoId: string
+  worktreeId: string
+  ref: string
+  remoteName: string
+  headSha: string
+  remoteSha: string
+  forced: boolean
+  upstreamSet: boolean
+  observedAt: string
+}>
+
+export type GitUpdateBranchResult = Readonly<{
+  pullRequestId: string
+  worktreeId: string
+  strategy: 'merge'
+  state: 'merged' | 'conflicted' | 'up_to_date'
+  previousHeadSha: string
+  headSha?: string
+  conflictedPaths?: readonly string[]
+  /** Exact recovery actions when state is `conflicted`; never executed implicitly. */
+  recovery?: Readonly<{ abort: string; continue: string }>
+  observedAt: string
+}>
+
 export type PaneLeaf = Readonly<{
   kind: 'leaf'
   id: string
@@ -252,6 +495,19 @@ export type DevLayoutPreferencesV2 = Readonly<{
   focusTargetId?: string
 }>
 
+export type ArchiveRecord = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  worktreeId: string
+  state: 'archived' | 'restoring' | 'restored'
+  archivedAt: string
+  archivedBy: string
+  reason?: string
+  generation: number
+  restoredAt?: string
+}>
+
 export type RuntimeSession = Readonly<{
   id: string
   scope: Scope
@@ -285,12 +541,23 @@ export type Project = Readonly<{
   name: string
   groupIds: readonly string[]
   repoIds: readonly string[]
+  /** Authoritative repository bindings minted at import (#398). */
+  repos?: readonly ProjectRepoBinding[]
   preferredRuntimeNodeId?: string
   defaultBaseRef?: string
   bootstrapWorkflowId?: string
   defaultHarnessId?: string
   lifecycle: 'importing' | 'cloning' | 'scanning' | 'ready' | 'archived' | 'failed'
   version: number
+}>
+
+// An imported project binds each repository to the authorized root bookmark
+// that proves it: the canonical host path never comes from a client body, it
+// is resolved through the roots authority at import time.
+export type ProjectRepoBinding = Readonly<{
+  repoId: string
+  rootBookmarkId: string
+  canonicalRoot: string
 }>
 
 export type Group = Readonly<{
@@ -301,6 +568,77 @@ export type Group = Readonly<{
   projectIds: readonly string[]
   sortKey: string
   version: number
+}>
+
+// One scanner recommendation: a preview of an importable workspace package.
+// Scanning never executes install/bootstrap commands; `suggestedScripts` are
+// manifest-declared names surfaced for confirmation, never run by the host.
+export type ProjectScanEntry = Readonly<{
+  /** Workspace package name from its manifest, or the directory basename. */
+  name: string
+  /** '/'-separated path of the package directory relative to the scan root. */
+  relativeDir: string
+  /** Manifest path relative to the scan root that proved this candidate. */
+  manifestPath: string
+  packageManager: 'npm' | 'pnpm' | 'yarn' | 'bun' | 'cargo' | 'pip' | 'poetry' | 'uv' | 'unknown'
+  /** Toolchain markers observed beside the manifest. */
+  languages: readonly string[]
+  /** Manifest-declared script names offered as bootstrap/check previews. */
+  suggestedScripts: readonly string[]
+  /** Per-entry diagnostics (`malformed_manifest`, `manifest_too_large`). */
+  diagnostics: readonly string[]
+}>
+
+// `dev.project.scan` reply. A partial page is a successful answer whose
+// `diagnostics` say why it stopped (`budget_exhausted`, `cancelled`) — never a
+// silent truncation and never a failed command for a successful partial scan.
+export type ProjectScanPage = Readonly<{
+  rootBookmarkId: string
+  items: readonly ProjectScanEntry[]
+  partial: boolean
+  diagnostics: readonly string[]
+  observedAt: string
+  nextCursor?: string
+}>
+
+// A repository binding (#398): the canonical remote identity is redacted
+// before any DTO — embedded user-info is removed, the full nested namespace
+// path is preserved, and the credential secret never enters a reply.
+export type RedactedRemote = Readonly<{
+  provider: 'github' | 'gitlab' | 'other'
+  host: string
+  ownerPath: string
+  displayUrl: string
+}>
+
+// One authorized source: a git checkout or a plain folder bound to the
+// runtime through an authorized root bookmark. `lifecycle` is repo truth:
+// `authorizing` (binding known, identity not yet proven), `ready` (adopted
+// and proven), `stale` (remote could not be re-proven), `unavailable`
+// (canonical root missing on disk), `refreshing` (transient, never
+// persisted as a reply state).
+export type Repo = Readonly<{
+  id: string
+  scope: Scope
+  kind: 'git' | 'folder'
+  lifecycle: 'authorizing' | 'ready' | 'unavailable' | 'stale' | 'refreshing'
+  canonicalRoot: string
+  gitCommonDirIdentity?: FileIdentity
+  remote?: RedactedRemote
+  defaultRef?: string
+  projectIds: readonly string[]
+  version: number
+}>
+
+// Read-only `dev.repo.inspect` reply: repo record plus fresh on-disk facts
+// computed from the canonical root with local git reads only — no network.
+export type RepoInspection = Readonly<{
+  repo: Repo
+  rootIdentity: FileIdentity
+  headRef?: string
+  headSha?: string
+  dirty: boolean
+  observedAt: string
 }>
 
 // A RootBookmark is a durable grant that a directory or repository root has
@@ -402,6 +740,130 @@ export type RuntimeConnectionInventorySnapshot = Readonly<{
   items: readonly RuntimeConnectionInventoryEntry[]
   freshness: readonly RuntimeConnectionFreshness[]
   observedAt: string
+}>
+
+// ─── Harness runtime substrate (#31 managed Pi / #32 ACP lane) ──────────────
+//
+// Wire DTOs for the harness-runtime substrate that #400 launches through. The
+// substrate owns the managed-Pi installation lifecycle and the ACP lane
+// connection; it never fabricates a session or a run, and it performs no
+// model-facing harness engineering (no compaction, no prompt rewriting, no
+// task planning — harnesses own their internal loops).
+
+export type AgentProfileRef = Readonly<{
+  id: string
+  version: number
+  displayName: string
+  capabilityPolicyVersion: number
+}>
+
+export type HarnessRunState =
+  | 'resolving'
+  | 'starting'
+  | 'working'
+  | 'awaiting_input'
+  | 'awaiting_approval'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'disconnected'
+  | 'unknown'
+
+export type HarnessRun = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  installationId: string
+  agentProfile: AgentProfileRef
+  modelId?: string
+  /**
+   * Present when the run was launched with the `attachTerminal` intent: the
+   * harness process was spawned as the sidecar PTY child of this terminal,
+   * at this terminal generation (#400). The binding is provenance of where
+   * the run's process lives — exit facts are still only ever OBSERVED
+   * through the sidecar, never assumed.
+   */
+  terminalId?: string
+  terminalGeneration?: number
+  state: HarnessRunState
+  generation: number
+  startedAt?: string
+  finishedAt?: string
+  version: number
+}>
+
+export type ManagedPiInstallState = 'absent' | 'resolving' | 'installing' | 'ready' | 'failed'
+
+export type ManagedPiStatus = Readonly<{
+  scope: Scope
+  driverId: string
+  driverVersion: string
+  /** The build-time pinned version; never resolved from the network. */
+  pinnedVersion: string
+  state: ManagedPiInstallState
+  /** Stable installation identity once ready (joins to launch/resume). */
+  installationId?: string
+  /** The version actually observed after install; equals pinnedVersion on success. */
+  resolvedVersion?: string
+  executableIdentity?: string
+  executableLabel?: string
+  lastErrorCode?: DevErrorCode
+  lastError?: string
+  observedAt: string
+  generation: number
+}>
+
+// One user-expressed harness preference on a runtime node (#400), versioned
+// per account/workspace/runtime node. Preferences reference installations by
+// stable ID and never store credential values. A disabled preference is never
+// auto-launched. On a clean desktop the STORED list is empty: the effective
+// projection synthesizes the managed-Pi-first root default until the user
+// expresses a preference (owner decision, 2026-09-16).
+export type HarnessPreference = Readonly<{
+  scope: Scope
+  harnessInstallationId: string
+  enabled: boolean
+  sortKey: string
+  projectId?: string
+  default: boolean
+  agentProfileId?: string
+  modelId?: string
+  version: number
+}>
+
+/** The mutable patch for `dev.harness.preferenceUpdate`. Clearing the
+ * preferred profile/model is a whole-record reset (`preferenceReset`). */
+export type HarnessPreferenceMutableFields = Readonly<{
+  enabled?: boolean
+  default?: boolean
+  sortKey?: string
+  agentProfileId?: string
+  modelId?: string
+}>
+
+export type AcpConnectionState = 'connecting' | 'ready' | 'disconnected' | 'closed' | 'failed'
+export type AcpHistoryCapability = 'available' | 'unavailable'
+
+export type AcpConnection = Readonly<{
+  id: string
+  scope: Scope
+  /** The canonical RuntimeSession this lane is bound to (never a second type). */
+  runtimeSessionId: string
+  harnessInstallationId: string
+  driverId: string
+  driverVersion: string
+  negotiatedProtocolVersion: string
+  requiredCapabilities: readonly string[]
+  negotiatedCapabilities: readonly string[]
+  missingRequiredCapabilities: readonly string[]
+  sessionOperations: readonly string[]
+  limitations: readonly string[]
+  /** Native ACP history is a separate capability and is never fabricated. */
+  history: AcpHistoryCapability
+  state: AcpConnectionState
+  closeReason?: string
+  observedAt: string
+  generation: number
 }>
 
 // ─── Terminal runtime (#396) ────────────────────────────────────────────────
@@ -647,6 +1109,11 @@ export type ScreenshotRef = Readonly<{
   id: string
   scope: Scope
   ownerId: string
+  laneKind: 'human_embedded' | 'task_owned' | 'user_context' | 'device'
+  profileId?: string
+  origin: string
+  viewport: Readonly<{ width: number; height: number; deviceScaleFactor: number }>
+  redacted: boolean
   contentType: 'image/png' | 'image/jpeg' | 'image/webp'
   byteLength: string
   width: number
@@ -673,6 +1140,69 @@ export type DeviceInventoryItem = Readonly<{
   observedAt: string
 }>
 
+// ─── #472 computer-use lanes ────────────────────────────────────────────────
+// A computer-use lane is a session-scoped grant over the execution host's
+// real desktop. The wire shape mirrors BrowserLane: immutable identity,
+// generation fences every authority transfer, and no capability state is
+// embedded — capability truth lives in the capability report, probed through
+// the #471 permissions substrate, never asserted by callers.
+
+export const computerUseLaneStates = ['idle', 'granted', 'suspended', 'closed', 'crashed'] as const
+export type ComputerUseLaneState = (typeof computerUseLaneStates)[number]
+
+export type ComputerUseLane = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId: string
+  state: ComputerUseLaneState
+  automationOwner: 'none' | 'agent' | 'human_takeover'
+  generation: number
+}>
+
+export const computerUseCapabilityIds = ['input', 'capture', 'ax_tree'] as const
+export type ComputerUseCapabilityId = (typeof computerUseCapabilityIds)[number]
+
+/**
+ * One capability row of the report. `state` mirrors the honest probe
+ * taxonomy: `available` only when a probe plus host tool prove it, `denied`
+ * when the TCC service refused, `not_determined` when a consent prompt is
+ * pending, and `unavailable` (with `missingPiece`) when this lane has no way
+ * to prove or provide the capability — never a stand-in for denied/granted.
+ */
+export type ComputerUseCapabilityRow = Readonly<{
+  id: ComputerUseCapabilityId
+  state: 'available' | 'denied' | 'not_determined' | 'unavailable'
+  /** Present exactly when `state` is `unavailable`. */
+  unavailableReason?: 'capability_unavailable' | 'unsupported_platform'
+  /** The exact missing piece for `unavailable` rows. */
+  missingPiece?: string
+  /** The #471 permission the capability depends on, when one does. */
+  permissionId?: MacPermissionId
+  probedAt: string
+}>
+
+export type ComputerUseCapabilityReport = Readonly<{
+  hostPlatform: 'macos' | 'other' | 'unknown'
+  capabilities: readonly ComputerUseCapabilityRow[]
+  probedAt: string
+}>
+
+/**
+ * An issuance-backed, single-use consent record. It binds one owner
+ * confirmation to one lane/generation, carries the digest of the #471
+ * permission snapshot it was minted against, and expires within 60 seconds.
+ */
+export type ComputerUseConsent = Readonly<{
+  consentId: string
+  computerUseLaneId: string
+  runtimeSessionId: string
+  scope: Scope
+  generation: number
+  permissionDigest: string
+  createdAt: string
+  expiresAt: string
+}>
+
 export type PortRecord = Readonly<{
   id: string
   scope: Scope
@@ -685,6 +1215,128 @@ export type PortRecord = Readonly<{
   generation?: number
   state: 'observed' | 'stale' | 'gone'
   observedAt: string
+}>
+
+// #424 runtime resources: processes, metrics, usage, and retained data. A
+// process row exists only when the host can prove it from a launch record
+// (durable journal entry matched against the supervision snapshot); a reused
+// PID or an unprovable launch is never listed as owned, so no stop path can
+// exist for it.
+export type ProcessOwnerKind =
+  | 'terminal'
+  | 'harness'
+  | 'server'
+  | 'browser'
+  | 'device'
+  | 'bootstrap'
+  | 'git'
+
+export type ProcessRecord = Readonly<{
+  id: string
+  scope: Scope
+  runtimeSessionId?: string
+  worktreeId?: string
+  ownerKind: ProcessOwnerKind
+  ownerId: string
+  pid: number
+  startIdentity: string
+  executableIdentity: string
+  processGroupIdentity?: string
+  generation: number
+  state: 'starting' | 'running' | 'stopping' | 'exited' | 'unknown'
+}>
+
+export type ResourceMetric = Readonly<{
+  ownerId: string
+  cpuPercent?: number
+  residentBytes?: string
+  readBytes?: string
+  writeBytes?: string
+  observedAt: string
+  confidence: 'authoritative' | 'measured' | 'estimated'
+  // #424 additive isolation: every point is keyed by runtime node scope and
+  // launch generation so metrics from another node or generation never merge.
+  processRecordId?: string
+  runtimeSessionId?: string
+  worktreeId?: string
+  generation?: number
+}>
+
+export type UsageSource = 'official_api' | 'harness_protocol' | 'local_transcript_estimate'
+
+export type UsageRecord = Readonly<{
+  id: string
+  ownerId: string
+  provider: string
+  quantity: string
+  unit: string
+  costMicros?: string
+  source: UsageSource
+  confidence: 'authoritative' | 'measured' | 'estimated'
+  observedAt: string
+  // #424 additive adapter-contract fields: safe display label, period,
+  // remaining, freshness, and the typed failure when the adapter could not
+  // observe usage (failure rows carry explicit `unknown` quantities, never 0).
+  accountLabel?: string
+  period?: Readonly<{ from: string; to: string }>
+  remaining?: string
+  capturedAt?: string
+  expiresAt?: string
+  failure?: Readonly<{ code: DevErrorCode; message: string }>
+}>
+
+export type RetainedDataRecord = Readonly<{
+  id: string
+  ownerId: string
+  kind: 'terminal' | 'checkpoint' | 'screenshot' | 'browser_profile' | 'log' | 'dependency_template'
+  byteLength: string
+  protected: boolean
+  expiresAt?: string
+  observedAt: string
+  // #424 additive: scope isolation and a safe display label for breakdowns.
+  scope?: Scope
+  label?: string
+}>
+
+export type ResourceSnapshot = Readonly<{
+  processes: readonly ProcessRecord[]
+  ports: readonly PortRecord[]
+  metrics: readonly ResourceMetric[]
+  retainedData: readonly RetainedDataRecord[]
+  observedAt: string
+}>
+
+export type CleanupPredicate = Readonly<
+  | { kind: 'clean' }
+  | { kind: 'pushed' }
+  | { kind: 'pull_request_merged' }
+  | { kind: 'no_active_leases' }
+  | { kind: 'no_active_owned_resources' }
+  | { kind: 'archived_for'; seconds: number }
+>
+
+export type CleanupPolicy = Readonly<{
+  id: string
+  scope: Scope
+  projectId: string
+  version: number
+  state: 'draft' | 'approved' | 'disabled' | 'expired' | 'superseded'
+  approvedBy?: string
+  approvedAt?: string
+  expiresAt?: string
+  predicates: readonly CleanupPredicate[]
+  allowedSteps: readonly CleanupStepKind[]
+}>
+
+export type CleanupPolicyEvaluation = Readonly<{
+  policyId: string
+  worktreeId: string
+  matched: boolean
+  facts: Readonly<Record<string, string>>
+  blockers: readonly CleanupBlocker[]
+  evaluatedAt: string
+  /** Evaluation observes facts only; it never executes a cleanup step. */
+  executesNothing: true
 }>
 
 export type CleanupBlocker = Readonly<{
@@ -787,6 +1439,10 @@ const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/
 const uint64Pattern = /^(?:0|[1-9]\d*)$/
 const sha256Pattern = /^[0-9a-f]{64}$/
 const gitShaPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+// Stable provider-scoped identifiers minted by the GitHub provider slice
+// (#423): `gh:<owner>/<repo>#<number>` for PRs/issues, `ghm:` for milestones.
+const githubPullRequestIdPattern = /^gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
+const githubMilestoneIdPattern = /^ghm:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
 const authorityBodyKeys = new Set([
   'schemaVersion',
   'operation',
@@ -884,9 +1540,14 @@ function splitTopLevel(source: string, separator: string): string[] {
     else if (character === ']') brackets -= 1
     else if (character === '(') parentheses += 1
     else if (character === ')') parentheses -= 1
-    else if (character === '<') angles += 1
-    else if (character === '>') angles -= 1
-    else if (
+    else if (character === '<') {
+      // `<=N` is an inclusive cap in the registry DSL, not a nesting open:
+      // without this, every field after a `Uint8Array<=N` / `T[]<=N` field
+      // was swallowed and rejected as an unknown key.
+      if (source[index + 1] !== '=') angles += 1
+    } else if (character === '>') {
+      if (angles > 0) angles -= 1
+    } else if (
       character === separator &&
       braces === 0 &&
       brackets === 0 &&
@@ -922,8 +1583,39 @@ const cleanupSteps = [
   'delete_branch',
   'prune_retained_data',
 ] as const
+export type CleanupStepKind = (typeof cleanupSteps)[number]
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  if (name === 'ArchiveRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'worktreeId',
+        'state',
+        'archivedAt',
+        'archivedBy',
+        'generation',
+      ],
+      ['reason', 'restoredAt'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    literal(item.state, ['archived', 'restoring', 'restored'], `${path}.state`)
+    timestamp(item.archivedAt, `${path}.archivedAt`)
+    stringValue(item.archivedBy, `${path}.archivedBy`, 1, 256)
+    if (item.reason !== undefined) stringValue(item.reason, `${path}.reason`, 0, 512)
+    integerValue(item.generation, `${path}.generation`, 0)
+    if (item.restoredAt !== undefined) timestamp(item.restoredAt, `${path}.restoredAt`)
+    return value
+  }
   // #422 browser/device DTOs. Shapes mirror the Dev Runtime spec's core
   // domain model; the registry bodies and replies validate through here.
   if (name === 'BrowserLane') {
@@ -987,6 +1679,105 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.processRecordId !== undefined)
       stringValue(item.processRecordId, `${path}.processRecordId`, 1, 256)
     integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  // #472 computer-use lanes. Shapes mirror the spec's "Computer use lanes"
+  // section; capability rows carry their own probe time and never embed a
+  // caller-supplied state.
+  if (name === 'ComputerUseLane') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'runtimeSessionId', 'state', 'automationOwner', 'generation'],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    literal(item.state, computerUseLaneStates, `${path}.state`)
+    literal(item.automationOwner, ['none', 'agent', 'human_takeover'], `${path}.automationOwner`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'ComputerUseCapabilityRow') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'state', 'probedAt'],
+      ['unavailableReason', 'missingPiece', 'permissionId'],
+      path
+    )
+    literal(item.id, computerUseCapabilityIds, `${path}.id`)
+    literal(item.state, ['available', 'denied', 'not_determined', 'unavailable'], `${path}.state`)
+    if (item.unavailableReason !== undefined) {
+      if (item.state !== 'unavailable')
+        fail(`${path}.unavailableReason`, 'state is not unavailable')
+      literal(
+        item.unavailableReason,
+        ['capability_unavailable', 'unsupported_platform'],
+        `${path}.unavailableReason`
+      )
+    }
+    if (item.missingPiece !== undefined) {
+      if (item.state !== 'unavailable') fail(`${path}.missingPiece`, 'state is not unavailable')
+      stringValue(item.missingPiece, `${path}.missingPiece`, 1, 512)
+    }
+    if (item.permissionId !== undefined) {
+      if (!isMacPermissionId(item.permissionId))
+        fail(`${path}.permissionId`, 'unknown permission id')
+    }
+    timestamp(item.probedAt, `${path}.probedAt`)
+    return value
+  }
+  if (name === 'ComputerUseCapabilityReport') {
+    const item = record(value, path)
+    exactKeys(item, ['hostPlatform', 'capabilities', 'probedAt'], [], path)
+    literal(item.hostPlatform, ['macos', 'other', 'unknown'], `${path}.hostPlatform`)
+    if (!Array.isArray(item.capabilities)) fail(`${path}.capabilities`, 'expected array')
+    if (item.capabilities.length > computerUseCapabilityIds.length)
+      fail(`${path}.capabilities`, 'more capability rows than capability ids')
+    const seen = new Set<string>()
+    item.capabilities.forEach((entry, index) => {
+      const row = namedType(
+        'ComputerUseCapabilityRow',
+        entry,
+        `${path}.capabilities[${index}]`
+      ) as ComputerUseCapabilityRow
+      if (seen.has(row.id)) fail(`${path}.capabilities`, 'duplicate capability row')
+      seen.add(row.id)
+    })
+    timestamp(item.probedAt, `${path}.probedAt`)
+    return value
+  }
+  if (name === 'ComputerUseConsent') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'consentId',
+        'computerUseLaneId',
+        'runtimeSessionId',
+        'scope',
+        'generation',
+        'permissionDigest',
+        'createdAt',
+        'expiresAt',
+      ],
+      [],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.consentId, `${path}.consentId`)))
+      fail(`${path}.consentId`, 'expected lowercase UUID')
+    stringValue(item.computerUseLaneId, `${path}.computerUseLaneId`, 1, 256)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    decodeScope(item.scope, `${path}.scope`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    if (!sha256Pattern.test(stringValue(item.permissionDigest, `${path}.permissionDigest`)))
+      fail(`${path}.permissionDigest`, 'expected sha256')
+    timestamp(item.createdAt, `${path}.createdAt`)
+    timestamp(item.expiresAt, `${path}.expiresAt`)
     return value
   }
   if (name === 'BrowserTarget') {
@@ -1074,6 +1865,10 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'id',
         'scope',
         'ownerId',
+        'laneKind',
+        'origin',
+        'viewport',
+        'redacted',
         'contentType',
         'byteLength',
         'width',
@@ -1081,13 +1876,31 @@ function namedType(name: string, value: unknown, path: string): unknown {
         'sha256',
         'expiresAt',
       ],
-      [],
+      ['profileId'],
       path
     )
     if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
       fail(`${path}.id`, 'expected lowercase UUID')
     decodeScope(item.scope, `${path}.scope`)
     stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    literal(
+      item.laneKind,
+      ['human_embedded', 'task_owned', 'user_context', 'device'],
+      `${path}.laneKind`
+    )
+    if (item.profileId !== undefined) stringValue(item.profileId, `${path}.profileId`, 1, 256)
+    stringValue(item.origin, `${path}.origin`, 1, 2048)
+    const viewport = record(item.viewport, `${path}.viewport`)
+    integerValue(viewport.width, `${path}.viewport.width`, 1, 4096)
+    integerValue(viewport.height, `${path}.viewport.height`, 1, 4096)
+    if (
+      typeof viewport.deviceScaleFactor !== 'number' ||
+      !Number.isFinite(viewport.deviceScaleFactor) ||
+      viewport.deviceScaleFactor <= 0 ||
+      viewport.deviceScaleFactor > 8
+    )
+      fail(`${path}.viewport.deviceScaleFactor`, 'expected a positive finite scale factor')
+    if (typeof item.redacted !== 'boolean') fail(`${path}.redacted`, 'expected boolean')
     literal(item.contentType, ['image/png', 'image/jpeg', 'image/webp'], `${path}.contentType`)
     uint64String(item.byteLength, `${path}.byteLength`)
     integerValue(item.width, `${path}.width`, 1, 4096)
@@ -1151,10 +1964,210 @@ function namedType(name: string, value: unknown, path: string): unknown {
     timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
+  // #424 runtime-resource DTOs.
+  if (name === 'ProcessRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'ownerKind',
+        'ownerId',
+        'pid',
+        'startIdentity',
+        'executableIdentity',
+        'generation',
+        'state',
+      ],
+      ['runtimeSessionId', 'worktreeId', 'processGroupIdentity'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    decodeScope(item.scope, `${path}.scope`)
+    literal(
+      item.ownerKind,
+      ['terminal', 'harness', 'server', 'browser', 'device', 'bootstrap', 'git'],
+      `${path}.ownerKind`
+    )
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    integerValue(item.pid, `${path}.pid`, 1)
+    stringValue(item.startIdentity, `${path}.startIdentity`, 1, 256)
+    stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 1024)
+    if (item.runtimeSessionId !== undefined)
+      stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    if (item.worktreeId !== undefined) stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    if (item.processGroupIdentity !== undefined)
+      stringValue(item.processGroupIdentity, `${path}.processGroupIdentity`, 1, 256)
+    integerValue(item.generation, `${path}.generation`, 0)
+    literal(item.state, ['starting', 'running', 'stopping', 'exited', 'unknown'], `${path}.state`)
+    return value
+  }
+  if (name === 'ResourceMetric') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['ownerId', 'observedAt', 'confidence'],
+      [
+        'cpuPercent',
+        'residentBytes',
+        'readBytes',
+        'writeBytes',
+        'processRecordId',
+        'runtimeSessionId',
+        'worktreeId',
+        'generation',
+      ],
+      path
+    )
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    if (item.cpuPercent !== undefined) finiteNumber(item.cpuPercent, `${path}.cpuPercent`, 0, 1e6)
+    for (const key of ['residentBytes', 'readBytes', 'writeBytes'] as const)
+      if (item[key] !== undefined) stringValue(item[key], `${path}.${key}`, 1, 40)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    literal(item.confidence, ['authoritative', 'measured', 'estimated'], `${path}.confidence`)
+    if (item.processRecordId !== undefined)
+      stringValue(item.processRecordId, `${path}.processRecordId`, 1, 256)
+    if (item.runtimeSessionId !== undefined)
+      stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    if (item.worktreeId !== undefined) stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    if (item.generation !== undefined) integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'UsageRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'ownerId', 'provider', 'quantity', 'unit', 'source', 'confidence', 'observedAt'],
+      ['costMicros', 'accountLabel', 'period', 'remaining', 'capturedAt', 'expiresAt', 'failure'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    stringValue(item.provider, `${path}.provider`, 1, 128)
+    stringValue(item.quantity, `${path}.quantity`, 1, 64)
+    stringValue(item.unit, `${path}.unit`, 1, 64)
+    if (item.costMicros !== undefined) stringValue(item.costMicros, `${path}.costMicros`, 1, 64)
+    literal(
+      item.source,
+      ['official_api', 'harness_protocol', 'local_transcript_estimate'],
+      `${path}.source`
+    )
+    literal(item.confidence, ['authoritative', 'measured', 'estimated'], `${path}.confidence`)
+    if (item.accountLabel !== undefined)
+      stringValue(item.accountLabel, `${path}.accountLabel`, 1, 256)
+    if (item.period !== undefined) {
+      const period = record(item.period, `${path}.period`)
+      exactKeys(period, ['from', 'to'], [], `${path}.period`)
+      timestamp(period.from, `${path}.period.from`)
+      timestamp(period.to, `${path}.period.to`)
+    }
+    if (item.remaining !== undefined) stringValue(item.remaining, `${path}.remaining`, 1, 64)
+    if (item.capturedAt !== undefined) timestamp(item.capturedAt, `${path}.capturedAt`)
+    if (item.expiresAt !== undefined) timestamp(item.expiresAt, `${path}.expiresAt`)
+    if (item.failure !== undefined) {
+      const failure = record(item.failure, `${path}.failure`)
+      exactKeys(failure, ['code', 'message'], [], `${path}.failure`)
+      literal(failure.code, devErrorCodes, `${path}.failure.code`)
+      stringValue(failure.message, `${path}.failure.message`, 1, 4096)
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'RetainedDataRecord') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'ownerId', 'kind', 'byteLength', 'protected', 'observedAt'],
+      ['expiresAt', 'scope', 'label'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.ownerId, `${path}.ownerId`, 1, 256)
+    literal(
+      item.kind,
+      ['terminal', 'checkpoint', 'screenshot', 'browser_profile', 'log', 'dependency_template'],
+      `${path}.kind`
+    )
+    stringValue(item.byteLength, `${path}.byteLength`, 1, 40)
+    if (typeof item.protected !== 'boolean') fail(`${path}.protected`, 'expected boolean')
+    if (item.expiresAt !== undefined) timestamp(item.expiresAt, `${path}.expiresAt`)
+    if (item.scope !== undefined) decodeScope(item.scope, `${path}.scope`)
+    if (item.label !== undefined) stringValue(item.label, `${path}.label`, 1, 256)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'ResourceSnapshot') {
+    const item = record(value, path)
+    exactKeys(item, ['processes', 'ports', 'metrics', 'retainedData', 'observedAt'], [], path)
+    if (!Array.isArray(item.processes)) fail(`${path}.processes`, 'expected array')
+    if (!Array.isArray(item.ports)) fail(`${path}.ports`, 'expected array')
+    if (!Array.isArray(item.metrics)) fail(`${path}.metrics`, 'expected array')
+    if (!Array.isArray(item.retainedData)) fail(`${path}.retainedData`, 'expected array')
+    for (const [index, entry] of item.processes.entries())
+      namedType('ProcessRecord', entry, `${path}.processes[${index}]`)
+    for (const [index, entry] of item.ports.entries())
+      namedType('PortRecord', entry, `${path}.ports[${index}]`)
+    for (const [index, entry] of item.metrics.entries())
+      namedType('ResourceMetric', entry, `${path}.metrics[${index}]`)
+    for (const [index, entry] of item.retainedData.entries())
+      namedType('RetainedDataRecord', entry, `${path}.retainedData[${index}]`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'CleanupPolicy') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'projectId', 'version', 'state', 'predicates', 'allowedSteps'],
+      ['approvedBy', 'approvedAt', 'expiresAt'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.projectId, `${path}.projectId`, 1, 256)
+    integerValue(item.version, `${path}.version`, 1)
+    literal(item.state, ['draft', 'approved', 'disabled', 'expired', 'superseded'], `${path}.state`)
+    if (!Array.isArray(item.predicates)) fail(`${path}.predicates`, 'expected array')
+    for (const [index, entry] of item.predicates.entries())
+      namedType('CleanupPredicate', entry, `${path}.predicates[${index}]`)
+    if (!Array.isArray(item.allowedSteps)) fail(`${path}.allowedSteps`, 'expected array')
+    for (const [index, entry] of item.allowedSteps.entries())
+      namedType('CleanupStepKind', entry, `${path}.allowedSteps[${index}]`)
+    if (item.approvedBy !== undefined) stringValue(item.approvedBy, `${path}.approvedBy`, 1, 256)
+    if (item.approvedAt !== undefined) timestamp(item.approvedAt, `${path}.approvedAt`)
+    if (item.expiresAt !== undefined) timestamp(item.expiresAt, `${path}.expiresAt`)
+    return value
+  }
+  if (name === 'CleanupPolicyEvaluation') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['policyId', 'worktreeId', 'matched', 'facts', 'blockers', 'evaluatedAt', 'executesNothing'],
+      [],
+      path
+    )
+    stringValue(item.policyId, `${path}.policyId`, 1, 256)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    if (typeof item.matched !== 'boolean') fail(`${path}.matched`, 'expected boolean')
+    if (typeof item.facts !== 'object' || item.facts === null || Array.isArray(item.facts))
+      fail(`${path}.facts`, 'expected record')
+    for (const [key, entry] of Object.entries(item.facts))
+      stringValue(entry, `${path}.facts.${key}`, 0, 256)
+    if (!Array.isArray(item.blockers)) fail(`${path}.blockers`, 'expected array')
+    for (const [index, entry] of item.blockers.entries())
+      decodeCleanupBlocker(entry, `${path}.blockers[${index}]`)
+    timestamp(item.evaluatedAt, `${path}.evaluatedAt`)
+    if (item.executesNothing !== true)
+      fail(`${path}.executesNothing`, 'evaluation must never execute')
+    return value
+  }
   if (name === 'MutationPlan') return decodeMutationPlan(value)
   if (name === 'CleanupBlocker') return decodeCleanupBlocker(value, path)
   if (name === "DeviceSession['kind']")
     return literal(value, ['responsive', 'ios_simulator', 'android_emulator', 'physical'], path)
+  if (name === "ComputerUseLane['state']") return literal(value, computerUseLaneStates, path)
   if (name === 'DeviceGesture') {
     const item = record(value, path)
     const kind = literal(item.kind, ['tap', 'swipe', 'key', 'text'], `${path}.kind`)
@@ -1202,14 +2215,455 @@ function namedType(name: string, value: unknown, path: string): unknown {
     stringValue(item.worktreeId, `${path}.worktreeId`, 1)
     namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
     const relative = stringValue(item.relativePath, `${path}.relativePath`, 1)
-    if (
-      relative.includes('\0') ||
-      relative.includes('\\') ||
-      relative.startsWith('/') ||
-      /^[A-Za-z]:/.test(relative) ||
-      relative.split('/').some((part) => !part || part === '.' || part === '..')
+    if (relative !== '.') {
+      // '.' is the canonical spelling of the worktree root itself; every
+      // other path must be a normalized relative path.
+      if (
+        relative.includes('\0') ||
+        relative.includes('\\') ||
+        relative.startsWith('/') ||
+        /^[A-Za-z]:/.test(relative) ||
+        relative.split('/').some((part) => !part || part === '.' || part === '..')
+      )
+        fail(`${path}.relativePath`, 'expected normalized relative path')
+    }
+    return value
+  }
+  if (name === 'FileEntry') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'identity', 'kind', 'size', 'observedAt'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    namedType('FileIdentity', item.identity, `${path}.identity`)
+    literal(item.kind, ['file', 'directory', 'symlink', 'special'], `${path}.kind`)
+    if (!uint64Pattern.test(stringValue(item.size, `${path}.size`)))
+      fail(`${path}.size`, 'expected uint64 string')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'FileReadResult') {
+    const item = record(value, path)
+    exactKeys(item, ['entry', 'offset', 'bytes', 'eof', 'eol', 'encoding'], [], path)
+    namedType('FileEntry', item.entry, `${path}.entry`)
+    if (!uint64Pattern.test(stringValue(item.offset, `${path}.offset`)))
+      fail(`${path}.offset`, 'expected uint64 string')
+    if (!(item.bytes instanceof Uint8Array)) fail(`${path}.bytes`, 'expected Uint8Array')
+    if (typeof item.eof !== 'boolean') fail(`${path}.eof`, 'expected boolean')
+    literal(item.eol, ['lf', 'crlf', 'mixed', 'none'], `${path}.eol`)
+    literal(item.encoding, ['utf8', 'binary'], `${path}.encoding`)
+    return value
+  }
+  if (name === 'FileWriteResult') {
+    const item = record(value, path)
+    exactKeys(item, ['entry', 'previousIdentity', 'atomic'], [], path)
+    namedType('FileEntry', item.entry, `${path}.entry`)
+    namedType('FileIdentity', item.previousIdentity, `${path}.previousIdentity`)
+    if (item.atomic !== true) fail(`${path}.atomic`, 'expected true')
+    return value
+  }
+  if (name === 'FileMutationResult') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'previousIdentity', 'state'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    namedType('FileIdentity', item.previousIdentity, `${path}.previousIdentity`)
+    literal(item.state, ['deleted'], `${path}.state`)
+    return value
+  }
+  if (name === 'FileTreeMutationResult') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'state', 'items', 'totalBytes', 'observedAt'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    literal(item.state, ['deleted', 'copied'], `${path}.state`)
+    integerValue(item.items, `${path}.items`, 0)
+    if (!uint64Pattern.test(stringValue(item.totalBytes, `${path}.totalBytes`)))
+      fail(`${path}.totalBytes`, 'expected canonical uint64 string')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'SearchMatch') {
+    const item = record(value, path)
+    exactKeys(item, ['path', 'identity', 'line', 'column', 'preview', 'ranges'], [], path)
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    namedType('FileIdentity', item.identity, `${path}.identity`)
+    integerValue(item.line, `${path}.line`, 1)
+    integerValue(item.column, `${path}.column`, 1)
+    stringValue(item.preview, `${path}.preview`, 0, 4096)
+    if (!Array.isArray(item.ranges)) fail(`${path}.ranges`, 'expected array')
+    item.ranges.forEach((entry: unknown, index: number) => {
+      const rangePath = `${path}.ranges[${index}]`
+      const range = record(entry, rangePath)
+      exactKeys(range, ['start', 'end'], [], rangePath)
+      const start = integerValue(range.start, `${rangePath}.start`, 0)
+      const end = integerValue(range.end, `${rangePath}.end`, 0)
+      if (end < start) fail(rangePath, 'range end must not precede start')
+    })
+    return value
+  }
+  if (name === 'ExternalOpenResult') {
+    const item = record(value, path)
+    exactKeys(item, ['accepted', 'path'], ['applicationLabel'], path)
+    if (item.accepted !== true) fail(`${path}.accepted`, 'expected true')
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    if (item.applicationLabel !== undefined)
+      stringValue(item.applicationLabel, `${path}.applicationLabel`, 1, 128)
+    return value
+  }
+  if (name === 'GitStatus') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['worktreeId', 'indexSha', 'entries', 'observedAt'],
+      ['headRef', 'headSha'],
+      path
     )
-      fail(`${path}.relativePath`, 'expected normalized relative path')
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1)
+    if (item.headRef !== undefined) stringValue(item.headRef, `${path}.headRef`, 1, 512)
+    if (item.headSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+        fail(`${path}.headSha`, 'expected git sha')
+    }
+    if (!sha256Pattern.test(stringValue(item.indexSha, `${path}.indexSha`)))
+      fail(`${path}.indexSha`, 'expected sha256')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    if (!Array.isArray(item.entries)) fail(`${path}.entries`, 'expected array')
+    item.entries.forEach((entry: unknown, index: number) => {
+      const entryPath = `${path}.entries[${index}]`
+      const entryItem = record(entry, entryPath)
+      exactKeys(entryItem, ['path', 'staged', 'unstaged', 'untracked'], [], entryPath)
+      namedType('WorkspacePath', entryItem.path, `${entryPath}.path`)
+      stringValue(entryItem.staged, `${entryPath}.staged`, 1, 8)
+      stringValue(entryItem.unstaged, `${entryPath}.unstaged`, 1, 8)
+      if (typeof entryItem.untracked !== 'boolean')
+        fail(`${entryPath}.untracked`, 'expected boolean')
+    })
+    return value
+  }
+  if (name === 'GitCommit') {
+    const item = record(value, path)
+    exactKeys(item, ['sha', 'parents', 'authorName', 'authoredAt', 'subject'], ['body'], path)
+    if (!gitShaPattern.test(stringValue(item.sha, `${path}.sha`)))
+      fail(`${path}.sha`, 'expected git sha')
+    if (!Array.isArray(item.parents)) fail(`${path}.parents`, 'expected array')
+    item.parents.forEach((parent: unknown, index: number) => {
+      if (!gitShaPattern.test(stringValue(parent, `${path}.parents[${index}]`)))
+        fail(`${path}.parents[${index}]`, 'expected git sha')
+    })
+    stringValue(item.authorName, `${path}.authorName`, 1, 256)
+    timestamp(item.authoredAt, `${path}.authoredAt`)
+    stringValue(item.subject, `${path}.subject`, 1, 4096)
+    if (item.body !== undefined) stringValue(item.body, `${path}.body`, 0, 65_536)
+    return value
+  }
+  if (name === 'DiffHunk') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['path', 'oldStart', 'oldLines', 'newStart', 'newLines', 'lines'],
+      ['oldPath'],
+      path
+    )
+    namedType('WorkspacePath', item.path, `${path}.path`)
+    if (item.oldPath !== undefined) namedType('WorkspacePath', item.oldPath, `${path}.oldPath`)
+    integerValue(item.oldStart, `${path}.oldStart`, 0)
+    integerValue(item.oldLines, `${path}.oldLines`, 0)
+    integerValue(item.newStart, `${path}.newStart`, 0)
+    integerValue(item.newLines, `${path}.newLines`, 0)
+    if (!Array.isArray(item.lines)) fail(`${path}.lines`, 'expected array')
+    item.lines.forEach((entry: unknown, index: number) => {
+      const linePath = `${path}.lines[${index}]`
+      const line = record(entry, linePath)
+      exactKeys(line, ['kind', 'text'], [], linePath)
+      literal(line.kind, ['context', 'add', 'delete'], `${linePath}.kind`)
+      stringValue(line.text, `${linePath}.text`, 0, 65_536)
+    })
+    return value
+  }
+  if (name === 'GitFetchResult') {
+    const item = record(value, path)
+    exactKeys(item, ['remoteName', 'before', 'after', 'observedAt'], [], path)
+    stringValue(item.remoteName, `${path}.remoteName`, 1, 256)
+    for (const key of ['before', 'after'] as const) {
+      const refs = record(item[key], `${path}.${key}`)
+      for (const [ref, sha] of Object.entries(refs)) {
+        stringValue(ref, `${path}.${key} ref`, 1, 512)
+        if (!gitShaPattern.test(stringValue(sha, `${path}.${key}.${ref}`)))
+          fail(`${path}.${key}.${ref}`, 'expected git sha')
+      }
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitCheckpoint') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'worktreeId', 'treeSha', 'createdAt'], ['baseSha', 'label'], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1)
+    if (item.baseSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.baseSha, `${path}.baseSha`)))
+        fail(`${path}.baseSha`, 'expected git sha')
+    }
+    if (!gitShaPattern.test(stringValue(item.treeSha, `${path}.treeSha`)))
+      fail(`${path}.treeSha`, 'expected git sha')
+    timestamp(item.createdAt, `${path}.createdAt`)
+    if (item.label !== undefined) stringValue(item.label, `${path}.label`, 0, 128)
+    return value
+  }
+  // #423 GitHub remote source-control DTOs. Strict shapes over untrusted
+  // provider transport; unknowable provider facts stay absent.
+  if (name === 'GitHubAccount') {
+    const item = record(value, path)
+    exactKeys(item, ['provider', 'host', 'login', 'observedAt'], ['name', 'profileUrl'], path)
+    literal(item.provider, ['github'], `${path}.provider`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.login, `${path}.login`, 1, 100)
+    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 0, 256)
+    if (item.profileUrl !== undefined) stringValue(item.profileUrl, `${path}.profileUrl`, 1, 512)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitHubRepository') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'repoId',
+        'provider',
+        'host',
+        'owner',
+        'name',
+        'fullName',
+        'defaultBranch',
+        'url',
+        'visibility',
+        'fork',
+        'freshness',
+        'observedAt',
+      ],
+      [],
+      path
+    )
+    stringValue(item.repoId, `${path}.repoId`, 1, 128)
+    literal(item.provider, ['github'], `${path}.provider`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.owner, `${path}.owner`, 1, 100)
+    stringValue(item.name, `${path}.name`, 1, 100)
+    stringValue(item.fullName, `${path}.fullName`, 1, 201)
+    stringValue(item.defaultBranch, `${path}.defaultBranch`, 1, 256)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    literal(item.visibility, ['public', 'private'], `${path}.visibility`)
+    if (typeof item.fork !== 'boolean') fail(`${path}.fork`, 'expected boolean')
+    literal(item.freshness, ['fresh', 'stale'], `${path}.freshness`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitHubAheadBehind') {
+    const item = record(value, path)
+    exactKeys(item, ['ahead', 'behind'], [], path)
+    integerValue(item.ahead, `${path}.ahead`, 0)
+    integerValue(item.behind, `${path}.behind`, 0)
+    return value
+  }
+  if (name === 'GitHubPullRequest') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'repoId',
+        'number',
+        'host',
+        'owner',
+        'repo',
+        'title',
+        'state',
+        'draft',
+        'headRef',
+        'headSha',
+        'baseRef',
+        'baseSha',
+        'url',
+        'mergeable',
+        'labels',
+        'version',
+        'updatedAt',
+        'observedAt',
+      ],
+      ['body', 'authorLogin', 'reviewDecision', 'aheadBehind', 'reconciled'],
+      path
+    )
+    if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
+    stringValue(item.repoId, `${path}.repoId`, 1, 128)
+    integerValue(item.number, `${path}.number`, 1)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.owner, `${path}.owner`, 1, 100)
+    stringValue(item.repo, `${path}.repo`, 1, 100)
+    stringValue(item.title, `${path}.title`, 0, 1024)
+    if (item.body !== undefined) stringValue(item.body, `${path}.body`, 0, 65_536)
+    literal(item.state, ['open', 'closed', 'merged'], `${path}.state`)
+    if (typeof item.draft !== 'boolean') fail(`${path}.draft`, 'expected boolean')
+    stringValue(item.headRef, `${path}.headRef`, 1, 512)
+    if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+      fail(`${path}.headSha`, 'expected git sha')
+    stringValue(item.baseRef, `${path}.baseRef`, 1, 512)
+    if (!gitShaPattern.test(stringValue(item.baseSha, `${path}.baseSha`)))
+      fail(`${path}.baseSha`, 'expected git sha')
+    if (item.authorLogin !== undefined) stringValue(item.authorLogin, `${path}.authorLogin`, 1, 100)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    literal(item.mergeable, ['mergeable', 'conflicting', 'unknown'], `${path}.mergeable`)
+    if (item.reviewDecision !== undefined)
+      literal(
+        item.reviewDecision,
+        ['approved', 'changes_requested', 'review_required'],
+        `${path}.reviewDecision`
+      )
+    if (item.aheadBehind !== undefined)
+      namedType('GitHubAheadBehind', item.aheadBehind, `${path}.aheadBehind`)
+    if (!Array.isArray(item.labels)) fail(`${path}.labels`, 'expected array')
+    item.labels.forEach((label: unknown, index: number) =>
+      stringValue(label, `${path}.labels[${index}]`, 0, 256)
+    )
+    integerValue(item.version, `${path}.version`, 0)
+    timestamp(item.updatedAt, `${path}.updatedAt`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    if (item.reconciled !== undefined && typeof item.reconciled !== 'boolean')
+      fail(`${path}.reconciled`, 'expected boolean')
+    return value
+  }
+  if (name === 'GitHubCheck') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'name', 'status'],
+      ['conclusion', 'detailsUrl', 'startedAt', 'completedAt'],
+      path
+    )
+    stringValue(item.id, `${path}.id`, 1, 64)
+    stringValue(item.name, `${path}.name`, 1, 256)
+    literal(item.status, ['queued', 'in_progress', 'completed'], `${path}.status`)
+    if (item.conclusion !== undefined)
+      literal(
+        item.conclusion,
+        [
+          'success',
+          'failure',
+          'neutral',
+          'cancelled',
+          'skipped',
+          'timed_out',
+          'action_required',
+          'stale',
+        ],
+        `${path}.conclusion`
+      )
+    if (item.detailsUrl !== undefined) stringValue(item.detailsUrl, `${path}.detailsUrl`, 1, 512)
+    if (item.startedAt !== undefined) timestamp(item.startedAt, `${path}.startedAt`)
+    if (item.completedAt !== undefined) timestamp(item.completedAt, `${path}.completedAt`)
+    return value
+  }
+  if (name === 'GitHubIssue') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'number', 'title', 'state', 'url', 'labels', 'updatedAt'],
+      ['milestone'],
+      path
+    )
+    if (!githubPullRequestIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected gh:<owner>/<repo>#<number>')
+    integerValue(item.number, `${path}.number`, 1)
+    stringValue(item.title, `${path}.title`, 0, 1024)
+    literal(item.state, ['open', 'closed'], `${path}.state`)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    if (!Array.isArray(item.labels)) fail(`${path}.labels`, 'expected array')
+    item.labels.forEach((label: unknown, index: number) =>
+      stringValue(label, `${path}.labels[${index}]`, 0, 256)
+    )
+    if (item.milestone !== undefined) stringValue(item.milestone, `${path}.milestone`, 0, 256)
+    timestamp(item.updatedAt, `${path}.updatedAt`)
+    return value
+  }
+  if (name === 'GitHubMilestone') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'number', 'title', 'state', 'openIssues', 'closedIssues', 'url'],
+      ['dueOn'],
+      path
+    )
+    if (!githubMilestoneIdPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected ghm:<owner>/<repo>#<number>')
+    integerValue(item.number, `${path}.number`, 1)
+    stringValue(item.title, `${path}.title`, 0, 512)
+    literal(item.state, ['open', 'closed'], `${path}.state`)
+    if (item.dueOn !== undefined) timestamp(item.dueOn, `${path}.dueOn`)
+    integerValue(item.openIssues, `${path}.openIssues`, 0)
+    integerValue(item.closedIssues, `${path}.closedIssues`, 0)
+    stringValue(item.url, `${path}.url`, 1, 512)
+    return value
+  }
+  if (name === 'GitPushResult') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'repoId',
+        'worktreeId',
+        'ref',
+        'remoteName',
+        'headSha',
+        'remoteSha',
+        'forced',
+        'upstreamSet',
+        'observedAt',
+      ],
+      [],
+      path
+    )
+    stringValue(item.repoId, `${path}.repoId`, 1, 128)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    stringValue(item.ref, `${path}.ref`, 1, 512)
+    stringValue(item.remoteName, `${path}.remoteName`, 1, 256)
+    if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+      fail(`${path}.headSha`, 'expected git sha')
+    if (!gitShaPattern.test(stringValue(item.remoteSha, `${path}.remoteSha`)))
+      fail(`${path}.remoteSha`, 'expected git sha')
+    for (const key of ['forced', 'upstreamSet'] as const)
+      if (typeof item[key] !== 'boolean') fail(`${path}.${key}`, 'expected boolean')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'GitUpdateBranchResult') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['pullRequestId', 'worktreeId', 'strategy', 'state', 'previousHeadSha', 'observedAt'],
+      ['headSha', 'conflictedPaths', 'recovery'],
+      path
+    )
+    if (!githubPullRequestIdPattern.test(stringValue(item.pullRequestId, `${path}.pullRequestId`)))
+      fail(`${path}.pullRequestId`, 'expected gh:<owner>/<repo>#<number>')
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+    literal(item.strategy, ['merge'], `${path}.strategy`)
+    literal(item.state, ['merged', 'conflicted', 'up_to_date'], `${path}.state`)
+    if (!gitShaPattern.test(stringValue(item.previousHeadSha, `${path}.previousHeadSha`)))
+      fail(`${path}.previousHeadSha`, 'expected git sha')
+    if (item.headSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+        fail(`${path}.headSha`, 'expected git sha')
+    }
+    if (item.conflictedPaths !== undefined) {
+      if (!Array.isArray(item.conflictedPaths)) fail(`${path}.conflictedPaths`, 'expected array')
+      item.conflictedPaths.forEach((entry: unknown, index: number) =>
+        stringValue(entry, `${path}.conflictedPaths[${index}]`, 1, 4096)
+      )
+    }
+    if (item.recovery !== undefined) {
+      const recovery = record(item.recovery, `${path}.recovery`)
+      exactKeys(recovery, ['abort', 'continue'], [], `${path}.recovery`)
+      stringValue(recovery.abort, `${path}.recovery.abort`, 1, 256)
+      stringValue(recovery.continue, `${path}.recovery.continue`, 1, 256)
+    }
+    timestamp(item.observedAt, `${path}.observedAt`)
     return value
   }
   if (name === 'BrowserAnnotationInput') {
@@ -1469,6 +2923,154 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.generation, `${path}.generation`, 0)
     return value
   }
+  // #31/#32 harness substrate DTOs.
+  if (name === 'AgentProfileRef') {
+    const item = record(value, path)
+    exactKeys(item, ['id', 'version', 'displayName', 'capabilityPolicyVersion'], [], path)
+    stringValue(item.id, `${path}.id`, 1, 256)
+    integerValue(item.version, `${path}.version`, 1)
+    stringValue(item.displayName, `${path}.displayName`, 1, 256)
+    integerValue(item.capabilityPolicyVersion, `${path}.capabilityPolicyVersion`, 1)
+    return value
+  }
+  if (name === 'HarnessRun') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'installationId',
+        'agentProfile',
+        'state',
+        'generation',
+        'version',
+      ],
+      ['modelId', 'startedAt', 'finishedAt', 'terminalId', 'terminalGeneration'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.installationId, `${path}.installationId`, 1, 256)
+    namedType('AgentProfileRef', item.agentProfile, `${path}.agentProfile`)
+    if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
+    if (item.terminalId !== undefined) stringValue(item.terminalId, `${path}.terminalId`, 1, 256)
+    if (item.terminalGeneration !== undefined)
+      integerValue(item.terminalGeneration, `${path}.terminalGeneration`, 1)
+    literal(
+      item.state,
+      [
+        'resolving',
+        'starting',
+        'working',
+        'awaiting_input',
+        'awaiting_approval',
+        'completed',
+        'failed',
+        'cancelled',
+        'disconnected',
+        'unknown',
+      ],
+      `${path}.state`
+    )
+    integerValue(item.generation, `${path}.generation`, 1)
+    if (item.startedAt !== undefined) timestamp(item.startedAt, `${path}.startedAt`)
+    if (item.finishedAt !== undefined) timestamp(item.finishedAt, `${path}.finishedAt`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'ManagedPiStatus') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['scope', 'driverId', 'driverVersion', 'pinnedVersion', 'state', 'observedAt', 'generation'],
+      [
+        'installationId',
+        'resolvedVersion',
+        'executableIdentity',
+        'executableLabel',
+        'lastErrorCode',
+        'lastError',
+      ],
+      path
+    )
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.driverId, `${path}.driverId`, 1, 128)
+    stringValue(item.driverVersion, `${path}.driverVersion`, 1, 64)
+    stringValue(item.pinnedVersion, `${path}.pinnedVersion`, 1, 128)
+    literal(item.state, ['absent', 'resolving', 'installing', 'ready', 'failed'], `${path}.state`)
+    if (item.installationId !== undefined)
+      if (!uuidPattern.test(stringValue(item.installationId, `${path}.installationId`)))
+        fail(`${path}.installationId`, 'expected lowercase UUID')
+    if (item.resolvedVersion !== undefined)
+      stringValue(item.resolvedVersion, `${path}.resolvedVersion`, 1, 128)
+    if (item.executableIdentity !== undefined)
+      stringValue(item.executableIdentity, `${path}.executableIdentity`, 1, 4096)
+    if (item.executableLabel !== undefined)
+      stringValue(item.executableLabel, `${path}.executableLabel`, 1, 256)
+    if (item.lastErrorCode !== undefined)
+      literal(item.lastErrorCode, devErrorCodes, `${path}.lastErrorCode`)
+    if (item.lastError !== undefined) stringValue(item.lastError, `${path}.lastError`, 1, 512)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
+  if (name === 'AcpConnection') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'id',
+        'scope',
+        'runtimeSessionId',
+        'harnessInstallationId',
+        'driverId',
+        'driverVersion',
+        'negotiatedProtocolVersion',
+        'requiredCapabilities',
+        'negotiatedCapabilities',
+        'missingRequiredCapabilities',
+        'sessionOperations',
+        'limitations',
+        'history',
+        'state',
+        'observedAt',
+        'generation',
+      ],
+      ['closeReason'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
+    stringValue(item.driverId, `${path}.driverId`, 1, 128)
+    stringValue(item.driverVersion, `${path}.driverVersion`, 1, 64)
+    stringValue(item.negotiatedProtocolVersion, `${path}.negotiatedProtocolVersion`, 1, 32)
+    validateType('string[]<=32', item.requiredCapabilities, `${path}.requiredCapabilities`)
+    validateType('string[]<=64', item.negotiatedCapabilities, `${path}.negotiatedCapabilities`)
+    validateType(
+      'string[]<=32',
+      item.missingRequiredCapabilities,
+      `${path}.missingRequiredCapabilities`
+    )
+    validateType('string[]<=32', item.sessionOperations, `${path}.sessionOperations`)
+    validateType('string[]<=32', item.limitations, `${path}.limitations`)
+    literal(item.history, ['available', 'unavailable'], `${path}.history`)
+    literal(
+      item.state,
+      ['connecting', 'ready', 'disconnected', 'closed', 'failed'],
+      `${path}.state`
+    )
+    if (item.closeReason !== undefined) stringValue(item.closeReason, `${path}.closeReason`, 1, 512)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    integerValue(item.generation, `${path}.generation`, 0)
+    return value
+  }
   if (name === 'TerminalRecord') {
     const item = record(value, path)
     exactKeys(
@@ -1563,6 +3165,225 @@ function namedType(name: string, value: unknown, path: string): unknown {
     validateType('string[]<=64', item.envAllowlistKeys, `${path}.envAllowlistKeys`)
     if (typeof item.builtin !== 'boolean') fail(`${path}.builtin`, 'expected boolean')
     integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  // #398 project registry DTOs. Shapes mirror the spec's project registry
+  // model; the registry bodies and replies validate through here.
+  if (name === 'Group') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'name', 'projectIds', 'sortKey', 'version'],
+      ['colorToken'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.name, `${path}.name`, 1, 128)
+    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
+    validateType('string[]<=10000', item.projectIds, `${path}.projectIds`)
+    stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'GroupMutableFields') {
+    const item = record(value, path)
+    exactKeys(item, [], ['name', 'colorToken'], path)
+    if (item.name !== undefined) stringValue(item.name, `${path}.name`, 1, 128)
+    if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
+    return value
+  }
+  if (name === 'Project') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'name', 'groupIds', 'repoIds', 'lifecycle', 'version'],
+      [
+        'repos',
+        'preferredRuntimeNodeId',
+        'defaultBaseRef',
+        'bootstrapWorkflowId',
+        'defaultHarnessId',
+      ],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.name, `${path}.name`, 1, 128)
+    validateType('string[]<=32', item.groupIds, `${path}.groupIds`)
+    validateType('string[]<=128', item.repoIds, `${path}.repoIds`)
+    if (item.repos !== undefined) {
+      if (!Array.isArray(item.repos)) fail(`${path}.repos`, 'expected array')
+      if ((item.repos as unknown[]).length > 128) fail(`${path}.repos`, 'array exceeds 128')
+      ;(item.repos as unknown[]).forEach((entry, index) =>
+        namedType('ProjectRepoBinding', entry, `${path}.repos[${index}]`)
+      )
+    }
+    if (item.preferredRuntimeNodeId !== undefined)
+      stringValue(item.preferredRuntimeNodeId, `${path}.preferredRuntimeNodeId`, 1, 256)
+    if (item.defaultBaseRef !== undefined)
+      stringValue(item.defaultBaseRef, `${path}.defaultBaseRef`, 1, 256)
+    if (item.bootstrapWorkflowId !== undefined)
+      stringValue(item.bootstrapWorkflowId, `${path}.bootstrapWorkflowId`, 1, 256)
+    if (item.defaultHarnessId !== undefined)
+      stringValue(item.defaultHarnessId, `${path}.defaultHarnessId`, 1, 256)
+    literal(
+      item.lifecycle,
+      ['importing', 'cloning', 'scanning', 'ready', 'archived', 'failed'],
+      `${path}.lifecycle`
+    )
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'ProjectRepoBinding') {
+    const item = record(value, path)
+    exactKeys(item, ['repoId', 'rootBookmarkId', 'canonicalRoot'], [], path)
+    if (!uuidPattern.test(stringValue(item.repoId, `${path}.repoId`)))
+      fail(`${path}.repoId`, 'expected lowercase UUID')
+    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
+      fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
+    stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
+    return value
+  }
+  // Repository registry DTOs (#398 follow-up). `host` is a proven remote
+  // host (never empty when the remote is present); `ownerPath`/`displayUrl`
+  // may legitimately be empty for pathless or unparseable remotes.
+  if (name === 'RedactedRemote') {
+    const item = record(value, path)
+    exactKeys(item, ['provider', 'host', 'ownerPath', 'displayUrl'], [], path)
+    literal(item.provider, ['github', 'gitlab', 'other'], `${path}.provider`)
+    stringValue(item.host, `${path}.host`, 1, 253)
+    stringValue(item.ownerPath, `${path}.ownerPath`, 0, 1024)
+    stringValue(item.displayUrl, `${path}.displayUrl`, 0, 2048)
+    return value
+  }
+  if (name === 'Repo') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['id', 'scope', 'kind', 'lifecycle', 'canonicalRoot', 'projectIds', 'version'],
+      ['gitCommonDirIdentity', 'remote', 'defaultRef'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
+      fail(`${path}.id`, 'expected lowercase UUID')
+    decodeScope(item.scope, `${path}.scope`)
+    literal(item.kind, ['git', 'folder'], `${path}.kind`)
+    literal(
+      item.lifecycle,
+      ['authorizing', 'ready', 'unavailable', 'stale', 'refreshing'],
+      `${path}.lifecycle`
+    )
+    const canonicalRoot = stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
+    if (canonicalRoot.includes('\0')) fail(`${path}.canonicalRoot`, 'expected path without NUL')
+    if (item.gitCommonDirIdentity !== undefined)
+      namedType('FileIdentity', item.gitCommonDirIdentity, `${path}.gitCommonDirIdentity`)
+    if (item.remote !== undefined) namedType('RedactedRemote', item.remote, `${path}.remote`)
+    if (item.defaultRef !== undefined) stringValue(item.defaultRef, `${path}.defaultRef`, 1, 256)
+    validateType('string[]<=128', item.projectIds, `${path}.projectIds`)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'RepoInspection') {
+    const item = record(value, path)
+    exactKeys(item, ['repo', 'rootIdentity', 'dirty', 'observedAt'], ['headRef', 'headSha'], path)
+    namedType('Repo', item.repo, `${path}.repo`)
+    namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
+    if (item.headRef !== undefined) stringValue(item.headRef, `${path}.headRef`, 1, 256)
+    if (item.headSha !== undefined) {
+      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
+        fail(`${path}.headSha`, 'expected git sha')
+    }
+    if (typeof item.dirty !== 'boolean') fail(`${path}.dirty`, 'expected boolean')
+    timestamp(item.observedAt, `${path}.observedAt`)
+    return value
+  }
+  if (name === 'ProjectScanEntry') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      [
+        'name',
+        'relativeDir',
+        'manifestPath',
+        'packageManager',
+        'languages',
+        'suggestedScripts',
+        'diagnostics',
+      ],
+      [],
+      path
+    )
+    stringValue(item.name, `${path}.name`, 1, 256)
+    stringValue(item.relativeDir, `${path}.relativeDir`, 0, 1024)
+    stringValue(item.manifestPath, `${path}.manifestPath`, 1, 1024)
+    literal(
+      item.packageManager,
+      ['npm', 'pnpm', 'yarn', 'bun', 'cargo', 'pip', 'poetry', 'uv', 'unknown'],
+      `${path}.packageManager`
+    )
+    validateType('string[]<=32', item.languages, `${path}.languages`)
+    validateType('string[]<=64', item.suggestedScripts, `${path}.suggestedScripts`)
+    validateType('string[]<=32', item.diagnostics, `${path}.diagnostics`)
+    return value
+  }
+  if (name === 'ProjectScanPage') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['rootBookmarkId', 'items', 'partial', 'diagnostics', 'observedAt'],
+      ['nextCursor'],
+      path
+    )
+    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
+      fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
+    if (!Array.isArray(item.items)) fail(`${path}.items`, 'expected array')
+    if ((item.items as unknown[]).length > 500) fail(`${path}.items`, 'page exceeds 500 items')
+    ;(item.items as unknown[]).forEach((entry, index) =>
+      namedType('ProjectScanEntry', entry, `${path}.items[${index}]`)
+    )
+    if (typeof item.partial !== 'boolean') fail(`${path}.partial`, 'expected boolean')
+    validateType('string[]<=32', item.diagnostics, `${path}.diagnostics`)
+    timestamp(item.observedAt, `${path}.observedAt`)
+    if (item.nextCursor !== undefined) stringValue(item.nextCursor, `${path}.nextCursor`, 1, 512)
+    return value
+  }
+  // #400 harness preference DTOs. A preference is a user-expressed overlay on
+  // the root-default projection; the mutable-fields patch never carries
+  // credential values because none exist in the model.
+  if (name === 'HarnessPreference') {
+    const item = record(value, path)
+    exactKeys(
+      item,
+      ['scope', 'harnessInstallationId', 'enabled', 'sortKey', 'default', 'version'],
+      ['projectId', 'agentProfileId', 'modelId'],
+      path
+    )
+    decodeScope(item.scope, `${path}.scope`)
+    stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
+    if (typeof item.enabled !== 'boolean') fail(`${path}.enabled`, 'expected boolean')
+    stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
+    if (typeof item.default !== 'boolean') fail(`${path}.default`, 'expected boolean')
+    if (item.projectId !== undefined) stringValue(item.projectId, `${path}.projectId`, 1, 256)
+    if (item.agentProfileId !== undefined)
+      stringValue(item.agentProfileId, `${path}.agentProfileId`, 1, 128)
+    if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
+    integerValue(item.version, `${path}.version`, 1)
+    return value
+  }
+  if (name === 'HarnessPreferenceMutableFields') {
+    const item = record(value, path)
+    exactKeys(item, [], ['enabled', 'default', 'sortKey', 'agentProfileId', 'modelId'], path)
+    if (item.enabled !== undefined && typeof item.enabled !== 'boolean')
+      fail(`${path}.enabled`, 'expected boolean')
+    if (item.default !== undefined && typeof item.default !== 'boolean')
+      fail(`${path}.default`, 'expected boolean')
+    if (item.sortKey !== undefined) stringValue(item.sortKey, `${path}.sortKey`, 1, 64)
+    if (item.agentProfileId !== undefined)
+      stringValue(item.agentProfileId, `${path}.agentProfileId`, 1, 128)
+    if (item.modelId !== undefined) stringValue(item.modelId, `${path}.modelId`, 1, 256)
     return value
   }
   fail(path, `unknown named type ${name}`)
@@ -1754,6 +3575,66 @@ export function decodeRuntimeConnectionInventorySnapshot(
   return value as RuntimeConnectionInventorySnapshot
 }
 
+/** Strict decoder for one HarnessRun record (#31/#32 substrate). */
+export function decodeHarnessRun(value: unknown): HarnessRun {
+  namedType('HarnessRun', value, 'harnessRun')
+  return value as HarnessRun
+}
+
+/** Strict decoder for the managed-Pi installation status (#31). */
+export function decodeManagedPiStatus(value: unknown): ManagedPiStatus {
+  namedType('ManagedPiStatus', value, 'managedPiStatus')
+  return value as ManagedPiStatus
+}
+
+/** Strict decoder for one ACP lane connection (#32). */
+export function decodeAcpConnection(value: unknown): AcpConnection {
+  namedType('AcpConnection', value, 'acpConnection')
+  return value as AcpConnection
+}
+
+/** Strict decoder for the registry Group record (#398). */
+export function decodeGroup(value: unknown): Group {
+  namedType('Group', value, 'group')
+  return value as Group
+}
+
+/** Strict decoder for the registry Project record (#398). */
+export function decodeProject(value: unknown): Project {
+  namedType('Project', value, 'project')
+  return value as Project
+}
+
+/** Strict decoder for the redacted remote identity DTO (#398). */
+export function decodeRedactedRemote(value: unknown): RedactedRemote {
+  namedType('RedactedRemote', value, 'redactedRemote')
+  return value as RedactedRemote
+}
+
+/** Strict decoder for the repository registry record (#398). */
+export function decodeRepo(value: unknown): Repo {
+  namedType('Repo', value, 'repo')
+  return value as Repo
+}
+
+/** Strict decoder for the `dev.repo.inspect` reply (#398). */
+export function decodeRepoInspection(value: unknown): RepoInspection {
+  namedType('RepoInspection', value, 'repoInspection')
+  return value as RepoInspection
+}
+
+/** Strict decoder for one scanner recommendation (#398). */
+export function decodeProjectScanEntry(value: unknown): ProjectScanEntry {
+  namedType('ProjectScanEntry', value, 'projectScanEntry')
+  return value as ProjectScanEntry
+}
+
+/** Strict decoder for the `dev.project.scan` reply page (#398). */
+export function decodeProjectScanPage(value: unknown): ProjectScanPage {
+  namedType('ProjectScanPage', value, 'projectScanPage')
+  return value as ProjectScanPage
+}
+
 function decodeDevRuntimePage(
   decodeItem: (value: unknown, path: string) => unknown,
   value: unknown,
@@ -1772,8 +3653,114 @@ function decodeDevRuntimePage(
 // Success reply decoders, installed by the slice that owns each operation's
 // DTO. Every operation without an entry keeps failing closed in decodeDevReply.
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
+  // Project registry (#398): import/create mint Project records, scan returns
+  // a bounded preview page, and the group lifecycle commands return Group.
+  // update/archive reply with the re-read Project record (same decoder).
+  'dev.project.import': (value) => decodeProject(value),
+  'dev.project.create': (value) => decodeProject(value),
+  'dev.project.update': (value) => decodeProject(value),
+  'dev.project.archive': (value) => decodeProject(value),
+  'dev.project.scan': (value) => decodeProjectScanPage(value),
+  'dev.group.create': (value) => decodeGroup(value),
+  'dev.group.update': (value) => decodeGroup(value),
+  'dev.group.delete': (value) => decodeGroup(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
+  // Repository registry (#398 follow-up): adopt/authorize/refresh reply with
+  // the re-read Repo record, inspect with fresh read-only facts, and list
+  // with a bounded Repo page.
+  'dev.repo.adopt': (value) => decodeRepo(value),
+  'dev.repo.authorize': (value) => decodeRepo(value),
+  'dev.repo.refresh': (value) => decodeRepo(value),
+  'dev.repo.inspect': (value) => decodeRepoInspection(value),
+  'dev.repo.list': (value) => decodeDevRuntimePage(decodeRepo, value),
+  // Files/search slice (#399): strict DTO decoders installed by the
+  // operation-owning provider slice before its handlers register.
+  'dev.files.list': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('FileEntry', item, path), value, 'reply.value'),
+  'dev.files.stat': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.read': (value) => namedType('FileReadResult', value, 'reply.value'),
+  'dev.files.write': (value) => namedType('FileWriteResult', value, 'reply.value'),
+  'dev.files.create': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.rename': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.delete': (value) => namedType('FileMutationResult', value, 'reply.value'),
+  'dev.files.copy': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.search': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('SearchMatch', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.files.openExternal': (value) => namedType('ExternalOpenResult', value, 'reply.value'),
+  'dev.files.readStream': (value) => decodeDevStreamGrant(value),
+  'dev.files.writeStream': (value) => decodeDevStreamGrant(value),
+  // Recursive/overwrite mutation pairs (#399): plans decode as MutationPlan,
+  // commits reply with the produced entry or the enumerated tree summary.
+  'dev.files.renameOverwritePlan': (value) => decodeMutationPlan(value),
+  'dev.files.renameOverwriteCommit': (value) => namedType('FileEntry', value, 'reply.value'),
+  'dev.files.deleteTreePlan': (value) => decodeMutationPlan(value),
+  'dev.files.deleteTreeCommit': (value) =>
+    namedType('FileTreeMutationResult', value, 'reply.value'),
+  'dev.files.copyTreePlan': (value) => decodeMutationPlan(value),
+  'dev.files.copyTreeCommit': (value) => namedType('FileTreeMutationResult', value, 'reply.value'),
+  // Local git slice (#399).
+  'dev.git.status': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.history': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('GitCommit', item, path), value, 'reply.value'),
+  'dev.git.diff': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('DiffHunk', item, path), value, 'reply.value'),
+  'dev.git.stage': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.unstage': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.discardPlan': (value) => decodeMutationPlan(value),
+  'dev.git.discardCommit': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.commit': (value) => namedType('GitCommit', value, 'reply.value'),
+  'dev.git.fetch': (value) => namedType('GitFetchResult', value, 'reply.value'),
+  // Hunk-level staging (#399 residue): plans decode as MutationPlan; the
+  // commit replies with the re-read GitStatus like stage/unstage.
+  'dev.git.hunkStagingPlan': (value) => decodeMutationPlan(value),
+  'dev.git.hunkStagingCommit': (value) => namedType('GitStatus', value, 'reply.value'),
+  'dev.git.checkpoint': (value) => namedType('GitCheckpoint', value, 'reply.value'),
+  'dev.git.restorePlan': (value) => decodeMutationPlan(value),
+  'dev.git.restoreCommit': (value) => namedType('GitStatus', value, 'reply.value'),
+  // GitHub remote slice (#423): host-neutral DTOs decoded strictly from the
+  // `gh`/git transport; mutations reply with re-read server truth.
+  'dev.github.account': (value) => namedType('GitHubAccount', value, 'reply.value'),
+  'dev.github.checks': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubCheck', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.createPullRequest': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.issues': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubIssue', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.mergeCommit': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.mergePlan': (value) => decodeMutationPlan(value),
+  'dev.github.milestones': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubMilestone', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.pullRequest': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.pullRequests': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('GitHubPullRequest', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.github.pushCommit': (value) => namedType('GitPushResult', value, 'reply.value'),
+  'dev.github.pushPlan': (value) => decodeMutationPlan(value),
+  'dev.github.repository': (value) => namedType('GitHubRepository', value, 'reply.value'),
+  'dev.github.updateBranchCommit': (value) =>
+    namedType('GitUpdateBranchResult', value, 'reply.value'),
+  'dev.github.updateBranchPlan': (value) => decodeMutationPlan(value),
+  'dev.github.updateCommit': (value) => namedType('GitHubPullRequest', value, 'reply.value'),
+  'dev.github.updatePlan': (value) => decodeMutationPlan(value),
   // Terminal slice (#396): attach/input return single-use stream grants.
   'dev.terminal.attach': (value) => decodeDevStreamGrant(value),
   'dev.terminal.input': (value) => decodeDevStreamGrant(value),
@@ -1828,6 +3815,20 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
       'reply.value'
     ),
   'dev.browser.viewport': (value) => namedType('BrowserLane', value, 'reply.value'),
+  // #472 computer-use lanes. Stream-grant replies decode like the
+  // browser/device attach/input pairs; capability/consent replies use the
+  // strict named-type validators above.
+  'dev.computeruse.attach': (value) => decodeDevStreamGrant(value),
+  'dev.computeruse.capabilities': (value) =>
+    namedType('ComputerUseCapabilityReport', value, 'reply.value'),
+  'dev.computeruse.consent': (value) => namedType('ComputerUseConsent', value, 'reply.value'),
+  'dev.computeruse.input': (value) => decodeDevStreamGrant(value),
+  'dev.computeruse.laneClose': (value) => namedType('ComputerUseLane', value, 'reply.value'),
+  'dev.computeruse.laneCreate': (value) => namedType('ComputerUseLane', value, 'reply.value'),
+  'dev.computeruse.lanes': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('ComputerUseLane', item, path), value),
+  'dev.computeruse.release': (value) => namedType('ComputerUseLane', value, 'reply.value'),
+  'dev.computeruse.takeover': (value) => namedType('ComputerUseLane', value, 'reply.value'),
   'dev.device.attach': (value) => decodeDevStreamGrant(value),
   'dev.device.input': (value) => decodeDevStreamGrant(value),
   'dev.device.list': (value) =>
@@ -1849,6 +3850,82 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   // provider and its resource side.
   'dev.resources.ports': (value) =>
     decodeDevRuntimePage((item, path) => namedType('PortRecord', item, path), value, 'reply.value'),
+  // #424 runtime resources, usage, activity, and safe cleanup.
+  'dev.resources.snapshot': (value) => namedType('ResourceSnapshot', value, 'reply.value'),
+  'dev.resources.processes': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('ProcessRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.metrics': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('ResourceMetric', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.retainedData': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('RetainedDataRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.usage': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('UsageRecord', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.resources.stopPlan': (value) => namedType('MutationPlan', value, 'reply.value'),
+  'dev.resources.stopCommit': (value) => namedType('ProcessRecord', value, 'reply.value'),
+  'dev.cleanupPolicy.list': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('CleanupPolicy', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.cleanupPolicy.createDraft': (value) => namedType('CleanupPolicy', value, 'reply.value'),
+  'dev.cleanupPolicy.approve': (value) => namedType('CleanupPolicy', value, 'reply.value'),
+  'dev.cleanupPolicy.disable': (value) => namedType('CleanupPolicy', value, 'reply.value'),
+  'dev.cleanupPolicy.evaluate': (value) =>
+    namedType('CleanupPolicyEvaluation', value, 'reply.value'),
+  // #31/#32 harness substrate: managed-Pi status/install, ACP lane
+  // connections, run status/history, and the session-mapped launch/resume/
+  // cancel replies whose DTO lands with the owning provider slice.
+  'dev.harness.acpClose': (value) => decodeAcpConnection(value),
+  'dev.harness.acpConnect': (value) => decodeAcpConnection(value),
+  'dev.harness.acpConnections': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('AcpConnection', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.harness.managedPiInstall': (value) => decodeManagedPiStatus(value),
+  'dev.harness.managedPiStatus': (value) => decodeManagedPiStatus(value),
+  'dev.harness.runs': (value) =>
+    decodeDevRuntimePage((item, path) => namedType('HarnessRun', item, path), value, 'reply.value'),
+  'dev.session.cancelHarness': (value) => decodeHarnessRun(value),
+  'dev.session.launchHarness': (value) => decodeHarnessRun(value),
+  'dev.session.resumeHarness': (value) => decodeHarnessRun(value),
+  // #400 harness launch orchestration: preferences read/update/reset, the
+  // observed run-status transition, the default-harness launch, and the
+  // runtime-events-v1 stream grant.
+  'dev.harness.preferences': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('HarnessPreference', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.harness.preferenceUpdate': (value) => namedType('HarnessPreference', value, 'reply.value'),
+  'dev.harness.preferenceReset': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('HarnessPreference', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.harness.runStatus': (value) => decodeHarnessRun(value),
+  'dev.session.launchDefault': (value) => decodeHarnessRun(value),
+  'dev.session.events': (value) => decodeDevStreamGrant(value),
 }
 
 function decodeError(value: unknown, path = 'error'): DevError {
@@ -2535,11 +4612,19 @@ const devCapabilityUniverse = Object.freeze([
   ]),
 ])
 
-/** Deterministic JSON with recursively sorted object keys (UTF-8). */
+/** Deterministic JSON with recursively sorted object keys (UTF-8). Byte
+ *  body fields (`Uint8Array<=N` in the registry DSL) encode as the tagged
+ *  lowercase-hex form `u8:<hex>` so a command that carries bytes proofs
+ *  byte-identically on both sides of the channel. */
 export function canonicalDevCommandJson(value: unknown): string {
   if (value === null) return 'null'
   if (typeof value === 'boolean' || typeof value === 'number') return JSON.stringify(value)
   if (typeof value === 'string') return JSON.stringify(value)
+  if (value instanceof Uint8Array) {
+    let hex = ''
+    for (const byte of value) hex += byte.toString(16).padStart(2, '0')
+    return JSON.stringify(`u8:${hex}`)
+  }
   if (Array.isArray(value)) return `[${value.map(canonicalDevCommandJson).join(',')}]`
   if (typeof value === 'object') {
     const object = value as Record<string, unknown>

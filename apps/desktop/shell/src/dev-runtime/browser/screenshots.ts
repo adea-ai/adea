@@ -4,8 +4,9 @@
 // origin, viewport, timestamp, lane/profile identity, and redaction state —
 // plus a sha256 content identity and an expiry. Captures are capped at
 // 25 MiB each and 1 GiB per workspace (30 days unless pinned); the store
-// keeps metadata only, never image bytes, so nothing unbounded can hide
-// here. The capture seam itself is injected: the task-owned lane captures
+// retains the bounded bytes alongside metadata so a reference is actually
+// retrievable, never unbounded. The capture seam itself is injected: the
+// task-owned lane captures
 // through Bun.WebView's `.cdp()` headless automation, the user-context lane
 // through the external browser's CDP `Page.captureScreenshot`, and
 // `Bun.Image` resizes/converts in-process — the composition follows Orca's
@@ -51,7 +52,17 @@ export function createScreenshotStore(options: ScreenshotStoreOptions) {
   const maxEach = options.retention?.maxBytesEach ?? DEFAULT_MAX_EACH
   const maxTotal = options.retention?.maxTotalBytes ?? DEFAULT_MAX_TOTAL
   const ttlMs = options.retention?.ttlMs ?? DEFAULT_TTL_MS
-  const entries = new Map<string, { ref: ScreenshotRef; expiresAtMs: number }>()
+  const entries = new Map<string, { ref: ScreenshotRef; expiresAtMs: number; bytes: Uint8Array }>()
+
+  const activeEntry = (id: string) => {
+    const entry = entries.get(id)
+    if (!entry) return undefined
+    if (entry.expiresAtMs <= Date.parse(now())) {
+      entries.delete(id)
+      return undefined
+    }
+    return entry
+  }
 
   return {
     /** Records one capture and returns its reference DTO. */
@@ -73,6 +84,11 @@ export function createScreenshotStore(options: ScreenshotStoreOptions) {
         id: randomId(),
         scope: options.scope,
         ownerId: input.provenance.ownerId,
+        laneKind: input.provenance.laneKind,
+        ...(input.provenance.profileId ? { profileId: input.provenance.profileId } : {}),
+        origin: input.provenance.origin,
+        viewport: input.provenance.viewport,
+        redacted: input.provenance.redacted,
         contentType,
         byteLength: String(input.bytes.byteLength),
         width: input.width,
@@ -80,12 +96,22 @@ export function createScreenshotStore(options: ScreenshotStoreOptions) {
         sha256: createHash('sha256').update(input.bytes).digest('hex'),
         expiresAt: new Date(Date.parse(observed) + ttlMs).toISOString(),
       }
-      entries.set(ref.id, { ref, expiresAtMs: Date.parse(ref.expiresAt) })
+      entries.set(ref.id, {
+        ref,
+        expiresAtMs: Date.parse(ref.expiresAt),
+        bytes: new Uint8Array(input.bytes),
+      })
       return ref
     },
 
     get(id: string): ScreenshotRef | undefined {
-      return entries.get(id)?.ref
+      return activeEntry(id)?.ref
+    },
+
+    /** Returns a defensive copy of bounded capture bytes after provenance lookup. */
+    getBytes(id: string): Uint8Array | undefined {
+      const entry = activeEntry(id)
+      return entry ? new Uint8Array(entry.bytes) : undefined
     },
 
     /** Drops expired captures; retention is explicit, never silent. */

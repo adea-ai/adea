@@ -1,5 +1,11 @@
 [test]
 coverageThreshold = { line = 0.8, function = 0.8 }
 coverageSkipTestFiles = true
+# This lane covers the auth/db/scripts sources its tests execute. Generated
+# build output and desktop-shell sources (covered by the desktop suite, only
+# imported here by boundary scanners) are out of scope — including them makes
+# the aggregate platform-sensitive (darwin-only branches run uncovered on
+# Linux) and counts generated code as source.
+coveragePathIgnorePatterns = ["**/dist/**", "apps/desktop/**"]
 coverageReporter = ["text", "lcov"]
 coverageDir = "coverage"

@@ -22,6 +22,7 @@ import type { ChannelGateway, StreamProvider } from '../channel/server'
 import type { SidecarClient } from './sidecar/client'
 import type { ByteFrameMeta } from './sidecar/protocol'
 import { installWrapper, parseShellKind, type ShellKind } from './shell-integration'
+import { createInputAuthority, fencedWrite, type InputFence } from './input-authority'
 
 const LIFECYCLE_TO_STATE: Record<string, TerminalState> = {
   creating: 'creating',
@@ -81,8 +82,56 @@ export type RegisterTerminalRuntimeInput = {
 
 export type TerminalRuntimeRegistration = {
   readonly commands: readonly DevOperation[]
+  /**
+   * #400 residue: guarded prompt delivery into a runtime session's PTY.
+   * Acquires the terminal's input authority as the `prompt_delivery` source
+   * (the TerminalInputAuthority single-writer contract), writes the prompt
+   * through the fenced chunk writer, and releases. Never a raw sidecar write:
+   * an in-flight user writer loses ownership atomically and its later chunks
+   * are rejected before reaching the PTY.
+   */
+  deliverPrompt(input: { runtimeSessionId: string; prompt: string }): Promise<
+    | {
+        ok: true
+        terminalId: string
+        terminalGeneration: number
+        chunks: number
+        bytes: number
+      }
+    | { ok: false; code: DevError['code']; message: string }
+  >
   /** Detaches every stream; PTY sessions and their history live on. */
   dispose(): void
+  /**
+   * #400 residue: harness-in-PTY spawn. Spawns a HOST-RESOLVED harness
+   * executable (never renderer-supplied argv) as the PTY child of a new
+   * terminal bound to the runtime session — the same sidecar spawn path
+   * `dev.terminal.create` uses — registers it like any terminal, and binds
+   * the caller to the terminal id/generation. The process the run lives in
+   * is therefore observable through the terminal runtime and its exit is
+   * OBSERVED through the sidecar (`onTerminalExited`), never assumed and
+   * never signalled from outside the terminal runtime's ownership.
+   */
+  spawnHarnessTerminal(request: {
+    runtimeSessionId: string
+    worktreeId: string
+    /** The host-resolved harness executable identity (absolute argv[0]). */
+    shell: string
+    cols?: number
+    rows?: number
+  }): Promise<
+    | { ok: true; terminalId: string; terminalGeneration: number }
+    | { ok: false; code: DevError['code']; message: string }
+  >
+  /**
+   * #400 residue: subscribes to sidecar-OBSERVED terminal terminations (the
+   * exited notice carries the observed exit code, or null when the process
+   * ended by signal — a signal is never treated as an exit status). Returns
+   * the unsubscribe function.
+   */
+  onTerminalExited(
+    cb: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+  ): () => void
 }
 
 function devError(code: DevError['code'], message: string, retryable = false): DevError {
@@ -111,6 +160,7 @@ export function registerTerminalRuntime(
 ): TerminalRuntimeRegistration {
   const now = input.now ?? Date.now
   const registry = new Map<string, TerminalRegistryEntry>()
+  const inputAuthorities = new Map<string, ReturnType<typeof createInputAuthority>>()
   const readSessions = new Map<
     string,
     {
@@ -122,7 +172,18 @@ export function registerTerminalRuntime(
   >()
   const writeSessions = new Map<
     string,
-    { terminalId: string; generation: number; session: Parameters<StreamProvider>[0] }
+    {
+      terminalId: string
+      generation: number
+      session: Parameters<StreamProvider>[0]
+      fence?: InputFence
+    }
+  >()
+  /** #400: fan-out for sidecar-observed terminal terminations. The sidecar
+   * client allows one onExited handler, so the register owns it and fans out
+   * to every subscriber. */
+  const exitObservers = new Set<
+    (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
   >()
 
   async function snapshotFor(terminalId: string): Promise<SidecarSnapshot | null> {
@@ -300,6 +361,7 @@ export function registerTerminalRuntime(
         sidecarId: input.sidecar.welcome.pidStartIdentity,
       }
       registry.set(terminalId, entry)
+      inputAuthorities.set(terminalId, createInputAuthority(terminalId))
       const snapshot = await snapshotFor(terminalId)
       return recordFor(
         terminalId,
@@ -535,7 +597,17 @@ export function registerTerminalRuntime(
       // grant binding is the write authority for this stream.
       const terminalId = grant.resource.id
       const entry = registry.get(terminalId)
-      if (entry && grant.resource.generation !== entry.generation) {
+      if (!entry) {
+        // An unregistered (or since-deregistered) terminal grants no write
+        // authority here even if the sidecar still holds a session.
+        session.send({
+          type: 'error',
+          error: devError('not_found', 'terminal is not registered on this runtime node'),
+        })
+        session.close('incompatible', 'terminal is not registered')
+        return
+      }
+      if (grant.resource.generation !== entry.generation) {
         session.send({
           type: 'error',
           error: devError('stale_generation', 'grant generation is stale'),
@@ -543,8 +615,30 @@ export function registerTerminalRuntime(
         session.close('stale_generation', 'input generation is stale')
         return
       }
-      const writeState = { terminalId, generation: grant.resource.generation, session }
+      const authority =
+        inputAuthorities.get(terminalId) ??
+        (() => {
+          const created = createInputAuthority(terminalId)
+          inputAuthorities.set(terminalId, created)
+          return created
+        })()
+      const writeState: {
+        terminalId: string
+        generation: number
+        session: typeof session
+        fence?: InputFence
+      } = { terminalId, generation: grant.resource.generation, session }
       writeSessions.set(grant.grantId, writeState)
+      // The stream grant becomes the terminal's current input owner. A later
+      // grant atomically replaces this fence; every chunk from the old writer
+      // is rejected before reaching the PTY.
+      const admitted = authority.admit('terminal_user', grant.resource.generation)
+      if (!admitted.ok) {
+        session.close('stale_generation', admitted.message)
+        writeSessions.delete(grant.grantId)
+        return
+      }
+      writeState.fence = admitted.fence
       session.onFrame = (frame) => {
         if (frame.type !== 'input') {
           session.close('incompatible', 'write streams accept only input frames')
@@ -552,6 +646,11 @@ export function registerTerminalRuntime(
         }
         if (frame.generation !== grant.resource.generation) {
           session.close('stale_generation', 'input frame generation is stale')
+          writeSessions.delete(grant.grantId)
+          return
+        }
+        if (!writeState.fence || !authority.admitChunk(writeState.fence).ok) {
+          session.close('stale_generation', 'input writer no longer owns the terminal')
           writeSessions.delete(grant.grantId)
           return
         }
@@ -569,6 +668,7 @@ export function registerTerminalRuntime(
       }
       session.onClose = () => {
         writeSessions.delete(grant.grantId)
+        if (writeState.fence) authority.releaseFence(writeState.fence)
       }
     })
 
@@ -610,6 +710,16 @@ export function registerTerminalRuntime(
           }
           readSessions.delete(subscriberId)
         }
+        // #400: the sidecar OBSERVED this termination — fan it out so bound
+        // consumers (harness-in-PTY runs) derive status from an observed
+        // fact, never an assumed one.
+        for (const observer of exitObservers) {
+          try {
+            observer(notice)
+          } catch {
+            /* an observer's failure never breaks the terminal runtime */
+          }
+        }
       },
     })
   }
@@ -619,8 +729,193 @@ export function registerTerminalRuntime(
   }
   registerStreamProvider()
 
+  // ── #400 residue: guarded prompt delivery (launch → PTY input) ───────────
+  //
+  // The launch transaction delivers the initial prompt through the strongest
+  // supported channel; for PTY-backed launches that is this guarded write
+  // path. Delivery is fenced exactly like a client write stream — one
+  // `prompt_delivery` owner, per-chunk re-admission, explicit release — so a
+  // prompt cannot interleave with a user's paste or cross an ownership
+  // change. It is bounded to ONE submit (the verbatim prompt plus a single
+  // Enter terminator); reconcile/retry stays a caller decision, never an
+  // automatic re-delivery (spec: a timeout/ambiguous acknowledgement does
+  // not retry prompt delivery blindly).
+
+  const PROMPT_CHUNK_BYTES = 1024
+
+  async function deliverPrompt(request: { runtimeSessionId: string; prompt: string }): Promise<
+    | {
+        ok: true
+        terminalId: string
+        terminalGeneration: number
+        chunks: number
+        bytes: number
+      }
+    | { ok: false; code: DevError['code']; message: string }
+  > {
+    // The session's newest registered terminal is the delivery target; an
+    // absent or non-live terminal is a typed non-delivery, never a silent
+    // skip and never a fabricated write.
+    let target: { terminalId: string; entry: TerminalRegistryEntry } | undefined
+    for (const [terminalId, entry] of registry) {
+      if (entry.runtimeSessionId === request.runtimeSessionId) target = { terminalId, entry }
+    }
+    if (!target) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'no terminal is attached to this runtime session',
+      }
+    }
+    const snapshot = await snapshotFor(target.terminalId)
+    if (!snapshot || snapshot.lifecycle !== 'running') {
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'the runtime session terminal is not live',
+      }
+    }
+    const authority =
+      inputAuthorities.get(target.terminalId) ??
+      (() => {
+        const created = createInputAuthority(target.terminalId)
+        inputAuthorities.set(target.terminalId, created)
+        return created
+      })()
+    // Acquisition: an equal-generation takeover is the designed ownership
+    // transfer. The authority keeps generations monotonic while the source
+    // discriminates user typing, chat sends, and this automated delivery, so
+    // the audit trail names the writer.
+    const admitted = authority.admit('prompt_delivery', target.entry.generation)
+    if (!admitted.ok) {
+      return { ok: false, code: admitted.code, message: admitted.message }
+    }
+    const fence = admitted.fence
+    const payload = new TextEncoder().encode(
+      request.prompt.endsWith('\n') ? request.prompt : `${request.prompt}\n`
+    )
+    const chunks: Uint8Array[] = []
+    for (let offset = 0; offset < payload.byteLength; offset += PROMPT_CHUNK_BYTES) {
+      chunks.push(
+        payload.subarray(offset, Math.min(offset + PROMPT_CHUNK_BYTES, payload.byteLength))
+      )
+    }
+    const writes: Promise<unknown>[] = []
+    let writeError: { code: string; message: string } | undefined
+    try {
+      const fenced = fencedWrite(authority, fence, chunks, (chunk) => {
+        writes.push(
+          input.sidecar.writeInput(target.terminalId, chunk).then((written) => {
+            if (!written.ok && !writeError) {
+              writeError = { code: written.code, message: written.message }
+            }
+          })
+        )
+      })
+      // Byte order is preserved by the sidecar duplex; the awaits only collect
+      // the correlated write results.
+      for (const pending of writes) await pending
+      if (writeError) {
+        const mapped = sidecarFailure(writeError.code, writeError.message)
+        return { ok: false, code: mapped.code, message: mapped.message }
+      }
+      if (fenced.stopped) {
+        return {
+          ok: false,
+          code: 'stale_generation',
+          message: 'prompt delivery lost the terminal input ownership mid-write',
+        }
+      }
+      return {
+        ok: true,
+        terminalId: target.terminalId,
+        terminalGeneration: target.entry.generation,
+        chunks: fenced.written,
+        bytes: payload.byteLength,
+      }
+    } finally {
+      // Release only while the fence is still current; a taken-over fence
+      // stays with its new owner.
+      authority.releaseFence(fence)
+    }
+  }
+
+  // ── #400 residue: harness-in-PTY spawn ───────────────────────────────────
+  //
+  // A harness launch with the `attachTerminal` intent spawns the harness
+  // executable as the PTY child of a NEW terminal bound to the runtime
+  // session. The spawn reuses exactly the `dev.terminal.create` patterns —
+  // worktree-resolved cwd, sidecar.create, registry + input-authority
+  // registration — so the harness process is a first-class terminal process:
+  // observable through the terminal runtime, writable through the guarded
+  // input authority, and its exit OBSERVED through the sidecar's exited
+  // notice. The argv[0] is the host-resolved installation executable
+  // identity; this seam never accepts renderer-supplied argv.
+
+  async function spawnHarnessTerminal(request: {
+    runtimeSessionId: string
+    worktreeId: string
+    shell: string
+    cols?: number
+    rows?: number
+  }): Promise<
+    | { ok: true; terminalId: string; terminalGeneration: number }
+    | { ok: false; code: DevError['code']; message: string }
+  > {
+    if (request.shell.length === 0 || request.shell.includes('\0')) {
+      return { ok: false, code: 'identity_mismatch', message: 'harness executable is unresolved' }
+    }
+    const cwd = input.resolveWorktreeRoot(request.worktreeId)
+    if (cwd === null) {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'worktree root is not authorized on this runtime node',
+      }
+    }
+    const cols = request.cols ?? 80
+    const rows = request.rows ?? 24
+    const terminalId = randomUUID()
+    const created = await input.sidecar.create({
+      terminalId,
+      generation: 1,
+      cols,
+      rows,
+      cwd,
+      shell: request.shell,
+      args: [],
+    })
+    if (!created.ok) {
+      const failure = sidecarFailure(created.code, created.message)
+      return { ok: false, code: failure.code, message: failure.message }
+    }
+    const entry: TerminalRegistryEntry = {
+      scope: input.scope,
+      runtimeSessionId: request.runtimeSessionId,
+      worktreeId: request.worktreeId,
+      generation: 1,
+      processRecordId: randomUUID(),
+      sidecarId: input.sidecar.welcome.pidStartIdentity,
+    }
+    registry.set(terminalId, entry)
+    inputAuthorities.set(terminalId, createInputAuthority(terminalId))
+    return { ok: true, terminalId, terminalGeneration: entry.generation }
+  }
+
+  function onTerminalExited(
+    cb: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+  ): () => void {
+    exitObservers.add(cb)
+    return () => {
+      exitObservers.delete(cb)
+    }
+  }
+
   return {
     commands: Object.keys(handlers) as DevOperation[],
+    deliverPrompt,
+    spawnHarnessTerminal,
+    onTerminalExited,
     dispose() {
       for (const [, state] of readSessions) {
         try {

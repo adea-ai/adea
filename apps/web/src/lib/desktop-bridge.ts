@@ -7,6 +7,16 @@
 export type DesktopShell = {
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>
   listen(event: string, handler: (payload: unknown) => void): Promise<() => void>
+  devExecute?(command: unknown): Promise<unknown>
+  /** Signs a bulk-stream attach under the page channel secret without ever
+   *  exposing the secret; present only on shells that carry the stream
+   *  relay (#399 residue). */
+  streamAttachProof?(request: {
+    grantId: string
+    requestId: string
+    nonce: string
+    fromSequence: string
+  }): Promise<{ channelId: string; clientCredentialId: string; proof: string }>
 }
 
 declare global {

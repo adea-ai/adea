@@ -2,7 +2,7 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, Show } from 'solid-js'
+import { createEffect, createSignal, untrack, Show } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
@@ -28,6 +28,8 @@ import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
 import { GlobalWorkspaceRail } from '@adea-ai/workspace-ui/global-workspace-rail'
 import type { WorkspaceDeepLink } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspaceSearch } from '../start/routes/__root'
+import { desktopMacPermissionsService } from '../lib/desktop-permissions'
+import { isDesktopRuntime } from '../lib/desktop-bridge'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -173,6 +175,7 @@ function WorkspaceSettingsOverlay(props: {
       onSignIn={props.onSignIn}
       onSignOut={props.onSignOut}
       open={props.open}
+      permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
       services={props.services}
       workspace={props.workspace}
     />
@@ -234,6 +237,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
+  // Dev selection lives in the shared store; the URL effects below mirror it
+  // into `devProject`/`devSession` search params deterministically.
+  const devSelectedProjectId = useWorkspaceState((state) => state.selectedDevProjectId)
+  const devSelectedSessionId = useWorkspaceState((state) => state.selectedRuntimeSessionId)
   // Rail customization is a device-local versioned preference with unknown-
   // contribution preservation; a corrupt record falls back without deleting
   // the unread value.
@@ -295,6 +302,47 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     })
   const setViewParam = (nextView: WorkspaceView) => applySearch({ view: nextView })
   const setScene = (nextScene: 'home' | 'work') => applySearch({ scene: nextScene })
+
+  // Dev deep links: `devProject`/`devSession` seed the shared selection store
+  // on arrival and follow it deterministically afterwards. A stale, archived,
+  // or cross-project link converges on the recovered selection (Dev View
+  // corrects the store; the effect below rewrites the URL) instead of pinning
+  // an invalid selection. Unknown query keys survive every patch because
+  // `applySearch` spreads the current search.
+  //
+  // This effect is URL-driven only: the store reads are untracked because the
+  // store proxy's property reads would subscribe it to the very fields it
+  // writes. Tracked, Dev View's recovery correction (stale/archived session →
+  // live session) re-triggers this effect, which re-applies the now-stale URL
+  // over the corrected store, which re-triggers recovery — an infinite
+  // synchronous effect loop that never yields to the router's search patch,
+  // leaving the lazy Dev boundary permanently unresolved.
+  createEffect(() => {
+    if (view() !== 'dev') return
+    const urlProject = currentSearch().devProject
+    const urlSession = currentSearch().devSession
+    untrack(() => {
+      const store = workspaceStore.getState()
+      if (urlProject && urlProject !== store.selectedDevProjectId) {
+        store.setSelectedDevProjectId(urlProject)
+        if (urlSession) workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+        return
+      }
+      if (urlSession && urlSession !== store.selectedRuntimeSessionId)
+        workspaceStore.getState().setSelectedRuntimeSessionId(urlSession)
+    })
+  })
+  createEffect(() => {
+    if (view() !== 'dev') return
+    const projectId = devSelectedProjectId()
+    const sessionId = devSelectedSessionId()
+    const patch: Partial<WorkspaceSearch> = {}
+    if ((currentSearch().devProject ?? undefined) !== (projectId ?? undefined))
+      patch.devProject = projectId ?? undefined
+    if ((currentSearch().devSession ?? undefined) !== (sessionId ?? undefined))
+      patch.devSession = sessionId ?? undefined
+    if (patch.devProject !== undefined || patch.devSession !== undefined) applySearch(patch)
+  })
 
   // Deep-link params are router state the chat surface consumes through
   // accessors — reactive, so notification links apply on SPA navigation too.
@@ -381,8 +429,20 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   createEffect(() => {
     const activeWorkspace = props.activeWorkspace
     if (!activeWorkspace) return
+    // Reconcile the store with the server-authoritative active workspace. The
+    // summary lands asynchronously, so this is a fill-in, not a user switch:
+    // `switchWorkspace` resets per-workspace context (drafts, panels, the Dev
+    // selection) and would wipe a deep-linked Dev selection seeded and
+    // recovered before the summary arrived. User-initiated switches (rail
+    // menu, `?workspace=`) go through `switchToWorkspace`, which performs the
+    // full reset deliberately.
     if (selectedWorkspaceId() !== activeWorkspace.id)
-      workspaceStore.getState().switchWorkspace(activeWorkspace.id, activeWorkspace.scene)
+      workspaceStore.getState().switchWorkspace(activeWorkspace.id, activeWorkspace.scene, {
+        // A summary arrival that lands after a Dev deep link seeded (and
+        // Dev View recovered) the selection must reconcile the workspace
+        // without wiping that freshly recovered selection.
+        preserveDevSelection: true,
+      })
     workspaceStore.getState().setSelectedScene(activeWorkspace.scene)
     const currentScene = (search() as WorkspaceSearch).scene
     if (currentScene !== activeWorkspace.scene) void setScene(activeWorkspace.scene)

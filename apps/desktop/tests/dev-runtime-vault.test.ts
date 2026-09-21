@@ -7,9 +7,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
+import {
+  createOwnerApprovalVerifier,
+  DevAuthorityError,
+  type OwnerApproval,
+  type OwnerApprovalVerifier,
+} from '../shell/src/dev-runtime/authority'
 import { createAuthorityAudit } from '../shell/src/dev-runtime/audit'
-import { createCredentialVault } from '../shell/src/dev-runtime/vault'
+import { createCredentialVault, type VaultKeyStore } from '../shell/src/dev-runtime/vault'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -21,11 +26,33 @@ const otherScope = {
   workspaceId: '00000000-0000-4000-8000-000000000099',
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 } as const
-const approval = { method: 'owner_dialog', reference: 'consent-2' } as const
+const ENROLL_ACTION = 'enroll a credential'
 const SECRET = 'canary-secret-value-阅读'
+let verifier: OwnerApprovalVerifier
+let consentSequence = 0
+
+/** Issues one durable, scope-bound, single-use owner approval. */
+function approved(action: string = ENROLL_ACTION): OwnerApproval {
+  const approval: OwnerApproval = {
+    method: 'owner_dialog',
+    reference: `consent-${++consentSequence}`,
+    scope,
+    issuedAt: new Date(Date.now() - 1_000).toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  verifier.recordIssuance(approval, scope, action)
+  return approval
+}
 
 function vault(dataDir: string, audit?: ReturnType<typeof createAuthorityAudit>) {
-  return createCredentialVault({ dataDir, audit })
+  verifier = createOwnerApprovalVerifier({ dataDir })
+  const keys = new Map<string, Buffer>()
+  const credentialStore: VaultKeyStore = {
+    get: (_service, account) => keys.get(account),
+    set: (_service, account, key) => keys.set(account, Buffer.from(key)),
+    delete: (_service, account) => keys.delete(account),
+  }
+  return createCredentialVault({ dataDir, audit, credentialStore, approvalVerifier: verifier })
 }
 
 function expectCode(run: () => unknown, code: DevAuthorityError['code']) {
@@ -46,11 +73,72 @@ function enroll(vaultInstance: ReturnType<typeof createCredentialVault>, label =
     host: 'github.com',
     kind: 'github_token',
     secret: SECRET,
-    approval,
+    approval: approved(),
   })
 }
 
 describe('credential vault', () => {
+  test('owner approval evidence is issued, scope-bound, and single-use', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-approvals-'))
+    try {
+      let now = Date.parse('2026-09-18T12:00:00.000Z')
+      const controlled = createOwnerApprovalVerifier({ dataDir, now: () => new Date(now) })
+      const evidence = {
+        method: 'owner_dialog' as const,
+        reference: 'approval-once',
+        scope,
+        issuedAt: '2026-09-18T11:59:00.000Z',
+        expiresAt: '2026-09-18T12:01:00.000Z',
+      }
+      // A structural record without an issuance is never consumable.
+      expectCode(
+        () => controlled.consume(evidence, scope, 'authorize a root bookmark'),
+        'unauthorized'
+      )
+      controlled.recordIssuance(evidence, scope, 'authorize a root bookmark')
+      controlled.consume(evidence, scope, 'authorize a root bookmark')
+      expectCode(
+        () => controlled.consume(evidence, scope, 'authorize a root bookmark'),
+        'unauthorized'
+      )
+      expectCode(
+        () =>
+          controlled.consume(
+            { ...evidence, reference: 'other-reference' },
+            scope,
+            'authorize a root bookmark'
+          ),
+        'unauthorized'
+      )
+      // Expiry is rechecked at consumption time.
+      const expiring = {
+        method: 'owner_setting' as const,
+        reference: 'approval-expiring',
+        scope,
+        issuedAt: '2026-09-18T11:59:00.000Z',
+        expiresAt: '2026-09-18T12:00:30.000Z',
+      }
+      controlled.recordIssuance(expiring, scope, 'authorize a root bookmark')
+      now = Date.parse('2026-09-18T12:00:31.000Z')
+      expectCode(
+        () => controlled.consume(expiring, scope, 'authorize a root bookmark'),
+        'unauthorized'
+      )
+      // Wrong scope never matches.
+      const other = {
+        ...evidence,
+        reference: 'approval-scope',
+        expiresAt: '2026-09-18T12:05:00.000Z',
+      }
+      controlled.recordIssuance(other, scope, 'authorize a root bookmark')
+      expectCode(
+        () => controlled.consume(other, otherScope, 'authorize a root bookmark'),
+        'unauthorized'
+      )
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
   test('enrolls only with owner approval evidence', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-vault-'))
     try {
@@ -109,7 +197,7 @@ describe('credential vault', () => {
             host: 'github.com',
             kind: 'other',
             secret: 's',
-            approval,
+            approval: approved(),
           }),
         'invalid_state'
       )
@@ -121,7 +209,7 @@ describe('credential vault', () => {
             host: 'not a host',
             kind: 'other',
             secret: 's',
-            approval,
+            approval: approved(),
           }),
         'invalid_state'
       )
@@ -133,7 +221,7 @@ describe('credential vault', () => {
             host: 'github.com',
             kind: 'other',
             secret: '',
-            approval,
+            approval: approved(),
           }),
         'invalid_state'
       )
@@ -257,7 +345,7 @@ describe('credential vault', () => {
         host: 'github.com',
         kind: 'github_token',
         secret: 'fresh-secret',
-        approval,
+        approval: approved(),
       })
       expect(repaired.id).toBe(ref.id)
       expect(repaired.state).toBe('ready')

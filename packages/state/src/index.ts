@@ -26,7 +26,11 @@ export type WorkspaceState = {
   setSelectedScene: (scene: WorkspaceSceneId) => void
   setCameraViewMode: (mode: WorkspaceViewMode) => void
   setSelectedWorkspaceId: (workspaceId: string | null) => void
-  switchWorkspace: (workspaceId: string, scene: WorkspaceSceneId) => void
+  switchWorkspace: (
+    workspaceId: string,
+    scene: WorkspaceSceneId,
+    options?: { preserveDevSelection?: boolean }
+  ) => void
   setSelectedRoomId: (roomId: string | null) => void
   setSelectedChannelId: (channelId: string | null) => void
   setSelectedTaskId: (taskId: string | null) => void
@@ -92,7 +96,7 @@ function initialState(): WorkspaceState {
     setSelectedScene: (selectedScene) => set({ selectedScene }),
     setCameraViewMode: (cameraViewMode) => set({ cameraViewMode }),
     setSelectedWorkspaceId: (selectedWorkspaceId) => set({ selectedWorkspaceId }),
-    switchWorkspace: (selectedWorkspaceId, selectedScene) =>
+    switchWorkspace: (selectedWorkspaceId, selectedScene, options) =>
       set({
         activeSurface: 'conversation',
         cameraViewMode: 'orthographic',
@@ -109,9 +113,16 @@ function initialState(): WorkspaceState {
         selectedTaskId: null,
         selectedWorkspaceId,
         selectedRuntimeNodeId: null,
-        selectedDevProjectId: null,
-        selectedRuntimeSessionId: null,
-        selectedDevPaneId: null,
+        // A summary-arrival reconcile that seeded a Dev deep link (recovering
+        // a stale/archived session) must not wipe the freshly recovered
+        // selection; user-initiated switches reset it with everything else.
+        ...(options?.preserveDevSelection
+          ? {}
+          : {
+              selectedDevProjectId: null,
+              selectedRuntimeSessionId: null,
+              selectedDevPaneId: null,
+            }),
         threadRootMessageId: null,
       }),
     setSelectedRoomId: (selectedRoomId) => set({ selectedRoomId }),

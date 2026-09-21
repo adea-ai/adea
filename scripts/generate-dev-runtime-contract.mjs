@@ -9,8 +9,10 @@ const outputPath = path.join(root, 'packages/types/src/dev-runtime-registry.ts')
 const registry = JSON.parse(await readFile(inputPath, 'utf8'))
 
 const targetIdFields = {
+  acp_connection: 'acpConnectionId',
   browser_lane: 'browserLaneId',
   cleanup_policy: 'cleanupPolicyId',
+  computeruse_lane: 'computerUseLaneId',
   device_inventory: 'inventoryId',
   device_session: 'deviceSessionId',
   group: 'groupId',

@@ -6,7 +6,7 @@
 // WebSocket plumbing itself is pinned by shell-channel.test.ts.
 import { afterAll, describe, expect, test } from 'bun:test'
 import { createHmac, randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -239,6 +239,7 @@ async function makeHarness(platform: NodeJS.Platform = 'darwin') {
   return {
     authority,
     registration,
+    service,
     sidecar,
     fake,
     runtimeRoot,
@@ -439,11 +440,12 @@ describe('terminal runtime over the m10 gate', () => {
     expect(stream.frames.filter((frame) => frame.type === 'data')).toHaveLength(2)
   })
 
-  test('an attach whose fromSequence is no longer covered resyncs from the checkpoint anchor', async () => {
+  test('an attach below the ring replays the durable bridge exactly once in order', async () => {
     const harness = await makeHarness()
     const terminalId = await harness.createTerminal()
     // Push enough output through the small ring (fake limits keep this fast)
-    // so early sequences are pruned.
+    // so early sequences leave the ring; the durable checkpoints still hold
+    // every chunk, so coverage is bridged rather than resynced.
     for (let batch = 0; batch < 12; batch += 1) {
       harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61))
       await Bun.sleep(6)
@@ -457,12 +459,149 @@ describe('terminal runtime over the m10 gate', () => {
     if (!attachReply.ok) throw new Error('attach failed')
     const grant = decodeDevStreamGrant(attachReply.value)
     const stream = harness.openStream(grant)
+    await Bun.sleep(40)
+    const dataFrames = stream.frames.filter((frame) => frame.type === 'data')
+    expect(stream.frames.filter((frame) => frame.type === 'resync')).toEqual([])
+    expect(dataFrames).toHaveLength(12)
+    expect(dataFrames.map((frame) => (frame.type === 'data' ? frame.sequence : ''))).toEqual(
+      Array.from({ length: 12 }, (_, index) => String(index))
+    )
+  })
+
+  test('a genuinely unavailable span resyncs from the deterministic ring anchor', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    for (let batch = 0; batch < 12; batch += 1) {
+      harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61))
+      await Bun.sleep(6)
+    }
+    // Flush the pending buffer to segments, then remove the oldest segment:
+    // the retention-boundary shape where history before the survivor genuinely
+    // no longer exists anywhere.
+    await harness.execute('dev.terminal.checkpoint', {
+      terminalId,
+      expectedGeneration: 1,
+    })
+    const sessionDir = join(harness.runtimeRoot, terminalId)
+    const segments = readdirSync(sessionDir)
+      .filter((name) => name.startsWith('seg-'))
+      .toSorted()
+    expect(segments.length).toBeGreaterThan(0)
+    rmSync(join(sessionDir, segments[0]!))
+    const attachReply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!attachReply.ok) throw new Error('attach failed')
+    const grant = decodeDevStreamGrant(attachReply.value)
+    const stream = harness.openStream(grant)
     await Bun.sleep(30)
+    // The anchor is the ring's oldest covered sequence — no fabricated
+    // partial history, and the same anchor on every retry.
     expect(stream.frames).toEqual([
       { type: 'resync', reason: 'checkpoint_required', checkpointSequence: expect.any(String) },
     ])
-    expect(stream.closes).toHaveLength(1)
+    const firstAnchor = (stream.frames[0] as { checkpointSequence: string }).checkpointSequence
+    const retry = harness.openStream(grant)
+    await Bun.sleep(20)
+    expect(retry.frames).toEqual([
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: firstAnchor },
+    ])
     expect(stream.closes[0]).toContain('backpressure')
+  })
+
+  test('a live stream past the mid-stream high-water resyncs once, anchored like attach time', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const attachReply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!attachReply.ok) throw new Error('attach failed')
+    const grant = decodeDevStreamGrant(attachReply.value)
+    const stream = harness.openStream(grant)
+    await Bun.sleep(20)
+    // Inject the fault past the live attach: chunks flow with no ack credit
+    // ever returned, so the subscriber crosses the mid-stream high-water (the
+    // third pending chunk trips it; two alone never leave undelivered work).
+    for (let index = 0; index < 3; index += 1) {
+      harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61 + index))
+      await Bun.sleep(8)
+    }
+    await Bun.sleep(20)
+    // The client-visible event: the data chunks before the pause, then ONE
+    // resync carrying the same deterministic anchor the attach-time path
+    // returns (the ring's oldest covered sequence), then the backpressure
+    // close. Bytes are never fabricated: each frame holds its exact chunk.
+    const dataFrames = stream.frames.filter((frame) => frame.type === 'data')
+    expect(dataFrames.map((frame) => (frame.type === 'data' ? frame.sequence : ''))).toEqual([
+      '0',
+      '1',
+    ])
+    expect(dataFrames.map((frame) => (frame.type === 'data' ? [...frame.bytes] : []))).toEqual([
+      Array.from(new Uint8Array(24).fill(0x61)),
+      Array.from(new Uint8Array(24).fill(0x62)),
+    ])
+    const coverage = harness.service.manager.coverage(terminalId)
+    expect(coverage).toBeDefined()
+    if (!coverage) return
+    expect(stream.frames.filter((frame) => frame.type === 'resync')).toEqual([
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: coverage.oldestSeq },
+    ])
+    expect(stream.closes[0]).toContain('backpressure')
+    // One notice per gap: further output and fresh credit never re-notice the
+    // latched subscriber, and no further data is delivered on the old stream.
+    harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x64))
+    stream.send({ type: 'ack', throughSequence: '1', availableCreditBytes: 48 })
+    await Bun.sleep(15)
+    expect(stream.frames.filter((frame) => frame.type === 'resync')).toHaveLength(1)
+    expect(stream.frames.filter((frame) => frame.type === 'data')).toHaveLength(2)
+  })
+
+  test('two concurrent writers cannot both write: the displaced fence is inert', async () => {
+    const harness = await makeHarness()
+    const terminalId = await harness.createTerminal()
+    const first = await harness.execute('dev.terminal.input', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'write',
+    })
+    const second = await harness.execute('dev.terminal.input', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'write',
+    })
+    if (!first.ok || !second.ok) throw new Error('grants failed')
+    const streamA = harness.openStream(decodeDevStreamGrant(first.value))
+    const encoder = new TextEncoder()
+    // A owns the terminal and writes.
+    streamA.send({
+      type: 'input',
+      sequence: '1',
+      generation: 1,
+      bytes: encoder.encode('from-a-1\n'),
+    })
+    await Bun.sleep(15)
+    // B's grant admits a new fence; A's chunks are inert from this point.
+    const streamB = harness.openStream(decodeDevStreamGrant(second.value))
+    streamB.send({ type: 'input', sequence: '1', generation: 1, bytes: encoder.encode('from-b\n') })
+    await Bun.sleep(15)
+    streamA.send({
+      type: 'input',
+      sequence: '2',
+      generation: 1,
+      bytes: encoder.encode('from-a-2\n'),
+    })
+    await Bun.sleep(20)
+    expect(
+      harness.fake.processes[0]!.written.map((bytes) => new TextDecoder().decode(bytes))
+    ).toEqual(['from-a-1\n', 'from-b\n'])
+    expect(streamA.closes.join(' ')).toContain('stale_generation')
+    expect(streamB.closes).toEqual([])
   })
 
   test('write grants carry generation-stamped input to the PTY', async () => {

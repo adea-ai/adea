@@ -12,7 +12,7 @@
 // releases-page handoff.
 import { createPublicKey, verify as cryptoVerify } from 'node:crypto'
 import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, sep } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 
 /** The Ed25519 public half of the release signing key (raw 32 bytes, base64). */
 const DESKTOP_UPDATE_PUBLIC_KEY = 'oNz1xzur8JmPA/fv4m2FI/HWEhju372i/e21aiq0cDs='
@@ -266,11 +266,23 @@ function decompressZstd(archivePath: string, tarPath: string): void {
     return
   }
   // Not inside an installed bundle (repo dev run): the developer's PATH is
-  // expected to carry a zstd implementation.
-  const proc = Bun.spawnSync(['zstd', '-d', '-f', archivePath, '-o', tarPath], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
+  // expected to carry a zstd implementation. A missing one is the same
+  // decompression failure as a failing one — Bun.spawnSync throws ENOENT
+  // before returning, so catch and fail with the same typed message.
+  let proc: ReturnType<typeof Bun.spawnSync>
+  try {
+    proc = Bun.spawnSync(['zstd', '-d', '-f', archivePath, '-o', tarPath], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+  } catch (cause) {
+    throw new Error(
+      `the downloaded update archive could not be decompressed (zstd unavailable: ${
+        cause instanceof Error ? cause.message : String(cause)
+      })`,
+      { cause }
+    )
+  }
   if (proc.exitCode !== 0) {
     const stderr = proc.stderr?.toString().trim().slice(0, 300) ?? ''
     throw new Error(
@@ -434,4 +446,126 @@ export function stageUpdateSwap(input: {
     { mode: 0o755 }
   )
   return { target, scriptPath }
+}
+
+// ── Executed rollback (M10 #34) ────────────────────────────────────────────
+//
+// `stageUpdateSwap` covers the happy path (its apply script moves the old
+// bundle to `.previous` and only rolls back if the install move itself
+// fails). When a swapped-in build turns out to be broken after launch, the
+// shell needs the recovery half EXECUTED against the real install layout:
+// the failed artifact is quarantined with its raw bytes retained, and the
+// staged `.previous` install is restored to the bundle location. This is the
+// executor for the manifest planner's explicit `rollbackTargetVersion`
+// (component-manifest.ts); like the planner, it refuses an implicit rollback
+// when no previous install exists, and it never touches component data
+// locations — only bundle files move.
+
+export type UpdateRollbackResult =
+  | {
+      ok: true
+      /** The bundle root after the rollback (the restored previous install). */
+      target: string
+      /** Where the failed artifact was moved (raw bytes retained). */
+      quarantinedTo: string
+    }
+  | {
+      ok: false
+      reason: 'not_a_bundle' | 'no_previous_install' | 'previous_incomplete' | 'rollback_failed'
+      message: string
+      target: string
+    }
+
+/** The completeness an install must prove before it can be trusted as either
+ *  rollback source or rolled-back state (same shape `extractUpdateArchive`
+ *  requires of a freshly extracted bundle). */
+function bundleLooksComplete(bundlePath: string): boolean {
+  return (
+    existsSync(join(bundlePath, 'Contents', 'Resources', 'main.js')) &&
+    existsSync(join(bundlePath, 'Contents', 'MacOS', 'launcher'))
+  )
+}
+
+/**
+ * Restore the staged `.previous` install after a failed update. Fail-closed:
+ * without a provably complete previous install nothing moves; if the restore
+ * itself fails, the failed artifact is moved back so the layout is exactly as
+ * before. Component data locations are never read, moved, or deleted.
+ */
+export function executeUpdateRollback(input: {
+  /** The bundle root of the failed install (…/Adea.app). */
+  target: string
+  /** Directory under the shell's data location that receives the failed artifact. */
+  quarantineDir: string
+}): UpdateRollbackResult {
+  const target = input.target
+  if (!target.endsWith('.app')) {
+    return {
+      ok: false,
+      reason: 'not_a_bundle',
+      message: 'not a packaged app bundle',
+      target,
+    }
+  }
+  const previous = `${target}.previous`
+  if (!existsSync(previous)) {
+    return {
+      ok: false,
+      reason: 'no_previous_install',
+      message: 'no previous install is staged; an implicit rollback is refused',
+      target,
+    }
+  }
+  if (!bundleLooksComplete(previous)) {
+    return {
+      ok: false,
+      reason: 'previous_incomplete',
+      message: 'the staged previous install is not a complete bundle; refusing to restore it',
+      target,
+    }
+  }
+  mkdirSync(input.quarantineDir, { recursive: true, mode: 0o700 })
+  const quarantinedTo = join(input.quarantineDir, `${basename(target)}.failed-${Date.now()}`)
+  try {
+    renameSync(target, quarantinedTo)
+  } catch (error) {
+    return {
+      ok: false,
+      reason: 'rollback_failed',
+      message: `could not quarantine the failed artifact: ${error instanceof Error ? error.message : String(error)}`,
+      target,
+    }
+  }
+  try {
+    renameSync(previous, target)
+  } catch (error) {
+    try {
+      renameSync(quarantinedTo, target)
+    } catch {
+      // Every move failed; report with the layout as-is rather than pretending.
+    }
+    return {
+      ok: false,
+      reason: 'rollback_failed',
+      message: `could not restore the previous install: ${error instanceof Error ? error.message : String(error)}`,
+      target,
+    }
+  }
+  if (!bundleLooksComplete(target)) {
+    // Unreachable if the filesystem is honest (`.previous` was proven
+    // complete and renames are atomic) — belt and braces, fail closed.
+    try {
+      renameSync(target, previous)
+      renameSync(quarantinedTo, target)
+    } catch {
+      // Leave the evidence on disk either way.
+    }
+    return {
+      ok: false,
+      reason: 'rollback_failed',
+      message: 'the restored install did not verify complete; rolled the failed artifact back',
+      target,
+    }
+  }
+  return { ok: true, target, quarantinedTo }
 }

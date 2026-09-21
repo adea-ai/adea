@@ -236,6 +236,36 @@ export function BrowserPane(props: BrowserPaneProps) {
       .catch((reply) => setError(commandError(reply)))
   }
 
+  /**
+   * Applies the selected responsive preset to the active lane through
+   * `dev.browser.viewport`; the runtime state is authoritative, so the pane
+   * only reflects failures as typed errors.
+   */
+  function applyResponsivePreset(
+    nextPreset: ResponsivePresetId,
+    nextOrientation: ResponsiveOrientation
+  ): void {
+    setPresetId(nextPreset)
+    setOrientation(nextOrientation)
+    const lane = activeLane()
+    if (!lane) return
+    const viewport = resolvePresetViewport(presetById(nextPreset), nextOrientation)
+    execute<BrowserLane>(
+      'dev.browser.viewport',
+      {
+        browserLaneId: lane.id,
+        expectedGeneration: lane.generation,
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: viewport.deviceScaleFactor,
+        mobile: viewport.mobile,
+      },
+      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+    )
+      .then(() => setError(undefined))
+      .catch((reply) => setError(commandError(reply)))
+  }
+
   function handleUrlKeyDown(event: KeyboardEvent): void {
     if (event.key === 'Escape') {
       setUrlDraft(currentUrl())
@@ -504,10 +534,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                     'dev-utility-tab--selected': preset.id === presetId(),
                   })}
                   aria-pressed={preset.id === presetId()}
-                  onClick={() => {
-                    setPresetId(preset.id)
-                    setOrientation(preset.defaultOrientation)
-                  }}
+                  onClick={() => applyResponsivePreset(preset.id, preset.defaultOrientation)}
                 >
                   {preset.label}
                 </button>
@@ -516,9 +543,12 @@ export function BrowserPane(props: BrowserPaneProps) {
             <button
               type="button"
               class="dev-button"
-              onClick={() =>
-                setOrientation((value) => (value === 'portrait' ? 'landscape' : 'portrait'))
-              }
+              onClick={() => {
+                const next: ResponsiveOrientation =
+                  orientation() === 'portrait' ? 'landscape' : 'portrait'
+                setOrientation(next)
+                applyResponsivePreset(presetId(), next)
+              }}
             >
               Rotate
             </button>

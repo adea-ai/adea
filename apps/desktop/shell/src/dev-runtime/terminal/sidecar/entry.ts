@@ -8,14 +8,22 @@
 //
 // Usage: adea-terminal-sidecar --data-dir <dir> [--socket <path>]
 // Writes the owner-only endpoint file and serves the sidecar protocol on a
-// unix socket. SIGTERM/SIGINT flushes durable checkpoints and exits;
-// PTY process groups are left running so a UI restart adopts them.
-import { mkdirSync } from 'node:fs'
+// unix socket. A boot on a data dir whose endpoint names a live same-identity
+// process supersedes it cleanly; a stale endpoint is unlinked. SIGTERM/SIGINT
+// flushes durable checkpoints and exits (force-exited after a bounded grace
+// so a stalled shutdown can never orphan the process); PTY process groups are
+// left running so a UI restart adopts them.
+import { mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 import { createBunPtyAdapter } from '../pty-adapter'
-import { writeEndpointFile } from './endpoint-file'
+import { endpointFilePath, readEndpointFile, writeEndpointFile } from './endpoint-file'
 import { createSidecarService, newSidecarCredential } from './service'
+import {
+  createBackpressuredSocketWriter,
+  type BackpressuredSocketWriter,
+  type SocketWriterSocket,
+} from './socket-writer'
 import { SIDECAR_PROTOCOL, type ByteDuplex } from './protocol'
 
 function argValue(name: string): string | undefined {
@@ -31,12 +39,39 @@ if (!dataDir) {
 
 // Best-effort macOS/Linux start identity for the endpoint record; the
 // supervisor's durable launch records remain the destruction authority.
-function pidStartIdentity(): string {
+function startIdentity(pid: number): string {
   try {
-    const proc = Bun.spawnSync(['ps', '-o', 'lstart=', '-p', String(process.pid)])
-    return proc.stdout.toString().trim() || `boot-${process.pid}`
+    const proc = Bun.spawnSync(['ps', '-o', 'lstart=', '-p', String(pid)])
+    return proc.stdout.toString().trim() || `boot-${pid}`
   } catch {
-    return `boot-${process.pid}`
+    return `boot-${pid}`
+  }
+}
+
+function pidStartIdentity(): string {
+  return startIdentity(process.pid)
+}
+
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Removes a dead predecessor's endpoint and socket so a fresh bind succeeds. */
+function clearStaleEndpoint(dir: string, socketPath: string): void {
+  try {
+    rmSync(endpointFilePath(dir), { force: true })
+  } catch {
+    /* best effort */
+  }
+  try {
+    rmSync(socketPath, { force: true })
+  } catch {
+    /* best effort */
   }
 }
 
@@ -45,6 +80,41 @@ const socketPath = argValue('--socket') ?? `${dataDir}/dev-runtime/terminal-side
 const sidecarVersion = process.env.ADEA_SIDECAR_VERSION ?? '0.0.0-dev'
 const executableIdentity =
   process.env.ADEA_SIDECAR_IDENTITY ?? `adea-terminal-sidecar@${sidecarVersion}`
+
+// Boot-time ownership guard (additive, issue #396 hardening): the endpoint
+// file names this data dir's current owner. A live process that verifiably
+// holds it — same executable identity plus a `ps` start-identity recheck, the
+// same proof the supervisor uses before any signal — is superseded: it is
+// asked to exit cleanly (its own SIGTERM path flushes durable checkpoints)
+// inside a bounded window, then force-killed. Anything else is a stale
+// record (dead PID, recycled PID, replaced executable) and is only unlinked,
+// never signalled.
+const previous = readEndpointFile(dataDir)
+if (previous && previous.pid !== process.pid) {
+  const identityMatches = previous.executableIdentity === executableIdentity
+  const startMatches = previous.pidStartIdentity === startIdentity(previous.pid)
+  if (identityMatches && startMatches && isAlive(previous.pid)) {
+    try {
+      process.kill(previous.pid, 'SIGTERM')
+    } catch {
+      /* already gone */
+    }
+    const deadline = Date.now() + 5_000
+    while (isAlive(previous.pid) && Date.now() < deadline) {
+      await Bun.sleep(100)
+    }
+    if (isAlive(previous.pid)) {
+      try {
+        process.kill(previous.pid, 'SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
+    clearStaleEndpoint(dataDir, socketPath)
+  } else {
+    clearStaleEndpoint(dataDir, socketPath)
+  }
+}
 
 const service = createSidecarService({
   runtimeRoot: `${dataDir}/dev-runtime`,
@@ -55,14 +125,21 @@ const service = createSidecarService({
   pidStartIdentity: pidStartIdentity(),
 })
 
-/** Adapts Bun's listen-mode socket callbacks to the ByteDuplex seam. */
+/**
+ * Adapts Bun's listen-mode socket callbacks to the ByteDuplex seam.
+ *
+ * Writes go through the backpressured socket writer: Bun's unix write()
+ * silently drops what does not fit the kernel send buffer, so frames are
+ * serialized through a bounded queue that pauses on write() under-acceptance
+ * and resumes on the socket's drain event (issue #396 transport defect).
+ */
 class SocketDuplex implements ByteDuplex {
   private readonly dataCallbacks = new Set<(bytes: Uint8Array) => void>()
   private readonly closeCallbacks = new Set<() => void>()
-  private socket: { write(data: Uint8Array | string): number; end(): number | void } | null = null
+  private writer: BackpressuredSocketWriter | null = null
 
-  attach(socket: { write(data: Uint8Array | string): number; end(): number | void }): void {
-    this.socket = socket
+  attach(socket: SocketWriterSocket): void {
+    this.writer = createBackpressuredSocketWriter(socket)
   }
 
   deliver(data: Uint8Array): void {
@@ -73,9 +150,13 @@ class SocketDuplex implements ByteDuplex {
     for (const callback of this.closeCallbacks) callback()
   }
 
+  /** The socket's drain callback; resumes a paused write pump. */
+  notifyDrain(): void {
+    this.writer?.notifyDrain()
+  }
+
   send(bytes: Uint8Array): void {
-    // Bun listen-mode sockets expose write()/end(), not send().
-    this.socket?.write(bytes)
+    this.writer?.send(bytes)
   }
 
   onData(callback: (bytes: Uint8Array) => void): () => void {
@@ -93,7 +174,8 @@ class SocketDuplex implements ByteDuplex {
   }
 
   close(): void {
-    this.socket?.end()
+    // Bounded flush, then end; the shutdown belt force-exits regardless.
+    void this.writer?.close()
   }
 }
 
@@ -108,12 +190,16 @@ const server = Bun.listen({
   socket: {
     open(socket) {
       const duplex = new SocketDuplex()
-      duplex.attach(socket as { write(data: Uint8Array | string): number; end(): number | void })
+      duplex.attach(socket as SocketWriterSocket)
       connections.set(socket, duplex)
       service.handleConnection(duplex)
     },
     data(socket, data) {
       connections.get(socket)?.deliver(new Uint8Array(data))
+    },
+    // The writer's pump resumes when the kernel send buffer empties.
+    drain(socket) {
+      connections.get(socket)?.notifyDrain()
     },
     close(socket) {
       connections.get(socket)?.closeRemote()
@@ -142,12 +228,39 @@ let shuttingDown = false
 async function shutdown(): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
-  await service.prepareForShutdown()
-  server.stop(true)
-  process.exit(0)
+  // Belt over the graceful suspenders: a stalled checkpoint flush or server
+  // stop must never turn a signalled sidecar into a leaked orphan. After the
+  // grace window the process exits unconditionally (checkpoint segment writes
+  // are atomic, so the worst case equals the bytes an orphan would lose).
+  const forceExit = setTimeout(() => process.exit(0), 5_000)
+  try {
+    await service.prepareForShutdown()
+  } finally {
+    clearTimeout(forceExit)
+    server.stop(true)
+    process.exit(0)
+  }
 }
 process.on('SIGTERM', () => void shutdown())
 process.on('SIGINT', () => void shutdown())
+
+// Orphan belt: the endpoint file is this sidecar's only handle for a UI
+// restart to adopt it through. If the file disappears while the process is
+// live, no future adoption can ever target it and the process is unrecoverable
+// garbage — typically a test lane or cleanup that removed the data dir under a
+// still-running sidecar. Exiting then (through the same graceful path) keeps a
+// leaked lane from parking an unadoptable process — and its PTY children —
+// behind the test runner's end-of-run child reaping. Production never deletes
+// a live sidecar's data location (M10 manifest: cleanup retains component
+// data), so this fires only in the unrecoverable case.
+const endpointWatch = setInterval(() => {
+  if (shuttingDown) return
+  if (readEndpointFile(dataDir) === null) {
+    console.error('adea-terminal-sidecar: endpoint file disappeared; exiting')
+    void shutdown()
+  }
+}, 3_000)
+endpointWatch.unref?.()
 
 // Keep the event loop alive even with no connected client.
 setInterval(() => {}, 30_000).unref?.()

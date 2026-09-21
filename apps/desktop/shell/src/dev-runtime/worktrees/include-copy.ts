@@ -53,6 +53,9 @@ export type IncludeCopyCandidate = Readonly<{
 
 export type IncludeCopyPlan = Readonly<{
   sourceRoot: string
+  /** Source identity was added after the initial contract; absent legacy plans
+   * fail closed at apply time rather than being trusted across a root swap. */
+  sourceRootIdentity?: FileIdentityValue
   destinationRoot: string
   destinationRootIdentity: FileIdentityValue
   items: ReadonlyArray<IncludeCopyCandidate>
@@ -82,6 +85,7 @@ export function isSecretLikePath(relativePath: string): boolean {
 function digestFields(plan: Omit<IncludeCopyPlan, 'digest' | 'createdAt'>): string {
   return JSON.stringify({
     sourceRoot: plan.sourceRoot,
+    ...(plan.sourceRootIdentity ? { sourceRootIdentity: plan.sourceRootIdentity } : {}),
     destinationRoot: plan.destinationRoot,
     destinationRootIdentity: plan.destinationRootIdentity,
     items: plan.items,
@@ -144,6 +148,7 @@ export async function planIncludeCopy(input: {
 
   const destinationRootIdentity = identityOfPath(input.destinationRoot)
   const realSourceRoot = realpathSync(input.sourceRoot)
+  const sourceRootIdentity = identityOfPath(realSourceRoot)
   const approved = new Set(input.approvals ?? [])
   const items: IncludeCopyCandidate[] = []
   const excluded: Array<{ relativePath: string; reason: 'tracked' }> = []
@@ -234,6 +239,7 @@ export async function planIncludeCopy(input: {
 
   const fields: Omit<IncludeCopyPlan, 'digest' | 'createdAt'> = {
     sourceRoot: input.sourceRoot,
+    sourceRootIdentity,
     destinationRoot: input.destinationRoot,
     destinationRootIdentity,
     items,
@@ -268,14 +274,52 @@ export async function applyIncludeCopy(input: {
   }
 
   const destinationRoot = realpathSync(plan.destinationRoot)
+  if (!plan.sourceRootIdentity) {
+    throw new WorktreeError('plan_stale', 'include plan has no source-root identity')
+  }
+  const sourceRoot = realpathSync(plan.sourceRoot)
+  if (!sameIdentity(identityOfPath(sourceRoot), plan.sourceRootIdentity)) {
+    throw new WorktreeError(
+      'identity_mismatch',
+      'include source root changed after the plan was built'
+    )
+  }
   const copied: string[] = []
 
   for (const item of plan.items) {
     if (input.signal?.aborted) {
       throw new WorktreeError('cancelled', 'include copy was cancelled')
     }
-    const absoluteSource = resolve(plan.sourceRoot, item.relativePath)
+    // Structural containment recheck, independent of the plan digest: a
+    // relative path must never be absolute or climb out with `..`, and the
+    // resolved endpoints must land inside the proven roots. This holds
+    // immediately before each side effect, not only at plan time.
+    if (item.relativePath.length === 0 || isAbsolute(item.relativePath)) {
+      throw new WorktreeError(
+        'path_escape',
+        `include candidate is not a relative path: ${item.relativePath}`
+      )
+    }
+    if (item.relativePath.split(sep).includes('..')) {
+      throw new WorktreeError(
+        'path_escape',
+        `include candidate escapes the repository: ${item.relativePath}`
+      )
+    }
+    const absoluteSource = resolve(sourceRoot, item.relativePath)
+    if (!absoluteSource.startsWith(sourceRoot + sep)) {
+      throw new WorktreeError(
+        'path_escape',
+        `include candidate escapes the repository: ${item.relativePath}`
+      )
+    }
     const absoluteDestination = resolve(destinationRoot, item.relativePath)
+    if (!absoluteDestination.startsWith(destinationRoot + sep)) {
+      throw new WorktreeError(
+        'path_escape',
+        `include destination escapes the worktree: ${item.relativePath}`
+      )
+    }
 
     // Source identity recheck: the file must be the exact bytes the plan saw
     // (an in-place rewrite keeps the inode, so mtime+size join the check),
@@ -324,7 +368,15 @@ export async function applyIncludeCopy(input: {
     )
 
     // Post-copy containment recheck: the clone must exist exactly where the
-    // plan placed it.
+    // plan placed it, as a regular file — a symlink swapped in after the
+    // copy is an escape attempt even when its target resolves inside.
+    const placedStat = lstatSync(absoluteDestination, { throwIfNoEntry: false })
+    if (!placedStat || placedStat.isSymbolicLink() || !placedStat.isFile()) {
+      throw new WorktreeError(
+        'path_escape',
+        `include destination was replaced after copy: ${item.relativePath}`
+      )
+    }
     const placed = realpathSync(absoluteDestination)
     if (!placed.startsWith(destinationRoot + sep)) {
       throw new WorktreeError(

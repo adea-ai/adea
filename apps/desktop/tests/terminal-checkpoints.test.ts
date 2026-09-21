@@ -34,17 +34,42 @@ function chunk(seq: number, text: string): SegmentChunk {
 
 function sink(
   runtimeRoot: string,
-  overrides?: { terminalId?: string; maxBytesPerSession?: number }
+  overrides?: { terminalId?: string; maxBytesPerSession?: number; beforeWrite?: () => void }
 ) {
   return createCheckpointSink({
     runtimeRoot,
     terminalId: overrides?.terminalId ?? terminalId,
     generation: 1,
     maxBytesPerSession: overrides?.maxBytesPerSession,
+    beforeWrite: overrides?.beforeWrite,
   })
 }
 
 describe('terminal checkpoint store', () => {
+  test('failed checkpoint writes retain pending chunks for a later retry', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-term-ckpt-'))
+    let fail = true
+    try {
+      const store = sink(root, {
+        beforeWrite: () => {
+          if (fail) throw new Error('disk full')
+        },
+      })
+      store.append(chunk(0, 'retry me'))
+      expect(store.checkpoint()).toMatchObject({ ok: false })
+      expect(store.read('0').map((entry) => new TextDecoder().decode(entry.bytes))).toEqual([
+        'retry me',
+      ])
+      fail = false
+      expect(store.checkpoint()).toMatchObject({ ok: true })
+      expect(store.read('0').map((entry) => new TextDecoder().decode(entry.bytes))).toEqual([
+        'retry me',
+      ])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('writes atomic owner-only segments and reads them back byte-exact', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-term-ckpt-'))
     try {
@@ -129,6 +154,21 @@ describe('terminal checkpoint store', () => {
       expect(readdirSync(corruptDir).length).toBe(1)
       const quarantined = readdirSync(corruptDir)[0]!
       expect([...readUint8(join(corruptDir, quarantined))]).toEqual([1, 2, 3])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('truncated segments are quarantined instead of crashing restore', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-term-truncated-'))
+    try {
+      const sessionDir = join(root, terminalId)
+      mkdirSync(sessionDir, { recursive: true, mode: 0o700 })
+      writeFileSync(join(sessionDir, 'seg-1-0-5.adt'), new TextEncoder().encode('ADT1'), {
+        mode: 0o600,
+      })
+      expect(() => sink(root).read('0')).not.toThrow()
+      expect(readdirSync(join(sessionDir, 'corrupt'))).toHaveLength(1)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

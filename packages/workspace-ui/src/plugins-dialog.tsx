@@ -314,13 +314,37 @@ function activationEntryId(activation: WorkspaceAppActivation): string {
   return activation.status === 'activatable' ? activation.entryId : ''
 }
 
-function activationUnavailableReason(
-  activation: WorkspaceAppActivation
-): 'catalog-only' | 'not-installed' {
-  return activation.status === 'activatable' ? 'catalog-only' : activation.reason
+/** Human-readable explanation for every fail-closed activation rejection. */
+const ACTIVATION_REJECTION_COPY: Record<
+  Exclude<
+    Extract<WorkspaceAppActivation, { status: 'activation-unavailable' }>['reason'],
+    'not-installed' | 'catalog-only'
+  >,
+  string
+> = {
+  'untrusted-entry':
+    'Activation unavailable: this entry id is not in this build’s trusted first-party registry. Only entries compiled into the app can execute interface code.',
+  'integrity-failure':
+    'Activation unavailable: the catalog entry digest does not match the compiled app entry. Refresh the catalog before activating.',
+  'plan-unverified':
+    'Activation unavailable: no verified Control Plane installation plan is bound to this app. Activation needs a verified plan.',
+  stale:
+    'Activation unavailable: the catalog record has no source revision, so its freshness cannot be proven. Refresh the catalog before activating.',
+}
+
+function activationUnavailableReason(activation: WorkspaceAppActivation): string {
+  if (activation.status === 'activatable') return 'catalog-only'
+  if (activation.reason === 'not-installed' || activation.reason === 'catalog-only')
+    return activation.reason
+  return ACTIVATION_REJECTION_COPY[activation.reason]
 }
 
 function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
+  const copy = () => activationUnavailableReason(props.activation)
+  const isPlainReason = () =>
+    props.activation.status === 'activatable' ||
+    props.activation.reason === 'not-installed' ||
+    props.activation.reason === 'catalog-only'
   return (
     <section class="plugins-detail__section" aria-labelledby="plugin-activation-heading">
       <h4 id="plugin-activation-heading">Activation</h4>
@@ -329,9 +353,11 @@ function AppActivationSection(props: { activation: WorkspaceAppActivation }) {
         fallback={
           <p role="note">
             <ShieldCheck aria-hidden="true" />
-            {activationUnavailableReason(props.activation) === 'not-installed'
-              ? 'Activation unlocks after this app is installed.'
-              : 'Activation unavailable: this catalog entry has no bundled first-party implementation. It can install metadata and connectors, but it cannot execute interface code.'}
+            <Show when={isPlainReason()} fallback={<span>{copy()}</span>}>
+              {copy() === 'not-installed'
+                ? 'Activation unlocks after this app is installed.'
+                : 'Activation unavailable: this catalog entry has no bundled first-party implementation. It can install metadata and connectors, but it cannot execute interface code.'}
+            </Show>
           </p>
         }
       >

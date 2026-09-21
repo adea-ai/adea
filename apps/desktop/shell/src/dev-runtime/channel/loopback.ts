@@ -23,21 +23,18 @@ export type TrustedLoopbackPolicy = {
 }
 
 /**
- * True only when the request could have been sent by the app's own window or
- * a non-browser local client that already knows the channel secret — never by
- * a web page from another origin.
+ * True only when the request came from the app's own origin. A missing
+ * `Origin` is intentionally not trusted: loopback reachability and knowledge
+ * of a bootstrap token are not enough to authenticate a local process. The
+ * packaged browser window supplies `Origin` for fetch, EventSource, and
+ * WebSocket requests.
  */
 export function isTrustedLoopbackRequest(
   request: LoopbackRequestContext,
   policy: TrustedLoopbackPolicy
 ): boolean {
   if (request.host !== policy.shellHost) return false
-  if (
-    request.origin !== undefined &&
-    request.origin !== null &&
-    request.origin !== policy.shellOrigin
-  )
-    return false
+  if (request.origin !== policy.shellOrigin) return false
   if (request.secFetchSite !== undefined && request.secFetchSite !== null) {
     if (request.secFetchSite !== 'same-origin' && request.secFetchSite !== 'none') return false
   }

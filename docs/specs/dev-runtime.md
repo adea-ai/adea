@@ -474,6 +474,9 @@ type HarnessRun = {
   installationId: string
   agentProfile: AgentProfileRef
   modelId?: string
+  /** Present when launched with the attachTerminal intent (#400). */
+  terminalId?: string
+  terminalGeneration?: number
   state: HarnessRunState
   generation: number
   startedAt?: string
@@ -1027,6 +1030,10 @@ type ResourceMetric = {
   writeBytes?: string
   observedAt: string
   confidence: 'authoritative' | 'measured' | 'estimated'
+  processRecordId?: string
+  runtimeSessionId?: string
+  worktreeId?: string
+  generation?: number
 }
 type UsageRecord = {
   id: string
@@ -1035,18 +1042,26 @@ type UsageRecord = {
   quantity: string
   unit: string
   costMicros?: string
-  source: string
+  source: 'official_api' | 'harness_protocol' | 'local_transcript_estimate'
   confidence: 'authoritative' | 'measured' | 'estimated'
   observedAt: string
+  accountLabel?: string
+  period?: { from: string; to: string }
+  remaining?: string
+  capturedAt?: string
+  expiresAt?: string
+  failure?: { code: DevErrorCode; message: string }
 }
 type RetainedDataRecord = {
   id: string
   ownerId: string
-  kind: 'terminal' | 'checkpoint' | 'screenshot' | 'browser_profile' | 'log'
+  kind: 'terminal' | 'checkpoint' | 'screenshot' | 'browser_profile' | 'log' | 'dependency_template'
   byteLength: string
   protected: boolean
   expiresAt?: string
   observedAt: string
+  scope?: Scope
+  label?: string
 }
 type ResourceSnapshot = {
   processes: ProcessRecord[]
@@ -1225,6 +1240,46 @@ The following invariants are mandatory:
 and never creates a second session, event, approval, credential, or runtime-node
 authority.
 
+### Durable project/session authority (desktop host)
+
+The desktop shell's project/session register is the host-side canonical
+authority for projects, runtime sessions, groups, and the archive journal —
+not a projection of other state. One snapshot record commits groups, projects,
+sessions, and `ArchiveRecord`s together in a single atomic file write, so
+`dev.session.archive`/`dev.session.unarchive` persist the session flip and its
+durable record in one transaction. The register serves `dev.group.*` (now
+including `create`/`update`/`delete`: a created group is placed after
+`afterGroupId` or at the end and every displaced group's `version` bumps;
+`delete` requires an empty group plus a `confirmationId` and the `group`
+resource binding), `dev.project.import`/`create`/`get`/`list`/`reorder`, and
+`dev.session.create/get/list/archive/unarchive`. `dev.session.create` binds the
+session to an in-scope project and rejects a `repoId` outside the project's
+bound repositories with `identity_mismatch`. `dev.project.import` registers a
+project from an **authorized root bookmark**: the canonical root is resolved
+fail-closed through the roots authority inside the host — a client-supplied
+path never reaches the register — and a second registration for the same
+bookmark is refused with `identity_mismatch` instead of silently duplicating.
+Import and create commit the new project and every affected group's membership
+ordering in one snapshot write. Every mutation enforces the scope triple
+(`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
+concurrency (`stale_version`); a stored record that fails structural decode
+fails closed with `corrupt_state` and is retained unread. The earlier local
+`projection.json` is seeded into the authority store exactly once and never
+deleted.
+
+On the client, project/session selection resolves only inside the active
+scope's projection and enforces archive state, explicit revocation, generation
+binding, and observation freshness; a stale projection renders a visible
+staleness state instead of silently trusting the stored selection. Deep-link
+selection (`devProject`/`devSession` query params) is deterministic: an
+unknown query key survives, and a stale, archived, revoked, generation-stale,
+or cross-scope link recovers to the closest live selection with a visible,
+announced banner while the URL converges on the corrected selection. Sidebar
+group/project reordering is accessible through pointer drag and keyboard
+(`Alt`+`Arrow`) paths that produce the same
+`dev.group.reorder`/`dev.project.reorder` commands; a refused reorder reverts
+to the authoritative projection.
+
 ### Browser lane
 
 ```text
@@ -1292,10 +1347,12 @@ type DevOperation =
   | `dev.repo.${'list' | 'inspect' | 'refresh' | 'authorize' | 'adopt' | 'credentialRefs'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
-  | `dev.session.${'create' | 'get' | 'list' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
-  | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream'}`
+  | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
+  | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream' | 'renameOverwritePlan' | 'renameOverwriteCommit' | 'deleteTreePlan' | 'deleteTreeCommit' | 'copyTreePlan' | 'copyTreeCommit'}`
   | `dev.git.${'status' | 'history' | 'diff' | 'stage' | 'unstage' | 'discardPlan' | 'discardCommit' | 'commit' | 'fetch' | 'checkpoint' | 'restorePlan' | 'restoreCommit'}`
   | `dev.browser.${'laneCreate' | 'laneClose' | 'lanes' | 'attach' | 'navigate' | 'targets' | 'viewport' | 'screenshot' | 'annotate' | 'inspect' | 'diagnostics' | 'takeover' | 'release' | 'input' | 'cookieImportPlan' | 'cookieImportCommit' | 'profileReset' | 'profilePolicies'}`
+  | `dev.computeruse.${'capabilities' | 'lanes' | 'laneCreate' | 'laneClose' | 'consent' | 'attach' | 'input' | 'takeover' | 'release'}`
   | `dev.device.${'list' | 'sessions' | 'start' | 'attach' | 'input' | 'screenshot' | 'stop'}`
   | `dev.github.${'account' | 'repository' | 'issues' | 'milestones' | 'pullRequest' | 'pullRequests' | 'checks' | 'pushPlan' | 'pushCommit' | 'createPullRequest' | 'updatePlan' | 'updateCommit' | 'mergePlan' | 'mergeCommit'}`
   | `dev.resources.${'snapshot' | 'processes' | 'ports' | 'metrics' | 'usage' | 'stopPlan' | 'stopCommit' | 'retainedData'}`
@@ -1331,16 +1388,17 @@ The only control-plane transport method names are
 `dev.runtime.handshake.v1` (negotiate versions/capabilities and obtain a
 channel), `dev.runtime.execute.v1` (one `AuthorizedDevFrame`/`DevReply`),
 `dev.runtime.events.v1` (cursor-resumable event stream), and
-`dev.runtime.stream.attach.v1` (terminal/browser/device bulk stream negotiated
-from an authorized execute reply). The normative
+`dev.runtime.stream.attach.v1` (terminal/browser/device/computer-use bulk
+stream negotiated from an authorized execute reply). The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 133 operation names, exact body shapes, exact reply types, complete required
+all 148 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
-constructs typed commands but cannot read credential secret material; M10's
-channel adapter injects `channelId`, `clientCredentialId`, and `proof`. The host
-rejects a bare `DevCommand`.
+constructs typed commands but cannot read credential secret material; the
+injected desktop bridge sends them through the authenticated M10 channel and
+keeps the channel secret in its closure while binding `channelId`,
+`clientCredentialId`, and `proof`. The host rejects a bare `DevCommand`.
 
 Every registry operation has a strict unknown-key-rejecting request decoder in
 `packages/types/src/dev-runtime.ts`. The foundation decoder accepts typed error
@@ -1413,6 +1471,9 @@ A host refusal is not translated into local success.
 Defaults:
 
 - command expiry: 60 seconds; maximum accepted clock skew: 30 seconds;
+- credential-vault master keys are held by the host OS credential store (macOS
+  Keychain in the desktop lane), never by a `vault.key` file in app data;
+  unavailable or denied stores fail closed;
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -1438,6 +1499,7 @@ type DevStreamGrant = {
     | 'terminal-bytes-v1'
     | 'browser-frames-v1'
     | 'device-frames-v1'
+    | 'desktop-frames-v1'
     | 'file-bytes-v1'
     | 'runtime-events-v1'
   channelId: string
@@ -1517,24 +1579,26 @@ Exact transport method names are stable once shipped. M12 begins with these
 families; adding a privileged command requires this spec, decoder, M10 policy,
 audit classification, and deny-by-default tests in the same change.
 
-| Family              | Required operations                                                                                                                                                                                                                              |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dev.capability`    | `snapshot`                                                                                                                                                                                                                                       |
-| `dev.group`         | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                  |
-| `dev.project`       | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                  |
-| `dev.repo`          | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                             |
-| `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                  |
-| `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                         |
-| `dev.session`       | `create`, `get`, `list`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                    |
-| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`                                                                                                                     |
-| `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                 |
-| `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies` |
-| `dev.device`        | `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                             |
-| `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                |
-| `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                   |
-| `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                          |
-| `dev.appearance`    | client preference only; privileged host command only for capability snapshot                                                                                                                                                                     |
-| `dev.appLibrary`    | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                    |
+| Family              | Required operations                                                                                                                                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dev.capability`    | `snapshot`                                                                                                                                                                                                                                           |
+| `dev.group`         | `list`, `create`, `update`, `delete`, `reorder`                                                                                                                                                                                                      |
+| `dev.project`       | `list`, `get`, `import`, `clone`, `scan`, `create`, `update`, `reorder`, `archive`, `bookmarks`                                                                                                                                                      |
+| `dev.repo`          | `list`, `inspect`, `refresh`, `authorize`, `adopt`, `credentialRefs`                                                                                                                                                                                 |
+| `dev.worktree`      | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                      |
+| `dev.terminal`      | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                             |
+| `dev.session`       | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                       |
+| `dev.harness`       | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`                                                                                         |
+| `dev.files`         | `list`, `stat`, `read`, `write`, `create`, `rename`, `delete`, `copy`, `search`, `openExternal`, `readStream`, `writeStream`, `renameOverwritePlan`, `renameOverwriteCommit`, `deleteTreePlan`, `deleteTreeCommit`, `copyTreePlan`, `copyTreeCommit` |
+| `dev.git`           | `status`, `history`, `diff`, `stage`, `unstage`, `discardPlan`, `discardCommit`, `commit`, `fetch`, `checkpoint`, `restorePlan`, `restoreCommit`                                                                                                     |
+| `dev.browser`       | `laneCreate`, `laneClose`, `lanes`, `attach`, `navigate`, `targets`, `viewport`, `screenshot`, `annotate`, `inspect`, `diagnostics`, `takeover`, `release`, `input`, `cookieImportPlan`, `cookieImportCommit`, `profileReset`, `profilePolicies`     |
+| `dev.computeruse`   | `capabilities`, `lanes`, `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`, `release`                                                                                                                                              |
+| `dev.device`        | `list`, `sessions`, `start`, `attach`, `input`, `screenshot`, `stop`                                                                                                                                                                                 |
+| `dev.github`        | `account`, `repository`, `issues`, `milestones`, `pullRequest`, `pullRequests`, `checks`, `pushPlan`, `pushCommit`, `createPullRequest`, `updatePlan`, `updateCommit`, `mergePlan`, `mergeCommit`                                                    |
+| `dev.resources`     | `snapshot`, `processes`, `ports`, `metrics`, `usage`, `stopPlan`, `stopCommit`, `retainedData`                                                                                                                                                       |
+| `dev.cleanupPolicy` | `list`, `createDraft`, `approve`, `disable`, `evaluate`                                                                                                                                                                                              |
+| `dev.appearance`    | client preference only; privileged host command only for capability snapshot                                                                                                                                                                         |
+| `dev.appLibrary`    | existing verified catalog/install-plan authority; no new dynamic-code command                                                                                                                                                                        |
 
 `dev.appearance` and `dev.appLibrary` intentionally have no operation in this
 contract: `dev.capability.snapshot` is their only consumer — it reports each as
@@ -1543,22 +1607,24 @@ preference storage or the existing verified App Library surfaces accordingly.
 
 Capability/resource binding is deny-by-default:
 
-| Family        | Read operations                                                             | Mutation operations                                                                                         | Resource kind                                       |
-| ------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                         |
-| group         | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `group` except top-level list/create/reorder        |
-| project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone |
-| repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                        |
-| worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                          |
-| terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                          |
-| session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                   |
-| files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity         |
-| git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request      |
-| browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                      |
-| device        | `dev.device.read`                                                           | `dev.device.control`                                                                                        | `device_session`                                    |
-| github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy             | `repository` or `pull_request`                      |
-| resources     | `dev.resources.read`                                                        | stop requires `dev.resources.stop`; destructive cleanup also requires `dev.cleanup.approve`                 | target process/port/worktree resource               |
-| cleanupPolicy | `dev.resources.read`                                                        | create/approve/disable requires `dev.cleanup.approve`; evaluate executes nothing                            | `cleanup_policy`                                    |
+| Family        | Read operations                                                             | Mutation operations                                                                                         | Resource kind                                                       |
+| ------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| capability    | authenticated channel; no feature capability (this snapshot reports grants) | none                                                                                                        | no resource                                                         |
+| group         | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `group` except top-level list/create/reorder                        |
+| project       | `dev.project.read`                                                          | `dev.project.manage`                                                                                        | `project` except top-level list/create/import/clone                 |
+| repo          | `dev.repo.read`                                                             | `dev.repo.manage`                                                                                           | `repository`                                                        |
+| worktree      | `dev.worktree.read`                                                         | `dev.worktree.manage`; cleanup additionally `dev.cleanup.approve`                                           | `worktree`                                                          |
+| terminal      | `dev.terminal.attach`                                                       | input requires `dev.terminal.input`; lifecycle/signal requires `dev.terminal.manage`                        | `terminal`                                                          |
+| session       | `dev.session.read`                                                          | harness lifecycle/input transfer requires `dev.session.manage`                                              | `runtime_session`                                                   |
+| harness       | `dev.harness.read`                                                          | installation/connection/run control requires `dev.harness.manage`                                           | `acp_connection`, or `runtime_session` for `acpConnect`/`runStatus` |
+| files         | `dev.files.read`                                                            | `dev.files.write`                                                                                           | `workspace_path` plus current root identity                         |
+| git           | `dev.git.read`                                                              | `dev.git.write`; commit/restore/discard additionally require their current M11 approval when policy says so | `repository` or `worktree` as named by request                      |
+| browser       | `dev.browser.read`                                                          | `dev.browser.control`; cookie/profile additionally `dev.browser.cookies`                                    | `browser_lane`                                                      |
+| computeruse   | `dev.computeruse.read`                                                      | `dev.computeruse.control`; input additionally requires an active consent record                             | `computeruse_lane`                                                  |
+| device        | `dev.device.read`                                                           | `dev.device.control`                                                                                        | `device_session`                                                    |
+| github        | `dev.github.read`                                                           | `dev.github.write`; merge/push additionally require plan digest and current M11 approval/policy             | `repository` or `pull_request`                                      |
+| resources     | `dev.resources.read`                                                        | stop requires `dev.resources.stop`; destructive cleanup also requires `dev.cleanup.approve`                 | target process/port/worktree resource                               |
+| cleanupPolicy | `dev.resources.read`                                                        | create/approve/disable requires `dev.cleanup.approve`; evaluate executes nothing                            | `cleanup_policy`                                                    |
 
 An operation not present in this matrix is rejected at registration and dispatch.
 Read operations still require scope and capability. “Plan” responses contain a
@@ -1670,7 +1736,7 @@ Defaults:
 - maximum source chunk before splitting: 64 KiB;
 - memory ring: 4 MiB and 10,000 chunks/session, whichever comes first;
 - durable terminal data: 256 MiB/session and 2 GiB/workspace, oldest eligible
-  session first after retention protection;
+  session first after retention protection; 4,096 sealed segments/session;
 - subscribers: 8/session;
 - queued input: 1 MiB/session, then reject with `backpressure`;
 - per-subscriber high-water: 1 MiB; a slow subscriber receives
@@ -1681,9 +1747,91 @@ Defaults:
 - owner-only directories/files, atomic metadata/checkpoint rename, checksum,
   quarantine on corruption.
 
-Attach supplies `sinceSeq`. Covered data replays exactly once in order. If not
-covered, return checkpoint + anchor and resume after the anchor. Backpressure
+Attach supplies `sinceSeq`. Covered data replays exactly once in order. When
+the memory ring cannot cover `sinceSeq`, a contiguous durable checkpoint chain
+that bridges the gap to the ring replays seamlessly (also exactly once, in
+order, with subscriber flow-control credit intact); a span that exists nowhere
+— retention-pruned or quarantined segments included — never replays partially:
+the reply is a resync anchored at the oldest covered sequence, deterministically
+derived from live coverage, and the same anchor on every retry. Backpressure
 never blocks draining the PTY itself.
+
+The anchor rule covers live streams too: a subscriber that crosses the
+per-subscriber high-water mid-stream — or whose cursor the ring has pruned
+past — receives a `resync` notice on its live connection (sidecar control
+frame `resync { terminalId, subscriberId, checkpointSequence }`; shell stream
+frame `resync { reason: 'checkpoint_required', checkpointSequence }`), routed
+to the connection that owns the subscriber, sequenced after the last chunk
+that subscriber received, and emitted exactly once per gap (the subscriber is
+latched until it re-attaches, so fresh credit or new output never produces
+duplicate resync storms). The notice is an optimization hint, not a
+correctness dependency: it never fabricates bytes, and a client that misses it
+still recovers through the durable replay contract above — its next attach
+resolves coverage or returns the current anchor exactly as attach time does.
+Pinned by `apps/desktop/tests/terminal-manager.test.ts`,
+`apps/desktop/tests/terminal-sidecar.test.ts`, and
+`apps/desktop/tests/terminal-channel.test.ts`.
+
+### Checkpoint retention and GC
+
+The durable budgets are enforced by explicit GC at durable-write time, not
+passive growth. After each atomic segment commit the sink runs one retention
+pass: the per-session budget (256 MiB) and the sealed-segment count cap
+(4,096/session, the M12 initial default — the byte cap cannot see degenerate
+tiny-segment accumulation) evict the oldest sealed segments first, and the
+per-scope budget (2 GiB/workspace) evicts the oldest eligible session whole
+after retention protection. Caps are named constants exported for tests; a
+tightening is allowed, a relaxation requires a spec change.
+
+Eviction preserves the replay contract by construction. Sealed segments
+partition a contiguous sequence range, eviction is oldest-first only, and the
+newest surviving sealed segment is never removed, so the chain stays
+contiguous from its oldest surviving segment forward; a span retention pruned
+resolves through the deterministic resync above — the same anchor on every
+retry — never a partial replay. A live replay window is protected: the
+sidecar reserves the bridge span from `sinceSeq` while a durable bridge
+replay is delivering, and a segment covering a live reservation (and
+everything newer) is never evicted; eviction is oldest-first or nothing, so
+a fully protected scope may stay over budget truthfully instead of breaking
+a window.
+
+Deletion is atomic per segment — re-prove containment in the session
+directory, rename to a same-directory tombstone, then unlink — so a crash
+between rename and unlink leaves a swept tombstone, never a half-visible
+segment, and quarantined bytes under the session's `corrupt/` directory are
+never GC'd (corruption recovery keeps its raw evidence). Pinned by
+`apps/desktop/tests/terminal-retention.test.ts`.
+
+### Sidecar transport writes
+
+The framed unix-socket stream between the shell and the sidecar is a byte
+stream: the framing tolerates no lost, duplicated, or reordered byte. Bun unix
+`write()` accepts only what fits the kernel send buffer and silently discards
+the remainder (it does not queue it), and `socket.buffered` is unusable on
+unix sockets — a fire-and-forget write path therefore loses every burst larger
+than the buffer and misaligns the framed stream (the M12 packaged evidence
+lane reproduced this: 19,838 of 20,000 framed writes lost). Both directions of
+the transport consequently write through one serialized, drain-aware pump per
+connection:
+
+- writes are FIFO and exactly-once. A write that is not fully accepted
+  requeues its unaccepted remainder and pauses until the socket reports
+  `drain`, with a bounded polling fallback so a missed wakeup can never stall
+  the stream;
+- an idle socket writes through synchronously: keystroke-sized interactive
+  traffic takes no queueing path and its latency is unchanged;
+- the pending queue is bounded (8 MiB per connection by default; the kernel
+  send buffer is additional). Exhaustion is explicit, never a silent
+  mid-stream drop — that would corrupt the framing: the writer stops
+  accepting, reports `queue_overflow`, and closes the connection so the peer
+  sees a clean close and can reconnect and resync from durable history;
+- the wire format is unchanged. This is write scheduling, not framing;
+  existing clients and hosts interoperate byte for byte.
+
+Regression coverage (zero loss, exact order under multi-megabyte floods on the
+real socket pair, on both the dev and packaged entries, plus the explicit
+overflow behavior) is pinned by
+`apps/desktop/tests/terminal-transport-backpressure.test.ts`.
 
 ### Sidecar adoption
 
@@ -1703,6 +1851,22 @@ Version handshake chooses exactly one:
 Restart loops allow 5 failures in 10 minutes, then stop and surface
 `crash_loop`. Window/app close detaches; explicit termination signals only the
 owned process group after start-identity recheck.
+
+Entry-side ownership belt (test-infra hardening): a boot on a data dir whose
+endpoint record names a live process with the same executable identity and a
+matching `ps` start identity supersedes that predecessor — SIGTERM, bounded
+grace, then SIGKILL — before binding, and unlinks the stale endpoint and
+socket. A record naming a dead, recycled, or replaced process is unlinked and
+never signalled. A signalled entry force-exits if its graceful checkpoint
+flush exceeds a bounded grace (segment writes are atomic), and a live entry
+whose endpoint file disappears (data dir removed under it — the unrecoverable
+case: no future adoption can target it, and production cleanup never deletes
+a live sidecar's data location) exits through the same graceful path, so a
+leaked lane cannot park an unadoptable process — and its PTY children —
+behind the test runner's end-of-run child reaping. The packaged macOS test
+lanes rely on this belt: `bun test` runs every file on one shared thread, so
+a real-process lane must bound its own readiness windows and never leave its
+child behind.
 
 ### Local stack supervision
 
@@ -1729,6 +1893,19 @@ Supervision rules:
   signal. A reused PID or replaced executable is never signalled — the
   supervisor reports `ownership_unproven` and leaves the unrelated process
   running (TM-004);
+- a signal is never treated as an exit. Stop and restart wait for OBSERVED
+  termination — the PID holds nothing, or holds an identity that no longer
+  matches the launch record on start identity, executable identity, and (when
+  observable) process group — inside a bounded window with SIGTERM→SIGKILL
+  escalation. A stop that stays unconfirmed returns `stop_unconfirmed`, keeps
+  the launch record, holds the component in `stopping`, and refuses to start a
+  replacement; a later real exit event or operator retry reconciles truth. A
+  supervisor restart that finds a persisted launch unadoptable journals the
+  exit (`expected`, not a crash) so no launch record dangles adoptable
+  forever, and never clobbers a launch it already owns;
+- readiness derives health from the probe window at decision time — baseline
+  readiness and snapshots compute current health, never a stored heartbeat
+  flag;
 - an unexpected exit counts against the crash-loop window: 5 failures in
   10 minutes stop automatic restarts and surface `crash_loop`; only an
   explicit operator restart clears it, and the verdict survives app restarts
@@ -1750,11 +1927,38 @@ Supervision rules:
   locations;
 - every spawn, signal, exit, adoption, drain, and crash-loop decision appends
   to a bounded secret-free audit ring; the snapshot exposes exact packaged
-  versions and digests for diagnostics.
+  versions and digests for diagnostics;
+- a component child's environment starts from a positive allowlist of host
+  keys plus the packaging lane's declared additions — the shell process's
+  whole environment is never inherited, so an injected or secret-shaped
+  variable cannot smuggle itself into a supervised process — and the
+  resolved argv array is handed to the OS verbatim, never as interpolated
+  shell text;
+- an update rollback is executed, not only planned: the failed artifact is
+  quarantined with its raw bytes retained, the explicit staged previous
+  install is restored to the bundle location only after it proves complete,
+  a missing previous install refuses the rollback (never an implicit one),
+  and a refused or failed rollback leaves the install layout unchanged;
+  component data locations are never read, moved, or deleted.
 
 This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
-`apps/desktop/tests/supervision-supervisor.test.ts`, and
-`apps/desktop/tests/supervision-records.test.ts`.
+`apps/desktop/tests/supervision-supervisor.test.ts`,
+`apps/desktop/tests/supervision-records.test.ts`,
+`apps/desktop/tests/supervision-env-contract.test.ts`,
+`apps/desktop/tests/supervision-failure-injection.test.ts`,
+`apps/desktop/tests/dev-runtime-vault-key-roles.test.ts`,
+`apps/desktop/tests/shell-injection-adversarial.test.ts`, and
+`apps/desktop/tests/updater-rollback.test.ts`.
+
+The one-supervisor wiring is the packaged shell entry's: it loads the bundled
+component manifest at boot (strict packaging-lane resolution over the running
+`.app`, never a hand-written copy) and composes the engine in through the
+composition root's `componentManifest` input, so the shipped shell — not only
+the packaged evidence lane — constructs and holds the one supervision engine
+(the "Host provider policy (M12 #424)" composition bullet pins the degraded
+contract when the manifest is absent). The wiring is pinned by
+`apps/desktop/tests/dev-runtime-composition.test.ts` (fixture-bundle boot,
+absent-manifest truthfulness, fail-closed install-resolution failures).
 
 ### Shell integration and input
 
@@ -1842,6 +2046,129 @@ Scanner defaults:
 Watchers coalesce bursts for 250 ms, cap refresh concurrency at 4, prioritize
 visible rows, and degrade to explicit refresh plus a 60-second minimum
 fingerprint interval. There is no steady per-row subprocess polling.
+
+The scan is providerized as `dev.project.scan` (#398): the canonical root
+comes only from the bookmark's fail-closed recheck — the command names a
+`rootBookmarkId`, never a path. Results are cached by bookmark identity plus
+the manifest/ignore fingerprint; `force: true` rescans, and a changed
+fingerprint invalidates the cache. Pagination rides an opaque cursor that
+binds the cached fingerprint, so a scan that changed under a paginated client
+refuses with `stale_version` instead of mixing pages from two scans. Budget
+exhaustion and cancellation return a **successful partial page** whose
+`partial: true` and `diagnostics` (`budget_exhausted`, `cancelled`,
+`malformed_manifest:<path>`, `missing_workspace_member:<path>`,
+`gitignore_negation_unsupported:<dir>`) carry the reason — never a silent
+truncation and never a failed command for a successful partial scan. The
+scanner parses declared workspaces (`workspaces` in `package.json`,
+`pnpm-workspace.yaml`, `[workspace]` in `Cargo.toml`, `[tool.uv.workspace]` in
+`pyproject.toml`) rather than assuming every `package.json` is a project,
+never follows symlinks, treats a `[workspace]`-only root as a non-package, and
+reports malformed manifests as per-entry diagnostics with fallback names.
+Import/create/scan replies decode through strict provider-owned decoders
+(`Project`, `Group`, `ProjectScanPage`); a success DTO without its decoder
+still fails closed. The sidebar's add surface renders scan results as previews
+requiring confirmation — duplicates are flagged against live projects and the
+register's bookmark-binding check remains authoritative — and the sidebar's
+session rows render the canonical `RuntimeSession` lifecycle from the register
+(states outside the historical `active`/`ready`/`archived` set render a
+neutral dot with their own accessible name, never a coerced state).
+
+## Project archive/update and the repository registry
+
+`dev.project.update` and `dev.project.archive` are served by the durable
+project/session register. Both carry the `project` envelope resource whose
+generation must equal the record's optimistic `version` (projects carry no
+`generation` field). `update` patches only `ProjectMutableFields` (name,
+group membership, preferred runtime node, default base ref, bootstrap
+workflow, default harness) under the expected version; an unknown group in
+`patch.groupIds` refuses the whole update before any write, the membership
+delta (adds and removals together) commits in one atomic snapshot write that
+bumps each affected group's version, and an archived project is frozen —
+`update` refuses with `invalid_state` until the project is unarchived.
+`archive` is a navigation-lifecycle flip only: `archived: true` refuses with
+`invalid_state` while any non-archived session on the project is still live
+(`preparing`, `ready`, `active`, `disconnected` — archive never stops or
+deletes anything), refuses a flip to the current state, bumps the version,
+and `archived: false` restores `ready`. Both publish a `dev.project.updated`
+shell event; both replies decode through the strict `Project` decoder.
+
+`dev.repo.adopt`, `dev.repo.authorize`, `dev.repo.inspect`, and
+`dev.repo.refresh` form the repository registry (a companion register owning
+`dev-runtime/repos/registry.json` with the same atomic fsync+rename store,
+single-scope validation, and corrupt-state fail-closed behavior as the
+project/session authority). A repoId becomes known through the
+`Project.repos` binding an import mints; the binding names
+`(repoId, rootBookmarkId, canonicalRoot)` and proves nothing on disk. The
+canonical root never comes from a command body — it is the binding's or the
+durable record's root, and containment is re-proven through the roots
+authority's fail-closed bookmark recheck immediately before every proof and
+every git read (unknown, revoked, drifted, or replaced bookmarks refuse;
+`unauthorized_root` when the root does not cover the repo path). Adopt-time
+proof re-derives kind exactly like the #397 registrar (`.git` directory is a
+repository, a `.git` file is a linked worktree and refuses, bare `HEAD`
+refuses, anything else is a folder), re-stats the replacement-proof directory
+identity, and reads canonical git facts locally only: the remote from
+`remote.origin.url` config (the configured URL, never `remote get-url`, so
+insteadOf rewrites cannot mask the true origin) and the default ref from the
+origin HEAD symbolic ref with local `init.defaultBranch` as fallback.
+
+- `adopt { repoId, rootBookmarkId, expectedVersion }` re-proves the binding
+  under the named authorized bookmark and persists the durable record
+  (`kind`, identities, redacted remote, `defaultRef`, project ids) with
+  lifecycle `ready`. A not-yet-materialized binding adopts at version 1 (the
+  initial version every registry record carries); an existing record requires
+  the exact current version and persists at version + 1.
+- `authorize { repoId, credentialRefId, expectedVersion }` runs the same
+  proof, then resolves the vault reference fail-closed (unknown refs are
+  `not_found`), requires it `ready`, requires a git repository with a
+  configured origin remote, and refuses with `identity_mismatch` unless the
+  credential's host equals the remote's proven host. The binding is recorded
+  durably on the repo record; secret material never enters the registry, a
+  reply, an event, or a log.
+- `inspect { repoId, refresh? }` is read-only and network-free: fresh facts
+  (`rootIdentity`, `headRef`/`headSha`, `dirty`) are computed from the
+  canonical root with bounded local git reads; a vanished checkout reports
+  lifecycle `unavailable` in the reply without mutating the record.
+  `refresh: true` additionally runs the full proof and persists the canonical
+  facts — but only when they actually moved (a proof that changes nothing is
+  not a mutation and does not bump the version).
+- `refresh { repoId, expectedVersion }` re-proves containment and canonical
+  identity and probes the remote offline-safe with a bounded
+  `git ls-remote origin HEAD` (10 s/1 MiB; git transport applies any
+  insteadOf rewrite itself, exactly like the #397 fetch and #423 remote
+  probes). A probe failure is typed truth — the durable record degrades to
+  lifecycle `stale` — never a crash and never a fabricated success; a
+  vanished checkout persists `unavailable`. A refresh that proves nothing new
+  keeps the version. The envelope resource for every repo operation binds
+  `repository:<repoId>` at the record's current `version` (a `Repo` carries
+  no `generation` field), so a stale client loses before the record is read.
+
+Replies decode through the strict provider-owned `Repo`/`RepoInspection`
+decoders (and the `Repo` page for `dev.repo.list`); a success DTO without its
+decoder still fails closed. Git children run through the bounded, argv-only
+#397 runner (`LC_ALL=C`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`,
+fixed time and output budgets) — never a shell, never credential material in
+arguments or environment.
+
+The Dev View sidebar is the registry's client surface and adds no authority
+of its own. The repository panel rides a lazy chunk inside the Dev boundary
+and reads the authoritative state through the authenticated command path only
+(`dev.project.list`, `dev.repo.list`, `dev.project.bookmarks`,
+`dev.repo.credentialRefs`); every reply item passes the strict
+`Project`/`Repo`/`RootBookmark`/`CredentialRef` decoders before rendering, and
+a success value that fails strict decode fails closed as a registry error
+instead of rendering a guessed row. Mutations are explicit user actions:
+`dev.repo.adopt` names an owner-picked authorized bookmark (the binding's own
+bookmark is the default — a client never supplies a path),
+`dev.repo.authorize` binds a vault `CredentialRef` chosen from the refs the
+runtime already serves, so secret material never enters the client, and
+`dev.repo.inspect`/`dev.repo.refresh` surface the typed lifecycle verbatim
+(`stale` and `unavailable` render as states, not errors). `dev.project.archive`
+passes the same explicit confirmation gate as the archive shelf; refusals
+(live sessions, `stale_version`) surface as typed non-blocking notices and the
+view reloads the authoritative state rather than keeping a fabricated outcome.
+A runtime without the registry providers answers `capability_unavailable`, and
+the panel renders that typed-unavailable state instead of dead controls.
 
 ## Worktree lifecycle
 
@@ -1990,6 +2317,104 @@ result budget, 1 MiB emitted result bytes, 30 seconds, 1,000 files with matches;
 return partial/budget reason. Cancellation terminates only the owned `rg`
 process. A fallback obeys equal or stricter limits.
 
+### Shipped provider slice (M12 #399)
+
+The desktop shell registers the control-path files/search operations
+(`dev.files.list`, `stat`, `read`, `write`, `create`, `rename`, `delete`,
+`copy`, `search`, `openExternal`) plus the bulk-stream grants
+(`dev.files.readStream`, `dev.files.writeStream`) and the recursive/overwrite
+plan-commit pairs (`dev.files.renameOverwritePlan`/`Commit`,
+`dev.files.deleteTreePlan`/`Commit`, `dev.files.copyTreePlan`/`Commit`)
+against the worktree service's canonical roots through a narrow
+worktree-resolution seam. The provider re-proves the gate independently of it:
+envelope resource kind `workspace_root`, id, and live generation must match a
+registered ready worktree; each `WorkspacePath` must pin that worktree's root
+identity (cross-worktree substitution is `unauthorized_root`); the canonical
+grammar is re-validated; every symlink component is `symlink_rejected` (final
+symlinks are never followed); FIFOs/devices are `special_file_rejected`;
+containment is re-proven from the deepest existing ancestor immediately before
+each system call. Writes are CAS (`file_changed` carries the current mtime/size
+facts, no content) through an owner-only same-directory temp file, fsync,
+atomic rename, reviewed-permission preservation, and directory fsync; explicit
+`lf`/`crlf` policies never move a BOM. The worktree root itself is spelled `.`
+in `WorkspacePath.relativePath` (the only permitted `.` segment); renames and
+copies use hardlink-based fail-if-exists so a lost race is `path_collision`
+that names the destination, never an overwrite. Search probes `rg` per call and
+reports `capability_unavailable` with install guidance when absent; matches,
+files with matches, emitted bytes, and the 30-second budget each terminate only
+the owned `rg` process. Errors and logs carry identity facts and paths — never
+file contents or credentials.
+
+Bulk `file-bytes-v1` stream (gateway attach): the command halves mint
+single-use grants bound to the authenticated channel identity, the
+`workspace_root` resource at its live generation, and the CAS-pinned file
+identity (`readStream` also carries the byte offset/length; `writeStream`
+declares `byteLength`/`contentSha256` and is byte-exact — `lf`/`crlf` policies
+are control-path-only and refused with `invalid_state`). Grants expire in 60 s
+and are consumed by one attach; without a composed full-duplex gateway the two
+stream operations stay unregistered and typed-unavailable. The attached read
+direction re-proves worktree and file identity at attach and between credit
+windows, then pumps `data` frames capped at the grant's `maxFrameBytes`
+(64 KiB), with sequence numbers equal to byte offsets and at most 1 MiB of
+unacknowledged credit in flight. The attached write direction appends
+generation-stamped `input` chunks to an owner-only same-directory temp file,
+fsyncs, verifies the declared length and SHA-256 digest, re-proves the pinned
+identity, preserves reviewed permissions, and renames atomically into place;
+any mismatch, overrun, or post-mint drift discards the temp and reports
+`file_changed` — the target is never partially written.
+
+Client attach (desktop stream relay): the desktop renderer activates the bulk
+stream through `DevRuntimeService.streams()` without binding a second
+WebSocket — the launch bootstrap is consumed once per page, every handshake
+mints a NEW channel, and grants are caller-channel-bound, so a per-transfer
+WS channel would be refused (`identity_mismatch`) and would evict the page
+channel from `MAX_ACTIVE_CHANNELS`. Instead the injected bridge signs the
+attach proof under its channel secret inside its closure (the secret never
+crosses into `apps/web` or `packages/dev-view`), and a shell-side relay
+(`apps/desktop/shell/src/dev-runtime/stream-relay.ts`, composed in the shell
+entry) runs the exact gateway attach contract on the page's own channel:
+authority `attachStream` consumes the grant (single-use, 60 s, channel-bound,
+replay-protected, capability-gated via the registered-provider check), client
+frames pass the gateway's `createStreamInbound` discipline, and the real
+registered provider byte-halves pump an in-memory session. Frames cross to the
+renderer on the signed event path and return on the signed legacy invoke path
+(both bounded control transports; byte-bearing frames carry base64 within the
+frame bound, and client frames are delivered strictly in send order). One
+reconciliation: the generic inbound validator requires client sequences
+strictly above the grant's `fromSequence`, while the `file-bytes-v1` write
+direction uses byte offsets whose first chunk equals `fromSequence` — the
+relay therefore keeps the validator's direction/generation/frame-bound checks
+for writes and lets the provider own offset contiguity (its non-contiguous
+refusal discards the write and reports `file_changed`). The editor and files
+flows open/save stream-backed only when the transport binds; absence of the
+bridge seam falls back to the bounded control path, and refused binds surface
+typed `capability_unavailable`/relay errors, never strings.
+
+Overwrite renames are the one sanctioned clobber and ride an explicit
+plan/commit pair: the plan requires an existing destination (a free target
+belongs to `dev.files.rename`), pins BOTH identities — the moving source and
+the colliding destination named in the plan — and refuses a destination inside
+the source directory; the commit re-proves both pins immediately before the
+atomic rename. Recursive deletes and copies are bounded plan/commit pairs: the
+dry run enumerates every item (depth ≤ 64, ≤ 5,000 items, copy volume ≤ 256 MiB,
+per-file 64 MiB) into per-item steps carrying mtime/size facts, refuses any
+symlink or special file inside the tree outright (links are never followed
+out), and requires an explicit confirmation id for deletes; the commit re-walks
+and re-proves the whole tree against the plan (and the destination still free
+for copies) before deleting children-first or copying via atomic create-new,
+and refuses with `plan_stale`/`file_changed` on any drift. Plans expire after
+10 minutes; commits verify the plan digest and are single-use.
+
+Quick-open (#399 residue) is a keyboard-first files-pane affordance:
+Ctrl/Cmd+P (or the toolbar action) opens a pane-local picker over the file
+paths already loaded into the tree, ranked by a pure fuzzy model — in-order
+subsequence matches score consecutive runs, path/word boundaries, and
+filename-part hits highest; ties break by shorter path; results are bounded
+(20). Selecting a result opens the file through the same identity-pinned
+`onOpenFile` path as tree selection; nothing in the picker grants authority.
+V1 ranks only loaded paths by design — a prebuilt index over the whole
+worktree (paged provider-side) is a future slice.
+
 ## Local git and diffs
 
 Git commands run through the per-repo mutation/read scheduler with argv arrays,
@@ -2007,6 +2432,79 @@ large/binary/generated diffs use bounded plain-text/metadata fallbacks.
 
 Remote URLs are redacted before DTO, cache, log, or UI. Preserve full nested
 namespace paths; never truncate GitLab subgroups. Embedded user-info is removed.
+
+### Shipped provider slice (M12 #399)
+
+The desktop shell registers the local-git operations (`dev.git.status`,
+`history`, `diff`, `stage`, `unstage`, `commit`, `fetch`, `checkpoint`,
+`discardPlan`/`discardCommit`, `restorePlan`/`restoreCommit`,
+`hunkStagingPlan`/`hunkStagingCommit`) over the worktree
+service's canonical roots, through the bounded argv-only runner with
+`LC_ALL=C`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`. Status parses
+`--porcelain=v1 -z --branch --untracked-files=all` (unmodified sides are
+reported as `.`; untracked entries carry `?`); the compare-and-swap commit
+fingerprint is the sha256 of `git ls-files --stage -z`, and a mismatch is
+`stale_version` with no side effect. History and diffs use NUL-delimited
+machine formats with cursor paging; `diff-tree --root` serves commit diffs;
+diff lines carry a renderer budget and truncate explicitly. Checkpoints are
+commits built through a temporary index (`read-tree`/`add -A`/`write-tree`
+under `GIT_INDEX_FILE`), published as
+`refs/adea/checkpoints/<worktreeId>/<checkpointId>` — the branch and the real
+index are never touched. Restore and discard are plan/commit pairs whose
+envelope resource is validated against the plan's bound worktree and
+generation before digest evaluation; discard refuses untracked paths as plan
+blockers (explicit deletion stays out of the plan), and restore sources only
+the checkpoint ref, never moving HEAD. Fetch reports `for-each-ref` before and
+after maps for the named remote and fails `remote_unavailable` with
+credential-redacted errors.
+
+Hunk-level staging (#399 residue) rides the `hunkStagingPlan`/`hunkStagingCommit`
+pair. The plan body carries structured `DiffHunk` selections (≤ 200) plus a
+`stage`/`unstage` direction — the client only NAMES hunks (path plus `@@`
+header quadruple), never patch text. The provider re-runs the authoritative
+diff over the exact pre-image `git apply --cached` will read (index↔worktree
+for `stage`, HEAD↔index for `unstage`), builds the patch by slicing git's own
+output verbatim — headers, context, and `\ No newline at end of file` markers
+included; hunks the fresh diff cannot locate fail `stale_version` before any
+plan exists. The plan stores the exact patch (bounded) with the generation,
+index fingerprint, and digest; the commit re-proves generation and index
+(`stale_generation`/`stale_version` on drift) and applies the patch offline
+through fixed argv (`git apply --cached [--reverse] --whitespace=nowarn`)
+with the patch on stdin — never an argv value, never shell text. Dropped
+hunks rely on git's context matching; an application failure is typed
+`invalid_state`. Commits are single-use and reply with the re-read status.
+
+### Watcher-driven status invalidation (M12 #399 residue)
+
+`dev.git.status` stays authoritative and stateless; the watcher lane makes a
+consumer's status cache honest when the tree moves underneath the pane. One
+bounded watcher per ready worktree root watches the worktree recursively
+through a deprecation-safe handle factory: a platform that cannot watch, or
+a handle that errors mid-stream, degrades exactly once to a stat-fingerprint
+lane (root/`.git/HEAD`/`.git/index` facts, no subprocess, no traversal)
+checked no faster than the watcher/status floor (60 seconds) and only
+demand-driven from reads — there is no steady per-row subprocess polling.
+Bursts coalesce for 250 ms into ONE invalidation and at most one refresh,
+and the named limits live in `STATUS_WATCHER_LIMITS`
+(`coalesceMs`, `maxRefreshConcurrency`, `fingerprintMinIntervalMs`).
+Refresh concurrency is capped at 4 through a gate shared by a host's
+watchers; concurrent refreshes on one watcher dedupe onto the in-flight
+read. Everything is generation-fenced: cache entries, events, and in-flight
+reads carry the worktree generation they were produced under, and a re-fence
+discards results from the dead generation — a stale generation never
+publishes. The cache is honest on misses: an invalidated entry is undefined,
+never a stale value labeled fresh; a failed read stays empty rather than
+publishing stale bytes as current. Status is read only through the injected
+`readStatus` seam bound to the provider's public status path — the git
+provider itself is untouched. Pinned by
+`apps/desktop/tests/git-status-watcher.test.ts`.
+
+### Canonical byte encoding in proofs
+
+The command-proof canonical JSON encodes a `Uint8Array` body field (the
+registry DSL `Uint8Array<=N`) deterministically as the tagged lowercase-hex
+string `u8:<hex>`, so byte-carrying commands (`dev.files.write`,
+`dev.files.create`) proof byte-identically on both sides of the channel.
 
 ## Harness registry and launch
 
@@ -2043,6 +2541,181 @@ Changing AgentProfile does not silently select credentials. Changing harness
 does not rename the profile. A linked donor persona's inherited provider/model
 behavior is not the Adea identity model.
 
+### Harness-in-PTY spawn (attachTerminal)
+
+`dev.session.launchHarness` and `dev.session.launchDefault` accept an optional
+`attachTerminal` intent: the harness process launches INSIDE the runtime
+session's terminal instead of over a protocol lane. The terminal runtime owns
+the spawn and the process; the harness register only binds and observes:
+
+- **Spawn** happens at launch step 5, BEFORE the run record and its
+  `run.starting` fact exist: the terminal runtime's harness spawn seam creates
+  a NEW terminal bound to the session — the same sidecar `terminal.create`
+  path, worktree-resolved cwd, registry and input-authority registration as
+  `dev.terminal.create` — whose PTY child is the host-resolved installation
+  executable identity alone (`argv[0]` with no extra arguments; never
+  renderer-supplied argv, never shell interpolation). The spawned harness is
+  therefore a first-class terminal process: listed by `dev.terminal.list`,
+  writable through the guarded input authority, and prompt-deliverable
+  through the same fenced path as any PTY-backed launch.
+- **Binding**: on success the run record carries `terminalId` and
+  `terminalGeneration` from birth (the `HarnessRun` DTO fields are the
+  wire-visible binding), and the `run.starting` payload records transport
+  `pty_process` with the terminal identity. A spawn failure refuses the
+  launch with typed `spawn_failed` and fabricates NO run record — nothing
+  that never existed is never reported. An `attachTerminal` launch on a host
+  with no terminal runtime refuses `capability_unavailable` before any
+  record exists. The launch remains idempotent: a repeat launch of the same
+  installation/profile returns the live run and spawns nothing.
+- **Exit observation** derives later run status ONLY from sidecar-OBSERVED
+  terminations (the exited notice). The first notice naming the bound
+  terminal is the consumed observation — a terminal exits exactly once;
+  notices for other terminals never move the run or consume the
+  subscription, and a notice carrying a foreign generation is consumed
+  without applying. The observed exit code maps through the canonical run
+  machine: 0 → `completed`, non-zero → `failed`, null (the process ended by
+  signal) → `disconnected` — a signal is never treated as an exit status. A
+  mapping that would be an illegal edge (e.g. `completed` from `starting`)
+  demotes to the always-legal `disconnected` with the observed code preserved
+  in the transition detail and event payload — never silently rewritten. A
+  terminal-state run (cancelled, …) is never overwritten; cancelling the run
+  signals nothing — the terminal runtime owns the process, and terminating it
+  stays the terminal runtime's confirmed `dev.terminal.terminate` decision.
+  Each applied observation appends the canonical `run.*`/`session.*` events
+  and mirrors the gate's observed-status publication.
+
+### Initial prompt delivery
+
+`dev.session.launchHarness` and `dev.session.launchDefault` accept an optional
+bounded `initialPrompt` (1–64 KiB) delivered as launch step 7. The transport
+split is explicit and scoped to the harness kind:
+
+- **PTY-backed launches** deliver through the terminal runtime's guarded input
+  authority. The host acquires the session's live terminal as the
+  `prompt_delivery` input source at the terminal's current generation — the
+  TerminalInputAuthority single-writer contract: an equal-generation takeover
+  atomically displaces the current writer (a user's write stream is rejected
+  on its next chunk, before the PTY), every chunk is re-admitted against the
+  fence so a partial prompt cannot cross an ownership change, and the fence is
+  released after the submit. Delivery is ONE bounded submit — the verbatim
+  prompt plus a single Enter terminator, written in ≤1 KiB revalidated chunks;
+  no shell interpolation, no bracketed-paste rewriting, no retry. It happens
+  exactly once per run: the idempotent-launch early return precedes delivery
+  and the provenance event dedupes on `host:prompt:<runId>`, so a retried
+  launch never re-delivers; reconcile/retry after ambiguity is a caller
+  decision.
+- **ACP-launched harnesses** never use this path: while a live ACP lane is
+  bound to the session, the host hands the prompt to the lane adapter through
+  the typed handoff (`lane.deliverPrompt` — run id, session id, connection id
+  and expected generation, prompt). The handoff is generation-fenced and
+  session-bound like every lane mutation; the lane's protocol delivers over
+  the structured transport (native/ACP outranks guarded PTY), and the host
+  writes nothing to the PTY input stream. An accepted handoff records ONE
+  host `turn.user_input` provenance event (`workspace_private`) whose payload
+  carries transport `acp`, the lane's connection id/generation, the delivered
+  byte count, and the lane's process identity — never the prompt text, and
+  never a harness turn event over the lane's own tier (the harness fabricates
+  nothing here; the host fabricates nothing there). A typed lane refusal —
+  foreign session (`identity_mismatch`), non-ready lane (`invalid_state`),
+  stale generation (`stale_generation`), unknown connection (`not_found`),
+  or a driver that implements no delivery seam
+  (`capability_unavailable`) — appends a host `capability.degraded` event
+  naming the reason. Both facts dedupe on `host:prompt:<runId>`, so the
+  handoff, like the PTY submit, happens at most once per run.
+
+Delivery provenance is canonical and auditable: a delivered submit appends an
+authoritative host `turn.user_input` event with `workspace_private`
+classification whose payload carries the fenced-write provenance (run id,
+`pty_input` transport, terminal id and generation, chunk/byte counts) and
+never the prompt text — prompt content stays in the control plane only. A
+typed non-delivery (no terminal runtime composed, no live terminal for the
+session, refused or interrupted fenced write) appends a host
+`capability.degraded` event naming the reason. A delivery failure never fails
+the launch (partial failure retains the terminal/worktree) and never silently
+masquerades as delivered.
+
+### Launch orchestration, preferences, and the root default
+
+Preferences are the user-expressed overlay on a runtime node, stored per
+account/workspace/runtime node keyed by stable harness-installation ID (plus
+an optional project scope for per-project defaults). A preference records
+enabled, order (`sortKey`), default, and optional preferred profile/model;
+credential values do not exist in the model and are never persisted. A
+disabled harness is never auto-launched.
+
+Root-default policy (owner decision, 2026-09-16): on a **clean desktop** — no
+stored preference of any kind — the effective preference list synthesizes
+**managed Pi as the enabled global default** from the ready managed
+installation; nothing is written until the user expresses a preference.
+Discovered user-installed harnesses enter the ordering only through user
+action. `dev.harness.preferenceReset` clears the stored overlay (scope-wide,
+or per project), so the managed-Pi-first projection returns.
+
+`dev.session.launchDefault` resolves the launch candidate in strict order —
+project default (enabled), then global default (enabled), then the managed-Pi
+root default — and requires an explicit AgentProfile from the caller; the
+model resolves as explicit body → preference default → the harness's own
+default. An explicit default that names an existing but unlaunchable
+installation (auth not ready, unhealthy, missing) refuses with that typed
+reason and never silently launches a different harness; with no resolvable
+default the typed `capability_unavailable` carries the managed-Pi install
+remediation. Launch is idempotent (the same installation/profile on a live run
+returns that run), fenced to one active run per session, and emits
+`run.created`/`run.starting` canonical events. `dev.harness.preferenceUpdate`
+creates records addressed as version 0 and fences updates by optimistic
+version (`stale_version`); setting a default clears its sibling defaults in
+the same scope slice.
+
+### Observed run status
+
+Run status transitions follow the canonical machine (see "Runtime session and
+harness run") and are applied only from OBSERVED facts — the gate operation
+`dev.harness.runStatus` (scope + `runtime_session` resource + generation
+fenced) records each transition with its source
+(native/ACP/authenticated-hook/terminal-fallback/host) and observed time,
+mirroring the supervision discipline: a signal is never treated as an exit and
+an unknown protocol response never becomes success. Same-state re-observation
+is an idempotent replay that changes nothing; illegal edges refuse with
+`invalid_state`; terminal states refuse re-observation with
+`already_completed`; terminal transitions stamp `finishedAt`. Legal
+transitions append the matching `run.*` (and session-lifecycle) canonical
+events so Dev and Chat observe the same fact through the same stream. The
+per-run transition journal is host-side diagnostic history bounded at 50
+entries and never crosses the wire inside the `HarnessRun` DTO.
+
+### Run history retention
+
+`HarnessRun` records persist durably per scope with bounded retention:
+at most 200 runs, evicting the oldest TERMINAL runs first and never an active
+run. History reads (`dev.harness.runs`) are newest-first with bounded pages
+(default 100, maximum 500) and an opaque cursor. Resume remains
+resume-as-new-generation under the same canonical `RuntimeSession`.
+
+### The runtime-events-v1 stream
+
+`dev.session.events` mints a read-direction `runtime-events-v1` stream grant
+through the channel authority against the CALLER's authenticated identity —
+bound to channel, scope, resource generation, single-use at attach, and
+expiring — the same pattern as `dev.browser.attach`; archived sessions keep
+their history readable (only the generation binding must hold). The stream
+serves the canonical event log: append-only, sequence-ordered per (session,
+generation) with canonical uint64 `seq`; dedupe on
+`(runtimeSessionId, generation, source, sourceEventId)` where the identical
+event is an ignored duplicate and a different event under the same key is
+`idempotency_conflict`; bounded retention (oldest dropped first per session —
+1,000 events/session, 5,000/scope); reads are bounded ascending windows
+(page maximum 500, default 100). The host appends `session.*`/`run.*`
+lifecycle facts (session created via the register's publishes; run
+created/starting/resumed/cancelled; observed status transitions) as
+`authoritative` host events with `workspace_metadata` classification; harness
+turn/tool/approval events arrive only through their own tiers and are never
+fabricated here. At attach the handler replays at most the newest 500 events
+of the granted generation from (or after) `fromSequence`, streams live
+append-matched events as CBOR `data` frames, accepts only `ack` control
+frames, and closes `stale_generation` when the session moves to a newer
+generation — grants minted under an old generation are inert, never
+ambiguous.
+
 ## Browser and device lanes
 
 Kinds:
@@ -2064,6 +2737,15 @@ Navigation permits `http`/`https` only. Resolve and revalidate DNS/IP before
 connection and after redirects; block cloud metadata, loopback privileged
 routes, Unix sockets, private/LAN ranges unless the selected target is a proven
 Adea-owned loopback service on that runtime node. Redirects repeat policy.
+Policy is provider-controlled, never engine-controlled: the lane engine must
+obtain admission from the provider before opening every connection — the
+initial URL and every redirect target — and may connect only to the freshly
+resolved addresses that admission was computed on (DNS is re-resolved per hop,
+so rebinding between hops is refused). A redirect chain is bounded and a loop
+back onto an already-visited hop is refused. An engine-reported final URL is
+never trusted: the provider verifies it against its own admitted-hop ledger
+and reports the last admitted URL; an engine that lands elsewhere or bypasses
+the gate fails closed (lane crashed, typed `ssrf_blocked`).
 Downloads/uploads, clipboard, camera, microphone, geolocation, notifications,
 popups, and certificate exceptions are lane-specific and default denied.
 
@@ -2095,6 +2777,95 @@ inventory; Android uses verified `adb`/emulator inventory. Commands use fixed
 argv templates and inventory IDs. Starting/stopping is explicit, and Adea stops
 only a still-identity-matching process it launched. Physical devices require a
 separate pairing/grant.
+
+## Computer use lanes
+
+A computer-use lane is the one supervised surface through which an agent
+harness may view the execution host's real desktop (bounded screen frames) and,
+where separately consented, synthesize keyboard input. The lane is a
+session-scoped grant: it is created for one `runtimeSessionId`, dies with that
+session (closure revokes every outstanding consent and frame/input stream), and
+never becomes a global permission. Lane and consent IDs are immutable; the
+generation increments on every ownership or authority transfer, and input or
+capture authorized under an old generation is inert — dropped without error,
+never executed.
+
+Lane states: `idle` (created, no live authority), `granted` (a consent record
+is active and the permission state behind it still holds), `suspended` (human
+takeover), `closed`, `crashed`. `automationOwner` is `none`, `agent`, or
+`human_takeover`. `dev.computeruse.takeover` suspends agent input instantly and
+increments the generation; `dev.computeruse.release` is the Escape path and
+returns authority to the base owner with a new generation. Closing the lane is
+the kill switch: input authority is revoked immediately, in-flight captures
+stop at the next publication boundary, and stale-generation input is inert.
+
+The authority gate fronts every operation and re-derives every decision from
+facts it owns — the provider trusts no engine, harness, or caller claim:
+
+1. the M10 channel gate (identity, proof, replay, expiry, capability set,
+   scope shape) has already passed;
+2. the lane exists and belongs to the command's
+   `(account, workspace, runtime node)` scope — the scope binding is the
+   runtime-node authority, never a session string alone;
+3. the command's `expectedGeneration` equals the lane generation;
+4. the lane's automation owner admits the principal (`human_takeover` accepts
+   only the controlling user; `none` accepts nothing);
+5. a consent record ties the operation to the #471 permissions substrate: the
+   record is issuance-backed (created by `dev.computeruse.consent` with an
+   owner confirmation, mirroring the owner-approval verifier's fail-closed
+   semantics), scope/lane/generation-bound, single-use, and expires within
+   60 seconds; a consumed, expired, wrong-scope, wrong-generation, or
+   forged record refuses;
+6. the permission state behind the record is still fresh: input requires the
+   accessibility probe to report `granted`, and the gate re-probes through the
+   permissions service when its snapshot is older than the record's window. A
+   permission that moved from granted revokes admission immediately; a probe
+   that cannot answer refuses admission — it never defaults to allowed.
+
+All capture and input execute through the authorized fixed-argv host-tooling
+path with launch/audit records; free argv elements never come from caller
+text. No synthetic input ever originates from browser context: input reaches
+the lane only as `desktop-frames-v1` write frames minted by
+`dev.computeruse.input` from an authorized execute reply against the caller's
+authenticated channel identity, and every frame is re-admitted through the
+same gate with per-submission sequence and the lane's hard 240-inputs/second
+rate cap before the engine may inject anything.
+
+Screen frames inherit the screencast rules: 15 FPS default and 30 maximum,
+4096×4096, 8 MiB per frame, one in-flight plus one newest complete frame, and
+stale generations/sequences are inert. Frames carry
+scope/lane/generation/sequence provenance, are classified before leaving the
+host, and inherit workspace screenshot retention when attached to the
+canonical session.
+
+Capability probing is honest per the permissions page's rules: a capability
+exists only where a probe or host tool can prove it. Input synthesis requires
+the accessibility grant (the `osascript` System Events probe proves it) and a
+fixed-argv input tool on the host. Screen capture requires the screen
+recording grant, whose native helper is deliberately deferred — until that
+helper lands, capture reports typed `capability_unavailable` naming the
+missing piece, and `dev.computeruse.capabilities` reports the row
+truthfully. Accessibility-tree reading has no authorized bridge in this lane
+and reports the same. Capability-missing and permission-denied states block
+launch with actionable guidance through the permissions page (denied
+accessibility routes to the exact Settings pane); TCC denial is never
+silently degraded into a working-looking lane.
+
+| Capability | Depends on                                             | This lane's honest state until proven otherwise                          |
+| ---------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
+| input      | accessibility grant + host input tool + active consent | `denied`/`not_determined`/`unavailable` mirrors the probe; never assumed |
+| capture    | screen recording grant + native capture helper         | `capability_unavailable` (native helper deferred)                        |
+| ax_tree    | accessibility bridge for tree reads                    | `capability_unavailable` (no authorized bridge in this lane)             |
+
+Threat-model closure (see `docs/security/dev-view-threat-model.md`,
+TM-015–TM-017): agent-driven typing into privileged surfaces (password
+fields, Terminal, sudo prompts) is bounded by consent records that name the
+session, are single-use, and die with the run — but the residual risk is
+accepted and documented, not engineered away; capture of secrets
+(keychain/password-manager prompts) is why capture stays unavailable until a
+redaction-classifying helper exists; grant escalation via harness compromise
+is bounded by the gate re-deriving every admission from provider-owned state,
+so a compromised harness can never extend, replay, or widen a grant.
 
 ## GitHub provider
 
@@ -2161,6 +2932,113 @@ External telemetry is off by default. If enabled, scrub paths, commands,
 project/worktree names, environment, exception messages/frames, SDK contexts,
 attachments, terminal/prompts, and credentials before egress.
 
+### Host provider policy (M12 #424)
+
+The shell serves `dev.resources.*` from proven sources only, and every
+listing without a source is truthful-empty rather than fabricated:
+
+- The process inventory joins the supervision engine's durable launch/exit
+  journal against its live snapshot. A launch is listed `running` (and only a
+  `running` row offers a stop) when journal identity, live PID, PID start
+  identity, executable identity, and launch generation all match; a reused
+  PID or replaced executable renders as `unknown`, and a journaled exit
+  renders as `exited` for a bounded retention window. Exited-but-unrecorded
+  and never-journaled processes are not listed at all.
+- Ports come from the #422 inventory (launch/session metadata confirmed by a
+  loopback-only scan); unknown listeners are `unknown` with no stop path.
+- Metrics are pull-based: a bounded sample is recorded when the snapshot or
+  metrics surface is read, never on a timer. CPU is a monotonic delta
+  between consecutive samples of one owner; the first sample carries no
+  `cpuPercent`, and unobservable values stay absent (never numeric zero).
+  History is bounded to 720 points per owner and 24 hours.
+- Usage adapters are sequenced by a cache service with exponential backoff
+  plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
+  floor. A failed poll stores an explicit typed-failure row (quantity
+  `unknown`, never 0) and never blocks the listing or any other lane.
+  Official-API adapters require a fixed reviewed endpoint (HTTPS off
+  loopback), host allowlisting, DNS revalidation that denies private and
+  metadata ranges, `redirect: 'error'`, a bounded 5-second fetch, and a
+  vault credential — without a credential they report `auth_required` and
+  never touch the network.
+- Stopping a process is a plan/commit pair bound to the envelope resource
+  `{kind: 'process', id: processRecordId, generation}`. The plan mints the
+  supervision engine's stop confirmation; the commit re-checks the binding,
+  the live generation, the plan digest, and the still-proven inventory entry
+  before calling the engine's public stop API — which re-proves the launch
+  identity immediately before any signal (TM-004). The first attempt is
+  graceful; a retry after an unconfirmed stop window escalates explicitly.
+  Failures map typed (`ownership_unproven`, `stale_generation`,
+  `already_completed`, `plan_stale`, `timeout`) and never signal PIDs
+  directly.
+- Cleanup policies are durable drafts that become approved only through a
+  single-use owner approval; approval fails closed (`auth_required`) without
+  the owner approval authority. Evaluation observes facts only and returns
+  `executesNothing: true` always; unavailable facts, an expired policy, or a
+  non-approved state produce blockers and `matched: false` — automatic
+  background cleanup can never run on an unprovable state.
+- The composition constructs and holds the supervision engine when the
+  component manifest is available (`componentManifest`): the engine's durable
+  launch/exit journal lives under `<data dir>/dev-runtime/supervision/`, and
+  the resources surface binds to that engine — listings join the journal
+  against the engine's live snapshot, and the stop commit delegates to the
+  engine's public stop with its identity re-proof. Without a manifest (and
+  without a scripted engine override) the listings stay truthful-empty and
+  stop fails closed with `capability_unavailable`. The packaged shell entry
+  supplies the manifest in production: at boot it locates the `.app` it
+  itself runs from (`Contents/Resources/app` → bundle root) and loads the
+  component manifest through the packaging lane's strict install-location
+  resolution (`loadPackagedManifestForEntry`); a repo dev run has no bundle,
+  and a found bundle whose resolution or decode fails loads nothing — the
+  shell logs the reason and boots the same truthful no-supervision
+  composition, never a fabricated manifest.
+- Metrics sample through the bounded process-sampler seam: one fixed-argv,
+  read-only `ps` observation per pull (`ps -o pid=,time=,rss= -p <pids>`;
+  the composition's default sampler; tests script the transport) with a
+  5-second command timeout, a 1 MiB output cap, and 64 PIDs per invocation.
+  `time` is the OS cumulative CPU time (the history derives monotonic
+  deltas), `rss` the resident set size. Rows `ps` did not report are absent
+  from the reply — never numeric zero.
+- The retained-data breakdown is a read-only byte projection over the owning
+  slices' stores — terminal checkpoint segments under the owner-only runtime
+  root (`protected: true`; deletion stays the terminal's own re-proved
+  path), the browser lanes' bounded screenshot retention, and the
+  dependency-template cache's promoted records. Each source is
+  independently best-effort: an unreadable source contributes nothing
+  (absent, never zero) and is never rewritten or moved by the projection.
+- Cleanup-policy evaluation facts come from a read-only adapter over the
+  worktree service: the durable worktree record, the lease store's live
+  views (active and suspect leases count as live), and fixed-argv read-only
+  git observation (`status --porcelain`, upstream `rev-parse`, `rev-list`
+  counts). An unknown worktree returns no facts at all; a failed git read
+  or push state that cannot be proven leaves that fact absent, and facts
+  the adapter cannot prove at all (PR merge state, attached owned
+  resources) stay absent by design — every predicate over an absent fact
+  fails closed.
+
+### Runtime activity
+
+The Agents pane mounts the harness status surface above the Activity section:
+the session's derived run state (idle stays idle, `unknown` stays unknown, a
+fallback-only transport offers jump-to-terminal instead of implying structured
+events), the effective default harness, and the preference rows with their
+installation display states, all projected through the pure status model from
+`dev.harness.runs` / `dev.harness.preferences` / `dev.harness.managedPiStatus`.
+The History pane mounts the bounded run-history rows (newest-first,
+redacted by construction, resume/jump affordances through caller-owned
+callbacks only). Both ride their own lazy chunks inside the Dev boundary and
+render their capability state truthfully when the runtime is unavailable.
+
+The Agents pane also carries an Activity section built from `dev.harness.runs`
+(event provenance: the harness substrate's run records). Rows show the
+agent/profile, model, state, and elapsed time; `awaiting_input` and
+`awaiting_approval` states are attention-ranked first, so the pane answers
+"what needs me?" without terminal scrolling. Stop controls ride the
+session-scoped, generation-fenced `dev.session.cancelHarness` command and
+are disabled while the session generation is unknown. The toolbar resources
+detail sheet shows the process/port inventory, metric summaries, provider
+usage cards, and the retained-data breakdown with cleanup context; absent
+capability renders as typed states.
+
 ## Appearance and App Library
 
 Client preference schema:
@@ -2183,15 +3061,94 @@ and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
 
+Appearance and rail preference storage uses a read-modify-write contract with
+a recovery envelope: a malformed or future-version stored document is
+quarantined — byte-for-byte, with a reason and capture time — into a separate
+recovery key at read time, before any later write can touch the main key.
+Saving valid preferences never destroys unread original data, and the legacy
+key migrates without deletion. Layout storage retains unread values under its
+unread key; rail storage quarantines malformed and future records the same
+way. Storage-level round-trip tests, not only normalizer tests, pin each of
+these behaviors.
+
 Theme imports are deferred until signed App Library support and require a known
 license/provenance or explicit `unknown/unverified`; “User supplied” does not
 prove redistribution permission.
 
 M12 App Library can activate only a bundled first-party entry ID after existing
-catalog signature/digest/install-plan checks. No downloaded JS, `eval`, remote
-module URL, arbitrary postinstall, or empty placeholder view. Optional rail
-items can hide/reorder, but active/core Chat/Dev/Virtual remain recoverable via
-App Library or Reset Navigation.
+catalog signature/digest/install-plan checks. Trust resolves through a
+**compiled** trusted first-party entry registry — the build's own list of
+shipped entry IDs, each bound to the view it mounts and carrying a build-time
+entry digest the catalog record must echo verbatim. An arbitrary non-empty
+`bundledEntryId` from a plugin manifest is never trusted by itself. Activation
+is fail-closed and ordered: installation, registry membership
+(`untrusted-entry`), entry-digest integrity (`integrity-failure`), verified
+install-plan shape (`plan-unverified`), and catalog source revision (`stale`).
+No downloaded JS, `eval`, remote module URL, arbitrary postinstall, or empty
+placeholder view. Optional rail items can hide/reorder, but active/core
+Chat/Dev/Virtual remain recoverable via App Library or Reset Navigation.
+
+## macOS permissions onboarding
+
+The permissions page (issue #471) reports macOS TCC permissions the shipped
+features depend on: `accessibility`, `screen_recording`, `notifications`,
+`automation_apple_events`, and `microphone`. No permission ships without a
+recorded feature reason in the page row metadata, and nothing is auto-granted,
+prompted in a loop, or probed from browser context.
+
+Status rides the guarded legacy invoke path behind the M10 channel gate —
+`desktop_permissions_snapshot` and `desktop_permissions_open_settings` — with
+DTOs in `packages/types/src/desktop-permissions.ts`. The shell measures the
+real host (`apps/desktop/shell/src/desktop-permissions.ts`) through fixed-argv
+commands with injectable runners; single-flight coordination means concurrent
+snapshots share one probe set. Every report carries its probe time; a re-check
+reflects System Settings changes within one interaction (focus-return triggers
+one, never a polling interval) and no app restart.
+
+Capability matrix (permission × what this lane can honestly report):
+
+| Permission              | Probe (fixed argv)                                                                                                    | granted | denied                        | not_determined                              | unavailable              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------- | ------- | ----------------------------- | ------------------------------------------- | ------------------------ |
+| accessibility           | `osascript` System Events process count, 3 s deadline                                                                 | exit 0  | assistive-access refusal text | probe deadline hit (consent prompt pending) | other failures           |
+| automation_apple_events | `osascript` Apple Event to Finder, 3 s deadline                                                                       | exit 0  | `errAEEventNotPermitted` text | probe deadline hit                          | other failures           |
+| screen_recording        | none in this lane (native capture helper still deferred; computer-use capture stays typed-unavailable until it lands) | —       | —                             | —                                           | `capability_unavailable` |
+| notifications           | none in this lane                                                                                                     | —       | —                             | —                                           | `capability_unavailable` |
+| microphone              | none in this lane                                                                                                     | —       | —                             | —                                           | `capability_unavailable` |
+
+`unavailable` is a first-class typed state (`capability_unavailable`,
+`unsupported_platform`), never a stand-in for denied or granted, and no
+fixture status exists in any production path (fixtures are E2E-only). A
+non-macOS host reports `hostPlatform: 'other'`; a lane with no shell (plain
+web tab) reports `hostPlatform: 'unknown'` and every row unavailable.
+
+Deep links are the frozen `x-apple.systempreferences` anchors
+(`Privacy_Accessibility`, `Privacy_ScreenCapture`,
+`com.apple.preference.notifications`, `Privacy_Automation`,
+`Privacy_Microphone`), resolved on macOS 13–15, held only in the shell's
+`SETTINGS_PANES` table: the client names a permission id and the shell opens
+that exact URL through fixed-argv `open`. No client string ever reaches argv,
+and no arbitrary URL can be opened.
+
+The page (`packages/dev-view/src/permissions/**`, a Solid pane with a pure
+DOM-free model) groups rows into System control and System interactions,
+shows per-permission purpose and the feature-level consequence of denial
+("Without it: computer-use sessions cannot start"), and offers Request only
+where a probe can actually surface the macOS consent prompt; a denied
+permission's repair path is the exact Settings pane, because macOS ignores
+re-prompts. Accessibility contract: all actions are real buttons in DOM order,
+status changes and action outcomes are announced through a polite live region
+(only on change — first paint stays quiet), the pane carries no transitions
+(reduced motion needs no override), and rem-based wrapping layout survives
+200% zoom. `packages/dev-view` consumes the page service port
+(`MacPermissionsPageService`); the desktop lane binds it in
+`apps/web/src/lib/desktop-permissions.ts`, and every other lane binds
+`createUnavailableMacPermissionsService`.
+
+Pinned by `packages/types/tests/desktop-permissions.test.ts`,
+`apps/desktop/tests/shell-permissions.test.ts` (probe outcomes, fixed argv,
+settings table, bridge commands), and
+`packages/dev-view/tests/permissions-model.test.ts` (presentation, action
+affordances, announcements, honest degradation).
 
 ## Data classification and redaction
 
@@ -2366,30 +3323,33 @@ single lookup. A lower upstream M10/M11 limit wins. Limit exhaustion returns
 partial metadata plus `limit_exceeded` or the more specific typed error; it
 never truncates silently or allocates an unbounded fallback.
 
-| Surface               | M12 initial limit                                                                                                                                       |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| center layout         | 8 leaves, depth 8, ratio 0.1–0.9                                                                                                                        |
-| command               | 256 KiB control body; 60-second expiry; 30-second clock skew                                                                                            |
-| nonce/idempotency     | ≥128-bit nonce; key 1–128 printable ASCII; completed mutation 24 hours–7 days                                                                           |
-| event                 | 256 KiB JSON; depth 32; string 64 KiB; 1,000 frames/s; page 500/default 100; 100,000/session or 30 days                                                 |
-| hook/OSC              | authenticated hook frame 8 KiB; OSC payload 2 KiB                                                                                                       |
-| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 8 subscribers; 1 MiB input/subscriber queue                            |
-| terminal liveness     | 15-second heartbeat; unhealthy at 45 seconds; reconnect 250 ms exponential to 30 seconds; checkpoint ≤5 seconds and each 1 MiB                          |
-| scanner               | depth 16; 100,000 entries; 10,000 packages; 2 MiB/manifest; 10 seconds; concurrency 8                                                                   |
-| watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                                                  |
-| include copy          | 1,000 regular files; 100 MiB total; 16 MiB/file                                                                                                         |
-| bootstrap/teardown    | 15 minutes/step; 10 MiB output; one owned process group                                                                                                 |
-| files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream; editable 8 MiB; preview 64 MiB; 30-second operation |
-| editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                            |
-| search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                               |
-| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                           |
-| harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                           |
-| cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                   |
-| screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                  |
-| screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                               |
-| metrics               | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours                                    |
-| usage refresh         | provider backoff plus 60-second manual-refresh floor                                                                                                    |
-| cleanup lock/lease    | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s                                                            |
+| Surface               | M12 initial limit                                                                                                                                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| center layout         | 8 leaves, depth 8, ratio 0.1–0.9                                                                                                                                                                                                                                               |
+| command               | 256 KiB control body; 60-second expiry; 30-second clock skew                                                                                                                                                                                                                   |
+| nonce/idempotency     | ≥128-bit nonce; key 1–128 printable ASCII; completed mutation 24 hours–7 days                                                                                                                                                                                                  |
+| event                 | 256 KiB JSON; depth 32; string 64 KiB; 1,000 frames/s; page 500/default 100; 100,000/session or 30 days                                                                                                                                                                        |
+| hook/OSC              | authenticated hook frame 8 KiB; OSC payload 2 KiB                                                                                                                                                                                                                              |
+| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 4,096 sealed segments/session; 8 subscribers; 1 MiB input/subscriber queue                                                                                                                    |
+| terminal liveness     | 15-second heartbeat; unhealthy at 45 seconds; reconnect 250 ms exponential to 30 seconds; checkpoint ≤5 seconds and each 1 MiB                                                                                                                                                 |
+| scanner               | depth 16; 100,000 entries; 10,000 packages; 2 MiB/manifest; 10 seconds; concurrency 8                                                                                                                                                                                          |
+| watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                                                                                                                                                                         |
+| include copy          | 1,000 regular files; 100 MiB total; 16 MiB/file                                                                                                                                                                                                                                |
+| bootstrap/teardown    | 15 minutes/step; 10 MiB output; one owned process group                                                                                                                                                                                                                        |
+| files                 | directory page 500; inline read/write 256 KiB on the control path; bulk via `file-bytes-v1` stream (64 MiB, 64 KiB frames, 1 MiB read credit); editable 8 MiB; preview 64 MiB; 30-second operation; tree plans: depth 64, 5,000 items, 256 MiB copy volume, 10-minute plan TTL |
+| editor/diff           | reduced tokenization after 10,000 lines or 5 MiB; 10,000 hunks/20 MiB rendered diff before metadata fallback                                                                                                                                                                   |
+| search                | 10,000 matches; 1,000 matched files; 50 MiB scan-result budget; 1 MiB emitted; 30 seconds                                                                                                                                                                                      |
+| git child             | 60 seconds and 10 MiB output unless an operation-specific lower limit applies                                                                                                                                                                                                  |
+| harness discovery     | 1 MiB input; 1,000 models/commands; 64 KiB/record; 10 seconds                                                                                                                                                                                                                  |
+| cookie import         | 10,000 cookies; 16 MiB serialized; atomic transaction                                                                                                                                                                                                                          |
+| screencast            | 15 FPS default/30 max; 4096×4096; 8 MiB/frame; one in-flight plus newest; 240 inputs/s                                                                                                                                                                                         |
+| computer-use frames   | same bounded publication and input caps as screencast; consent record ≤60 seconds and single-use                                                                                                                                                                               |
+| screenshot/annotation | 25 MiB/item; 1 GiB/workspace; 30 days unless user pins it                                                                                                                                                                                                                      |
+
+Screenshot references include lane/profile provenance, origin, viewport, and redaction state. The bounded encoded bytes remain retrievable by reference until expiry; metadata-only capture records are not valid evidence.
+| metrics | 2 s active, 10 s visible idle, 60 s hidden; concurrency 4/node; 5-second/1 MiB child limits; 720 points and 24 hours |
+| usage refresh | provider backoff plus 60-second manual-refresh floor |
+| cleanup lock/lease | lock acquire 30 s; heartbeat 5 s/stale consideration 30 s; lease heartbeat 15 s/suspect 45 s |
 
 ## Performance and retention budgets
 
@@ -2451,6 +3411,75 @@ Required layers:
 8. performance commands and a 24-hour soak with retained results;
 9. provenance/package scans described in the donor audit.
 
+Named evidence commands (root `package.json`; each exits nonzero on failure
+and prints a retained summary under git-ignored `artifacts/dev-runtime/`):
+`test:packaged` (the packaged macOS evidence lane, below),
+`test:security:dev-runtime` (shell-channel/browser/vault/terminal-input
+suites), `test:performance:dev-runtime`, `test:soak:dev-runtime`, and
+`test:bundle:dev-view` (lazy-chunk boundary). The visual lane
+(`test:e2e:visual` plus the `Workspace visual lane` workflow) renders every
+document of `apps/web/e2e/conventional-workspace.spec.ts` without CSS
+transitions (`apps/web/e2e/helpers/visual.ts`) so captures are always the
+settled frame; baseline regeneration stays a single owner-run pass on the
+final merged tree.
+
+`test:packaged` is the packaged macOS evidence lane: it builds the
+Electrobun `.app` (including the **bundled terminal sidecar component**,
+staged by the packaging lane at `Contents/Resources/app/dev-runtime-sidecar/`
+from the same source entry), then runs the packaged proof suite against the
+real bundled layout and retains one JSON artifact per proof under
+git-ignored `artifacts/packaged/`:
+
+1. **Install-location resolution + supervision proofs** (`supervision-smoke`):
+   every packaged component's manifest label resolves inside the `.app` with
+   its real SHA-256 digest (the sidecar on the bundled Bun runtime
+   `Contents/MacOS/bun`, the launcher resolution-only), the four
+   supervision proofs run with the sidecar launched from the bundled layout,
+   and proof 0 additionally exercises the production composition path: the
+   shell entry's own manifest loader (`loadPackagedManifestForEntry`) must
+   resolve the same components with the same digests from the bundled entry
+   directory, so the install-location proofs run against the exact boot path
+   the shipped composition is fed from. A missing bundle is a labeled dev
+   fallback, never packaged evidence.
+2. **Terminal replay across a host restart** (`packaged-terminal-smoke`): a
+   packaged sidecar boot, a separate host process creating a real PTY
+   session with a durable checkpoint history exceeding the memory ring
+   (eviction), the host exiting, and a fresh host re-adopting the same live
+   sidecar — durable search serves the new host, the ring replays its
+   covered window exactly once in order, and live delivery continues.
+   The flood's durable total is read from the session's checksummed
+   segment files, not summed from checkpoint footers: the sink auto-flushes
+   its open buffer every `checkpointIntervalBytes` (1 MiB), so most of the
+   flood never passes through a host-visible footer. **Known transport
+   boundary:** the below-ring durable-bridge replay stays unproven on this
+   lane (the attach window is inside ring coverage). The socket write-drop
+   defect it was blocked on is fixed by the serialized drain-aware writer
+   (the "Sidecar transport writes" contract) and the
+   `packaged-transport-defect-probe` no longer reproduces it; extending the
+   replay lane to prove the bridge remains the documented handoff.
+3. **Worktree digest containment** (`packaged-worktree-smoke`): worktree
+   creation through the production registrar over the M10 gate, dependency-
+   template promotion and per-file CoW materialization into a registrar-
+   created worktree, post-promotion digest-tamper refusal
+   (`identity_mismatch`, nothing cloned), and envelope generation fencing
+   (`stale_generation`). Host-side modules run on the packaged lane; running
+   them inside the packaged app process arrives with the production
+   composition root and stays named work, not packaged evidence.
+4. **Browser/devices matrix** (`packaged-browser-matrix`): lane registration
+   through the M10 gate with per-kind profile identities, fail-closed
+   navigation without a serving engine (`capability_unavailable`), the SSRF
+   regression matrix on the per-hop admission gate, the typed capability
+   matrix (host toolchains as typed available/unavailable with guidance),
+   and real host device inventory through the gate. The real browser lane
+   engine (Bun.WebView / CDP navigation + screenshots through the admission
+   gate) is explicitly out of scope until a serving engine exists; it is
+   recorded as typed-unavailable, never faked.
+
+The `bun test` wrappers in `apps/desktop/tests/` shell out to the same
+scripts and skip loudly when the bundle has not been built; the packaged
+lane is the enforcement point. Run packaged test files one at a time in
+fresh worktrees.
+
 No issue closes on fixture-only production integration. Unsupported platform
 states remain deterministic fixtures, but the local packaged macOS path must
 pass before M12 release. M12 also requires authorized fake
@@ -2458,10 +3487,354 @@ RuntimeConnection/revocation/scope-isolation fixtures against the shared remote
 adapter. Production remote RuntimeConnection certification is explicitly owned
 by M14 and is not a hidden M12 acceptance criterion.
 
+Real-process lane contract (packaged macOS smokes): `bun test` executes every
+test file on one shared process thread, so a synchronous stall in any file
+silences the whole runner at apparent zero CPU — the last printed file header
+(often the real-PTY smoke) is not evidence of where a run is stuck. Every
+real-process lane therefore owns its own truth: deadline-based readiness
+polls (never fixed attempt counts sized for an idle machine), a per-test
+budget with headroom over the sum of its inner bounds, drained child pipes,
+and teardown that escalates SIGTERM to SIGKILL on observed exit so no
+evidence lane can leak a sidecar orphan or hang the shared runner. Fixture
+helpers that shell out synchronously (`git` in the worktree fixtures) pass an
+explicit spawn timeout for the same reason.
+
 ## Spec changes
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-09-21 — #399 residue: the desktop client attach for `file-bytes-v1`.**
+  `DevRuntimeService.streams()` is now production-bound on the desktop: the
+  injected bridge signs stream-attach proofs inside its closure (the channel
+  secret never leaves it), and a shell-side stream relay composed in the shell
+  entry consumes the grant through the authority's real `attachStream`,
+  applies the gateway's inbound frame discipline, and drives the real
+  `file-bytes-v1` provider byte-halves over an in-memory session on the page's
+  own channel — no second WebSocket exists (the bootstrap is consumed once per
+  page, handshakes mint new channels, and grants are caller-channel-bound).
+  Frames ride the signed event/invoke paths (base64 within the frame bound,
+  strict send-order delivery); stream-backed open/save activate only when the
+  bridge seam binds, and refused binds surface typed
+  `capability_unavailable`. Residual: the generic inbound validator's
+  strictly-increasing client-sequence rule conflicts with the write
+  direction's byte-offset sequences (first chunk equals `fromSequence`); the
+  relay keeps the validator's direction/generation/frame-bound checks and
+  defers offset contiguity to the provider until the validator is reconciled.
+  No new registry operations (the 163 from the hunk-staging delta stand).
+- **2026-09-21 — #399/#396 residues: checkpoint retention/GC and
+  watcher-driven status invalidation.** Terminal durable history is now
+  bounded by an explicit GC policy enforced at durable-write time
+  ("Checkpoint retention and GC"): the spec's 256 MiB/session and
+  2 GiB/workspace byte budgets plus a new named 4,096 sealed
+  segments/session count cap; eviction is strictly oldest-sealed-first with
+  the newest surviving segment kept, so the sealed chain stays contiguous
+  from its oldest survivor forward and any pruned span resolves through the
+  unchanged deterministic-resync anchor — never a partial replay. A live
+  replay window is protected: the sidecar reserves the bridge span from
+  `sinceSeq` for the duration of a durable bridge replay, a reserved
+  segment (and everything newer) is never evicted, and a fully protected
+  scope stays over budget truthfully. Deletion is atomic per segment
+  (containment re-proof, same-directory tombstone rename, unlink; crashed
+  tombstones are swept); quarantined bytes are never GC'd. The scope pass
+  evicts the oldest eligible session whole after retention protection
+  (active writer and live floors ineligible). Retention constants are
+  exported from `terminal/retention.ts` (`CHECKPOINT_RETENTION`); no wire,
+  durable-format, or registry change. Alongside it, the git status lane
+  gained its watcher-driven invalidation contract ("Watcher-driven status
+  invalidation"): one bounded recursive watcher per ready worktree root
+  (deprecation-safe handle factory, one-time degrade to a ≤60-second
+  demand-driven stat fingerprint), 250 ms burst coalescing into one
+  invalidation and at most one refresh, refresh concurrency 4 through a
+  shared gate with per-watcher in-flight dedupe, and generation-fenced
+  cache/events/in-flight reads — the git provider is untouched (status
+  flows through an injected `readStatus` seam). Limits registry terminal
+  row updated with the sealed-segment cap; the watcher/status row is now
+  implemented for this lane.
+- **2026-09-21 — #399 residues: hunk-level staging and files-pane quick-open.**
+  Added `dev.git.hunkStagingPlan`/`dev.git.hunkStagingCommit` (total operations
+  163). The plan carries structured `DiffHunk` selections (≤ 200) and a
+  `stage`/`unstage` direction; the provider never trusts client patch text —
+  it re-runs the authoritative diff over the exact `git apply --cached`
+  pre-image, locates every selected hunk by path plus `@@` header quadruple,
+  and slices git's own output verbatim into the plan's patch (missing hunks
+  are `stale_version`). The commit re-proves the worktree generation and the
+  index fingerprint (`stale_generation`/`stale_version`), then applies the
+  stored patch offline via fixed argv (`git apply --cached [--reverse]
+--whitespace=nowarn`) with the patch on stdin; application failure is typed
+  `invalid_state`, commits are single-use and reply with the re-read
+  `GitStatus`. The source-control pane grows per-hunk stage/unstage buttons on
+  its diff view (client-side splitting is the tested pure `splitFileHunks`
+  model), additive to file-level stage/unstage. The files pane grows
+  quick-open: a keyboard-first picker (Ctrl/Cmd+P or toolbar) over the paths
+  loaded into the tree, fuzzy-ranked with bounded results (20), opening files
+  through the existing identity-pinned open path. Fuzzy-over-loaded-paths is
+  the accepted v1; a prebuilt whole-worktree index is an explicitly deferred
+  future slice. Registry regenerated (163).
+- **2026-09-21 — the shipped shell loads the packaged component manifest
+  (#185 one-supervisor wiring).** The last #185 code gap: the production
+  shell entry (`apps/desktop/shell/src/bun/index.ts`) never fed the
+  composition root's `componentManifest` seam, so the shipped shell kept
+  truthful-empty resource listings and never constructed the supervision
+  engine. The entry now loads the manifest at boot — it locates the `.app`
+  it runs from (`Contents/Resources/app` → bundle root) and resolves the
+  component manifest through the packaging lane's strict install-location
+  resolution (`loadPackagedManifestForEntry` in
+  `apps/desktop/shell/scripts/packaged-install.ts`), the same resolution the
+  packaged supervision smoke's proof 0 exercises. A repo dev run (no bundle)
+  and a found bundle whose resolution or strict decode fails (missing or
+  non-artifact install entries) load nothing: the shell logs the typed
+  reason and boots the truthful no-supervision composition — truthful-empty
+  listings, `capability_unavailable` stops — never fabricated state. The
+  packaged supervision smoke's proof 0 now also asserts the entry loader
+  resolves the same components and digests as the lane's own resolution, so
+  the install-location proofs exercise the real composition path. No
+  supervision state-machine semantics changed; no new registry operations.
+  "Local stack supervision", "Host provider policy (M12 #424)", and the
+  packaged-lane note updated; pinned by the three #185 wiring tests in
+  `apps/desktop/tests/dev-runtime-composition.test.ts`.- **2026-09-20 — #399 residue: `file-bytes-v1` bulk stream, overwrite rename
+  plan/commit, and recursive delete/copy plans.** Added six
+  `dev.files.*Plan`/`*Commit` operations — `renameOverwrite` (pins BOTH the
+  moving source and the colliding destination identity; the one sanctioned
+  clobber), `deleteTree` (bounded dry-run enumeration: depth ≤ 64, ≤ 5,000
+  items, per-item mtime/size facts, symlink/special-file refusal, explicit
+  confirmation id), and `copyTree` (same enumeration plus a 256 MiB volume
+  budget; destination must be free) — with `FileTreeMutationResult` as the
+  commit reply DTO and `MutationPlan` as the plan reply. Plans expire after
+  10 minutes, commits verify the plan digest and are single-use, and every
+  commit re-proves the enumerated tree against the live lstat before
+  touching anything (`plan_stale`/`file_changed` on drift). The desktop
+  shell's files registrar additionally landed the `file-bytes-v1` gateway
+  attach: `readStream`/`writeStream` mint single-use 60 s grants bound to the
+  channel identity, the `workspace_root` resource generation, and the CAS
+  file identity; attached reads pump 64 KiB `data` frames at byte-offset
+  sequences with ≤ 1 MiB unacknowledged credit; attached writes accumulate
+  generation-stamped chunks in an owner-only same-directory temp file and
+  rename atomically only after length, digest, and identity re-proof —
+  any mismatch discards the temp and reports `file_changed`. Bulk writes are
+  byte-exact (`lf`/`crlf` policies are refused there with `invalid_state`);
+  without a composed gateway the two stream operations stay
+  typed-unavailable. Registry regenerated (total operations 161).
+- **2026-09-20 — #400 deferred residues closed: the ACP lane prompt handoff
+  and the harness-in-PTY spawn path.** The two residues the merged launch
+  slice explicitly deferred. (1) The ACP lane's silent deferral becomes a
+  typed handoff: `lane.deliverPrompt` (host-internal lane seam, no new
+  operation; total operations unchanged at 155) receives the run/session-bound
+  prompt, is generation-fenced and session-bound like every lane mutation,
+  and either delivers through the lane's structured transport or refuses
+  typed (`identity_mismatch`/`invalid_state`/`stale_generation`/`not_found`,
+  or `capability_unavailable` for a driver without a delivery seam). An
+  accepted handoff records one host `turn.user_input` provenance event
+  (transport `acp`, connection identity, byte count, process identity);
+  refusals record `capability.degraded`; both dedupe on `host:prompt:<runId>`;
+  the host never touches the PTY input stream while a lane is live and never
+  fabricates a harness turn event over the lane's tier. "Initial prompt
+  delivery" updated; pinned by `dev-runtime-harness-prompt.test.ts` and the
+  lane-level fence test in `dev-runtime-harness.test.ts`. (2) The
+  harness-in-PTY spawn path: `dev.session.launchHarness` and
+  `dev.session.launchDefault` accept an optional `attachTerminal` body flag,
+  and the launch spawns the host-resolved installation executable (argv[0]
+  alone) as the PTY child of a NEW session-bound terminal through the
+  terminal runtime's `terminal.create` spawn patterns — BEFORE the run record
+  and `run.starting` exist, so a failed spawn refuses typed `spawn_failed`
+  with no fabricated run and an absent terminal runtime refuses
+  `capability_unavailable`. The run DTO carries `terminalId`/
+  `terminalGeneration` (additive, strict decoder updated; registry artifact
+  regenerated), `run.starting` records transport `pty_process`, and later
+  status derives ONLY from sidecar-OBSERVED terminations: first notice
+  naming the bound terminal consumed, foreign terminals/generations inert,
+  0 → completed, non-zero → failed, null (signalled) → disconnected (a
+  signal is never an exit status), illegal edges demote to `disconnected`
+  preserving the observed code, terminal states never overwritten, cancel
+  signals nothing. New "Harness-in-PTY spawn (attachTerminal)" section; the
+  Agents pane surfaces the binding additively ("in terminal" badge). Pinned
+  by `dev-runtime-harness-pty-spawn.test.ts` (real in-process sidecar over
+  the fake PTY plus a register-level rig with scripted exit subscription and
+  injected clock).
+- **2026-09-20 — repository registry providers and project archive/update
+  (#398 follow-up).** The previously typed-unavailable `dev.repo.adopt`/
+  `authorize`/`inspect`/`refresh` and `dev.project.update`/`archive`
+  operations gained reachable production providers (total operations
+  unchanged). The project/session register serves `dev.project.update` /
+  `dev.project.archive`: mutable-field patches with group-membership
+  consistency, archived-project freeze, and an archive flip that refuses
+  while any session on the project is live; both bind the `project` resource
+  at the record's version and publish `dev.project.updated`. A new durable
+  repository registry (`dev-runtime/repos/registry.json`) serves the repo
+  family over the import-minted `Project.repos` bindings: adopt re-proves
+  kind/identity/containment under the authorized bookmark and records the
+  canonical remote and default ref from local git config only; authorize
+  binds a vault credential reference whose host must equal the remote's
+  proven host; inspect computes read-only facts network-free; refresh probes
+  the remote offline-safe (`git ls-remote origin HEAD`) and degrades the
+  durable record to `stale`/`unavailable` typed truth. Strict
+  `Repo`/`RepoInspection` decoders (plus the `dev.repo.list` page) installed;
+  `dev.project.list`/`dev.project.get` reply decoders remain an explicit
+  handoff for the project-registry slice. No acceptance criteria changed.
+
+- **2026-09-20 — packaged macOS evidence lane (M12 packaged-evidence wave,
+  #396/#397/#422/#185 re-closure evidence).** `test:packaged` now builds the
+  bundled terminal sidecar component into the `.app`
+  (`Contents/Resources/app/dev-runtime-sidecar/`) and runs the packaged proof
+  suite against the real bundled layout, retaining one artifact per proof
+  under `artifacts/packaged/`: install-location resolution with real artifact
+  digests feeding the component manifest, the supervision proofs on the
+  bundled layout, terminal durable-checkpoint replay across a host restart,
+  worktree template materialization + digest-tamper refusal through the
+  production registrar, and the browser/devices packaged matrix without a
+  real engine (typed capability states; the engine lane stays named
+  out-of-scope). Records the sidecar transport finding: Bun unix socket
+  writes drop past the send buffer and the sidecar duplex never checks
+  writability, so below-ring durable-bridge replay is blocked until the
+  transport drains (`packaged-transport-defect-probe` retains the
+  reproduction). No supervision or replay state-machine semantics changed.
+
+- **2026-09-20 — #400 launch residues: initial prompt delivery, runtime-events
+  e2e proof, pane mounts, and reset pinning.** `dev.session.launchHarness` and
+  `dev.session.launchDefault` accept an optional bounded `initialPrompt`
+  (1–64 KiB; total operations unchanged) delivered per launch step 7: guarded
+  PTY input for PTY-backed launches (the terminal input authority's
+  `prompt_delivery` single-writer takeover, per-chunk re-admission, one
+  bounded submit, exactly-once per run via the idempotent-launch early return
+  plus `host:prompt:<runId>` dedupe), explicit deferral to the ACP lane
+  adapter while a live ACP lane owns the session, and canonical
+  provenance-only `turn.user_input` (`workspace_private`) or
+  `capability.degraded` events — never prompt content in the event log, never
+  a launch failure from a delivery failure. New "Initial prompt delivery"
+  section. The Agents pane mounts the harness status surface and the History
+  pane the run-history rows (lazy-chunked, per "Runtime activity"). The
+  reset-to-defaults contract (scope-wide vs per-project reset, version-0
+  re-addressing, discovery/runs untouched) is documented and pinned.
+- **2026-09-19 — supervised computer-use lanes (#472, planning slice).**
+  Added the `dev.computeruse` operation family (`capabilities`, `lanes`,
+  `laneCreate`, `laneClose`, `consent`, `attach`, `input`, `takeover`,
+  `release`; total operations 148) and the `desktop-frames-v1` stream
+  protocol, with the new "Computer use lanes" section: session-scoped lanes
+  whose grants die with the runtime session, an authority gate that
+  re-derives every admission from provider-owned state (scope binding,
+  generation fencing, automation owner, issuance-backed single-use ≤60 s
+  consent records tied to the #471 permission substrate, fresh-permission
+  re-checks), a kill switch that revokes input authority immediately, stale
+  input inert by generation, screencast-inherited frame/input bounds
+  (15/30 FPS, 4096×4096, 8 MiB, 240 inputs/s), and honest capability probing
+  — capture and accessibility-tree reading are typed
+  `capability_unavailable` until the deferred native capture helper and an
+  authorized AX bridge exist. Threat-model additions TM-015–TM-017
+  (privileged-surface typing, secret capture, grant escalation) land with
+  this slice.
+- **2026-09-19 — M10 #33/#34 substrate-gap closure: spawn environment
+  allowlist, executed rollback, and pinned failure-injection evidence.** The
+  "Local stack supervision" rules gain two bullets: a supervised component
+  child's environment starts from a positive allowlist of host keys plus the
+  packaging lane's declared additions (the shell's whole environment is never
+  inherited; argv arrays are handed to the OS verbatim), and an update
+  rollback is executed against the real install layout — the failed artifact
+  quarantined with raw bytes retained, the explicit staged previous install
+  restored only after it proves complete, an implicit rollback refused, and
+  component data locations never touched. No supervision state-machine
+  semantics changed. The paragraph is now also pinned by the
+  environment-contract, failure-injection (gateway loss, duplicate remote
+  command replay, host sleep/wake clock jump, supervision ledger expiry),
+  vault key-role-confusion, shell/argv/OSC injection adversarial, and
+  executed-rollback test files.
+- **2026-09-19 — Dev View product completion, preferences trust, and App
+  Library activation trust (#395/#425).** Added the "Durable project/session
+  authority (desktop host)" section: the shell register is the canonical,
+  durably persisted project/session/archive authority with transactional
+  `ArchiveRecord` commits, scope/generation/version enforcement, and a
+  one-time retained seed from the legacy projection; client selection now
+  enforces scope, generation, revocation, freshness, and archive state with
+  deterministic, self-converging `devProject`/`devSession` deep links and
+  accessible pointer+keyboard reordering. Specified the appearance/rail
+  storage recovery-envelope contract (unread originals survive later valid
+  writes) and the compiled trusted first-party entry registry with ordered
+  fail-closed activation reasons (`untrusted-entry`, `integrity-failure`,
+  `plan-unverified`, `stale`). No registry operations were added or changed.
+- **2026-09-19 — project registry providers, monorepo scan, and contextual
+  sidebar wiring (#398).** The previously typed-unavailable
+  `dev.group.create`/`update`/`delete`, `dev.project.import`/`create`, and
+  `dev.project.scan` operations gained reachable production providers.
+  Import/create are served by the durable project/session register (snapshot
+  writes keep project and group membership consistent; import resolves the
+  authorized root bookmark fail-closed and refuses duplicates with
+  `identity_mismatch`); scan is a companion provider whose canonical root
+  comes only from the bookmark recheck, with fingerprint-keyed caching,
+  fingerprint-bound cursors (`stale_version` on a moved scan), and partial
+  results carrying `budget_exhausted`/`cancelled` diagnostics. Group
+  `update`/`delete` require the `group` envelope resource binding; `delete`
+  additionally requires an empty group and a `confirmationId`. Additive
+  `Project.repos` bindings record the authoritative
+  `repoId`/`rootBookmarkId`/`canonicalRoot` triple. Fixed the shared request
+  decoder's field splitting so `<=`-bounded array types (`string[]<=32`) may
+  precede another body field without being mis-parsed as a generic; this was
+  a latent defect for mid-body bounded arrays and changes no documented
+  shapes. Success replies for the six operations now decode through strict
+  provider-owned decoders.
+- **2026-09-19 — control-plane composition and fail-closed approvals
+  (remediation gate).** Hardened the host control plane without changing the
+  operation registry:
+  - **Authenticated identity binding.** The Dev Runtime scope is never
+    injected as a renderer global. The shell binds
+    `(account, workspace, runtime node)` once per authentication over the
+    signed legacy channel (`desktop_identity_bind`, `desktop_identity_scope`,
+    `desktop_identity_unbind`), verifying the presented desktop session
+    against the cloud (`GET /api/workspaces` proves liveness and workspace
+    membership) and the runtime-node pairing read model (node must be paired).
+    The gate refuses a command whose scope differs from the verified binding
+    **before** capability derivation and dispatch, re-proves node eligibility
+    on every privileged operation (no TTL cache: a revoked node fails the
+    next command), and revokes every channel on rebind, workspace switch, or
+    unbind — reconnects must complete a fresh trusted handshake.
+  - **Owner approvals are issuance-backed.** `createOwnerApprovalVerifier`
+    records an authoritative issuance (owner prompt/setting) and consumption
+    requires that exact record: scope-bound, action-bound, expiry-checked,
+    single-use, maximum 10-minute window. `approvalVerifier` is a required
+    constructor parameter of the vault, root-bookmark, and project-grant
+    authorities; a missing verifier fails construction, so a caller-supplied
+    non-empty string is never owner consent.
+  - **Keychain failure taxonomy.** The vault key store classifies every
+    `security` CLI outcome (`item_not_found`, `keychain_locked`,
+    `access_denied`, `malformed_output`, `process_failure`, `timeout`,
+    `unavailable_executable`). Only item-not-found permits first-time key
+    generation; every other outcome fails closed without generating or
+    overwriting a key, and lookups re-validate base64 strictly.
+  - **Production registration matrix.** The composition root
+    (`apps/desktop/shell/src/dev-runtime/index.ts`) registers every provider
+    with a reachable implementation — capability snapshot, project/session
+    projection (including canonical `dev.session.create` with worktree-proof
+    validation and `dev.session.transferInput` generation fencing), browser
+    and device lanes, the worktree service (registrar at
+    `worktrees/register.ts`), terminal (when the sidecar adopts), and the
+    grant authorities — and fills every remaining registry operation with a
+    typed-unavailable provider that names the missing host adapter. The
+    composition bootstraps with a restored binding or recomposes on rebind.
+  - **Launch bootstrap document gate.** The one-time launch bootstrap is
+    injected only into document loads that present trusted browser fetch
+    metadata (`Sec-Fetch-Dest: document` with a trusted `Sec-Fetch-Site`);
+    header-less local processes receive HTML without the credential, so the
+    launch capability cannot be retrieved by omitting Origin/Sec-Fetch
+    headers and cannot be reused without passing the trusted-origin gate.
+    Pinned by `apps/desktop/tests/dev-runtime-composition.test.ts` (boots the
+    actual registration graph and enumerates the operation/provider matrix),
+    `apps/desktop/tests/dev-runtime-approvals.test.ts`, and
+    `apps/desktop/tests/dev-runtime-vault-keychain.test.ts`.
+- **2026-09-19 — host-correctness tightening (#396/#397/#185).** Terminal:
+  attach below the memory ring now replays a contiguous durable checkpoint
+  bridge exactly once, in order, before live delivery, and a genuinely
+  unavailable span resyncs at the deterministically derived oldest covered
+  sequence (spec "Output and replay" updated); the sidecar durably captures
+  every ring chunk even for terminals adopted into a fresh process.
+  Supervision: exits are observed, never assumed — stop/restart wait for
+  observed termination with bounded SIGTERM→SIGKILL escalation and
+  `stop_unconfirmed` retains the launch record and blocks replacement;
+  the ownership proof now includes executable identity and observable
+  process group; readiness derives health at decision time (spec "Local
+  stack supervision" updated). Worktrees: template materialization
+  recomputes the promoted content digest from disk immediately before the
+  first clone (stat fingerprints are a pre-check only, per the existing
+  "content-digest-verified at materialization" rule), and include-copy
+  application re-proves structural containment per item. No new registry
+  operations; no limit changes.
 
 - **2026-09-18 — worktree lifecycle implementation detail (#397).** Added the
   worktree-name retirement registry (fixed pool, permanent retirement,
@@ -2477,7 +3850,7 @@ can distinguish intentional spec evolution from drift:
   required leaf-only focus restoration; clarified that unbounded file offsets,
   lengths, and byte counts use `uint64-string`; and moved production remote-node
   certification to M14 while retaining remote-ready fake-node fixtures in M12.
-  \=======
+
 - **2026-09-18 — local stack supervision substrate (M10 #185).** Added the
   "Local stack supervision" section: the desktop shell is the single
   supervisor for the bundled local stack, specified as the component-manifest
@@ -2489,8 +3862,6 @@ can distinguish intentional spec evolution from drift:
   handshake, owner-only quarantined records, bounded secret-free audit).
   This transcribes the supervision authority M12 consumes; it adds no Dev
   Runtime registry operations and changes no acceptance criteria.
-
-> > > > > > > 49452cc (feat(shell): supervise the bundled local component stack)
 
 - **2026-09-18 — browser and device lanes implementation (#422).** Landed the
   lane host adapters and UI behind the existing registry (no new operations):
@@ -2554,7 +3925,23 @@ files in the same commit:
 - `packages/types` contract/property tests — envelope and state decoders;
   `packages/types/tests/dev-runtime.test.ts` pins the `RootBookmark` and
   `CredentialRef` grant DTOs and the success page decoders for
-  `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34);
+  `dev.project.bookmarks` and `dev.repo.credentialRefs` (M10 #34), and the
+  `Repo`/`RepoInspection` registry DTOs with the reply-decoder matrix for
+  `dev.repo.adopt`/`authorize`/`inspect`/`refresh`/`list` and
+  `dev.project.update`/`archive` (#398 follow-up);
+- `packages/types/tests/dev-runtime-computeruse.test.ts` — #472 wire
+  contract: every `dev.computeruse.*` request body and success reply decodes,
+  authority fields are rejected, stale generations and forged consent ids
+  fail closed at the decoder layer;
+- `apps/desktop/tests/dev-runtime-computeruse.test.ts` — #472 lane
+  lifecycle and authority gate: session-scoped lanes with immutable
+  generation fencing on takeover/release/close, kill-switch immediacy,
+  stale-generation input inertness, consent records that are issuance-backed,
+  scope/generation-bound, single-use, ≤60 s, and refusal when the #471
+  permission state is not granted or not fresh, bounded desktop-frame
+  publication (one in-flight plus newest, 240 inputs/s), fixed-argv host
+  tooling templates with scripted runners (no real capture or input in CI),
+  and typed-unavailable classification for capture and AX-tree reading;
 - `apps/desktop/tests/shell-channel.test.ts` — the M10 channel/desktop
   boundary: no loopback or browsed-page privilege (trusted-origin gate,
   bootstrap handshake, proof/replay/expiry refusals, single-use grants,
@@ -2579,6 +3966,41 @@ files in the same commit:
   (`packages/types/tests/dev-runtime.test.ts`) — envelope, channel, stream,
   and state decoders;
 - `packages/dev-view` unit/component tests — layout/status/accessibility;
+  `packages/dev-view/tests/selection.test.ts` pins selection enforcement
+  (scope, generation, revocation, freshness, archive recovery);
+  `packages/dev-view/tests/sidebar-reorder.test.ts` pins the pointer and
+  keyboard reorder model; `packages/dev-view/tests/archive-shelf-model.test.ts`
+  pins the restore flow, the destructive-delete confirmation gate, and the
+  explicit `dev.session.delete` handoff;
+  `apps/desktop/tests/project-session-register.test.ts` pins the durable
+  project/session authority: restart survival without fixtures, transactional
+  archive records, scope/generation/version rejection, fail-closed corruption,
+  and the legacy-seed migration; `apps/desktop/tests/repo-registry.test.ts`
+  pins the repository registry (#398 follow-up): adopt-time
+  containment/identity proof with durable restart, unknown/stale/foreign-scope
+  refusals, out-of-root containment refusal before any write, read-only
+  inspect facts with dirty detection and stale-generation fencing,
+  host-matched credential authorization, offline-safe refresh (`stale` /
+  `unavailable` typed truth, version kept when nothing moved), and remote
+  redaction;
+  `packages/ui/tests/appearance.test.ts` pins the storage-level recovery
+  envelope round-trips; `packages/workspace-ui/tests/unit/app-library.test.ts`
+  pins the compiled trusted entry registry and every activation rejection;
+  `apps/web/e2e/dev-view.spec.ts` and `apps/web/e2e/appearance.spec.ts` pin the
+  deep-link recovery, reorder, shelf, zoom/reduced-motion, and CSP-safe
+  journeys;
+- macOS permissions (#471): `apps/desktop/tests/shell-permissions.test.ts`
+  pins the probe outcome matrix, fixed-argv discipline, settings deep-link
+  table, and the `desktop_permissions_*` bridge commands;
+  `packages/dev-view/tests/permissions-model.test.ts` pins presentation,
+  action affordances, live-region announcements, and honest degradation;
+  `packages/types/tests/desktop-permissions.test.ts` pins the DTO universes
+  and the permission-id guard;
+- computer use (#472): `packages/dev-view/tests/computeruse-model.test.ts`
+  pins the pane model — capability rows rendered from the injected service
+  port only, consent/takeover/release affordances gated on lane state,
+  capture/AX-tree unavailable guidance naming the missing piece, and no
+  fixture capability states;
 - desktop Dev Runtime unit/integration tests — filesystem, worktree, terminal,
   process, browser, provider, cleanup;
   `apps/desktop/tests/terminal-pty-adapter.test.ts`,
@@ -2599,8 +4021,71 @@ files in the same commit:
   `apps/desktop/tests/dev-runtime-grants.test.ts` pin the M10 #34
   authorized-root containment/identity rechecks, vault enrollment/resolution,
   and project grant binding;
+- `apps/desktop/tests/dev-runtime-approvals.test.ts` pins the fail-closed
+  owner-approval verifier (mandatory construction, issuance-bound single-use
+  consumption, replay/expiry/wrong-scope/forgery refusals);
+- `apps/desktop/tests/dev-runtime-vault-keychain.test.ts` pins the keychain
+  failure taxonomy (only item-not-found permits first-time generation);
+- `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
+  registration graph and pins the operation/provider matrix, the
+  scope-before-dispatch gate ordering, revocation and refused-rebind
+  behavior, and the typed-unavailable host capability results;
+- `apps/desktop/tests/dev-runtime-harness-launch.test.ts` pins the #400
+  launch orchestration: the clean-desktop managed-Pi root default, user
+  preference authority (version fencing, default exclusivity, disabled-never-
+  auto-launched), typed refusals for unlaunchable explicit defaults, the
+  launchDefault resolution order with the install remediation gap, and the
+  observed `dev.harness.runStatus` machine (legal edges, illegal edges,
+  terminal refusals, generation/scope fencing, canonical event emission);
+- `apps/desktop/tests/dev-runtime-harness-status.test.ts` pins the pure
+  transition table edge-by-edge, idempotent same-state replays, typed
+  refusal codes, event-kind mapping, and the bounded run-history store
+  (terminal-first eviction that never drops a live run, the 50-entry
+  transition journal, scope isolation) on injected clocks;
+- `apps/desktop/tests/dev-runtime-harness-events.test.ts` pins the canonical
+  event log (per-generation sequencing, dedupe vs `idempotency_conflict`,
+  bounded retention, bounded reads, scope isolation, live subscriptions),
+  the `dev.session.events` grant path (caller-identity binding, single-use
+  attach with channel-secret proof, foreign-channel refusal), and the
+  runtime-events-v1 handler (bounded newest-frame replay, live push,
+  stale-generation close, read-only discipline);
+  `apps/desktop/tests/harness-events-channel.test.ts` proves the full
+  websocket attach end-to-end over a real channel gateway (grant mint →
+  signed attach → `opened` → bounded CBOR replay → live push → ack →
+  single-use attach replay refusal → generation-fenced `stale_generation`
+  close);
+- `apps/desktop/tests/dev-runtime-harness-prompt.test.ts` pins the
+  launch→prompt-delivery residues: exactly-once fenced delivery into the
+  session PTY through the `prompt_delivery` input authority (with provenance
+  events and no prompt content), typed non-delivery without a live terminal,
+  ACP-lane deferral, and single-writer fencing (a superseded user writer is
+  rejected before the PTY);
+- `packages/types/tests/dev-runtime-harness.test.ts` pins the #400 wire
+  contract: every new request body and success reply (preferences, run
+  status, launchDefault, the events stream grant) decodes strictly and
+  credential-shaped or malformed extras fail closed;
+- `packages/dev-view/tests/harness-status-model.test.ts` and
+  `packages/dev-view/tests/run-history-model.test.ts` pin the Agents/History
+  pane presentation models: truthful status labels (unknown stays unknown),
+  terminal-fallback surfacing, installation display distinctions, bounded
+  newest-first history rows, injected-clock elapsed times, and
+  redaction-by-construction;
+- `apps/desktop/tests/project-scan.test.ts` pins the monorepo scanner's
+  prune-first discovery, workspace declaration parsing, symlink refusal,
+  ignore handling (including the negation diagnostic), malformed-manifest
+  diagnostics, package/entry/time budgets, cancellation, and fingerprints;
+- `apps/desktop/tests/project-registry.test.ts` pins the project registry
+  providers: group placement/update/delete fencing, import root resolution,
+  duplicate refusal, atomic group membership, restart persistence, scan
+  cache/cursor/partial semantics, and the strict reply decoders;
+- `packages/dev-view/tests/scan-preview-model.test.ts` pins the sidebar's
+  scan preview/duplicate/notice/import-plan presentation model;
 - web/desktop Playwright owner journey;
-- named Dev Runtime performance and soak commands;
+- named Dev Runtime performance and soak commands
+  (`test:performance:dev-runtime`, `test:soak:dev-runtime`) and the packaged,
+  security, and bundle lanes (`test:packaged`, `test:security:dev-runtime`,
+  `test:bundle:dev-view`), each writing its summary under
+  `artifacts/dev-runtime/`;
 - package/provenance denylist tests.
 
 Until those files exist, the matching implementation issue remains open; prose
