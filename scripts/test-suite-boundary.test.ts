@@ -41,6 +41,39 @@ describe('test suite boundaries', () => {
     expect(packageJson.scripts['native:smoke']).toBeUndefined()
   })
 
+  test('pins the named M12 evidence lanes (#426) to durable harnesses', () => {
+    // #426 requires named packaged/perf/security/soak evidence commands; the
+    // release report cites these exact entry points, so package.json cannot
+    // rename or drop them silently. This is the documented-raise surface for
+    // them (package.json itself carries no comments).
+    expect(packageJson.scripts['test:packaged']).toBe('bun scripts/test-dev-runtime-packaged.mjs')
+    // The umbrella names stay stable while the Dev Runtime lanes own the
+    // harnesses: perf and soak delegate to the dev-runtime lane scripts, so
+    // round counts (ADEA_DEV_RUNTIME_SOAK_ROUNDS) and budgets stay defined in
+    // exactly one place.
+    expect(packageJson.scripts['test:perf']).toBe('bun run test:performance:dev-runtime')
+    expect(packageJson.scripts['test:soak']).toBe('bun run test:soak:dev-runtime')
+    // Soak stays a bounded loop: rounds are parameterized through the
+    // environment (default 20, hard-capped), the first failing round exits
+    // nonzero, and every run retains its lane summary artifact.
+    const soak = readFileSync(resolve(root, 'scripts/test-dev-runtime-soak.mjs'), 'utf8')
+    expect(soak).toContain('ADEA_DEV_RUNTIME_SOAK_ROUNDS ?? 20')
+    expect(soak).toContain('rounds > 1000')
+    expect(soak).toContain("writeLaneSummary('soak'")
+    // The umbrella security entry runs the three desktop boundary scanners
+    // (PKCE/callback, IPC surface, loopback origin) directly. There is no
+    // scripts/security-* helper today; if one lands it must be wired into
+    // this entry — an unwired file fails the sweep below.
+    expect(packageJson.scripts['test:security']).toBe(
+      'bun test scripts/desktop-auth-boundary.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts'
+    )
+    const unwiredSecurity = readdirSync(resolve(root, 'scripts')).filter(
+      (entry) =>
+        /^security-.+\.mjs$/.test(entry) && !packageJson.scripts['test:security']?.includes(entry)
+    )
+    expect(unwiredSecurity).toEqual([])
+  })
+
   test('enforces the repository coverage goal on durable core code', () => {
     expect(packageJson.scripts['test:coverage']).toBe(
       'bun test packages/auth/tests/unit packages/db/tests/unit scripts/*.test.ts --coverage'

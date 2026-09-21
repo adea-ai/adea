@@ -27,6 +27,10 @@ import { initRepo, git, scope } from './worktree-fixtures'
 
 const WORKTREE_ID = 'wt-git-fixture-0001'
 const scratch: string[] = []
+// Every test builds its own registrar via runtime(); each dev.git.* dispatch
+// reconciles a status watcher (recursive fs.watch handle + coalescing refresh
+// timer) on that registrar, so the views are collected here for teardown.
+const registrars: ReturnType<typeof registerGitRuntime>[] = []
 let repoPath: string
 let rootIdentity: FileIdentity
 
@@ -39,6 +43,9 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  // Host teardown contract: stop every watcher while the watched roots still
+  // exist, then remove the scratch directories.
+  for (const registered of registrars) registered.statusWatchers.stopAll()
   for (const dir of scratch) rmSync(dir, { recursive: true, force: true })
 })
 
@@ -60,6 +67,7 @@ function runtime() {
           }
         : undefined,
   })
+  registrars.push(registered)
   return { authority, registered }
 }
 
