@@ -458,6 +458,18 @@
       "body": "{ worktreeId: string; cursor?: string; limit?: integer(1..500); ref?: string }",
       "reply": "Page<GitCommit>"
     },
+    "dev.git.hunkStagingCommit": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ planId: string; planDigest: sha256 }",
+      "reply": "GitStatus"
+    },
+    "dev.git.hunkStagingPlan": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; direction: 'stage'|'unstage'; hunks: DiffHunk[]<=200 }",
+      "reply": "MutationPlan"
+    },
     "dev.git.restoreCommit": {
       "capabilities": ["dev.git.write"],
       "resource": "worktree:required",

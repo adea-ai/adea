@@ -5,11 +5,44 @@
  */
 
 .dev-files {
+  position: relative;
   display: flex;
   min-width: 0;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+}
+
+/* Quick-open picker (#399 residue): a pane-local overlay anchored under the
+ * toolbar, stacked on the named menu scale. */
+.dev-files__quickopen {
+  position: absolute;
+  inset-inline: 0.5rem;
+  top: 2.4rem;
+  z-index: var(--z-menu, 140);
+  display: flex;
+  max-height: 60%;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+}
+
+.dev-files__quickopen-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.dev-files__quickopen-row--active {
+  background: color-mix(in srgb, var(--secondary) 72%, transparent);
+}
+
+.dev-files__quickopen-empty {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
 }
 
 .dev-files__toolbar {
@@ -240,6 +273,34 @@
 
 .dev-sc__diff-line--meta {
   color: var(--muted-foreground);
+}
+
+/* Per-hunk staging (#399 residue): each hunk block carries its own always-
+ * visible stage/unstage affordance above the diff lines. */
+.dev-sc__diff-hunk {
+  padding-block-end: 0.3rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.dev-sc__diff-hunk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.dev-sc__hunk-action {
+  flex-shrink: 0;
+  padding: 0 0.3rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--secondary) 45%, transparent);
+  color: var(--foreground);
+  font-size: 0.65rem;
+}
+
+.dev-sc__hunk-action:hover {
+  background: color-mix(in srgb, var(--secondary) 80%, transparent);
 }
 
 /* Editor surface (central leaf) */

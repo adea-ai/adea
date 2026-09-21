@@ -74,7 +74,7 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
-    expect(devOperations).toHaveLength(161)
+    expect(devOperations).toHaveLength(163)
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',
@@ -89,6 +89,43 @@ describe('Dev Runtime operation registry', () => {
     expect(() =>
       devOperationDecoders['dev.capability.snapshot'].request({ injected: true })
     ).toThrow('unknown key')
+
+    // Hunk-level staging (#399 residue): the plan body carries structured
+    // DiffHunk selections and a stage/unstage direction; the commit pairs the
+    // plan id with its digest.
+    expect(
+      devOperationDecoders['dev.git.hunkStagingPlan'].request({
+        worktreeId: 'wt-1',
+        direction: 'stage',
+        hunks: [
+          {
+            path: {
+              worktreeId: 'wt-1',
+              rootIdentity: { mtimeNs: '1', size: '1' },
+              relativePath: 'src/index.ts',
+            },
+            oldStart: 1,
+            oldLines: 3,
+            newStart: 1,
+            newLines: 3,
+            lines: [{ kind: 'context', text: 'x' }],
+          },
+        ],
+      })
+    ).toMatchObject({ direction: 'stage' })
+    expect(() =>
+      devOperationDecoders['dev.git.hunkStagingPlan'].request({
+        worktreeId: 'wt-1',
+        direction: 'rebase',
+        hunks: [],
+      })
+    ).toThrow('direction')
+    expect(
+      devOperationDecoders['dev.git.hunkStagingCommit'].request({
+        planId: 'plan-1',
+        planDigest: 'a'.repeat(64),
+      })
+    ).toMatchObject({ planId: 'plan-1' })
 
     expect(
       devOperationDecoders['dev.browser.viewport'].request({
@@ -193,7 +230,7 @@ describe('Dev Runtime command envelope', () => {
 
   test('accepts every paired commit whose immutable plan owns the target binding', () => {
     const pairedCommits = devOperations.filter((operation) => operation.endsWith('Commit'))
-    expect(pairedCommits).toHaveLength(13)
+    expect(pairedCommits).toHaveLength(14)
     for (const operation of pairedCommits) {
       const value = command(operation, {
         planId: 'plan-1',

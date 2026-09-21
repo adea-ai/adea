@@ -22,8 +22,8 @@ import {
   branchLabel,
   groupStatus,
   renderUnifiedDiff,
+  splitFileHunks,
   statusLabel,
-  type RenderedDiffLine,
 } from './source-control-model'
 import {
   aheadBehindLabel,
@@ -60,8 +60,11 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   const [message, setMessage] = createSignal('')
   const [notice, setNotice] = createSignal<string | undefined>()
   const [confirmDiscard, setConfirmDiscard] = createSignal<string | undefined>()
-  const [diff, setDiff] = createSignal<readonly RenderedDiffLine[]>([])
+  // The fetched diff page stays structural so each hunk can carry its own
+  // stage/unstage affordance (#399 residue); rendering is derived per hunk.
+  const [diffHunks, setDiffHunks] = createSignal<readonly DiffHunk[]>([])
   const [diffTarget, setDiffTarget] = createSignal<string | undefined>()
+  const [diffMode, setDiffMode] = createSignal<'worktree' | 'staged'>('worktree')
   const [contextVersion, bumpContextVersion] = createSignal(0)
 
   createResource(contextVersion, async () => {
@@ -251,6 +254,7 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!context || !activeScope) return
     setDiffTarget(relativePath)
+    setDiffMode(mode)
     try {
       const page = await executeOperation<{ items: readonly DiffHunk[] }>(
         props.runtime,
@@ -264,9 +268,44 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         },
         { kind: 'worktree', id: context.worktreeId, generation: context.generation }
       )
-      setDiff(renderUnifiedDiff(page.items))
+      setDiffHunks(page.items)
     } catch (reply) {
-      setDiff([])
+      setDiffHunks([])
+      setNotice(describeError(reply))
+    }
+  }
+
+  /** Per-hunk staging (#399 residue): plan/commit a `git apply --cached`
+   *  patch over exactly the selected hunk, then re-read status and the open
+   *  diff so the pane shows the post-application state. */
+  async function stageHunk(hunk: DiffHunk, direction: 'stage' | 'unstage'): Promise<void> {
+    const context = worktree()
+    const activeScope = scope()
+    if (!context || !activeScope) return
+    try {
+      const plan = await executeOperation<{ id: string; digest: string }>(
+        props.runtime,
+        activeScope,
+        'dev.git.hunkStagingPlan',
+        {
+          worktreeId: context.worktreeId,
+          direction,
+          hunks: [hunk],
+        },
+        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+      )
+      await executeOperation(
+        props.runtime,
+        activeScope,
+        'dev.git.hunkStagingCommit',
+        { planId: plan.id, planDigest: plan.digest },
+        { kind: 'worktree', id: context.worktreeId, generation: context.generation }
+      )
+      setNotice(undefined)
+      await refreshStatus()
+      const target = diffTarget()
+      if (target) await showDiff(target, direction === 'stage' ? 'worktree' : 'staged')
+    } catch (reply) {
       setNotice(describeError(reply))
     }
   }
@@ -394,15 +433,61 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
           </div>
         </div>
         <Show when={diffTarget()}>
-          <p class="dev-sc__section-title">Diff — {diffTarget()}</p>
+          <p class="dev-sc__section-title">
+            Diff — {diffTarget()} ({diffMode() === 'staged' ? 'staged' : 'worktree'})
+          </p>
           <div class="dev-sc__diff" aria-label={`Diff for ${diffTarget()}`}>
-            <For each={diff()}>
-              {(line) => (
-                <div class={cn(`dev-sc__diff-line--${line.kind === 'meta' ? 'meta' : line.kind}`)}>
-                  {line.text}
-                </div>
+            <For each={splitFileHunks(diffHunks())}>
+              {(group) => (
+                <For each={group.hunks}>
+                  {(hunk, hunkIndex) => (
+                    <div class="dev-sc__diff-hunk">
+                      <div class="dev-sc__diff-hunk-bar">
+                        <span class="dev-sc__diff-line--meta">
+                          {`hunk ${hunkIndex() + 1}: @@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`}
+                        </span>
+                        <Show
+                          when={diffMode() === 'staged'}
+                          fallback={
+                            <button
+                              type="button"
+                              class="dev-sc__hunk-action"
+                              aria-label={`Stage hunk ${hunkIndex() + 1} of ${group.path}`}
+                              onClick={() => void stageHunk(hunk, 'stage')}
+                            >
+                              Stage hunk
+                            </button>
+                          }
+                        >
+                          <button
+                            type="button"
+                            class="dev-sc__hunk-action"
+                            aria-label={`Unstage hunk ${hunkIndex() + 1} of ${group.path}`}
+                            onClick={() => void stageHunk(hunk, 'unstage')}
+                          >
+                            Unstage hunk
+                          </button>
+                        </Show>
+                      </div>
+                      <For each={renderUnifiedDiff([hunk]).slice(1)}>
+                        {(line) => (
+                          <div
+                            class={cn(
+                              `dev-sc__diff-line--${line.kind === 'meta' ? 'meta' : line.kind}`
+                            )}
+                          >
+                            {line.text}
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </For>
               )}
             </For>
+            <Show when={diffHunks().length === 0}>
+              <div class="dev-sc__diff-line--meta">no textual changes</div>
+            </Show>
           </div>
         </Show>
       </Show>

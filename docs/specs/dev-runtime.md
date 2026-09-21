@@ -2348,6 +2348,16 @@ for copies) before deleting children-first or copying via atomic create-new,
 and refuses with `plan_stale`/`file_changed` on any drift. Plans expire after
 10 minutes; commits verify the plan digest and are single-use.
 
+Quick-open (#399 residue) is a keyboard-first files-pane affordance:
+Ctrl/Cmd+P (or the toolbar action) opens a pane-local picker over the file
+paths already loaded into the tree, ranked by a pure fuzzy model — in-order
+subsequence matches score consecutive runs, path/word boundaries, and
+filename-part hits highest; ties break by shorter path; results are bounded
+(20). Selecting a result opens the file through the same identity-pinned
+`onOpenFile` path as tree selection; nothing in the picker grants authority.
+V1 ranks only loaded paths by design — a prebuilt index over the whole
+worktree (paged provider-side) is a future slice.
+
 ## Local git and diffs
 
 Git commands run through the per-repo mutation/read scheduler with argv arrays,
@@ -2370,7 +2380,8 @@ namespace paths; never truncate GitLab subgroups. Embedded user-info is removed.
 
 The desktop shell registers the local-git operations (`dev.git.status`,
 `history`, `diff`, `stage`, `unstage`, `commit`, `fetch`, `checkpoint`,
-`discardPlan`/`discardCommit`, `restorePlan`/`restoreCommit`) over the worktree
+`discardPlan`/`discardCommit`, `restorePlan`/`restoreCommit`,
+`hunkStagingPlan`/`hunkStagingCommit`) over the worktree
 service's canonical roots, through the bounded argv-only runner with
 `LC_ALL=C`, `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`. Status parses
 `--porcelain=v1 -z --branch --untracked-files=all` (unmodified sides are
@@ -2389,6 +2400,22 @@ blockers (explicit deletion stays out of the plan), and restore sources only
 the checkpoint ref, never moving HEAD. Fetch reports `for-each-ref` before and
 after maps for the named remote and fails `remote_unavailable` with
 credential-redacted errors.
+
+Hunk-level staging (#399 residue) rides the `hunkStagingPlan`/`hunkStagingCommit`
+pair. The plan body carries structured `DiffHunk` selections (≤ 200) plus a
+`stage`/`unstage` direction — the client only NAMES hunks (path plus `@@`
+header quadruple), never patch text. The provider re-runs the authoritative
+diff over the exact pre-image `git apply --cached` will read (index↔worktree
+for `stage`, HEAD↔index for `unstage`), builds the patch by slicing git's own
+output verbatim — headers, context, and `\ No newline at end of file` markers
+included; hunks the fresh diff cannot locate fail `stale_version` before any
+plan exists. The plan stores the exact patch (bounded) with the generation,
+index fingerprint, and digest; the commit re-proves generation and index
+(`stale_generation`/`stale_version` on drift) and applies the patch offline
+through fixed argv (`git apply --cached [--reverse] --whitespace=nowarn`)
+with the patch on stdin — never an argv value, never shell text. Dropped
+hunks rely on git's context matching; an application failure is typed
+`invalid_state`. Commits are single-use and reply with the re-read status.
 
 ### Canonical byte encoding in proofs
 
@@ -3395,6 +3422,26 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #399 residues: hunk-level staging and files-pane quick-open.**
+  Added `dev.git.hunkStagingPlan`/`dev.git.hunkStagingCommit` (total operations
+  163). The plan carries structured `DiffHunk` selections (≤ 200) and a
+  `stage`/`unstage` direction; the provider never trusts client patch text —
+  it re-runs the authoritative diff over the exact `git apply --cached`
+  pre-image, locates every selected hunk by path plus `@@` header quadruple,
+  and slices git's own output verbatim into the plan's patch (missing hunks
+  are `stale_version`). The commit re-proves the worktree generation and the
+  index fingerprint (`stale_generation`/`stale_version`), then applies the
+  stored patch offline via fixed argv (`git apply --cached [--reverse]
+  --whitespace=nowarn`) with the patch on stdin; application failure is typed
+  `invalid_state`, commits are single-use and reply with the re-read
+  `GitStatus`. The source-control pane grows per-hunk stage/unstage buttons on
+  its diff view (client-side splitting is the tested pure `splitFileHunks`
+  model), additive to file-level stage/unstage. The files pane grows
+  quick-open: a keyboard-first picker (Ctrl/Cmd+P or toolbar) over the paths
+  loaded into the tree, fuzzy-ranked with bounded results (20), opening files
+  through the existing identity-pinned open path. Fuzzy-over-loaded-paths is
+  the accepted v1; a prebuilt whole-worktree index is an explicitly deferred
+  future slice. Registry regenerated (163).
 - **2026-09-21 — the shipped shell loads the packaged component manifest
   (#185 one-supervisor wiring).** The last #185 code gap: the production
   shell entry (`apps/desktop/shell/src/bun/index.ts`) never fed the

@@ -47,6 +47,8 @@ const DIFF_PAGE_MAX = 10_000
 const DIFF_OUTPUT_BUDGET = 8 * 1024 * 1024
 const PATHSPEC_MAX = 1000
 const COMMIT_MESSAGE_MAX = 10_000
+const HUNK_PLAN_MAX = 200
+const HUNK_PATCH_BUDGET = 4 * 1024 * 1024
 
 /** The narrow worktree-service seam the composition root populates from
  *  `service.getWorktree(scope, id)`. */
@@ -143,6 +145,69 @@ async function runGitEnv(
     read(proc.stdout),
     read(proc.stderr),
     proc.exited,
+  ])
+  clearTimeout(timer)
+  return { stdout, stderr, exitCode }
+}
+
+/** Patch-carrying variant for `git apply --cached`: fixed argv, the patch
+ *  itself travels on stdin — never an argv value, never shell text. Stdin is
+ *  drained concurrently so a large patch cannot deadlock on the pipe buffer;
+ *  a git early-exit only surfaces as the write's ignored EPIPE. */
+async function runGitStdin(
+  args: readonly string[],
+  stdinText: string,
+  options: { cwd: string; maxOutputBytes?: number }
+): Promise<{ stdout: string; exitCode: number; stderr: string }> {
+  const proc = Bun.spawn(['git', ...args], {
+    cwd: options.cwd,
+    env: gitChildEnv(),
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  const timer = setTimeout(() => {
+    try {
+      proc.kill()
+    } catch {
+      // Already exited.
+    }
+  }, GIT_CHILD_TIMEOUT_MS)
+  timer.unref?.()
+  const read = async (stream: ReadableStream<Uint8Array>): Promise<string> => {
+    const decoder = new TextDecoder('utf-8', { fatal: false })
+    let total = 0
+    let text = ''
+    for await (const chunk of stream) {
+      total += chunk.byteLength
+      if (total > (options.maxOutputBytes ?? 1024 * 1024)) {
+        try {
+          proc.kill()
+        } catch {
+          // Already exiting.
+        }
+        throw devError('limit_exceeded', `git ${String(args[0])} exceeded its output budget`)
+      }
+      text += decoder.decode(chunk, { stream: true })
+    }
+    text += decoder.decode()
+    return text
+  }
+  const write = (async () => {
+    try {
+      const sink = proc.stdin
+      sink.write(new TextEncoder().encode(stdinText))
+      sink.end()
+    } catch {
+      // Git exited before consuming stdin (refused patch): the exit code and
+      // stderr carry the typed refusal; the write failure itself is inert.
+    }
+  })()
+  const [stdout, stderr, exitCode] = await Promise.all([
+    read(proc.stdout),
+    read(proc.stderr),
+    proc.exited,
+    write,
   ])
   clearTimeout(timer)
   return { stdout, stderr, exitCode }
@@ -284,6 +349,119 @@ function parseUnifiedDiff(stdout: string): RawHunk[] {
   return hunks.filter((hunk) => hunk.newPath.length > 0)
 }
 
+// ─── Hunk staging patch construction (#399 residue) ─────────────────────────
+
+/** One client-selected hunk, narrowed from the decoded `DiffHunk` DTO: the
+ *  selection names the hunk, never the patch content. */
+export type HunkSelection = {
+  relativePath: string
+  oldStart: number
+  oldLines: number
+  newStart: number
+  newLines: number
+}
+
+type RawFileSection = {
+  /** Verbatim header lines from `diff --git` through just before the first
+   *  hunk (index, similarity, rename, `---`/`+++` lines). */
+  header: string[]
+  /** Verbatim hunk blocks: the `@@` line through just before the next hunk,
+   *  the next file, or EOF (`\ No newline` markers stay attached). */
+  hunks: Array<{ headerLine: string; body: string[]; oldStart: number; oldLines: number; newStart: number; newLines: number }>
+  /** The path hunks were selected by: the new side, or the old side for
+   *  deletions where git prints `+++ /dev/null`. */
+  targetPath: string
+}
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
+
+function splitFileSections(diffText: string): RawFileSection[] {
+  const sections: RawFileSection[] = []
+  let current: RawFileSection | undefined
+  let activeHunk: RawFileSection['hunks'][number] | undefined
+  const lines = diffText.split('\n')
+  // The split artifact after the final newline is not a diff line.
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop()
+  for (const line of lines) {
+    if (line.startsWith('diff --git ')) {
+      current = { header: [line], hunks: [], targetPath: '' }
+      sections.push(current)
+      activeHunk = undefined
+      continue
+    }
+    if (!current) continue
+    const hunk = line.match(HUNK_HEADER)
+    if (hunk) {
+      activeHunk = {
+        headerLine: line,
+        body: [],
+        oldStart: Number(hunk[1]),
+        oldLines: hunk[2] === undefined ? 1 : Number(hunk[2]),
+        newStart: Number(hunk[3]),
+        newLines: hunk[4] === undefined ? 1 : Number(hunk[4]),
+      }
+      current.hunks.push(activeHunk)
+      continue
+    }
+    if (activeHunk) {
+      // Everything below the header belongs to the open hunk, including
+      // `\ No newline at end of file` markers.
+      activeHunk.body.push(line)
+      continue
+    }
+    current.header.push(line)
+    if (line.startsWith('--- ')) {
+      const old = stripAB(line.slice(4).replace(/\t.*$/, ''))
+      if (current.targetPath.length === 0 && old !== undefined) current.targetPath = old
+    }
+    if (line.startsWith('+++ ')) {
+      const newSide = stripAB(line.slice(4).replace(/\t.*$/, ''))
+      if (newSide !== undefined) current.targetPath = newSide
+    }
+  }
+  return sections
+}
+
+/** Build the exact `git apply --cached` patch for the selected hunks by
+ *  slicing git's own unified-diff output. Selections name hunks (path plus
+ *  the `@@` header quadruple); the patch text is never taken from the client.
+ *  A selection that does not locate exactly one hunk in the fresh diff means
+ *  the caller's view has drifted and fails `stale_version`. */
+export function buildHunkPatch(
+  diffText: string,
+  selections: readonly HunkSelection[]
+): string {
+  const sections = splitFileSections(diffText)
+  const out: string[] = []
+  const remaining = new Set(
+    selections.map((selection) => JSON.stringify(selection))
+  )
+  for (const section of sections) {
+    const wanted = section.hunks.filter((hunk) =>
+      remaining.delete(
+        JSON.stringify({
+          relativePath: section.targetPath,
+          oldStart: hunk.oldStart,
+          oldLines: hunk.oldLines,
+          newStart: hunk.newStart,
+          newLines: hunk.newLines,
+        })
+      )
+    )
+    if (wanted.length === 0) continue
+    out.push(...section.header)
+    for (const hunk of wanted) {
+      out.push(hunk.headerLine, ...hunk.body)
+    }
+  }
+  if (remaining.size > 0)
+    throw devError(
+      'stale_version',
+      'a selected hunk no longer matches the current diff; re-open the diff and reselect'
+    )
+  return `${out.join('\n')}\n`
+}
+
 // ─── Registrar ──────────────────────────────────────────────────────────────
 
 async function headOf(canonicalRoot: string): Promise<{
@@ -320,10 +498,16 @@ async function headOf(canonicalRoot: string): Promise<{
 }
 
 type PlanEntry = {
-  kind: 'discard' | 'restore'
+  kind: 'discard' | 'restore' | 'hunkStaging'
   worktreeId: string
   paths: string[]
   checkpointId?: string
+  /** Exact `git apply --cached` patch text built from git's own diff output
+   *  at plan time (hunk staging only); carried verbatim to the commit. */
+  patch?: string
+  /** Hunk staging direction: forward stages into the index, reverse
+   *  (`git apply --cached -R`) unstages a staged hunk back out of it. */
+  reverse?: boolean
   boundGeneration: number
   boundIndexSha: string
   expiresAt: number
@@ -665,6 +849,127 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       )
     },
 
+    'dev.git.hunkStagingPlan': async (command) => {
+      const body = devOperationDecoders['dev.git.hunkStagingPlan'].request(command.body)
+      const { worktreeId, canonicalRoot, rootIdentity, ...gate } =
+        requireLiveWorktreeExtended(command)
+      const direction = body.direction === 'unstage' ? 'unstage' : 'stage'
+      if (!Array.isArray(body.hunks) || body.hunks.length === 0)
+        throw devError('invalid_state', 'hunk staging requires at least one hunk')
+      if (body.hunks.length > HUNK_PLAN_MAX)
+        throw devError('limit_exceeded', 'too many hunks in one staging plan')
+      const selections = body.hunks.map((hunk) =>
+        hunkSelectionOf(worktreeId, hunk, rootIdentity)
+      )
+      // The plan is built from a FRESH authoritative diff over the exact
+      // pre-image `git apply --cached` will see: forward staging diffs the
+      // index against the worktree, unstaging diffs HEAD against the index.
+      // Client hunks only name selections; patch text is always git's own.
+      const fresh = await runGit(
+        [
+          ...PATHSAFE_CONFIG,
+          'diff',
+          ...(direction === 'unstage' ? ['--cached'] : []),
+          '--no-color',
+          '--no-ext-diff',
+          '--unified=3',
+        ],
+        { cwd: canonicalRoot, maxOutputBytes: DIFF_OUTPUT_BUDGET }
+      )
+      if (fresh.exitCode !== 0)
+        throw devError('invalid_state', redactCredentials(fresh.stderr.trim().slice(0, 512)))
+      const patch = buildHunkPatch(fresh.stdout, selections)
+      if (patch.length > HUNK_PATCH_BUDGET)
+        throw devError('limit_exceeded', 'the constructed hunk patch exceeds its budget')
+      const head = await headOf(canonicalRoot)
+      const indexSha = await indexShaOf(canonicalRoot)
+      const planId = randomUUID()
+      const digest = sha256Text(
+        JSON.stringify({
+          kind: 'hunkStaging',
+          worktreeId,
+          generation: gate.generation,
+          indexSha,
+          headSha: head.headSha ?? null,
+          direction,
+          patch,
+        })
+      )
+      plans.set(planId, {
+        kind: 'hunkStaging',
+        worktreeId,
+        paths: [...new Set(selections.map((selection) => selection.relativePath))],
+        patch,
+        reverse: direction === 'unstage',
+        boundGeneration: gate.generation,
+        boundIndexSha: indexSha,
+        expiresAt: now() + PLAN_TTL_MS,
+      })
+      return {
+        id: planId,
+        operation: 'dev.git.hunkStagingCommit' as DevOperation,
+        scope: input.scope,
+        resource: { kind: 'worktree', id: worktreeId, generation: gate.generation },
+        factVersions: {
+          indexSha,
+          direction,
+          hunkCount: String(selections.length),
+          ...(head.headSha !== undefined ? { headSha: head.headSha } : {}),
+        },
+        steps: [{ id: 'apply-hunks', kind: 'git_apply_cached', targetId: worktreeId, dependsOn: [] }],
+        blockers: [],
+        requiredApprovalIds: [],
+        digest,
+        expiresAt: new Date(now() + PLAN_TTL_MS).toISOString(),
+      } satisfies MutationPlan
+    },
+
+    'dev.git.hunkStagingCommit': async (command) => {
+      const body = devOperationDecoders['dev.git.hunkStagingCommit'].request(command.body)
+      // Paired commit: the body names the plan, so the envelope resource is
+      // validated against the plan's bound target before anything runs.
+      const entry = livePlan(plans, String(body.planId), 'dev.git.hunkStagingCommit')
+      if (entry.kind !== 'hunkStaging' || entry.patch === undefined)
+        throw devError('plan_stale', 'the plan is not a hunk staging patch')
+      const resource = command.resource
+      if (
+        resource === undefined ||
+        resource.kind !== 'worktree' ||
+        resource.id !== entry.worktreeId
+      )
+        throw devError('identity_mismatch', 'the plan is bound to another worktree resource')
+      const { canonicalRoot, rootIdentity } = requireWorktreeContext(
+        command,
+        entry.worktreeId,
+        resource.generation
+      )
+      if (entry.boundGeneration !== resource.generation)
+        throw devError('stale_generation', 'the plan is bound to another worktree generation')
+      const liveIndexSha = await indexShaOf(canonicalRoot)
+      if (liveIndexSha !== entry.boundIndexSha)
+        throw devError('stale_version', 'the index moved on since the hunk staging plan was made')
+      // Offline, fixed-argv application of the plan's exact patch; the patch
+      // arrives on stdin. Forward stages the hunks into the index, reverse
+      // unstages them back out.
+      const applied = await runGitStdin(
+        entry.reverse === true
+          ? ['apply', '--cached', '--reverse', '--whitespace=nowarn']
+          : ['apply', '--cached', '--whitespace=nowarn'],
+        entry.patch,
+        { cwd: canonicalRoot }
+      )
+      if (applied.exitCode !== 0)
+        throw devError('invalid_state', redactCredentials(applied.stderr.trim().slice(0, 512)))
+      plans.delete(String(body.planId))
+      return statusFromPorcelain(
+        entry.worktreeId,
+        canonicalRoot,
+        rootIdentity,
+        STATUS_PAGE_MAX,
+        undefined
+      )
+    },
+
     'dev.git.commit': async (command) => {
       const body = devOperationDecoders['dev.git.commit'].request(command.body)
       const { canonicalRoot } = requireLiveWorktree(command)
@@ -965,14 +1270,18 @@ export function registerGitRuntime(input: GitRegistrarInput): {
   function livePlan(
     store: Map<string, PlanEntry>,
     planId: string,
-    operation: 'dev.git.discardCommit' | 'dev.git.restoreCommit'
+    operation:
+      | 'dev.git.discardCommit'
+      | 'dev.git.restoreCommit'
+      | 'dev.git.hunkStagingCommit'
   ): PlanEntry {
     const entry = store.get(planId)
     if (!entry || entry.expiresAt <= now())
       throw devError('plan_stale', 'the plan is unknown, expired, or already consumed')
     if (
       (operation === 'dev.git.discardCommit' && entry.kind !== 'discard') ||
-      (operation === 'dev.git.restoreCommit' && entry.kind !== 'restore')
+      (operation === 'dev.git.restoreCommit' && entry.kind !== 'restore') ||
+      (operation === 'dev.git.hunkStagingCommit' && entry.kind !== 'hunkStaging')
     )
       throw devError('plan_stale', 'the plan does not match this operation')
     return entry
@@ -1090,6 +1399,32 @@ function pinMatches(pinned: unknown, rootIdentity: FileIdentityValue): boolean {
     candidate.mtimeNs === rootIdentity.mtimeNs &&
     candidate.size === rootIdentity.size
   )
+}
+
+/** Narrow a decoded `DiffHunk` selection into a `HunkSelection` pinned to
+ *  this worktree: the path re-proves its root pin and grammar, the header
+ *  quadruple must be non-negative safe integers. */
+function hunkSelectionOf(
+  worktreeId: string,
+  hunk: unknown,
+  rootIdentity: FileIdentityValue
+): HunkSelection {
+  const candidate = hunk as
+    | { path?: unknown; oldStart?: unknown; oldLines?: unknown; newStart?: unknown; newLines?: unknown }
+    | undefined
+  if (!candidate || typeof candidate !== 'object')
+    throw devError('invalid_state', 'hunk selection must be a DiffHunk')
+  const relativePath = workspaceRelativeSpec(worktreeId, candidate.path, rootIdentity)
+  const ranges = [candidate.oldStart, candidate.oldLines, candidate.newStart, candidate.newLines]
+  if (ranges.some((value) => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0))
+    throw devError('invalid_state', 'hunk selection ranges must be non-negative integers')
+  return {
+    relativePath,
+    oldStart: candidate.oldStart as number,
+    oldLines: candidate.oldLines as number,
+    newStart: candidate.newStart as number,
+    newLines: candidate.newLines as number,
+  }
 }
 
 function workspaceRelativeSpec(

@@ -491,6 +491,20 @@ export const devOperationDefinitions = {
     resource: { kind: 'worktree', idField: 'worktreeId' },
     stream: null,
   },
+  'dev.git.hunkStagingCommit': {
+    body: '{ planId: string; planDigest: sha256 }',
+    capabilities: ['dev.git.write'],
+    reply: 'GitStatus',
+    resource: { kind: 'worktree', idField: 'worktreeId' },
+    stream: null,
+  },
+  'dev.git.hunkStagingPlan': {
+    body: "{ worktreeId: string; direction: 'stage'|'unstage'; hunks: DiffHunk[]<=200 }",
+    capabilities: ['dev.git.write'],
+    reply: 'MutationPlan',
+    resource: { kind: 'worktree', idField: 'worktreeId' },
+    stream: null,
+  },
   'dev.git.restoreCommit': {
     body: '{ planId: string; planDigest: sha256 }',
     capabilities: ['dev.git.write'],

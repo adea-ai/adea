@@ -5,6 +5,7 @@
 export { FilesPane, type FilesPaneProps } from './files-pane'
 export {
   filterTree,
+  fuzzyQuickOpen,
   markerBadge,
   markerMap,
   mergeListing,

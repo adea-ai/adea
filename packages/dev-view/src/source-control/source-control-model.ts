@@ -93,10 +93,7 @@ export function renderUnifiedDiff(
   let emitted = 0
   for (const hunk of hunks) {
     if (emitted >= budgetLines) break
-    lines.push({
-      kind: 'meta',
-      text: `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@ ${hunk.path.relativePath}`,
-    })
+    lines.push({ kind: 'meta', text: hunkHeader(hunk) })
     emitted += 1
     for (const line of hunk.lines) {
       if (emitted >= budgetLines) break
@@ -106,4 +103,30 @@ export function renderUnifiedDiff(
     }
   }
   return lines
+}
+
+/** The `@@ -a,b +c,d @@` header line for one hunk (the provider's DTO carries
+ *  the ranges structurally, so the header is derived, never parsed). */
+export function hunkHeader(hunk: DiffHunk): string {
+  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@ ${hunk.path.relativePath}`
+}
+
+export type FileHunkGroup = Readonly<{
+  path: string
+  hunks: readonly DiffHunk[]
+}>
+
+/** Client-side hunk splitting: group the provider's `DiffHunk` page (git
+ *  emits file-grouped hunks in path order) into per-file hunk lists so the
+ *  pane can offer per-hunk stage/unstage affordances. Pure data work — the
+ *  patch itself is constructed provider-side from git's own output. */
+export function splitFileHunks(hunks: readonly DiffHunk[]): readonly FileHunkGroup[] {
+  const groups = new Map<string, DiffHunk[]>()
+  for (const hunk of hunks) {
+    const path = hunk.path.relativePath
+    const bucket = groups.get(path)
+    if (bucket) bucket.push(hunk)
+    else groups.set(path, [hunk])
+  }
+  return [...groups.entries()].map(([path, group]) => ({ path, hunks: group }))
 }

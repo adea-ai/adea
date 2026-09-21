@@ -16,16 +16,17 @@ import {
   Folder,
   Pencil,
   RefreshCw,
+  Search,
 } from 'lucide-solid'
 import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import {
   filterTree,
+  fuzzyQuickOpen,
   markerBadge,
   markerMap,
   mergeListing,
-  rankQuickOpen,
   visibleRows,
   type FileTreeNode,
   type ModificationMarker,
@@ -505,9 +506,41 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     }
   }
 
-  // Quick-open: flat ranked jump list over the currently loaded paths.
+  // Quick-open (#399 residue): a keyboard-first file picker (Ctrl/Cmd+P) over
+  // the currently loaded paths, ranked fuzzily, opening through the same
+  // onOpenFile path as tree selection. Bounded to 20 results.
+  const [quickOpenOpen, setQuickOpenOpen] = createSignal(false)
+  const [quickOpenQuery, setQuickOpenQuery] = createSignal('')
+  const [quickOpenIndex, setQuickOpenIndex] = createSignal(0)
+  let quickOpenInput: HTMLInputElement | undefined
   const loadedPaths = (): readonly string[] => flattenPaths(nodes())
-  const quickOpen = () => rankQuickOpen(loadedPaths(), filter())
+  const quickOpenResults = (): readonly string[] => fuzzyQuickOpen(loadedPaths(), quickOpenQuery())
+
+  function openQuickOpen(): void {
+    setNotice(undefined)
+    setQuickOpenQuery('')
+    setQuickOpenIndex(0)
+    setQuickOpenOpen(true)
+    queueMicrotask(() => quickOpenInput?.focus())
+  }
+
+  function closeQuickOpen(): void {
+    setQuickOpenOpen(false)
+    setQuickOpenQuery('')
+    setQuickOpenIndex(0)
+  }
+
+  function openQuickOpenResult(relativePath: string): void {
+    closeQuickOpen()
+    const node = findNode(nodes(), relativePath)
+    if (node) void openFile(node)
+  }
+
+  function moveQuickOpenIndex(step: 1 | -1): void {
+    const count = quickOpenResults().length
+    if (count === 0) return
+    setQuickOpenIndex((current) => (current + step + count) % count)
+  }
 
   const rows = () => {
     const query = filter()
@@ -518,16 +551,39 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   const runtimeReady = () => props.runtime.state().status === 'ready'
 
   return (
-    <section class="dev-files" aria-label="Files">
+    <section
+      class="dev-files"
+      aria-label="Files"
+      onKeyDown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey) {
+          if (event.key.toLowerCase() === 'p') {
+            event.preventDefault()
+            if (quickOpenOpen()) closeQuickOpen()
+            else openQuickOpen()
+          }
+          return
+        }
+        if (event.key === 'Escape' && quickOpenOpen()) closeQuickOpen()
+      }}
+    >
       <div class="dev-files__toolbar">
         <input
           type="search"
           class="dev-files__filter"
-          placeholder="Filter files (quick open)"
+          placeholder="Filter files"
           aria-label="Filter files"
           value={filter()}
           onInput={(event) => setFilter(event.currentTarget.value)}
         />
+        <button
+          type="button"
+          class="dev-icon-button"
+          aria-label="Quick open files"
+          title="Quick open (Ctrl+P)"
+          onClick={() => openQuickOpen()}
+        >
+          <Search aria-hidden="true" />
+        </button>
         <button
           type="button"
           class="dev-icon-button"
@@ -537,6 +593,71 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           <RefreshCw aria-hidden="true" />
         </button>
       </div>
+      <Show when={quickOpenOpen()}>
+        <div class="dev-files__quickopen" role="dialog" aria-label="Quick open">
+          <input
+            type="search"
+            class="dev-files__filter"
+            placeholder="Jump to a file…"
+            aria-label="Quick open file"
+            value={quickOpenQuery()}
+            ref={(element) => {
+              quickOpenInput = element
+            }}
+            onInput={(event) => {
+              setQuickOpenQuery(event.currentTarget.value)
+              setQuickOpenIndex(0)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                moveQuickOpenIndex(1)
+              } else if (event.key === 'ArrowUp') {
+                event.preventDefault()
+                moveQuickOpenIndex(-1)
+              } else if (event.key === 'Enter') {
+                event.preventDefault()
+                const selected = quickOpenResults()[quickOpenIndex()]
+                if (selected !== undefined) openQuickOpenResult(selected)
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                closeQuickOpen()
+              }
+            }}
+          />
+          <div class="dev-files__quickopen-list" role="listbox" aria-label="Matching files">
+            <Show
+              when={quickOpenResults().length > 0}
+              fallback={
+                <p class="dev-terminal-muted dev-files__quickopen-empty">
+                  No loaded file matches. Expand more of the tree, then search again.
+                </p>
+              }
+            >
+              <For each={quickOpenResults()}>
+                {(path, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index() === quickOpenIndex()}
+                    class={cn('dev-files__row', {
+                      'dev-files__quickopen-row--active': index() === quickOpenIndex(),
+                    })}
+                    onMouseDown={(event) => {
+                      // Select on press so a click cannot land on stale focus.
+                      event.preventDefault()
+                      openQuickOpenResult(path)
+                    }}
+                  >
+                    <FileIcon aria-hidden="true" class="dev-files__icon" />
+                    <span class="dev-files__name">{path}</span>
+                  </button>
+                )}
+              </For>
+            </Show>
+          </div>
+        </div>
+      </Show>
       <Show
         when={runtimeReady()}
         fallback={
@@ -589,7 +710,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
             <Show
               when={filter().length === 0}
               fallback={
-                <For each={quickOpen()}>
+                <For each={fuzzyQuickOpen(loadedPaths(), filter())}>
                   {(path) => (
                     <button
                       type="button"

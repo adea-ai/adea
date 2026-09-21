@@ -3715,6 +3715,10 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.git.discardCommit': (value) => namedType('GitStatus', value, 'reply.value'),
   'dev.git.commit': (value) => namedType('GitCommit', value, 'reply.value'),
   'dev.git.fetch': (value) => namedType('GitFetchResult', value, 'reply.value'),
+  // Hunk-level staging (#399 residue): plans decode as MutationPlan; the
+  // commit replies with the re-read GitStatus like stage/unstage.
+  'dev.git.hunkStagingPlan': (value) => decodeMutationPlan(value),
+  'dev.git.hunkStagingCommit': (value) => namedType('GitStatus', value, 'reply.value'),
   'dev.git.checkpoint': (value) => namedType('GitCheckpoint', value, 'reply.value'),
   'dev.git.restorePlan': (value) => decodeMutationPlan(value),
   'dev.git.restoreCommit': (value) => namedType('GitStatus', value, 'reply.value'),

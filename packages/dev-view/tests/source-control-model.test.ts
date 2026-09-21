@@ -9,7 +9,9 @@ import type { DiffHunk, GitStatus } from '@adea-ai/types/dev-runtime'
 import {
   branchLabel,
   groupStatus,
+  hunkHeader,
   renderUnifiedDiff,
+  splitFileHunks,
   statusLabel,
 } from '../src/source-control/source-control-model'
 
@@ -23,6 +25,21 @@ function entry(relativePath: string, staged: string, unstaged: string, untracked
     staged,
     unstaged,
     untracked,
+  }
+}
+
+function hunkOf(relativePath: string, oldStart: number): DiffHunk {
+  return {
+    path: {
+      worktreeId: 'wt',
+      rootIdentity: { mtimeNs: '1', size: '1' },
+      relativePath,
+    },
+    oldStart,
+    oldLines: 1,
+    newStart: oldStart,
+    newLines: 2,
+    lines: [{ kind: 'context', text: 'x' }],
   }
 }
 
@@ -87,5 +104,35 @@ describe('source control model', () => {
     expect(rendered[2]?.text).toBe('-old')
     // Budget of 2 lines: the header plus one line, never an unbounded dump.
     expect(renderUnifiedDiff([hunk], 2).length).toBe(2)
+  })
+
+  test('splitFileHunks groups the diff page into per-file hunk lists in order', () => {
+    const groups = splitFileHunks([
+      hunkOf('a.ts', 1),
+      hunkOf('a.ts', 10),
+      hunkOf('b.ts', 4),
+      hunkOf('a.ts', 20),
+    ])
+    expect(groups.map((group) => group.path)).toEqual(['a.ts', 'b.ts'])
+    expect(groups[0]?.hunks.map((hunk) => hunk.oldStart)).toEqual([1, 10, 20])
+    expect(groups[1]?.hunks.map((hunk) => hunk.oldStart)).toEqual([4])
+    expect(splitFileHunks([])).toEqual([])
+  })
+
+  test('hunkHeader derives the @@ header from the structural ranges', () => {
+    expect(
+      hunkHeader({
+        path: {
+          worktreeId: 'wt',
+          rootIdentity: { mtimeNs: '1', size: '1' },
+          relativePath: 'src/a.ts',
+        },
+        oldStart: 3,
+        oldLines: 0,
+        newStart: 4,
+        newLines: 2,
+        lines: [],
+      })
+    ).toBe('@@ -3,0 +4,2 @@ src/a.ts')
   })
 })

@@ -157,6 +157,61 @@ export function rankQuickOpen(
     .map((entry) => entry.path)
 }
 
+/** Characters that start a "word" inside a path: a match right after one of
+ *  these (or at position 0) is worth more than a mid-word match. */
+const BOUNDARY_CHARS = new Set(['/', '-', '_', '.', ' '])
+
+/** Fuzzy quick-open (v1): case-insensitive in-order subsequence match over
+ *  the currently loaded paths. Scoring prefers consecutive runs, matches
+ *  after path/word boundaries, and matches inside the filename over matches
+ *  in parent directories; ties break by shorter path, then lexicographically.
+ *  Bounded results keep the picker O(20) renders. Fuzzy matching rides only
+ *  the paths already loaded into the tree — a prebuilt index over the whole
+ *  worktree is a future slice (see the dev-runtime spec). */
+export function fuzzyQuickOpen(
+  paths: readonly string[],
+  query: string,
+  limit = 20
+): readonly string[] {
+  const needle = query.toLowerCase()
+  if (needle.length === 0) return []
+  const scored: Array<{ path: string; score: number }> = []
+  for (const path of paths) {
+    const score = fuzzyScore(path.toLowerCase(), needle)
+    if (score !== undefined) scored.push({ path, score })
+  }
+  return scored
+    .toSorted((left, right) =>
+      left.score !== right.score
+        ? right.score - left.score
+        : left.path.length - right.path.length || left.path.localeCompare(right.path)
+    )
+    .slice(0, limit)
+    .map((entry) => entry.path)
+}
+
+/** Deterministic greedy subsequence score: the leftmost match wins, runs of
+ *  consecutive matches and boundary-adjacent matches pay bonuses, and a
+ *  filename-part match outranks a directory-part match. Returns undefined
+ *  when the needle is not a subsequence of the candidate. */
+function fuzzyScore(candidate: string, needle: string): number | undefined {
+  const filenameStart = candidate.lastIndexOf('/') + 1
+  let score = 0
+  let needleIndex = 0
+  let previousMatch = -2
+  for (let index = 0; index < candidate.length && needleIndex < needle.length; index += 1) {
+    if (candidate[index] !== needle[needleIndex]) continue
+    if (index === previousMatch + 1) score += 8
+    if (index === 0 || BOUNDARY_CHARS.has(candidate[index - 1] as string)) score += 10
+    if (index >= filenameStart) score += 6
+    score += 1
+    previousMatch = index
+    needleIndex += 1
+  }
+  if (needleIndex < needle.length) return undefined
+  return score
+}
+
 export type ModificationMarker = Readonly<{ staged: string; unstaged: string; untracked: boolean }>
 
 type MarkerEntry = Readonly<{

@@ -21,7 +21,7 @@ import {
 } from '../../../packages/types/src/dev-runtime'
 
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
-import { registerGitRuntime } from '../shell/src/dev-runtime/git/register'
+import { buildHunkPatch, registerGitRuntime } from '../shell/src/dev-runtime/git/register'
 import { directoryIdentity } from '../shell/src/dev-runtime/worktrees/identity'
 import { initRepo, git, scope } from './worktree-fixtures'
 
@@ -518,6 +518,249 @@ describe('local git provider', () => {
     if (!stale.ok) expect(stale.error.code).toBe('stale_generation')
   })
 
+  test('hunk staging is a plan/commit pair that applies one hunk of a multi-hunk file', async () => {
+    const base =
+      'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\neleven\ntwelve\nthirteen\nfourteen\n'
+    writeFileSync(join(repoPath, 'hunks.txt'), base)
+    git(repoPath, ['add', 'hunks.txt'])
+    git(repoPath, ['commit', '-q', '-m', 'hunk base'])
+    writeFileSync(
+      join(repoPath, 'hunks.txt'),
+      base.replace('two', 'TWO').replace('eleven', 'ELEVEN')
+    )
+
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+
+    // The client selects hunks straight from the provider's own diff page.
+    const diff = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.diff', { worktreeId: WORKTREE_ID, mode: 'worktree', limit: 100 })
+    )
+    expect(diff.ok).toBe(true)
+    if (!diff.ok) return
+    const fileHunks = diff.value.items.filter((hunk) => hunk.path.relativePath === 'hunks.txt')
+    expect(fileHunks.length).toBe(2)
+
+    const plan = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingPlan', {
+        worktreeId: WORKTREE_ID,
+        direction: 'stage',
+        hunks: [fileHunks[0]],
+      })
+    )
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    expect(plan.value.factVersions.hunkCount).toBe('1')
+
+    const commit = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingCommit', {
+        planId: plan.value.id,
+        planDigest: plan.value.digest,
+      })
+    )
+    expect(commit.ok).toBe(true)
+
+    // The index holds ONLY the first hunk; the second change stays worktree-only.
+    const staged = git(repoPath, ['diff', '--cached', '--', 'hunks.txt']).stdout
+    expect(staged).toContain('+TWO')
+    expect(staged).not.toContain('+ELEVEN')
+    const worktreeLeft = git(repoPath, ['diff', '--', 'hunks.txt']).stdout
+    expect(worktreeLeft).toContain('+ELEVEN')
+    if (commit.ok) {
+      const entry = commit.value.entries.find((row) => row.path.relativePath === 'hunks.txt')
+      expect(entry?.staged).toBe('M')
+      expect(entry?.unstaged).toBe('M')
+    }
+  })
+
+  test('hunk unstaging reverse-applies a staged hunk out of the index', async () => {
+    // State from the previous test: TWO staged, ELEVEN worktree-only.
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+
+    const stagedDiff = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.diff', { worktreeId: WORKTREE_ID, mode: 'staged', limit: 100 })
+    )
+    expect(stagedDiff.ok).toBe(true)
+    if (!stagedDiff.ok) return
+    const fileHunks = stagedDiff.value.items.filter(
+      (hunk) => hunk.path.relativePath === 'hunks.txt'
+    )
+    expect(fileHunks.length).toBe(1)
+    const firstStaged = stagedDiff.value.items[0]
+    if (!firstStaged) throw new Error('expected a staged hunk')
+
+    const plan = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingPlan', {
+        worktreeId: WORKTREE_ID,
+        direction: 'unstage',
+        hunks: [firstStaged],
+      })
+    )
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    const commit = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingCommit', {
+        planId: plan.value.id,
+        planDigest: plan.value.digest,
+      })
+    )
+    expect(commit.ok).toBe(true)
+    // The reverse application removed the staged hunk; both edits remain
+    // worktree-only until re-staged.
+    const staged = git(repoPath, ['diff', '--cached', '--', 'hunks.txt']).stdout
+    expect(staged).not.toContain('+TWO')
+    const worktree = git(repoPath, ['diff', '--', 'hunks.txt']).stdout
+    expect(worktree).toContain('+TWO')
+    expect(worktree).toContain('+ELEVEN')
+  })
+
+  test('hunk staging fails typed on selection drift and on index movement before commit', async () => {
+    writeFileSync(join(repoPath, 'drift.txt'), 'keep\nchange me\nkeep\n')
+    git(repoPath, ['add', 'drift.txt'])
+    git(repoPath, ['commit', '-q', '-m', 'drift base'])
+    writeFileSync(join(repoPath, 'drift.txt'), 'keep\nchanged\nkeep\n')
+
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+
+    // A selection naming a hunk the fresh diff does not contain is refused.
+    const drifted = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingPlan', {
+        worktreeId: WORKTREE_ID,
+        direction: 'stage',
+        hunks: [
+          {
+            path: wsPath('drift.txt'),
+            oldStart: 999,
+            oldLines: 1,
+            newStart: 999,
+            newLines: 1,
+            lines: [],
+          },
+        ],
+      })
+    )
+    expect(drifted.ok).toBe(false)
+    if (!drifted.ok) expect(drifted.error.code).toBe('stale_version')
+
+    // A valid plan whose index fingerprint moves before the commit is fenced.
+    writeFileSync(join(repoPath, 'drift.txt'), 'keep\nagain\nkeep\n')
+    const diff = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.diff', {
+        worktreeId: WORKTREE_ID,
+        mode: 'worktree',
+        path: wsPath('drift.txt'),
+        limit: 10,
+      })
+    )
+    expect(diff.ok).toBe(true)
+    const hunk = diff.ok ? diff.value.items[0] : undefined
+    if (!hunk) throw new Error('expected a diffable hunk')
+    const plan = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingPlan', {
+        worktreeId: WORKTREE_ID,
+        direction: 'stage',
+        hunks: [hunk],
+      })
+    )
+    expect(plan.ok).toBe(true)
+    if (!plan.ok) return
+    // The index moves on after the plan (someone stages the whole file).
+    git(repoPath, ['add', 'drift.txt'])
+    const commit = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.hunkStagingCommit', {
+        planId: plan.value.id,
+        planDigest: plan.value.digest,
+      })
+    )
+    expect(commit.ok).toBe(false)
+    if (!commit.ok) expect(commit.error.code).toBe('stale_version')
+    // The fenced plan applied nothing: the index holds the FULL worktree
+    // content from the interfering `git add`, never a partial patch.
+    const staged = git(repoPath, ['diff', '--cached', '--', 'drift.txt']).stdout
+    expect(staged).toContain('+again')
+  })
+
+  test('buildHunkPatch slices exact hunks from git output, keeping no-newline markers', () => {
+    const diffText = [
+      'diff --git a/keep.txt b/keep.txt',
+      'index 1111111..2222222 100644',
+      '--- a/keep.txt',
+      '+++ b/keep.txt',
+      '@@ -1,3 +1,3 @@',
+      ' a',
+      '-b',
+      '+B',
+      ' c',
+      'diff --git a/tail.txt b/tail.txt',
+      'index 3333333..4444444 100644',
+      '--- a/tail.txt',
+      '+++ b/tail.txt',
+      '@@ -1,2 +1,2 @@',
+      ' x',
+      '-y',
+      '\\ No newline at end of file',
+      '+z',
+      '\\ No newline at end of file',
+      '',
+    ].join('\n')
+
+    const patch = buildHunkPatch(diffText, [
+      { relativePath: 'tail.txt', oldStart: 1, oldLines: 2, newStart: 1, newLines: 2 },
+    ])
+    // The patch carries ONLY the selected file, byte-verbatim, marker included.
+    expect(patch).toBe(
+      [
+        'diff --git a/tail.txt b/tail.txt',
+        'index 3333333..4444444 100644',
+        '--- a/tail.txt',
+        '+++ b/tail.txt',
+        '@@ -1,2 +1,2 @@',
+        ' x',
+        '-y',
+        '\\ No newline at end of file',
+        '+z',
+        '\\ No newline at end of file',
+        '',
+      ].join('\n')
+    )
+    // Both hunks in order.
+    const both = buildHunkPatch(diffText, [
+      { relativePath: 'keep.txt', oldStart: 1, oldLines: 3, newStart: 1, newLines: 3 },
+      { relativePath: 'tail.txt', oldStart: 1, oldLines: 2, newStart: 1, newLines: 2 },
+    ])
+    expect(both).toContain('@@ -1,3 +1,3 @@')
+    expect(both).toContain('@@ -1,2 +1,2 @@')
+    expect(both.indexOf('keep.txt')).toBeLessThan(both.indexOf('tail.txt'))
+    // A selection the diff cannot locate fails typed.
+    expect(() =>
+      buildHunkPatch(diffText, [
+        { relativePath: 'ghost.txt', oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 },
+      ])
+    ).toThrow()
+  })
+
   test('registers exactly the local git operations', () => {
     const { registered } = runtime()
     expect(registered.commands.toSorted()).toEqual(
@@ -529,6 +772,8 @@ describe('local git provider', () => {
         'dev.git.discardPlan',
         'dev.git.fetch',
         'dev.git.history',
+        'dev.git.hunkStagingCommit',
+        'dev.git.hunkStagingPlan',
         'dev.git.restoreCommit',
         'dev.git.restorePlan',
         'dev.git.stage',
@@ -536,7 +781,7 @@ describe('local git provider', () => {
         'dev.git.unstage',
       ].toSorted()
     )
-    expect(registered.registeredCommands).toBe(12)
+    expect(registered.registeredCommands).toBe(14)
   })
 })
 

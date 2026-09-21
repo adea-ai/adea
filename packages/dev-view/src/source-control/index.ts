@@ -6,8 +6,11 @@ export { SourceControlPane, type SourceControlPaneProps } from './source-control
 export {
   branchLabel,
   groupStatus,
+  hunkHeader,
   renderUnifiedDiff,
+  splitFileHunks,
   statusLabel,
+  type FileHunkGroup,
   type GroupedStatus,
   type RenderedDiffLine,
   type StatusBucket,
