@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.0](https://github.com/adea-ai/adea/compare/v0.37.0...v0.38.0) (2026-09-21)
+
+
+### Features
+
+* **m12:** status watcher construction, managed Pi install lifecycle, packaged boot adoption, and visual-lane determinism ([#525](https://github.com/adea-ai/adea/issues/525)) ([833e598](https://github.com/adea-ai/adea/commit/833e5988abf25afc7485afb36847da8d2f0d0cdf))
+
 ## [0.37.0](https://github.com/adea-ai/adea/compare/v0.36.0...v0.37.0) (2026-09-21)
 
 
