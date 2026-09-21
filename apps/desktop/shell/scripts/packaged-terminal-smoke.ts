@@ -12,11 +12,13 @@
 //             bundled layout; this script starts it and waits for the
 //             owner-only endpoint file;
 //   host A  — a SEPARATE host process adopts the sidecar, creates a real PTY
-//             session, emits a unique early marker and then an 110,000-line
-//             flood (~13k ring chunks — enough to evict past the 10,000-chunk
-//             memory ring on count), checkpoints until the durable sequence
-//             is stable, proves via DURABLE SEARCH that the marker reached
-//             disk, and exits — the host process is GONE;
+//             session, emits a unique early marker and then a 1,100,000-line
+//             flood (~8 MB — strictly more than the 4 MiB memory ring holds,
+//             so eviction necessarily occurs), checkpoints until the durable
+//             history is quiescent, proves via DURABLE SEARCH that the marker
+//             reached disk and via the session's durable segment files that
+//             the flood exceeded the ring, and exits — the host process is
+//             GONE;
 //   restart — the same live sidecar process (endpoint pid + start identity
 //             unchanged) still holds the session;
 //   host B  — a fresh host adopts the same sidecar: the DURABLE history
@@ -24,16 +26,14 @@
 //             ring replays a window inside its coverage contiguously, and
 //             live delivery continues with new input.
 //
-// KNOWN TRANSPORT BOUNDARY (defect handoff, not worked around silently): a
-// below-ring attach (sinceSeq 0 after eviction, durable bridge + whole-ring
-// replay) streams more bytes per burst than the Bun unix socket buffers, and
-// the sidecar's SocketDuplex.send never checks socket writability —
-// sustained or oversized writes DROP bytes and corrupt the framed stream
-// (reproduced against the dev entry too; see
-// artifacts/packaged/terminal-transport-defect.json and the spec's packaged
-// evidence section). The bridge replay therefore stays explicitly unproven
-// on the packaged path until the transport drains writes; this smoke proves
-// everything that does not require it and records the boundary.
+// TRANSPORT BOUNDARY (E5 status, handoff still open): the Bun unix socket
+// write-drop defect is fixed — both transport ends write through one
+// serialized, drain-aware pump (sidecar/socket-writer.ts), and the
+// transport-defect probe no longer reproduces. What stays unproven HERE is
+// the below-ring durable-bridge replay (sinceSeq 0 after eviction, bridge +
+// whole-ring history): this smoke attaches inside the ring's coverage only
+// and records the boundary; extending this lane to prove the bridge replay
+// remains the documented handoff.
 //
 // What this lane is NOT: the M10 channel gate (dev.terminal.* through the
 // channel authority) is proven by apps/desktop/tests/terminal-pty-smoke.test.ts
@@ -42,7 +42,16 @@
 // history remains (no PID/port adoption fallback).
 //
 // Usage: bun apps/desktop/shell/scripts/packaged-terminal-smoke.ts [--app-bundle <path>] [--artifact <path>]
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -196,16 +205,33 @@ async function runHostPhase(dataDir: string, identity: string): Promise<void> {
   if (!w1.ok) throw new Error(`marker write failed: ${w1.message}`)
   if (!w2.ok) throw new Error(`flood write failed: ${w2.message}`)
 
-  // Checkpoint until the flood has fully landed and the shell is quiet: the
-  // accumulated durable byteLength must pass the flood size (the ring holds
-  // only 4 MiB, so the durable history necessarily evicted it), the durable
-  // tip must stop growing, and the marker must be on disk. A checkpoint with
-  // nothing open returns a null footer, so progress is the running sum over
-  // flushed footers.
+  // Quiescence via the protocol, durability from the disk: a client-driven
+  // `terminal.checkpoint` returns the footer of the chunks THAT call flushed,
+  // but the sink auto-flushes its open buffer every
+  // TERMINAL_LIMITS.checkpointIntervalBytes (1 MiB) as the flood lands, so
+  // most of the flood never passes through a host-visible footer — summing
+  // footers undercounts the durable total and would spin to the deadline
+  // long after the flood is fully on disk. The flush cadence is the
+  // sidecar's business; this proof reads what durability actually produced
+  // (the session's checksummed seg-*.adt files), stops when five consecutive
+  // checkpoints report nothing left open (the open buffer is drained), and
+  // requires the marker on disk (durable search) before declaring victory.
   let markerSeq: string | null = null
   let durableTip = ''
   let durableBytes = 0
   let stablePolls = 0
+  const sessionDir = join(dataDir, 'dev-runtime', terminalId)
+  const durableSessionBytes = (): number => {
+    // The sidecar creates the session dir lazily at its first flush, so the
+    // first polls of a just-started flood legitimately read zero.
+    if (!existsSync(sessionDir)) return 0
+    let total = 0
+    for (const entry of readdirSync(sessionDir)) {
+      if (!entry.startsWith('seg-') || !entry.endsWith('.adt')) continue
+      total += statSync(join(sessionDir, entry)).size
+    }
+    return total
+  }
   const deadline = Date.now() + 240_000
   for (;;) {
     if (Date.now() > deadline) throw new Error('the flood never fully reached durable storage')
@@ -219,7 +245,7 @@ async function runHostPhase(dataDir: string, identity: string): Promise<void> {
     if (toSeq.length > 0 && (durableTip.length === 0 || BigInt(toSeq) > BigInt(durableTip))) {
       durableTip = toSeq
     }
-    durableBytes += footer?.byteLength ?? 0
+    durableBytes = durableSessionBytes()
     const searched = await client.search(terminalId, marker, 5)
     if (searched.ok) {
       const matches = searched.value.matches as Array<{ seq: string }>
@@ -280,8 +306,9 @@ function finish(
           'bun apps/desktop/shell/scripts/packaged-terminal-smoke.ts --app-bundle <Adea-dev.app>',
         hostFacts: facts,
         knownTransportBoundary:
-          'below-ring durable bridge replay is blocked by the sidecar socket ' +
-          'backpressure defect; see artifacts/packaged/terminal-transport-defect.json',
+          'below-ring durable bridge replay stays unproven on this lane (attach ' +
+          'window is inside ring coverage); the socket write-drop defect itself is ' +
+          'fixed by the serialized drain-aware writer and no longer reproduces',
         totals: { checks: checks.length, failed: checks.filter((entry) => !entry.ok).length },
         checks,
       },

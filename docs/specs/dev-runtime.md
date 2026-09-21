@@ -3316,14 +3316,16 @@ git-ignored `artifacts/packaged/`:
    (eviction), the host exiting, and a fresh host re-adopting the same live
    sidecar — durable search serves the new host, the ring replays its
    covered window exactly once in order, and live delivery continues.
-   **Known transport boundary:** the below-ring durable-bridge replay is
-   blocked by a socket backpressure defect (Bun unix `socket.write()` drops
-   writes past the send buffer; `SocketDuplex.send` never checks
-   writability), reproduced on the dev and packaged entries and recorded by
-   `packaged-transport-defect-probe` in
-   `artifacts/packaged/terminal-transport-defect.json`; the probe is a
-   finding recorder — when it stops reproducing, the replay lane must be
-   extended to prove the bridge.
+   The flood's durable total is read from the session's checksummed
+   segment files, not summed from checkpoint footers: the sink auto-flushes
+   its open buffer every `checkpointIntervalBytes` (1 MiB), so most of the
+   flood never passes through a host-visible footer. **Known transport
+   boundary:** the below-ring durable-bridge replay stays unproven on this
+   lane (the attach window is inside ring coverage). The socket write-drop
+   defect it was blocked on is fixed by the serialized drain-aware writer
+   (the "Sidecar transport writes" contract) and the
+   `packaged-transport-defect-probe` no longer reproduces it; extending the
+   replay lane to prove the bridge remains the documented handoff.
 3. **Worktree digest containment** (`packaged-worktree-smoke`): worktree
    creation through the production registrar over the M10 gate, dependency-
    template promotion and per-file CoW materialization into a registrar-
