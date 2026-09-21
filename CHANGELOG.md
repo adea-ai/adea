@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.38.1](https://github.com/adea-ai/adea/compare/v0.38.0...v0.38.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **release:** stage the terminal sidecar bundle in the desktop asset lane ([#527](https://github.com/adea-ai/adea/issues/527)) ([f3cfd4b](https://github.com/adea-ai/adea/commit/f3cfd4ba56ba9fcf68d82eafd1e0934dfc0420c8))
+
 ## [0.38.0](https://github.com/adea-ai/adea/compare/v0.37.0...v0.38.0) (2026-09-21)
 
 
