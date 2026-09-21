@@ -35,6 +35,13 @@ import {
   type CheckSummary,
 } from './remote-model'
 import {
+  cacheStatus,
+  emptyStatusCache,
+  invalidateStatus,
+  refenceStatusCache,
+  type StatusCacheSnapshot,
+} from '../files/status-cache'
+import {
   executeOperation,
   resolveWorktreeContext,
   type WorktreeContext,
@@ -53,7 +60,14 @@ type GitStatusReply = GitStatus
 export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   const scope = () => props.runtime.preferenceScope?.()
   const [worktree, setWorktree] = createSignal<WorktreeContext | undefined>()
-  const [status, setStatus] = createSignal<GitStatusReply | undefined>()
+  // The status cache follows the watcher lane's honesty contract (#399
+  // residue): invalidation and failed refreshes turn it UNDEFINED — never a
+  // stale listing labeled fresh — and only a successful dispatch through the
+  // capability-checked gate repopulates it.
+  const [statusCache, setStatusCache] = createSignal<StatusCacheSnapshot<GitStatusReply>>(
+    emptyStatusCache(0)
+  )
+  const status = (): GitStatusReply | undefined => statusCache().value
   const [history, setHistory] = createSignal<
     readonly { sha: string; subject: string; authorName: string }[]
   >([])
@@ -72,7 +86,12 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     if (!activeScope || props.runtime.state().status !== 'ready') return
     const context = await resolveWorktreeContext(props.runtime, activeScope).catch(() => undefined)
     setWorktree(context)
-    if (context) await refreshStatus()
+    if (context) {
+      // A re-resolved context whose generation moved is a re-fence: the old
+      // cache dies with its generation before the refresh re-proves state.
+      setStatusCache((current) => refenceStatusCache(current, context.generation))
+      await refreshStatus()
+    }
   })
 
   async function refresh(): Promise<void> {
@@ -93,8 +112,11 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
         { worktreeId: context.worktreeId, limit: 500 },
         { kind: 'worktree', id: context.worktreeId, generation: context.generation }
       )
-      setStatus(reply)
+      setStatusCache(cacheStatus(reply, context.generation))
     } catch (reply) {
+      // A failed read publishes nothing: the cache goes undefined (honest
+      // miss), never stale-fresh.
+      setStatusCache(invalidateStatus)
       setNotice(describeError(reply))
     }
   }

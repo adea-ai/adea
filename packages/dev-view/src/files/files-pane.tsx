@@ -31,6 +31,13 @@ import {
   type FileTreeNode,
   type ModificationMarker,
 } from './files-model'
+import {
+  cacheStatus,
+  emptyStatusCache,
+  invalidateStatus,
+  refenceStatusCache,
+  type StatusCacheSnapshot,
+} from './status-cache'
 import { executeOperation, resolveWorktreeContext, type WorktreeContext } from './worktree-context'
 import './files-pane.css'
 
@@ -71,7 +78,15 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   const [nodes, setNodes] = createSignal<readonly FileTreeNode[]>([])
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
   const [filter, setFilter] = createSignal('')
-  const [markers, setMarkers] = createSignal<ReadonlyMap<string, ModificationMarker>>(new Map())
+  // Marker cache: the files pane follows the same watcher-lane honesty
+  // contract as the source-control pane (#399 residue) — invalidation and
+  // failed refreshes clear the markers (undefined is the honest state, never
+  // stale badges labeled fresh), and only a successful `dev.git.status`
+  // dispatch through the capability-checked gate repopulates them.
+  const [markerCache, setMarkerCache] = createSignal<
+    StatusCacheSnapshot<ReadonlyMap<string, ModificationMarker>>
+  >(emptyStatusCache(0))
+  const markers = (): ReadonlyMap<string, ModificationMarker> => markerCache().value ?? new Map()
   const [notice, setNotice] = createSignal<string | undefined>()
   const [confirmDelete, setConfirmDelete] = createSignal<string | undefined>()
   const [creating, setCreating] = createSignal(false)
@@ -92,7 +107,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     try {
       const context = await resolveWorktreeContext(props.runtime, activeScope)
       setWorktree(context)
-      if (context) await loadDirectory(context, '')
+      if (context) {
+        // A re-resolved context whose generation moved is a re-fence: old
+        // markers die with their generation before the refresh re-proves.
+        setMarkerCache((current) => refenceStatusCache(current, context.generation))
+        await loadDirectory(context, '')
+        await refreshMarkers()
+      }
     } catch {
       setWorktree(undefined)
     }
@@ -145,9 +166,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         { worktreeId: context.worktreeId, limit: 500 },
         { kind: 'worktree', id: context.worktreeId, generation: context.generation }
       )
-      setMarkers(markerMap(status.entries))
+      setMarkerCache(cacheStatus(markerMap(status.entries), context.generation))
     } catch {
-      // Read-only pane: markers stay as they were.
+      // Read-only pane, honest cache: a failed read publishes nothing — the
+      // markers clear (a miss is a miss), never stale badges labeled fresh.
+      setMarkerCache(invalidateStatus)
     }
   }
 

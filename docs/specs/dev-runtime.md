@@ -2496,8 +2496,35 @@ publishes. The cache is honest on misses: an invalidated entry is undefined,
 never a stale value labeled fresh; a failed read stays empty rather than
 publishing stale bytes as current. Status is read only through the injected
 `readStatus` seam bound to the provider's public status path — the git
-provider itself is untouched. Pinned by
-`apps/desktop/tests/git-status-watcher.test.ts`.
+provider itself is untouched.
+
+Constructed in production: the git registrar owns the lane. On every git
+dispatch, the live-worktree resolution that already re-proves
+scope/generation/lifecycle also reconciles the watcher map: the first ready
+sighting constructs and starts the watcher (recursive `fs.watch` through the
+production handle factory, the `setTimeout` coalesce scheduler, and one
+refresh gate shared by the host's watchers), a moved generation `refence`s
+the watcher (the old cache dies with its generation), and a disappeared or
+non-ready record stops the watcher and discards it — a watcher's lifetime is
+exactly the worktree's live/generation state, with no polling and no second
+lifecycle authority. The injected `readStatus` dispatches the REGISTERED
+`dev.git.status` provider with a full command envelope pinned to the live
+generation, so scope admission, resource binding, and the generation fence
+re-run exactly as for an external caller; a typed refusal (a race lost to a
+re-fence) resolves undefined and the cache stays honestly empty. Tree-moving
+mutations (stage, unstage, commit, discard, restore, hunk staging)
+additionally invalidate through the manual lane to skip watcher latency. A
+platform that cannot watch degrades exactly once — typed `mode: 'degraded'`
+on the registrar's `statusWatchers` snapshot view — and the command surface
+is unaffected. Watcher lifecycle events fan out to the shell event bus as
+`git.statusInvalidated` (secret-free), and the Dev View consumers mirror the
+contract renderer-side: the source-control pane's status cache and the files
+pane's marker cache are generation-fenced client caches that go UNDEFINED on
+invalidation or a failed refresh — never stale-fresh — and repopulate only
+through the capability-checked dispatch. Pinned by
+`apps/desktop/tests/git-status-watcher.test.ts` (the unit contract plus the
+constructed production lane) and
+`packages/dev-view/tests/status-cache.test.ts` (the client contract).
 
 ### Canonical byte encoding in proofs
 
@@ -3503,6 +3530,35 @@ explicit spawn timeout for the same reason.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-09-21 — M12: the watcher-driven status invalidation lane is
+  constructed in production, and the Dev View caches follow its honesty
+  contract.** The git registrar now composes the previously unconstructed
+  watcher module: one bounded watcher per ready worktree, reconciled on the
+  git dispatch path against the live worktree record (created on the first
+  ready sighting, `refence`d when the live generation moves, stopped and
+  discarded when the record disappears or stops being ready — lifetime bound
+  to the worktree's live/generation state, no polling, no second lifecycle
+  authority). Production seams are the module defaults: recursive `fs.watch`
+  through the deprecation-safe handle factory and the `setTimeout` coalesce
+  scheduler, with one refresh gate (4) shared by a host's watchers; a
+  platform that cannot watch degrades exactly once to the typed
+  `mode: 'degraded'` snapshot and never refuses a command. The injected
+  `readStatus` dispatches the REGISTERED `dev.git.status` provider with a
+  full command envelope pinned to the live generation — the public path,
+  never a private shortcut — so every admission proof re-runs as for an
+  external caller and a lost race resolves to an honestly empty cache.
+  Tree-moving mutations invalidate through the manual lane. Watcher events
+  publish on the shell event bus as `git.statusInvalidated` (secret-free;
+  the gateway's authenticated SSE stream carries them). Renderer-side, the
+  source-control pane's status cache and the files pane's marker cache
+  become generation-fenced client caches: invalidation and failed refreshes
+  turn them UNDEFINED — never stale-fresh — a moved worktree generation
+  refences them, and only a successful capability-checked dispatch
+  repopulates them. No wire, registry, or limits change (the 163 operations
+  and the watcher/status limits row stand). Pinned by the extended
+  `apps/desktop/tests/git-status-watcher.test.ts` and the new
+  `packages/dev-view/tests/status-cache.test.ts`.
 
 - **2026-09-21 — #399 residue: the desktop client attach for `file-bytes-v1`.**
   `DevRuntimeService.streams()` is now production-bound on the desktop: the

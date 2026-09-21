@@ -183,6 +183,16 @@ export type CreateDevRuntimeHostInput = {
   cleanupWorktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
   /** #423: scripted gh transport (tests inject one; production spawns `gh`). */
   runGh?: GhRunner
+  /** #399 residue: overrides the git status watcher's production seams
+   *  (tests script them; production uses recursive `fs.watch` plus the
+   *  `setTimeout` scheduler, and an unwatchable platform degrades — typed
+   *  `mode: 'degraded'`, never a crash). One refresh gate is shared by every
+   *  watcher this host constructs. */
+  gitStatusWatcher?: {
+    openWatcher?: import('./git/status-watcher').OpenWatcher
+    schedule?: import('./git/status-watcher').Scheduler
+    gate?: ReturnType<typeof import('./git/status-watcher').createRefreshGate>
+  }
 }
 
 export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRuntimeHost {
@@ -401,6 +411,26 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
             lifecycle: record.lifecycle,
           }
         },
+        // Watcher-driven status invalidation (#399 residue): one bounded
+        // watcher per ready worktree is constructed inside the registrar
+        // against the worktree service's live records; its lifecycle events
+        // ride the shell event bus (`git.statusInvalidated`), secret-free.
+        ...(input.gitStatusWatcher
+          ? {
+              watcher: {
+                ...(input.gitStatusWatcher.openWatcher
+                  ? { openWatcher: input.gitStatusWatcher.openWatcher }
+                  : {}),
+                ...(input.gitStatusWatcher.schedule
+                  ? { schedule: input.gitStatusWatcher.schedule }
+                  : {}),
+                ...(input.gitStatusWatcher.gate ? { gate: input.gitStatusWatcher.gate } : {}),
+              },
+            }
+          : {}),
+        ...(input.publish
+          ? { onWatcherEvent: (event) => input.publish?.('git.statusInvalidated', event) }
+          : {}),
       })
     : undefined
 

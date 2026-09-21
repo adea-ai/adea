@@ -14,7 +14,7 @@
 // namespaced refs under `refs/adea/checkpoints/<worktreeId>/` built through a
 // temporary index — they never dirty the branch or the real index — and
 // restore is an explicit plan/commit pair, never automatic.
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,10 +32,23 @@ import type {
   MutationPlan,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
-import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
+import {
+  devOperationDecoders,
+  devOperationDefinitions,
+} from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
 import { gitChildEnv, GIT_CHILD_TIMEOUT_MS, runGit, runGitChecked } from '../worktrees/git-run'
 import type { FileIdentityValue } from '../worktrees/identity'
+import {
+  createRefreshGate,
+  createWorktreeStatusWatcher,
+  STATUS_WATCHER_LIMITS,
+  type OpenWatcher,
+  type Scheduler,
+  type StatusWatchEvent,
+  type StatusWatcherSnapshot,
+  type WorktreeStatusWatcher,
+} from './status-watcher'
 
 const NUL = '\u0000'
 const RECORD = '\u001e'
@@ -65,7 +78,40 @@ export type GitRegistrarInput = {
   /** Fail-closed resolution of the live worktree record. */
   resolveWorktree(worktreeId: string): GitWorktreeContext | undefined
   now?: () => number
+  /** Watcher-driven status invalidation (#399 residue): the production
+   *  construction builds one bounded watcher per ready worktree (see the
+   *  "Watcher-driven status invalidation" spec section). Absent seams use the
+   *  module's production defaults — recursive `fs.watch` through
+   *  `openRecursiveFsWatcher` and the `setTimeout` scheduler; a platform that
+   *  cannot watch degrades (typed `mode: 'degraded'`), never throws. */
+  watcher?: {
+    /** Overrides the production recursive handle factory (tests script one). */
+    openWatcher?: OpenWatcher
+    /** Overrides the production setTimeout scheduler (tests script one). */
+    schedule?: Scheduler
+    /** Overrides the host-shared refresh gate (tests script one). */
+    gate?: ReturnType<typeof createRefreshGate>
+  }
+  /** Watcher lifecycle events fan out here (the composition wires the shell
+   *  event bus, so invalidations ride the gateway's authenticated SSE
+   *  stream); secret-free by construction. */
+  onWatcherEvent?: (event: StatusWatchEvent) => void
 }
+
+/** The composed watcher lane's surface: lifecycle snapshots, the manual
+ *  invalidation lane, and host teardown. Read-only truth — the lane serves
+ *  nothing; `dev.git.status` stays authoritative and stateless. */
+export type GitStatusWatcherView = Readonly<{
+  /** The watcher snapshot for a worktree, or undefined once the worktree
+   *  stopped being ready (close/archive) and the watcher was discarded. */
+  snapshot(worktreeId: string): StatusWatcherSnapshot | undefined
+  /** Manual invalidation (the mutation lane that already knows the tree
+   *  moved); a no-op for an unknown or stopped watcher. */
+  invalidate(worktreeId: string): void
+  /** Closes every watcher (host teardown); restartable via the dispatch
+   *  path's reconcile. */
+  stopAll(): void
+}>
 
 function devError(code: DevError['code'], message: string, retryable = false): DevError {
   return { code, retryable, message }
@@ -518,12 +564,141 @@ type PlanEntry = {
 export function registerGitRuntime(input: GitRegistrarInput): {
   commands: readonly DevOperation[]
   registeredCommands: number
+  /** The constructed status-invalidation lane (undefined never: the lane is
+   *  always composed — unwatchable platforms degrade inside it, typed). */
+  statusWatchers: GitStatusWatcherView
 } {
   const now = input.now ?? Date.now
   const plans = new Map<string, PlanEntry>()
 
+  // ── Watcher-driven status invalidation (M12 #399 residue) ─────────────────
+  //
+  // One bounded watcher per ready worktree, constructed on the dispatch path:
+  // every git command already re-proves the live worktree record through
+  // `requireWorktreeContext`, and that same proof reconciles the watcher map
+  // — creation on first ready sighting, `refence` when the live generation
+  // moved, stop-and-discard when the record disappears or stops being ready.
+  // A watcher's lifetime is therefore exactly the worktree's live/generation
+  // state, with no polling and no second lifecycle authority.
+  type WatcherEntry = {
+    watcher: WorktreeStatusWatcher<GitStatus>
+    generation: number
+    canonicalRoot: string
+  }
+  const watchers = new Map<string, WatcherEntry>()
+  const watcherGate =
+    input.watcher?.gate ?? createRefreshGate(STATUS_WATCHER_LIMITS.maxRefreshConcurrency)
+
+  /** The injected `readStatus` seam: dispatches the REGISTERED
+   *  `dev.git.status` provider — the same handler instance the authority's
+   *  gate delivers to — with a full command envelope pinned to the live
+   *  generation. Never a private shortcut into the porcelain helpers: scope
+   *  admission, resource binding, generation fence, and ready-lifecycle
+   *  re-proofs all run exactly as for an external caller. A typed refusal
+   *  (for example `stale_generation` after a race) resolves undefined — the
+   *  cache stays honestly empty. */
+  async function readStatusThroughProvider(
+    worktreeId: string,
+    generation: number
+  ): Promise<GitStatus | undefined> {
+    const handler = handlers['dev.git.status']
+    if (!handler) return undefined
+    const at = now()
+    const command: DevCommand = {
+      schemaVersion: 1,
+      operation: 'dev.git.status',
+      requestId: randomUUID(),
+      nonce: randomBytes(16).toString('base64url'),
+      issuedAt: new Date(at).toISOString(),
+      expiresAt: new Date(at + 30_000).toISOString(),
+      scope: { ...input.scope },
+      capabilities: [...devOperationDefinitions['dev.git.status'].capabilities],
+      resource: { kind: 'worktree', id: worktreeId, generation },
+      body: { worktreeId, limit: STATUS_PAGE_MAX },
+    }
+    try {
+      return (await handler(command)) as GitStatus
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Reconcile the watcher map against the live worktree record. Runs on
+   *  every git dispatch (inside `requireWorktreeContext`) BEFORE the command's
+   *  own admission checks, so closed/re-fenced worktrees are pruned even when
+   *  the command itself is refused. */
+  function reconcileStatusWatcher(
+    worktreeId: string,
+    record: GitWorktreeContext | undefined
+  ): void {
+    const existing = watchers.get(worktreeId)
+    if (!record || record.lifecycle !== 'ready') {
+      if (existing) {
+        watchers.delete(worktreeId)
+        existing.watcher.stop()
+      }
+      return
+    }
+    if (existing) {
+      if (existing.canonicalRoot === record.canonicalRoot) {
+        if (existing.generation !== record.generation) {
+          existing.generation = record.generation
+          existing.watcher.refence(record.generation)
+        }
+        return
+      }
+      // The worktree was recreated at a new path: the old root's watcher is
+      // dead state, not a refence target.
+      watchers.delete(worktreeId)
+      existing.watcher.stop()
+    }
+    const watcher: WorktreeStatusWatcher<GitStatus> = createWorktreeStatusWatcher<GitStatus>({
+      worktreeId,
+      generation: record.generation,
+      canonicalRoot: record.canonicalRoot,
+      // Reads pin the watcher's LIVE generation (the entry, not a captured
+      // record): after a refence, dispatches carry the new generation.
+      readStatus: () =>
+        readStatusThroughProvider(
+          worktreeId,
+          watchers.get(worktreeId)?.generation ?? record.generation
+        ),
+      ...(input.onWatcherEvent ? { onChange: input.onWatcherEvent } : {}),
+      ...(input.watcher?.openWatcher ? { openWatcher: input.watcher.openWatcher } : {}),
+      ...(input.watcher?.schedule ? { schedule: input.watcher.schedule } : {}),
+      gate: watcherGate,
+      now,
+    })
+    watcher.start()
+    watchers.set(worktreeId, {
+      watcher,
+      generation: record.generation,
+      canonicalRoot: record.canonicalRoot,
+    })
+  }
+
+  /** The mutation lane: a handler that just moved the tree invalidates the
+   *  watcher cache directly instead of waiting out the watcher latency. */
+  function invalidateStatusWatcher(worktreeId: string): void {
+    watchers.get(worktreeId)?.watcher.invalidate()
+  }
+
+  const statusWatchers: GitStatusWatcherView = {
+    snapshot: (worktreeId) => watchers.get(worktreeId)?.watcher.snapshot(),
+    invalidate: invalidateStatusWatcher,
+    stopAll: () => {
+      for (const [worktreeId, entry] of watchers) {
+        watchers.delete(worktreeId)
+        entry.watcher.stop()
+      }
+    },
+  }
+
   /** Scope admission, then resolution of a live, ready worktree context at
-   *  the pinned generation. */
+   *  the pinned generation. The live-record resolution is also the watcher
+   *  map's reconcile point: created on first ready sighting, refenced on a
+   *  generation move, stopped and discarded when the record disappears or
+   *  stops being ready — even when this command itself is then refused. */
   function requireWorktreeContext(
     command: DevCommand,
     worktreeId: string,
@@ -536,6 +711,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
     )
       throw devError('unauthorized', 'git scope is not authorized on this runtime node')
     const record = input.resolveWorktree(worktreeId)
+    reconcileStatusWatcher(worktreeId, record)
     if (!record)
       throw devError('not_found', 'no worktree context exists for this operation on this node')
     if (generation !== record.generation)
@@ -818,6 +994,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       const { worktreeId, canonicalRoot, rootIdentity } = requireLiveWorktree(command)
       const specs = pathspecsOf(worktreeId, body.paths, rootIdentity)
       await runGitChecked(['add', '-A', '--', ...specs], { cwd: canonicalRoot })
+      invalidateStatusWatcher(worktreeId)
       return statusFromPorcelain(
         worktreeId,
         canonicalRoot,
@@ -842,6 +1019,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
         if (removed.exitCode !== 0)
           throw devError('invalid_state', redactCredentials(reset.stderr.trim().slice(0, 512)))
       }
+      invalidateStatusWatcher(worktreeId)
       return statusFromPorcelain(
         worktreeId,
         canonicalRoot,
@@ -963,6 +1141,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       if (applied.exitCode !== 0)
         throw devError('invalid_state', redactCredentials(applied.stderr.trim().slice(0, 512)))
       plans.delete(String(body.planId))
+      invalidateStatusWatcher(entry.worktreeId)
       return statusFromPorcelain(
         entry.worktreeId,
         canonicalRoot,
@@ -974,7 +1153,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
 
     'dev.git.commit': async (command) => {
       const body = devOperationDecoders['dev.git.commit'].request(command.body)
-      const { canonicalRoot } = requireLiveWorktree(command)
+      const { worktreeId, canonicalRoot } = requireLiveWorktree(command)
       const message = String(body.message)
       if (message.length === 0 || message.length > COMMIT_MESSAGE_MAX)
         throw devError('invalid_state', 'commit message must be 1..10000 characters')
@@ -990,6 +1169,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       const committed = await runGit(args, { cwd: canonicalRoot })
       if (committed.exitCode !== 0)
         throw devError('invalid_state', redactCredentials(committed.stderr.trim().slice(0, 512)))
+      invalidateStatusWatcher(worktreeId)
       const log = await runGit(['log', '-1', '--format=%H%x00%P%x00%an%x00%aI%x00%s%x00%b'], {
         cwd: canonicalRoot,
       })
@@ -1148,6 +1328,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       if (restored.exitCode !== 0)
         throw devError('invalid_state', redactCredentials(restored.stderr.trim().slice(0, 512)))
       plans.delete(String(body.planId))
+      invalidateStatusWatcher(worktreeId)
       return statusFromPorcelain(
         worktreeId,
         canonicalRoot,
@@ -1253,6 +1434,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       if (restored.exitCode !== 0)
         throw devError('invalid_state', redactCredentials(restored.stderr.trim().slice(0, 512)))
       plans.delete(String(body.planId))
+      invalidateStatusWatcher(worktreeId)
       return statusFromPorcelain(
         worktreeId,
         canonicalRoot,
@@ -1377,7 +1559,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
     })
     registeredCommands += 1
   }
-  return { commands: Object.keys(handlers) as DevOperation[], registeredCommands }
+  return { commands: Object.keys(handlers) as DevOperation[], registeredCommands, statusWatchers }
 }
 
 function workspacePath(
