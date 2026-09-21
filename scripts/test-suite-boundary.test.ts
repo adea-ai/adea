@@ -90,6 +90,15 @@ describe('test suite boundaries', () => {
     // Release bundles build in stable mode; the default dev env only ever
     // produces build/dev-* bundles, which must never reach a release.
     expect(workflow).toContain('bunx --bun electrobun build --env=stable')
+    // The supervised terminal sidecar is a bundled component: the release
+    // build must stage its bundle before electrobun's copy stage picks it up
+    // (apps/desktop/scripts/shell.mjs is the dev-side source of truth), and
+    // the verify gate must assert the staged artifact reached the payload —
+    // without it the packaged shell boots truthfully without supervision.
+    expect(workflow).toContain('bun build src/dev-runtime/terminal/sidecar/entry.ts')
+    expect(workflow).toContain(
+      "grep -qx 'Adea.app/Contents/Resources/app/dev-runtime-sidecar/entry.js'"
+    )
     expect(workflow).toContain('apps/desktop/shell/artifacts/')
     expect(workflow).toContain('TODO(#370)')
     // A failed shell build fails the lane; no retry-and-continue pattern may

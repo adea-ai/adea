@@ -239,13 +239,21 @@ jobs:
 
       # Same sequence `apps/desktop/scripts/shell.mjs` uses, but in
       # stable/release mode so the distributables land in
-      # `apps/desktop/shell/artifacts/`. A failure fails the lane: a release
-      # without real desktop artifacts must not publish silently (the verify
-      # gate below still double-checks the release).
+      # `apps/desktop/shell/artifacts/`. The sidecar bundle is staged first,
+      # exactly as shell.mjs stages it: the electrobun copy stage carries
+      # `build/sidecar-dist` into the .app (the packaged component manifest
+      # resolves it), so a build without it fails the copy stage. A failure
+      # fails the lane: a release without real desktop artifacts must not
+      # publish silently (the verify gate below still double-checks the
+      # release, including the sidecar artifact).
       - name: Build shell bundle (unsigned, stable)
         working-directory: apps/desktop/shell
         run: |
           set -euo pipefail
+          bun build src/dev-runtime/terminal/sidecar/entry.ts \
+            --outdir build/sidecar-dist \
+            --target=bun \
+            --minify
           bunx --bun electrobun build --env=stable
 
       - name: Verify stable bundle structure
@@ -268,16 +276,21 @@ jobs:
           grep -qx 'Adea.app/Contents/MacOS/bun' <<<"$listing"
           grep -qx 'Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework' <<<"$listing"
           grep -qx 'Adea.app/Contents/Resources/app/client/index.html' <<<"$listing"
+          # The supervised terminal sidecar is a bundled component (M10
+          # #185/#396): the payload must carry its staged artifact, or the
+          # packaged component manifest resolves nothing and the shell boots
+          # truthfully without supervision.
+          grep -qx 'Adea.app/Contents/Resources/app/dev-runtime-sidecar/entry.js' <<<"$listing"
           # Hutch converts apps/desktop/shell/icon.iconset into AppIcon.icns
           # while packing the payload, so a bundle built without the iconset
           # ships an icon-less app to Finder and the Dock. Fail here rather
           # than after the signed archives are published.
           grep -qx 'Adea.app/Contents/Resources/AppIcon.icns' <<<"$listing"
-          if grep -Eq '\-update\.json$' <<<"$listing"; then
+          if tar --zstd -tf "$payload" | grep -q 'updater\|update\.json'; then
             echo "The bundle payload must not carry an updater manifest (TODO(#370))." >&2
             exit 1
           fi
-          echo "Stable bundle verified: shell binary, bundled CEF framework, branded app icon, and packaged client are present (unsigned)."
+          echo "Stable bundle verified: shell binary, bundled CEF framework, branded app icon, packaged client, and the terminal sidecar are present (unsigned)."
 
       - name: Stage desktop artifacts
         id: stage
@@ -458,7 +471,8 @@ jobs:
           grep -qx 'Adea.app/Contents/MacOS/bun' <<<"$listing"
           grep -qx 'Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework' <<<"$listing"
           grep -qx 'Adea.app/Contents/Resources/app/client/index.html' <<<"$listing"
-          echo "Release assets verified: unsigned macOS dmg plus self-contained app archive (shell binary, bundled CEF, packaged client)."
+          grep -qx 'Adea.app/Contents/Resources/app/dev-runtime-sidecar/entry.js' <<<"$listing"
+          echo "Release assets verified: unsigned macOS dmg plus self-contained app archive (shell binary, bundled CEF, packaged client, terminal sidecar)."
 
       - name: Verify the signed update feed is published
         # The update channel is the signed latest.json; the Electrobun stable
