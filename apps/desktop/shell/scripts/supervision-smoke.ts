@@ -141,7 +141,10 @@ function devManifest(): ComponentManifest {
         startupPhase: 0,
         dependsOn: [],
         healthProbe: { kind: 'process', intervalMs: 15_000, unhealthyAfterMs: 45_000 },
-        protocol: { name: 'adea.sidecar.terminal', major: 1, minor: 0 },
+        // The wire protocol constant (`SIDECAR_PROTOCOL`): the manifest must
+        // declare what the sidecar registers with, or the engine's
+        // adoption verdict would refuse the real endpoint protocol.
+        protocol: { name: 'adea-terminal-sidecar', major: 1, minor: 0 },
         rollbackTargetVersion: null,
         required: false,
       },
@@ -256,13 +259,26 @@ function makeSmoke(root: string): {
 } {
   const sidecarDataDir = join(root, 'sidecar-data')
   const childLog = join(root, 'child-signals.log')
+  // The #185 timer-flake policy (issue follow-up, 2026-09-18): the engine's
+  // timing seams are injected explicitly, never left on defaults. The smoke
+  // clock is a monotonic wall clock that advances only through the injected
+  // probe delay, so every grace window (`stopGraceMs`/`killGraceMs`) is
+  // measured on the same clock the engine audits with, in bounded probe
+  // ticks — no proof depends on the engine's internal setTimeout default or
+  // on a sleep count sized for an idle machine.
+  let smokeNow = Date.now()
   const supervisor = createSupervisor({
     manifest: smokeManifest(mode.appBundle),
     adapter: createProcessAdapter(commandsFor(sidecarDataDir, childLog, mode.appBundle)),
     records: createRecordStore(join(root, 'records')),
+    now: () => smokeNow,
     stopGraceMs: STOP_GRACE_MS,
     killGraceMs: KILL_GRACE_MS,
     terminationProbeDelayMs: PROBE_DELAY_MS,
+    delay: async (ms) => {
+      await new Promise<void>((resolve) => setTimeout(resolve, ms))
+      smokeNow += ms
+    },
   })
   return { supervisor, sidecarDataDir, childLog }
 }

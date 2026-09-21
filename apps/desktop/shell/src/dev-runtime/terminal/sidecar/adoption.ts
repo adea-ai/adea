@@ -52,6 +52,14 @@ export type AdoptSidecarOptions = {
   /** Waits for the endpoint file to appear after a start. */
   waitForEndpoint?: (attempts: number) => Promise<SidecarEndpoint | null>
   nonce?: string
+  /**
+   * Bounded per-request budget for the adopted client (default 10 s). A
+   * below-ring attach's reply arrives only after the whole durable bridge +
+   * ring replay has been delivered, so lanes that prove multi-megabyte
+   * replays name an explicit larger budget instead of inheriting one sized
+   * for control traffic.
+   */
+  requestTimeoutMs?: number
 }
 
 export async function adoptSidecar(options: AdoptSidecarOptions): Promise<SidecarAdoptionResult> {
@@ -107,6 +115,9 @@ export async function adoptSidecar(options: AdoptSidecarOptions): Promise<Sideca
     scope: options.scope,
     credential: endpoint.credential,
     nonce: options.nonce ?? randomBytes(16).toString('hex'),
+    ...(options.requestTimeoutMs !== undefined
+      ? { requestTimeoutMs: options.requestTimeoutMs }
+      : {}),
   })
   if (!connected.ok) {
     const knownCodes = [

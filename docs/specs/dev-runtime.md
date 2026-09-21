@@ -1848,6 +1848,19 @@ Version handshake chooses exactly one:
   detached/exited;
 - `incompatible` with user remediation.
 
+The shell's terminal lane adopts its sidecar through one typed seam
+(`adoptShellTerminalSidecar` in
+`apps/desktop/shell/src/bun/boot-supervision.ts`, plan in
+`boot-sidecar-plan.ts`). A packaged boot's spawn belongs to the supervision
+engine: the packaged manifest's sidecar command (the bundled Bun runtime
+executing the bundled entry) is the engine adapter's argv, so the launch
+journal records it for the next boot's reconcile, and the adoption verdict is
+the engine's `evaluateAdoption` (name-and-major against the wire protocol).
+A repo dev run keeps the dev fallback — the source-tree entry on the repo
+toolchain in a positive-allowlist environment. A packaged boot never falls
+back to a dev spawn: an unresolvable packaged command leaves the terminal
+lane typed-unavailable, truthfully.
+
 Restart loops allow 5 failures in 10 minutes, then stop and surface
 `crash_loop`. Window/app close detaches; explicit termination signals only the
 owned process group after start-identity recheck.
@@ -1959,6 +1972,21 @@ the packaged evidence lane — constructs and holds the one supervision engine
 contract when the manifest is absent). The wiring is pinned by
 `apps/desktop/tests/dev-runtime-composition.test.ts` (fixture-bundle boot,
 absent-manifest truthfulness, fail-closed install-resolution failures).
+
+The boot reconciles. After the composition holds the engine, the shell entry
+reconciles the durable launch journal (`reconcileSupervisionAtBoot` in
+`apps/desktop/shell/src/bun/boot-supervision.ts`, serialized across
+recompositions): a sidecar launch persisted by a previous app run is ADOPTED
+through the full ownership re-proof — PID start identity, executable
+identity, and the observable process group, never clobbering a launch the
+engine already owns — or journaled as an unadoptable expected exit so no
+launch record dangles adoptable forever. The boot step reports its outcome
+from durable facts only (the engine's adoption audit joined against the
+journal), never throws, and a composition without an engine (no component
+manifest, or no verified scope yet) reconciles nothing. Pinned by
+`apps/desktop/tests/supervision-boot-reconcile.test.ts` (adopt, unadoptable,
+already-owned skip, no-manifest no-op, failure containment) and by the
+packaged supervision smoke's proof 4 on real processes.
 
 ### Shell integration and input
 
@@ -3477,13 +3505,19 @@ git-ignored `artifacts/packaged/`:
    The flood's durable total is read from the session's checksummed
    segment files, not summed from checkpoint footers: the sink auto-flushes
    its open buffer every `checkpointIntervalBytes` (1 MiB), so most of the
-   flood never passes through a host-visible footer. **Known transport
-   boundary:** the below-ring durable-bridge replay stays unproven on this
-   lane (the attach window is inside ring coverage). The socket write-drop
-   defect it was blocked on is fixed by the serialized drain-aware writer
-   (the "Sidecar transport writes" contract) and the
-   `packaged-transport-defect-probe` no longer reproduces it; extending the
-   replay lane to prove the bridge remains the documented handoff.
+   flood never passes through a host-visible footer. The below-ring
+   durable-bridge replay is proven on this lane: an attach at `sinceSeq 0`
+   (strictly beyond the 4 MiB memory ring) is served by the durable
+   checkpoints bridging `[0, ringOldest)` plus the whole live ring —
+   exactly once, contiguous, in order, byte-faithful — and after a seeded,
+   bounded retention-GC eviction (`evictOldestSealedSegments`, the same GC
+   the write-time pass runs) removes the bridge floor, the same attach
+   resyncs to the deterministic live-ring anchor, the SAME anchor on every
+   retry, with zero data frames — never a partial replay. The historical
+   socket write-drop defect it was once blocked on is fixed by the
+   serialized drain-aware writer (the "Sidecar transport writes"
+   contract); the `packaged-transport-defect-probe` stays only as a
+   finding recorder.
 3. **Worktree digest containment** (`packaged-worktree-smoke`): worktree
    creation through the production registrar over the M10 gate, dependency-
    template promotion and per-file CoW materialization into a registrar-
@@ -3531,6 +3565,43 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #185/#396 residues: boot reconcile adoption, the shell
+  terminal lane's packaged sidecar, and the below-ring bridge replay.** The
+  packaged shell entry now reconciles at boot ("Local stack supervision"):
+  after the composition holds the engine, the durable launch journal is
+  reconciled — a sidecar launch persisted by a previous app run is adopted
+  through the full ownership re-proof (PID start identity + executable
+  identity + observable group; never clobbering a launch the engine owns)
+  or journaled as an unadoptable expected exit; a boot without an engine
+  reconciles nothing, and the boot step reports outcomes from durable facts
+  only (the engine's adoption audit joined against the journal), never
+  throwing. The shell's terminal lane adopts its sidecar through one typed
+  seam ("Sidecar adoption"): a packaged boot's spawn belongs to the
+  supervision engine (the packaged adapter command — bundled Bun runtime +
+  bundled entry — so the journal records it) and the adoption verdict is
+  the engine's `evaluateAdoption`; a dev run keeps the dev fallback
+  (source-tree entry); a packaged boot never falls back to a dev spawn.
+  The packaged manifest's sidecar registration protocol is corrected to the
+  wire constant `adea-terminal-sidecar` (it declared a name the sidecar
+  never registers with, which would make the engine's name-and-major
+  verdict refuse the real endpoint protocol); the supervision smoke's dev
+  manifest is corrected the same way. The packaged terminal replay lane now
+  proves the below-ring durable-bridge replay end to end ("`test:packaged`",
+  terminal replay): a sinceSeq-0 attach beyond the 4 MiB ring is served by
+  the durable bridge plus the whole live ring exactly once in order and
+  byte-faithful, and a seeded, bounded retention-GC eviction
+  (`evictOldestSealedSegments`) turns the same attach into the
+  deterministic resync anchor on every retry with zero data frames — never
+  a partial replay; the former "known transport boundary / documented
+  handoff" note is closed. Supervision smoke timing: the smoke's engine
+  construction now injects the clock and probe delay explicitly (the
+  #185 timer-flake policy — grace windows measured on the injected clock in
+  bounded probe ticks, never the engine's `setTimeout` default). No
+  supervision state-machine semantics changed; no new registry operations.
+  "Local stack supervision", "Sidecar adoption", and the packaged-lane
+  terminal-replay item updated; pinned by
+  `apps/desktop/tests/supervision-boot-reconcile.test.ts` and the extended
+  `packaged-terminal-smoke` checks.
 - **2026-09-21 — M12: the watcher-driven status invalidation lane is
   constructed in production, and the Dev View caches follow its honesty
   contract.** The git registrar now composes the previously unconstructed

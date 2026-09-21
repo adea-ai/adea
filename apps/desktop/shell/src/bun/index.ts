@@ -29,7 +29,19 @@ import {
 import { createDevRuntimeHost, type DevRuntimeHost } from '../dev-runtime'
 import { createFileStreamRelay } from '../dev-runtime/stream-relay'
 import { createOwnerApprovalVerifier } from '../dev-runtime/authority'
-import { loadPackagedManifestForEntry } from '../../scripts/packaged-install'
+import {
+  loadPackagedManifestForEntry,
+  resolvePackagedComponents,
+} from '../../scripts/packaged-install'
+import { createProcessAdapter } from '../supervision/process-adapter'
+import type { SupervisionAdapter } from '../supervision/supervisor'
+import type { SidecarClient } from '../dev-runtime/terminal/sidecar/client'
+import {
+  adoptShellTerminalSidecar,
+  reconcileSupervisionAtBoot,
+  SIDECAR_COMPONENT_ID,
+} from './boot-supervision'
+import { devSidecarPlan, packagedSidecarPlan, type ShellSidecarPlan } from './boot-sidecar-plan'
 
 // The client is copied into the bundle (`electrobun.config.ts` build.copy), so
 // the packaged app serves `Resources/app/client`. Running from the repo
@@ -61,6 +73,43 @@ if (!packagedManifest.ok && packagedManifest.appBundle) {
   console.error(
     `desktop shell: the packaged component manifest failed to load (${packagedManifest.reason}); the local stack runs without supervision`
   )
+}
+
+// The terminal lane's sidecar plan (#396) and the supervision engine's real
+// process adapter: a packaged boot resolves the bundled sidecar command (the
+// packaged entry on the bundled Bun runtime) from the same install-location
+// resolution the manifest loader ran, so the engine's spawn and the lane's
+// adoption describe one artifact. A packaged boot never falls back to a dev
+// spawn: an unresolvable packaged command leaves the plan undefined and the
+// terminal lane typed-unavailable. A repo dev run keeps the dev fallback
+// (the source-tree entry on the repo toolchain).
+let sidecarPlan: ShellSidecarPlan | undefined
+let supervisionAdapter: SupervisionAdapter | undefined
+if (packagedManifest.ok) {
+  try {
+    const packaged = resolvePackagedComponents(packagedManifest.appBundle)
+    const commands = packaged.commands(DATA_DIR)
+    const command = commands[SIDECAR_COMPONENT_ID]
+    const sidecarIdentity = command?.env?.ADEA_SIDECAR_IDENTITY
+    if (command && sidecarIdentity) {
+      sidecarPlan = packagedSidecarPlan(sidecarIdentity)
+      supervisionAdapter = createProcessAdapter(commands)
+    } else {
+      console.error(
+        'desktop shell: the packaged sidecar command is missing from the bundle resolution; the terminal lane stays unavailable'
+      )
+    }
+  } catch (error) {
+    console.error(
+      `desktop shell: the packaged sidecar command could not be resolved (${error instanceof Error ? error.message : String(error)}); the terminal lane stays unavailable`
+    )
+  }
+} else if (packagedManifest.appBundle === null) {
+  // A repo dev run (no bundle at all) keeps the dev fallback. A packaged
+  // bundle whose manifest failed to load is degraded: no supervision and no
+  // sidecar plan — the terminal lane stays typed-unavailable, never a dev
+  // spawn on the repo toolchain from an installed app.
+  sidecarPlan = devSidecarPlan()
 }
 
 // The durable, single-use owner-approval authority. Constructed first so the
@@ -194,6 +243,9 @@ const streamRelayCommands: Record<string, (args?: Record<string, unknown>) => un
 // providers for everything else. Re-binding under a different scope
 // recomposes after the composition revoked the old binding's channels.
 let host: DevRuntimeHost | undefined
+// The terminal lane's adopted sidecar client, when the boot adoption
+// succeeded; the composition binds it through the existing `sidecar` seam.
+let sidecarClient: SidecarClient | undefined
 function composeHost(): DevRuntimeHost {
   return createDevRuntimeHost({
     authority,
@@ -206,6 +258,12 @@ function composeHost(): DevRuntimeHost {
     // #185: the packaged manifest feeds the one supervision engine; absent
     // (dev run) or failed load keeps the truthful no-supervision composition.
     ...(packagedManifest.ok ? { componentManifest: packagedManifest.manifest } : {}),
+    // #185: the engine spawns packaged components through the real bundled
+    // layout (dev runs have no adapter — the engine itself never starts).
+    ...(supervisionAdapter ? { supervisionAdapter } : {}),
+    // #396: the terminal lane runs on the adopted sidecar; without one the
+    // terminal operations stay typed-unavailable.
+    ...(sidecarClient ? { sidecar: sidecarClient } : {}),
     runLsof: async () => {
       const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
         stdout: 'pipe',
@@ -233,9 +291,65 @@ function composeHost(): DevRuntimeHost {
   })
 }
 host = composeHost()
+
+// Boot adoption steps (#185/#396), serialized across recompositions. After
+// the composition holds the engine, the persisted launch journal is
+// reconciled: a sidecar launch persisted by a previous app run is adopted
+// (ownership re-proven against the live OS) or journaled as an unadoptable
+// expected exit — never left dangling. Then the terminal lane's sidecar is
+// adopted through the existing seam (packaged: started through the engine
+// and connected over the bundled layout; dev: the dev fallback), and a
+// successful adoption recomposes so `dev.terminal.*` registers.
+let bootSteps: Promise<void> = Promise.resolve()
+async function adoptTerminalSidecar(): Promise<void> {
+  const scope = identity.currentScope()
+  if (!scope) return
+  const adoption = await adoptShellTerminalSidecar({
+    dataDir: DATA_DIR,
+    scope,
+    supervisor: host?.supervision,
+    plan: sidecarPlan,
+  })
+  if (!adoption.ok) {
+    console.error(
+      `desktop shell: the terminal sidecar could not be adopted (${adoption.code}: ${adoption.message}); the terminal lane stays unavailable`
+    )
+    return
+  }
+  if (sidecarClient !== adoption.client) {
+    sidecarClient?.close()
+    sidecarClient = adoption.client
+    host = composeHost()
+  }
+}
+async function runBootSteps(): Promise<void> {
+  if (!host) return
+  const reconcile = await reconcileSupervisionAtBoot(host)
+  if (reconcile.attempted) {
+    if (reconcile.error) {
+      console.error(`desktop shell: supervision reconcile failed: ${reconcile.error}`)
+    }
+    for (const entry of reconcile.adopted) {
+      console.log(
+        `desktop shell: adopted the persisted ${entry.componentId} launch (pid ${entry.pid}, generation ${entry.generation})`
+      )
+    }
+    for (const entry of reconcile.unadoptable) {
+      console.log(
+        `desktop shell: the persisted ${entry.componentId} launch (generation ${entry.generation}) is unadoptable; journaled as an expected exit`
+      )
+    }
+  }
+  await adoptTerminalSidecar()
+}
+function queueBootSteps(): void {
+  bootSteps = bootSteps.then(runBootSteps, runBootSteps)
+}
 identity.onBindingChanged(() => {
   host = composeHost()
+  queueBootSteps()
 })
+queueBootSteps()
 void host
 
 const MIME: Record<string, string> = {

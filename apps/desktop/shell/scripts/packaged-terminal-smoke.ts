@@ -24,16 +24,23 @@
 //   host B  — a fresh host adopts the same sidecar: the DURABLE history
 //             serves the new host (durable search finds the marker), the
 //             ring replays a window inside its coverage contiguously, and
-//             live delivery continues with new input.
+//             live delivery continues with new input;
+//   below-ring — the durable-bridge replay is proven END TO END on the
+//             packaged lane: an attach at sinceSeq 0 (strictly beyond the
+//             4 MiB memory ring) is served by the durable checkpoints
+//             bridging [0, ringOldest) and then the whole live ring —
+//             exactly once, contiguous, in order, byte-faithful — through
+//             the sidecar's `durableBridge` path; then F4's retention GC
+//             (bounded, seeded: the oldest sealed segment is evicted with
+//             `evictOldestSealedSegments`) removes the bridge floor, and
+//             the same sinceSeq-0 attach resyncs to the deterministic live
+//             ring anchor — the SAME anchor on every retry, zero data
+//             frames, never a partial replay.
 //
-// TRANSPORT BOUNDARY (E5 status, handoff still open): the Bun unix socket
-// write-drop defect is fixed — both transport ends write through one
-// serialized, drain-aware pump (sidecar/socket-writer.ts), and the
-// transport-defect probe no longer reproduces. What stays unproven HERE is
-// the below-ring durable-bridge replay (sinceSeq 0 after eviction, bridge +
-// whole-ring history): this smoke attaches inside the ring's coverage only
-// and records the boundary; extending this lane to prove the bridge replay
-// remains the documented handoff.
+// TRANSPORT: both transport ends write through one serialized, drain-aware
+// pump (sidecar/socket-writer.ts), so the historical write-drop defect is
+// fixed and the below-ring replay (multi-megabyte, bounded by the writer's
+// 8 MiB queue envelope) runs on the real socket.
 //
 // What this lane is NOT: the M10 channel gate (dev.terminal.* through the
 // channel authority) is proven by apps/desktop/tests/terminal-pty-smoke.test.ts
@@ -68,6 +75,11 @@ import {
 } from './packaged-install'
 import { adoptSidecar } from '../src/dev-runtime/terminal/sidecar/adoption'
 import { readEndpointFile } from '../src/dev-runtime/terminal/sidecar/endpoint-file'
+import {
+  CHECKPOINT_RETENTION,
+  evictOldestSealedSegments,
+  listSealedSegments,
+} from '../src/dev-runtime/terminal/retention'
 import type { ByteFrameMeta, SidecarScope } from '../src/dev-runtime/terminal/sidecar/protocol'
 
 const SCOPE: SidecarScope = {
@@ -76,12 +88,21 @@ const SCOPE: SidecarScope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
 
-// ~7.9 MB of terminal output: strictly more than the memory ring's 4 MiB
+// ~6.9 MB of terminal output: strictly more than the memory ring's 4 MiB
 // bound (TERMINAL_LIMITS.ringMaxBytes), so eviction necessarily occurs, and
-// far below the 256 MiB durable budget, so nothing is pruned.
-const FLOOD_LINES = 1_100_000
+// far below the 256 MiB durable budget, so nothing is pruned by the
+// sidecar's own retention. The size also keeps the full below-ring replay
+// (bridge + whole ring ≈ 7.1 MB of framed wire) inside the sidecar
+// writer's 8 MiB queue envelope ("Sidecar transport writes"): the attach
+// burst is enqueued synchronously, and exceeding the bound would fail the
+// connection closed instead of delivering the bridge.
+const FLOOD_LINES = 1_000_000
 const STEP_MS = 100
 const LIMIT_MS = 60_000
+// The below-ring attach's reply arrives only after the whole bridge + ring
+// replay has been delivered; the lane names an explicit bounded budget for
+// its clients instead of inheriting the 10 s control-traffic default.
+const SIDECAR_REQUEST_BUDGET_MS = 120_000
 
 type Check = { check: string; ok: boolean; detail?: string }
 const checks: Check[] = []
@@ -170,6 +191,7 @@ async function runHostPhase(dataDir: string, identity: string): Promise<void> {
     expectedExecutableIdentity: identity,
     evaluateAdoption: (protocol) => (protocol.major === 1 ? 'adopt' : 'incompatible'),
     connect: connectUnix,
+    requestTimeoutMs: SIDECAR_REQUEST_BUDGET_MS,
   })
   if (!adopted.ok || adopted.decision !== 'adopt') {
     throw new Error(`host phase adoption failed: ${JSON.stringify(adopted)}`)
@@ -305,10 +327,11 @@ function finish(
         command:
           'bun apps/desktop/shell/scripts/packaged-terminal-smoke.ts --app-bundle <Adea-dev.app>',
         hostFacts: facts,
-        knownTransportBoundary:
-          'below-ring durable bridge replay stays unproven on this lane (attach ' +
-          'window is inside ring coverage); the socket write-drop defect itself is ' +
-          'fixed by the serialized drain-aware writer and no longer reproduces',
+        belowRingBridge:
+          'proven on this lane: the sinceSeq-0 attach (beyond the 4 MiB ring) is served ' +
+          'by the durable bridge + live ring exactly once in order, and after a seeded ' +
+          'retention-GC eviction the same attach resyncs to the deterministic live-ring ' +
+          'anchor on every retry, never a partial replay',
         totals: { checks: checks.length, failed: checks.filter((entry) => !entry.ok).length },
         checks,
       },
@@ -431,6 +454,7 @@ async function main(): Promise<number> {
       expectedExecutableIdentity: sidecar.identity,
       evaluateAdoption: (protocol) => (protocol.major === 1 ? 'adopt' : 'incompatible'),
       connect: connectUnix,
+      requestTimeoutMs: SIDECAR_REQUEST_BUDGET_MS,
     })
     const adoptedOk = adopted.ok === true
     check(
@@ -464,24 +488,155 @@ async function main(): Promise<number> {
         : searched.message
     )
 
-    // Ring replay: attach inside the ring's coverage exactly one chunk below
-    // the durable tip. Host A pinned the last durable chunk to a few bytes,
-    // so this window is one small framed write inside the socket's burst
-    // envelope (see the KNOWN TRANSPORT BOUNDARY above — larger replay
-    // windows corrupt mid-flight and are the documented #396 handoff). If a
-    // reply still fails to decode, a fresh adoption retries one window later.
-    const toSeq = BigInt(facts?.checkpointToSeq ?? '0')
-    let sinceSeq = (toSeq > 1n ? toSeq - 1n : 0n).toString()
-    let frames: Array<{ seq: string; bytes: Uint8Array }> = []
-    let liveMarker = ''
+    // ── Below-ring durable-bridge replay (the former documented handoff) ──
+    // The attach at sinceSeq 0 sits strictly beyond the 4 MiB memory ring
+    // (the flood evicted it), so the sidecar's `durableBridge` path must
+    // serve [0, ringOldest) from the checksummed durable checkpoints and
+    // then hand off to the live ring — exactly once, contiguous, in order.
     let exitedNotice: { exitCode: number | null } | null = null
-    const wireEvents = (target: Array<{ seq: string; bytes: Uint8Array }>) => ({
+    const wireEvents = (
+      target: Array<{ seq: string; bytes: Uint8Array; subscriberId: string }>
+    ) => ({
       onDataFrame: (meta: ByteFrameMeta, bytes: Uint8Array) =>
-        target.push({ seq: meta.seq, bytes }),
+        target.push({ seq: meta.seq, bytes, subscriberId: meta.subscriberId ?? '' }),
       onExited: (notice: { terminalId: string; generation: number; exitCode: number | null }) => {
         exitedNotice = { exitCode: notice.exitCode }
       },
     })
+    console.log('PHASE below-ring: sinceSeq-0 attach across the memory ring')
+    const bridgeFrames: Array<{ seq: string; bytes: Uint8Array; subscriberId: string }> = []
+    client.setEvents(wireEvents(bridgeFrames))
+    const belowRing = await client.attach({
+      terminalId: facts.terminalId,
+      subscriberId: 'host-b-below-ring',
+      sinceSeq: '0',
+    })
+    const bridgeOk =
+      belowRing.ok && belowRing.value.resyncRequired === false && belowRing.value.replayed > 0
+    if (
+      !check(
+        bridgeOk,
+        'the below-ring attach (sinceSeq 0, beyond the ring) is served by the durable bridge + ring',
+        belowRing.ok && !belowRing.value.resyncRequired
+          ? `replayed=${belowRing.value.replayed} nextSeq=${belowRing.value.nextSeq}`
+          : JSON.stringify(belowRing.ok ? belowRing.value : belowRing.message)
+      )
+    ) {
+      client.close()
+      return finish(1, artifactPath, appBundle, startedAt, facts)
+    }
+    const mine = bridgeFrames.filter((frame) => frame.subscriberId === 'host-b-below-ring')
+    const bridgeSeqs = mine.map((frame) => BigInt(frame.seq))
+    const bridgeContiguous =
+      bridgeSeqs.length > 0 &&
+      bridgeSeqs[0] === 0n &&
+      bridgeSeqs.every((value, index) => index === 0 || value === bridgeSeqs[index - 1]! + 1n) &&
+      belowRing.ok &&
+      !belowRing.value.resyncRequired &&
+      bridgeSeqs.length === belowRing.value.replayed
+    check(
+      bridgeContiguous,
+      'the below-ring replay is exactly [0, nextSeq): every byte-chunk once, in order, from durable history',
+      `chunks ${bridgeSeqs.length} (seq 0..${bridgeSeqs[bridgeSeqs.length - 1]})`
+    )
+    const bridgeBytes = mine.reduce((total, frame) => total + frame.bytes.byteLength, 0)
+    check(
+      bridgeBytes > 4 * 1024 * 1024,
+      'the replayed span is strictly larger than the 4 MiB ring holds (genuinely below-ring)',
+      `${(bridgeBytes / 1024 / 1024).toFixed(1)} MB`
+    )
+    const bridgeText = new TextDecoder('utf-8', { fatal: false }).decode(
+      Buffer.concat(mine.map((frame) => Buffer.from(frame.bytes)))
+    )
+    const markerAt = bridgeText.indexOf(facts.marker)
+    // The PTY's ONLCR gives the flood CRLF line endings, and macOS seq prints
+    // its final value in scientific notation ("1e+06"); the sentinels are
+    // CRLF-bracketed so no flood line can match as another line's suffix.
+    const sentinels = ['\r\n123456\r\n', '\r\n654321\r\n', '\r\n1e+06\r\n'].map((needle) => {
+      const at = bridgeText.indexOf(needle, markerAt < 0 ? 0 : markerAt)
+      return at
+    })
+    check(
+      markerAt >= 0 &&
+        sentinels.every((at, index) => at >= 0 && (index === 0 || at > sentinels[index - 1]!)),
+      'the bridge bytes are byte-faithful durable history: the early marker, then the flood in order',
+      `marker at byte ${markerAt}, flood sentinels at ${sentinels.join(',')}`
+    )
+
+    // ── Retention GC (bounded, seeded) removes the bridge floor ───────────
+    // With the oldest sealed segment evicted, the sinceSeq-0 span is no
+    // longer bridgeable: the attach must return the deterministic live-ring
+    // anchor on EVERY retry and never a partial replay. This is F4's
+    // exported GC (`evictOldestSealedSegments`) doing exactly what the
+    // sidecar's write-time pass does, seeded by the proof.
+    console.log('PHASE below-ring-eviction: retention GC prunes the bridge floor')
+    const sessionDir = join(sidecar.dataDir, 'dev-runtime', facts.terminalId)
+    const sealed = listSealedSegments(sessionDir)
+    check(
+      sealed.length >= 2,
+      'sealed durable segments exist for the seeded GC pass',
+      `${sealed.length} segments`
+    )
+    const floorSegment = sealed[0]
+    const sealedBytes = sealed.reduce((total, segment) => total + segment.size, 0)
+    const gc =
+      floorSegment &&
+      evictOldestSealedSegments({
+        sessionDir,
+        segments: sealed,
+        maxBytes: sealedBytes - floorSegment.size,
+        maxSegments: CHECKPOINT_RETENTION.maxSegmentsPerSession,
+      })
+    check(
+      gc !== undefined && gc.evictedSegments === 1,
+      'F4 retention GC evicted the oldest sealed segment (bounded, seeded)',
+      gc ? `freed ${(gc.bytesFreed / 1024).toFixed(1)} KiB` : 'no pass run'
+    )
+    const survivingFloor = gc?.remaining[0]?.fromSeq
+    check(
+      survivingFloor !== undefined && survivingFloor > 0n,
+      'the surviving durable chain now begins after the pruned span',
+      survivingFloor !== undefined ? `from seq ${survivingFloor}` : 'no survivor'
+    )
+    const anchors: string[] = []
+    for (const attempt of [1, 2]) {
+      const resyncFrames: Array<{ seq: string; bytes: Uint8Array; subscriberId: string }> = []
+      client.setEvents(wireEvents(resyncFrames))
+      const subscriberId = `host-b-resync-${attempt}`
+      const resynced = await client.attach({
+        terminalId: facts.terminalId,
+        subscriberId,
+        sinceSeq: '0',
+      })
+      const anchor =
+        resynced.ok && resynced.value.resyncRequired ? resynced.value.checkpointSequence : null
+      if (anchor !== null) anchors.push(anchor)
+      check(
+        anchor !== null && BigInt(anchor) > 0n,
+        `below-ring attach after GC resyncs to the live-ring anchor (retry ${attempt})`,
+        anchor ?? JSON.stringify(resynced.ok ? resynced.value : resynced.message)
+      )
+      check(
+        resyncFrames.filter((frame) => frame.subscriberId === subscriberId).length === 0,
+        `a pruned span never replays partially: zero data frames on the resync path (retry ${attempt})`
+      )
+    }
+    check(
+      anchors.length === 2 && anchors[0] === anchors[1],
+      'the resync anchor is deterministic: the same live-ring coverage on every retry',
+      anchors.join(',')
+    )
+
+    // Ring replay: attach inside the ring's coverage exactly one chunk below
+    // the durable tip. Host A pinned the last durable chunk to a few bytes,
+    // so this window is one small framed write inside the socket's burst
+    // envelope (the below-ring replay above already proved the big-window
+    // bridge on the fixed transport). If a reply still fails to decode, a
+    // fresh adoption retries one window later.
+    const toSeq = BigInt(facts?.checkpointToSeq ?? '0')
+    let sinceSeq = (toSeq > 1n ? toSeq - 1n : 0n).toString()
+    let frames: Array<{ seq: string; bytes: Uint8Array; subscriberId: string }> = []
+    let liveMarker = ''
     client.setEvents(wireEvents(frames))
     let attached = await client.attach({
       terminalId: facts.terminalId,
@@ -499,6 +654,7 @@ async function main(): Promise<number> {
         expectedExecutableIdentity: sidecar.identity,
         evaluateAdoption: (protocol) => (protocol.major === 1 ? 'adopt' : 'incompatible'),
         connect: connectUnix,
+        requestTimeoutMs: SIDECAR_REQUEST_BUDGET_MS,
       })
       const retryOk = retry.ok === true
       check(retryOk, 'attach retry re-adopted the sidecar', retryOk ? '' : retry.message)
