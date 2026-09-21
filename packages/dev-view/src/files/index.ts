@@ -17,4 +17,11 @@ export {
 } from './files-model'
 export { fileChunkSize, readFileViaStream, writeFileViaStream } from './file-stream'
 export type { FileStreamSocket, FileStreamTransport } from './file-stream'
+export {
+  cacheStatus,
+  emptyStatusCache,
+  invalidateStatus,
+  refenceStatusCache,
+  type StatusCacheSnapshot,
+} from './status-cache'
 export { executeOperation, resolveWorktreeContext, type WorktreeContext } from './worktree-context'

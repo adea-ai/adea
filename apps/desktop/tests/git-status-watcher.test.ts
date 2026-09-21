@@ -5,11 +5,21 @@
 // stat-fingerprint lane (no faster than the 60-second floor), concurrent
 // refreshes dedupe through the bounded gate, and stop/restart is clean. All
 // clocks and timers are injected.
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import {
+  devCommandProofMessage,
+  devOperationDefinitions,
+  type DevCommand,
+  type DevReply,
+  type FileIdentity,
+} from '../../../packages/types/src/dev-runtime'
+import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
+import { registerGitRuntime } from '../shell/src/dev-runtime/git/register'
 import {
   STATUS_WATCHER_LIMITS,
   createRefreshGate,
@@ -19,6 +29,8 @@ import {
   type StatusWatchEvent,
   type WatcherHandle,
 } from '../shell/src/dev-runtime/git/status-watcher'
+import { directoryIdentity } from '../shell/src/dev-runtime/worktrees/identity'
+import { initRepo, scope } from './worktree-fixtures'
 
 /** Deterministic clock + timer wheel: no real sleeps anywhere. */
 function manualClock() {
@@ -452,6 +464,287 @@ describe('production fingerprint facts', () => {
       }
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+// ─── Production construction (the git registrar's composed lane) ────────────
+//
+// The registrar builds one bounded watcher per ready worktree on the git
+// dispatch path: created on the first ready sighting, refenced when the live
+// generation moves, stopped and discarded when the worktree closes or stops
+// being ready. Status is read ONLY through the registered `dev.git.status`
+// provider — the same handler the authority's gate dispatches — never a
+// private shortcut.
+
+const WATCHTREE_ID = 'wt-watcher-compose-0001'
+
+/** Scripted handle factory tracking opens/closes across reconcile runs. */
+function recordingWatcher(): {
+  open: OpenWatcher
+  opened(): number
+  fire(): void
+  fail(): void
+  closedCount(): number
+} {
+  let onEvent: (() => void) | undefined
+  let onFailed: (() => void) | undefined
+  let openCount = 0
+  let closeCount = 0
+  return {
+    open: (handlers) => {
+      openCount += 1
+      onEvent = handlers.onEvent
+      onFailed = handlers.onFailed
+      return {
+        close: () => {
+          closeCount += 1
+        },
+      } satisfies WatcherHandle
+    },
+    opened: () => openCount,
+    fire: () => onEvent?.(),
+    fail: () => onFailed?.(),
+    closedCount: () => closeCount,
+  }
+}
+
+/** Bounded real-time wait for subprocess-backed async work (real git reads);
+ *  the explicit per-test timeouts bound the whole thing. */
+async function waitUntil(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  throw new Error('watcher condition not met before its timeout')
+}
+
+function makeStatusCommand(worktreeId: string, generation: number): DevCommand {
+  const definition = devOperationDefinitions['dev.git.status']
+  return {
+    schemaVersion: 1,
+    operation: 'dev.git.status',
+    requestId: randomUUID(),
+    nonce: Buffer.from(randomBytes(16)).toString('base64url'),
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    scope,
+    capabilities: [...definition.capabilities],
+    resource: { kind: 'worktree', id: worktreeId, generation },
+    body: { worktreeId, limit: 100 },
+  }
+}
+
+/** A disposable git repository registered on a real channel authority, with
+ *  the worktree record mutable so tests can re-fence and close it. */
+function watcherFixture(
+  seams: { openWatcher?: OpenWatcher; schedule?: (fn: () => void, ms: number) => () => void } = {}
+) {
+  const base = mkdtempSync(join(tmpdir(), 'adea-watcher-compose-'))
+  const repoPath = initRepo(join(base, 'worktree'))
+  const identity = directoryIdentity(repoPath)
+  const rootIdentity = { ...identity.identity } as FileIdentity
+  let record:
+    | {
+        canonicalRoot: string
+        rootIdentity: FileIdentity
+        generation: number
+        lifecycle: string
+      }
+    | undefined = {
+    canonicalRoot: repoPath,
+    rootIdentity,
+    generation: 1,
+    lifecycle: 'ready',
+  }
+  const events: StatusWatchEvent[] = []
+  const authority = createChannelAuthority({
+    shellHost: '127.0.0.1',
+    shellOrigin: 'https://127.0.0.1:4789',
+  })
+  const registered = registerGitRuntime({
+    authority,
+    scope,
+    resolveWorktree: (worktreeId) => (worktreeId === WATCHTREE_ID ? record : undefined),
+    onWatcherEvent: (event) => events.push(event),
+    ...(seams.openWatcher || seams.schedule
+      ? {
+          watcher: {
+            ...(seams.openWatcher ? { openWatcher: seams.openWatcher } : {}),
+            ...(seams.schedule ? { schedule: seams.schedule } : {}),
+          },
+        }
+      : {}),
+  })
+  const bootstrap = authority.issueLaunchBootstrap()
+  const at = Date.now()
+  const handshake = authority.handshake(
+    {
+      schemaVersion: 1,
+      method: 'dev.runtime.handshake.v1',
+      requestId: '00000000-0000-4000-8000-000000000031',
+      bootstrap,
+      supportedProtocolVersions: ['1'],
+      nonce: 'dGhpcy1ub25jZS1oYXMtYXQtbGVhc3QtMTI4LWJpdHM',
+      issuedAt: new Date(at - 1000).toISOString(),
+      expiresAt: new Date(at + 30_000).toISOString(),
+    },
+    { trusted: true }
+  )
+  if (!handshake.ok) throw new Error('handshake refused')
+  const channel = {
+    identity: { channelId: handshake.channelId, clientCredentialId: handshake.clientCredentialId },
+    secret: Buffer.from(handshake.clientSecret, 'base64url'),
+  }
+  const dispatch = async (generation: number): Promise<DevReply> => {
+    const command = makeStatusCommand(WATCHTREE_ID, generation)
+    const proof = createHmac('sha256', channel.secret)
+      .update(
+        devCommandProofMessage({
+          channelId: channel.identity.channelId,
+          clientCredentialId: channel.identity.clientCredentialId,
+          command,
+        }),
+        'utf8'
+      )
+      .digest('base64url')
+    return authority.execute(
+      {
+        channelId: channel.identity.channelId,
+        clientCredentialId: channel.identity.clientCredentialId,
+        command,
+        proof,
+      },
+      { trusted: true }
+    )
+  }
+  return {
+    base,
+    repoPath,
+    events,
+    registered,
+    dispatch,
+    setRecord: (next: typeof record) => {
+      record = next
+    },
+  }
+}
+
+describe('production construction (git registrar lane)', () => {
+  test('a ready worktree constructs a watcher; a real tree move invalidates through the public status path', async () => {
+    const fixture = watcherFixture()
+    try {
+      // The first git dispatch reconciles the map: the watcher is
+      // constructed and started for the ready worktree.
+      expect((await fixture.dispatch(1)).ok).toBe(true)
+      const snapshot = fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)
+      expect(snapshot).toMatchObject({ worktreeId: WATCHTREE_ID, generation: 1 })
+      // Production seams: real recursive fs.watch, or the typed degrade.
+      expect(['watching', 'degraded']).toContain(snapshot?.mode)
+      if (snapshot?.mode !== 'watching') return
+      // A real write under the root: fs event → 250 ms coalesce → ONE
+      // invalidation → one auto-refresh through the REGISTERED
+      // dev.git.status provider (only that dispatch fills the cache).
+      writeFileSync(join(fixture.repoPath, 'touched.txt'), 'moved\n')
+      await waitUntil(() => fixture.events.some((event) => event.reason === 'tree_changed'))
+      await waitUntil(() => fixture.events.some((event) => event.reason === 'refreshed'))
+      expect(fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)).toMatchObject({
+        generation: 1,
+        stale: false,
+        cachedGeneration: 1,
+      })
+      // Every event is fenced to the live generation.
+      for (const event of fixture.events) expect(event.generation).toBe(1)
+    } finally {
+      fixture.registered.statusWatchers.stopAll()
+      rmSync(fixture.base, { recursive: true, force: true })
+    }
+  }, 20_000)
+
+  test('a generation move refences the lane: the old cache dies, events carry the new generation', async () => {
+    const clock = manualClock()
+    const handle = recordingWatcher()
+    const fixture = watcherFixture({ openWatcher: handle.open, schedule: clock.schedule })
+    try {
+      expect((await fixture.dispatch(1)).ok).toBe(true)
+      expect(handle.opened()).toBe(1)
+      // A tree event fills the cache under generation 1 (a real status read
+      // through the registered provider).
+      handle.fire()
+      clock.advance(STATUS_WATCHER_LIMITS.coalesceMs)
+      await waitUntil(
+        () => fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)?.stale === false
+      )
+      // The live record moves: the next dispatch re-proves and refences.
+      fixture.setRecord({
+        canonicalRoot: fixture.repoPath,
+        rootIdentity: { device: '', inode: '', mtimeNs: '', size: '' } as FileIdentity,
+        generation: 2,
+        lifecycle: 'ready',
+      })
+      expect((await fixture.dispatch(2)).ok).toBe(true)
+      expect(fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)).toMatchObject({
+        generation: 2,
+        stale: true,
+      })
+      expect(
+        fixture.events.some((event) => event.reason === 'refenced' && event.generation === 2)
+      ).toBe(true)
+      // The lane's manual invalidation (the mutation lane) is reachable and
+      // emits the fenced tree_changed event.
+      fixture.registered.statusWatchers.invalidate(WATCHTREE_ID)
+      expect(
+        fixture.events.some((event) => event.reason === 'tree_changed' && event.generation === 2)
+      ).toBe(true)
+    } finally {
+      fixture.registered.statusWatchers.stopAll()
+      rmSync(fixture.base, { recursive: true, force: true })
+    }
+  })
+
+  test('a closed or non-ready worktree stops the watcher and drops it from the lane', async () => {
+    const clock = manualClock()
+    const handle = recordingWatcher()
+    const fixture = watcherFixture({ openWatcher: handle.open, schedule: clock.schedule })
+    try {
+      expect((await fixture.dispatch(1)).ok).toBe(true)
+      expect(fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)).toBeDefined()
+      // The record disappears: even the refused command reconciles first —
+      // the watcher is stopped and its cache discarded with it.
+      fixture.setRecord(undefined)
+      expect((await fixture.dispatch(1)).ok).toBe(false)
+      expect(fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)).toBeUndefined()
+      expect(handle.closedCount()).toBe(1)
+      // A non-ready lifecycle is equally terminal (no re-construction).
+      fixture.setRecord({
+        canonicalRoot: fixture.repoPath,
+        rootIdentity: { device: '', inode: '', mtimeNs: '', size: '' } as FileIdentity,
+        generation: 2,
+        lifecycle: 'archived',
+      })
+      expect((await fixture.dispatch(2)).ok).toBe(false)
+      expect(fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)).toBeUndefined()
+      expect(handle.closedCount()).toBe(1)
+    } finally {
+      fixture.registered.statusWatchers.stopAll()
+      rmSync(fixture.base, { recursive: true, force: true })
+    }
+  })
+
+  test('a platform that cannot watch degrades typed and never refuses the command', async () => {
+    const fixture = watcherFixture({ openWatcher: () => undefined })
+    try {
+      // Truthful unavailability: the provider answers normally; the lane
+      // reports the typed degraded mode, audibly once.
+      expect((await fixture.dispatch(1)).ok).toBe(true)
+      expect(fixture.registered.statusWatchers.snapshot(WATCHTREE_ID)?.mode).toBe('degraded')
+      expect(
+        fixture.events.some((event) => event.reason === 'degraded' && event.generation === 1)
+      ).toBe(true)
+    } finally {
+      fixture.registered.statusWatchers.stopAll()
+      rmSync(fixture.base, { recursive: true, force: true })
     }
   })
 })

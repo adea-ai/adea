@@ -178,7 +178,10 @@ export function resolvePackagedComponents(appBundle: string): {
       startupPhase: 0,
       dependsOn: [],
       healthProbe: { kind: 'process', intervalMs: 15_000, unhealthyAfterMs: 45_000 },
-      protocol: { name: 'adea.sidecar.terminal', major: 1, minor: 0 },
+      // The registration protocol the sidecar actually speaks (the wire
+      // constant `SIDECAR_PROTOCOL`): the supervision engine's adoption
+      // verdict compares name and major against it.
+      protocol: { name: 'adea-terminal-sidecar', major: 1, minor: 0 },
       rollbackTargetVersion: null,
       required: false,
     },

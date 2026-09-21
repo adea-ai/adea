@@ -137,6 +137,24 @@ export type CreateDevRuntimeHostInput = {
   worktreeService?: WorktreeService
   /** Overrides the managed Pi driver (#31; tests inject scripted archives). */
   managedPi?: ManagedPiDriver
+  /**
+   * #31: overrides the DEFAULT managed Pi driver's archive source chain
+   * (tests script bundled/cache/network sources without replacing the
+   * driver). Ignored when `managedPi` is injected.
+   */
+  managedPiArchiveResolver?: (version: string) => Promise<Uint8Array | null>
+  /**
+   * #31: the fire-and-forget managed-Pi boot warm. When true, the composition
+   * starts ONE best-effort `ensureInstalled` after the harness register is
+   * up (single-flight inside the driver dedupes it with any explicit install
+   * command): on a clean supported desktop the managed Pi becomes ready with
+   * no manual step, and every failure mode — no source, network refused,
+   * checksum mismatch, version drift — is recorded as the driver's typed
+   * durable failure state while the shell boots unaffected. The warm never
+   * runs for an injected driver (a scripted test driver must never fetch),
+   * and the shell must never await it.
+   */
+  managedPiAutoInstall?: boolean
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
   /** Overrides the #471 permission service for the computer-use lanes (#472). */
@@ -183,6 +201,16 @@ export type CreateDevRuntimeHostInput = {
   cleanupWorktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
   /** #423: scripted gh transport (tests inject one; production spawns `gh`). */
   runGh?: GhRunner
+  /** #399 residue: overrides the git status watcher's production seams
+   *  (tests script them; production uses recursive `fs.watch` plus the
+   *  `setTimeout` scheduler, and an unwatchable platform degrades — typed
+   *  `mode: 'degraded'`, never a crash). One refresh gate is shared by every
+   *  watcher this host constructs. */
+  gitStatusWatcher?: {
+    openWatcher?: import('./git/status-watcher').OpenWatcher
+    schedule?: import('./git/status-watcher').Scheduler
+    gate?: ReturnType<typeof import('./git/status-watcher').createRefreshGate>
+  }
 }
 
 export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRuntimeHost {
@@ -321,6 +349,9 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         publish,
         ...(input.gateway ? { gateway: input.gateway } : {}),
         ...(input.managedPi ? { managedPi: input.managedPi } : {}),
+        ...(input.managedPiArchiveResolver
+          ? { managedPiArchiveResolver: input.managedPiArchiveResolver }
+          : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
         ...(terminal ? { deliverPrompt: terminal.deliverPrompt } : {}),
         ...(terminal
@@ -331,6 +362,12 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           : {}),
       })
     : undefined
+  // #31 consumer zero-config: the opted-in boot warm never breaks the boot —
+  // it is fire-and-forget, its every failure mode is a typed durable driver
+  // state, and it is skipped entirely for a scripted (injected) driver.
+  if (harness && input.managedPiAutoInstall === true && !input.managedPi) {
+    void harness.managedPi.ensureInstalled().catch(() => undefined)
+  }
 
   const browserDevices = registerBrowserDeviceRuntime({
     authority: input.authority,
@@ -401,6 +438,26 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
             lifecycle: record.lifecycle,
           }
         },
+        // Watcher-driven status invalidation (#399 residue): one bounded
+        // watcher per ready worktree is constructed inside the registrar
+        // against the worktree service's live records; its lifecycle events
+        // ride the shell event bus (`git.statusInvalidated`), secret-free.
+        ...(input.gitStatusWatcher
+          ? {
+              watcher: {
+                ...(input.gitStatusWatcher.openWatcher
+                  ? { openWatcher: input.gitStatusWatcher.openWatcher }
+                  : {}),
+                ...(input.gitStatusWatcher.schedule
+                  ? { schedule: input.gitStatusWatcher.schedule }
+                  : {}),
+                ...(input.gitStatusWatcher.gate ? { gate: input.gitStatusWatcher.gate } : {}),
+              },
+            }
+          : {}),
+        ...(input.publish
+          ? { onWatcherEvent: (event) => input.publish?.('git.statusInvalidated', event) }
+          : {}),
       })
     : undefined
 

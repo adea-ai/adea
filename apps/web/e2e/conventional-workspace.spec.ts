@@ -740,6 +740,14 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   await page.getByRole('textbox', { name: 'Message' }).fill('Keep this connected draft.')
 
   await globalNavigation.getByRole('button', { name: 'Switch workspace, current Work' }).click()
+  // The click parks pointer and focus on the rail trigger, whose tooltip opens
+  // on a 200 ms delay: a fast run captures before it appears, a loaded run
+  // after — the same between-runs nondeterminism the lane forbids for
+  // transitions. Park the pointer on empty canvas so the tooltip can never
+  // open (and require quiescence in case it already did); a bare move cannot
+  // dismiss this menu, which closes on outside pointerdown only.
+  await page.mouse.move(640, 400)
+  await expect(page.getByRole('tooltip')).toBeHidden()
   await expect(page).toHaveScreenshot('workspace-switcher.png', { animations: 'disabled' })
   await expect(page.getByText('Scenes', { exact: true })).toHaveCount(0)
   await expect(page.getByRole('menuitemradio', { name: /Home/ })).toBeVisible()

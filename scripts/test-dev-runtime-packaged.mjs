@@ -149,7 +149,9 @@ for (const proof of proofs) {
   if (!passed && !proof.required) {
     warnings.push(
       `${proof.name}: exited ${exitCode} — the transport defect no longer reproduces; ` +
-        'extend packaged-terminal-smoke.ts to prove the below-ring durable bridge replay'
+        'the below-ring durable bridge replay is proven by the terminal-replay lane ' +
+        '(bridge + whole-ring replay, then seeded retention-GC eviction with a ' +
+        'deterministic resync anchor), so this probe stays only as a finding recorder'
     )
   }
 }

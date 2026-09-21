@@ -28,6 +28,12 @@ export default defineConfig({
   // asset-load contention that would make the measurements nondeterministic.
   fullyParallel: false,
   workers: 1,
+  // A dev server can stall a page's first module-graph load while Vite
+  // re-optimizes dependencies (the transport flake the visual lane's warm-up
+  // step documents), so element expectations outwait the 5s default instead of
+  // reporting a cold chunk load as a product failure. Screenshot comparisons
+  // keep their own shorter budget via expect.toHaveScreenshot defaults.
+  expect: { timeout: 15_000 },
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',

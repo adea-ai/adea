@@ -40,6 +40,9 @@ describe.skipIf(process.platform !== 'darwin' || !existsSync(bundlePath))(
       expect(proc.exitCode).toBe(0)
       expect(output).toContain('MODE: packaged')
       expect(output).toContain('PHASE restart')
+      // The below-ring durable-bridge replay (the former documented handoff):
+      // the bridge + whole-ring replay and the seeded retention-GC resync.
+      expect(output).toContain('PHASE below-ring')
       expect(output).toContain('PACKAGED-TERMINAL-REPLAY PASS')
       expect(output).not.toContain('FAIL:')
     }, 300_000)
