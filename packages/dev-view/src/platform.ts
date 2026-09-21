@@ -77,6 +77,44 @@ export type DevStreamTransport = {
   ): DevStreamTransportSocket
 }
 
+/**
+ * The renderer mirror of the shell watcher lane's status-invalidation event
+ * (`git.statusInvalidated` on the gateway's authenticated SSE stream). The
+ * payload is secret-free by construction and every field is shell-authored;
+ * it is still transport bytes to the renderer, so the delivery surface
+ * structurally validates it before any listener runs. Generation-fenced:
+ * consumers compare `generation` against the worktree context they hold.
+ */
+export type DevGitStatusInvalidated = Readonly<{
+  worktreeId: string
+  /** The worktree generation the invalidation is fenced by. */
+  generation: number
+  /** Monotonic invalidation counter for the source watcher. */
+  revision: number
+  reason: 'tree_changed' | 'refreshed' | 'degraded' | 'refenced' | 'stopped'
+}>
+
+/** The typed push-event map the service can deliver. */
+export type DevRuntimeEventMap = Readonly<{
+  'git.statusInvalidated': DevGitStatusInvalidated
+}>
+
+/**
+ * The push-event subscription surface: delivers named shell events from the
+ * gateway's signed event stream. Subscriptions are capability-checked (a
+ * scope whose capability snapshot does not grant the operation's capability
+ * is never subscribed — fail closed) and generation-fenced (events carry the
+ * generation they were produced under). Returns an unsubscribe; the surface
+ * staying absent keeps panes on generation-fenced pull.
+ */
+export type DevEventSubscription = {
+  on<K extends keyof DevRuntimeEventMap>(
+    event: K,
+    scope: Scope,
+    listener: (event: DevRuntimeEventMap[K]) => void
+  ): () => void
+}
+
 export interface DevRuntimeService {
   state(): DevRuntimeAvailability
   /** Resolves when an asynchronous runtime channel has finished binding. */
@@ -90,6 +128,11 @@ export interface DevRuntimeService {
    *  attach minted stream grants; absent (or resolving undefined) keeps the
    *  panes on the bounded control path. */
   streams?(): DevStreamTransport | undefined
+  /** Optional push-event surface: present only when the host can deliver the
+   *  gateway's signed event stream to this renderer (the packaged desktop
+   *  runtime). Absent — e.g. a web non-desktop runtime — keeps every consumer
+   *  on generation-fenced pull; pull is always the correctness fallback. */
+  events?(): DevEventSubscription | undefined
 }
 
 export function createUnavailableDevRuntimeService(options?: {

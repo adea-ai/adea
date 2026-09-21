@@ -18,6 +18,8 @@
  * Pure data work — no DOM, no runtime access.
  */
 
+import type { DevGitStatusInvalidated } from '../platform'
+
 export type StatusCacheSnapshot<T> = Readonly<{
   /** The cached value, or undefined once invalidated — undefined is the
    *  honest state, not a placeholder. */
@@ -55,4 +57,24 @@ export function refenceStatusCache<T>(
 ): StatusCacheSnapshot<T> {
   if (generation === snapshot.generation && !snapshot.stale) return snapshot
   return { value: undefined, generation, stale: true }
+}
+
+/** What a pushed `git.statusInvalidated` event asks of a cache whose pane
+ *  holds the given worktree context (M12 push consumption):
+ *  - another worktree's event, or the watcher lane's own `refreshed` /
+ *    `stopped` bookkeeping, is IGNORED (no bytes moved for this pane);
+ *  - an event fenced by a DIFFERENT generation than the context means the
+ *    worktree moved underneath the pane — the context itself is stale and
+ *    must be RE-RESOLVED (`refence`);
+ *  - a same-generation invalidation (`tree_changed`/`degraded`) is a real
+ *    push invalidation: the cache dies (`invalidate`) and the pane repopulates
+ *    through the capability-checked pull — push never carries status bytes. */
+export function pushInvalidationDecision(
+  context: { worktreeId: string; generation: number },
+  event: DevGitStatusInvalidated
+): 'ignore' | 'invalidate' | 'refence' {
+  if (event.worktreeId !== context.worktreeId) return 'ignore'
+  if (event.reason === 'refreshed' || event.reason === 'stopped') return 'ignore'
+  if (event.generation !== context.generation) return 'refence'
+  return 'invalidate'
 }

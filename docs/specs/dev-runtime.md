@@ -1464,6 +1464,30 @@ a repeated nonce is `replay_rejected` even when the body matches. A logical
 retry uses a fresh request ID and nonce but the same idempotency key. Nonces are
 never reused after reconnect or credential rotation.
 
+The in-process dispatch seam (`authority.dispatchLocal`, M12) lets trusted shell
+code — today only the git watcher lane's `readStatus` seam — dispatch a
+FULLY-FORMED `DevCommand` through the same terminal steps the socket path runs:
+structural validation by the exact `decodeDevCommand` decoder the authorized
+frame path reaches, the freshness/expiry window, scope admission through
+`authorizeCommand` (which receives no channel identity on this lane), capability
+derivation against the registry, registered-provider invocation, and the same
+`DevReply`/audit/refusal machinery. The seam fails closed: it accepts only the
+authority's module-private `INTERNAL_DISPATCH_MARKER`, and any other value
+throws `channel_unauthenticated` before the command is examined. The marker
+stands in for exactly the proofs an internal caller satisfies STRUCTURALLY,
+because it authors the envelope in-process and holds no client-supplied bytes:
+trusted origin (the shell process itself is the trust boundary the socket path
+proves with loopback origin checks), channel credential and identity proof
+(there is no channel to authenticate and no secret to verify), and replay
+(the envelope is minted fresh per dispatch inside the trust boundary, is never
+serialized onto a transport, and remains bounded by the freshness window). The
+seam never accepts a raw frame, a proof, or any client-supplied bytes; resource
+binding, the generation fence, and ready-lifecycle re-proofs stay with the
+provider exactly as for an external caller. Audit records for this lane carry
+no channel fields, which is what makes an internal dispatch distinguishable
+from socket traffic; counters and typed refusals are shared with the socket
+path.
+
 A remote client never connects directly to an arbitrary host port. It uses the
 authorized RuntimeConnection route, whose host repeats scope/generation checks.
 A host refusal is not translated into local success.
@@ -2562,6 +2586,27 @@ through the capability-checked dispatch. Pinned by
 constructed production lane) and
 `packages/dev-view/tests/status-cache.test.ts` (the client contract).
 
+The renderer consumes the invalidations as PUSH, not only as pull (M12): the
+desktop `DevRuntimeService` exposes an optional `events()` subscription surface
+(`DevEventSubscription`) that delivers `git.statusInvalidated` over the
+gateway's existing signed event stream through the bridge's existing
+`listen` seam — the bridge contract is not widened. The surface is typed
+(`DevGitStatusInvalidated`: worktree, generation, revision, reason),
+capability-checked (a scope is subscribed only when its capability snapshot,
+read through the authenticated command path, grants `dev.git.read`; a refused
+probe subscribes nothing — fail closed), and generation-fenced. SSE payloads
+are transport bytes: the surface structurally validates each payload before
+delivery and drops a malformed frame rather than trusting it, while tolerating
+additive payload fields. Consumers decide through one shared pure predicate
+(`pushInvalidationDecision`): a same-generation `tree_changed`/`degraded`
+event invalidates the cache and repopulates through the capability-checked
+pull, a moved generation re-resolves the worktree context (a re-fence), and
+another worktree's event plus the watcher's own `refreshed`/`stopped`
+bookkeeping are ignored. A push never carries status bytes, so pull remains
+the correctness path; when the event surface is absent — a web non-desktop
+runtime, or a bridge predating the listen seam — panes keep generation-fenced
+pull unchanged.
+
 ### Canonical byte encoding in proofs
 
 The command-proof canonical JSON encodes a `Uint8Array` body field (the
@@ -3639,6 +3684,51 @@ explicit spawn timeout for the same reason.
 
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
+
+- **2026-09-21 — M12: in-process command dispatch (`dispatchLocal`) and
+  renderer push consumption of git status invalidations.** Two closures of the
+  watcher slice's handoffs, with no new registry operations (the 163 stand) and
+  no wire or limits change. (1) The channel authority gained an in-process
+  dispatch seam, `authority.dispatchLocal` ("Command envelope and
+  authorization"): trusted shell code dispatches a fully-formed `DevCommand`
+  through the same terminal steps the socket path runs — the exact
+  `decodeDevCommand` structural decoder, the freshness/expiry window, scope
+  admission via `authorizeCommand` (no channel identity on this lane),
+  capability derivation, registered-provider invocation, and the shared
+  `DevReply`/audit/refusal machinery — gated by a module-private
+  `INTERNAL_DISPATCH_MARKER` whose absence or mismatch throws
+  `channel_unauthenticated` before the command is examined (fail closed). The
+  marker replaces only the proofs an internal caller satisfies structurally —
+  trusted origin, channel credential/identity proof, and replay — because the
+  envelope is authored in-process and holds no client-supplied bytes; resource
+  binding and the generation fence stay with the provider exactly as for an
+  external caller, and the lane's audit records carry no channel fields, making
+  internal dispatches distinguishable in the audit trail. The git watcher
+  lane's `readStatus` seam now dispatches the registered `dev.git.status`
+  provider through this seam instead of calling the handler directly (the
+  one-place upgrade the registrar's comment promised); watcher refreshes leave
+  channel-less `command_accepted` audit records, and a lost race still
+  resolves to an honestly empty cache. (2) The desktop `DevRuntimeService`
+  gained an optional `events()` subscription surface ("Watcher-driven status
+  invalidation"): typed, capability-checked (subscribe only on a granted
+  `dev.git.read` snapshot — fail closed), generation-fenced delivery of
+  `git.statusInvalidated` over the gateway's existing signed event stream via
+  the bridge's existing `listen` seam (the frozen bridge contract is not
+  widened). SSE payloads are structurally validated before delivery — a
+  malformed frame is dropped, never trusted. The source-control pane's status
+  cache and the files pane's marker cache consume pushes through one shared
+  pure predicate (`pushInvalidationDecision`): same-generation
+  `tree_changed`/`degraded` invalidates and repopulates through the
+  capability-checked pull, a moved generation re-resolves the context, and
+  other worktrees' events plus `refreshed`/`stopped` bookkeeping are ignored.
+  Push never carries status bytes: with no event surface (web non-desktop
+  runtime, or a bridge predating `listen`) panes keep generation-fenced pull
+  unchanged. Pinned by `apps/desktop/tests/dev-runtime-dispatch-local.test.ts`
+  (the seam contract plus socket-path parity),
+  `apps/desktop/tests/dev-runtime-git-watcher-dispatch.test.ts` (the watcher
+  read rides the gate, audited channel-less),
+  `apps/web/test/desktop-event-surface.test.ts` (the renderer surface), and
+  the extended `packages/dev-view/tests/status-cache.test.ts`.
 
 - **2026-09-21 — #399 residue: the stream inbound validator is reconciled per
   direction (write frames carry byte offsets, not counters).** The generic
