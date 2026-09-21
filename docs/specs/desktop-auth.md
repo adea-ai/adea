@@ -116,7 +116,16 @@ the cloud plus the paired runtime node before any Dev Runtime scope exists,
 and unbind (sign-out) revokes every channel minted under the binding. The
 launch bootstrap itself is delivered only with document loads that present
 trusted browser fetch metadata, so a header-less local process cannot
-retrieve it from the served HTML. `desktop_auth_start` additionally refuses
+retrieve it from the served HTML. The bulk-stream relay family
+`desktop_file_stream_open`, `desktop_file_stream_frame`, and
+`desktop_file_stream_close` (Dev Runtime #399) composes in the shell entry
+alongside the identity family — it needs the channel authority and gateway,
+not the `commands.ts` registry — and re-proves the channel binding on every
+operation: `open` consumes the attach through the authority's real
+`attachStream` (single-use, 60 s, caller-channel-bound, attach proof signed by
+the bridge under its channel secret inside its closure), and `frame`/`close`
+are refused unless they present the exact channel identity the stream was
+attached under. `desktop_auth_start` additionally refuses
 to open any URL that is not a credential-free authorize URL on the canonical
 cloud origin — the client still owns the full `validate_authorization_url`
 check. The registered command set and the commands the client actually

@@ -2,9 +2,12 @@ import { buildDevCommand } from '@adea-ai/dev-view/browser'
 import {
   createUnavailableDevRuntimeService,
   type DevRuntimeService,
+  type DevStreamTransport,
   type DevWorkspaceProjection,
 } from '@adea-ai/dev-view/platform'
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
+
+import { createDesktopStreamTransport } from './desktop-stream-transport'
 
 /**
  * Binds Dev View to the shell's authenticated channel. The bridge is injected
@@ -26,9 +29,13 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
   const bridgeInvoke = bridge?.invoke as
     | (<T>(cmd: string, args?: Record<string, unknown>) => Promise<T>)
     | undefined
+  // Bulk-stream attach surface (#399 residue): present only when the injected
+  // bridge carries the relay signing seam; otherwise panes keep the bounded
+  // control path. The channel secret never crosses into this layer.
+  const streams = bridge ? createDesktopStreamTransport({ bridge }) : undefined
 
   if (options.scope) {
-    return createBoundService({ execute, shellScope: options.scope })
+    return createBoundService({ execute, shellScope: options.scope, streams })
   }
   if (!execute || !bridgeInvoke || typeof window === 'undefined') return unavailable
 
@@ -60,6 +67,7 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
             reason: 'channel_unauthenticated' as const,
           },
     preferenceScope: () => shellScope,
+    ...(streams ? { streams: () => streams } : {}),
     projection: async (requestedScope) => {
       const scope = await projectedScope
       if (!scope) {
@@ -115,6 +123,7 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
 function createBoundService(options: {
   execute?: (command: DevCommand) => Promise<DevReply>
   shellScope: Scope
+  streams?: DevStreamTransport
 }): DevRuntimeService {
   const { shellScope } = options
   const execute = options.execute
@@ -123,6 +132,7 @@ function createBoundService(options: {
   return {
     state: () => ({ status: 'ready' }),
     preferenceScope: () => shellScope,
+    ...(options.streams ? { streams: () => options.streams } : {}),
     projection: async (requestedScope) => {
       const [groups, projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.group.list', requestedScope, {}),

@@ -21,8 +21,13 @@ import {
   type Scope,
 } from '../dev-runtime/channel/identity'
 import { createChannelAuthority } from '../dev-runtime/channel/authority'
-import { createChannelGateway, type SocketData } from '../dev-runtime/channel/server'
+import {
+  createChannelGateway,
+  type ChannelGateway,
+  type SocketData,
+} from '../dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../dev-runtime'
+import { createFileStreamRelay } from '../dev-runtime/stream-relay'
 import { createOwnerApprovalVerifier } from '../dev-runtime/authority'
 import { loadPackagedManifestForEntry } from '../../scripts/packaged-install'
 
@@ -121,10 +126,67 @@ async function invoke(cmd: string, args?: Record<string, unknown>): Promise<Brid
       }
     }
   }
+  const relayHandler = streamRelayCommands[cmd]
+  if (relayHandler) {
+    try {
+      return { ok: true, value: (await relayHandler(args)) ?? null }
+    } catch {
+      return { ok: false, error: 'stream relay command failed' }
+    }
+  }
   return baseInvoke(cmd, args)
 }
 
 const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
+
+// The renderer's bulk-stream attach relay (#399 residue): provider
+// byte-halves register through this view so the relay can drive them over an
+// in-memory session on the page's own channel. The bridge cannot bind a
+// second WebSocket — the launch bootstrap is consumed once per page, grants
+// are caller-channel-bound, and every handshake mints a new channel — so the
+// attach rides the real `attachStream` + provider contract through the relay,
+// with frames crossing on the signed event/invoke paths.
+const hostStreamProviders = new Map<
+  string,
+  Parameters<ChannelGateway['registerStreamHandler']>[1]
+>()
+const gatewayView: ChannelGateway = {
+  ...gateway,
+  registerStreamHandler: (protocol, provider) => {
+    hostStreamProviders.set(protocol, provider)
+    gateway.registerStreamHandler(protocol, provider)
+  },
+}
+const fileStreamRelay = createFileStreamRelay({
+  authority,
+  providerFor: (protocol) => hostStreamProviders.get(protocol),
+  publish: (event, payload) => gateway.publish(event, payload),
+})
+
+/** Relay commands present the channel identity the bridge holds (public
+ *  binding values); every relay operation re-proves it against the session
+ *  and the attach proof under the channel secret. */
+function relayIdentity(args?: Record<string, unknown>) {
+  return {
+    channelId: String(args?.channelId ?? ''),
+    clientCredentialId: String(args?.clientCredentialId ?? ''),
+  }
+}
+const streamRelayCommands: Record<string, (args?: Record<string, unknown>) => unknown> = {
+  desktop_file_stream_open: (args) =>
+    fileStreamRelay.open({ identity: relayIdentity(args), attach: args?.attach }),
+  desktop_file_stream_frame: (args) =>
+    fileStreamRelay.frame({
+      identity: relayIdentity(args),
+      streamId: String(args?.streamId ?? ''),
+      frame: args?.frame,
+    }),
+  desktop_file_stream_close: (args) =>
+    fileStreamRelay.dispose({
+      identity: relayIdentity(args),
+      streamId: String(args?.streamId ?? ''),
+    }),
+}
 
 // The Dev Runtime host composition: registers every production provider
 // (grant authorities, project/session projection, browser/device lanes,
@@ -135,7 +197,7 @@ let host: DevRuntimeHost | undefined
 function composeHost(): DevRuntimeHost {
   return createDevRuntimeHost({
     authority,
-    gateway,
+    gateway: gatewayView,
     dataDir: DATA_DIR,
     scope: identity.currentScope(),
     identity,

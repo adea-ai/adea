@@ -15,4 +15,6 @@ export {
   type ModificationMarker,
   type VisibleRow,
 } from './files-model'
+export { fileChunkSize, readFileViaStream, writeFileViaStream } from './file-stream'
+export type { FileStreamSocket, FileStreamTransport } from './file-stream'
 export { executeOperation, resolveWorktreeContext, type WorktreeContext } from './worktree-context'

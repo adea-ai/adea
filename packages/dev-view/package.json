@@ -89,6 +89,12 @@
       "solid": "./src/terminal/terminal-pane.tsx",
       "development": "./src/terminal/terminal-pane.tsx",
       "import": "./dist/terminal/terminal-pane.js"
+    },
+    "./files/file-stream": {
+      "types": "./dist/files/file-stream.d.ts",
+      "solid": "./src/files/file-stream.ts",
+      "development": "./src/files/file-stream.ts",
+      "import": "./dist/files/file-stream.js"
     }
   },
   "scripts": {

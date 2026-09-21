@@ -1,12 +1,12 @@
 // The browser half of the channel, injected into the app's own window only.
 //
-// The observable bridge contract is unchanged (`window.__adeaDesktop.invoke`
-// / `.listen`, see apps/web/src/lib/desktop-bridge.ts); underneath, the
-// script performs `dev.runtime.handshake.v1` with the single-use launch
-// bootstrap, keeps the channel secret in a closure that never touches
-// `window`, and signs every request with an HMAC over the exact bytes the
-// shell's authority verifies. The secret is never persisted, logged, or
-// returned to React state.
+// The observable bridge contract is `window.__adeaDesktop.invoke` /
+// `.listen` / `.devExecute` / `.streamAttachProof` (see
+// apps/web/src/lib/desktop-bridge.ts); underneath, the script performs
+// `dev.runtime.handshake.v1` with the single-use launch bootstrap, keeps the
+// channel secret in a closure that never touches `window`, and signs every
+// request with an HMAC over the exact bytes the shell's authority verifies.
+// The secret is never persisted, logged, or returned to React state.
 import { LEGACY_INVOKE_PROOF_CONTEXT } from './authority'
 
 /**
@@ -196,6 +196,32 @@ export function createBridgeScript(options: {
       })
   }
 
+  // Bulk-stream attach signing (#399 residue): the renderer's stream
+  // transport attaches a minted file-bytes-v1 grant through the shell's
+  // stream relay on THIS page channel. Only the proof leaves this closure —
+  // the secret never does, and the proof is grant-scoped, single-use, and
+  // expired by the authority within 60 seconds. The field framing must
+  // byte-match the host's devStreamAttachProofMessage (0x1f-joined).
+  function streamAttachProof(request) {
+    return ensureChannel().then(function (open) {
+      var message = [
+        'adea-dev-stream-attach-proof:v1',
+        open.channelId,
+        String(request.grantId || ''),
+        String(request.requestId || ''),
+        String(request.nonce || ''),
+        String(request.fromSequence || '')
+      ].join(String.fromCharCode(31))
+      return hmac(open.secret, message).then(function (proof) {
+        return {
+          channelId: open.channelId,
+          clientCredentialId: open.clientCredentialId,
+          proof: proof
+        }
+      })
+    })
+  }
+
   function listen(event, handler) {
     return signedRequest('/__adea/events-token', { event: event })
       .then(function (signed) {
@@ -231,7 +257,12 @@ export function createBridgeScript(options: {
   }
 
   Object.defineProperty(window, '__adeaDesktop', {
-    value: Object.freeze({ invoke: invoke, listen: listen, devExecute: executeDev }),
+    value: Object.freeze({
+      invoke: invoke,
+      listen: listen,
+      devExecute: executeDev,
+      streamAttachProof: streamAttachProof
+    }),
     configurable: false,
     writable: false,
   })

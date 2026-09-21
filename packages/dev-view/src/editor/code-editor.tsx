@@ -148,7 +148,10 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
     const scope = props.runtime.preferenceScope?.()
     if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
     const transport = streamTransportOf(props.runtime)
-    if (!transport) throw { error: { code: 'unavailable', message: 'no stream transport' } }
+    if (!transport)
+      throw {
+        error: { code: 'capability_unavailable', retryable: false, message: 'no stream transport' },
+      }
     const grant = await executeOperation<import('@adea-ai/types/dev-runtime').DevStreamGrant>(
       props.runtime,
       scope,
@@ -244,7 +247,10 @@ export function CodeEditor(props: CodeEditorProps): JSX.Element {
     const scope = props.runtime.preferenceScope?.()
     if (!scope) throw { error: { code: 'unauthenticated', message: 'runtime scope missing' } }
     const transport = streamTransportOf(props.runtime)
-    if (!transport) throw { error: { code: 'unavailable', message: 'no stream transport' } }
+    if (!transport)
+      throw {
+        error: { code: 'capability_unavailable', retryable: false, message: 'no stream transport' },
+      }
     const grant = await executeOperation<import('@adea-ai/types/dev-runtime').DevStreamGrant>(
       props.runtime,
       scope,

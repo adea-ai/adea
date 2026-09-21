@@ -2363,6 +2363,33 @@ identity, preserves reviewed permissions, and renames atomically into place;
 any mismatch, overrun, or post-mint drift discards the temp and reports
 `file_changed` — the target is never partially written.
 
+Client attach (desktop stream relay): the desktop renderer activates the bulk
+stream through `DevRuntimeService.streams()` without binding a second
+WebSocket — the launch bootstrap is consumed once per page, every handshake
+mints a NEW channel, and grants are caller-channel-bound, so a per-transfer
+WS channel would be refused (`identity_mismatch`) and would evict the page
+channel from `MAX_ACTIVE_CHANNELS`. Instead the injected bridge signs the
+attach proof under its channel secret inside its closure (the secret never
+crosses into `apps/web` or `packages/dev-view`), and a shell-side relay
+(`apps/desktop/shell/src/dev-runtime/stream-relay.ts`, composed in the shell
+entry) runs the exact gateway attach contract on the page's own channel:
+authority `attachStream` consumes the grant (single-use, 60 s, channel-bound,
+replay-protected, capability-gated via the registered-provider check), client
+frames pass the gateway's `createStreamInbound` discipline, and the real
+registered provider byte-halves pump an in-memory session. Frames cross to the
+renderer on the signed event path and return on the signed legacy invoke path
+(both bounded control transports; byte-bearing frames carry base64 within the
+frame bound, and client frames are delivered strictly in send order). One
+reconciliation: the generic inbound validator requires client sequences
+strictly above the grant's `fromSequence`, while the `file-bytes-v1` write
+direction uses byte offsets whose first chunk equals `fromSequence` — the
+relay therefore keeps the validator's direction/generation/frame-bound checks
+for writes and lets the provider own offset contiguity (its non-contiguous
+refusal discards the write and reports `file_changed`). The editor and files
+flows open/save stream-backed only when the transport binds; absence of the
+bridge seam falls back to the bounded control path, and refused binds surface
+typed `capability_unavailable`/relay errors, never strings.
+
 Overwrite renames are the one sanctioned clobber and ride an explicit
 plan/commit pair: the plan requires an existing destination (a free target
 belongs to `dev.files.rename`), pins BOTH identities — the moving source and
@@ -3477,6 +3504,24 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #399 residue: the desktop client attach for `file-bytes-v1`.**
+  `DevRuntimeService.streams()` is now production-bound on the desktop: the
+  injected bridge signs stream-attach proofs inside its closure (the channel
+  secret never leaves it), and a shell-side stream relay composed in the shell
+  entry consumes the grant through the authority's real `attachStream`,
+  applies the gateway's inbound frame discipline, and drives the real
+  `file-bytes-v1` provider byte-halves over an in-memory session on the page's
+  own channel — no second WebSocket exists (the bootstrap is consumed once per
+  page, handshakes mint new channels, and grants are caller-channel-bound).
+  Frames ride the signed event/invoke paths (base64 within the frame bound,
+  strict send-order delivery); stream-backed open/save activate only when the
+  bridge seam binds, and refused binds surface typed
+  `capability_unavailable`. Residual: the generic inbound validator's
+  strictly-increasing client-sequence rule conflicts with the write
+  direction's byte-offset sequences (first chunk equals `fromSequence`); the
+  relay keeps the validator's direction/generation/frame-bound checks and
+  defers offset contiguity to the provider until the validator is reconciled.
+  No new registry operations (the 163 from the hunk-staging delta stand).
 - **2026-09-21 — #399/#396 residues: checkpoint retention/GC and
   watcher-driven status invalidation.** Terminal durable history is now
   bounded by an explicit GC policy enforced at durable-write time
@@ -3547,8 +3592,7 @@ can distinguish intentional spec evolution from drift:
   supervision state-machine semantics changed; no new registry operations.
   "Local stack supervision", "Host provider policy (M12 #424)", and the
   packaged-lane note updated; pinned by the three #185 wiring tests in
-  `apps/desktop/tests/dev-runtime-composition.test.ts`.
-- **2026-09-20 — #399 residue: `file-bytes-v1` bulk stream, overwrite rename
+  `apps/desktop/tests/dev-runtime-composition.test.ts`.- **2026-09-20 — #399 residue: `file-bytes-v1` bulk stream, overwrite rename
   plan/commit, and recursive delete/copy plans.** Added six
   `dev.files.*Plan`/`*Commit` operations — `renameOverwrite` (pins BOTH the
   moving source and the colliding destination identity; the one sanctioned
