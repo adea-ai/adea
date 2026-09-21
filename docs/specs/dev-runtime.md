@@ -1736,7 +1736,7 @@ Defaults:
 - maximum source chunk before splitting: 64 KiB;
 - memory ring: 4 MiB and 10,000 chunks/session, whichever comes first;
 - durable terminal data: 256 MiB/session and 2 GiB/workspace, oldest eligible
-  session first after retention protection;
+  session first after retention protection; 4,096 sealed segments/session;
 - subscribers: 8/session;
 - queued input: 1 MiB/session, then reject with `backpressure`;
 - per-subscriber high-water: 1 MiB; a slow subscriber receives
@@ -1771,6 +1771,36 @@ resolves coverage or returns the current anchor exactly as attach time does.
 Pinned by `apps/desktop/tests/terminal-manager.test.ts`,
 `apps/desktop/tests/terminal-sidecar.test.ts`, and
 `apps/desktop/tests/terminal-channel.test.ts`.
+
+### Checkpoint retention and GC
+
+The durable budgets are enforced by explicit GC at durable-write time, not
+passive growth. After each atomic segment commit the sink runs one retention
+pass: the per-session budget (256 MiB) and the sealed-segment count cap
+(4,096/session, the M12 initial default — the byte cap cannot see degenerate
+tiny-segment accumulation) evict the oldest sealed segments first, and the
+per-scope budget (2 GiB/workspace) evicts the oldest eligible session whole
+after retention protection. Caps are named constants exported for tests; a
+tightening is allowed, a relaxation requires a spec change.
+
+Eviction preserves the replay contract by construction. Sealed segments
+partition a contiguous sequence range, eviction is oldest-first only, and the
+newest surviving sealed segment is never removed, so the chain stays
+contiguous from its oldest surviving segment forward; a span retention pruned
+resolves through the deterministic resync above — the same anchor on every
+retry — never a partial replay. A live replay window is protected: the
+sidecar reserves the bridge span from `sinceSeq` while a durable bridge
+replay is delivering, and a segment covering a live reservation (and
+everything newer) is never evicted; eviction is oldest-first or nothing, so
+a fully protected scope may stay over budget truthfully instead of breaking
+a window.
+
+Deletion is atomic per segment — re-prove containment in the session
+directory, rename to a same-directory tombstone, then unlink — so a crash
+between rename and unlink leaves a swept tombstone, never a half-visible
+segment, and quarantined bytes under the session's `corrupt/` directory are
+never GC'd (corruption recovery keeps its raw evidence). Pinned by
+`apps/desktop/tests/terminal-retention.test.ts`.
 
 ### Sidecar transport writes
 
@@ -2416,6 +2446,31 @@ through fixed argv (`git apply --cached [--reverse] --whitespace=nowarn`)
 with the patch on stdin — never an argv value, never shell text. Dropped
 hunks rely on git's context matching; an application failure is typed
 `invalid_state`. Commits are single-use and reply with the re-read status.
+
+### Watcher-driven status invalidation (M12 #399 residue)
+
+`dev.git.status` stays authoritative and stateless; the watcher lane makes a
+consumer's status cache honest when the tree moves underneath the pane. One
+bounded watcher per ready worktree root watches the worktree recursively
+through a deprecation-safe handle factory: a platform that cannot watch, or
+a handle that errors mid-stream, degrades exactly once to a stat-fingerprint
+lane (root/`.git/HEAD`/`.git/index` facts, no subprocess, no traversal)
+checked no faster than the watcher/status floor (60 seconds) and only
+demand-driven from reads — there is no steady per-row subprocess polling.
+Bursts coalesce for 250 ms into ONE invalidation and at most one refresh,
+and the named limits live in `STATUS_WATCHER_LIMITS`
+(`coalesceMs`, `maxRefreshConcurrency`, `fingerprintMinIntervalMs`).
+Refresh concurrency is capped at 4 through a gate shared by a host's
+watchers; concurrent refreshes on one watcher dedupe onto the in-flight
+read. Everything is generation-fenced: cache entries, events, and in-flight
+reads carry the worktree generation they were produced under, and a re-fence
+discards results from the dead generation — a stale generation never
+publishes. The cache is honest on misses: an invalidated entry is undefined,
+never a stale value labeled fresh; a failed read stays empty rather than
+publishing stale bytes as current. Status is read only through the injected
+`readStatus` seam bound to the provider's public status path — the git
+provider itself is untouched. Pinned by
+`apps/desktop/tests/git-status-watcher.test.ts`.
 
 ### Canonical byte encoding in proofs
 
@@ -3248,7 +3303,7 @@ never truncates silently or allocates an unbounded fallback.
 | nonce/idempotency     | ≥128-bit nonce; key 1–128 printable ASCII; completed mutation 24 hours–7 days                                                                                                                                                                                                  |
 | event                 | 256 KiB JSON; depth 32; string 64 KiB; 1,000 frames/s; page 500/default 100; 100,000/session or 30 days                                                                                                                                                                        |
 | hook/OSC              | authenticated hook frame 8 KiB; OSC payload 2 KiB                                                                                                                                                                                                                              |
-| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 8 subscribers; 1 MiB input/subscriber queue                                                                                                                                                   |
+| terminal              | 64 KiB chunks; 4 MiB/10,000-chunk memory ring; 256 MiB/session; 2 GiB/workspace; 4,096 sealed segments/session; 8 subscribers; 1 MiB input/subscriber queue                                                                                                                    |
 | terminal liveness     | 15-second heartbeat; unhealthy at 45 seconds; reconnect 250 ms exponential to 30 seconds; checkpoint ≤5 seconds and each 1 MiB                                                                                                                                                 |
 | scanner               | depth 16; 100,000 entries; 10,000 packages; 2 MiB/manifest; 10 seconds; concurrency 8                                                                                                                                                                                          |
 | watcher/status        | 250 ms coalesce; refresh concurrency 4; degraded fingerprint no faster than 60 seconds                                                                                                                                                                                         |
@@ -3422,6 +3477,35 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #399/#396 residues: checkpoint retention/GC and
+  watcher-driven status invalidation.** Terminal durable history is now
+  bounded by an explicit GC policy enforced at durable-write time
+  ("Checkpoint retention and GC"): the spec's 256 MiB/session and
+  2 GiB/workspace byte budgets plus a new named 4,096 sealed
+  segments/session count cap; eviction is strictly oldest-sealed-first with
+  the newest surviving segment kept, so the sealed chain stays contiguous
+  from its oldest survivor forward and any pruned span resolves through the
+  unchanged deterministic-resync anchor — never a partial replay. A live
+  replay window is protected: the sidecar reserves the bridge span from
+  `sinceSeq` for the duration of a durable bridge replay, a reserved
+  segment (and everything newer) is never evicted, and a fully protected
+  scope stays over budget truthfully. Deletion is atomic per segment
+  (containment re-proof, same-directory tombstone rename, unlink; crashed
+  tombstones are swept); quarantined bytes are never GC'd. The scope pass
+  evicts the oldest eligible session whole after retention protection
+  (active writer and live floors ineligible). Retention constants are
+  exported from `terminal/retention.ts` (`CHECKPOINT_RETENTION`); no wire,
+  durable-format, or registry change. Alongside it, the git status lane
+  gained its watcher-driven invalidation contract ("Watcher-driven status
+  invalidation"): one bounded recursive watcher per ready worktree root
+  (deprecation-safe handle factory, one-time degrade to a ≤60-second
+  demand-driven stat fingerprint), 250 ms burst coalescing into one
+  invalidation and at most one refresh, refresh concurrency 4 through a
+  shared gate with per-watcher in-flight dedupe, and generation-fenced
+  cache/events/in-flight reads — the git provider is untouched (status
+  flows through an injected `readStatus` seam). Limits registry terminal
+  row updated with the sealed-segment cap; the watcher/status row is now
+  implemented for this lane.
 - **2026-09-21 — #399 residues: hunk-level staging and files-pane quick-open.**
   Added `dev.git.hunkStagingPlan`/`dev.git.hunkStagingCommit` (total operations
   163). The plan carries structured `DiffHunk` selections (≤ 200) and a

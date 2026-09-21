@@ -80,9 +80,10 @@ function send(state: ConnectionState, message: SidecarResponse): void {
  * history does not bridge the gap (retention pruned the needed segments or a
  * segment was quarantined): replaying a partial prefix would fabricate a
  * continuous history with a hole in it, so the caller resyncs from the ring
- * anchor instead.
+ * anchor instead. Exported for the retention boundary tests: the same
+ * deterministic null on every retry after GC is the resync contract.
  */
-function durableBridge(
+export function durableBridge(
   sink: CheckpointSink,
   sinceSeq: string,
   ringOldestSeq: string
@@ -216,9 +217,31 @@ export function createSidecarService(options: SidecarServiceOptions) {
       terminalId,
       generation,
       now,
+      // Per-scope retention (#399 residue): every durable write also enforces
+      // the workspace budget across all sessions under the runtime root,
+      // oldest eligible session first. A session holding a live replay-window
+      // reservation (a durable bridge mid-delivery) stays protected.
+      scopeRetention: {
+        isProtected: (candidateId) => (replayFloorReservations.get(candidateId) ?? 0) > 0,
+      },
     })
     sinks.set(terminalId, sink)
     return sink
+  }
+
+  /** Live durable-bridge replay windows per terminal (ref-counted). */
+  const replayFloorReservations = new Map<string, number>()
+
+  function reserveReplayFloor(terminalId: string): () => void {
+    replayFloorReservations.set(terminalId, (replayFloorReservations.get(terminalId) ?? 0) + 1)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const count = (replayFloorReservations.get(terminalId) ?? 0) - 1
+      if (count <= 0) replayFloorReservations.delete(terminalId)
+      else replayFloorReservations.set(terminalId, count)
+    }
   }
 
   /**
@@ -383,40 +406,52 @@ export function createSidecarService(options: SidecarServiceOptions) {
           const snapshot = manager.snapshot(request.terminalId)
           if (coverage && snapshot) {
             const sink = ensureSink(request.terminalId, snapshot.generation)
-            const bridge = durableBridge(sink, request.sinceSeq, coverage.oldestSeq)
-            if (bridge) {
-              for (const chunk of bridge.chunks) {
-                deliver({
-                  terminalId: request.terminalId,
-                  generation: snapshot.generation,
-                  seq: chunk.seq,
-                  emittedAt: chunk.emittedAt,
-                  bytes: chunk.bytes,
+            // Retention protection (#399 residue): the bridge span is a live
+            // replay window. Until it is fully delivered, neither this
+            // session's per-session pass nor a scope pass triggered by
+            // another terminal's write may evict the segment covering
+            // sinceSeq. The reservation is ref-counted and always released.
+            const releaseScopeFloor = reserveReplayFloor(request.terminalId)
+            const releaseSinkFloor = sink.protectFrom(request.sinceSeq)
+            try {
+              const bridge = durableBridge(sink, request.sinceSeq, coverage.oldestSeq)
+              if (bridge) {
+                for (const chunk of bridge.chunks) {
+                  deliver({
+                    terminalId: request.terminalId,
+                    generation: snapshot.generation,
+                    seq: chunk.seq,
+                    emittedAt: chunk.emittedAt,
+                    bytes: chunk.bytes,
+                  })
+                }
+                const primed = manager.attach(
+                  request.terminalId,
+                  { id: subscriberId, deliver },
+                  coverage.oldestSeq,
+                  { preplayedBytes: bridge.byteLength }
+                )
+                if (!primed.ok) {
+                  respondError(state, request.requestId, primed.error)
+                  return
+                }
+                if (primed.value.resyncRequired) {
+                  // The ring moved between probes (all synchronous, so this
+                  // is defensive only): surface the fresh anchor truthfully.
+                  respond(state, request.requestId, primed.value)
+                  return
+                }
+                state.subscribers.set(subscriberId, request.terminalId)
+                respond(state, request.requestId, {
+                  resyncRequired: false,
+                  replayed: bridge.chunks.length + primed.value.replayed,
+                  nextSeq: primed.value.nextSeq,
                 })
-              }
-              const primed = manager.attach(
-                request.terminalId,
-                { id: subscriberId, deliver },
-                coverage.oldestSeq,
-                { preplayedBytes: bridge.byteLength }
-              )
-              if (!primed.ok) {
-                respondError(state, request.requestId, primed.error)
                 return
               }
-              if (primed.value.resyncRequired) {
-                // The ring moved between probes (all synchronous, so this is
-                // defensive only): surface the fresh anchor truthfully.
-                respond(state, request.requestId, primed.value)
-                return
-              }
-              state.subscribers.set(subscriberId, request.terminalId)
-              respond(state, request.requestId, {
-                resyncRequired: false,
-                replayed: bridge.chunks.length + primed.value.replayed,
-                nextSeq: primed.value.nextSeq,
-              })
-              return
+            } finally {
+              releaseSinkFloor()
+              releaseScopeFloor()
             }
           }
         }

@@ -30,6 +30,12 @@ import {
 import { join } from 'node:path'
 
 import { TERMINAL_LIMITS } from './limits'
+import {
+  CHECKPOINT_RETENTION,
+  enforceScopeRetention,
+  evictOldestSealedSegments,
+  listSealedSegments,
+} from './retention'
 
 export const SEGMENT_FORMAT_VERSION = 1
 const SEGMENT_MAGIC = 'ADT1'
@@ -68,6 +74,14 @@ export type CheckpointSink = {
   read(fromSeq: string): SegmentChunk[]
   /** Bounded full-text search over durable chunks. */
   search(query: string, limit: number): Array<{ seq: string; byteOffset: string; preview: string }>
+  /**
+   * Protects a live replay window: while the returned reservation is held,
+   * retention never evicts the sealed segment covering `fromSeq` (or any
+   * newer one). Reservations are ref-counted; the floor is the minimum of
+   * the live reservations. Callers reserve around a durable bridge replay
+   * and release when the span is delivered.
+   */
+  protectFrom(fromSeq: string): () => void
   /** Deletes durable state for the terminal after re-proving its location. */
   deleteHistory(): CheckpointOk<{ deletedSegments: number }>
   byteLength(): number
@@ -80,8 +94,21 @@ export type CreateCheckpointSinkOptions = {
   generation: number
   now?: () => number
   maxBytesPerSession?: number
+  /** Test/ops override only; production uses the named retention constant. */
+  maxSegmentsPerSession?: number
   /** Deterministic host hook used to prove failed writes retain pending data. */
   beforeWrite?: () => void
+  /**
+   * Per-scope retention (#399 residue): after each durable write, the 2 GiB
+   * workspace budget is enforced across every session directory beneath the
+   * runtime root, oldest eligible session first. Without it only this
+   * session's caps are enforced.
+   */
+  scopeRetention?: {
+    maxBytes?: number
+    /** Extra protection beyond this session itself (live replay floors). */
+    isProtected?: (terminalId: string) => boolean
+  }
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -121,12 +148,53 @@ function footerBytes(footer: SegmentFooter): Uint8Array {
 export function createCheckpointSink(options: CreateCheckpointSinkOptions): CheckpointSink {
   const now = options.now ?? Date.now
   const maxBytes = options.maxBytesPerSession ?? TERMINAL_LIMITS.durableMaxBytesPerSession
+  const maxSegments = options.maxSegmentsPerSession ?? CHECKPOINT_RETENTION.maxSegmentsPerSession
   const beforeWrite = options.beforeWrite
+  const scopeRetention = options.scopeRetention
   assertTerminalId(options.terminalId)
   const sessionDir = join(options.runtimeRoot, options.terminalId)
   const corruptDir = join(sessionDir, 'corrupt')
   let openChunks: SegmentChunk[] = []
   let openBytes = 0
+  /** Live replay-window reservations: token → protected floor sequence. */
+  const replayFloors = new Map<string, bigint>()
+  let floorTokens = 0
+
+  /** The strongest live floor, or nothing when no reservation is held. */
+  function replayFloor(): bigint | undefined {
+    let floor: bigint | undefined
+    for (const candidate of replayFloors.values()) {
+      if (floor === undefined || candidate < floor) floor = candidate
+    }
+    return floor
+  }
+
+  /**
+   * The retention pass enforced at durable-write time: the per-session caps
+   * (bytes and sealed-segment count) evict oldest-first with the live
+   * replay floor protected, then the per-scope budget runs across every
+   * session directory when the composition bound one. Both stop truthfully
+   * at a protection or deletion refusal — a cap may stay exceeded, but the
+   * surviving chain is always contiguous from its oldest segment forward.
+   */
+  function enforceRetention(): void {
+    const segments = listSealedSegments(sessionDir)
+    evictOldestSealedSegments({
+      sessionDir,
+      segments,
+      maxBytes,
+      maxSegments,
+      protectedFromSeq: replayFloor(),
+    })
+    if (!scopeRetention) return
+    enforceScopeRetention({
+      runtimeRoot: options.runtimeRoot,
+      activeTerminalId: options.terminalId,
+      maxBytes: scopeRetention.maxBytes ?? CHECKPOINT_RETENTION.maxBytesPerScope,
+      isProtected: (terminalId) =>
+        terminalId === options.terminalId || (scopeRetention.isProtected?.(terminalId) ?? false),
+    })
+  }
 
   function ensureDirs(): void {
     mkdirSync(sessionDir, { recursive: true, mode: 0o700 })
@@ -338,25 +406,24 @@ export function createCheckpointSink(options: CreateCheckpointSinkOptions): Chec
       if (written.ok) {
         openChunks = []
         openBytes = 0
-      }
-      // Retention is enforced after the atomic commit: oldest segments go
-      // first, and the budget never grows by leaving garbage behind.
-      if (written.ok) {
-        let segments = listSegments()
-        let durableBytes = segments.reduce((total, segment) => total + segment.size, 0)
-        while (durableBytes > maxBytes && segments.length > 1) {
-          const oldest = segments.shift()
-          if (!oldest) break
-          try {
-            unlinkSync(oldest.path)
-          } catch {
-            break
-          }
-          durableBytes -= oldest.size
-          segments = listSegments()
-        }
+        // Retention is enforced after the atomic commit: oldest segments go
+        // first, and the budget never grows by leaving garbage behind.
+        enforceRetention()
       }
       return written
+    },
+
+    protectFrom(fromSeq) {
+      const floor = BigInt(fromSeq)
+      floorTokens += 1
+      const token = `floor-${floorTokens}`
+      replayFloors.set(token, floor)
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        replayFloors.delete(token)
+      }
     },
 
     latestSequence() {
