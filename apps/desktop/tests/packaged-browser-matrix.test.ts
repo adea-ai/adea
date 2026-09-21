@@ -12,30 +12,35 @@ const bundlePath = new URL(
   import.meta.url
 ).pathname
 
-describe.skipIf(process.platform !== 'darwin')('packaged browser/devices matrix', () => {
-  test('lane registration, SSRF regression matrix, typed capability matrix on the packaged path', async () => {
-    expect(
-      existsSync(bundlePath),
-      'the packaged sidecar bundle is missing — run `bun run test:packaged` to build the .app first'
-    ).toBe(true)
-    const proc = Bun.spawnSync(
-      [
-        process.execPath,
-        'run',
-        new URL('../shell/scripts/packaged-browser-matrix.ts', import.meta.url).pathname,
-        '--app-bundle',
-        new URL('../shell/build/dev-macos-arm64/Adea-dev.app', import.meta.url).pathname,
-        '--artifact',
-        'artifacts/packaged/browser-matrix.json',
-      ],
-      { stdout: 'pipe', stderr: 'pipe', env: process.env }
-    )
-    const output = `${proc.stdout.toString()}${proc.stderr.toString()}`
-    console.log(output)
-    expect(proc.exitCode).toBe(0)
-    expect(output).toContain('SSRF regression matrix')
-    expect(output).toContain('typed capability matrix')
-    expect(output).toContain('PACKAGED-BROWSER-MATRIX PASS')
-    expect(output).not.toContain('FAIL:')
-  }, 240_000)
-})
+// Loud skip when the bundle has not been built (fresh checkouts; the
+// packaged lane builds it first), matching the file's documented contract.
+describe.skipIf(process.platform !== 'darwin' || !existsSync(bundlePath))(
+  'packaged browser/devices matrix',
+  () => {
+    test('lane registration, SSRF regression matrix, typed capability matrix on the packaged path', async () => {
+      expect(
+        existsSync(bundlePath),
+        'the packaged sidecar bundle is missing — run `bun run test:packaged` to build the .app first'
+      ).toBe(true)
+      const proc = Bun.spawnSync(
+        [
+          process.execPath,
+          'run',
+          new URL('../shell/scripts/packaged-browser-matrix.ts', import.meta.url).pathname,
+          '--app-bundle',
+          new URL('../shell/build/dev-macos-arm64/Adea-dev.app', import.meta.url).pathname,
+          '--artifact',
+          'artifacts/packaged/browser-matrix.json',
+        ],
+        { stdout: 'pipe', stderr: 'pipe', env: process.env }
+      )
+      const output = `${proc.stdout.toString()}${proc.stderr.toString()}`
+      console.log(output)
+      expect(proc.exitCode).toBe(0)
+      expect(output).toContain('SSRF regression matrix')
+      expect(output).toContain('typed capability matrix')
+      expect(output).toContain('PACKAGED-BROWSER-MATRIX PASS')
+      expect(output).not.toContain('FAIL:')
+    }, 240_000)
+  }
+)

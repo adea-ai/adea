@@ -480,10 +480,17 @@ describe('files/search provider', () => {
     writeFileSync(join(outside, 'secret.txt'), 'outside')
     symlinkSync(outside, join(fixtureRoot(), 'escape-dir'))
     symlinkSync(join(outside, 'secret.txt'), join(fixtureRoot(), 'escape-file'))
-    // macOS exposes mkfifo(1); a FIFO proves special files never open.
+    // macOS and Linux coreutils expose mkfifo(1); a FIFO proves special files
+    // never open. A missing binary (restricted PATH) must degrade the probe,
+    // not fail the suite: absence and spawn failure both skip the FIFO branch.
     const fifoPath = join(fixtureRoot(), 'fifo')
-    const mkfifo = Bun.spawnSync(['mkfifo', fifoPath], { stdout: 'ignore', stderr: 'ignore' })
-    const fifoIsSpecial = mkfifo.exitCode === 0
+    let fifoIsSpecial = false
+    try {
+      const mkfifo = Bun.spawnSync(['mkfifo', fifoPath], { stdout: 'ignore', stderr: 'ignore' })
+      fifoIsSpecial = mkfifo.exitCode === 0
+    } catch {
+      fifoIsSpecial = false
+    }
     const { authority } = runtime()
     const channel = handshakeChannel(authority)
 
