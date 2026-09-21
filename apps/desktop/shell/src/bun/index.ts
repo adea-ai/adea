@@ -264,6 +264,10 @@ function composeHost(): DevRuntimeHost {
     // #396: the terminal lane runs on the adopted sidecar; without one the
     // terminal operations stay typed-unavailable.
     ...(sidecarClient ? { sidecar: sidecarClient } : {}),
+    // #31 consumer zero-config (the handoff the managed-Pi lane pinned): the
+    // production boot opts into the managed Pi warm — fire-and-forget, every
+    // failure a typed durable driver state, skipped for injected drivers.
+    managedPiAutoInstall: true,
     runLsof: async () => {
       const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
         stdout: 'pipe',

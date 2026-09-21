@@ -632,16 +632,15 @@ describe('managed Pi ownership boundary (#31)', () => {
   })
 })
 
-// HANDOFF (owner of apps/desktop/shell/src/bun/index.ts, the packaged-residues
-// lane): the composition-level zero-config boot warm is an explicit opt-in
-// (`managedPiAutoInstall: true` in the createDevRuntimeHost call). Production
-// composition lives in that file, so this slice leaves the flip to its owner:
-// add the one input to composeHost() after the shell lane's packaged wiring
-// settles. Until then the zero-config flow works through the explicit
-// dev.harness.managedPiInstall command (fully wired to the production source
-// chain) and this test stays skipped with that exact name.
-test.skip('HANDOFF (bun/index.ts owner): pass managedPiAutoInstall: true to createDevRuntimeHost in the packaged composition', () => {
-  // The behavior behind the flip is proven by
-  // 'the composition boot warm installs with zero manual steps and never
-  // breaks the boot' above; nothing new to execute until the input lands.
+// The composition-level zero-config boot warm is an explicit opt-in
+// (`managedPiAutoInstall: true` in the createDevRuntimeHost call). The
+// packaged composition lives in the shell entry, so the production wiring is
+// pinned by source: without this line the zero-config flow silently degrades
+// to the explicit dev.harness.managedPiInstall command.
+test('the packaged shell composition opts into the managed Pi boot warm', () => {
+  const entry = readFileSync(
+    join(import.meta.dir, '../shell/src/bun/index.ts'),
+    'utf8'
+  )
+  expect(entry).toContain('managedPiAutoInstall: true')
 })
