@@ -2689,6 +2689,73 @@ session, refused or interrupted fenced write) appends a host
 the launch (partial failure retains the terminal/worktree) and never silently
 masquerades as delivered.
 
+### The managed Pi installation lifecycle
+
+The managed Pi driver (issue #31) owns exactly one thing: putting a verified,
+pinned managed Pi installation into an Agent HQ-owned location under the app
+data dir so a clean supported desktop reaches a healthy managed Pi
+RuntimeConnection with NO manual Pi installation required — and reporting that
+installation truthfully. It owns no model routing, no profiles, no prompt
+handling, no compaction, no context injection, and no task planning: those are
+decision-layer (control-plane) concerns; the harness retains only its internal
+loop and local context/tools. The driver's public surface is `status()` (a pure
+projection of the durable record — it never probes or mutates) and
+`ensureInstalled()` (idempotent install-or-verify); anything else on the wire
+is a decision-layer authority this lane does not carry.
+
+Pinning is deterministic and build-time: the pinned version, its archive
+SHA-256 digest, and the release URL are constants replaced together by the
+packaging lane (the Runtime Compatibility Matrix records the combination).
+The URL embeds the exact pinned version — the driver never asks a server what
+"latest" is. Source resolution is strictly ordered: "already installed at the
+pinned version" → bundled archive (packaged app dir) → data-dir cache → one
+bounded fetch of the pinned URL. A network download is hard-capped, deadline-
+bounded, and persisted into the cache only AFTER it passes digest
+verification, so the cache holds only verified pinned archives and a
+re-ensure never refetches. Every install writes a staging directory and
+atomically renames into place; a failed install/update rolls back to the
+previous managed installation, and user-managed Pi locations are never read
+or written.
+
+The typed failure matrix (every failure is a recorded durable driver state
+carrying the contract code — never a crash, a fabricated installation, or a
+fake success):
+
+| Condition                                                       | Code                     | Retryable |
+| --------------------------------------------------------------- | ------------------------ | --------- |
+| Host has no managed Pi build                                    | `capability_unavailable` | no        |
+| No source at all (no bundle, no cache, nothing to fetch)        | `capability_unavailable` | yes       |
+| Network refused / unreachable / empty body                      | `unavailable`            | yes       |
+| Pinned endpoint answered non-OK                                 | `remote_unavailable`     | yes       |
+| Download exceeded its deadline                                  | `timeout`                | yes       |
+| Download exceeded the hard byte cap                             | `limit_exceeded`         | no        |
+| Archive bytes failed the pinned digest                          | `corrupt_state`          | no        |
+| Source declared a version other than the pin                    | `incompatible`           | no        |
+| Bun runtime older than the desktop lane floor (fetch path only) | `incompatible`           | no        |
+| Install write failed                                            | `unavailable`            | yes       |
+
+The Bun runtime-version guard (adea#490) applies to the network fetch path
+only: the fetch refuses to run on an older or unknown runtime, while bundled
+and cached sources still install.
+
+Version drift is detected, never assumed away: a `ready` record is a cache
+hit only when the on-disk installation still declares the pinned version in
+its manifest (a missing or mismatched manifest is drift). A drifted
+installation is healed by reinstalling at the pin; a failed heal is a typed
+refusal naming the drift (`incompatible` when no verified source is
+available), and the record never keeps claiming `ready` through a failed
+heal.
+
+The driver never breaks the shell boot: construction is synchronous and
+non-throwing, every `ensureInstalled` failure is typed, concurrent calls
+share one in-flight install (single-flight), and the composition-level boot
+warm is an explicit opt-in that fires one best-effort `ensureInstalled` after
+the harness register is up — never awaited, its every failure recorded as the
+driver's durable typed state. The warm never runs for a scripted (injected)
+driver. `dev.harness.managedPiInstall` remains the explicit command path with
+the same typed contract; the launch path treats a non-ready managed
+installation as the typed gap carrying the install remediation.
+
 ### Launch orchestration, preferences, and the root default
 
 Preferences are the user-expressed overlay on a runtime node, stored per
@@ -3565,6 +3632,28 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #31: the managed Pi installation lifecycle is real (zero
+  manual Pi installation).** The managed Pi driver's archive resolution is no
+  longer a test-only seam: the production chain is "installed at the pin →
+  bundled archive (packaged app dir) → data-dir cache → one bounded fetch of
+  a build-time pinned URL" ("The managed Pi installation lifecycle"). The URL
+  embeds the exact pinned version (never a "latest" lookup) and is published
+  together with the version and archive digest; downloads are hard-capped,
+  deadline-bounded, and cached only after digest verification. The failure
+  matrix is typed end to end (`capability_unavailable`, `unavailable`,
+  `remote_unavailable`, `timeout`, `limit_exceeded`, `corrupt_state`,
+  `incompatible`), including version drift: a `ready` record cache-hits only
+  when the on-disk manifest still declares the pin, a drifted installation
+  heals by reinstall, and a failed heal revokes the ready claim with a typed
+  `incompatible` naming the drift. The fetch path carries a Bun
+  runtime-version guard (adea#490) refusing older/unknown runtimes while
+  local sources still install. Ensures are single-flight, and the composition
+  gained an explicit `managedPiAutoInstall` opt-in boot warm (fire-and-forget,
+  never run for scripted drivers) plus a `managedPiArchiveResolver` override
+  for the default driver. No new registry operations (163 stand); the
+  ownership boundary is unchanged — the driver installs/launches nothing but
+  the pinned runtime and owns no decision-layer behavior. Pinned by
+  `apps/desktop/tests/dev-runtime-managed-pi.test.ts`.
 - **2026-09-21 — #185/#396 residues: boot reconcile adoption, the shell
   terminal lane's packaged sidecar, and the below-ring bridge replay.** The
   packaged shell entry now reconciles at boot ("Local stack supervision"):
@@ -3630,7 +3719,6 @@ can distinguish intentional spec evolution from drift:
   and the watcher/status limits row stand). Pinned by the extended
   `apps/desktop/tests/git-status-watcher.test.ts` and the new
   `packages/dev-view/tests/status-cache.test.ts`.
-
 - **2026-09-21 — #399 residue: the desktop client attach for `file-bytes-v1`.**
   `DevRuntimeService.streams()` is now production-bound on the desktop: the
   injected bridge signs stream-attach proofs inside its closure (the channel

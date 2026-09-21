@@ -70,6 +70,12 @@ export type HarnessRuntimeInput = {
   gateway?: ChannelGateway
   /** Overrides the managed Pi driver (tests inject scripted archives). */
   managedPi?: ManagedPiDriver
+  /**
+   * Overrides the DEFAULT managed Pi driver's source chain (tests script
+   * archives without replacing the driver). Ignored when `managedPi` is
+   * injected — the override belongs to the driver being constructed here.
+   */
+  managedPiArchiveResolver?: (version: string) => Promise<Uint8Array | null>
   /** Overrides the ACP lane driver (tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
   /**
@@ -203,6 +209,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       scope: input.scope,
       dataDir: input.dataDir,
       ...(input.audit ? { audit: input.audit } : {}),
+      ...(input.managedPiArchiveResolver
+        ? { resolvePinnedArchive: input.managedPiArchiveResolver }
+        : {}),
     })
   const lane = createAcpLane({
     scope: input.scope,
