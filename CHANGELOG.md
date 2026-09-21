@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.37.0](https://github.com/adea-ai/adea/compare/v0.36.0...v0.37.0) (2026-09-21)
+
+
+### Features
+
+* **m12:** local consolidation — Dev Runtime supervision, streams, hunk staging, retention GC, and packaged wiring ([#522](https://github.com/adea-ai/adea/issues/522)) ([6fc16ec](https://github.com/adea-ai/adea/commit/6fc16ecf3e6411a1e220e436d8393871766d5b19))
+
 ## [0.36.0](https://github.com/adea-ai/adea/compare/v0.35.0...v0.36.0) (2026-09-19)
 
 
