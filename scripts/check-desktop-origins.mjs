@@ -177,6 +177,10 @@ export async function scanDesktopOrigins(root, canonical) {
         continue
       }
       const file = segments.join('/')
+      // The packaged evidence lane's scripts name hostile SSRF targets on
+      // purpose (the refusal matrix proves the gate rejects them); they are
+      // offline proof tooling, never shipped in the shell.
+      if (file.startsWith('apps/desktop/shell/scripts/packaged-')) continue
       violations.push(
         ...scanSource(await readFile(path, 'utf8'), file, allowedOriginsFor(file, canonical))
       )
