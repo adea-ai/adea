@@ -266,11 +266,23 @@ function decompressZstd(archivePath: string, tarPath: string): void {
     return
   }
   // Not inside an installed bundle (repo dev run): the developer's PATH is
-  // expected to carry a zstd implementation.
-  const proc = Bun.spawnSync(['zstd', '-d', '-f', archivePath, '-o', tarPath], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
+  // expected to carry a zstd implementation. A missing one is the same
+  // decompression failure as a failing one — Bun.spawnSync throws ENOENT
+  // before returning, so catch and fail with the same typed message.
+  let proc: ReturnType<typeof Bun.spawnSync>
+  try {
+    proc = Bun.spawnSync(['zstd', '-d', '-f', archivePath, '-o', tarPath], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+  } catch (cause) {
+    throw new Error(
+      `the downloaded update archive could not be decompressed (zstd unavailable: ${
+        cause instanceof Error ? cause.message : String(cause)
+      })`,
+      { cause }
+    )
+  }
   if (proc.exitCode !== 0) {
     const stderr = proc.stderr?.toString().trim().slice(0, 300) ?? ''
     throw new Error(
