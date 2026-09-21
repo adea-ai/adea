@@ -59,7 +59,13 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // resources (~12kB), files (~9kB), permissions (~8kB), agents/history. The
 // per-chunk dev-view budget (check-dev-view-bundle) still guards eager bloat.
 const CLIENT_JS_BUDGET_BYTES = 1_600_000
-const CLIENT_JS_FILE_BUDGET = 50
+// Raised from 50 when the #399 stream/hunk residues landed as further
+// intentional lazy chunks: files-pane grew the quick-open dialog (17kB
+// chunk, still lazy), stream-transport rides its own module, and the hunk
+// affordances stayed inside the existing lazy source-control chunk. The
+// byte budget above still guards total size and check-dev-view-bundle
+// still guards eager bloat; this counts only files.
+const CLIENT_JS_FILE_BUDGET = 72
 if (javascriptBytes > CLIENT_JS_BUDGET_BYTES)
   throw new Error(
     `Client JavaScript budget exceeded: ${javascriptBytes} > ${CLIENT_JS_BUDGET_BYTES} bytes`
