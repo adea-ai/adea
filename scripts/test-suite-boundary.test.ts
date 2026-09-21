@@ -49,6 +49,11 @@ describe('test suite boundaries', () => {
     const bunfig = readFileSync(resolve(root, 'bunfig.toml'), 'utf8')
     expect(bunfig).toContain('coverageThreshold = { line = 0.8, function = 0.8 }')
     expect(bunfig).toContain('coverageSkipTestFiles = true')
+    // The aggregate must measure this lane's own scope: generated build output
+    // and desktop-shell sources (covered by the desktop suite, only imported
+    // here by boundary scanners) would make the gate count unexecuted
+    // darwin-only branches on Linux and drift under the threshold.
+    expect(bunfig).toContain('coveragePathIgnorePatterns = ["**/dist/**", "apps/desktop/**"]')
     expect(bunfig).toContain('coverageReporter = ["text", "lcov"]')
     expect(bunfig).toContain('coverageDir = "coverage"')
 

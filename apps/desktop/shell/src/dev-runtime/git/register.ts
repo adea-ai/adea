@@ -367,7 +367,14 @@ type RawFileSection = {
   header: string[]
   /** Verbatim hunk blocks: the `@@` line through just before the next hunk,
    *  the next file, or EOF (`\ No newline` markers stay attached). */
-  hunks: Array<{ headerLine: string; body: string[]; oldStart: number; oldLines: number; newStart: number; newLines: number }>
+  hunks: Array<{
+    headerLine: string
+    body: string[]
+    oldStart: number
+    oldLines: number
+    newStart: number
+    newLines: number
+  }>
   /** The path hunks were selected by: the new side, or the old side for
    *  deletions where git prints `+++ /dev/null`. */
   targetPath: string
@@ -427,15 +434,10 @@ function splitFileSections(diffText: string): RawFileSection[] {
  *  the `@@` header quadruple); the patch text is never taken from the client.
  *  A selection that does not locate exactly one hunk in the fresh diff means
  *  the caller's view has drifted and fails `stale_version`. */
-export function buildHunkPatch(
-  diffText: string,
-  selections: readonly HunkSelection[]
-): string {
+export function buildHunkPatch(diffText: string, selections: readonly HunkSelection[]): string {
   const sections = splitFileSections(diffText)
   const out: string[] = []
-  const remaining = new Set(
-    selections.map((selection) => JSON.stringify(selection))
-  )
+  const remaining = new Set(selections.map((selection) => JSON.stringify(selection)))
   for (const section of sections) {
     const wanted = section.hunks.filter((hunk) =>
       remaining.delete(
@@ -858,9 +860,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
         throw devError('invalid_state', 'hunk staging requires at least one hunk')
       if (body.hunks.length > HUNK_PLAN_MAX)
         throw devError('limit_exceeded', 'too many hunks in one staging plan')
-      const selections = body.hunks.map((hunk) =>
-        hunkSelectionOf(worktreeId, hunk, rootIdentity)
-      )
+      const selections = body.hunks.map((hunk) => hunkSelectionOf(worktreeId, hunk, rootIdentity))
       // The plan is built from a FRESH authoritative diff over the exact
       // pre-image `git apply --cached` will see: forward staging diffs the
       // index against the worktree, unstaging diffs HEAD against the index.
@@ -916,7 +916,9 @@ export function registerGitRuntime(input: GitRegistrarInput): {
           hunkCount: String(selections.length),
           ...(head.headSha !== undefined ? { headSha: head.headSha } : {}),
         },
-        steps: [{ id: 'apply-hunks', kind: 'git_apply_cached', targetId: worktreeId, dependsOn: [] }],
+        steps: [
+          { id: 'apply-hunks', kind: 'git_apply_cached', targetId: worktreeId, dependsOn: [] },
+        ],
         blockers: [],
         requiredApprovalIds: [],
         digest,
@@ -1270,10 +1272,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
   function livePlan(
     store: Map<string, PlanEntry>,
     planId: string,
-    operation:
-      | 'dev.git.discardCommit'
-      | 'dev.git.restoreCommit'
-      | 'dev.git.hunkStagingCommit'
+    operation: 'dev.git.discardCommit' | 'dev.git.restoreCommit' | 'dev.git.hunkStagingCommit'
   ): PlanEntry {
     const entry = store.get(planId)
     if (!entry || entry.expiresAt <= now())
@@ -1410,13 +1409,21 @@ function hunkSelectionOf(
   rootIdentity: FileIdentityValue
 ): HunkSelection {
   const candidate = hunk as
-    | { path?: unknown; oldStart?: unknown; oldLines?: unknown; newStart?: unknown; newLines?: unknown }
+    | {
+        path?: unknown
+        oldStart?: unknown
+        oldLines?: unknown
+        newStart?: unknown
+        newLines?: unknown
+      }
     | undefined
   if (!candidate || typeof candidate !== 'object')
     throw devError('invalid_state', 'hunk selection must be a DiffHunk')
   const relativePath = workspaceRelativeSpec(worktreeId, candidate.path, rootIdentity)
   const ranges = [candidate.oldStart, candidate.oldLines, candidate.newStart, candidate.newLines]
-  if (ranges.some((value) => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0))
+  if (
+    ranges.some((value) => typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+  )
     throw devError('invalid_state', 'hunk selection ranges must be non-negative integers')
   return {
     relativePath,

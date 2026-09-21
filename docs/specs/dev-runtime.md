@@ -3561,7 +3561,7 @@ can distinguish intentional spec evolution from drift:
   are `stale_version`). The commit re-proves the worktree generation and the
   index fingerprint (`stale_generation`/`stale_version`), then applies the
   stored patch offline via fixed argv (`git apply --cached [--reverse]
-  --whitespace=nowarn`) with the patch on stdin; application failure is typed
+--whitespace=nowarn`) with the patch on stdin; application failure is typed
   `invalid_state`, commits are single-use and reply with the re-read
   `GitStatus`. The source-control pane grows per-hunk stage/unstage buttons on
   its diff view (client-side splitting is the tested pure `splitFileHunks`
