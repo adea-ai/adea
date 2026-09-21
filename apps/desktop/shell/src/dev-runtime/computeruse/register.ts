@@ -48,6 +48,13 @@ export type ComputerUseRuntimeInput = Readonly<{
   macPermissions?: MacPermissionService
   /** Overrides the host input engine (tests inject scripted engines). */
   engine?: ComputerUseEngine
+  /**
+   * Pins the host platform class for the capability report's input-tool
+   * default (macOS provides the system osascript); defaults to
+   * `process.platform`. Tests and non-macOS host adapters inject it so the
+   * granted-flow logic stays exercisable on every lane.
+   */
+  platform?: NodeJS.Platform
 }>
 
 const unavailableStream = (session: { close: (code: 'incompatible', reason?: string) => void }) =>
@@ -56,7 +63,10 @@ const unavailableStream = (session: { close: (code: 'incompatible', reason?: str
 export function registerComputerUseRuntime(input: ComputerUseRuntimeInput) {
   const lanes: ComputerUseLaneRegistry = createComputerUseLaneRegistry()
   const macPermissions = input.macPermissions ?? createMacPermissionService({})
-  const capabilities = createComputerUseCapabilityService({ permissions: macPermissions })
+  const capabilities = createComputerUseCapabilityService({
+    permissions: macPermissions,
+    platform: input.platform,
+  })
   const gate = createConsentGate({ permissions: macPermissions, capabilities })
   // The default engine runs the #471 fixed-argv host command runner (bounded
   // deadline); tests inject a scripted engine instead, so CI never performs

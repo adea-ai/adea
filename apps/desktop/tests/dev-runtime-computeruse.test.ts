@@ -198,6 +198,9 @@ function harness(overrides: Partial<ComputerUseRuntimeInput> = {}) {
     authority,
     ...(Object.keys(overrides).length > 0 ? (overrides as ComputerUseRuntimeInput) : {}),
     macPermissions: permissions,
+    // The scripted snapshots describe a macOS host; pin the platform class so
+    // the input-tool default matches on every lane (see gateFor).
+    platform: 'darwin',
     gateway: gateway as never,
   })
   return {
@@ -387,7 +390,13 @@ describe('computer-use capability report', () => {
 })
 
 function gateFor(permissions: MacPermissionService, clock: { now: number } = { now: 0 }) {
-  const capabilities = createComputerUseCapabilityService({ permissions })
+  const capabilities = createComputerUseCapabilityService({
+    // The scripted snapshots describe a macOS host (the accessibility TCC
+    // row); pin the platform class so the input-tool default matches on
+    // every lane — the gate logic under test is platform-independent.
+    platform: 'darwin',
+    permissions,
+  })
   return createConsentGate({
     permissions,
     capabilities,
