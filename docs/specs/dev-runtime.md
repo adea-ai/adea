@@ -1549,9 +1549,17 @@ resource/generation, direction, sequence, and limits. Attach consumes it and
 rechecks channel credential, nonce, scope, generation, and current capability.
 Gesture coordinates are normalized 0–1, swipe duration is 10–10,000 ms, key
 codes come from the versioned device allowlist, and text is at most 4 KiB.
-Frames after `close`, frames in the wrong direction, out-of-order client input,
-oversize frames, stale generations, or sequence wrap are rejected and close
-the stream. `data`/`input` bytes are never JSON/base64-transcoded. Browser/device
+Frames after `close`, frames in the wrong direction, mis-sequenced client
+input, oversize frames, stale generations, or sequence wrap are rejected and
+close the stream. The two directions sequence client frames differently, and
+the validator enforces each per its grant: on `read` grants only client credit
+(`ack`) rides inbound; on `write` grants byte-bearing `input` frames carry
+byte-offset sequences — the first chunk lands exactly on the grant's
+`fromSequence` and every later chunk on the running offset end (previous
+offset + bytes length), so gaps, replays, and overlaps are all refused typed —
+while byte-less `gesture`/`resize` frames keep strictly increasing event
+sequences that never fall behind bytes already consumed. `data`/`input` bytes
+are never JSON/base64-transcoded. Browser/device
 video uses `video`; terminal output uses `data`; control frames are canonical
 CBOR with a 64 KiB maximum unless the grant's lower bound applies. Server output
 pauses when credit is zero; client input never exceeds the grant and subsystem
@@ -2407,13 +2415,13 @@ frames pass the gateway's `createStreamInbound` discipline, and the real
 registered provider byte-halves pump an in-memory session. Frames cross to the
 renderer on the signed event path and return on the signed legacy invoke path
 (both bounded control transports; byte-bearing frames carry base64 within the
-frame bound, and client frames are delivered strictly in send order). One
-reconciliation: the generic inbound validator requires client sequences
-strictly above the grant's `fromSequence`, while the `file-bytes-v1` write
-direction uses byte offsets whose first chunk equals `fromSequence` — the
-relay therefore keeps the validator's direction/generation/frame-bound checks
-for writes and lets the provider own offset contiguity (its non-contiguous
-refusal discards the write and reports `file_changed`). The editor and files
+frame bound, and client frames are delivered strictly in send order). The
+shared `createStreamInbound` validator enforces the write direction's
+byte-offset contiguity itself (first chunk at the grant's `fromSequence`,
+every later chunk at the running offset end) — the relay applies it verbatim
+and no longer defers ordering to the provider; the provider keeps its
+byte-exact atomic-write guarantees (non-contiguous or overrun input still
+discards the temp and reports `file_changed`). The editor and files
 flows open/save stream-backed only when the transport binds; absence of the
 bridge seam falls back to the bounded control path, and refused binds surface
 typed `capability_unavailable`/relay errors, never strings.
@@ -3632,6 +3640,39 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #399 residue: the stream inbound validator is reconciled per
+  direction (write frames carry byte offsets, not counters).** The generic
+  inbound validator (`createStreamInbound`) required client sequences strictly
+  above the grant's `fromSequence`, which is correct for sequence-counter
+  frames but wrong for the write direction, whose frames carry byte-offset
+  sequences — the first `file-bytes-v1` chunk legitimately equals
+  `fromSequence` (`'0'`), so every WebSocket write attach would have been
+  refused on its first frame (never fired in production: nothing attached via
+  WebSocket; the relay had deferred offset contiguity to the provider). The
+  validator is now grant-direction-aware on sequencing: `read` grants accept
+  only client credit (`ack`) exactly as before — byte-for-byte unchanged —
+  while `write` grants enforce byte-offset contiguity on byte-bearing `input`
+  frames (first chunk exactly at `fromSequence`, every later chunk exactly at
+  the running offset end = previous offset + bytes length; gaps, replays, and
+  overlaps all close typed `incompatible`) and keep strictly increasing event
+  sequences on byte-less `gesture`/`resize` frames that never fall behind
+  bytes already consumed. Direction, generation fencing, and frame-bound
+  checks are unchanged. The shell-side stream relay applies the shared
+  discipline verbatim again (the write-direction deferral is gone); its relay
+  legs (JSON/base64, ≤ 64 KiB frames, ≤ 128 KiB decode bound) are unchanged,
+  and the provider's byte-exact atomic-write guarantees stand on top. Gateway
+  consumers audited under the new write rule: the full-duplex WebSocket path
+  has no production write attach today (file streams ride the relay; the
+  terminal pane renders a placeholder; `browser-frames-v1`/`device-frames-v1`
+  registers an unavailable stream), the `desktop-frames-v1` computer-use write
+  path re-derives admission provider-side and now additionally requires
+  byte-offset sequences from any future client, and read-direction behavior
+  is identical. Pinned by the extended `shell-channel.test.ts` validator
+  cases (first chunk at `fromSequence` passes; gapped, replayed, and
+  overlapping offsets close typed) and the new `file-stream-relay.test.ts`
+  offset-discipline case. No wire, registry, or limits change (the 163
+  operations stand).
+
 - **2026-09-21 — #31: the managed Pi installation lifecycle is real (zero
   manual Pi installation).** The managed Pi driver's archive resolution is no
   longer a test-only seam: the production chain is "installed at the pin →
@@ -3731,11 +3772,13 @@ can distinguish intentional spec evolution from drift:
   Frames ride the signed event/invoke paths (base64 within the frame bound,
   strict send-order delivery); stream-backed open/save activate only when the
   bridge seam binds, and refused binds surface typed
-  `capability_unavailable`. Residual: the generic inbound validator's
-  strictly-increasing client-sequence rule conflicts with the write
+  `capability_unavailable`. Residual (reconciled later the same day, see the
+  wire-validator entry): the generic inbound validator's strictly-increasing
+  client-sequence rule conflicted with the write
   direction's byte-offset sequences (first chunk equals `fromSequence`); the
-  relay keeps the validator's direction/generation/frame-bound checks and
-  defers offset contiguity to the provider until the validator is reconciled.
+  relay kept the validator's direction/generation/frame-bound checks and
+  deferred offset contiguity to the provider until the validator was
+  reconciled.
   No new registry operations (the 163 from the hunk-staging delta stand).
 - **2026-09-21 — #399/#396 residues: checkpoint retention/GC and
   watcher-driven status invalidation.** Terminal durable history is now

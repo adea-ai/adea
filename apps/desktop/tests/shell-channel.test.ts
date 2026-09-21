@@ -748,23 +748,24 @@ describe('channel gateway', () => {
 
     const payload = new TextEncoder().encode('echo-bytes')
     ws.send(
-      encodeStreamFrame({ type: 'input', sequence: '1', generation: 2, bytes: payload }),
+      encodeStreamFrame({ type: 'input', sequence: '0', generation: 2, bytes: payload }),
       true
     )
     const echoed = (await next()) as { data: Uint8Array }
     expect(parseStreamFrame(new Uint8Array(echoed.data as Uint8Array))).toMatchObject({
       type: 'data',
-      sequence: '1',
+      sequence: '0',
     })
 
-    // An oversize client frame is refused and closes the stream.
+    // An oversize client frame is refused and closes the stream. Its offset
+    // continues the write cursor exactly (0 + 10 bytes).
     const closePromise = new Promise<number>((resolve) => {
       closed = resolve
     })
     ws.send(
       encodeStreamFrame({
         type: 'input',
-        sequence: '2',
+        sequence: '10',
         generation: 2,
         bytes: new Uint8Array(300),
       }),
@@ -840,24 +841,139 @@ describe('stream inbound validator', () => {
     maxFrameBytes: 128,
   } as const
 
+  test('write offsets must start exactly at fromSequence and advance by byte length', () => {
+    const inbound = createStreamInbound(grant)
+    // The first chunk lands ON the resume point (byte-offset semantics, not
+    // strictly-above).
+    expect(
+      inbound.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
+    ).toEqual({ ok: true })
+    // The next chunk must continue exactly at the offset end (4 + 10).
+    expect(
+      inbound.accept({ type: 'input', sequence: '14', generation: 5, bytes: new Uint8Array(10) })
+    ).toEqual({ ok: true })
+  })
+
+  test('gapped, replayed, and overlapping write offsets close the stream typed', () => {
+    // Gap: the offset skips bytes the cursor never received.
+    const gapped = createStreamInbound(grant)
+    const gapVerdict = gapped.accept({
+      type: 'input',
+      sequence: '9',
+      generation: 5,
+      bytes: new Uint8Array(10),
+    })
+    expect(gapVerdict).toMatchObject({ ok: false, closeCode: 'incompatible' })
+
+    // Replay of the first offset after the cursor advanced past it, and an
+    // overlap inside the first chunk's byte range.
+    const replayed = createStreamInbound(grant)
+    expect(
+      replayed.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
+    ).toEqual({ ok: true })
+    expect(
+      replayed.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
+    ).toMatchObject({ ok: false, closeCode: 'incompatible' })
+    const overlapped = createStreamInbound(grant)
+    expect(
+      overlapped.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
+    ).toEqual({ ok: true })
+    expect(
+      overlapped.accept({ type: 'input', sequence: '9', generation: 5, bytes: new Uint8Array(10) })
+    ).toMatchObject({ ok: false, closeCode: 'incompatible' })
+  })
+
+  test('file write offsets start at fromSequence 0 (the reconciled first-chunk case)', () => {
+    const fileGrant = {
+      ...grant,
+      protocol: 'file-bytes-v1',
+      resource: { kind: 'workspace_root', id: 'wt-1', generation: 5 },
+      fromSequence: '0',
+    } as typeof grant
+    const inbound = createStreamInbound(fileGrant)
+    // The old strictly-increasing rule rejected this exact frame: its offset
+    // equals the grant's fromSequence.
+    expect(
+      inbound.accept({ type: 'input', sequence: '0', generation: 5, bytes: new Uint8Array(4) })
+    ).toEqual({ ok: true })
+    expect(
+      inbound.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(4) })
+    ).toEqual({ ok: true })
+    // A gapped chunk closes typed...
+    expect(
+      createStreamInbound(fileGrant).accept({
+        type: 'input',
+        sequence: '5',
+        generation: 5,
+        bytes: new Uint8Array(4),
+      })
+    ).toMatchObject({ ok: false, closeCode: 'incompatible' })
+    // ...and so does replaying the first offset.
+    const replay = createStreamInbound(fileGrant)
+    expect(
+      replay.accept({ type: 'input', sequence: '0', generation: 5, bytes: new Uint8Array(4) })
+    ).toEqual({ ok: true })
+    expect(
+      replay.accept({ type: 'input', sequence: '0', generation: 5, bytes: new Uint8Array(4) })
+    ).toMatchObject({ ok: false, closeCode: 'incompatible' })
+  })
+
+  test('byte-less write frames keep strictly increasing event sequences', () => {
+    const inbound = createStreamInbound(grant)
+    expect(
+      inbound.accept({ type: 'resize', sequence: '9', generation: 5, cols: 2, rows: 2 })
+    ).toEqual({ ok: true })
+    // Replays of an event counter stay refused.
+    expect(
+      inbound.accept({ type: 'resize', sequence: '9', generation: 5, cols: 2, rows: 2 })
+    ).toMatchObject({ ok: false, closeCode: 'incompatible' })
+
+    // Event counters never fall behind bytes already consumed.
+    const behind = createStreamInbound(grant)
+    expect(
+      behind.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
+    ).toEqual({ ok: true })
+    expect(
+      behind.accept({ type: 'resize', sequence: '8', generation: 5, cols: 2, rows: 2 })
+    ).toMatchObject({ ok: false, closeCode: 'incompatible' })
+
+    // ...and they do not advance the offset cursor: input contiguity continues
+    // at the same offset end across interleaved control frames.
+    const mixed = createStreamInbound(grant)
+    expect(
+      mixed.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
+    ).toEqual({ ok: true })
+    expect(
+      mixed.accept({
+        type: 'gesture',
+        sequence: '20',
+        generation: 5,
+        gesture: { kind: 'tap', x: 0.5, y: 0.5 },
+      })
+    ).toEqual({ ok: true })
+    expect(
+      mixed.accept({ type: 'input', sequence: '14', generation: 5, bytes: new Uint8Array(4) })
+    ).toEqual({ ok: true })
+  })
+
   test('enforces direction, sequence, generation, and size bounds', () => {
     const inbound = createStreamInbound(grant)
-    // Sequence below the resume point is out of order.
+    // An offset below the resume point replays already-passed bytes.
     expect(
       inbound.accept({ type: 'input', sequence: '2', generation: 5, bytes: new Uint8Array(1) })
     ).toMatchObject({ ok: false, closeCode: 'incompatible' })
 
     const fresh = createStreamInbound(grant)
     expect(
-      fresh.accept({ type: 'input', sequence: '5', generation: 5, bytes: new Uint8Array(10) })
+      fresh.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(10) })
     ).toEqual({ ok: true })
     expect(
-      fresh.accept({ type: 'input', sequence: '6', generation: 4, bytes: new Uint8Array(10) })
+      fresh.accept({ type: 'input', sequence: '14', generation: 4, bytes: new Uint8Array(10) })
     ).toMatchObject({ ok: false, closeCode: 'stale_generation' })
 
     const sized = createStreamInbound(grant)
     expect(
-      sized.accept({ type: 'input', sequence: '9', generation: 5, bytes: new Uint8Array(129) })
+      sized.accept({ type: 'input', sequence: '4', generation: 5, bytes: new Uint8Array(129) })
     ).toMatchObject({ ok: false, closeCode: 'backpressure' })
   })
 
@@ -866,6 +982,9 @@ describe('stream inbound validator', () => {
     const inbound = createStreamInbound(readGrant)
     expect(
       inbound.accept({ type: 'ack', throughSequence: '4', availableCreditBytes: 1024 })
+    ).toEqual({ ok: true })
+    expect(
+      inbound.accept({ type: 'ack', throughSequence: '3', availableCreditBytes: 1024 })
     ).toEqual({ ok: true })
     expect(
       inbound.accept({ type: 'input', sequence: '5', generation: 5, bytes: new Uint8Array(1) })
