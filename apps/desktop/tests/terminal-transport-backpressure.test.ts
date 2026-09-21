@@ -205,9 +205,15 @@ type FloodOutcome = {
   decoderError: string | null
 }
 
-async function floodSidecarEntry(entry: string, bun: string, runArg: boolean): Promise<FloodOutcome> {
+async function floodSidecarEntry(
+  entry: string,
+  bun: string,
+  runArg: boolean
+): Promise<FloodOutcome> {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-transport-flood-'))
-  const argv = runArg ? [bun, 'run', entry, '--data-dir', dataDir] : [bun, entry, '--data-dir', dataDir]
+  const argv = runArg
+    ? [bun, 'run', entry, '--data-dir', dataDir]
+    : [bun, entry, '--data-dir', dataDir]
   const child = Bun.spawn(argv, {
     env: {
       ...process.env,
@@ -351,24 +357,20 @@ async function floodSidecarEntry(entry: string, bun: string, runArg: boolean): P
 }
 
 describe.skipIf(process.platform !== 'darwin')('sidecar transport flood (dev entry)', () => {
-  test(
-    'a multi-megabyte PTY flood arrives complete and in exact frame order',
-    async () => {
-      const outcome = await floodSidecarEntry(
-        join(import.meta.dir, '../shell/src/dev-runtime/terminal/sidecar/entry.ts'),
-        process.execPath,
-        true
-      )
-      // The numbers ARE the evidence: a fire-and-forget transport shows a
-      // short run and a decoder misalignment here.
-      console.log('dev-entry flood outcome:', JSON.stringify(outcome))
-      expect(outcome.decoderError).toBeNull()
-      expect(outcome.seqsContiguous).toBe(true)
-      expect(outcome.longestXRun).toBeGreaterThanOrEqual(FLOOD_BYTES)
-      expect(outcome.frames).toBeGreaterThan(0)
-    },
-    300_000
-  )
+  test('a multi-megabyte PTY flood arrives complete and in exact frame order', async () => {
+    const outcome = await floodSidecarEntry(
+      join(import.meta.dir, '../shell/src/dev-runtime/terminal/sidecar/entry.ts'),
+      process.execPath,
+      true
+    )
+    // The numbers ARE the evidence: a fire-and-forget transport shows a
+    // short run and a decoder misalignment here.
+    console.log('dev-entry flood outcome:', JSON.stringify(outcome))
+    expect(outcome.decoderError).toBeNull()
+    expect(outcome.seqsContiguous).toBe(true)
+    expect(outcome.longestXRun).toBeGreaterThanOrEqual(FLOOD_BYTES)
+    expect(outcome.frames).toBeGreaterThan(0)
+  }, 300_000)
 })
 
 const packagedBundle = join(import.meta.dir, '../shell/build/dev-macos-arm64/Adea-dev.app')
@@ -378,17 +380,13 @@ const packagedBun = join(packagedBundle, 'Contents/MacOS/bun')
 describe.skipIf(process.platform !== 'darwin' || !existsSync(packagedEntry))(
   'sidecar transport flood (packaged entry)',
   () => {
-    test(
-      'the packaged entry survives the same multi-megabyte PTY flood',
-      async () => {
-        const outcome = await floodSidecarEntry(packagedEntry, packagedBun, false)
-        expect(outcome.decoderError).toBeNull()
-        expect(outcome.seqsContiguous).toBe(true)
-        expect(outcome.longestXRun).toBeGreaterThanOrEqual(FLOOD_BYTES)
-        expect(outcome.frames).toBeGreaterThan(0)
-      },
-      300_000
-    )
+    test('the packaged entry survives the same multi-megabyte PTY flood', async () => {
+      const outcome = await floodSidecarEntry(packagedEntry, packagedBun, false)
+      expect(outcome.decoderError).toBeNull()
+      expect(outcome.seqsContiguous).toBe(true)
+      expect(outcome.longestXRun).toBeGreaterThanOrEqual(FLOOD_BYTES)
+      expect(outcome.frames).toBeGreaterThan(0)
+    }, 300_000)
   }
 )
 

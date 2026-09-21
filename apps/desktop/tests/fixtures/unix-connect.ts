@@ -5,7 +5,10 @@
 // the #396 transport-defect fix. Keeping the fixture on the production
 // implementation means the live-process lanes (terminal-pty-smoke, packaged
 // terminal smokes) exercise the exact transport the shell ships.
-import { connectUnixByteDuplex, type UnixByteDuplex } from '../../shell/src/dev-runtime/terminal/sidecar/socket-writer'
+import {
+  connectUnixByteDuplex,
+  type UnixByteDuplex,
+} from '../../shell/src/dev-runtime/terminal/sidecar/socket-writer'
 
 export async function connectUnix(socketPath: string): Promise<UnixByteDuplex> {
   return connectUnixByteDuplex(socketPath)
