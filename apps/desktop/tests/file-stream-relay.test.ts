@@ -355,6 +355,68 @@ describe('file-stream relay (grant → attach → bytes → ack → close)', () 
     expect(after.mtimeNs).not.toBe(before.mtimeNs)
   })
 
+  test('write offset discipline closes gapped and replayed chunks typed', async () => {
+    const state = harness()
+    const root = fixtureRoot()
+    const relativePath = 'assets/discipline.bin'
+    const original = Buffer.from([7, 8, 9])
+    writeFileSync(join(root, relativePath), original)
+
+    const writeGrant = async () => {
+      const identity = await statIdentity(state, relativePath)
+      return grantFor(state, 'dev.files.writeStream', {
+        worktreeId: WORKTREE_ID,
+        path: wsPath(relativePath),
+        expectedIdentity: identity,
+        byteLength: '128',
+        contentSha256: createHash('sha256').update(Buffer.alloc(128)).digest('hex'),
+        eolPolicy: 'preserve',
+        direction: 'write',
+      })
+    }
+    const input = (grant: DevStreamGrant, offset: number, length: number) => ({
+      identity: state.identity,
+      streamId: grant.grantId,
+      frame: {
+        type: 'input' as const,
+        sequence: String(offset),
+        generation: grant.resource.generation,
+        bytes: Buffer.alloc(length).toString('base64'),
+      },
+    })
+
+    // The first chunk lands exactly at the grant's fromSequence ('0') — the
+    // frame the old strictly-increasing validator rejected outright.
+    const first = await writeGrant()
+    expect((await state.openRelay(first)).status).toBe('granted')
+    expect(state.relay.frame(input(first, 0, 32)).status).toBe('accepted')
+
+    // A gapped offset skips bytes the cursor never received: the relay closes
+    // the stream typed before the provider sees the frame.
+    const gapped = state.relay.frame(input(first, 64, 8))
+    expect(gapped.status).toBe('closed')
+    if (gapped.status === 'closed') expect(gapped.code).toBe('incompatible')
+    expect(state.frames(first.grantId).at(-1)).toMatchObject({
+      type: 'close',
+      code: 'incompatible',
+    })
+    // The discarded transfer never touched the target.
+    expect(readFileSync(join(root, relativePath))).toEqual(original)
+
+    // A replay of an already-accepted offset closes typed as well.
+    const second = await writeGrant()
+    expect((await state.openRelay(second)).status).toBe('granted')
+    expect(state.relay.frame(input(second, 0, 32)).status).toBe('accepted')
+    const replayed = state.relay.frame(input(second, 0, 32))
+    expect(replayed.status).toBe('closed')
+    if (replayed.status === 'closed') expect(replayed.code).toBe('incompatible')
+    expect(state.frames(second.grantId).at(-1)).toMatchObject({
+      type: 'close',
+      code: 'incompatible',
+    })
+    expect(readFileSync(join(root, relativePath))).toEqual(original)
+  })
+
   test('attach is single-use and proof-verified', async () => {
     const state = harness()
     const root = fixtureRoot()

@@ -33,6 +33,21 @@ export type ComponentProtocol = {
   minor: number
 }
 
+/**
+ * Where a component's artifact lives and who resolves the install label:
+ * - `bundled` — the label is bundle-relative; the packaging lane resolves it
+ *   against the running `.app` (containment + existence + digest) before the
+ *   manifest is composed, and a failed resolution fails the boot: the manifest
+ *   never describes an artifact the bundle does not contain.
+ * - `managed-data-dir` — the label is data-dir-relative under the owner-only
+ *   data root; the artifact is installed at runtime by its owning lifecycle
+ *   (the managed Pi driver) and may truthfully be ABSENT at boot. Absence is
+ *   a typed resolution state, never a boot failure and never fabricated as
+ *   present; the manifest carries the build-time pin (version + digest) the
+ *   owning lifecycle installs.
+ */
+export type ComponentInstallKind = 'bundled' | 'managed-data-dir'
+
 export type ComponentSpec = {
   /** Opaque stable identity; never a path, PID, port, or product name. */
   id: ComponentId
@@ -46,8 +61,15 @@ export type ComponentSpec = {
   signature: string
   /** Inclusive app-version window this component build supports. */
   compatibility: { minAppVersion: string; maxAppVersion: string }
-  /** Bundle-relative install label; resolved by the packaging lane. */
+  /**
+   * Install label. For `bundled` components it is bundle-relative; for
+   * `managed-data-dir` components it is data-dir-relative under the owner-only
+   * data root. Interpretation is fixed by `installKind`.
+   */
   installLocation: string
+  /** How `installLocation` resolves (see ComponentInstallKind). Decoded
+   *  manifests always carry the field; an absent key decodes as `bundled`. */
+  installKind: ComponentInstallKind
   /** User-data-relative label; never deleted by rollback or upgrade. */
   dataLocation: string
   /** Lower phases start first; dependencies refine the order further. */
@@ -74,6 +96,7 @@ export type ManifestDecodeResult =
 const PLATFORMS = ['darwin', 'linux', 'win32', 'universal'] as const
 const ARCHES = ['arm64', 'x64', 'universal'] as const
 const PROBE_KINDS = ['process', 'endpoint'] as const
+const INSTALL_KINDS = ['bundled', 'managed-data-dir'] as const
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -112,6 +135,16 @@ function decodeProtocol(value: unknown): ComponentProtocol | null {
   return { name: value.name, major: value.major, minor: value.minor }
 }
 
+/** Additive field: an absent key decodes as `bundled` (the only kind before
+ *  the field existed); a present key must be a known literal. */
+function decodeInstallKind(value: unknown): ComponentInstallKind | null {
+  if (value === undefined) return 'bundled'
+  if (typeof value === 'string' && (INSTALL_KINDS as readonly string[]).includes(value)) {
+    return value as ComponentInstallKind
+  }
+  return null
+}
+
 function decodeComponent(value: unknown): ComponentSpec | null {
   if (!isRecord(value)) return null
   if (!isNonEmptyString(value.id)) return null
@@ -130,6 +163,8 @@ function decodeComponent(value: unknown): ComponentSpec | null {
     return null
   }
   if (!isNonEmptyString(value.installLocation)) return null
+  const installKind = decodeInstallKind(value.installKind)
+  if (!installKind) return null
   if (!isNonEmptyString(value.dataLocation)) return null
   if (!isInteger(value.startupPhase) || value.startupPhase < 0) return null
   if (!Array.isArray(value.dependsOn) || value.dependsOn.some((id) => !isNonEmptyString(id)))
@@ -155,6 +190,7 @@ function decodeComponent(value: unknown): ComponentSpec | null {
       maxAppVersion: compatibility.maxAppVersion,
     },
     installLocation: value.installLocation,
+    installKind,
     dataLocation: value.dataLocation,
     startupPhase: value.startupPhase,
     dependsOn: [...value.dependsOn],

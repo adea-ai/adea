@@ -40,6 +40,7 @@ function specWith(id: string): ComponentSpec {
     signature: 'c2ln',
     compatibility: { minAppVersion: '0.1.0', maxAppVersion: '99.0.0' },
     installLocation: `components/${id}`,
+    installKind: 'bundled',
     dataLocation: `components/${id}`,
     startupPhase: 0,
     dependsOn: [],

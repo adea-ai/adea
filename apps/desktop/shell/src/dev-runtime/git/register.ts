@@ -36,7 +36,7 @@ import {
   devOperationDecoders,
   devOperationDefinitions,
 } from '../../../../../../packages/types/src/dev-runtime'
-import type { ChannelAuthority } from '../channel/authority'
+import { INTERNAL_DISPATCH_MARKER, type ChannelAuthority } from '../channel/authority'
 import { gitChildEnv, GIT_CHILD_TIMEOUT_MS, runGit, runGitChecked } from '../worktrees/git-run'
 import type { FileIdentityValue } from '../worktrees/identity'
 import {
@@ -589,20 +589,23 @@ export function registerGitRuntime(input: GitRegistrarInput): {
   const watcherGate =
     input.watcher?.gate ?? createRefreshGate(STATUS_WATCHER_LIMITS.maxRefreshConcurrency)
 
-  /** The injected `readStatus` seam: dispatches the REGISTERED
-   *  `dev.git.status` provider — the same handler instance the authority's
-   *  gate delivers to — with a full command envelope pinned to the live
-   *  generation. Never a private shortcut into the porcelain helpers: scope
-   *  admission, resource binding, generation fence, and ready-lifecycle
-   *  re-proofs all run exactly as for an external caller. A typed refusal
-   *  (for example `stale_generation` after a race) resolves undefined — the
-   *  cache stays honestly empty. */
+  /**
+   * The injected `readStatus` seam: dispatches `dev.git.status` through the
+   * authority's `dispatchLocal` — the in-process lane that runs the SAME
+   * terminal steps the socket path runs (structural validation, freshness
+   * window, scope admission, capability derivation, registered-provider
+   * invocation) with the trusted internal-caller marker standing in for the
+   * socket transport proof. Never a private shortcut into the porcelain
+   * helpers: resource binding, the generation fence, and ready-lifecycle
+   * re-proofs all run exactly as for an external caller, because the
+   * REGISTERED provider is reached through the authority's own dispatch. A
+   * typed refusal (for example `stale_generation` after a race) or any
+   * transport-level fault resolves undefined — the cache stays honestly
+   * empty. */
   async function readStatusThroughProvider(
     worktreeId: string,
     generation: number
   ): Promise<GitStatus | undefined> {
-    const handler = handlers['dev.git.status']
-    if (!handler) return undefined
     const at = now()
     const command: DevCommand = {
       schemaVersion: 1,
@@ -617,7 +620,9 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       body: { worktreeId, limit: STATUS_PAGE_MAX },
     }
     try {
-      return (await handler(command)) as GitStatus
+      const reply = await input.authority.dispatchLocal(INTERNAL_DISPATCH_MARKER, command)
+      if (!reply.ok) return undefined
+      return (reply.value ?? undefined) as GitStatus | undefined
     } catch {
       return undefined
     }

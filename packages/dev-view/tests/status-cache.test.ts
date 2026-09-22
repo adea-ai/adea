@@ -3,16 +3,20 @@
  * the shell's watcher-driven status invalidation lane. Invalidation and
  * failed refreshes turn the cache UNDEFINED — never a stale value labeled
  * fresh — entries are fenced by the worktree generation they were read
- * under, a re-fence discards the old generation's entry, and the marker
- * cache follows the same contract.
+ * under, a re-fence discards the old generation's entry, the marker cache
+ * follows the same contract, and a PUSHED `git.statusInvalidated` event
+ * (M12) asks exactly one of three things of the pane: ignore, invalidate,
+ * or re-resolve the context.
  */
 import { describe, expect, test } from 'bun:test'
 
+import type { DevGitStatusInvalidated } from '../src/platform'
 import { markerBadge, markerMap } from '../src/files/files-model'
 import {
   cacheStatus,
   emptyStatusCache,
   invalidateStatus,
+  pushInvalidationDecision,
   refenceStatusCache,
 } from '../src/files/status-cache'
 
@@ -20,6 +24,14 @@ type Reply = { indexSha: string; entries: readonly string[] }
 
 const replyA: Reply = { indexSha: 'sha-a', entries: ['one'] }
 const replyB: Reply = { indexSha: 'sha-b', entries: ['one', 'two'] }
+
+const pushedEvent = (overrides: Partial<DevGitStatusInvalidated>): DevGitStatusInvalidated => ({
+  worktreeId: 'wt-1',
+  generation: 7,
+  revision: 1,
+  reason: 'tree_changed',
+  ...overrides,
+})
 
 describe('status cache honesty contract', () => {
   test('an empty cache is undefined and stale — it never fabricates state', () => {
@@ -114,5 +126,38 @@ describe('files-pane marker contract', () => {
     const refenced = refenceStatusCache(cacheStatus(markerMap(entries), 2), 3)
     expect(refenced.value).toBeUndefined()
     expect(refenced.generation).toBe(3)
+  })
+})
+
+describe('push invalidation decision (M12 pushed events)', () => {
+  const context = { worktreeId: 'wt-1', generation: 7 }
+  test('a same-generation tree change invalidates: the cache dies and pull repopulates', () => {
+    expect(pushInvalidationDecision(context, pushedEvent({}))).toBe('invalidate')
+    // A degraded watcher is the lane telling the truth about uncertainty —
+    // still a real invalidation for the same generation.
+    expect(pushInvalidationDecision(context, pushedEvent({ reason: 'degraded' }))).toBe(
+      'invalidate'
+    )
+  })
+
+  test('a moved generation means the context itself is stale: re-resolve, never reuse', () => {
+    expect(pushInvalidationDecision(context, pushedEvent({ generation: 8 }))).toBe('refence')
+    expect(
+      pushInvalidationDecision(context, pushedEvent({ generation: 8, reason: 'refenced' }))
+    ).toBe('refence')
+  })
+
+  test("another worktree's event is ignored", () => {
+    expect(pushInvalidationDecision(context, pushedEvent({ worktreeId: 'wt-other' }))).toBe(
+      'ignore'
+    )
+    expect(
+      pushInvalidationDecision(context, pushedEvent({ worktreeId: 'wt-other', generation: 99 }))
+    ).toBe('ignore')
+  })
+
+  test("the watcher lane's own refreshed/stopped bookkeeping is ignored", () => {
+    expect(pushInvalidationDecision(context, pushedEvent({ reason: 'refreshed' }))).toBe('ignore')
+    expect(pushInvalidationDecision(context, pushedEvent({ reason: 'stopped' }))).toBe('ignore')
   })
 })

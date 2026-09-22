@@ -172,32 +172,18 @@ export type FileStreamRelay = {
 }
 
 /**
- * The gateway's inbound discipline, with one reconciliation: the generic
- * validator requires client sequences strictly above the grant's
- * `fromSequence`, while the `file-bytes-v1` write direction uses byte
- * offsets — the first chunk is always offset `0`, equal to `fromSequence` —
- * and the provider itself rejects any non-contiguous offset. Read directions
- * (client credit only) pass through `createStreamInbound` unchanged; write
- * input skips the generic sequence rule (upstream residual, documented in the
- * dev-runtime spec) and keeps the direction, generation, and frame-bound
- * checks.
+ * The gateway's inbound discipline, applied verbatim: the shared
+ * `createStreamInbound` validator enforces the write direction's byte-offset
+ * contiguity (first chunk at the grant's `fromSequence`, every later chunk at
+ * the running offset end), so the relay no longer defers ordering to the
+ * provider. The provider keeps its byte-exact atomic-write guarantees
+ * (digest, declared length, identity re-proofs, atomic rename) on top.
  */
 function acceptFrame(
   session: RelaySession,
   frame: DevStreamFrame
 ): { ok: true } | { ok: false; closeCode: StreamCloseCode; reason: string } {
-  if (session.grant.direction === 'read') return session.inbound.accept(frame)
-  if (frame.type !== 'input')
-    return {
-      ok: false,
-      closeCode: 'incompatible',
-      reason: 'write streams accept only input frames',
-    }
-  if (frame.generation !== session.grant.resource.generation)
-    return { ok: false, closeCode: 'stale_generation', reason: 'input generation is stale' }
-  if (frame.bytes.byteLength > session.grant.maxFrameBytes)
-    return { ok: false, closeCode: 'backpressure', reason: 'frame exceeds the grant limit' }
-  return { ok: true }
+  return session.inbound.accept(frame)
 }
 
 export function createFileStreamRelay(input: {

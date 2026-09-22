@@ -1,6 +1,8 @@
 import { buildDevCommand } from '@adea-ai/dev-view/browser'
 import {
   createUnavailableDevRuntimeService,
+  type DevEventSubscription,
+  type DevGitStatusInvalidated,
   type DevRuntimeService,
   type DevStreamTransport,
   type DevWorkspaceProjection,
@@ -8,6 +10,126 @@ import {
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 
 import { createDesktopStreamTransport } from './desktop-stream-transport'
+
+/** The structural slice of the injected bridge this module touches. Declared
+ *  locally, never imported: the boundary test pins that this module does not
+ *  depend on the desktop-bridge module — the injected `window.__adeaDesktop`
+ *  global is the only channel to the shell, and even a type-only import would
+ *  start couples this file to its module graph. */
+type BridgeLike = {
+  invoke?: unknown
+  devExecute?: unknown
+  listen(event: string, handler: (payload: unknown) => void): Promise<() => void>
+}
+
+/** The shell event the git status-invalidation pushes ride (published by the
+ *  composition's watcher lane; delivered over the gateway's authenticated
+ *  SSE stream through the bridge's signed listen path). */
+export const GIT_STATUS_INVALIDATED_EVENT = 'git.statusInvalidated'
+
+/** The capability that gates `dev.git.status` — and with it the push
+ *  invalidation events derived from the same lane. */
+const GIT_STATUS_CAPABILITY = 'dev.git.read'
+
+const STATUS_INVALIDATED_REASONS: ReadonlySet<string> = new Set([
+  'tree_changed',
+  'refreshed',
+  'degraded',
+  'refenced',
+  'stopped',
+])
+
+/**
+ * Structural guard for the SSE event payload. Transport bytes are untrusted:
+ * a payload that does not carry the four typed fields is dropped, never
+ * delivered — a malformed frame can never reach a pane. Unknown extra fields
+ * are tolerated (additive payload evolution), the known fields are required.
+ */
+export function decodeStatusInvalidated(value: unknown): DevGitStatusInvalidated | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const candidate = value as Record<string, unknown>
+  if (typeof candidate.worktreeId !== 'string' || candidate.worktreeId.length === 0)
+    return undefined
+  if (typeof candidate.generation !== 'number' || !Number.isSafeInteger(candidate.generation))
+    return undefined
+  if (typeof candidate.revision !== 'number' || !Number.isSafeInteger(candidate.revision))
+    return undefined
+  if (typeof candidate.reason !== 'string' || !STATUS_INVALIDATED_REASONS.has(candidate.reason))
+    return undefined
+  return {
+    worktreeId: candidate.worktreeId,
+    generation: candidate.generation,
+    revision: candidate.revision,
+    reason: candidate.reason as DevGitStatusInvalidated['reason'],
+  }
+}
+
+/**
+ * Builds the push-event surface from the injected bridge (M12): typed,
+ * capability-checked, generation-fenced delivery of the shell's
+ * `git.statusInvalidated` events over the bridge's existing signed listen
+ * path. Capability check: a scope is subscribed only when its capability
+ * snapshot (read through the authenticated command path) grants
+ * `dev.git.read` — fail closed. Returns undefined when the bridge predates
+ * the listen surface; consumers then keep generation-fenced pull.
+ */
+export function createDesktopEventSurface(options: {
+  bridge: BridgeLike
+  execute: (command: DevCommand) => Promise<DevReply>
+}): DevEventSubscription | undefined {
+  const { bridge, execute } = options
+  if (typeof bridge.listen !== 'function') return undefined
+
+  /** Capability gate: subscribe only when the scope may read git status. */
+  async function maySubscribe(scope: Scope): Promise<boolean> {
+    try {
+      const command = buildDevCommand({
+        operation: 'dev.capability.snapshot',
+        scope,
+        body: {},
+      })
+      const reply = await execute(command)
+      if (!reply.ok) return false
+      const snapshot = reply.value as { granted?: readonly string[] } | undefined
+      return (snapshot?.granted ?? []).includes(GIT_STATUS_CAPABILITY)
+    } catch {
+      return false
+    }
+  }
+
+  return {
+    on(event, scope, listener) {
+      if (event !== 'git.statusInvalidated') return () => undefined
+      let closed = false
+      let dispose: (() => void) | undefined
+      void (async () => {
+        if (!(await maySubscribe(scope))) return // fail closed: no transport, no listener
+        if (closed) return
+        try {
+          dispose = await bridge.listen(GIT_STATUS_INVALIDATED_EVENT, (message) => {
+            if (closed) return
+            const payload = (message as { payload?: unknown } | undefined)?.payload
+            const parsed = decodeStatusInvalidated(payload)
+            if (!parsed) return // malformed frame dropped, never trusted
+            listener(parsed)
+          })
+          if (closed) dispose()
+        } catch {
+          dispose = undefined // push unavailable; pull remains the fallback
+        }
+      })()
+      return () => {
+        closed = true
+        try {
+          dispose?.()
+        } catch {
+          /* teardown is best-effort */
+        }
+        dispose = undefined
+      }
+    },
+  }
+}
 
 /**
  * Binds Dev View to the shell's authenticated channel. The bridge is injected
@@ -33,9 +155,13 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
   // bridge carries the relay signing seam; otherwise panes keep the bounded
   // control path. The channel secret never crosses into this layer.
   const streams = bridge ? createDesktopStreamTransport({ bridge }) : undefined
+  // Push-event surface (M12): typed, capability-checked, generation-fenced
+  // delivery of `git.statusInvalidated` over the bridge's signed listen path.
+  // Absent on a web non-desktop runtime — panes keep generation-fenced pull.
+  const events = bridge && execute ? createDesktopEventSurface({ bridge, execute }) : undefined
 
   if (options.scope) {
-    return createBoundService({ execute, shellScope: options.scope, streams })
+    return createBoundService({ execute, shellScope: options.scope, streams, events })
   }
   if (!execute || !bridgeInvoke || typeof window === 'undefined') return unavailable
 
@@ -68,6 +194,7 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
           },
     preferenceScope: () => shellScope,
     ...(streams ? { streams: () => streams } : {}),
+    ...(events ? { events: () => events } : {}),
     projection: async (requestedScope) => {
       const scope = await projectedScope
       if (!scope) {
@@ -119,11 +246,12 @@ export function createDesktopDevRuntimeService(options: { scope?: Scope } = {}):
 }
 
 /** An explicitly provided scope (tests, future bind-aware entry) binds at
- * construction; commands are still checked against the shell at the gate. */
+ *  construction; commands are still checked against the shell at the gate. */
 function createBoundService(options: {
   execute?: (command: DevCommand) => Promise<DevReply>
   shellScope: Scope
   streams?: DevStreamTransport
+  events?: DevEventSubscription
 }): DevRuntimeService {
   const { shellScope } = options
   const execute = options.execute
@@ -133,6 +261,7 @@ function createBoundService(options: {
     state: () => ({ status: 'ready' }),
     preferenceScope: () => shellScope,
     ...(options.streams ? { streams: () => options.streams } : {}),
+    ...(options.events ? { events: () => options.events } : {}),
     projection: async (requestedScope) => {
       const [groups, projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.group.list', requestedScope, {}),

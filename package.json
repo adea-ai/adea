@@ -27,7 +27,10 @@
     "test:packaged": "bun scripts/test-dev-runtime-packaged.mjs",
     "test:security:dev-runtime": "bun scripts/test-dev-runtime-security.mjs",
     "test:performance:dev-runtime": "bun scripts/test-dev-runtime-performance.mjs",
-    "test:soak:dev-runtime": "bun scripts/test-dev-runtime-soak.mjs"
+    "test:soak:dev-runtime": "bun scripts/test-dev-runtime-soak.mjs",
+    "test:perf": "bun run test:performance:dev-runtime",
+    "test:security": "bun test scripts/desktop-auth-boundary.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts",
+    "test:soak": "bun run test:soak:dev-runtime"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

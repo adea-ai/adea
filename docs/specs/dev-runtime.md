@@ -1464,6 +1464,30 @@ a repeated nonce is `replay_rejected` even when the body matches. A logical
 retry uses a fresh request ID and nonce but the same idempotency key. Nonces are
 never reused after reconnect or credential rotation.
 
+The in-process dispatch seam (`authority.dispatchLocal`, M12) lets trusted shell
+code — today only the git watcher lane's `readStatus` seam — dispatch a
+FULLY-FORMED `DevCommand` through the same terminal steps the socket path runs:
+structural validation by the exact `decodeDevCommand` decoder the authorized
+frame path reaches, the freshness/expiry window, scope admission through
+`authorizeCommand` (which receives no channel identity on this lane), capability
+derivation against the registry, registered-provider invocation, and the same
+`DevReply`/audit/refusal machinery. The seam fails closed: it accepts only the
+authority's module-private `INTERNAL_DISPATCH_MARKER`, and any other value
+throws `channel_unauthenticated` before the command is examined. The marker
+stands in for exactly the proofs an internal caller satisfies STRUCTURALLY,
+because it authors the envelope in-process and holds no client-supplied bytes:
+trusted origin (the shell process itself is the trust boundary the socket path
+proves with loopback origin checks), channel credential and identity proof
+(there is no channel to authenticate and no secret to verify), and replay
+(the envelope is minted fresh per dispatch inside the trust boundary, is never
+serialized onto a transport, and remains bounded by the freshness window). The
+seam never accepts a raw frame, a proof, or any client-supplied bytes; resource
+binding, the generation fence, and ready-lifecycle re-proofs stay with the
+provider exactly as for an external caller. Audit records for this lane carry
+no channel fields, which is what makes an internal dispatch distinguishable
+from socket traffic; counters and typed refusals are shared with the socket
+path.
+
 A remote client never connects directly to an arbitrary host port. It uses the
 authorized RuntimeConnection route, whose host repeats scope/generation checks.
 A host refusal is not translated into local success.
@@ -1549,9 +1573,17 @@ resource/generation, direction, sequence, and limits. Attach consumes it and
 rechecks channel credential, nonce, scope, generation, and current capability.
 Gesture coordinates are normalized 0–1, swipe duration is 10–10,000 ms, key
 codes come from the versioned device allowlist, and text is at most 4 KiB.
-Frames after `close`, frames in the wrong direction, out-of-order client input,
-oversize frames, stale generations, or sequence wrap are rejected and close
-the stream. `data`/`input` bytes are never JSON/base64-transcoded. Browser/device
+Frames after `close`, frames in the wrong direction, mis-sequenced client
+input, oversize frames, stale generations, or sequence wrap are rejected and
+close the stream. The two directions sequence client frames differently, and
+the validator enforces each per its grant: on `read` grants only client credit
+(`ack`) rides inbound; on `write` grants byte-bearing `input` frames carry
+byte-offset sequences — the first chunk lands exactly on the grant's
+`fromSequence` and every later chunk on the running offset end (previous
+offset + bytes length), so gaps, replays, and overlaps are all refused typed —
+while byte-less `gesture`/`resize` frames keep strictly increasing event
+sequences that never fall behind bytes already consumed. `data`/`input` bytes
+are never JSON/base64-transcoded. Browser/device
 video uses `video`; terminal output uses `data`; control frames are canonical
 CBOR with a 64 KiB maximum unless the grant's lower bound applies. Server output
 pauses when credit is zero; client input never exceeds the grant and subsystem
@@ -1889,9 +1921,19 @@ Dev Runtime sidecar all register with the lifecycle below; M12 adapters never
 supervise their own processes and M12 adds no second supervisor. The
 bundled **component manifest** records, per component, the exact product
 version, platform/architecture, artifact digest and signature, app-version
-compatibility window, install and data locations, startup phase, declared
-dependencies, health probe, registration protocol, explicit rollback target,
-and required/optional flag. Its strict decoder returns
+compatibility window, install and data locations, install kind, startup
+phase, declared dependencies, health probe, registration protocol, explicit
+rollback target, and required/optional flag. The install kind fixes how the
+install label resolves: `bundled` labels are bundle-relative and the
+packaging lane proves containment + existence + digest against the running
+`.app` before the manifest is composed (a failed resolution fails the boot —
+the manifest never describes an artifact the bundle does not contain), while
+a `managed-data-dir` label is data-dir-relative under the owner-only data
+root and resolves with truthful-absence semantics: the artifact is installed
+at runtime by its owning lifecycle and may legitimately be absent before the
+first ensure — absence is a typed resolution state, never a boot failure and
+never fabricated as present (the managed Pi is the registered instance). Its
+strict decoder returns
 `unsupported_version`/`corrupt_state` instead of guessing; optional
 components never gate baseline readiness; incompatible platform, arch, or
 version-window combinations fail before execution with an actionable reason;
@@ -1941,6 +1983,25 @@ Supervision rules:
 - every spawn, signal, exit, adoption, drain, and crash-loop decision appends
   to a bounded secret-free audit ring; the snapshot exposes exact packaged
   versions and digests for diagnostics;
+- the engine's exit/unhealthy observations also surface as a LIVE typed
+  shell-event surface (`supervision.componentEvent` on the shell event bus,
+  the same path `git.statusInvalidated` rides): a supervised component's
+  crash (`exit`, `expected: false`), restart (`start` with its cause),
+  operator/upgrade stop, unresponsive recycle (`unhealthy`), and crash-loop
+  verdict (`crash_loop`) are observable by consumers without polling. Every
+  payload is engine-authored and secret-free (component id, generation, PID,
+  ISO time, bounded detail, coalescing counter). The live surface is bounded
+  against crash storms — the durable journal and audit ring are not: per
+  component AND kind, at most 5 emissions per sliding 60 seconds
+  (`SUPERVISION_EVENT_WINDOW_MS`/`SUPERVISION_EVENT_MAX_PER_KIND`); beyond
+  that, events are coalesced (dropped from the bus, counted, and surfaced as
+  `suppressed` on that component and kind's next emitted event, so a
+  consumer reconciles from the snapshot and journal). The numbers align with
+  the restart policy (5 failures / 10 minutes bounds an episode to 5 exits +
+  5 replacement starts), so an engine-native crash storm is never coalesced
+  while anything faster than the policy cannot flood the stream. The
+  composition attaches the sink to the held engine right after every
+  recomposition, strictly before the boot steps run any engine action;
 - a component child's environment starts from a positive allowlist of host
   keys plus the packaging lane's declared additions — the shell process's
   whole environment is never inherited, so an injected or secret-shaped
@@ -1955,13 +2016,16 @@ Supervision rules:
   component data locations are never read, moved, or deleted.
 
 This paragraph is pinned by `apps/desktop/tests/supervision-manifest.test.ts`,
-`apps/desktop/tests/supervision-supervisor.test.ts`,
+`apps/desktop/tests/supervision-supervisor.test.ts` (including the live-event
+emission and crash-storm bound tests),
 `apps/desktop/tests/supervision-records.test.ts`,
 `apps/desktop/tests/supervision-env-contract.test.ts`,
 `apps/desktop/tests/supervision-failure-injection.test.ts`,
 `apps/desktop/tests/dev-runtime-vault-key-roles.test.ts`,
 `apps/desktop/tests/shell-injection-adversarial.test.ts`, and
-`apps/desktop/tests/updater-rollback.test.ts`.
+`apps/desktop/tests/updater-rollback.test.ts`; the packaged supervision
+smoke's proofs 5 and 6 prove the same bound and the managed-Pi registration
+on real processes.
 
 The one-supervisor wiring is the packaged shell entry's: it loads the bundled
 component manifest at boot (strict packaging-lane resolution over the running
@@ -2407,13 +2471,13 @@ frames pass the gateway's `createStreamInbound` discipline, and the real
 registered provider byte-halves pump an in-memory session. Frames cross to the
 renderer on the signed event path and return on the signed legacy invoke path
 (both bounded control transports; byte-bearing frames carry base64 within the
-frame bound, and client frames are delivered strictly in send order). One
-reconciliation: the generic inbound validator requires client sequences
-strictly above the grant's `fromSequence`, while the `file-bytes-v1` write
-direction uses byte offsets whose first chunk equals `fromSequence` — the
-relay therefore keeps the validator's direction/generation/frame-bound checks
-for writes and lets the provider own offset contiguity (its non-contiguous
-refusal discards the write and reports `file_changed`). The editor and files
+frame bound, and client frames are delivered strictly in send order). The
+shared `createStreamInbound` validator enforces the write direction's
+byte-offset contiguity itself (first chunk at the grant's `fromSequence`,
+every later chunk at the running offset end) — the relay applies it verbatim
+and no longer defers ordering to the provider; the provider keeps its
+byte-exact atomic-write guarantees (non-contiguous or overrun input still
+discards the temp and reports `file_changed`). The editor and files
 flows open/save stream-backed only when the transport binds; absence of the
 bridge seam falls back to the bounded control path, and refused binds surface
 typed `capability_unavailable`/relay errors, never strings.
@@ -2553,6 +2617,27 @@ through the capability-checked dispatch. Pinned by
 `apps/desktop/tests/git-status-watcher.test.ts` (the unit contract plus the
 constructed production lane) and
 `packages/dev-view/tests/status-cache.test.ts` (the client contract).
+
+The renderer consumes the invalidations as PUSH, not only as pull (M12): the
+desktop `DevRuntimeService` exposes an optional `events()` subscription surface
+(`DevEventSubscription`) that delivers `git.statusInvalidated` over the
+gateway's existing signed event stream through the bridge's existing
+`listen` seam — the bridge contract is not widened. The surface is typed
+(`DevGitStatusInvalidated`: worktree, generation, revision, reason),
+capability-checked (a scope is subscribed only when its capability snapshot,
+read through the authenticated command path, grants `dev.git.read`; a refused
+probe subscribes nothing — fail closed), and generation-fenced. SSE payloads
+are transport bytes: the surface structurally validates each payload before
+delivery and drops a malformed frame rather than trusting it, while tolerating
+additive payload fields. Consumers decide through one shared pure predicate
+(`pushInvalidationDecision`): a same-generation `tree_changed`/`degraded`
+event invalidates the cache and repopulates through the capability-checked
+pull, a moved generation re-resolves the worktree context (a re-fence), and
+another worktree's event plus the watcher's own `refreshed`/`stopped`
+bookkeeping are ignored. A push never carries status bytes, so pull remains
+the correctness path; when the event surface is absent — a web non-desktop
+runtime, or a bridge predating the listen seam — panes keep generation-fenced
+pull unchanged.
 
 ### Canonical byte encoding in proofs
 
@@ -2755,6 +2840,24 @@ driver's durable typed state. The warm never runs for a scripted (injected)
 driver. `dev.harness.managedPiInstall` remains the explicit command path with
 the same typed contract; the launch path treats a non-ready managed
 installation as the typed gap carrying the install remediation.
+
+The managed Pi is also a registered **component of the packaged manifest**
+(#185 follow-up, "Local stack supervision"): the manifest entry carries the
+driver's build-time pin (pinned version, pinned archive digest — the
+installed executable is the digest-verified archive bytes written verbatim),
+a `managed-data-dir` install kind with the data-dir-relative install label,
+the process health probe over the engine's own launch, startup phase 1, no
+adoption protocol (the driver owns install and the launch path, so there is
+nothing for the sidecar handshake to adopt), and the optional flag — it never
+gates baseline readiness. The ownership boundary is unchanged: the DRIVER
+owns install (the engine never installs, never fetches, never touches
+user-managed Pi locations); the ENGINE observes and starts per policy. Before
+the first successful ensure the component is truthfully ABSENT — its
+install-location resolution reports typed absence, the engine holds and
+reports it like any component, and a start attempt fails typed
+(`spawn_failed`) without burning the crash-loop budget (spawn failures never
+count as crashes). A drifted on-disk artifact is surfaced truthfully as a
+digest mismatch in the resolution; healing stays the driver's job.
 
 ### Launch orchestration, preferences, and the root default
 
@@ -3632,6 +3735,120 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-21 — #185: live supervision events under a crash-storm bound,
+  and the managed Pi as a truthful-absence manifest component.** Two
+  follow-ups to the packaged supervision wiring. (1) The supervision
+  engine's exit/unhealthy observations now surface as a LIVE typed shell
+  event (`supervision.componentEvent`, the same bus path
+  `git.statusInvalidated` rides): crash (`exit`, `expected: false`),
+  restart (`start` with `start`/`restart`/`auto-restart` cause), operator
+  and upgrade stops, unresponsive recycles (`unhealthy`), unadoptable
+  persisted launches, and `crash_loop` verdicts are observable without
+  polling ("Local stack supervision"). Payloads are engine-authored and
+  secret-free; the live surface is bounded per component and kind (5 per
+  sliding 60 seconds) — events beyond the cap are coalesced into a
+  `suppressed` counter carried by the kind's next emitted event, while the
+  durable journal and audit ring record everything unbounded. The numbers
+  align with the 5-failures/10-minutes restart policy, so an engine-native
+  crash storm is never coalesced and anything faster than the policy cannot
+  flood the stream. The composition attaches the engine's sink to the shell
+  event bus after every recomposition, before the boot steps run. (2) The
+  managed Pi registers as a packaged manifest component: the manifest schema
+  gains an additive `installKind` (`bundled` — bundle-relative label, strict
+  boot-time resolution, unchanged for existing components; `managed-data-dir`
+  — data-dir-relative label under the owner-only data root, resolved with
+  truthful-absence semantics), the managed Pi entry carries the driver's
+  build-time pin (pinned version + archive digest, process health probe,
+  phase 1, no adoption protocol, optional), and before the first ensure the
+  component is truthfully absent — typed absence, `spawn_failed` starts that
+  never burn the crash-loop budget, and drift surfaced as a digest mismatch
+  the driver heals ("The managed Pi installation lifecycle"). The ownership
+  boundary is unchanged: the driver installs, the engine observes/starts per
+  policy and never installs. Pinned by
+  `apps/desktop/tests/supervision-supervisor.test.ts` (emission + bound),
+  `apps/desktop/tests/supervision-manifest.test.ts` (install-kind decode),
+  `apps/desktop/tests/dev-runtime-managed-pi.test.ts` (registration,
+  truthful absence, digest-match and drift resolutions, containment), and
+  the packaged supervision smoke's proofs 5–6.
+
+- **2026-09-21 — M12: in-process command dispatch (`dispatchLocal`) and
+  renderer push consumption of git status invalidations.** Two closures of the
+  watcher slice's handoffs, with no new registry operations (the 163 stand) and
+  no wire or limits change. (1) The channel authority gained an in-process
+  dispatch seam, `authority.dispatchLocal` ("Command envelope and
+  authorization"): trusted shell code dispatches a fully-formed `DevCommand`
+  through the same terminal steps the socket path runs — the exact
+  `decodeDevCommand` structural decoder, the freshness/expiry window, scope
+  admission via `authorizeCommand` (no channel identity on this lane),
+  capability derivation, registered-provider invocation, and the shared
+  `DevReply`/audit/refusal machinery — gated by a module-private
+  `INTERNAL_DISPATCH_MARKER` whose absence or mismatch throws
+  `channel_unauthenticated` before the command is examined (fail closed). The
+  marker replaces only the proofs an internal caller satisfies structurally —
+  trusted origin, channel credential/identity proof, and replay — because the
+  envelope is authored in-process and holds no client-supplied bytes; resource
+  binding and the generation fence stay with the provider exactly as for an
+  external caller, and the lane's audit records carry no channel fields, making
+  internal dispatches distinguishable in the audit trail. The git watcher
+  lane's `readStatus` seam now dispatches the registered `dev.git.status`
+  provider through this seam instead of calling the handler directly (the
+  one-place upgrade the registrar's comment promised); watcher refreshes leave
+  channel-less `command_accepted` audit records, and a lost race still
+  resolves to an honestly empty cache. (2) The desktop `DevRuntimeService`
+  gained an optional `events()` subscription surface ("Watcher-driven status
+  invalidation"): typed, capability-checked (subscribe only on a granted
+  `dev.git.read` snapshot — fail closed), generation-fenced delivery of
+  `git.statusInvalidated` over the gateway's existing signed event stream via
+  the bridge's existing `listen` seam (the frozen bridge contract is not
+  widened). SSE payloads are structurally validated before delivery — a
+  malformed frame is dropped, never trusted. The source-control pane's status
+  cache and the files pane's marker cache consume pushes through one shared
+  pure predicate (`pushInvalidationDecision`): same-generation
+  `tree_changed`/`degraded` invalidates and repopulates through the
+  capability-checked pull, a moved generation re-resolves the context, and
+  other worktrees' events plus `refreshed`/`stopped` bookkeeping are ignored.
+  Push never carries status bytes: with no event surface (web non-desktop
+  runtime, or a bridge predating `listen`) panes keep generation-fenced pull
+  unchanged. Pinned by `apps/desktop/tests/dev-runtime-dispatch-local.test.ts`
+  (the seam contract plus socket-path parity),
+  `apps/desktop/tests/dev-runtime-git-watcher-dispatch.test.ts` (the watcher
+  read rides the gate, audited channel-less),
+  `apps/web/test/desktop-event-surface.test.ts` (the renderer surface), and
+  the extended `packages/dev-view/tests/status-cache.test.ts`.
+
+- **2026-09-21 — #399 residue: the stream inbound validator is reconciled per
+  direction (write frames carry byte offsets, not counters).** The generic
+  inbound validator (`createStreamInbound`) required client sequences strictly
+  above the grant's `fromSequence`, which is correct for sequence-counter
+  frames but wrong for the write direction, whose frames carry byte-offset
+  sequences — the first `file-bytes-v1` chunk legitimately equals
+  `fromSequence` (`'0'`), so every WebSocket write attach would have been
+  refused on its first frame (never fired in production: nothing attached via
+  WebSocket; the relay had deferred offset contiguity to the provider). The
+  validator is now grant-direction-aware on sequencing: `read` grants accept
+  only client credit (`ack`) exactly as before — byte-for-byte unchanged —
+  while `write` grants enforce byte-offset contiguity on byte-bearing `input`
+  frames (first chunk exactly at `fromSequence`, every later chunk exactly at
+  the running offset end = previous offset + bytes length; gaps, replays, and
+  overlaps all close typed `incompatible`) and keep strictly increasing event
+  sequences on byte-less `gesture`/`resize` frames that never fall behind
+  bytes already consumed. Direction, generation fencing, and frame-bound
+  checks are unchanged. The shell-side stream relay applies the shared
+  discipline verbatim again (the write-direction deferral is gone); its relay
+  legs (JSON/base64, ≤ 64 KiB frames, ≤ 128 KiB decode bound) are unchanged,
+  and the provider's byte-exact atomic-write guarantees stand on top. Gateway
+  consumers audited under the new write rule: the full-duplex WebSocket path
+  has no production write attach today (file streams ride the relay; the
+  terminal pane renders a placeholder; `browser-frames-v1`/`device-frames-v1`
+  registers an unavailable stream), the `desktop-frames-v1` computer-use write
+  path re-derives admission provider-side and now additionally requires
+  byte-offset sequences from any future client, and read-direction behavior
+  is identical. Pinned by the extended `shell-channel.test.ts` validator
+  cases (first chunk at `fromSequence` passes; gapped, replayed, and
+  overlapping offsets close typed) and the new `file-stream-relay.test.ts`
+  offset-discipline case. No wire, registry, or limits change (the 163
+  operations stand).
+
 - **2026-09-21 — #31: the managed Pi installation lifecycle is real (zero
   manual Pi installation).** The managed Pi driver's archive resolution is no
   longer a test-only seam: the production chain is "installed at the pin →
@@ -3731,11 +3948,13 @@ can distinguish intentional spec evolution from drift:
   Frames ride the signed event/invoke paths (base64 within the frame bound,
   strict send-order delivery); stream-backed open/save activate only when the
   bridge seam binds, and refused binds surface typed
-  `capability_unavailable`. Residual: the generic inbound validator's
-  strictly-increasing client-sequence rule conflicts with the write
+  `capability_unavailable`. Residual (reconciled later the same day, see the
+  wire-validator entry): the generic inbound validator's strictly-increasing
+  client-sequence rule conflicted with the write
   direction's byte-offset sequences (first chunk equals `fromSequence`); the
-  relay keeps the validator's direction/generation/frame-bound checks and
-  defers offset contiguity to the provider until the validator is reconciled.
+  relay kept the validator's direction/generation/frame-bound checks and
+  deferred offset contiguity to the provider until the validator was
+  reconciled.
   No new registry operations (the 163 from the hunk-staging delta stand).
 - **2026-09-21 — #399/#396 residues: checkpoint retention/GC and
   watcher-driven status invalidation.** Terminal durable history is now

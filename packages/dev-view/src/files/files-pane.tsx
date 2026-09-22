@@ -6,7 +6,7 @@
  * through their dry-run plan summaries (#399 residue). Selecting a file
  * hands a WorkspacePath + identity to the central editor surface.
  */
-import type { FileEntry } from '@adea-ai/types/dev-runtime'
+import type { FileEntry, Scope } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
   ChevronDown,
@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-solid'
-import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
+import { For, Show, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import {
@@ -35,6 +35,7 @@ import {
   cacheStatus,
   emptyStatusCache,
   invalidateStatus,
+  pushInvalidationDecision,
   refenceStatusCache,
   type StatusCacheSnapshot,
 } from './status-cache'
@@ -101,9 +102,36 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
 
   const [contextVersion, setContextVersion] = createSignal(0)
 
+  // ── Push invalidation (M12) ─────────────────────────────────────────────────
+  //
+  // The marker cache consumes the shell watcher lane's pushes through the
+  // shared decision (status-cache.pushInvalidationDecision): a same-generation
+  // tree change kills the markers and repopulates through the
+  // capability-checked pull, a moved generation re-resolves the context
+  // (re-fence), and the watcher's own refreshed/stopped bookkeeping is
+  // ignored. Push never carries marker bytes; with no event surface (web
+  // non-desktop runtime) the pane keeps generation-fenced pull.
+  let disposePush: (() => void) | undefined
+  let pushWired = false
+  function wirePushInvalidation(activeScope: Scope): void {
+    if (pushWired) return
+    pushWired = true
+    const events = props.runtime.events?.()
+    if (!events) return
+    disposePush = events.on('git.statusInvalidated', activeScope, (event) => {
+      const context = worktree()
+      if (!context) return
+      const decision = pushInvalidationDecision(context, event)
+      if (decision === 'invalidate') void refreshMarkers()
+      else if (decision === 'refence') void refresh()
+    })
+  }
+  onCleanup(() => disposePush?.())
+
   createResource(contextVersion, async () => {
     const activeScope = scope()
     if (!activeScope || props.runtime.state().status !== 'ready') return
+    wirePushInvalidation(activeScope)
     try {
       const context = await resolveWorktreeContext(props.runtime, activeScope)
       setWorktree(context)

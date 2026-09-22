@@ -109,13 +109,23 @@ export type StreamInboundVerdict =
 
 /**
  * Per-attach inbound validator: wrong-direction frames, oversize payloads,
- * out-of-order client sequences, and stale generations are rejected and close
+ * mis-sequenced client frames, and stale generations are rejected and close
  * the stream. `read` grants only accept client credit (`ack`); `write` grants
- * only accept client input (`input`/`gesture`/`resize`).
+ * only accept client input (`input`/`gesture`/`resize`). The two directions
+ * sequence client frames differently, so the rules differ too:
+ *
+ *  - `input` frames carry byte-OFFSET sequences: the first chunk must land
+ *    exactly on the grant's `fromSequence` and every later chunk on the
+ *    running offset end (previous offset + bytes length). A higher offset is
+ *    a gap; a lower one replays or overlaps bytes the cursor already passed.
+ *    Both close typed (`incompatible`), exactly like the old ordering refusals.
+ *  - Byte-less `gesture`/`resize` frames carry event counters, not offsets:
+ *    strictly increasing, and never behind the offset end bytes have consumed.
  */
 export function createStreamInbound(grant: DevStreamGrant) {
   let closed = false
-  let lastSequence = BigInt(grant.fromSequence)
+  let offsetEnd = BigInt(grant.fromSequence)
+  let lastEventSequence = BigInt(grant.fromSequence)
 
   function accept(frame: DevStreamFrame): StreamInboundVerdict {
     if (closed) return { ok: false, closeCode: 'normal', reason: 'stream is closed' }
@@ -138,11 +148,25 @@ export function createStreamInbound(grant: DevStreamGrant) {
     }
     if ('sequence' in frame) {
       const sequence = BigInt(frame.sequence)
-      if (sequence <= lastSequence) {
+      if (frame.type === 'input') {
+        if (sequence !== offsetEnd) {
+          closed = true
+          return {
+            ok: false,
+            closeCode: 'incompatible',
+            reason:
+              sequence > offsetEnd
+                ? 'client offset skips ahead of the write cursor'
+                : 'client offset replays bytes the write cursor already passed',
+          }
+        }
+        offsetEnd += BigInt(frame.bytes.byteLength)
+      } else if (sequence < offsetEnd || sequence <= lastEventSequence) {
         closed = true
         return { ok: false, closeCode: 'incompatible', reason: 'client sequence went backwards' }
+      } else {
+        lastEventSequence = sequence
       }
-      lastSequence = sequence
     }
     if ('bytes' in frame && frame.bytes.byteLength > grant.maxFrameBytes) {
       closed = true

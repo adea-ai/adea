@@ -17,7 +17,7 @@ const bundleEntry = new URL(
 ).pathname
 
 describe.skipIf(process.platform !== 'darwin')('packaged supervision smoke', () => {
-  test('launch-record identity, observed exit, SIGKILL escalation, and reconcile-after-restart on real processes', async () => {
+  test('launch-record identity, observed exit, SIGKILL escalation, reconcile-after-restart, bounded live events, and managed-Pi registration on real processes', async () => {
     const proc = Bun.spawnSync(
       [
         process.execPath,
@@ -40,6 +40,10 @@ describe.skipIf(process.platform !== 'darwin')('packaged supervision smoke', () 
     expect(output).toContain('PROOF 2 observed exit')
     expect(output).toContain('PROOF 3 SIGKILL escalation')
     expect(output).toContain('PROOF 4 reconcile after supervisor restart')
+    // #185 follow-ups: the live event surface under a crash storm and the
+    // managed-Pi manifest component with truthful-absence resolution.
+    expect(output).toContain('PROOF 5 live supervision events')
+    expect(output).toContain('PROOF 6 managed-Pi component registration')
     expect(output).toContain('SUPERVISION-SMOKE PASS')
     expect(output).not.toContain('FAIL:')
   }, 240_000)

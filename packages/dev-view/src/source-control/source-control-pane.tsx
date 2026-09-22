@@ -12,10 +12,11 @@ import type {
   GitHubCheck,
   GitHubPullRequest,
   GitHubRepository,
+  Scope,
 } from '@adea-ai/types/dev-runtime'
 import { cn } from '@adea-ai/ui/lib/utils'
 import { Download, GitCommitHorizontal, RefreshCw } from 'lucide-solid'
-import { For, Show, createResource, createSignal, type JSX } from 'solid-js'
+import { For, Show, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import {
@@ -38,6 +39,7 @@ import {
   cacheStatus,
   emptyStatusCache,
   invalidateStatus,
+  pushInvalidationDecision,
   refenceStatusCache,
   type StatusCacheSnapshot,
 } from '../files/status-cache'
@@ -81,9 +83,37 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
   const [diffMode, setDiffMode] = createSignal<'worktree' | 'staged'>('worktree')
   const [contextVersion, bumpContextVersion] = createSignal(0)
 
+  // ── Push invalidation (M12) ─────────────────────────────────────────────────
+  //
+  // When the shell's watcher lane publishes `git.statusInvalidated` over the
+  // authenticated event stream, this pane consumes the push through the same
+  // honesty contract as the watcher itself: a same-generation tree change
+  // kills the cache and repopulates through the capability-checked pull, a
+  // moved generation re-resolves the context (re-fence), and the watcher's
+  // own refreshed/stopped bookkeeping is ignored. Push never carries status
+  // bytes, and when the event surface is absent (web non-desktop runtime)
+  // the pane simply keeps generation-fenced pull.
+  let disposePush: (() => void) | undefined
+  let pushWired = false
+  function wirePushInvalidation(activeScope: Scope): void {
+    if (pushWired) return
+    pushWired = true
+    const events = props.runtime.events?.()
+    if (!events) return
+    disposePush = events.on('git.statusInvalidated', activeScope, (event) => {
+      const context = worktree()
+      if (!context) return
+      const decision = pushInvalidationDecision(context, event)
+      if (decision === 'invalidate') void refreshStatus()
+      else if (decision === 'refence') void refresh()
+    })
+  }
+  onCleanup(() => disposePush?.())
+
   createResource(contextVersion, async () => {
     const activeScope = scope()
     if (!activeScope || props.runtime.state().status !== 'ready') return
+    wirePushInvalidation(activeScope)
     const context = await resolveWorktreeContext(props.runtime, activeScope).catch(() => undefined)
     setWorktree(context)
     if (context) {

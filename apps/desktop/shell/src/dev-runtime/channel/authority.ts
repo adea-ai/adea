@@ -11,6 +11,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import {
   decodeAuthorizedDevFrame,
   decodeDevChannelHandshakeRequest,
+  decodeDevCommand,
   decodeDevStreamAttach,
   devCommandProofMessage,
   devOperationDefinitions,
@@ -30,6 +31,34 @@ import {
 import { isTrustedLoopbackRequest, type TrustedLoopbackPolicy } from './loopback'
 
 export const LEGACY_INVOKE_PROOF_CONTEXT = 'adea-invoke-v1'
+
+/**
+ * The trusted internal-caller marker for `dispatchLocal` (the in-process
+ * dispatch seam). The authority is the sole gate in front of the shell's
+ * privileged command surface, and this symbol is the only key that opens the
+ * in-process lane: `dispatchLocal` fails closed without the exact marker, so
+ * the seam cannot be reached accidentally and no renderer-reachable path can
+ * mint one (the symbol lives in shell-internal module scope, never crosses a
+ * transport, and is not part of any bridge contract).
+ *
+ * Trust argument — what an internal caller satisfies STRUCTURALLY, because it
+ * authors the envelope itself and holds no client-supplied bytes:
+ * - Trusted origin: the caller runs inside the shell process (the same trust
+ *   boundary the socket path proves with the loopback origin checks).
+ * - Channel credential and identity proof: there is no channel; the envelope
+ *   is authored by shell code that already holds the provider-side trust, so
+ *   there is no secret to verify and no identity to bind.
+ * - Replay: the envelope is minted fresh per dispatch inside the trust
+ *   boundary and never serialized onto a transport, so no captured bytes can
+ *   be replayed; a stale envelope is still bounded by the freshness window.
+ * What it does NOT satisfy structurally — and therefore what `dispatchLocal`
+ * still runs exactly as the socket path does: scope admission
+ * (`authorizeCommand`), capability derivation against the registry, the
+ * freshness/expiry window, resource binding and the generation fence (provider
+ * re-proofs), and registered-provider invocation.
+ */
+export const INTERNAL_DISPATCH_MARKER: unique symbol = Symbol('adea.dev-runtime.internal-dispatch')
+export type InternalDispatchMarker = typeof INTERNAL_DISPATCH_MARKER
 
 export const COMMAND_EXPIRY_MS = 60_000
 export const CLOCK_SKEW_MS = 30_000
@@ -168,13 +197,48 @@ function decodeCredentialId(raw: unknown): string | undefined {
   }
 }
 
+/** Safe accessors for the in-process lane, where the argument is the command
+ *  itself (not the frame wrapper) and may be malformed at runtime. */
+function localRequestId(command: unknown): string {
+  try {
+    const id = (command as { requestId?: unknown } | undefined)?.requestId
+    return typeof id === 'string' ? id : ''
+  } catch {
+    return ''
+  }
+}
+
+function localOperation(command: unknown): DevOperation | undefined {
+  try {
+    const operation = (command as { operation?: unknown } | undefined)?.operation
+    return typeof operation === 'string' ? (operation as DevOperation) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function localResourceLabel(command: unknown): string | undefined {
+  try {
+    const resource = (
+      command as { resource?: { kind?: unknown; id?: unknown; generation?: unknown } } | undefined
+    )?.resource
+    if (!resource || typeof resource !== 'object') return undefined
+    return `${String(resource.kind)}:${String(resource.id)}:${String(resource.generation)}`
+  } catch {
+    return undefined
+  }
+}
+
 export function createChannelAuthority(options?: {
   /** Injected wall clock in epoch milliseconds (host tests use a fixed one). */
   now?: () => number
   shellHost: string
   shellOrigin: string
-  /** Authoritative account/workspace/node admission, supplied by the host. */
-  authorizeCommand?: (command: DevCommand, identity: ChannelIdentity) => void | Promise<void>
+  /** Authoritative account/workspace/node admission, supplied by the host.
+   *  `identity` is the authenticated channel of the caller; the in-process
+   *  `dispatchLocal` lane passes none (there is no channel to bind), which is
+   *  sound because its envelope holds no client-supplied bytes. */
+  authorizeCommand?: (command: DevCommand, identity?: ChannelIdentity) => void | Promise<void>
 }) {
   const now = options?.now ?? (() => Date.now())
   const policy: TrustedLoopbackPolicy = {
@@ -624,6 +688,167 @@ export function createChannelAuthority(options?: {
     }
   }
 
+  // ── In-process dispatch (the internal-caller seam) ────────────────────────
+
+  /**
+   * Dispatches a FULLY-FORMED `DevCommand` through the same terminal steps the
+   * socket path runs — structural validation (`decodeDevCommand`, the exact
+   * decoder the authorized frame path reaches), the freshness/expiry window,
+   * scope admission via `authorizeCommand`, capability derivation against the
+   * operation registry, registered-provider invocation, and the reply/audit
+   * machinery — with the trusted internal-caller marker standing in for the
+   * socket transport proof. Fail closed: any other marker throws
+   * `channel_unauthenticated` before a command is even looked at.
+   *
+   * Which proofs the marker replaces (and why that is sound) is documented on
+   * `INTERNAL_DISPATCH_MARKER`; which steps still run is exactly the list
+   * above. The command must be authored entirely by trusted shell code — the
+   * seam never accepts a raw frame, a proof, or any client-supplied bytes.
+   * Audit records for this lane carry no channel fields, which is what makes
+   * an internal dispatch distinguishable in the audit trail.
+   */
+  async function dispatchLocal(
+    marker: InternalDispatchMarker,
+    command: DevCommand
+  ): Promise<DevReply> {
+    if (marker !== INTERNAL_DISPATCH_MARKER) {
+      counters.originRefused += 1
+      audit({ at: iso(now()), kind: 'command_refused', errorCode: 'channel_unauthenticated' })
+      throw new ChannelRejection(
+        'channel_unauthenticated',
+        'internal dispatch requires the trusted in-process marker',
+        403
+      )
+    }
+    const at = now()
+    const refusal = (error: DevError, operation?: DevOperation): DevReply => {
+      counters.commandsRefused += 1
+      audit({
+        at: iso(now()),
+        kind: 'command_refused',
+        operation,
+        resource: localResourceLabel(command),
+        errorCode: error.code,
+      })
+      return {
+        schemaVersion: 1,
+        operation: (operation ?? 'unknown') as DevOperation,
+        requestId: localRequestId(command),
+        ok: false,
+        error,
+      }
+    }
+    try {
+      // The same structural validation (shape, schema, size, scope, registry
+      // capability equality, body/resource binding) the authorized frame path
+      // reaches through `decodeAuthorizedDevFrame`.
+      const decoded = decodeDevCommand(command)
+      const issuedAt = Date.parse(decoded.issuedAt)
+      const expiresAt = Date.parse(decoded.expiresAt)
+      if (issuedAt > at + CLOCK_SKEW_MS) {
+        counters.tokenExpired += 1
+        throw new ChannelRejection('token_expired', 'command issued in the future', 401)
+      }
+      if (expiresAt > issuedAt + COMMAND_EXPIRY_MS) {
+        counters.tokenExpired += 1
+        throw new ChannelRejection('token_expired', 'command lifetime exceeds 60 seconds', 401)
+      }
+      if (expiresAt < at) {
+        counters.tokenExpired += 1
+        throw new ChannelRejection('token_expired', 'command expired', 401)
+      }
+      // Step 3, unchanged: scope admission precedes capability comparison and
+      // any provider dispatch. There is no channel identity on this lane.
+      if (options?.authorizeCommand) {
+        try {
+          await options.authorizeCommand(decoded)
+        } catch (error) {
+          throw new ChannelRejection(
+            error instanceof ChannelRejection ? error.code : 'channel_unauthenticated',
+            error instanceof Error ? error.message : 'command scope is not authorized',
+            403
+          )
+        }
+      }
+      // Capability derivation, unchanged: the submitted capability set must
+      // equal the registry's exactly (also enforced by the decoder; the
+      // explicit check keeps the admission sequence legible and counted).
+      const definition = devOperationDefinitions[decoded.operation]
+      if (
+        decoded.capabilities.length !== definition.capabilities.length ||
+        decoded.capabilities.some(
+          (capability, index) => capability !== definition.capabilities[index]
+        )
+      ) {
+        counters.capabilityDenied += 1
+        throw new ChannelRejection(
+          'capability_denied',
+          'capabilities do not match the registry',
+          403
+        )
+      }
+      // Steps 4-6, unchanged: the local-device lane binds the shell itself,
+      // and only a registered provider may serve the operation.
+      const provider = commandProviders.get(decoded.operation)
+      let value: unknown
+      if (provider) {
+        value = await provider(decoded)
+      } else {
+        counters.capabilityDenied += 1
+        return refusal(
+          {
+            code: 'capability_unavailable',
+            retryable: true,
+            message: `no provider is registered for ${decoded.operation}`,
+            observedAt: iso(now()),
+          },
+          decoded.operation
+        )
+      }
+      counters.commandsAccepted += 1
+      audit({
+        at: iso(now()),
+        kind: 'command_accepted',
+        operation: decoded.operation,
+        resource: decoded.resource
+          ? `${decoded.resource.kind}:${decoded.resource.id}:${decoded.resource.generation}`
+          : undefined,
+      })
+      return {
+        schemaVersion: 1,
+        operation: decoded.operation,
+        requestId: decoded.requestId,
+        ok: true,
+        value: value ?? null,
+        observedAt: iso(now()),
+      }
+    } catch (error) {
+      if (error instanceof ChannelRejection) {
+        rejectionWithCode(error)
+        return refusal(
+          {
+            code: error.code,
+            retryable: error.retryable,
+            message: error.message,
+            observedAt: iso(now()),
+          },
+          localOperation(command)
+        )
+      }
+      // A provider's typed failure is a valid refusal, surfaced verbatim —
+      // the same contract the socket path honors.
+      if (isDevErrorShape(error)) {
+        return refusal(error, localOperation(command))
+      }
+      return refusal({
+        code: 'invalid_state',
+        retryable: false,
+        message: 'command frame was malformed',
+        observedAt: iso(now()),
+      })
+    }
+  }
+
   // ── Capability snapshot (the channel's own probe operation) ──────────────
 
   function capabilitySnapshot(scope: Scope, identity?: ChannelIdentity): CapabilitySnapshot {
@@ -833,6 +1058,7 @@ export function createChannelAuthority(options?: {
     authenticateLegacyRequest,
     legacyProofMessage,
     execute,
+    dispatchLocal,
     capabilitySnapshot,
     mintEventsToken,
     consumeEventsToken,

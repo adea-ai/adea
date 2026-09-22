@@ -4,7 +4,7 @@
 // All decisions run against an injected clock and a fake process adapter, so
 // restart policy and PID-reuse races are deterministic (TM-004).
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -12,8 +12,14 @@ import {
   decodeComponentManifest,
   type ComponentManifest,
 } from '../shell/src/supervision/component-manifest'
-import { createSupervisor, type SupervisionAdapter } from '../shell/src/supervision/supervisor'
-import { createRecordStore } from '../shell/src/supervision/records'
+import {
+  createSupervisor,
+  SUPERVISION_EVENT_MAX_PER_KIND,
+  SUPERVISION_EVENT_WINDOW_MS,
+  type SupervisionAdapter,
+  type SupervisionEvent,
+} from '../shell/src/supervision/supervisor'
+import { createRecordStore, type RecordStore } from '../shell/src/supervision/records'
 
 function manifestWith(...ids: string[]): ComponentManifest {
   const decoded = decodeComponentManifest({
@@ -619,5 +625,233 @@ describe('audit and diagnostics', () => {
       version: '1.0.0',
       digestSha256: 'a'.repeat(64),
     })
+  })
+})
+
+describe('live supervision events (issue #185 follow-up)', () => {
+  /** A supervisor with a recording event sink attached through the input. */
+  async function eventSupervisor(sink: (event: SupervisionEvent) => void) {
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const supervisor = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      now: clock.now,
+      onEvent: sink,
+    })
+    const started = await supervisor.start({ componentId: 'cp', idempotencyKey: 'cp' })
+    if (!started.ok) throw new Error(`fixture start failed: ${started.code}`)
+    return { supervisor, ...fake, ...clock }
+  }
+
+  test('start, stop, crash, and restart observations emit typed, secret-free events', async () => {
+    const events: SupervisionEvent[] = []
+    const { supervisor, adapter } = await eventSupervisor((event) => events.push(event))
+    // eventSupervisor already emitted the initial `start`; everything after
+    // is relative to it.
+    expect(events.map((event) => event.kind)).toEqual(['start'])
+
+    // Out-of-band crash + report: an unexpected exit and an auto-restart.
+    adapter.exit(101)
+    expect(await supervisor.reportUnexpectedExit('cp')).toMatchObject({ ok: true })
+    // Operator stop: an expected exit.
+    expect(await supervisor.stop('cp')).toMatchObject({ ok: true })
+    // Operator restart from exited: a fresh launch.
+    expect(await supervisor.restart('cp')).toMatchObject({ ok: true })
+
+    const exits = events.filter((event) => event.kind === 'exit')
+    const starts = events.filter((event) => event.kind === 'start')
+    expect(starts.map((event) => (event.kind === 'start' ? event.cause : ''))).toEqual([
+      'start',
+      'auto-restart',
+      'restart',
+    ])
+    expect(exits.map((event) => (event.kind === 'exit' ? event.expected : null))).toEqual([
+      false,
+      true,
+    ])
+    for (const event of events) {
+      expect(event.componentId).toBe('cp')
+      expect(event.generation).toBeGreaterThan(0)
+      expect(Number.isNaN(Date.parse(event.at))).toBe(false)
+      expect(event.suppressed).toBe(0)
+      // Secret-free by construction: the JSON carries only engine-authored
+      // fields — no host paths, no command lines, no environment.
+      expect(JSON.stringify(event)).not.toMatch(/\/Users\/|argv|env|cwd/)
+    }
+    const crashExit = exits.find((event) => event.kind === 'exit' && !event.expected)
+    expect(crashExit).toMatchObject({
+      kind: 'exit',
+      expected: false,
+      exitDetail: 'unexpected exit',
+    })
+  })
+
+  test('an unresponsive observation emits the unhealthy event before the recycle', async () => {
+    const events: SupervisionEvent[] = []
+    const { supervisor } = await eventSupervisor((event) => events.push(event))
+    expect(await supervisor.reportUnresponsive('cp')).toMatchObject({ ok: true })
+    expect(events.map((event) => event.kind)).toEqual(['start', 'unhealthy', 'exit', 'start'])
+    expect(events[1]).toMatchObject({ kind: 'unhealthy', generation: 1 })
+    expect(events[3]).toMatchObject({ kind: 'start', cause: 'auto-restart' })
+  })
+
+  test('a persisted launch proven unadoptable at reconcile emits an expected exit', async () => {
+    const events: SupervisionEvent[] = []
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const recordsRoot = mkdtempSync(join(tmpdir(), 'adea-supervisor-events-'))
+    try {
+      const records = createRecordStore(recordsRoot)
+      const first = createSupervisor({
+        manifest: manifestWith('cp'),
+        adapter: fake.adapter,
+        records,
+        now: clock.now,
+      })
+      await first.start({ componentId: 'cp', idempotencyKey: 'initial' })
+      fake.rekey(101)
+      const revived = createSupervisor({
+        manifest: manifestWith('cp'),
+        adapter: fake.adapter,
+        records: createRecordStore(recordsRoot),
+        now: clock.now,
+        onEvent: (event) => events.push(event),
+      })
+      await revived.reconcile()
+      const exits = events.filter((event) => event.kind === 'exit')
+      expect(exits).toHaveLength(1)
+      expect(exits[0]).toMatchObject({ expected: true, generation: 1 })
+    } finally {
+      rmSync(recordsRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('a construction-seeded crash_loop emits when the sink rides the input', () => {
+    const events: SupervisionEvent[] = []
+    const clock = tickClock()
+    const recordsRoot = mkdtempSync(join(tmpdir(), 'adea-supervisor-seed-'))
+    try {
+      const seeded: RecordStore = createRecordStore(recordsRoot)
+      for (let i = 0; i < 5; i += 1) {
+        seeded.append({
+          kind: 'exited',
+          at: new Date(clock.now()).toISOString(),
+          componentId: 'cp',
+          generation: i + 1,
+          processRecordId: `seed-${i}`,
+          expected: false,
+          exitDetail: 'unexpected exit',
+        })
+      }
+      createSupervisor({
+        manifest: manifestWith('cp'),
+        adapter: fakeAdapter().adapter,
+        records: seeded,
+        now: clock.now,
+        onEvent: (event) => events.push(event),
+      })
+      const crashLoops = events.filter((event) => event.kind === 'crash_loop')
+      expect(crashLoops).toHaveLength(1)
+      expect(crashLoops[0]).toMatchObject({ failuresInWindow: 5 })
+    } finally {
+      rmSync(recordsRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('the sink is optional and late-attachable', async () => {
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const supervisor = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      now: clock.now,
+    })
+    // No sink: engine actions never throw, the journal still records.
+    await supervisor.start({ componentId: 'cp', idempotencyKey: 'quiet' })
+    expect(supervisor.audit().length).toBeGreaterThan(0)
+
+    const events: SupervisionEvent[] = []
+    supervisor.setEventSink((event) => events.push(event))
+    await supervisor.stop('cp')
+    expect(events.map((event) => event.kind)).toEqual(['exit'])
+    // Detaching stops emission without affecting engine decisions.
+    supervisor.setEventSink(undefined)
+    await supervisor.start({ componentId: 'cp', idempotencyKey: 'detached' })
+    expect(events).toHaveLength(1)
+    expect(supervisor.snapshot().components[0].state).toBe('running')
+  })
+
+  test('the crash-storm bound coalesces per kind while the journal stays complete', async () => {
+    const events: SupervisionEvent[] = []
+    const fake = fakeAdapter()
+    const clock = tickClock()
+    const supervisor = createSupervisor({
+      manifest: manifestWith('cp'),
+      adapter: fake.adapter,
+      now: clock.now,
+      onEvent: (event) => events.push(event),
+    })
+    await supervisor.start({ componentId: 'cp', idempotencyKey: 'storm' })
+    let pid = 101
+    // One full engine-native episode (five crashes within the window), then
+    // operator restarts faster than the policy allows — the scripted storm.
+    for (let cycle = 0; cycle < 7; cycle += 1) {
+      fake.exit(pid)
+      await supervisor.reportUnexpectedExit('cp')
+      const state = supervisor.snapshot().components[0].state
+      if (state === 'crash_loop') {
+        clock.advance(1) // new idempotency key; still inside the emission window
+        const restarted = await supervisor.restart('cp')
+        expect(restarted.ok).toBe(true)
+        pid = restarted.value.identity.pid
+      } else {
+        pid += 1
+      }
+    }
+    // The storm's last cycle restarts once more, so the engine rests running
+    // at the next generation; the verdict itself was reached and re-tripped.
+    expect(supervisor.snapshot().components[0]).toMatchObject({
+      state: 'running',
+      generation: 8,
+    })
+
+    // Inside the storm window, the bound held: no kind exceeded the cap.
+    const byKind = (kind: SupervisionEvent['kind']) => events.filter((event) => event.kind === kind)
+    for (const kind of ['exit', 'start', 'crash_loop'] as const) {
+      expect(byKind(kind).length).toBeLessThanOrEqual(SUPERVISION_EVENT_MAX_PER_KIND)
+    }
+
+    // Slide the emission window on the injected clock and crash once more:
+    // the trailing emissions surface the coalescing counters that were still
+    // pending when the storm ended (a suppressed count rides the component
+    // and kind's NEXT emitted event).
+    clock.advance(SUPERVISION_EVENT_WINDOW_MS + 1)
+    fake.exit(108)
+    expect(await supervisor.reportUnexpectedExit('cp')).toMatchObject({
+      ok: true,
+      value: 'crash_loop',
+    })
+    expect(await supervisor.restart('cp')).toMatchObject({ ok: true })
+
+    const suppressedTotal = events.reduce((sum, event) => sum + event.suppressed, 0)
+    expect(suppressedTotal).toBeGreaterThan(0)
+    // Coalescing closure: every engine-native observation is either emitted
+    // or counted as coalesced — eight crash exits, nine launches (the initial
+    // one plus four auto-restarts and four operator restarts), and four
+    // crash-loop verdicts.
+    const suppressedSum = (kind: SupervisionEvent['kind']) =>
+      byKind(kind).reduce((sum, event) => sum + event.suppressed, 0)
+    expect(byKind('exit').length + suppressedSum('exit')).toBe(8)
+    expect(byKind('start').length + suppressedSum('start')).toBe(9)
+    expect(byKind('crash_loop').length + suppressedSum('crash_loop')).toBe(4)
+    // The durable truth never coalesces.
+    expect(supervisor.audit().filter((event) => event.kind === 'exit')).toHaveLength(8)
+  })
+
+  test('the shell composition attaches the sink to the shell event bus', () => {
+    const entry = readFileSync(join(import.meta.dir, '../shell/src/bun/index.ts'), 'utf8')
+    expect(entry).toContain('setEventSink')
+    expect(entry).toContain("'supervision.componentEvent'")
   })
 })

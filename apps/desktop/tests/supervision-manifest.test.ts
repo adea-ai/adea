@@ -109,8 +109,38 @@ describe('component manifest decode', () => {
     ],
     ['unknown platform', manifestWith({ platform: 'sunos' })],
     ['non-integer startup phase', manifestWith({ startupPhase: 1.5 })],
+    ['unknown install kind', manifestWith({ installKind: 'data-dir' })],
+    ['null install kind', manifestWith({ installKind: null })],
   ])('rejects %s as corrupt_state', (_name, raw) => {
     expect(decodeComponentManifest(raw)).toEqual({ ok: false, reason: 'corrupt_state' })
+  })
+
+  test('an absent install kind decodes as bundled (the additive default)', () => {
+    const decoded = decodeComponentManifest(manifestWith({}))
+    expect(decoded.ok).toBe(true)
+    if (decoded.ok) {
+      expect(decoded.manifest.components[0].installKind).toBe('bundled')
+    }
+  })
+
+  test('a managed-data-dir install kind decodes for the driver-installed component', () => {
+    const decoded = decodeComponentManifest(
+      manifestWith({
+        id: 'managed-pi',
+        product: 'Managed Pi runtime (driver-installed at the pinned version)',
+        version: '0.1.42',
+        installLocation: 'dev-runtime/harness/managed-pi/0.1.42/pi',
+        installKind: 'managed-data-dir',
+        rollbackTargetVersion: null,
+        required: false,
+      })
+    )
+    expect(decoded.ok).toBe(true)
+    if (decoded.ok) {
+      const component = decoded.manifest.components[0]
+      expect(component.installKind).toBe('managed-data-dir')
+      expect(component.installLocation).toBe('dev-runtime/harness/managed-pi/0.1.42/pi')
+    }
   })
 })
 

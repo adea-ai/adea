@@ -1,16 +1,23 @@
 // Packaging lane: install-location resolution for the bundled component
 // manifest (M10 #185, Dev Runtime spec "Local stack supervision").
 //
-// The manifest's `installLocation` is a bundle-relative label; this module is
-// the packaging lane that resolves each label to an absolute path inside the
-// Electrobun-built .app and proves containment + existence + artifact digest
-// before anything is launched. It replaces the supervision smoke's dev-mode
-// stand-ins when the lane runs packaged: the supervised sidecar command is
-// resolved from the bundled layout and executed by the bundled Bun runtime
-// (`Contents/MacOS/bun`, the repository-pinned Bun line), never by the
-// smoke's own toolchain.
+// The manifest's `installLocation` is resolved per the component's
+// `installKind`: a `bundled` label is bundle-relative and this module resolves
+// it against the Electrobun-built .app, proving containment + existence +
+// artifact digest before anything is launched (a failed resolution fails the
+// manifest — the manifest never describes an artifact the bundle does not
+// contain). A `managed-data-dir` label is data-dir-relative under the
+// owner-only data root: the artifact is installed at runtime by its owning
+// lifecycle (the managed Pi driver) and may truthfully be ABSENT — absence is
+// a typed resolution state, never a failure and never fabricated as present.
 //
-// Pure resolution over the real bundle: no side effects beyond reading files.
+// It replaces the supervision smoke's dev-mode stand-ins when the lane runs
+// packaged: the supervised sidecar command is resolved from the bundled
+// layout and executed by the bundled Bun runtime (`Contents/MacOS/bun`, the
+// repository-pinned Bun line), never by the smoke's own toolchain.
+//
+// Pure resolution over the real bundle and data dir: no side effects beyond
+// reading files.
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
@@ -21,6 +28,10 @@ import {
   type ComponentSpec,
 } from '../src/supervision/component-manifest'
 import type { ComponentCommand } from '../src/supervision/process-adapter'
+import {
+  MANAGED_PI_PINNED_ARCHIVE_SHA256,
+  MANAGED_PI_PINNED_VERSION,
+} from '../src/dev-runtime/harness/managed-pi-driver'
 
 /** Bundle-relative label of the packaged terminal sidecar entry, staged by
  *  the packaging lane (apps/desktop/scripts/shell.mjs + electrobun copy). */
@@ -29,6 +40,16 @@ export const SIDECAR_INSTALL_LABEL = 'Contents/Resources/app/dev-runtime-sidecar
 export const BUN_INSTALL_LABEL = 'Contents/MacOS/bun'
 /** Bundle-relative label of the packaged app launcher binary. */
 export const LAUNCHER_INSTALL_LABEL = 'Contents/MacOS/launcher'
+
+/** The managed Pi's manifest component id (#185 follow-up). It mirrors the
+ *  driver's own identity (`MANAGED_PI_DRIVER_ID`) so the supervision surface
+ *  and the install lifecycle name the same thing. */
+export const MANAGED_PI_COMPONENT_ID = 'managed-pi'
+/** Data-dir-relative install label of the managed Pi executable. Derived
+ *  from the driver's default install root
+ *  (`<dataDir>/dev-runtime/harness/managed-pi/<pinned version>/pi`); if the
+ *  driver's install root is ever overridden, this label moves with it. */
+export const MANAGED_PI_INSTALL_LABEL = `dev-runtime/harness/managed-pi/${MANAGED_PI_PINNED_VERSION}/pi`
 
 export type InstallResolution =
   | { ok: true; label: string; absolutePath: string; bytes: number; digestSha256: string }
@@ -40,20 +61,33 @@ function sha256File(path: string): string {
   return hasher.digest('hex')
 }
 
+/** Containment-only resolve of a label against a root: the label must be
+ *  non-empty and relative, and must resolve strictly inside the root. Shared
+ *  by the bundle-relative and the data-dir-relative resolutions. */
+function containedResolve(
+  root: string,
+  label: string
+): { ok: true; absolutePath: string } | { ok: false; reason: string } {
+  const rootPath = resolve(root)
+  if (label.length === 0) return { ok: false, reason: 'empty install label' }
+  if (label.startsWith('/') || label.startsWith('\\')) {
+    return { ok: false, reason: 'install label must be root-relative' }
+  }
+  const absolute = resolve(rootPath, label)
+  if (absolute !== rootPath && !absolute.startsWith(rootPath + sep)) {
+    return { ok: false, reason: 'resolved path escapes the root' }
+  }
+  return { ok: true, absolutePath: absolute }
+}
+
 /** Resolves one bundle-relative install label to an absolute path inside
  *  `appBundle`. Absolute labels, `..` escapes, and anything that resolves
  *  outside the bundle are refused — an install location can never point at
  *  host state outside the packaged layout. */
 export function resolveInstallLocation(appBundle: string, label: string): InstallResolution {
-  const bundleRoot = resolve(appBundle)
-  if (label.length === 0) return { ok: false, label, reason: 'empty install label' }
-  if (label.startsWith('/') || label.startsWith('\\')) {
-    return { ok: false, label, reason: 'install label must be bundle-relative' }
-  }
-  const absolute = resolve(bundleRoot, label)
-  if (absolute !== bundleRoot && !absolute.startsWith(bundleRoot + sep)) {
-    return { ok: false, label, reason: 'resolved path escapes the app bundle' }
-  }
+  const contained = containedResolve(appBundle, label)
+  if (!contained.ok) return { ok: false, label, reason: contained.reason }
+  const { absolutePath: absolute } = contained
   let stats
   try {
     stats = statSync(absolute)
@@ -70,6 +104,84 @@ export function resolveInstallLocation(appBundle: string, label: string): Instal
     bytes: stats.size,
     digestSha256: sha256File(absolute),
   }
+}
+
+/**
+ * Truthful-absence resolution for a data-dir-relative component label (#185
+ * follow-up). Same containment treatment as `resolveInstallLocation` (the
+ * label must resolve strictly inside the root), but absence is TYPED, not a
+ * failure: a `managed-data-dir` component's artifact is installed at runtime
+ * by its owning lifecycle and is legitimately not there before the first
+ * ensure. When the artifact exists, its real digest is observed and compared
+ * with `expectedDigest` (the manifest's pin) — a mismatch is surfaced
+ * truthfully (`digestMatchesPin: false`: install drift the owning lifecycle
+ * heals), never silently accepted and never fatal here.
+ */
+export type DataDirInstallResolution =
+  | {
+      ok: true
+      absent: false
+      label: string
+      absolutePath: string
+      bytes: number
+      digestSha256: string
+      digestMatchesPin: boolean
+    }
+  | {
+      ok: true
+      absent: true
+      label: string
+      absolutePath: string
+      /** Why the artifact is absent — installing it is the owner's job. */
+      reason: string
+    }
+  | { ok: false; label: string; reason: string }
+
+export function resolveDataDirInstall(
+  dataDir: string,
+  label: string,
+  options?: { expectedDigest?: string }
+): DataDirInstallResolution {
+  const contained = containedResolve(dataDir, label)
+  if (!contained.ok) return { ok: false, label, reason: contained.reason }
+  const { absolutePath: absolute } = contained
+  if (!existsSync(absolute)) {
+    return {
+      ok: true,
+      absent: true,
+      label,
+      absolutePath: absolute,
+      reason: 'not installed yet (the owning lifecycle installs it on first ensure)',
+    }
+  }
+  let stats
+  try {
+    stats = statSync(absolute)
+  } catch {
+    return { ok: false, label, reason: `data-dir artifact ${label} is not observable` }
+  }
+  if (!stats.isFile()) {
+    return { ok: false, label, reason: `data-dir artifact ${label} is not a regular file` }
+  }
+  const digestSha256 = sha256File(absolute)
+  return {
+    ok: true,
+    absent: false,
+    label,
+    absolutePath: absolute,
+    bytes: stats.size,
+    digestSha256,
+    digestMatchesPin:
+      options?.expectedDigest === undefined || digestSha256 === options.expectedDigest,
+  }
+}
+
+/** The managed Pi component's data-dir resolution against the shell's data
+ *  root, with the driver's pinned digest as the expected one. */
+export function resolveManagedPiInstall(dataDir: string): DataDirInstallResolution {
+  return resolveDataDirInstall(dataDir, MANAGED_PI_INSTALL_LABEL, {
+    expectedDigest: MANAGED_PI_PINNED_ARCHIVE_SHA256,
+  })
 }
 
 /** Finds the Electrobun-built .app under the shell build directory, or null
@@ -123,12 +235,46 @@ export function readPackagedIdentity(appBundle: string): PackagedIdentity {
   return { appBundle: resolve(appBundle), version, channel, resolutions: [] }
 }
 
+/** The managed Pi manifest component from the driver's build-time pin (#185
+ *  follow-up). Shared by the packaged manifest and the smoke's dev fallback
+ *  manifest so both describe the same component. */
+export function managedPiComponentSpec(): ComponentSpec {
+  return {
+    id: MANAGED_PI_COMPONENT_ID,
+    product: 'Managed Pi runtime (driver-installed at the pinned version)',
+    version: MANAGED_PI_PINNED_VERSION,
+    platform: 'darwin',
+    arch: 'arm64',
+    // The driver's build-time pinned archive digest: the installed
+    // executable is the digest-verified archive bytes written verbatim, so
+    // the manifest's pin and the on-disk artifact are comparable.
+    digestSha256: MANAGED_PI_PINNED_ARCHIVE_SHA256,
+    signature: 'c2ln',
+    compatibility: { minAppVersion: '0.1.0', maxAppVersion: '99.0.0' },
+    installLocation: MANAGED_PI_INSTALL_LABEL,
+    installKind: 'managed-data-dir',
+    dataLocation: 'dev-runtime/harness/managed-pi',
+    startupPhase: 1,
+    dependsOn: [],
+    healthProbe: { kind: 'process', intervalMs: 15_000, unhealthyAfterMs: 45_000 },
+    // The managed Pi registers with no adoption protocol: the driver owns
+    // install and the launch path, so there is nothing for the engine's
+    // sidecar handshake to adopt. Null is the truthful declaration.
+    protocol: null,
+    rollbackTargetVersion: null,
+    // Installed lazily by the driver's boot warm; never gates readiness.
+    required: false,
+  }
+}
+
 /**
- * Resolves the REAL packaged components: every component's install label is
- * resolved through `resolveInstallLocation`, the artifact digest is the
- * actual SHA-256 of the bundled bytes, and a label that fails resolution
+ * Resolves the REAL packaged components: every `bundled` component's install
+ * label is resolved through `resolveInstallLocation`, the artifact digest is
+ * the actual SHA-256 of the bundled bytes, and a label that fails resolution
  * fails the build — the manifest never describes an artifact the bundle does
- * not contain.
+ * not contain. A `managed-data-dir` component is registered from its
+ * build-time pin and is NOT resolved here (its artifact lives under the data
+ * root, installed by its owning lifecycle; see `resolveManagedPiInstall`).
  *
  * Components:
  * - `dev-runtime-sidecar`: the packaged sidecar entry, executed by the
@@ -137,6 +283,15 @@ export function readPackagedIdentity(appBundle: string): PackagedIdentity {
  *   starting a GUI app binary is not part of the headless evidence lane, so
  *   it stays an optional, never-started component (optional components never
  *   gate baseline readiness).
+ * - `managed-pi`: the driver-installed managed Pi runtime (#185 follow-up).
+ *   The manifest carries the driver's build-time pin (version + archive
+ *   digest); the driver keeps install ownership (the engine observes/starts
+ *   per policy, it never installs), the install location resolves with
+ *   truthful-absence semantics against the data root, and the health probe
+ *   is the process probe over the engine's own launch of the installed
+ *   executable. Before the first successful ensure the component is
+ *   truthfully absent and a start fails typed (`spawn_failed`) — the engine
+ *   holds and reports it exactly like the sidecar, never fabricates state.
  */
 export function resolvePackagedComponents(appBundle: string): {
   specs: ComponentSpec[]
@@ -174,6 +329,7 @@ export function resolvePackagedComponents(appBundle: string): {
       signature: 'c2ln',
       compatibility: { minAppVersion: '0.1.0', maxAppVersion: '99.0.0' },
       installLocation: SIDECAR_INSTALL_LABEL,
+      installKind: 'bundled',
       dataLocation: 'dev-runtime/terminal-sidecar',
       startupPhase: 0,
       dependsOn: [],
@@ -195,6 +351,7 @@ export function resolvePackagedComponents(appBundle: string): {
       signature: 'c2ln',
       compatibility: { minAppVersion: '0.1.0', maxAppVersion: '99.0.0' },
       installLocation: LAUNCHER_INSTALL_LABEL,
+      installKind: 'bundled',
       dataLocation: 'app-shell',
       startupPhase: 0,
       dependsOn: [],
@@ -203,6 +360,7 @@ export function resolvePackagedComponents(appBundle: string): {
       rollbackTargetVersion: null,
       required: false,
     },
+    managedPiComponentSpec(),
   ]
   const bunPath = bun.absolutePath
   const sidecarPath = sidecar.absolutePath
@@ -219,6 +377,12 @@ export function resolvePackagedComponents(appBundle: string): {
         env: { ADEA_SIDECAR_VERSION: sidecarVersion, ADEA_SIDECAR_IDENTITY: sidecarIdentity },
       },
       // Resolution-only: the launcher is never started by the headless lane.
+      // The managed Pi's argv is the data-dir install label's absolute path:
+      // the engine's spawn observes the driver's install result (typed
+      // `spawn_failed` before the first ensure) — install stays the driver's.
+      [MANAGED_PI_COMPONENT_ID]: {
+        argv: [join(dataDir, MANAGED_PI_INSTALL_LABEL)],
+      },
     }),
   }
 }
