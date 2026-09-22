@@ -1,0 +1,84 @@
+.dev-onboarding {
+  display: grid;
+  min-height: 100%;
+  padding: 1rem;
+  place-items: center;
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.dev-onboarding__panel {
+  display: grid;
+  width: min(100%, 34rem);
+  gap: 0.85rem;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--dev-border, var(--border));
+  border-radius: var(--radius-lg);
+  background: var(--dev-panel, var(--background));
+}
+
+.dev-onboarding__eyebrow,
+.dev-onboarding__message,
+.dev-onboarding__install,
+.dev-onboarding__notice {
+  margin: 0;
+}
+
+.dev-onboarding__eyebrow {
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.dev-onboarding__panel h1 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2.4vw, 1.8rem);
+  line-height: 1.2;
+}
+
+.dev-onboarding__message {
+  line-height: 1.5;
+}
+
+.dev-onboarding__install {
+  padding-block: 0.5rem;
+  border-block: 1px solid var(--dev-border, var(--border));
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.85rem;
+}
+
+.dev-onboarding__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.dev-onboarding__prompt {
+  width: 100%;
+  min-height: 7rem;
+  padding: 0.7rem;
+  border: 1px solid var(--dev-border, var(--border));
+  border-radius: var(--radius-md);
+  color: inherit;
+  background: var(--background);
+  font: inherit;
+  resize: vertical;
+}
+
+.dev-onboarding__prompt:focus-visible,
+.dev-onboarding__actions .dev-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.dev-onboarding__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dev-onboarding__notice {
+  color: var(--destructive);
+  font-size: 0.85rem;
+}

@@ -1327,6 +1327,29 @@ If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
 a changed body still refuses before dispatch.
+M13 first-run onboarding consumes identity and model-access entitlement facts
+from the owning desktop composition. The guest state with no model entitlement
+offers sign-in as its one recovery action; it never invents free guest model
+access or displays a raw credential field. Managed-Pi install state is a
+separate visible status while identity is resolving. Typed driver errors map to
+one safe action (retry the install or update the app), and raw diagnostic
+details do not render. An unresolved project or AgentProfile remains a visible
+setup gate rather than a fabricated default. Once ready, onboarding creates a
+canonical Chat conversation with the initial prompt and a stable idempotency
+key across transport retries. It sends no harness or model pin, leaving the
+root-default policy and the existing staged launch transaction authoritative.
+The adapter exposes `dev.harness.preferenceReset` for explicit reset-to-
+discovered; the host's effective projection then returns managed Pi first.
+The initial UI projection and adapter are implemented in
+`packages/dev-view/src/chat/onboarding/`. The desktop Chat entry mounts that
+surface only after the authenticated runtime projection, ready worktree list,
+and workspace `AgentProfile` list resolve from their owning authorities;
+missing records leave the existing Chat surface in place and never create a
+synthetic launch context. The current desktop API has no Control Plane model-
+entitlement projection, so signed-in onboarding stays at an explicit
+model-access gate and guest onboarding requires sign-in; no client-side
+entitlement is inferred from identity or profile data. Packaged first-run
+certification remains an M13.4 acceptance gate.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
