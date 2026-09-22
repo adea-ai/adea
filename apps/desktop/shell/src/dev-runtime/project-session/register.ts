@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { Database } from 'bun:sqlite'
+import { existsSync, lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type {
@@ -78,7 +79,8 @@ type AuthorityRecord = Readonly<{
   }>
 }>
 
-const AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.sqlite3')
+const AUTHORITY_STORE_DIRECTORY = join('dev-runtime', 'project-session')
+const AUTHORITY_STORE_FILE = join(AUTHORITY_STORE_DIRECTORY, 'authority.sqlite3')
 const LEGACY_AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
 const LEGACY_PROJECTION_FILE = join('dev-runtime', 'project-session', 'projection.json')
 const AUTHORITY_SCHEMA_VERSION = 1
@@ -249,6 +251,44 @@ function sha256Text(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
+function scopeKey(scope: Scope): string {
+  return JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])
+}
+
+/**
+ * One durable file belongs to one authority scope. The old unpartitioned file
+ * remains readable when its stored row belongs to the requested scope; a
+ * different scope gets its own file instead of being allowed to overwrite or
+ * reject the first workspace's records.
+ */
+function authorityStoreFile(dataDir: string, scope: Scope): string {
+  const directory = join(dataDir, AUTHORITY_STORE_DIRECTORY)
+  const scopedFile = join(directory, `authority-${sha256Text(scopeKey(scope))}.sqlite3`)
+  if (existsSync(scopedFile)) return scopedFile
+  const sharedFile = join(dataDir, AUTHORITY_STORE_FILE)
+  try {
+    const stats = lstatSync(sharedFile)
+    if (stats.isSymbolicLink() || !stats.isFile()) return sharedFile
+  } catch {
+    return scopedFile
+  }
+
+  let database: Database | undefined
+  try {
+    database = new Database(sharedFile, { readonly: true })
+    const rows = database
+      .query('SELECT scope_key AS scopeKey FROM durable_store_records')
+      .all() as Array<{ scopeKey?: unknown }>
+    return rows.some((row) => row.scopeKey === scopeKey(scope)) ? sharedFile : scopedFile
+  } catch {
+    // Let the durable store own corruption retention and fail closed for the
+    // legacy path rather than routing an unreadable shared file elsewhere.
+    return sharedFile
+  } finally {
+    database?.close()
+  }
+}
+
 /** The envelope resource for runtime_session operations must name this
  * session at its current generation: a stale or foreign binding is refused
  * before the provider touches the record. */
@@ -376,11 +416,22 @@ export function registerProjectSessionRuntime(input: {
   resolveImportRoot?: (rootBookmarkId: string) => { canonicalRoot: string }
 }): ProjectSessionRuntime {
   const store = createDurableSqliteStore<AuthorityRecord>({
-    file: join(input.dataDir, AUTHORITY_STORE_FILE),
+    file: authorityStoreFile(input.dataDir, input.scope),
     schemaVersion: AUTHORITY_SCHEMA_VERSION,
     label: 'project/session authority',
     legacyFile: join(input.dataDir, LEGACY_AUTHORITY_STORE_FILE),
     scope: input.scope,
+    migrateLegacy: (value) => {
+      const records = (value as { records?: unknown } | null)?.records
+      if (!Array.isArray(records)) return []
+      const scoped = records.filter((record): record is AuthorityRecord => {
+        const candidate = record as Partial<AuthorityRecord> | null
+        if (!candidate || !isScope(candidate.scope))
+          throw new DevAuthorityError('corrupt_state', 'legacy authority record is malformed')
+        return sameScope(candidate.scope, input.scope)
+      })
+      return scoped.length > 0 ? scoped : undefined
+    },
   })
   const emptyRecord = (): AuthorityRecord => ({
     scope: input.scope,

@@ -141,8 +141,9 @@ type DurableSqliteOptions<T> = Readonly<{
    * the untouched legacy file.
    */
   onMigrationStage?: (stage: DurableSqliteMigrationStage) => void
-  /** Convert a legacy JSON value into the store's record list. */
-  migrateLegacy?: (value: unknown) => ReadonlyArray<T>
+  /** Convert legacy JSON into this scope's records; undefined skips a source
+   * that belongs to another scope while establishing a native-state guard. */
+  migrateLegacy?: (value: unknown) => ReadonlyArray<T> | undefined
 }>
 
 type MigrationLedger = Readonly<{
@@ -480,7 +481,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
   }
 
   function readLegacy():
-    | { savedAt: string; records: ReadonlyArray<T>; sourceDigest: string }
+    | { savedAt: string; records: ReadonlyArray<T> | undefined; sourceDigest: string }
     | undefined {
     if (!options.legacyFile || !existsSync(options.legacyFile)) return undefined
     const rawBytes = readFileSync(options.legacyFile)
@@ -504,7 +505,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
         `${options.label} legacy schema is unsupported`
       )
     }
-    let records: ReadonlyArray<T>
+    let records: ReadonlyArray<T> | undefined
     try {
       records = options.migrateLegacy
         ? options.migrateLegacy(parsed)
@@ -517,7 +518,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
         `${options.label} legacy records failed to decode`
       )
     }
-    if (!Array.isArray(records)) {
+    if (records !== undefined && !Array.isArray(records)) {
       sqliteCorruptCopy(options.legacyFile)
       throw new DevAuthorityError(
         'corrupt_state',
@@ -539,7 +540,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
       )
     const legacy = readLegacy()
     if (ledger?.origin === 'native') {
-      if (legacy)
+      if (legacy?.records !== undefined)
         throw new DevAuthorityError(
           'corrupt_state',
           `${options.label} native store cannot import a late legacy source`
@@ -552,6 +553,35 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
           'corrupt_state',
           `${options.label} migration source disappeared before commit`
         )
+      return
+    }
+    if (legacy.records === undefined) {
+      if (ledger) {
+        if (ledger.databaseId !== databaseId)
+          throw new DevAuthorityError(
+            'corrupt_state',
+            `${options.label} migration ledger belongs to another database`
+          )
+        if (ledger.state === 'complete')
+          throw new DevAuthorityError(
+            'corrupt_state',
+            `${options.label} migration ledger has no authoritative row`
+          )
+        if (ledger.sourceDigest !== legacy.sourceDigest)
+          throw new DevAuthorityError(
+            'corrupt_state',
+            `${options.label} migration source changed during recovery`
+          )
+      }
+      writeMigrationLedger(ledgerFile, {
+        formatVersion: MIGRATION_LEDGER_VERSION,
+        schemaVersion: options.schemaVersion,
+        scopeKey: expectedScope.key,
+        databaseId,
+        sourceDigest: legacy.sourceDigest,
+        origin: 'native',
+        state: 'complete',
+      })
       return
     }
     if (ledger) {
@@ -721,11 +751,6 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
         throw new DevAuthorityError(
           'corrupt_state',
           `${options.label} migration ledger has no authoritative row`
-        )
-      if (ledger?.origin === 'native' && options.legacyFile && existsSync(options.legacyFile))
-        throw new DevAuthorityError(
-          'corrupt_state',
-          `${options.label} native store cannot accept a late legacy source`
         )
       if (existing.length > 1 || (existing[0] && existing[0].scopeKey !== expectedScope.key))
         throw new DevAuthorityError(

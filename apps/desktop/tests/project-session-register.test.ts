@@ -7,10 +7,11 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
 import {
@@ -74,6 +75,15 @@ function seedRuntime(dataDir: string): ProjectSessionRuntime {
   runtime.upsertProject(project)
   runtime.upsertSession(session)
   return runtime
+}
+
+function authorityFile(dataDir: string): string {
+  const directory = join(dataDir, 'dev-runtime', 'project-session')
+  const name = readdirSync(directory).find(
+    (entry) => entry.startsWith('authority-') && entry.endsWith('.sqlite3')
+  )
+  if (!name) throw new Error('scoped authority SQLite file was not created')
+  return join(directory, name)
 }
 
 function provider(
@@ -398,7 +408,7 @@ describe('project/session authority store', () => {
           idempotencyKey: 'expired-chat-create',
         }) as DevCommand
       const created = provider(first, 'dev.session.create')(keyed(body)) as RuntimeSession
-      const storeFile = join(dataDir, 'dev-runtime', 'project-session', 'authority.sqlite3')
+      const storeFile = authorityFile(dataDir)
       const db = new Database(storeFile)
       try {
         const row = db.query('SELECT payload FROM durable_store_records WHERE id = 1').get() as {
@@ -513,7 +523,7 @@ describe('project/session authority store', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {
       seedRuntime(dataDir)
-      const storeFile = join(dataDir, 'dev-runtime', 'project-session', 'authority.sqlite3')
+      const storeFile = authorityFile(dataDir)
       writeFileSync(storeFile, '{not sqlite', { mode: 0o600 })
       expectCode(
         () =>
@@ -527,7 +537,7 @@ describe('project/session authority store', () => {
       // The unread bytes are retained beside the store for export/recovery.
       const retained = readdirSync(join(storeFile, '..')).filter(
         (name) =>
-          name.startsWith('authority.sqlite3.corrupt-') &&
+          name.startsWith(`${basename(storeFile)}.corrupt-`) &&
           !name.endsWith('-wal') &&
           !name.endsWith('-shm')
       )
@@ -538,11 +548,39 @@ describe('project/session authority store', () => {
     }
   })
 
+  test('does not bypass an unreadable shared authority database for its scope', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const directory = join(dataDir, 'dev-runtime', 'project-session')
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      const target = join(directory, 'unreadable.sqlite3')
+      const shared = join(directory, 'authority.sqlite3')
+      writeFileSync(target, '{not sqlite', { mode: 0o600 })
+      symlinkSync(target, shared)
+      expectCode(
+        () =>
+          registerProjectSessionRuntime({
+            authority: { registerCommandProvider() {} },
+            dataDir,
+            scope,
+          }),
+        'corrupt_state'
+      )
+      expect(
+        readdirSync(directory).some(
+          (name) => name.startsWith('authority-') && name.endsWith('.sqlite3')
+        )
+      ).toBeFalse()
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('a stored record for a foreign scope fails closed instead of rendering for the wrong node', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {
       seedRuntime(dataDir)
-      const storeFile = join(dataDir, 'dev-runtime', 'project-session', 'authority.sqlite3')
+      const storeFile = authorityFile(dataDir)
       const database = new Database(storeFile)
       const payload = JSON.parse(
         (
@@ -594,7 +632,7 @@ describe('project/session authority store', () => {
       })
       const projects = provider(runtime, 'dev.project.list')(command({})) as { items: Project[] }
       expect(projects.items.map((entry) => entry.id)).toEqual([project.id])
-      expect(existsSync(join(legacyDir, 'authority.sqlite3'))).toBeTrue()
+      expect(authorityFile(dataDir)).toContain('authority-')
       // The unread original is never deleted by the migration.
       expect(existsSync(join(legacyDir, 'projection.json'))).toBeTrue()
     } finally {
@@ -633,8 +671,128 @@ describe('project/session authority store', () => {
       expect(
         (provider(runtime, 'dev.project.get')(command({ projectId: project.id })) as Project).id
       ).toBe(project.id)
-      expect(existsSync(join(legacyDir, 'authority.sqlite3'))).toBeTrue()
+      expect(authorityFile(dataDir)).toContain('authority-')
       expect(existsSync(join(legacyDir, 'authority.json'))).toBeTrue()
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('keeps workspace authority files isolated across A to B to A legacy migration', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
+      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
+      const otherGroup: Group = {
+        ...group,
+        id: '00000000-0000-4000-8000-000000000091',
+        scope: otherScope,
+      }
+      const otherProject: Project = {
+        ...project,
+        id: '00000000-0000-4000-8000-000000000092',
+        scope: otherScope,
+        groupIds: [otherGroup.id],
+        repoIds: ['00000000-0000-4000-8000-000000000093'],
+      }
+      writeFileSync(
+        join(legacyDir, 'authority.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          savedAt: 'legacy-authority',
+          records: [
+            { scope, groups: [group], projects: [project], sessions: [], archiveRecords: [] },
+            {
+              scope: otherScope,
+              groups: [otherGroup],
+              projects: [otherProject],
+              sessions: [],
+              archiveRecords: [],
+            },
+          ],
+        }),
+        { mode: 0o600 }
+      )
+
+      const firstA = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      expect(
+        (provider(firstA, 'dev.project.list')(command({})) as { items: Project[] }).items
+      ).toHaveLength(1)
+
+      const firstB = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope: otherScope,
+      })
+      expect(
+        (provider(firstB, 'dev.project.list')(command({}, otherScope)) as { items: Project[] })
+          .items
+      ).toEqual([otherProject])
+
+      const secondA = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      expect(
+        (provider(secondA, 'dev.project.list')(command({})) as { items: Project[] }).items
+      ).toEqual([project])
+      expect(
+        readdirSync(legacyDir).filter(
+          (name) => name.startsWith('authority-') && name.endsWith('.sqlite3')
+        )
+      ).toHaveLength(2)
+      expect(existsSync(join(legacyDir, 'authority.json'))).toBeTrue()
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('does not import scope A legacy data into a new scope B store', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
+      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
+      writeFileSync(
+        join(legacyDir, 'authority.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          savedAt: 'legacy-authority',
+          records: [
+            { scope, groups: [group], projects: [project], sessions: [], archiveRecords: [] },
+          ],
+        }),
+        { mode: 0o600 }
+      )
+      const runtimeB = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope: otherScope,
+      })
+      expect(
+        (provider(runtimeB, 'dev.project.list')(command({}, otherScope)) as { items: Project[] })
+          .items
+      ).toEqual([])
+
+      const otherProject: Project = {
+        ...project,
+        id: '00000000-0000-4000-8000-000000000094',
+        scope: otherScope,
+      }
+      runtimeB.upsertProject(otherProject)
+      const restartedB = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope: otherScope,
+      })
+      expect(
+        (provider(restartedB, 'dev.project.list')(command({}, otherScope)) as { items: Project[] })
+          .items
+      ).toEqual([otherProject])
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }
