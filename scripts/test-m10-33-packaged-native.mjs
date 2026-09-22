@@ -38,18 +38,20 @@ const service = 'com.adea.m10.evidence.' + process.pid + '.' + Date.now()
 const name = 'round-trip'
 const secret = 'synthetic-' + crypto.randomUUID()
 if (report.bunSecrets.available) {
+  let secretAttempted = false
   let secretWasSet = false
   let roundTrip = false
   let failure
   let cleanupFailure
   try {
+    secretAttempted = true
     await Bun.secrets.set({ service, name, value: secret })
     secretWasSet = true
     roundTrip = (await Bun.secrets.get({ service, name })) === secret
   } catch (error) {
     failure = error instanceof Error ? error.name : 'unknown'
   } finally {
-    if (secretWasSet) {
+    if (secretAttempted) {
       try {
         await Bun.secrets.delete({ service, name })
       } catch (error) {
