@@ -1252,6 +1252,8 @@ The Chat surface closes its transcript stream when the selected session or
 generation changes or the view unmounts. A late stream-open response must close
 its own handle without installing a poller or replacing the newer session's
 transcript; session-local answer and composer draft state reset on selection.
+During append-only streaming, existing transcript row DOM nodes stay mounted so
+the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
