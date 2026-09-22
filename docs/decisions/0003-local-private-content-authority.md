@@ -34,5 +34,5 @@ M2 explicitly excludes the local-content SQLite database and its keyring entries
 
 - Web/mobile can display `ContentRef` metadata and an unavailable state without receiving Local/private plaintext.
 - A future execution consumer can resolve an authorized Task/input `ContentRef` through this same trusted boundary without a live Control Plane during M2.
-- Future E2E `ContentReplica` synchronization can attach physical replicas without changing Task, Message, Channel, or `ContentRef` identity.
+- Future E2E `ContentReplica` synchronization can attach physical replicas without changing Task, Message, Channel, or `ContentRef` identity. The cloud row and replay contract are documented in [the ContentReplica spec](../specs/content-replicas.md).
 - Private body text is prohibited from cloud fixtures, WorkspaceEvents, telemetry, crash output, logs, and persistent browser storage.
