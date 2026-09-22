@@ -24,19 +24,22 @@ export type TrustedLoopbackPolicy = {
 
 /**
  * True only when the request came from the app's own origin. A missing
- * `Origin` is intentionally not trusted: loopback reachability and knowledge
- * of a bootstrap token are not enough to authenticate a local process. The
- * packaged browser window supplies `Origin` for fetch, EventSource, and
- * WebSocket requests.
+ * `Origin` is trusted ONLY for a same-origin subresource fetch (`Sec-Fetch-Site:
+ * same-origin`): Chromium omits `Origin` on those, and the app's own window
+ * loads its bridge script exactly that way — refusing them broke the packaged
+ * UI. `Sec-Fetch-Site` is set by the browser and cannot be forged by web
+ * content, so `same-origin` + a matching loopback `Host` proves the request
+ * is the window's own. Everything else (foreign origin, `cross-site`,
+ * header-less curl) is refused: loopback reachability and knowledge of a
+ * bootstrap token are not enough to authenticate a local process.
  */
 export function isTrustedLoopbackRequest(
   request: LoopbackRequestContext,
   policy: TrustedLoopbackPolicy
 ): boolean {
   if (request.host !== policy.shellHost) return false
-  if (request.origin !== policy.shellOrigin) return false
-  if (request.secFetchSite !== undefined && request.secFetchSite !== null) {
-    if (request.secFetchSite !== 'same-origin' && request.secFetchSite !== 'none') return false
-  }
+  if (request.origin === policy.shellOrigin) return true
+  if (request.origin !== null && request.origin !== undefined) return false
+  if (request.secFetchSite !== 'same-origin') return false
   return true
 }
