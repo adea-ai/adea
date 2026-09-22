@@ -49,9 +49,9 @@ The final command passed with:
 
 - `Bun.secrets`: available; synthetic set/get round trip passed; deletion and
   subsequent absence check passed.
-- `bun:sqlite`: available; WAL database opened; an injected unique-constraint
-  failure rolled back the preceding insert; reopening retained only the
-  committed row.
+- `bun:sqlite`: available; the connection read back `journal_mode = WAL`; an
+  injected unique-constraint failure rolled back the preceding insert;
+  reopening retained only the committed row.
 - The script bounds payload extraction at 120 seconds, the bundled probe at 30
   seconds, and the parent cleanup attempt at 10 seconds. Temporary extraction
   and database directories are removed on every exit path. The self-test checks

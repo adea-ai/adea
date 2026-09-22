@@ -86,6 +86,8 @@ try {
   db.exec(
     'PRAGMA journal_mode = WAL; CREATE TABLE evidence (id INTEGER PRIMARY KEY, label TEXT UNIQUE NOT NULL);'
   )
+  const journalModeRow = db.query('PRAGMA journal_mode').get()
+  const journalMode = String(journalModeRow?.journal_mode ?? '').toUpperCase()
   db.query('INSERT INTO evidence (label) VALUES (?)').run('survivor')
   let failureInjected = false
   try {
@@ -106,7 +108,7 @@ try {
   const expected = JSON.stringify([{ label: 'survivor' }])
   report.bunSqlite = {
     ...report.bunSqlite,
-    journalMode: 'WAL',
+    journalMode,
     failureInjected,
     rollbackPreserved: JSON.stringify(afterFailure) === expected,
     reopenDurable: JSON.stringify(afterReopen) === expected,
@@ -238,14 +240,16 @@ function runSelfTest() {
     },
   }
   assertProbe(passingProbe)
-  for (const field of [
-    ['bunSecrets', 'roundTrip'],
-    ['bunSecrets', 'absentAfterDelete'],
-    ['bunSqlite', 'rollbackPreserved'],
-    ['bunSqlite', 'reopenDurable'],
+  for (const [section, field, value] of [
+    ['bunSecrets', 'roundTrip', false],
+    ['bunSecrets', 'absentAfterDelete', false],
+    ['bunSqlite', 'journalMode', 'DELETE'],
+    ['bunSqlite', 'failureInjected', false],
+    ['bunSqlite', 'rollbackPreserved', false],
+    ['bunSqlite', 'reopenDurable', false],
   ]) {
     const failedProbe = structuredClone(passingProbe)
-    failedProbe[field[0]][field[1]] = false
+    failedProbe[section][field] = value
     try {
       assertProbe(failedProbe)
     } catch {
