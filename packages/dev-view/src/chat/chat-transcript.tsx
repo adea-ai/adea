@@ -16,6 +16,23 @@ export type ChatTranscriptProps = Readonly<{
   onJumpToTerminal?: () => void
 }>
 
+export const CHAT_RESPONSE_UNAVAILABLE_REASON =
+  'Runtime response controls are unavailable because this host has no authorized response operation.'
+
+/**
+ * Chat only makes an inline response actionable when the host supplies an
+ * authorized, generation-bound operation. A rendered event is not proof that
+ * the current host can safely resolve it, so the absence of the callback is a
+ * visible disabled state instead of a silent no-op.
+ */
+export function chatTranscriptActionDisabledReason(
+  kind: 'approval' | 'question',
+  handler: unknown
+): string | undefined {
+  if (typeof handler === 'function') return undefined
+  return `${kind === 'approval' ? 'Approval' : 'Question'} response unavailable: ${CHAT_RESPONSE_UNAVAILABLE_REASON}`
+}
+
 function eventStateLabel(item: ChatTranscriptItem): string {
   return item.state ? item.state.replace('_', ' ') : item.kind
 }
@@ -94,6 +111,12 @@ function ChatTranscriptRow(props: {
   props: ChatTranscriptProps
 }): JSX.Element {
   const answer = () => props.answers()[props.item.id] ?? ''
+  const approvalDisabledReason = () =>
+    chatTranscriptActionDisabledReason('approval', props.props.onResolveApproval)
+  const questionDisabledReason = () =>
+    chatTranscriptActionDisabledReason('question', props.props.onResolveQuestion)
+  const approvalReasonId = `dev-chat-approval-status-${props.item.id}`
+  const questionReasonId = `dev-chat-question-status-${props.item.id}`
   return (
     <article class={`dev-chat__row dev-chat__row--${props.item.role}`}>
       <header class="dev-chat__row-header">
@@ -103,9 +126,16 @@ function ChatTranscriptRow(props: {
       <p class="dev-chat__text">{runtimeEventText(props.item)}</p>
       <Show when={props.item.role === 'approval' && props.item.state === 'requested'}>
         <div class="dev-chat__actions">
+          <Show when={approvalDisabledReason()}>
+            <p id={approvalReasonId} class="dev-chat__action-status" role="status">
+              {approvalDisabledReason()}
+            </p>
+          </Show>
           <button
             type="button"
             class="dev-button"
+            disabled={approvalDisabledReason() !== undefined}
+            aria-describedby={approvalDisabledReason() ? approvalReasonId : undefined}
             onClick={() => {
               if (props.item.event) props.props.onResolveApproval?.(props.item.event, 'approved')
             }}
@@ -115,6 +145,8 @@ function ChatTranscriptRow(props: {
           <button
             type="button"
             class="dev-button"
+            disabled={approvalDisabledReason() !== undefined}
+            aria-describedby={approvalDisabledReason() ? approvalReasonId : undefined}
             onClick={() => {
               if (props.item.event) props.props.onResolveApproval?.(props.item.event, 'denied')
             }}
@@ -136,7 +168,8 @@ function ChatTranscriptRow(props: {
           <button
             type="button"
             class="dev-button"
-            disabled={answer().trim().length === 0}
+            disabled={answer().trim().length === 0 || questionDisabledReason() !== undefined}
+            aria-describedby={questionDisabledReason() ? questionReasonId : undefined}
             onClick={() => {
               if (props.item.event)
                 props.props.onResolveQuestion?.(props.item.event, answer().trim())
@@ -144,6 +177,11 @@ function ChatTranscriptRow(props: {
           >
             Submit answer
           </button>
+          <Show when={questionDisabledReason()}>
+            <p id={questionReasonId} class="dev-chat__action-status" role="status">
+              {questionDisabledReason()}
+            </p>
+          </Show>
         </div>
       </Show>
     </article>

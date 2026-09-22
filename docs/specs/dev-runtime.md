@@ -1359,6 +1359,20 @@ are authenticated, mutation-free canonical hierarchy and generation-fenced
 session reads. A switch never invokes create, launch, resume, cancel, archive,
 or an event-log write.
 
+Inline approval and question controls are fail-closed. The Chat transcript may
+render an `approval.requested` or `question.requested` event, but it MUST keep
+the corresponding response controls disabled with a visible reason until the
+host supplies an authorized, generation-bound response operation through the
+`DevRuntimeService` integration. A missing callback is not an invitation to
+send a best-effort event, type into a PTY, or report success. The current
+runtime operation registry has session lifecycle and event-read commands but no
+approval/question response command; adding one requires an M11 contract that
+binds account/workspace/runtime-node/session/generation, event identity, input
+owner, capability, single-use/idempotency, and canonical resolved/expired
+events. Until that contract exists, Chat's disabled state is the truthful
+projection; a host may direct the user to another separately authorized
+control surface when one exists, but Chat must not invent that route.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection

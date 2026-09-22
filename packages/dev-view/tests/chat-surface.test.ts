@@ -2,6 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { chatComposerDisabledReason } from '../src/chat/chat-composer'
+import {
+  CHAT_RESPONSE_UNAVAILABLE_REASON,
+  chatTranscriptActionDisabledReason,
+} from '../src/chat/chat-transcript'
 import { projectTranscriptEvents } from '../src/chat/presentation'
 
 function event(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
@@ -97,5 +101,21 @@ describe('chat composer availability', () => {
         awaitingApproval: false,
       })
     ).toContain('disconnected')
+  })
+})
+
+describe('chat inline response availability', () => {
+  test('fails closed when the host does not provide an authorized response handler', () => {
+    expect(chatTranscriptActionDisabledReason('approval', undefined)).toContain(
+      CHAT_RESPONSE_UNAVAILABLE_REASON
+    )
+    expect(chatTranscriptActionDisabledReason('question', undefined)).toContain(
+      CHAT_RESPONSE_UNAVAILABLE_REASON
+    )
+  })
+
+  test('allows an explicitly supplied host response handler', () => {
+    expect(chatTranscriptActionDisabledReason('approval', () => undefined)).toBeUndefined()
+    expect(chatTranscriptActionDisabledReason('question', async () => undefined)).toBeUndefined()
   })
 })
