@@ -7,7 +7,7 @@ import type {
 
 import { buildDevCommand } from '../../browser/command'
 import type { DevRuntimeService } from '../../platform'
-import { executeChatCommand } from '../model/commands'
+import { ChatRuntimeError, executeChatCommand } from '../model/commands'
 import type { ChatConversationModel } from '../model'
 
 export type FirstRunIdentity = 'choice' | 'loading' | 'guest' | 'signed_in' | 'auth_required'
@@ -211,7 +211,7 @@ export type FirstRunLaunchContext = Readonly<{
   agentProfileVersion: number
 }>
 
-function managedPiStatusForOnboarding(status: ManagedPiStatus): FirstRunManagedPi {
+export function managedPiStatusForOnboarding(status: ManagedPiStatus): FirstRunManagedPi {
   return {
     state: status.state,
     ...(status.lastErrorCode !== undefined ? { code: status.lastErrorCode } : {}),
@@ -225,7 +225,7 @@ export function createFirstRunRuntimePort(
   runtime: Pick<DevRuntimeService, 'execute'>,
   scope: Scope,
   model: Pick<ChatConversationModel, 'create'>,
-  context: FirstRunLaunchContext
+  context?: FirstRunLaunchContext
 ) {
   const execute = async <T>(
     operation:
@@ -253,6 +253,12 @@ export function createFirstRunRuntimePort(
       return page.items
     },
     async createConversation(request: FirstRunCreateRequest): Promise<FirstRunConversation> {
+      if (!context)
+        throw new ChatRuntimeError({
+          code: 'invalid_state',
+          retryable: true,
+          message: 'Canonical project, worktree, and AgentProfile records are required.',
+        })
       return model.create({
         ...context,
         initialPrompt: request.prompt,

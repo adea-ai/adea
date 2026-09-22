@@ -1267,9 +1267,15 @@ root-default policy and the existing staged launch transaction authoritative.
 The adapter exposes `dev.harness.preferenceReset` for explicit reset-to-
 discovered; the host's effective projection then returns managed Pi first.
 The initial UI projection and adapter are implemented in
-`packages/dev-view/src/chat/onboarding/`; wiring identity, entitlement,
-project/profile provisioning, and packaged first-run certification into the
-desktop entry remains an M13.4 acceptance gate.
+`packages/dev-view/src/chat/onboarding/`. The desktop Chat entry mounts that
+surface only after the authenticated runtime projection, ready worktree list,
+and workspace `AgentProfile` list resolve from their owning authorities;
+missing records leave the existing Chat surface in place and never create a
+synthetic launch context. The current desktop API has no Control Plane model-
+entitlement projection, so signed-in onboarding stays at an explicit
+model-access gate and guest onboarding requires sign-in; no client-side
+entitlement is inferred from identity or profile data. Packaged first-run
+certification remains an M13.4 acceptance gate.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
