@@ -3532,7 +3532,11 @@ listing without a source is truthful-empty rather than fabricated:
   most one `ps` observation of 64 distinct PIDs. The sampler rotates that
   bounded window through the current inventory, so a stable large inventory
   is covered across successive pulls without a command burst or permanent
-  first-page bias. An unsampled process has no fabricated metric.
+  first-page bias. An unsampled process has no fabricated metric. Reads
+  maintain the full listing between pulls — points append in listing order
+  under the monotonic sampler clock and reads fold only the delta since the
+  last read — so host read cost tracks the bounded sample delta instead of
+  re-deriving every retained point (#596).
 - Usage adapters are sequenced by a cache service with exponential backoff
   plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
   floor. A failed poll stores an explicit typed-failure row (quantity

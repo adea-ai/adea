@@ -528,6 +528,113 @@ describe('metric history', () => {
     }
     expect(history.list()).toHaveLength(MAX_POINTS_PER_OWNER)
   })
+
+  test('the full listing stays globally ordered and exact while owners are appended and evicted (#596)', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock, maxPointsPerOwner: 4 })
+    // Three owners interleaved: the listing must stay sorted by observedAt
+    // across appends, per-owner cap evictions, and repeated reads, and it
+    // must always equal the union of the per-owner histories.
+    for (let round = 0; round < 10; round += 1) {
+      for (const ownerId of ['p1', 'p2', 'p3']) {
+        clock += 500
+        history.recordSample({ ownerId, processRecordId: ownerId }, { pid: 1, cpuSeconds: 1 })
+        expect(history.list({ processRecordId: ownerId }).length).toBeLessThanOrEqual(4)
+      }
+      const listing = history.list()
+      for (let index = 1; index < listing.length; index += 1) {
+        expect(listing[index - 1]!.observedAt <= listing[index]!.observedAt).toBe(true)
+      }
+      const union = ['p1', 'p2', 'p3'].flatMap((ownerId) =>
+        history.list({ processRecordId: ownerId })
+      )
+      expect([...listing].toSorted((a, b) => a.observedAt.localeCompare(b.observedAt))).toEqual(
+        [...union].toSorted((a, b) => a.observedAt.localeCompare(b.observedAt))
+      )
+    }
+    // Cap eviction binds per owner in the full listing too: 10 rounds × 3
+    // owners with a 4-point cap leaves exactly 12 points, the newest 4 each.
+    expect(history.list()).toHaveLength(12)
+    const oldestKept = history
+      .list({ processRecordId: 'p1' })
+      .map((point) => point.observedAt)
+      .at(0)
+    expect(oldestKept).toBeDefined()
+    clock += 500
+    history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 1 })
+    expect(
+      history.list({ processRecordId: 'p1' }).some((point) => point.observedAt === oldestKept)
+    ).toBe(false)
+  })
+
+  test('reads never observe the store mutate a listing handed out earlier (#596)', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock })
+    history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 1 })
+    const first = history.list()
+    expect(first).toHaveLength(1)
+    clock += 1_000
+    history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 2 })
+    // Appends and evictions rebind the maintained listing; the array a caller
+    // already holds stays frozen at what it observed.
+    expect(first).toHaveLength(1)
+    expect(history.list()).toHaveLength(2)
+    clock += 1_000
+    history.recordSample({ ownerId: 'p2', processRecordId: 'p2' }, { pid: 2, cpuSeconds: 1 })
+    expect(first).toHaveLength(1)
+    expect(history.list().map((point) => point.ownerId)).toEqual(['p1', 'p1', 'p2'])
+  })
+
+  test('same-millisecond points keep the legacy listing order (owner creation, then record order)', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock })
+    // One pull samples many processes at one clock value: all points share an
+    // observedAt. The listing must order them by owner creation order, then
+    // record order — exactly the legacy owner-major stable sort.
+    clock = 5_000
+    for (const ownerId of ['o-b', 'o-a', 'o-c', 'o-a']) {
+      history.recordSample({ ownerId, processRecordId: ownerId }, { pid: 1, cpuSeconds: 1 })
+    }
+    expect(history.list().map((point) => point.ownerId)).toEqual(['o-b', 'o-a', 'o-a', 'o-c'])
+    // The order survives a read between appends (the boundary fold), too.
+    clock = 6_000
+    history.recordSample({ ownerId: 'o-d', processRecordId: 'o-d' }, { pid: 1, cpuSeconds: 1 })
+    expect(history.list().map((point) => point.ownerId)).toEqual([
+      'o-b',
+      'o-a',
+      'o-a',
+      'o-c',
+      'o-d',
+    ])
+    clock = 6_000
+    history.recordSample({ ownerId: 'o-e', processRecordId: 'o-e' }, { pid: 1, cpuSeconds: 1 })
+    history.recordSample({ ownerId: 'o-b2', processRecordId: 'o-b2' }, { pid: 1, cpuSeconds: 1 })
+    expect(history.list().map((point) => point.ownerId)).toEqual([
+      'o-b',
+      'o-a',
+      'o-a',
+      'o-c',
+      'o-d',
+      'o-e',
+      'o-b2',
+    ])
+  })
+
+  test('a non-monotonic clock still yields the exact sorted listing (rebuild path)', () => {
+    let clock = 5_000
+    const history = createMetricsHistory({ now: () => clock })
+    for (const step of [1_000, 1_000, -2_500, 3_000, -1_000, 2_500]) {
+      clock += step
+      history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 1 })
+      history.recordSample({ ownerId: 'p2', processRecordId: 'p2' }, { pid: 2, cpuSeconds: 1 })
+    }
+    const listing = history.list()
+    expect(listing).toHaveLength(12)
+    for (let index = 1; index < listing.length; index += 1) {
+      expect(listing[index - 1]!.observedAt <= listing[index]!.observedAt).toBe(true)
+    }
+    expect(new Set(listing.map((point) => point.ownerId))).toEqual(new Set(['p1', 'p2']))
+  })
 })
 
 describe('resource scale seams (100 sessions / 1,000 processes)', () => {

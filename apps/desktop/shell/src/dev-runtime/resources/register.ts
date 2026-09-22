@@ -102,6 +102,8 @@ export type RegisterResourcesRuntimeInput = {
   randomId?: () => string
 }
 
+type SupervisionComponent = SupervisionSnapshot['components'][number]
+
 type ProvenLaunch = {
   processRecordId: string
   componentId: string
@@ -229,8 +231,10 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
   /** Rebuild the proven launch inventory: durable journal records joined
    * against the live supervision snapshot. A launch whose journal identity no
    * longer matches the live snapshot (reused PID, replaced executable, stale
-   * generation) is listed as `unknown` at best and never as stoppable. */
-  function provenLaunches(): ProvenLaunch[] {
+   * generation) is listed as `unknown` at best and never as stoppable.
+   * `live` is the snapshot's component index, built once per inventory pass —
+   * the join is linear in journal + components (#596), not quadratic. */
+  function provenLaunches(live: ReadonlyMap<string, SupervisionComponent>): ProvenLaunch[] {
     if (!input.supervision || !input.supervisionRecords) return []
     const latest = new Map<string, ProvenLaunch>()
     for (const record of input.supervisionRecords.list()) {
@@ -251,8 +255,6 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
         existing.exited = { at: record.at, expected: record.expected }
       }
     }
-    const snapshot = input.supervision.snapshot()
-    const live = new Map(snapshot.components.map((component) => [component.id, component]))
     const horizon = now() - EXITED_VISIBLE_MS
     const proven: ProvenLaunch[] = []
     for (const launch of latest.values()) {
@@ -279,11 +281,12 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
     return proven
   }
 
-  function toProcessRecord(launch: ProvenLaunch): ProcessRecord {
+  function toProcessRecord(
+    launch: ProvenLaunch,
+    live: ReadonlyMap<string, SupervisionComponent>
+  ): ProcessRecord {
     const owner = input.resolveOwner?.(launch.componentId)
-    const component = input.supervision
-      ?.snapshot()
-      .components.find((entry) => entry.id === launch.componentId)
+    const component = live.get(launch.componentId)
     let state: ProcessRecord['state']
     if (launch.exited) state = 'exited'
     else if (
@@ -313,10 +316,17 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
   }
 
   function inventory(): { records: ProcessRecord[]; byId: Map<string, ProvenLaunch> } {
-    const launches = provenLaunches()
+    if (!input.supervision || !input.supervisionRecords) {
+      return { records: [], byId: new Map() }
+    }
+    // One live-component index per inventory pass; every launch projection
+    // reads it instead of re-scanning the snapshot (#596: the per-launch
+    // snapshot().components.find() scan made each pass quadratic).
+    const live = new Map(input.supervision.snapshot().components.map((c) => [c.id, c]))
+    const launches = provenLaunches(live)
     const byId = new Map(launches.map((launch) => [launch.processRecordId, launch]))
     const records = launches
-      .map(toProcessRecord)
+      .map((launch) => toProcessRecord(launch, live))
       .toSorted((left, right) => left.id.localeCompare(right.id))
     return { records, byId }
   }
@@ -586,10 +596,14 @@ export function registerResourcesRuntime(input: RegisterResourcesRuntimeInput): 
       }
       stopPlans.delete(entry.plan.id)
       stopAttempts.set(entry.componentId, (stopAttempts.get(entry.componentId) ?? 0) + 1)
-      return toProcessRecord({
-        ...current,
-        exited: { at: outcome.value.at, expected: outcome.value.expected },
-      })
+      const live = new Map(input.supervision.snapshot().components.map((c) => [c.id, c]))
+      return toProcessRecord(
+        {
+          ...current,
+          exited: { at: outcome.value.at, expected: outcome.value.expected },
+        },
+        live
+      )
     },
   }
 

@@ -16,9 +16,12 @@
 //
 // The full `dev.resources.snapshot` host handler is reported per pull too
 // (p50/p95 and a growth trend across pull buckets) with a 5-second hang
-// guard — the sampler's documented command-timeout budget — because its cost
-// is proportional to total retained history; the 16 ms budget above scopes
-// the documented UI-task analog, not this host-side IPC handler.
+// guard — the sampler's documented command-timeout budget. Since #596 the
+// handler maintains the process inventory (one live-component index per
+// pass) and the metrics listing incrementally between pulls, so the host
+// read no longer scales with total retained history; the p95 trend line is
+// the regression tripwire for that. The 16 ms budget above scopes the
+// documented UI-task analog, not this host-side IPC handler.
 //
 // Budgets pinned here are the documented-raise surface: relaxing one is a
 // deliberate edit to this file (and scripts/test-suite-boundary.test.ts).
