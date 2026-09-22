@@ -1249,6 +1249,14 @@ only after accepting a frame. Replay delivered during stream attach queues
 the acknowledgement until the socket is available; a decode error, sequence
 gap, conflict, or stale generation never acknowledges the rejected frame.
 
+The Dev↔Chat switch proof drives the model from the Chat side through repeated
+Dev projection and Chat attach cycles. Each cycle must observe the same
+`runtimeSessionId`, generation-qualified event sequence and retained window,
+draft, and transcript scrollback; the only allowed operations during a switch
+are authenticated, mutation-free canonical hierarchy and generation-fenced
+session reads. A switch never invokes create, launch, resume, cancel, archive,
+or an event-log write.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection
