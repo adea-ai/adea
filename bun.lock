@@ -8,6 +8,7 @@
         "@playwright/test": "^1.63.0",
         "@shadcn/lint": "^0.1.1",
         "@tailwindcss/postcss": "^4.3.3",
+        "axe-core": "^4.13.0",
         "bun-types": "^1.4.0",
         "oxfmt": "^0.68.0",
         "oxlint": "^1.83.0",
@@ -19,11 +20,11 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.36.0",
+      "version": "0.45.1",
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@capacitor/android": "^8.5.0",
         "@capacitor/core": "^8.5.0",
@@ -36,7 +37,7 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
@@ -72,25 +73,25 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/asset-manifests": {
       "name": "@adea-ai/asset-manifests",
-      "version": "0.36.0",
+      "version": "0.45.1",
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "lucide-solid": "^1.45.0",
         "solid-js": "^1.9.15",
@@ -102,7 +103,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -111,11 +112,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.36.0",
+      "version": "0.45.1",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -130,7 +131,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -143,7 +144,7 @@
     },
     "packages/dev-view": {
       "name": "@adea-ai/dev-view",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -169,21 +170,21 @@
     },
     "packages/remote-content": {
       "name": "@adea-ai/remote-content",
-      "version": "0.40.1",
+      "version": "0.45.1",
       "dependencies": {
         "@hpke/core": "1.9.0",
       },
     },
     "packages/spatial-protocol": {
       "name": "@adea-ai/spatial-protocol",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/asset-manifests": "workspace:*",
       },
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "solid-js": "^1.9.15",
@@ -191,11 +192,11 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.36.0",
+      "version": "0.45.1",
     },
     "packages/ui": {
       "name": "@adea-ai/ui",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@corvu/drawer": "^0.2.4",
         "@kobalte/core": "^0.13.14",
@@ -213,7 +214,7 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.36.0",
+      "version": "0.45.1",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/audio": "workspace:*",
@@ -1191,6 +1192,8 @@
     "async-retry": ["async-retry@1.3.3", "", { "dependencies": { "retry": "0.13.1" } }, "sha512-wfr/jstw9xNi/0teMHrRW7dsz3Lt5ARhYNZ2ewpadnhaIp5mbALhOAP+EAdsC7t4Z6wqsDVv9+W6gm1Dk9mEyw=="],
 
     "at-least-node": ["at-least-node@1.0.0", "", {}, "sha512-+q/t7Ekv1EDY2l6Gda6LLiX14rU9TV20Wa3ofeQmwPFZbOMo9DXrLbOjFaaclkXKWidIaopwAObQDqwWtGUjqg=="],
+
+    "axe-core": ["axe-core@4.13.0", "", {}, "sha512-UzGt8zg7Ny8djbYMhxl2zuEevVa7r2gJjYY5Lwr1xM7+XU2nd6CkIWFTVcCIbAP63vSz71NaVyyuSk9lHKcy0A=="],
 
     "babel-dead-code-elimination": ["babel-dead-code-elimination@1.0.12", "", { "dependencies": { "@babel/core": "^7.23.7", "@babel/parser": "^7.23.6", "@babel/traverse": "^7.23.7", "@babel/types": "^7.23.6" } }, "sha512-GERT7L2TiYcYDtYk1IpD+ASAYXjKbLTDPhBtYj7X1NuRMDTMtAx9kyBenub1Ev41lo91OHCKdmP+egTDmfQ7Ig=="],
 

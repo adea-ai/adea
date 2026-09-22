@@ -787,6 +787,29 @@ engine is unavailable; browser frames, screenshots, video, annotations,
 element picking, and takeover are never represented as passing evidence by a
 typed-unavailable fixture.
 
+The #426/#541 automated WCAG 2.2 AA audit lane runs axe-core over the served
+app surfaces the journey crosses (chat workspace, Dev View with the integrated
+terminal in the deterministic fixture mode, the 320px Dev View layout, and the
+Settings dialog on every rendered tab, including Permissions):
+
+```sh
+bun scripts/audit-a11y-dev-view.mjs \
+  --base-url http://127.0.0.1:3123 \
+  --artifact artifacts/a11y/axe-dev-view.json
+```
+
+Platform: the same Bun/Playwright Chromium build as the E2E lane, against a dev
+server booted exactly like the E2E web server (compose-Postgres
+`DATABASE_URL` defaults). Fixture: the real app in guest mode; the Dev View
+uses `?view=dev&devE2e=preserved`. Output: the JSON artifact named above
+(per-surface violations, repro selectors, severity totals). Thresholds: the
+lane is a report gate — exit 0 when the scan completes, with every violation
+class either fixed or filed as its own tracked issue before #426 closes;
+`--strict` additionally exits nonzero while any serious/critical node remains.
+Tags: `wcag2a, wcag2aa, wcag21a, wcag21aa, wcag22aa`. Scope: automated axe
+coverage only; manual screen-reader/keyboard certification stays open on
+#426/#541.
+
 Run focused package/test commands during each slice, then the full applicable
 set. #396/#422 own packaged smoke fixtures; #424 owns resource/cleanup
 performance and soak; #426 composes the exact six named scripts above and
