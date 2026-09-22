@@ -525,6 +525,53 @@ describe('credential vault', () => {
     }
   })
 
+  test('writes a downgrade-visible legacy tombstone before revoked metadata can outlive the secret', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-vault-downgrade-'))
+    try {
+      const keys = new Map<string, Buffer>()
+      const keyStore: VaultKeyStore = {
+        get: (_service, account) => keys.get(account),
+        set: (_service, account, key) => keys.set(account, Buffer.from(key)),
+        delete: (_service, account) => keys.delete(account),
+      }
+      const initial = vault(dataDir, undefined, keyStore)
+      const ref = enroll(initial)
+      const vaultDir = join(dataDir, 'dev-runtime', 'vault')
+      const sqliteFile = join(vaultDir, 'credentials.sqlite3')
+      rmSync(sqliteFile, { force: true })
+      rmSync(`${sqliteFile}-wal`, { force: true })
+      rmSync(`${sqliteFile}-shm`, { force: true })
+      rmSync(`${sqliteFile}.migration.json`, { force: true })
+      writeFileSync(
+        join(vaultDir, 'credentials.json'),
+        JSON.stringify({ schemaVersion: 1, savedAt: ref.updatedAt, records: [ref] }),
+        { mode: 0o600 }
+      )
+
+      const migrated = vault(dataDir, undefined, keyStore)
+      expect(migrated.list({ scope }).items[0]?.state).toBe('ready')
+      const revoked = migrated.revoke({
+        scope,
+        credentialRefId: ref.id,
+        expectedVersion: ref.version,
+      })
+      expect(revoked.state).toBe('revoked')
+      expect(existsSync(join(vaultDir, `${ref.id}.sealed`))).toBe(false)
+      const legacy = JSON.parse(readFileSync(join(vaultDir, 'credentials.json'), 'utf8')) as {
+        records: Array<{ id: string; state: string }>
+      }
+      expect(legacy.records).toContainEqual({
+        ...ref,
+        state: 'revoked',
+        version: revoked.version,
+        updatedAt: revoked.updatedAt,
+        revokedAt: revoked.revokedAt,
+      })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('fails closed on corrupt sealed material without leaking it', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-vault-'))
     try {

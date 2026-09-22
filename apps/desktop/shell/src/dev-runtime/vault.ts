@@ -7,7 +7,15 @@
 // material, and the sealed holder refuses JSON/string coercion so a resolved
 // secret cannot silently enter ordinary client state or a log line.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
@@ -656,11 +664,12 @@ export function createCredentialVault(options: {
   mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
   const vaultKeyStore = options.credentialStore ?? createSystemVaultKeyStore()
   const vaultKey = loadVaultKey(vaultKeyStore)
+  const legacyFile = join(vaultDir, 'credentials.json')
   const store = createDurableSqliteStore<CredentialRefRecord>({
     file: join(vaultDir, 'credentials.sqlite3'),
     schemaVersion: 1,
     label: 'credential vault',
-    legacyFile: join(vaultDir, 'credentials.json'),
+    legacyFile,
     migrateLegacy: (value) => {
       if (typeof value !== 'object' || value === null || Array.isArray(value))
         throw invalidCredentialMetadata()
@@ -676,6 +685,61 @@ export function createCredentialVault(options: {
 
   function save(records: ReadonlyArray<CredentialRefRecord>): void {
     store.save(decodeCredentialRecords(records))
+  }
+
+  /** Keep downgrade readers from resolving a reference after a revocation.
+   * The legacy envelope remains present for recovery, but a successful revoke
+   * writes its visible tombstone there as well. The sealed file is removed
+   * before the SQLite commit, so an interruption leaves no usable secret at
+   * either authority boundary. */
+  function writeLegacyRevocationTombstone(
+    record: CredentialRefRecord,
+    revoked: CredentialRefRecord
+  ): void {
+    if (!existsSync(legacyFile)) return
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(legacyFile, 'utf8'))
+    } catch {
+      return
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return
+    const envelope = parsed as { schemaVersion?: unknown; savedAt?: unknown; records?: unknown }
+    if (envelope.schemaVersion !== 1 || !Array.isArray(envelope.records)) return
+    const index = envelope.records.findIndex(
+      (candidate) =>
+        typeof candidate === 'object' &&
+        candidate !== null &&
+        (candidate as { id?: unknown }).id === record.id
+    )
+    if (index < 0) return
+    const legacyRecord = envelope.records[index]
+    if (typeof legacyRecord !== 'object' || legacyRecord === null) return
+    const tombstone = {
+      ...(legacyRecord as Record<string, unknown>),
+      state: 'revoked',
+      version: revoked.version,
+      updatedAt: revoked.updatedAt,
+      ...(revoked.revokedAt ? { revokedAt: revoked.revokedAt } : {}),
+      ...(revoked.revokedReason ? { revokedReason: revoked.revokedReason } : {}),
+    }
+    const nextEnvelope = {
+      ...envelope,
+      savedAt: revoked.updatedAt,
+      records: envelope.records.map((candidate, candidateIndex) =>
+        candidateIndex === index ? tombstone : candidate
+      ),
+    }
+    const temporary = `${legacyFile}.tmp-${process.pid}-${Date.now()}`
+    try {
+      writeFileSync(temporary, `${JSON.stringify(nextEnvelope)}\n`, { mode: 0o600 })
+      renameSync(temporary, legacyFile)
+      chmodSync(legacyFile, 0o600)
+    } catch {
+      rmSync(temporary, { force: true })
+      // SQLite is authoritative and the sealed material is already gone. A
+      // failed compatibility write therefore remains safe for downgrade.
+    }
   }
 
   function seal(refId: string, secret: string): string {
@@ -869,8 +933,11 @@ export function createCredentialVault(options: {
       revokedAt: nowIso(),
       ...(input.reason ? { revokedReason: input.reason.slice(0, 256) } : {}),
     }
-    save(all.map((entry) => (entry.id === record.id ? revoked : entry)))
+    // Remove the secret first. If the process stops before the metadata write,
+    // both the retained legacy record and SQLite still lack usable material.
     rmSync(sealedPath(record.id), { force: true })
+    save(all.map((entry) => (entry.id === record.id ? revoked : entry)))
+    writeLegacyRevocationTombstone(record, revoked)
     // The master key remains in Keychain for other references; revoking one
     // credential must never rotate or export it.
     log('vault.revoked', record.id, 'revoked')

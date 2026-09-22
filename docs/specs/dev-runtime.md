@@ -1586,7 +1586,10 @@ Defaults:
   migration ledger that binds the source digest and SQLite database identity.
   Restart retries an interrupted migration from the untouched source;
   scope-mismatched, corrupt, or lost SQLite state fails closed and retains the
-  unread database for recovery. The legacy source is never deleted or rewritten.
+  unread database for recovery. The legacy source is never deleted; migration
+  leaves it unchanged, while revocation writes a redacted metadata tombstone
+  there after the sealed file is removed so an older runtime cannot resolve a
+  revoked reference during a downgrade or crash recovery.
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -3884,9 +3887,9 @@ can distinguish intentional spec evolution from drift:
   the reviewed WAL/full-sync `credentials.sqlite3` store. Strict metadata
   decoding refuses secret-shaped fields, scope-invalid records, duplicate IDs,
   and malformed versions before persistence; migration rollback, restart
-  recovery, SQLite loss, and corrupt-payload retention are pinned by
-  `apps/desktop/tests/dev-runtime-vault.test.ts`. The Bun.secrets and legacy
-  OS-keychain key adapter remains unchanged.
+  recovery, SQLite loss, corrupt-payload retention, and the downgrade-visible
+  revocation tombstone are pinned by `apps/desktop/tests/dev-runtime-vault.test.ts`.
+  The Bun.secrets and legacy OS-keychain key adapter remains unchanged.
 - **2026-09-21 — #185: live supervision events under a crash-storm bound,
   and the managed Pi as a truthful-absence manifest component.** Two
   follow-ups to the packaged supervision wiring. (1) The supervision
@@ -4627,8 +4630,9 @@ files in the same commit:
   runtime downgrade;
 - `apps/desktop/tests/dev-runtime-vault.test.ts` also pins the credential
   metadata migration, retained legacy source, restart/rollback recovery,
-  SQLite loss refusal, scope filtering, corruption retention, and the absence
-  of plaintext or key material from SQLite;
+  SQLite loss refusal, scope filtering, corruption retention, downgrade-visible
+  revocation tombstones, and the absence of plaintext or key material from
+  SQLite;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind
