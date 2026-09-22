@@ -4569,6 +4569,12 @@ files in the same commit:
   key read-back, locked/denied/unavailable refusals, legacy-key retention, and
   key-mismatch fail-closed behavior, including sealed-vault access after a
   runtime downgrade;
+- `scripts/test-m10-33-packaged-vault.mjs` bundles
+  `apps/desktop/shell/scripts/packaged-vault-smoke.ts` and executes the real
+  adapter with the Bun runtime from a macOS app bundle. Its disposable
+  Keychain journey proves legacy-slot retention across upgrade/downgrade and
+  records redacted denied/locked/mismatched-store refusals with parent and
+  child cleanup;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind
