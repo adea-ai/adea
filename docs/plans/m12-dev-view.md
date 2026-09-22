@@ -577,6 +577,13 @@ Acceptance:
       confirmation and policy edit/revoke/expiry are audited.
 - [ ] Performance covers 100 sessions and 1,000 processes with no polling storm
       or >16 ms UI task; resource/cleanup soak proves bounded history.
+
+The named performance lane now records a synthetic 100-session/1,000-process
+sampler and row-projection result alongside screenshot retention. It verifies
+complete PID coverage over 16 bounded pulls, one `ps` observation per pull,
+and the pure 1,000-row projection p95. This is not a packaged UI long-task or
+resource/cleanup soak record; those acceptance proofs remain open.
+
 - [ ] Dependency-template caches appear in the retained-data breakdown and as
       cleanup candidates; clearing one never touches worktrees or the primary
       checkout.

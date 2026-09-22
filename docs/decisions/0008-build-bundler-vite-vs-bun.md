@@ -1,8 +1,9 @@
 # Build and Bundler: Vite vs Bun
 
-- Status: Accepted (2026-09-13). **Vite 8 (Rolldown) + Turborepo stay on every
-  build surface; Bun's bundler is not adopted anywhere.** Measured in M7; the
-  per-surface evidence is below.
+- Status: Accepted (2026-09-13). **Vite 8 (Rolldown) + Turborepo stay on the
+  app and library build surfaces.** The detached terminal sidecar has a narrow
+  Bun bundling exception recorded below. Measured in M7; the per-surface
+  evidence is below.
 - Date: 2026-09-13
 - Tracks: #304 (this evaluation) — milestone M7, Build & Bundler Evaluation.
   The measurement harness lived outside the repository and is deleted; this page
@@ -18,10 +19,11 @@
 
 ## Decision
 
-**Bun replaces nothing on the build path.** Bun stays the package manager,
-script runner, and test runner — that is not what was measured. Its _bundler_
-(`bun build` / `Bun.build`) loses on every surface where it was a candidate,
-and two surfaces are forced by the framework before any benchmark runs.
+**Bun replaces nothing on the M7 app and library build path.** Bun stays the
+package manager, script runner, and test runner — that is not what was
+measured. Its _bundler_ (`bun build` / `Bun.build`) loses on every surface where
+it was a candidate, and two surfaces are forced by the framework before any
+benchmark runs. The later sidecar exception does not replace those paths.
 
 | Surface                                                    | Decision                       | Why                                                                    |
 | ---------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------- |
@@ -33,9 +35,10 @@ and two surfaces are forced by the framework before any benchmark runs.
 | Task orchestration and caching                             | Turborepo (incumbent)          | Not a bundler candidate; measured so the end state is recorded         |
 | Desktop shell (`apps/desktop/shell`, Electrobun)           | Bun (already)                  | Electrobun's main process is Bun; there is no Vite path to compare     |
 
-No dual build configuration, compatibility wrapper, or benchmark script exists
-in the repository as a result of this evaluation. The losing configurations are
-recorded here as rejected, with the measurement that rejected them.
+No dual app/library build configuration or compatibility wrapper exists as a
+result of this evaluation. The losing configurations are recorded here as
+rejected, with the measurement that rejected them. The separate sidecar
+measurement script below pins its later exception.
 
 ## Measurement environment
 
@@ -280,9 +283,9 @@ the same graph.
 
 ## Consequences
 
-- One build system, one plugin ecosystem, one cache: Vite 8 (Rolldown) for the
-  app and the libraries, `tsc` for declarations and type-only packages,
-  Turborepo for task caching.
+- One app/library build system, plugin ecosystem, and cache: Vite 8 (Rolldown)
+  for the app and libraries, `tsc` for declarations and type-only packages,
+  Turborepo for task caching. The detached sidecar uses the exception below.
 - Bun keeps the roles it is demonstrably good at here: install, scripts, the
   test runner, and the Electrobun desktop shell's own Bun main process.
 - The evaluation left no harness, config, or dependency behind; the numbers
@@ -290,38 +293,44 @@ the same graph.
 - `scripts/build-bundler-boundary.test.ts` pins the decision so a dormant Bun
   build path cannot reappear unnoticed.
 
-## Exception (2026-09-18, issue #396): the terminal sidecar ships as a compiled Bun executable
+## Exception (2026-09-22, issues #396 and #490): the terminal sidecar ships as a Bun bundle
 
-`bun build --compile` is adopted for exactly one artifact: the detached
-versioned terminal sidecar entry
-(`apps/desktop/shell/src/dev-runtime/terminal/sidecar/entry.ts`). This is a
-process artifact, not a build path for workspace sources — the Vite/Rolldown
-decision above is unchanged for every app and package build surface.
+`apps/desktop/scripts/shell.mjs` runs `bun build` with `--target=bun --minify`
+for exactly one detached process entry,
+`apps/desktop/shell/src/dev-runtime/terminal/sidecar/entry.ts`. Electrobun
+copies `build/sidecar-dist/entry.js` into the `.app`, and the packaged Bun
+runtime executes that bundle. The shipped path does **not** use
+`bun build --compile`. This exception does not change the Vite/Rolldown
+decision for app and library builds.
 
 Why the exception is safe within this decision's terms:
 
-- The sidecar is a detached executable the supervisor spawns, not an output of
-  the application build graph. No app/package build configuration, plugin, or
-  output shape changes; `scripts/build-bundler-boundary.test.ts` continues to
-  pin the build surfaces.
-- A single versioned binary gives the adoption handshake exactly what
-  [dev-runtime.md](../specs/dev-runtime.md) requires to authenticate: one
-  executable identity, one artifact digest for the component manifest, and one
-  compatibility window per release — no runtime resolution of an entry script
-  against a changing checkout.
-- The packaging lane already ships Bun artifacts (the Electrobun shell main
-  process is Bun); the compile step adds no new runtime dependency.
+- The sidecar is a detached process the supervisor starts from the packaged
+  bundle and bundled Bun runtime. No app/library build configuration, plugin,
+  or output shape changes; `scripts/build-bundler-boundary.test.ts` continues
+  to pin those surfaces.
+- Packaged install resolution hashes both the staged bundle and the bundled
+  runtime; the component manifest records the bundle digest, and the adoption
+  handshake binds its versioned identity. It never resolves an entry script
+  against a changing source checkout.
+- Bundling reuses the Bun runtime that Electrobun already ships. It adds no
+  second runtime or first-launch compiled-binary verification cost.
 
-Measured spawn-time delta (same machine family as the tables above, Bun 1.4.0,
-macOS arm64; time from process start to the owner-only endpoint file on disk):
+Measured twice on 2026-09-22 with Bun 1.4.0 on macOS arm64, using
+`bun apps/desktop/scripts/measure-sidecar-startup.mjs` from the repository
+root. The script builds with the same flags as `shell.mjs`, alternates five
+fresh data-directory launches per path, measures process spawn to the owner-only
+endpoint file, verifies each endpoint PID, and terminates every child before
+the next launch. Other development work was running on the machine, so these
+local numbers establish the direction of the delta, not a stable packaged
+release latency:
 
-| Launch                                    | Time to endpoint file                       |
-| ----------------------------------------- | ------------------------------------------- |
-| `bun run entry.ts` (script)               | 20–33 ms across 3 runs                      |
-| compiled binary, first launch after build | 878 ms (one-time macOS binary verification) |
-| compiled binary, warm launches            | 21–22 ms across 2 runs                      |
+| Sample                           | Source median (ms) | Bundle median (ms) | Bundle minus source (ms) |
+| -------------------------------- | ------------------ | ------------------ | ------------------------ |
+| First five alternating launches  | 22.95              | 91.17              | 68.22                    |
+| Second five alternating launches | 30.93              | 168.24             | 137.30                   |
 
-Warm spawn is at parity with script launch (~20 ms); a freshly installed
-binary pays a one-time first-launch verification cost on macOS, which the
-supervisor's bounded startup window absorbs. The adoption rationale is the
-versioned single-file artifact and the cleaner handshake, not spawn speed.
+The bundle was slower at the median in both samples. The adoption rationale is
+a staged, digest-verified release artifact with a stable handshake, not faster
+spawn. Earlier `--compile` measurements described a prototype that is not the
+shipped path and no longer support this decision.

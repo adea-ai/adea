@@ -1,12 +1,11 @@
-// The detached terminal sidecar binary entry (issue #396).
+// The detached terminal sidecar entry (issue #396).
 //
-// Ships as a single compiled executable (`bun build --compile`, ADR 0008
-// exception documented in docs/decisions/0008-build-bundler-vite-vs-bun.md):
-// a versioned binary with faster spawn and a cleaner adoption handshake
-// (adea#490). Registration, supervision, crash-loop policy, and upgrade
-// belong to the M10 supervisor (#185) — this entry never supervises itself.
+// Ships as a versioned Bun bundle executed by the packaged Bun runtime
+// (`bun build --target=bun --minify`, ADR 0008 exception). Registration,
+// supervision, crash-loop policy, and upgrade belong to the M10 supervisor
+// (#185) — this entry never supervises itself.
 //
-// Usage: adea-terminal-sidecar --data-dir <dir> [--socket <path>]
+// Usage: bun entry.js --data-dir <dir> [--socket <path>]
 // Writes the owner-only endpoint file and serves the sidecar protocol on a
 // unix socket. A boot on a data dir whose endpoint names a live same-identity
 // process supersedes it cleanly; a stale endpoint is unlinked. SIGTERM/SIGINT

@@ -3197,7 +3197,11 @@ listing without a source is truthful-empty rather than fabricated:
   metrics surface is read, never on a timer. CPU is a monotonic delta
   between consecutive samples of one owner; the first sample carries no
   `cpuPercent`, and unobservable values stay absent (never numeric zero).
-  History is bounded to 720 points per owner and 24 hours.
+  History is bounded to 720 points per owner and 24 hours. Each pull makes at
+  most one `ps` observation of 64 distinct PIDs. The sampler rotates that
+  bounded window through the current inventory, so a stable large inventory
+  is covered across successive pulls without a command burst or permanent
+  first-page bias. An unsampled process has no fabricated metric.
 - Usage adapters are sequenced by a cache service with exponential backoff
   plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
   floor. A failed poll stores an explicit typed-failure row (quantity
@@ -4270,7 +4274,9 @@ can distinguish intentional spec evolution from drift:
     `access_denied`, `malformed_output`, `process_failure`, `timeout`,
     `unavailable_executable`). Only item-not-found permits first-time key
     generation; every other outcome fails closed without generating or
-    overwriting a key, and lookups re-validate base64 strictly.
+    overwriting a key. If CLI stderr contains conflicting signals, locked or
+    denied takes precedence over item-not-found; a mixed diagnostic never
+    permits first-time generation. Lookups re-validate base64 strictly.
   - **Production registration matrix.** The composition root
     (`apps/desktop/shell/src/dev-runtime/index.ts`) registers every provider
     with a reachable implementation — capability snapshot, project/session
