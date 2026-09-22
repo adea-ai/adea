@@ -532,6 +532,11 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
   }
 
   function migrate(db: Database, databaseId: string, ledger: MigrationLedger | undefined): void {
+    if (ledger?.origin === 'legacy' && ledger.state === 'complete')
+      throw new DevAuthorityError(
+        'corrupt_state',
+        `${options.label} migration ledger has no authoritative row`
+      )
     const legacy = readLegacy()
     if (ledger?.origin === 'native') {
       if (legacy)
