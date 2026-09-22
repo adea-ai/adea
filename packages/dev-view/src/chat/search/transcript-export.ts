@@ -53,13 +53,7 @@ export function exportTranscriptWindow(
     (event) =>
       event.runtimeSessionId === options.runtimeSessionId && event.generation === options.generation
   )
-  const selected = matching
-    .filter(
-      (event) =>
-        event.runtimeSessionId === options.runtimeSessionId &&
-        event.generation === options.generation
-    )
-    .slice(0, maxEvents)
+  const selected = matching.slice(0, maxEvents)
   const lines: string[] = []
   let bytes = 0
   let exportedEvents = 0

@@ -125,4 +125,14 @@ describe('exportTranscriptWindow', () => {
     expect(result.text).toContain('[secret redacted]')
     expect(result.text).not.toContain('supersecret')
   })
+
+  test('caps matching events at maxEvents and reports the truncation', () => {
+    const result = exportTranscriptWindow([event({}), event({ eventId: 'event-3', seq: '3' })], {
+      runtimeSessionId: session.id,
+      generation: 2,
+      maxEvents: 1,
+    })
+    expect(result.exportedEvents).toBe(1)
+    expect(result.truncated).toBe(true)
+  })
 })

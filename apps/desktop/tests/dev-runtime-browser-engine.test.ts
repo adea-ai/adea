@@ -148,6 +148,29 @@ describe('live Bun WebView/CDP browser engine', () => {
     )
   })
 
+  test('refuses live-target operations typed-unavailable on an engine-less host', async () => {
+    const lanes = createBrowserLaneRegistry()
+    const browserLane = lanes.create({ scope, runtimeSessionId: 'session-1', kind: 'task_owned' })
+    const engine = createBunWebViewLaneEngine({ webViewBackendProbe: () => false })
+    // The missing WebView backend is an environmental absence: the refusal is
+    // the typed capability_unavailable (which the provider maps to a
+    // retryable, lane-recovering error), never the bare factory TypeError
+    // that would be misclassified as crash_loop.
+    await expect(
+      engine.navigate(browserLane, 'https://example.test/', { admitHop: admission })
+    ).rejects.toMatchObject({ code: 'capability_unavailable' })
+    await expect(engine.screenshot(browserLane, { format: 'png' })).rejects.toMatchObject({
+      code: 'capability_unavailable',
+    })
+    await expect(
+      engine.inspect(browserLane, { targetId: `browser-target-${browserLane.id}` })
+    ).rejects.toMatchObject({ code: 'capability_unavailable' })
+    // Nothing was provisioned behind the refusal: no lease, no state, and
+    // close stays a safe no-op so a later retry is unobstructed.
+    engine.close(browserLane)
+    expect(lanes.get(browserLane.id).state).toBe('provisioning')
+  })
+
   test('admits the initial document at Fetch.requestPaused and exposes targets, screenshot, and inspection', async () => {
     const views: FakeWebView[] = []
     const engine = createBunWebViewLaneEngine({
