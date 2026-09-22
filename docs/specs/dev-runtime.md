@@ -1299,6 +1299,12 @@ returns that session after a process restart; a changed body refuses with
 only after accepting a frame. Replay delivered during stream attach queues
 the acknowledgement until the socket is available; a decode error, sequence
 gap, conflict, or stale generation never acknowledges the rejected frame.
+The Chat surface closes its transcript stream when the selected session or
+generation changes or the view unmounts. A late stream-open response must close
+its own handle without installing a poller or replacing the newer session's
+transcript; session-local answer and composer draft state reset on selection.
+During append-only streaming, existing transcript row DOM nodes stay mounted so
+the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
@@ -1321,12 +1327,85 @@ If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
 a changed body still refuses before dispatch.
+M13 first-run onboarding consumes identity and model-access entitlement facts
+from the owning desktop composition. The guest state with no model entitlement
+offers sign-in as its one recovery action; it never invents free guest model
+access or displays a raw credential field. Managed-Pi install state is a
+separate visible status while identity is resolving. Typed driver errors map to
+one safe action (retry the install or update the app), and raw diagnostic
+details do not render. An unresolved project or AgentProfile remains a visible
+setup gate rather than a fabricated default. Once ready, onboarding creates a
+canonical Chat conversation with the initial prompt and a stable idempotency
+key across transport retries. It sends no harness or model pin, leaving the
+root-default policy and the existing staged launch transaction authoritative.
+The adapter exposes `dev.harness.preferenceReset` for explicit reset-to-
+discovered; the host's effective projection then returns managed Pi first.
+The initial UI projection and adapter are implemented in
+`packages/dev-view/src/chat/onboarding/`. The desktop Chat entry mounts that
+surface only after the authenticated runtime projection, ready worktree list,
+and workspace `AgentProfile` list resolve from their owning authorities;
+missing records leave the existing Chat surface in place and never create a
+synthetic launch context. The current desktop API has no Control Plane model-
+entitlement projection, so signed-in onboarding stays at an explicit
+model-access gate and guest onboarding requires sign-in; no client-side
+entitlement is inferred from identity or profile data. Packaged first-run
+certification remains an M13.4 acceptance gate.
+
+The Dev↔Chat switch proof drives the model from the Chat side through repeated
+Dev projection and Chat attach cycles. Each cycle must observe the same
+`runtimeSessionId`, generation-qualified event sequence and retained window,
+draft, and transcript scrollback; the only allowed operations during a switch
+are authenticated, mutation-free canonical hierarchy and generation-fenced
+session reads. A switch never invokes create, launch, resume, cancel, archive,
+or an event-log write.
+
+Inline approval and question controls are fail-closed. The Chat transcript may
+render an `approval.requested` or `question.requested` event, but it MUST keep
+the corresponding response controls disabled with a visible reason until the
+host supplies an authorized, generation-bound response operation through the
+`DevRuntimeService` integration. A missing callback is not an invitation to
+send a best-effort event, type into a PTY, or report success. The current
+runtime operation registry has session lifecycle and event-read commands but no
+approval/question response command; adding one requires an M11 contract that
+binds account/workspace/runtime-node/session/generation, event identity, input
+owner, capability, single-use/idempotency, and canonical resolved/expired
+events. Until that contract exists, Chat's disabled state is the truthful
+projection; a host may direct the user to another separately authorized
+control surface when one exists, but Chat must not invent that route.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection
 and never creates a second session, event, approval, credential, or runtime-node
 authority.
+
+### Chat composer decision-layer consumer (M13 #533)
+
+The Chat composer consumes control-plane `decision-resolution.v1` from
+control-plane#558. The Adea-side request and reply types live under
+`packages/dev-view/src/chat/composer/decision-layer.ts` and mirror the pinned
+contract version `{ major: 1, minor: 0 }`: objective, AgentProfile, available
+runtimes, entitlements, required capabilities, cost/latency preference,
+project/profile defaults, and explicit pins are submitted as one request. The
+reply contains the eight resolved outputs (harness, model, skills,
+capabilities, runtime, sandbox, context package, and delegation), precedence
+trace, diagnostics, and digest.
+
+Auto mode always sends an empty `explicitPins` object. Customize mode forwards
+the user's explicit pins; the composer never applies precedence or chooses a
+harness/model locally. The response's logical `harnessId` is not treated as a
+local `harnessInstallationId`: the authenticated host adapter must map the
+resolved selection into the existing #400 `dev.session.create` plus
+`dev.session.launchDefault`/`launchHarness` transaction with the same
+idempotency key. If that adapter, the decision contract, or model entitlement
+is unavailable, the consumer returns `auth_required` or `unavailable` with one
+recovery action and does not launch a default.
+
+Composer mode, agent, favorites, and recents may be persisted only under the
+authenticated `(accountId, workspaceId, projectId)` preference key. Preference
+records contain IDs and presentation choices only; credentials and credential
+values are never persisted by the Chat package. No new Dev Runtime wire
+operation is introduced by this consumer.
 
 ### Durable project/session authority (desktop host)
 
@@ -3533,6 +3612,8 @@ serialization. Secret patterns are defense in depth, not authorization. Error
 messages never echo untrusted payloads, credentials, full terminal output, or
 private file content. Audit records contain IDs, operation, actor, scope,
 result/error code, byte/count summaries, and redacted target labels.
+Chat transcript projection also drops any `credential`-classified event before
+rendering, including a malformed producer's otherwise renderable event kind.
 
 ## Error contract
 

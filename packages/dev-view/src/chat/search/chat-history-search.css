@@ -1,0 +1,79 @@
+.dev-history-search {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.dev-history-search input {
+  min-height: 2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  color: inherit;
+  background: var(--background);
+}
+
+.dev-history-search input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.dev-history-search p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.dev-history-search ol {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 32rem;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.dev-history-search li {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.dev-history-search li > button:first-child {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+}
+
+.dev-history-search li > button:first-child span:nth-child(2) {
+  color: var(--muted-foreground);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.dev-history-search li > button:first-child span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-history-search button {
+  min-height: 2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  color: inherit;
+  background: transparent;
+}
+
+.dev-history-search button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
