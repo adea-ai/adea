@@ -52,6 +52,16 @@ the old and new versions; each batch commits ciphertext and progress atomically;
 the old key is deleted only after every live row authenticates and its digest
 verifies under the new key. `local_content_rotate_key` resumes from the row.
 
+## Cloud replica boundary
+
+When a workspace enables `agent_hq_e2ee_sync`, the local authority may publish
+an encrypted physical revision through the cloud `ContentReplica` contract
+([content-replicas.md](./content-replicas.md)). The local store remains the
+plaintext authority and keeps its master key private; cloud persistence holds
+only ciphertext, nonce, digest, and bounded revision metadata. Local-only
+content continues to report an explicit unavailable state when its authority is
+offline.
+
 ## Who may call it
 
 Two independent checks, both required:

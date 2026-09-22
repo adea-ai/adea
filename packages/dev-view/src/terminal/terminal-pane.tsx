@@ -487,6 +487,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         props.worktreeLabel ? `Integrated terminal — ${props.worktreeLabel}` : 'Integrated terminal'
       }
       data-policy-version={policyVersion()}
+      data-renderer={policy.snapshot().active}
       data-worktree-id={props.worktreeId}
       data-attach-from={props.fromSequence}
       onKeyDown={onSectionKeyDown}

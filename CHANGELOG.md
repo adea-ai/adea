@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.43.0](https://github.com/adea-ai/adea/compare/v0.42.0...v0.43.0) (2026-09-22)
+
+
+### Features
+
+* **content:** add durable encrypted replicas ([#572](https://github.com/adea-ai/adea/issues/572)) ([11c11b6](https://github.com/adea-ai/adea/commit/11c11b62dec2f94ddc60312414360364648ce107))
+
+## [0.42.0](https://github.com/adea-ai/adea/compare/v0.41.0...v0.42.0) (2026-09-22)
+
+
+### Features
+
+* **remote-content:** add versioned HPKE envelope contract ([#570](https://github.com/adea-ai/adea/issues/570)) ([4a3d9f2](https://github.com/adea-ai/adea/commit/4a3d9f2960389f3e4aba2568fa188c28b7533010))
+
+## [0.41.0](https://github.com/adea-ai/adea/compare/v0.40.5...v0.41.0) (2026-09-22)
+
+
+### Features
+
+* **chat:** add canonical conversation model ([#552](https://github.com/adea-ai/adea/issues/552)) ([a6646a5](https://github.com/adea-ai/adea/commit/a6646a5e186a92aba71df5fe3dd9247ead5957cd))
+
+## [0.40.5](https://github.com/adea-ai/adea/compare/v0.40.4...v0.40.5) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** bind event tokens to channel subscriptions ([#569](https://github.com/adea-ai/adea/issues/569)) ([6b0db9c](https://github.com/adea-ai/adea/commit/6b0db9c9715483ef34593fd6e58292bec4aa22f5))
+
+## [0.40.4](https://github.com/adea-ai/adea/compare/v0.40.3...v0.40.4) (2026-09-22)
+
+
+### Tests
+
+* **m12:** cover terminal pane and endurance lane ([#553](https://github.com/adea-ai/adea/issues/553)) ([89b9c4a](https://github.com/adea-ai/adea/commit/89b9c4af5b38059669d2aa6d966bec1cefd91477))
+
 ## [0.40.3](https://github.com/adea-ai/adea/compare/v0.40.2...v0.40.3) (2026-09-22)
 
 

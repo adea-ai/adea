@@ -753,6 +753,21 @@ bun run test:soak:dev-view
 bun run test:packaged:dev-view
 ```
 
+Issue #538 owns two additional terminal checks. The browser lane is always
+headless and runs the fixture-only authenticated terminal attach journey:
+
+```sh
+bun run test:e2e:dev-view-terminal
+bun run test:terminal-endurance
+```
+
+The endurance command repeats the terminal transport/pane reducers for a
+bounded local run and writes `artifacts/dev-runtime/terminal-endurance-summary.json`.
+The 24-hour acceptance run sets
+`ADEA_DEV_RUNTIME_TERMINAL_ENDURANCE_DURATION_MS=86400000` and still requires
+the packaged PTY, resource, display-loss, update, and daemon-version evidence;
+the bounded local run cannot close those gates.
+
 Run focused package/test commands during each slice, then the full applicable
 set. #396/#422 own packaged smoke fixtures; #424 owns resource/cleanup
 performance and soak; #426 composes the exact six named scripts above and

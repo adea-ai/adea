@@ -19,6 +19,9 @@ describe('ContentRef request boundary', () => {
       synchronizationPolicy: 'local_only',
     }
     expect(parseContentRefCreateInput(metadata)).toEqual(metadata)
+    expect(
+      parseContentRefCreateInput({ ...metadata, synchronizationPolicy: 'agent_hq_e2ee_sync' })
+    ).toMatchObject({ synchronizationPolicy: 'agent_hq_e2ee_sync' })
     for (const forbidden of ['ciphertext', 'databasePath', 'masterKey', 'nonce', 'plaintext'])
       expect(parseContentRefCreateInput({ ...metadata, [forbidden]: 'canary' })).toBeNull()
   })

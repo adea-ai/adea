@@ -1,0 +1,1 @@
+ALTER TABLE "app"."content_replicas" ADD CONSTRAINT "content_replicas_kind_epoch_consistent" CHECK (("app"."content_replicas"."replica_kind" = 'agent_hq_e2ee_sync' and "app"."content_replicas"."key_epoch_id" is not null) or ("app"."content_replicas"."replica_kind" <> 'agent_hq_e2ee_sync' and "app"."content_replicas"."key_epoch_id" is null));

@@ -4,6 +4,7 @@ import type {
   ArtifactSummary,
   ChannelReadStateSummary,
   ChannelSummary,
+  ContentReplicaSummary,
   ConversationParticipantRef,
   ContentRefSummary,
   MessageSummary,
@@ -113,6 +114,23 @@ export type ApiContentRefUpdateInput = Readonly<{
   revision: number
 }>
 export type ApiContentRefResponse = Readonly<{ contentRef: ContentRefSummary }>
+export type ApiContentReplicaUpsertInput = Readonly<{
+  availability: ContentReplicaSummary['availability']
+  ciphertext: string
+  digestSha256: string
+  keyEpochId?: string
+  nonce: string
+  replicaKind: ContentReplicaSummary['replicaKind']
+  revision: number
+  schemaVersion: number
+}>
+export type ApiContentReplicaUpsertResponse = Readonly<{
+  contentReplica: ContentReplicaSummary
+  outcome: 'created' | 'duplicate' | 'stale'
+}>
+export type ApiContentReplicaListResponse = Readonly<{
+  contentReplicas: readonly ContentReplicaSummary[]
+}>
 export type ApiReadStateResponse = Readonly<{ readState: readonly ChannelReadStateSummary[] }>
 
 export type ApiChannelResponse = Readonly<{ channel: ChannelSummary }>
@@ -591,6 +609,30 @@ export class AgentHqApiClient {
         body: JSON.stringify(input),
         headers: { 'Content-Type': 'application/json' },
         method: 'PATCH',
+      }
+    )
+  }
+
+  async listContentReplicas(
+    workspaceId: string,
+    contentId: string
+  ): Promise<ApiContentReplicaListResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/content-refs/${encodeURIComponent(contentId)}/replicas`
+    )
+  }
+
+  async upsertContentReplica(
+    workspaceId: string,
+    contentId: string,
+    input: ApiContentReplicaUpsertInput
+  ): Promise<ApiContentReplicaUpsertResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/content-refs/${encodeURIComponent(contentId)}/replicas`,
+      {
+        body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
       }
     )
   }

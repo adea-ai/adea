@@ -1,0 +1,19 @@
+{
+  "recipientIkm": "recipient key material for vector 0001",
+  "ephemeralIkm": "ephemeral sender material for vector 0001",
+  "plaintext": "cross-runtime command fixture",
+  "enc": "KRI1Ah7xlNV2eDFLthzUjmlhd4hgf7cU8ydhQy3knSs",
+  "ciphertext": "RVH7YBxX01vHfGEvhR_qBaZ0nsa4AxmVoxCFlDUyJrBBJKQUF143ZsU91X1l",
+  "aad": {
+    "version": 1,
+    "keyId": "node-key-v1",
+    "workspaceId": "00000000-0000-4000-8000-000000000001",
+    "runtimeNodeId": "00000000-0000-4000-8000-000000000002",
+    "requestId": "00000000-0000-4000-8000-000000000003",
+    "payloadType": "command.input",
+    "schemaVersion": 1,
+    "issuedAt": "2026-09-22T12:00:00.000Z",
+    "expiresAt": "2026-09-22T12:10:00.000Z",
+    "contentDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

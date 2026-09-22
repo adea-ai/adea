@@ -36,6 +36,7 @@ import {
 import { createProcessAdapter } from '../supervision/process-adapter'
 import type { SupervisionAdapter, SupervisionEvent } from '../supervision/supervisor'
 import type { SidecarClient } from '../dev-runtime/terminal/sidecar/client'
+import { createBunSecretsVaultKeyStore, createSystemVaultKeyStore } from '../dev-runtime/vault'
 import {
   adoptShellTerminalSidecar,
   reconcileSupervisionAtBoot,
@@ -116,6 +117,16 @@ if (packagedManifest.ok) {
 // composition cannot exist without it: vault, root, and grant authorities
 // refuse to build when the verifier is missing (fail-open remediation).
 const approvalVerifier = createOwnerApprovalVerifier({ dataDir: DATA_DIR })
+
+// Resolve the vault key once at application startup. The async Bun.secrets
+// probe returns the existing synchronous key-store contract to the composition
+// graph; unsupported packaged Bun versions retain the legacy `security` path.
+// Migration never deletes the legacy slot and fails closed on any ambiguous
+// native-store result, so a runtime upgrade cannot fabricate a replacement key.
+const credentialStore = await createBunSecretsVaultKeyStore({
+  legacyStore: createSystemVaultKeyStore(),
+  runtimeVersion: Bun.version,
+})
 
 const baseInvoke = createCommandSurface(DATA_DIR)
 // The authenticated scope authority: the verified (account, workspace,
@@ -251,6 +262,7 @@ function composeHost(): DevRuntimeHost {
     authority,
     gateway: gatewayView,
     dataDir: DATA_DIR,
+    credentialStore,
     scope: identity.currentScope(),
     identity,
     approvalVerifier,
