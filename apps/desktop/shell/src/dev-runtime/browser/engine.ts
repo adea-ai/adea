@@ -67,6 +67,8 @@ export type BunWebViewLaneEngineOptions = Readonly<{
   /** Owner-only root for persistent lane profiles. */
   dataDir?: string
   webViewFactory?: BrowserWebViewFactory
+  /** Resolves a granted lane before its first stream/screenshot/navigation. */
+  laneLookup?: (laneId: string) => BrowserLaneRecord | undefined
   laneGeneration?: (laneId: string) => number | undefined
   onDiagnostic?: (laneId: string, diagnostic: BrowserEngineDiagnostic) => void
   onEscape?: (laneId: string) => void
@@ -89,11 +91,24 @@ type LaneState = {
   lane: BrowserLaneRecord
   view: BrowserWebView
   targetId: string
+  rootFrameId?: string
+  frames: Map<string, FrameState>
   navigation?: NavigationState
   viewportSequence: number
   frameSequence: bigint
   screencastStarted: boolean
   subscribers: Set<Subscriber>
+}
+
+type FrameState = Readonly<{
+  id: string
+  parentId?: string
+  url: string
+  title: string
+}>
+
+function frameTargetId(laneId: string, frameId: string): string {
+  return `browser-frame-${laneId}-${frameId}`
 }
 
 function closeSubscribers(
@@ -120,6 +135,7 @@ async function prepareBrowserView(view: BrowserWebView): Promise<void> {
   await view.navigate('about:blank')
   await view.cdp('Page.enable')
   await view.cdp('Runtime.enable')
+  await view.cdp('DOM.enable')
   await view.cdp('Network.enable')
   await view.cdp('Fetch.enable', {
     patterns: [{ requestStage: 'Request', resourceType: 'Document' }],
@@ -193,6 +209,66 @@ function requireCdpLane(lane: BrowserLaneRecord): void {
     )
 }
 
+async function inspectFrame(
+  view: BrowserWebView,
+  laneId: string,
+  frame: FrameState,
+  selector: string
+): Promise<
+  Readonly<{
+    nodeId?: string
+    role?: string
+    name?: string
+    bounds?: { x: number; y: number; width: number; height: number }
+  }>
+> {
+  const world = await view.cdp<{ executionContextId?: number }>('Page.createIsolatedWorld', {
+    frameId: frame.id,
+    worldName: `adea-picker-${laneId}`,
+    grantUniveralAccess: false,
+  })
+  if (typeof world.executionContextId !== 'number') return {}
+  const selected = await view.cdp<{ result?: { objectId?: string } }>('Runtime.evaluate', {
+    contextId: world.executionContextId,
+    expression: `document.querySelector(${JSON.stringify(selector)})`,
+    returnByValue: false,
+  })
+  const objectId = selected.result?.objectId
+  if (!objectId) return {}
+  try {
+    const node = await view.cdp<{ nodeId?: number }>('DOM.requestNode', { objectId })
+    const description = await view.cdp<{
+      result?: {
+        value?: {
+          role?: string
+          name?: string
+          bounds?: { x: number; y: number; width: number; height: number }
+        }
+      }
+    }>('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration: `function () {
+        const rect = this.getBoundingClientRect();
+        return {
+          role: this.getAttribute('role') || this.tagName.toLowerCase(),
+          name: this.getAttribute('aria-label') || this.textContent?.trim()?.slice(0, 2048) || '',
+          bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        };
+      }`,
+      returnByValue: true,
+    })
+    const value = description.result?.value
+    return {
+      ...(typeof node.nodeId === 'number' ? { nodeId: String(node.nodeId) } : {}),
+      ...(value?.role ? { role: value.role } : {}),
+      ...(value?.name !== undefined ? { name: value.name } : {}),
+      ...(value?.bounds ? { bounds: value.bounds } : {}),
+    }
+  } finally {
+    await view.cdp('Runtime.releaseObject', { objectId }).catch(() => undefined)
+  }
+}
+
 export function createBunWebViewLaneEngine(
   options: BunWebViewLaneEngineOptions = {}
 ): LaneEngine & {
@@ -204,13 +280,24 @@ export function createBunWebViewLaneEngine(
   const dataDir = options.dataDir ?? process.env.ADEA_DATA_DIR ?? DEFAULT_DATA_DIR
   const now = options.now ?? (() => Date.now())
   const lanes = new Map<string, LaneState>()
+  const profileOwners = new Map<string, string>()
 
   function diagnostic(laneId: string, value: BrowserEngineDiagnostic): void {
     options.onDiagnostic?.(laneId, value)
   }
 
+  function directoryFor(lane: BrowserLaneRecord): string {
+    return join(dataDir, 'dev-runtime', 'browser', 'profiles', lane.profileDirectory)
+  }
+
   function profileDirectory(lane: BrowserLaneRecord): string {
-    const directory = join(dataDir, 'dev-runtime', 'browser', 'profiles', lane.profileDirectory)
+    const directory = directoryFor(lane)
+    const owner = profileOwners.get(directory)
+    if (owner && owner !== lane.id)
+      throw Object.assign(new Error('browser profile is already attached to another live lane'), {
+        code: 'capability_unavailable',
+      })
+    profileOwners.set(directory, lane.id)
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     return directory
   }
@@ -353,6 +440,35 @@ export function createBunWebViewLaneEngine(
         publishFrame(state, record)
       }
     })
+    state.view.addEventListener('Page.frameNavigated', (event) => {
+      const data = event.data
+      const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+      const frame =
+        record.frame && typeof record.frame === 'object'
+          ? (record.frame as Record<string, unknown>)
+          : undefined
+      const id = frame?.id
+      const url = frame?.url
+      if (!frame || typeof id !== 'string' || typeof url !== 'string') return
+      const parentId = typeof frame.parentId === 'string' ? frame.parentId : undefined
+      if (!parentId) state.rootFrameId = id
+      else
+        state.frames.set(id, {
+          id,
+          parentId,
+          url,
+          title: typeof frame.name === 'string' ? frame.name : '',
+        })
+    })
+    state.view.addEventListener('Page.frameDetached', (event) => {
+      const data = event.data
+      const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
+      const id = record.frameId
+      if (typeof id !== 'string') return
+      state.frames.delete(id)
+      for (const frame of state.frames.values())
+        if (frame.parentId === id) state.frames.delete(frame.id)
+    })
     state.view.addEventListener('Runtime.consoleAPICalled', (event) => {
       const data = event.data
       const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
@@ -439,6 +555,39 @@ export function createBunWebViewLaneEngine(
     }
   }
 
+  async function refreshFrameTree(state: LaneState): Promise<void> {
+    const result = await state.view.cdp<{
+      frameTree?: {
+        frame?: { id?: string; url?: string; name?: string }
+        childFrames?: unknown[]
+      }
+    }>('Page.getFrameTree')
+    const tree = result.frameTree
+    if (!tree?.frame || typeof tree.frame.id !== 'string' || typeof tree.frame.url !== 'string')
+      return
+    state.rootFrameId = tree.frame.id
+    const frames = new Map<string, FrameState>()
+    const visit = (entry: unknown, parentId?: string): void => {
+      if (!entry || typeof entry !== 'object') return
+      const item = entry as {
+        frame?: { id?: string; url?: string; name?: string }
+        childFrames?: unknown[]
+      }
+      const frame = item.frame
+      if (!frame || typeof frame.id !== 'string' || typeof frame.url !== 'string') return
+      if (parentId)
+        frames.set(frame.id, {
+          id: frame.id,
+          parentId,
+          url: frame.url,
+          title: typeof frame.name === 'string' ? frame.name : '',
+        })
+      for (const child of item.childFrames ?? []) visit(child, frame.id)
+    }
+    visit(tree)
+    state.frames = frames
+  }
+
   async function stateFor(lane: BrowserLaneRecord): Promise<LaneState> {
     const existing = lanes.get(lane.id)
     if (existing) {
@@ -448,20 +597,27 @@ export function createBunWebViewLaneEngine(
       existing.lane = lane
       return existing
     }
-    const view = factory({
-      width: lane.viewport.width,
-      height: lane.viewport.height,
-      headless: true,
-      backend: { type: 'chrome', url: false, argv: ['--disable-background-networking'] },
-      dataStore: { directory: profileDirectory(lane) },
-      console: (type, ...args) => {
-        diagnostic(lane.id, {
-          level: type === 'error' ? 'error' : type === 'warn' ? 'warning' : 'info',
-          category: 'console',
-          message: `${type}: ${args.map(messageFrom).join(' ')}`.slice(0, 4096),
-        })
-      },
-    })
+    const directory = profileDirectory(lane)
+    let view: BrowserWebView
+    try {
+      view = factory({
+        width: lane.viewport.width,
+        height: lane.viewport.height,
+        headless: true,
+        backend: { type: 'chrome', url: false, argv: ['--disable-background-networking'] },
+        dataStore: { directory },
+        console: (type, ...args) => {
+          diagnostic(lane.id, {
+            level: type === 'error' ? 'error' : type === 'warn' ? 'warning' : 'info',
+            category: 'console',
+            message: `${type}: ${args.map(messageFrom).join(' ')}`.slice(0, 4096),
+          })
+        },
+      })
+    } catch (error) {
+      profileOwners.delete(directory)
+      throw error
+    }
     const created: LaneState = {
       lane,
       view,
@@ -470,10 +626,22 @@ export function createBunWebViewLaneEngine(
       frameSequence: 0n,
       screencastStarted: false,
       subscribers: new Set(),
+      frames: new Map(),
     }
     lanes.set(lane.id, created)
     wireEvents(created)
-    await prepareBrowserView(created.view)
+    try {
+      await prepareBrowserView(created.view)
+    } catch (error) {
+      lanes.delete(lane.id)
+      profileOwners.delete(directory)
+      try {
+        created.view.close()
+      } catch {
+        // A partially initialized view may already be gone.
+      }
+      throw error
+    }
     return created
   }
 
@@ -485,14 +653,21 @@ export function createBunWebViewLaneEngine(
     targets(lane) {
       requireCdpLane(lane)
       const state = lanes.get(lane.id)
-      return [
-        {
-          id: state?.targetId ?? `browser-target-${lane.id}`,
-          type: 'page' as const,
-          url: state?.view.url ?? 'about:blank',
-          title: state?.view.title ?? '',
-        },
-      ]
+      const page = {
+        id: state?.targetId ?? `browser-target-${lane.id}`,
+        type: 'page' as const,
+        url: state?.view.url ?? 'about:blank',
+        title: state?.view.title ?? '',
+      }
+      const frames = state
+        ? [...state.frames.values()].map((frame) => ({
+            id: frameTargetId(lane.id, frame.id),
+            type: 'frame' as const,
+            url: frame.url,
+            title: frame.title,
+          }))
+        : []
+      return [page, ...frames]
     },
 
     async screenshot(lane, input) {
@@ -513,8 +688,12 @@ export function createBunWebViewLaneEngine(
     async inspect(lane, input) {
       requireCdpLane(lane)
       const state = await stateFor(lane)
-      if (input.targetId !== state.targetId) return {}
       const selector = input.selector ?? 'body'
+      const frame = [...state.frames.values()].find(
+        (candidate) => frameTargetId(lane.id, candidate.id) === input.targetId
+      )
+      if (frame) return inspectFrame(state.view, lane.id, frame, selector)
+      if (input.targetId !== state.targetId) return {}
       try {
         const document = await state.view.cdp<{ root: { nodeId: number } }>('DOM.getDocument', {
           depth: 1,
@@ -575,6 +754,7 @@ export function createBunWebViewLaneEngine(
         // here as well would turn the provider's intentional initial re-check
         // into a false redirect-loop refusal.
         await state.view.navigate(url)
+        await refreshFrameTree(state)
       } catch (error) {
         if (navigation.refused)
           throw Object.assign(new Error(navigation.refused.reason), navigation.refused)
@@ -624,49 +804,100 @@ export function createBunWebViewLaneEngine(
 
     attachStream(session) {
       const laneId = session.grant.resource.id
-      const state = lanes.get(laneId)
-      if (!state || session.grant.resource.generation !== state.lane.generation) {
+      const lane = options.laneLookup?.(laneId) ?? lanes.get(laneId)?.lane
+      if (!lane || session.grant.resource.generation !== lane.generation) {
         session.close('stale_generation', 'browser lane generation changed')
         return
       }
-      const subscriber: Subscriber = {
-        session,
-        creditBytes: session.grant.maxFrameBytes,
-        pacer: createLaneScreencast({
-          onFrame: (frame) => {
-            if (subscriber.creditBytes < frame.bytes.byteLength) return
-            subscriber.creditBytes -= frame.bytes.byteLength
-            try {
-              session.send({
-                type: 'video',
-                sequence: frame.sequence,
-                timestampMs: now(),
-                keyframe: frame.keyframe,
-                bytes: frame.bytes,
-              })
-            } catch {
-              removeSubscriber(state, subscriber)
-            }
-          },
-        }),
+      let closed = false
+      let cleanup: (() => void) | undefined
+      session.onClose = () => {
+        closed = true
+        cleanup?.()
       }
-      state.subscribers.add(subscriber)
-      session.onFrame = (frame) => {
-        if (frame.type === 'ack') {
-          subscriber.creditBytes = frame.availableCreditBytes
-          subscriber.pacer.ack(frame.throughSequence, subscriber.creditBytes > 0 ? 1 : 0)
-        } else if (frame.type === 'input' || frame.type === 'resize') {
-          void handleInput(state, subscriber, frame).catch((error) => {
-            diagnostic(state.lane.id, {
-              level: 'warning',
-              category: 'network',
-              message: messageFrom(error),
-            })
-          })
+      const attachToState = (state: LaneState): void => {
+        if (closed) return
+        if (
+          !ensureGeneration(state) ||
+          session.grant.resource.generation !== state.lane.generation
+        ) {
+          session.close('stale_generation', 'browser lane generation changed')
+          return
         }
+        let subscriber: Subscriber
+        subscriber = {
+          session,
+          creditBytes: session.grant.maxFrameBytes,
+          pacer: createLaneScreencast({
+            onFrame: (frame) => {
+              if (subscriber.creditBytes < frame.bytes.byteLength) return
+              subscriber.creditBytes -= frame.bytes.byteLength
+              try {
+                session.send({
+                  type: 'video',
+                  sequence: frame.sequence,
+                  timestampMs: now(),
+                  keyframe: frame.keyframe,
+                  bytes: frame.bytes,
+                })
+              } catch {
+                removeSubscriber(state, subscriber)
+              }
+            },
+          }),
+        }
+        state.subscribers.add(subscriber)
+        cleanup = () => {
+          if (!cleanup) return
+          cleanup = undefined
+          removeSubscriber(state, subscriber)
+        }
+        session.onFrame = (frame) => {
+          if (frame.type === 'ack') {
+            subscriber.creditBytes = frame.availableCreditBytes
+            subscriber.pacer.ack(frame.throughSequence, subscriber.creditBytes > 0 ? 1 : 0)
+          } else if (frame.type === 'input' || frame.type === 'resize') {
+            void handleInput(state, subscriber, frame).catch((error) => {
+              diagnostic(state.lane.id, {
+                level: 'warning',
+                category: 'network',
+                message: messageFrom(error),
+              })
+            })
+          }
+        }
+        void startScreencast(state)
       }
-      session.onClose = () => removeSubscriber(state, subscriber)
-      void startScreencast(state)
+      const existing = lanes.get(laneId)
+      if (existing) {
+        // Keep the already-provisioned path synchronous so an input frame
+        // arriving in the same turn as attach cannot be dropped.
+        existing.lane = lane
+        attachToState(existing)
+        return
+      }
+      // A stream may be attached immediately after laneCreate, before the
+      // first navigate/screenshot call has provisioned the view. Provision
+      // that view here instead of misclassifying a valid grant as stale.
+      void stateFor(lane)
+        .then((state) => {
+          const current = options.laneLookup?.(laneId) ?? state.lane
+          if (!current || session.grant.resource.generation !== current.generation) {
+            session.close('stale_generation', 'browser lane generation changed')
+            return
+          }
+          state.lane = current
+          attachToState(state)
+        })
+        .catch((error) => {
+          if (closed) return
+          diagnostic(laneId, {
+            level: 'error',
+            category: 'crash',
+            message: `browser stream setup failed: ${messageFrom(error)}`,
+          })
+          session.close('incompatible', 'browser stream setup unavailable')
+        })
     },
 
     close(lane) {
@@ -678,6 +909,7 @@ export function createBunWebViewLaneEngine(
       } catch {
         // Closing a crashed view is idempotent.
       }
+      profileOwners.delete(directoryFor(lane))
       lanes.delete(lane.id)
     },
 
