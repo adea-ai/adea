@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.43.1",
+  "version": "0.44.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -17,7 +17,7 @@
     "lint": "turbo run lint && oxlint --deny-warnings",
     "test": "bun run test:unit",
     "test:unit": "turbo run test && bun run test:coverage",
-    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit scripts/*.test.ts --coverage",
+    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/types/tests/execution-location.test.ts scripts/*.test.ts --coverage",
     "test:bundle:dev-view": "bun run --cwd apps/web build && bun scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",

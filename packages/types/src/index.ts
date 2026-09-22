@@ -1,4 +1,5 @@
 export * from './desktop-permissions'
+export * from './execution-location'
 
 export type WorkspaceSceneId = 'home' | 'work'
 
