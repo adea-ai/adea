@@ -143,6 +143,25 @@
   border-block-end: 0;
 }
 
+.dev-chat__composer-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.dev-chat__composer-controls select {
+  min-height: 2rem;
+  max-width: 14rem;
+  border: 1px solid var(--dev-border, var(--border));
+  border-radius: 0.45rem;
+  color: inherit;
+  background: var(--background);
+  padding-inline: 0.45rem;
+}
+
 .dev-chat__composer textarea {
   min-height: 4.5rem;
   resize: vertical;
