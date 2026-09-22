@@ -151,6 +151,7 @@ type MigrationLedger = Readonly<{
   scopeKey: string
   databaseId: string
   sourceDigest: string
+  origin: 'legacy' | 'native'
   state: 'pending' | 'complete'
 }>
 
@@ -206,6 +207,8 @@ function migrationLedgerPath(file: string): string {
 function migrationDigest(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
+
+const EMPTY_SOURCE_DIGEST = migrationDigest(new Uint8Array())
 
 function writeOwnerOnlyAtomic(file: string, value: string): void {
   const directory = dirname(file)
@@ -317,10 +320,13 @@ function readMigrationLedger(
     candidate.databaseId.length < 16 ||
     typeof candidate.sourceDigest !== 'string' ||
     !/^[0-9a-f]{64}$/.test(candidate.sourceDigest) ||
+    (candidate.origin !== undefined &&
+      candidate.origin !== 'legacy' &&
+      candidate.origin !== 'native') ||
     (candidate.state !== 'pending' && candidate.state !== 'complete')
   )
     throw new DevAuthorityError('corrupt_state', `${options.label} migration ledger is invalid`)
-  return candidate as MigrationLedger
+  return { ...candidate, origin: candidate.origin ?? 'legacy' } as MigrationLedger
 }
 
 function writeMigrationLedger(file: string, ledger: MigrationLedger): void {
@@ -423,6 +429,31 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
           `${options.label} SQLite pragmas are not fail-closed`
         )
       const databaseId = ensureSqliteSchema(db, options as DurableSqliteOptions<unknown>)
+      if (!existsSync(ledgerFile)) {
+        const migrationState = (
+          db.query('SELECT migration_state FROM durable_store_metadata WHERE id = 1').get() as {
+            migration_state?: unknown
+          } | null
+        )?.migration_state
+        const recordCount = (
+          db.query('SELECT COUNT(*) AS count FROM durable_store_records').get() as {
+            count?: unknown
+          } | null
+        )?.count
+        const hasLegacySource = Boolean(options.legacyFile && existsSync(options.legacyFile))
+        if (!hasLegacySource || migrationState === 'migrated' || Number(recordCount) > 0) {
+          const legacyBytes = hasLegacySource ? readFileSync(options.legacyFile!) : undefined
+          writeMigrationLedger(ledgerFile, {
+            formatVersion: MIGRATION_LEDGER_VERSION,
+            schemaVersion: options.schemaVersion,
+            scopeKey: expectedScope.key,
+            databaseId,
+            sourceDigest: legacyBytes ? migrationDigest(legacyBytes) : EMPTY_SOURCE_DIGEST,
+            origin: hasLegacySource && migrationState === 'migrated' ? 'legacy' : 'native',
+            state: 'complete',
+          })
+        }
+      }
       chmodSync(options.file, 0o600)
       ensureSqliteOwnerOnly(options.file)
       return { db, databaseId }
@@ -502,6 +533,14 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
 
   function migrate(db: Database, databaseId: string, ledger: MigrationLedger | undefined): void {
     const legacy = readLegacy()
+    if (ledger?.origin === 'native') {
+      if (legacy)
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} native store cannot import a late legacy source`
+        )
+      return
+    }
     if (!legacy) {
       if (ledger?.state === 'pending')
         throw new DevAuthorityError(
@@ -533,6 +572,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
         scopeKey: expectedScope.key,
         databaseId,
         sourceDigest: legacy.sourceDigest,
+        origin: 'legacy',
         state: 'pending',
       })
     }
@@ -571,6 +611,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
         scopeKey: expectedScope.key,
         databaseId,
         sourceDigest: legacy.sourceDigest,
+        origin: 'legacy',
         state: 'complete',
       })
     } catch (error) {
@@ -671,10 +712,15 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
           `${options.label} migration ledger belongs to another database`
         )
       const existing = rows(db)
-      if (ledger && existing.length === 0)
+      if (ledger && existing.length === 0 && ledger.origin !== 'native')
         throw new DevAuthorityError(
           'corrupt_state',
           `${options.label} migration ledger has no authoritative row`
+        )
+      if (ledger?.origin === 'native' && options.legacyFile && existsSync(options.legacyFile))
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} native store cannot accept a late legacy source`
         )
       if (existing.length > 1 || (existing[0] && existing[0].scopeKey !== expectedScope.key))
         throw new DevAuthorityError(

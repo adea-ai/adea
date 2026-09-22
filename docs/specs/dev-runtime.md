@@ -1259,7 +1259,14 @@ the next open to retry while the SQLite database identity is unchanged. A
 sidecar migration ledger (`authority.sqlite3.migration.json`) is owner-only,
 records the legacy source digest and database identity, and survives SQLite
 loss: a recreated database refuses to re-import stale JSON and reports
-`corrupt_state` for recovery. The register serves `dev.group.*` (now
+`corrupt_state` for recovery. A first open without a legacy source creates a
+native-state ledger before accepting a save; if the SQLite metadata survives
+alone, a missing ledger is regenerated before records are returned. The
+SQLite database and ledger are separate durable files, but deleting both is a
+complete local state loss with no surviving identity; a later open cannot
+distinguish that event from a first install and this slice does not claim to
+prevent stale legacy re-import in that case. External backup or recovery
+protection must cover that trust boundary. The register serves `dev.group.*` (now
 including `create`/`update`/`delete`: a created group is placed after
 `afterGroupId` or at the end and every displaced group's `version` bumps;
 `delete` requires an empty group plus a `confirmationId` and the `group`
@@ -4485,7 +4492,8 @@ files in the same commit:
   and the legacy-seed migration. `apps/desktop/tests/host-store.test.ts` pins
   the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
   guard, corruption retention, restart recovery, and interrupted migration
-  retry plus stale-source refusal after SQLite loss;
+  retry, native-state refusal after SQLite loss, and stale-source refusal after
+  SQLite loss;
   `apps/desktop/tests/repo-registry.test.ts`
   pins the repository registry (#398 follow-up): adopt-time
   containment/identity proof with durable restart, unknown/stale/foreign-scope

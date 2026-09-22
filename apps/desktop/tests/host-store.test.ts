@@ -163,6 +163,27 @@ describe('durable SQLite host store', () => {
     }
   })
 
+  test('fails closed instead of returning empty records after native SQLite data loss', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-sqlite-store-'))
+    try {
+      const file = join(root, 'state', 'records.sqlite3')
+      const store = sqliteStore(root)
+      store.save([{ value: 'B' }])
+      expect(readdirSync(join(root, 'state'))).toContain('records.sqlite3.migration.json')
+      rmSync(`${file}.migration.json`, { force: true })
+      expect(store.load().records).toEqual([{ value: 'B' }])
+      expect(readdirSync(join(root, 'state'))).toContain('records.sqlite3.migration.json')
+
+      rmSync(file, { force: true })
+      rmSync(`${file}-wal`, { force: true })
+      rmSync(`${file}-shm`, { force: true })
+
+      expect(() => sqliteStore(root).load()).toThrow('corrupt_state')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('retries a persisted pending migration only for the same SQLite identity', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-sqlite-store-'))
     try {
@@ -190,6 +211,7 @@ describe('durable SQLite host store', () => {
           scopeKey: JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId]),
           databaseId,
           sourceDigest: createHash('sha256').update(legacyBytes).digest('hex'),
+          origin: 'legacy',
           state: 'pending',
         }),
         { mode: 0o600 }
