@@ -1537,12 +1537,14 @@ Defaults:
   unavailable or denied stores fail closed. The packaged desktop bootstrap
   probes `Bun.secrets` only when the bundled Bun runtime is at least 1.4.0;
   when available, it reads the Bun slot, validates the 32-byte key, and uses
-  the existing `/usr/bin/security` slot only as a migration source. Migration
+  the existing `/usr/bin/security` slot as the compatibility source. Migration
   writes the legacy key to Bun, reads it back, and requires an exact match
-  before the vault opens. The legacy slot is retained for rollback and every
-  Bun read, write, or verification failure fails closed without generating or
-  replacing a key. A runtime below the floor or without `Bun.secrets` keeps the
-  existing `security` adapter unchanged.
+  before the vault opens. A fresh install or Bun-only state also seeds and
+  verifies the legacy slot before opening, so a downgrade cannot fabricate a
+  different key. The legacy slot is retained for rollback and every Bun or
+  legacy read, write, or verification failure fails closed without generating
+  or replacing a key. A runtime below the floor or without `Bun.secrets` keeps
+  the existing `security` adapter unchanged.
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -4565,7 +4567,8 @@ files in the same commit:
 - `apps/desktop/tests/dev-runtime-vault-bun-secrets.test.ts` pins the
   application-level Bun.secrets migration, runtime-version fallback, exact
   key read-back, locked/denied/unavailable refusals, legacy-key retention, and
-  key-mismatch fail-closed behavior;
+  key-mismatch fail-closed behavior, including sealed-vault access after a
+  runtime downgrade;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind

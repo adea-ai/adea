@@ -187,6 +187,29 @@ function createLoadedVaultKeyStore(key: Buffer): VaultKeyStore {
   }
 }
 
+function seedLegacyVaultKey(legacyStore: VaultKeyStore, key: Buffer): void {
+  const current = legacyStore.get(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+  if (current !== undefined) {
+    if (!assertVaultKey(current, 'legacy').equals(key)) {
+      throw new DevAuthorityError('corrupt_state', 'vault key stores disagree')
+    }
+    return
+  }
+
+  try {
+    legacyStore.set(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT, key)
+    const written = legacyStore.get(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+    if (written === undefined)
+      throw new DevAuthorityError('auth_required', 'legacy vault key was not retained')
+    if (!assertVaultKey(written, 'legacy').equals(key)) {
+      throw new DevAuthorityError('corrupt_state', 'legacy vault key read-back differs')
+    }
+  } catch (error) {
+    if (error instanceof DevAuthorityError) throw error
+    throw new DevAuthorityError('auth_required', 'the legacy credential store refused to write')
+  }
+}
+
 /**
  * Resolve the vault master key through Bun's native credential store during
  * application startup. The returned store keeps the existing synchronous
@@ -234,9 +257,19 @@ export async function createBunSecretsVaultKeyStore(options?: {
   if (bunKey && legacyKey && !bunKey.equals(legacyKey)) {
     throw new DevAuthorityError('corrupt_state', 'vault key stores disagree')
   }
-  if (bunKey) return createLoadedVaultKeyStore(bunKey)
+  if (bunKey) {
+    // A Bun-only key may have been created by an interrupted/older rollout.
+    // Repair the legacy slot before returning so a downgrade cannot generate a
+    // different key and strand the sealed vault.
+    if (!legacyKey) seedLegacyVaultKey(legacyStore, bunKey)
+    return createLoadedVaultKeyStore(bunKey)
+  }
 
   const key = legacyKey ?? assertVaultKey(randomBytes(32), 'generated')
+  // Fresh installs must seed both stores before either runtime is allowed to
+  // open the vault. If the legacy store cannot retain the key, no Bun-only
+  // state is created that an older runtime could replace with a new key.
+  if (!legacyKey) seedLegacyVaultKey(legacyStore, key)
   try {
     await secrets.set({ ...slot, value: key.toString('base64') })
   } catch {

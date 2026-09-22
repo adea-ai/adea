@@ -1,10 +1,14 @@
 // M10 #33: the application-level Bun.secrets migration keeps the existing
 // `/usr/bin/security` key usable and refuses ambiguous native-store results.
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
 import {
   createBunSecretsVaultKeyStore,
+  createCredentialVault,
   type BunSecretsApi,
   type VaultKeyStore,
 } from '../shell/src/dev-runtime/vault'
@@ -81,6 +85,57 @@ describe('Bun.secrets vault key-store migration', () => {
     expect(migrated.get(SERVICE, ACCOUNT)?.equals(nativeKey)).toBe(true)
     expect(native.writes).toHaveLength(0)
     expect(legacy.deleted()).toBe(false)
+    expect(legacy.value()?.equals(nativeKey)).toBe(true)
+  })
+
+  test('fresh Bun installs preserve sealed-vault access after a runtime downgrade', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-bun-secrets-downgrade-'))
+    try {
+      const legacy = legacyStore()
+      const native = nativeStore()
+      const migrated = await createBunSecretsVaultKeyStore({
+        legacyStore: legacy,
+        secrets: native,
+        runtimeVersion: '1.4.0',
+      })
+      const approvalVerifier = { recordIssuance: () => undefined, consume: () => undefined }
+      const scope = {
+        accountId: '00000000-0000-4000-8000-000000000001',
+        workspaceId: '00000000-0000-4000-8000-000000000002',
+        runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+      } as const
+      const currentVault = createCredentialVault({
+        dataDir,
+        approvalVerifier,
+        credentialStore: migrated,
+      })
+      const record = currentVault.enroll({
+        scope,
+        label: 'downgrade test',
+        host: 'github.com',
+        kind: 'github_token',
+        secret: 'downgrade-canary',
+        approval: { method: 'owner_dialog', reference: 'downgrade-approval' },
+      })
+
+      // An older runtime uses only the legacy security-backed slot.
+      const downgradedVault = createCredentialVault({
+        dataDir,
+        approvalVerifier,
+        credentialStore: legacy,
+      })
+      expect(
+        downgradedVault
+          .resolve({
+            scope,
+            credentialRefId: record.id,
+            audience: 'runtime_driver',
+          })
+          .reveal()
+      ).toBe('downgrade-canary')
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
   })
 
   test('refuses a Bun and legacy key mismatch before the vault can open', async () => {
@@ -150,6 +205,28 @@ describe('Bun.secrets vault key-store migration', () => {
     )
     expect(legacy.value()?.equals(legacyKey)).toBe(true)
     expect(legacy.deleted()).toBe(false)
+  })
+
+  test('refuses a fresh install when the legacy compatibility seed cannot be retained', async () => {
+    const legacy: VaultKeyStore = {
+      get: () => undefined,
+      set: () => {
+        throw new DevAuthorityError('auth_required', 'legacy store unavailable')
+      },
+      delete: () => undefined,
+    }
+    const native = nativeStore()
+
+    await expectAuthorityError(
+      () =>
+        createBunSecretsVaultKeyStore({
+          legacyStore: legacy,
+          secrets: native,
+          runtimeVersion: '1.4.0',
+        }),
+      'auth_required'
+    )
+    expect(native.writes).toHaveLength(0)
   })
 
   test('falls back to the legacy adapter when the packaged Bun runtime is below the floor', async () => {
