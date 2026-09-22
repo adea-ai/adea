@@ -30,7 +30,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import { nowIso } from '../authority'
 import { WorktreeError } from './errors'
@@ -154,6 +154,11 @@ export function quarantineWorktree(input: {
 export function restoreWorktreeFromTrash(trashPath: string, worktreePath: string): boolean {
   try {
     renameSync(trashPath, worktreePath)
+    try {
+      unlinkSync(join(dirname(trashPath), `${basename(trashPath)}.record.json`))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false
+    }
     return true
   } catch {
     return false
