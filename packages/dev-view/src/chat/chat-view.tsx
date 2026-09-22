@@ -89,6 +89,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           next.availability.status === 'stale_generation' ||
           next.availability.status === 'resync_required'
         ) {
+          detach()
           setStreamState('disconnected')
         }
       }, 100)
