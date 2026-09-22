@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.42.0](https://github.com/adea-ai/adea/compare/v0.41.0...v0.42.0) (2026-09-22)
+
+
+### Features
+
+* **remote-content:** add versioned HPKE envelope contract ([#570](https://github.com/adea-ai/adea/issues/570)) ([4a3d9f2](https://github.com/adea-ai/adea/commit/4a3d9f2960389f3e4aba2568fa188c28b7533010))
+
 ## [0.41.0](https://github.com/adea-ai/adea/compare/v0.40.5...v0.41.0) (2026-09-22)
 
 
