@@ -1249,6 +1249,24 @@ only after accepting a frame. Replay delivered during stream attach queues
 the acknowledgement until the socket is available; a decode error, sequence
 gap, conflict, or stale generation never acknowledges the rejected frame.
 
+M13 first-run onboarding consumes identity and model-access entitlement facts
+from the owning desktop composition. The guest state with no model entitlement
+offers sign-in as its one recovery action; it never invents free guest model
+access or displays a raw credential field. Managed-Pi install state is a
+separate visible status while identity is resolving. Typed driver errors map to
+one safe action (retry the install or update the app), and raw diagnostic
+details do not render. An unresolved project or AgentProfile remains a visible
+setup gate rather than a fabricated default. Once ready, onboarding creates a
+canonical Chat conversation with the initial prompt and a stable idempotency
+key across transport retries. It sends no harness or model pin, leaving the
+root-default policy and the existing staged launch transaction authoritative.
+The adapter exposes `dev.harness.preferenceReset` for explicit reset-to-
+discovered; the host's effective projection then returns managed Pi first.
+The initial UI projection and adapter are implemented in
+`packages/dev-view/src/chat/onboarding/`; wiring identity, entitlement,
+project/profile provisioning, and packaged first-run certification into the
+desktop entry remains an M13.4 acceptance gate.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection
