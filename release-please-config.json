@@ -115,6 +115,11 @@
     },
     {
       "type": "json",
+      "path": "packages/remote-content/package.json",
+      "jsonpath": "$.version"
+    },
+    {
+      "type": "json",
       "path": "packages/state/package.json",
       "jsonpath": "$.version"
     },
