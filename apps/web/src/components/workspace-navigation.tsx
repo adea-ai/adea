@@ -77,6 +77,17 @@ const ConventionalWorkspace = lazyComponent(
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
+// Development-only ChatView visual fixture (#536 evidence lane). The import is
+// lazy and the mount is `import.meta.env.DEV`-gated, so production bundles
+// never contain the fixture route.
+const ChatVisualFixture = lazyComponent(
+  () =>
+    import('@adea-ai/dev-view/chat/visual-fixture').then(
+      ({ ChatVisualFixture: Fixture }) => Fixture
+    ),
+  { loading: () => <WorkspaceEntryLoading /> }
+)
+
 const SpatialWorkspace = lazyComponent(
   () => import('./workspace-shell').then(({ WorkspaceShell }) => WorkspaceShell),
   { loading: () => <WorkspaceEntryLoading /> }
@@ -290,6 +301,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
   }
   const currentSearch = () => search() as WorkspaceSearch
+  // The ChatView visual fixture selector (#536 evidence lane). Only a DEV
+  // build mounts the fixture; the param is inert in production.
+  const chatVisualState = (): 'attention' | 'conversation' | 'reconnect' | 'streaming' => {
+    const value = currentSearch().chatState
+    return value === 'attention' || value === 'reconnect' || value === 'streaming'
+      ? value
+      : 'conversation'
+  }
   // The workspace search contract lives on the root route and the router's
   // custom codec preserves it verbatim, so a patch is written through one
   // typed seam instead of restating the generated search schema.
@@ -530,27 +549,36 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           <Show
             when={view() === 'virtual'}
             fallback={
-              props.chatEntry ? (
-                props.chatEntry(
-                  <ConventionalWorkspace
-                    client={props.client}
-                    deepLink={deepLink}
-                    manageSettings={false}
-                    onConsumeDeepLink={consumeDeepLink}
-                    onViewChange={changeView}
-                    services={props.services}
-                  />
-                )
-              ) : (
-                <ConventionalWorkspace
-                  client={props.client}
-                  deepLink={deepLink}
-                  manageSettings={false}
-                  onConsumeDeepLink={consumeDeepLink}
-                  onViewChange={changeView}
-                  services={props.services}
-                />
-              )
+              <Show
+                when={
+                  import.meta.env.DEV && currentSearch().chatE2e === 'visual' && !props.chatEntry
+                }
+                fallback={
+                  props.chatEntry ? (
+                    props.chatEntry(
+                      <ConventionalWorkspace
+                        client={props.client}
+                        deepLink={deepLink}
+                        manageSettings={false}
+                        onConsumeDeepLink={consumeDeepLink}
+                        onViewChange={changeView}
+                        services={props.services}
+                      />
+                    )
+                  ) : (
+                    <ConventionalWorkspace
+                      client={props.client}
+                      deepLink={deepLink}
+                      manageSettings={false}
+                      onConsumeDeepLink={consumeDeepLink}
+                      onViewChange={changeView}
+                      services={props.services}
+                    />
+                  )
+                }
+              >
+                <ChatVisualFixture state={chatVisualState()} />
+              </Show>
             }
           >
             <Show

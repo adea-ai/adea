@@ -3,9 +3,24 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  /* A reconnect/resync notice can render between the header and the
+     transcript. The transcript and composer own their tracks by explicit
+     line placement, so the notice's presence never steals the 1fr row (which
+     collapsed the notice to zero height and let the transcript section paint
+     over the Reconnect affordance, blocking its pointer). Without a notice
+     the reserved second track collapses to zero height and the surface lays
+     out exactly as before. */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   color: var(--foreground);
   background: var(--background);
+}
+
+.dev-chat > .dev-chat__stream {
+  grid-row: 3;
+}
+
+.dev-chat > .dev-chat__composer {
+  grid-row: 4;
 }
 
 .dev-chat__header,

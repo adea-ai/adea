@@ -1,6 +1,7 @@
 name: Workspace visual lane
 
-# Pixel regression gate for apps/web/e2e/conventional-workspace.spec.ts.
+# Pixel regression gates for apps/web/e2e/conventional-workspace.spec.ts and
+# apps/web/e2e/chat-view-visual.spec.ts.
 #
 # The committed `-linux` baselines were rendered by the pinned Playwright
 # container's own Chromium build, so the lane runs inside that same image: a
@@ -9,10 +10,10 @@ name: Workspace visual lane
 # workstation lane keeps the `-darwin` baselines; both sets must be refreshed
 # together when a UI change moves pixels.
 #
-# The spec mocks every workspace API response in the browser and was verified
-# to pass with an unreachable database, so this lane needs no Postgres service
-# (the desktop/mobile host suite in `tanstack-start.yml` keeps the
-# database-backed lane).
+# Both specs mock every workspace API response in the browser and were
+# verified to pass with an unreachable database, so this lane needs no
+# Postgres service (the desktop/mobile host suite in `tanstack-start.yml`
+# keeps the database-backed lane).
 
 on:
   pull_request:
@@ -152,21 +153,27 @@ jobs:
           NODE
 
       - name: Visual regression lane
-        run: bun run test:e2e:visual
+        run: |
+          set -euo pipefail
+          bun run test:e2e:visual
+          bun run test:e2e:visual:chat
 
       - name: Regenerate -linux baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
         run: |
           set -euo pipefail
           bunx playwright test --config=playwright.config.ts \
-            apps/web/e2e/conventional-workspace.spec.ts --update-snapshots
+            apps/web/e2e/conventional-workspace.spec.ts \
+            apps/web/e2e/chat-view-visual.spec.ts --update-snapshots
 
       - name: Upload regenerated baselines
         if: github.event_name == 'workflow_dispatch' && inputs['update-snapshots']
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: visual-lane-linux-baselines
-          path: apps/web/e2e/conventional-workspace.spec.ts-snapshots/*-linux.png
+          path: |
+            apps/web/e2e/conventional-workspace.spec.ts-snapshots/*-linux.png
+            apps/web/e2e/chat-view-visual.spec.ts-snapshots/*-linux.png
           if-no-files-found: error
           retention-days: 14
 
