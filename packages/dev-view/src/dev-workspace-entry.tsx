@@ -332,8 +332,10 @@ const SourceControlPane = lazy(() =>
 const CodeEditor = lazy(() =>
   import('./editor/code-editor').then((module) => ({ default: module.CodeEditor }))
 )
-const TerminalPane = lazy(() =>
-  import('./terminal/terminal-pane').then((module) => ({ default: module.TerminalPane }))
+const FixtureTerminalPane = lazy(() =>
+  import('./terminal/fixture-terminal-pane').then((module) => ({
+    default: module.FixtureTerminalPane,
+  }))
 )
 /*
  * #398 follow-up: the sidebar repository registry panel rides its own lazy
@@ -1292,15 +1294,11 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             renderTerminalLeaf={() =>
               fixtureMode() ? (
                 <Suspense fallback={<p class="dev-pane-state__line">Attaching terminal…</p>}>
-                  <TerminalPane
+                  <FixtureTerminalPane
                     connect={fixtureTerminalConnect}
                     fromSequence="0"
                     subscribeToObservations={fixtureTerminalObservations}
                     write={() => true}
-                    resize={() => undefined}
-                    copyText={async () => 'granted'}
-                    hostFeatures={['markers', 'cwd']}
-                    worktreeId="fixture-worktree"
                     worktreeLabel="Example project"
                   />
                 </Suspense>
