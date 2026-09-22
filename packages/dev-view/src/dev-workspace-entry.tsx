@@ -17,6 +17,7 @@ import type {
   DevUtilityPane,
   DevUtilityPreference,
   DevReply,
+  DevStreamFrame,
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/ui/dev-view.css'
 // #424: the resources sheet rides the resources pane's scoped hooks.
@@ -67,6 +68,8 @@ import {
 } from './layout/operations'
 import { createLayoutStorageController, type LayoutStorage } from './layout/storage'
 import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
+import type { TerminalStreamSocket } from './terminal/transport'
+import type { ShellObservation } from './terminal/blocks'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
 import {
   archiveShelfError,
@@ -329,6 +332,11 @@ const SourceControlPane = lazy(() =>
 const CodeEditor = lazy(() =>
   import('./editor/code-editor').then((module) => ({ default: module.CodeEditor }))
 )
+const FixtureTerminalPane = lazy(() =>
+  import('./terminal/fixture-terminal-pane').then((module) => ({
+    default: module.FixtureTerminalPane,
+  }))
+)
 /*
  * #398 follow-up: the sidebar repository registry panel rides its own lazy
  * chunk exactly like the utility panes — the client budget the bundle check
@@ -349,8 +357,71 @@ function focusPaneElement(leafId: string) {
   })
 }
 
+/** Fixture-only stream used by headless owner-journey coverage. It models the
+ * authenticated terminal contract, including one bounded reconnect, without
+ * creating a PTY or claiming production runtime authority. */
+function createFixtureTerminalConnect() {
+  let attempts = 0
+  return (handlers: {
+    onFrame: (frame: DevStreamFrame) => void
+    onClose: () => void
+  }): TerminalStreamSocket => {
+    const attempt = ++attempts
+    let open = true
+    const reconnectTimer = setTimeout(() => {
+      if (attempt !== 1 || !open) return
+      open = false
+      handlers.onClose()
+    }, 250)
+    queueMicrotask(() => {
+      if (!open) return
+      handlers.onFrame({
+        type: 'opened',
+        protocol: 'terminal-bytes-v1',
+        generation: 1,
+        nextSequence: attempt === 1 ? '0' : '1',
+      })
+      handlers.onFrame({
+        type: 'data',
+        sequence: attempt === 1 ? '0' : '1',
+        bytes: new TextEncoder().encode(
+          attempt === 1
+            ? 'fixture terminal connected\\r\\n$ '
+            : 'fixture terminal reconnected\\r\\n$ '
+        ),
+      })
+    })
+    return {
+      get open() {
+        return open
+      },
+      bufferedAmount: 0,
+      send: (_frame) => undefined,
+      close: () => {
+        if (!open) return
+        open = false
+        clearTimeout(reconnectTimer)
+      },
+    }
+  }
+}
+
+function createFixtureTerminalObservations() {
+  return (handler: (observation: ShellObservation) => void) => {
+    queueMicrotask(() => {
+      const at = new Date().toISOString()
+      handler({ kind: 'preexec', command: 'printf fixture', at, sequence: '0' })
+      handler({ kind: 'cwd', cwd: '/fixture/runtime', at })
+      handler({ kind: 'precmd', exitCode: 0, at: new Date().toISOString(), sequence: '0' })
+    })
+    return () => undefined
+  }
+}
+
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
+  const fixtureTerminalConnect = createFixtureTerminalConnect()
+  const fixtureTerminalObservations = createFixtureTerminalObservations()
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
   // #399: the file the central editor leaf shows. Open files are session-local
   // leaves in the split model — selecting a file focuses (or creates) the
@@ -1220,6 +1291,19 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           <DevLayoutView
             state={layout()}
             unavailable={runtimeState().status === 'unavailable'}
+            renderTerminalLeaf={() =>
+              fixtureMode() ? (
+                <Suspense fallback={<p class="dev-pane-state__line">Attaching terminal…</p>}>
+                  <FixtureTerminalPane
+                    connect={fixtureTerminalConnect}
+                    fromSequence="0"
+                    subscribeToObservations={fixtureTerminalObservations}
+                    write={() => true}
+                    worktreeLabel="Example project"
+                  />
+                </Suspense>
+              ) : undefined
+            }
             renderEditorLeaf={() => {
               const file = activeEditorFile()
               if (!file) return undefined

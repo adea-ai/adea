@@ -54,6 +54,14 @@ function project(event: StoredEvent): RuntimeEvent {
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
 
+function compareRetentionOrder(left: RuntimeEvent, right: RuntimeEvent): number {
+  if (left.generation !== right.generation) return left.generation < right.generation ? -1 : 1
+  const leftSequence = seqOf(left)
+  const rightSequence = seqOf(right)
+  if (leftSequence !== rightSequence) return leftSequence < rightSequence ? -1 : 1
+  return left.eventId.localeCompare(right.eventId)
+}
+
 function dedupeKey(
   event: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>
 ): string {
@@ -170,7 +178,7 @@ export function createSessionEventLog(input: {
     if (sessionEvents.length + 1 > maxPerSession) {
       const evict = new Set(
         sessionEvents
-          .toSorted((left, right) => (seqOf(left) < seqOf(right) ? -1 : 1))
+          .toSorted(compareRetentionOrder)
           .slice(0, sessionEvents.length + 1 - maxPerSession)
           .map((event) => event.eventId)
       )
@@ -178,9 +186,7 @@ export function createSessionEventLog(input: {
     }
     bounded = [...bounded, candidate]
     if (bounded.length > maxTotal) {
-      bounded = bounded
-        .toSorted((left, right) => (seqOf(left) < seqOf(right) ? -1 : 1))
-        .slice(bounded.length - maxTotal)
+      bounded = bounded.toSorted(compareRetentionOrder).slice(bounded.length - maxTotal)
     }
     // Persist: this scope's bounded window plus every other-scope record,
     // untouched (one durable file serves the host; scopes never mix).
@@ -208,7 +214,7 @@ export function createSessionEventLog(input: {
         options?.generation !== undefined ? event.generation === options.generation : true
       )
       .filter((event) => seqOf(event) >= from)
-      .toSorted((left, right) => (seqOf(left) < seqOf(right) ? -1 : 1))
+      .toSorted(compareRetentionOrder)
       .slice(0, limit)
   }
 

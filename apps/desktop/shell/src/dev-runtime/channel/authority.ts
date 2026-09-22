@@ -126,7 +126,7 @@ type ChannelRecord = {
   generation: number
   createdAt: number
   expiresAt: number
-  eventsToken?: { value: string; expiresAt: number; consumed: boolean }
+  eventsToken?: { value: string; event: string; expiresAt: number; consumed: boolean }
 }
 
 type GrantRecord = {
@@ -872,17 +872,24 @@ export function createChannelAuthority(options?: {
 
   // ── Events tokens (single-use, 60 s, for the SSE bridge) ─────────────────
 
-  function mintEventsToken(identity: ChannelIdentity): { token: string; expiresAt: string } {
+  function mintEventsToken(
+    identity: ChannelIdentity,
+    event: string
+  ): { token: string; expiresAt: string } {
     const channel = channelFor(identity)
+    if (event.length === 0 || event.length > 256) {
+      throw new ChannelRejection('invalid_state', 'event name is malformed', 400)
+    }
     const token = randomBytes(32).toString('base64url')
-    channel.eventsToken = { value: token, expiresAt: now() + 60_000, consumed: false }
+    channel.eventsToken = { value: token, event, expiresAt: now() + 60_000, consumed: false }
     return { token, expiresAt: iso(channel.eventsToken.expiresAt) }
   }
 
-  function consumeEventsToken(identity: ChannelIdentity, token: string): boolean {
+  function consumeEventsToken(identity: ChannelIdentity, event: string, token: string): boolean {
     const channel = channelFor(identity)
     const minted = channel.eventsToken
     if (!minted || minted.consumed || minted.expiresAt < now()) return false
+    if (minted.event !== event) return false
     if (!constantTimeEqualString(minted.value, token)) return false
     minted.consumed = true
     return true

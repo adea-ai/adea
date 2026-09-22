@@ -606,14 +606,22 @@ describe('channel gateway', () => {
       })
     ).json()) as { token: string }
 
-    const first = await fetch(
+    // A token minted for one event cannot be substituted into another event
+    // stream, even when the channel and token are otherwise valid.
+    const wrongEvent = await fetch(
       `${origin}/__adea/events?event=demo&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`,
+      { headers: { origin } }
+    )
+    expect(wrongEvent.status).toBe(401)
+
+    const first = await fetch(
+      `${origin}/__adea/events?event=desktop-auth-callback-ready&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`,
       { headers: { origin } }
     )
     expect(first.status).toBe(200)
     await first.body?.cancel()
     const second = await fetch(
-      `${origin}/__adea/events?event=demo&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`,
+      `${origin}/__adea/events?event=desktop-auth-callback-ready&channel=${identity.channelId}&credential=${identity.clientCredentialId}&token=${minted.token}`,
       { headers: { origin } }
     )
     expect(second.status).toBe(401)

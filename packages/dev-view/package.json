@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/dev-view",
-  "version": "0.40.2",
+  "version": "0.40.5",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -89,6 +89,18 @@
       "solid": "./src/terminal/terminal-pane.tsx",
       "development": "./src/terminal/terminal-pane.tsx",
       "import": "./dist/terminal/terminal-pane.js"
+    },
+    "./chat": {
+      "types": "./dist/chat/index.d.ts",
+      "solid": "./src/chat/index.ts",
+      "development": "./src/chat/index.ts",
+      "import": "./dist/chat/index.js"
+    },
+    "./chat/model": {
+      "types": "./dist/chat/model/index.d.ts",
+      "solid": "./src/chat/model/index.ts",
+      "development": "./src/chat/model/index.ts",
+      "import": "./dist/chat/model/index.js"
     },
     "./files/file-stream": {
       "types": "./dist/files/file-stream.d.ts",

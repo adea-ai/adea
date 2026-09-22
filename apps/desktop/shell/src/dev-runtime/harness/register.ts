@@ -819,6 +819,12 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     const requested = BigInt(grant.fromSequence)
     const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
     const from = requested > BigInt(windowStart) ? requested.toString() : windowStart
+    if (BigInt(from) > requested)
+      stream.send({
+        type: 'resync',
+        reason: 'checkpoint_required',
+        checkpointSequence: from,
+      })
     for (const event of events.read(runtimeSessionId, {
       fromSequence: from,
       generation,

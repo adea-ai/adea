@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -69,11 +69,20 @@ type AuthorityRecord = Readonly<{
   projects: Project[]
   sessions: RuntimeSession[]
   archiveRecords: ArchiveRecord[]
+  /** One canonical session per create key within the protocol retention window. */
+  sessionCreates?: ReadonlyArray<{
+    keyHash: string
+    bodyHash: string
+    sessionId: string
+    createdAt: string
+  }>
 }>
 
 const AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
 const LEGACY_PROJECTION_FILE = join('dev-runtime', 'project-session', 'projection.json')
 const AUTHORITY_SCHEMA_VERSION = 1
+const SESSION_CREATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
+const HASH_PATTERN = /^[0-9a-f]{64}$/
 
 const PROJECT_STATES: ReadonlySet<string> = new Set([
   'importing',
@@ -131,6 +140,21 @@ function validateStoredRecord(record: AuthorityRecord): void {
   if (!isScope(record.scope)) throw fail()
   if (!Array.isArray(record.groups) || !Array.isArray(record.projects)) throw fail()
   if (!Array.isArray(record.sessions) || !Array.isArray(record.archiveRecords)) throw fail()
+  if (record.sessionCreates !== undefined) {
+    if (!Array.isArray(record.sessionCreates)) throw fail()
+    for (const created of record.sessionCreates) {
+      if (
+        typeof created !== 'object' ||
+        created === null ||
+        !HASH_PATTERN.test(created.keyHash) ||
+        !HASH_PATTERN.test(created.bodyHash) ||
+        typeof created.sessionId !== 'string' ||
+        typeof created.createdAt !== 'string' ||
+        !Number.isFinite(Date.parse(created.createdAt))
+      )
+        throw fail()
+    }
+  }
   const scope = record.scope
   const inScope = (candidate: unknown) =>
     isScope(candidate) && JSON.stringify(candidate) === JSON.stringify(scope)
@@ -218,6 +242,10 @@ function requireScope(command: DevCommand, scope: Scope): void {
 
 function devError(code: DevError['code'], message: string): DevError {
   return { code, retryable: false, message }
+}
+
+function sha256Text(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 /** The envelope resource for runtime_session operations must name this
@@ -357,6 +385,7 @@ export function registerProjectSessionRuntime(input: {
     projects: [],
     sessions: [],
     archiveRecords: [],
+    sessionCreates: [],
   })
   const storeFile = join(input.dataDir, AUTHORITY_STORE_FILE)
   const loaded = existsSync(storeFile)
@@ -837,6 +866,30 @@ export function registerProjectSessionRuntime(input: {
         agentProfileVersion?: number
         harnessInstallationId?: string
       }
+      const key = command.idempotencyKey
+      if (key !== undefined && !/^[\x20-\x7e]{1,128}$/.test(key))
+        throw devError('invalid_state', 'session create idempotency key is invalid')
+      const keyHash = key === undefined ? undefined : sha256Text(key)
+      const bodyHash = sha256Text(
+        JSON.stringify({
+          projectId: body.projectId,
+          repoId: body.repoId,
+          worktreeId: body.worktreeId,
+          taskId: body.taskId,
+          agentProfileId: body.agentProfileId,
+          agentProfileVersion: body.agentProfileVersion,
+          harnessInstallationId: body.harnessInstallationId,
+        })
+      )
+      const retained = (record.sessionCreates ?? []).filter(
+        (entry) => Date.now() - Date.parse(entry.createdAt) <= SESSION_CREATE_RETENTION_MS
+      )
+      const prior = retained.find((entry) => entry.keyHash === keyHash)
+      if (prior) {
+        if (prior.bodyHash !== bodyHash)
+          throw devError('idempotency_conflict', 'session create key was used for another request')
+        return findSession(prior.sessionId)
+      }
       const project = record.projects.find((entry) => entry.id === body.projectId)
       if (!project) throw new DevAuthorityError('not_found', `project ${body.projectId} is unknown`)
       if (!project.repoIds.includes(body.repoId))
@@ -874,7 +927,17 @@ export function registerProjectSessionRuntime(input: {
           ? { harnessInstallationId: body.harnessInstallationId }
           : {}),
       }
-      record = { ...record, sessions: [...record.sessions, created] }
+      record = {
+        ...record,
+        sessions: [...record.sessions, created],
+        sessionCreates:
+          keyHash === undefined
+            ? retained
+            : [
+                ...retained,
+                { keyHash, bodyHash, sessionId: created.id, createdAt: new Date().toISOString() },
+              ],
+      }
       save()
       publishSession(created, 'session.created')
       return created
