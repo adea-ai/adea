@@ -1,0 +1,171 @@
+.dev-chat {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.dev-chat__header,
+.dev-chat__notice,
+.dev-chat__composer {
+  padding: 0.75rem 1rem;
+  border-block-end: 1px solid var(--dev-border, var(--border));
+  background: var(--dev-panel, var(--background));
+}
+
+.dev-chat__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dev-chat__heading {
+  min-width: 0;
+}
+
+.dev-chat__heading h2,
+.dev-chat__heading p,
+.dev-chat__notice p,
+.dev-chat__composer p {
+  margin: 0;
+}
+
+.dev-chat__heading h2 {
+  overflow: hidden;
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dev-chat__heading p,
+.dev-chat__notice,
+.dev-chat__composer p {
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
+.dev-chat__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-inline-start: auto;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.dev-chat__stream {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.dev-chat__row {
+  display: grid;
+  max-width: min(48rem, 100%);
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--dev-border, var(--border));
+  border-radius: 0.6rem;
+  background: var(--dev-panel, var(--background));
+}
+
+.dev-chat__row--user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--primary) 11%, var(--background));
+}
+
+.dev-chat__row--tool,
+.dev-chat__row--status {
+  color: var(--dev-muted, var(--muted-foreground));
+}
+
+.dev-chat__row--approval,
+.dev-chat__row--question {
+  border-color: color-mix(in srgb, var(--ring) 46%, var(--dev-border, var(--border)));
+}
+
+.dev-chat__row-header,
+.dev-chat__actions,
+.dev-chat__composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dev-chat__row-header {
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.dev-chat__row-header span:last-child {
+  margin-inline-start: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.dev-chat__text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.dev-chat__question {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.dev-chat__question input,
+.dev-chat__composer textarea {
+  width: 100%;
+  border: 1px solid var(--dev-border, var(--border));
+  border-radius: 0.45rem;
+  color: inherit;
+  background: var(--background);
+}
+
+.dev-chat__question input {
+  min-height: 2rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.dev-chat__composer {
+  display: grid;
+  gap: 0.5rem;
+  border-block-start: 1px solid var(--dev-border, var(--border));
+  border-block-end: 0;
+}
+
+.dev-chat__composer textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+  padding: 0.6rem;
+  font: inherit;
+}
+
+.dev-chat__composer textarea:focus-visible,
+.dev-chat__question input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.dev-chat__composer-actions {
+  justify-content: flex-end;
+}
+
+.dev-chat__composer-actions .dev-button:first-child {
+  margin-inline-start: auto;
+}
+
+.dev-chat__empty {
+  margin: auto;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.8rem;
+}
