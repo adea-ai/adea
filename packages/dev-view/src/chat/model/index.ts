@@ -333,6 +333,13 @@ export function createChatConversationModel(
       return existing.promise
     }
     const promise = (async () => {
+      await loadHierarchy()
+      if (!projects.some((project) => project.id === input.projectId))
+        throw new ChatRuntimeError({
+          code: 'not_found',
+          retryable: true,
+          message: 'The canonical project registry has not resolved this conversation project.',
+        })
       const createCommand = buildDevCommand({
         operation: 'dev.session.create',
         scope,
@@ -352,7 +359,6 @@ export function createChatConversationModel(
         idempotencyKey,
       })
       const created = await executeChatCommand<RuntimeSession>(service, createCommand)
-      await loadHierarchy()
       let canonical = remember(created)
       if (input.agentProfileId !== undefined || input.initialPrompt !== undefined) {
         const launchOperation = input.harnessInstallationId

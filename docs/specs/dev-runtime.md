@@ -1240,7 +1240,11 @@ conversation, and a complete unfiltered session refresh removes records absent
 from the canonical list. A missing project must remain unresolved; Chat must
 not synthesize a project to make a session appear. A projected event window
 without an authoritative retention cursor cannot claim its full history was
-loaded.
+loaded. `dev.session.create` records the scoped, hashed idempotency key, body
+fingerprint, and canonical session ID in the same durable authority snapshot
+as the new session. Within the seven-day result window, a matching retry
+returns that session after a process restart; a changed body refuses with
+`idempotency_conflict`.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
