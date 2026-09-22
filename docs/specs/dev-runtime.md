@@ -3444,8 +3444,15 @@ authorized remote. A per-key file lock fences concurrent host processes before
 the POST. A timed-out POST, lost response, verification failure, or
 host crash keeps the record: later attempts reread GitHub, reconcile when the
 matching PR becomes visible, and refuse another POST while the outcome is
-unknown. A successful POST also requires an authoritative reread before the
-record is cleared. A corrupt retained record also blocks further POSTs. An
+unknown; the same holds for an HTTP 5xx response or any other failure without
+an observable HTTP verdict. A definitive refusal that proves GitHub created
+nothing — an HTTP 4xx response body, or a pre-flight failure that never
+reached GitHub's evaluator (missing `gh` binary, pre-flight auth gate,
+rate-limit throttle) — clears the record after one final reread, so an
+"already exists" refusal reconciles and a pure validation refusal leaves the
+head/base pair retryable instead of wedged (#597). A successful POST also
+requires an authoritative reread before the record is cleared. A corrupt
+retained record also blocks further POSTs. An
 unresolved record requires manual GitHub verification; the UI must never
 silently retry creation for the same head/base.
 
