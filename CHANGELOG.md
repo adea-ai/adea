@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.39.0](https://github.com/adea-ai/adea/compare/v0.38.1...v0.39.0) (2026-09-22)
+
+
+### Features
+
+* **m12:** stream validator reconciliation, dispatchLocal, status push events, supervision live events, and managed-Pi manifest component ([#529](https://github.com/adea-ai/adea/issues/529)) ([8a37588](https://github.com/adea-ai/adea/commit/8a3758839d88f1011a844d3750c2e06b5d43d89d))
+
 ## [0.38.1](https://github.com/adea-ai/adea/compare/v0.38.0...v0.38.1) (2026-09-21)
 
 
