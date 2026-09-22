@@ -26,6 +26,7 @@
     "test:e2e:dev-view-terminal": "bun scripts/e2e-setup.mjs && PLAYWRIGHT_HEADLESS=1 playwright test --config=playwright.config.ts apps/web/e2e/dev-view-terminal.spec.ts",
     "test:e2e:visual": "playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts",
     "test:packaged": "bun scripts/test-dev-runtime-packaged.mjs",
+    "test:packaged:owner-journey": "bun apps/desktop/shell/scripts/packaged-owner-journey.ts",
     "test:security:dev-runtime": "bun scripts/test-dev-runtime-security.mjs",
     "test:performance:dev-runtime": "bun scripts/test-dev-runtime-performance.mjs",
     "test:soak:dev-runtime": "bun scripts/test-dev-runtime-soak.mjs",

@@ -768,6 +768,22 @@ The 24-hour acceptance run sets
 the packaged PTY, resource, display-loss, update, and daemon-version evidence;
 the bounded local run cannot close those gates.
 
+The #541 packaged owner-journey lane is executable independently after the
+Electrobun build and writes `artifacts/packaged/owner-journey.json`:
+
+```sh
+bun run test:packaged:owner-journey -- \
+  --app-bundle apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app \
+  --artifact artifacts/packaged/owner-journey.json
+```
+
+It exercises the production project import, isolated Git worktree, runtime
+session, and archive/unarchive authorities in a disposable repository. The
+result is `blocked` with an explicit blocker when #537's packaged CEF/CDP
+engine is unavailable; browser frames, screenshots, video, annotations,
+element picking, and takeover are never represented as passing evidence by a
+typed-unavailable fixture.
+
 Run focused package/test commands during each slice, then the full applicable
 set. #396/#422 own packaged smoke fixtures; #424 owns resource/cleanup
 performance and soak; #426 composes the exact six named scripts above and
