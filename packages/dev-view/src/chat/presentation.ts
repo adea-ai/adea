@@ -15,11 +15,18 @@ const MAX_RENDERED_TEXT = 4_096
 const MAX_LABEL = 160
 
 function redact(value: string, limit: number): string {
-  const redacted = value
-    .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[secret redacted]')
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [secret redacted]')
-    .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,}/gi, '[secret redacted]')
-    .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`"']+/g, '[private path]')
+  // A hostile transcript can be arbitrarily large: bound the scan BEFORE
+  // the redaction passes (the tail is discarded by the limit below
+  // anyway) and keep every quantifier bounded so the passes stay linear.
+  const bounded = value.length > 16_384 ? value.slice(0, 16_384) : value
+  const redacted = bounded
+    .replace(
+      /-----BEGIN [^-]{1,64}-+[^\s]{0,64}[\s\S]{0,4096}?-----END [^-]{1,64}-+/g,
+      '[secret redacted]'
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{1,512}/gi, 'Bearer [secret redacted]')
+    .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,512}/gi, '[secret redacted]')
+    .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`\"']{1,512}/g, '[private path]')
   return Array.from(redacted)
     .filter((character) => {
       const code = character.codePointAt(0) ?? 0

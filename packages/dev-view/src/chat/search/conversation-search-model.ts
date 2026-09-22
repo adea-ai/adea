@@ -61,10 +61,13 @@ function codePointText(value: string, limit = MAX_TEXT): string {
 export function redactSearchText(value: string, limit = MAX_TEXT): string {
   return codePointText(
     value
-      .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[secret redacted]')
-      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [secret redacted]')
-      .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,}/gi, '[secret redacted]')
-      .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`"']+/g, '[private path]'),
+      .replace(
+        /-----BEGIN [^-]{1,64}-+[^\s]{0,64}[\s\S]{0,4096}?-----END [^-]{1,64}-+/g,
+        '[secret redacted]'
+      )
+      .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{1,512}/gi, 'Bearer [secret redacted]')
+      .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,512}/gi, '[secret redacted]')
+      .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`\"']{1,512}/g, '[private path]'),
     limit
   )
 }

@@ -209,6 +209,23 @@ function requireCdpLane(lane: BrowserLaneRecord): void {
     )
 }
 
+/** Selectors are DATA, never code: they are embedded into a
+ *  \`Runtime.evaluate\` expression by the transport, so anything outside the
+ *  CSS-selector grammar's inert characters is refused before it can reach a
+ *  JS-string context. Backslash, backtick, braces, angle brackets, and
+ *  control characters have no business in an Adea-issued selector and are the
+ *  classic expression-breakout characters. */
+const SAFE_SELECTOR = /^[A-Za-z0-9_\-#.[\]="'',:;()>*~+^$|\s]+$/
+
+function assertSafeSelector(selector: string): string {
+  if (selector.length === 0 || selector.length > 512 || !SAFE_SELECTOR.test(selector)) {
+    throw Object.assign(new Error('selector contains characters outside the safe grammar'), {
+      code: 'invalid_argument',
+    })
+  }
+  return selector
+}
+
 async function inspectFrame(
   view: BrowserWebView,
   laneId: string,
@@ -230,7 +247,7 @@ async function inspectFrame(
   if (typeof world.executionContextId !== 'number') return {}
   const selected = await view.cdp<{ result?: { objectId?: string } }>('Runtime.evaluate', {
     contextId: world.executionContextId,
-    expression: `document.querySelector(${JSON.stringify(selector)})`,
+    expression: `document.querySelector(${JSON.stringify(assertSafeSelector(selector))})`,
     returnByValue: false,
   })
   const objectId = selected.result?.objectId
@@ -724,7 +741,7 @@ export function createBunWebViewLaneEngine(
         const value = await state.view.cdp<{ result?: { value?: { text?: string } } }>(
           'Runtime.evaluate',
           {
-            expression: `(() => { const e = document.querySelector(${JSON.stringify(selector)}); return { text: e?.textContent?.trim()?.slice(0,2048) ?? '' } })()`,
+            expression: `(() => { const e = document.querySelector(${JSON.stringify(assertSafeSelector(selector))}); return { text: e?.textContent?.trim()?.slice(0,2048) ?? '' } })()`,
             returnByValue: true,
           }
         )
