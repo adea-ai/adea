@@ -1,5 +1,5 @@
 {
-  "name": "@adea-ai/api-client",
+  "name": "@adea-ai/remote-content",
   "version": "0.41.0",
   "private": true,
   "type": "module",
@@ -20,6 +20,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea-ai/types": "workspace:*"
+    "@hpke/core": "1.9.0"
   }
 }

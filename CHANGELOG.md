@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.41.0](https://github.com/adea-ai/adea/compare/v0.40.5...v0.41.0) (2026-09-22)
+
+
+### Features
+
+* **chat:** add canonical conversation model ([#552](https://github.com/adea-ai/adea/issues/552)) ([a6646a5](https://github.com/adea-ai/adea/commit/a6646a5e186a92aba71df5fe3dd9247ead5957cd))
+
+## [0.40.5](https://github.com/adea-ai/adea/compare/v0.40.4...v0.40.5) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** bind event tokens to channel subscriptions ([#569](https://github.com/adea-ai/adea/issues/569)) ([6b0db9c](https://github.com/adea-ai/adea/commit/6b0db9c9715483ef34593fd6e58292bec4aa22f5))
+
+## [0.40.4](https://github.com/adea-ai/adea/compare/v0.40.3...v0.40.4) (2026-09-22)
+
+
+### Tests
+
+* **m12:** cover terminal pane and endurance lane ([#553](https://github.com/adea-ai/adea/issues/553)) ([89b9c4a](https://github.com/adea-ai/adea/commit/89b9c4af5b38059669d2aa6d966bec1cefd91477))
+
+## [0.40.3](https://github.com/adea-ai/adea/compare/v0.40.2...v0.40.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** fail closed on ambiguous keychain errors ([#567](https://github.com/adea-ai/adea/issues/567)) ([8ae4a8c](https://github.com/adea-ai/adea/commit/8ae4a8c186284bee6d61b5eb9e64bbfe104f9fda))
+
 ## [0.40.2](https://github.com/adea-ai/adea/compare/v0.40.1...v0.40.2) (2026-09-22)
 
 
