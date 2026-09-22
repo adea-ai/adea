@@ -1,5 +1,6 @@
-// Packaged worktree containment smoke (#397): template materialization and
-// digest-tamper refusal through the PRODUCTION registrar
+// Packaged worktree lifecycle smoke (#397): template materialization,
+// digest-tamper refusal, and create/bootstrap/merge/cleanup evidence through
+// the PRODUCTION registrar
 // (shell/src/dev-runtime/worktrees/register.ts), driven through the M10
 // channel authority with signed dev.worktree.* commands on the packaged
 // evidence lane (darwin, the Electrobun .app built).
@@ -15,13 +16,21 @@
 //      materialization with `identity_mismatch` and clones nothing;
 //   4. the registrar's generation fencing refuses a lease whose envelope
 //      generation is stale (`stale_generation`).
+//   5. the registrar-owned service creates a workflow-bound worktree, the
+//      registrar retries its approved bootstrap, merges its committed change,
+//      and completes cleanup through plan/commit operations.
+//   6. a production-registrar create refuses a `.worktreeinclude` symlink
+//      candidate that points outside the repository (`symlink_rejected`).
 //
 // Scope honesty: the worktree service is host-side TypeScript executed here
 // from the same modules the shell bundles; running it INSIDE the packaged
 // app process arrives with the production composition root (out of this
 // session's scope, named in the spec). The template materialize/tamper path
-// goes through the registrar-owned service instance — the same instance the
-// registrar's dev.worktree.* handlers dispatch to.
+// and all signed operations go through the registrar-owned service instance.
+// The current public create DTO carries only bootstrapWorkflowId and the
+// composition root has no workflow/approval resolver, so proof 5 binds the
+// workflow on that same registrar-owned service seam before exercising retry,
+// merge, and cleanup through signed registrar commands.
 //
 // Usage: bun apps/desktop/shell/scripts/packaged-worktree-smoke.ts [--app-bundle <path>] [--artifact <path>]
 import {
@@ -32,6 +41,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs'
@@ -45,6 +55,11 @@ import {
   type DevCommand,
   type DevReply,
 } from '../../../../packages/types/src/dev-runtime'
+import {
+  type BootstrapApproval,
+  type BootstrapWorkflow,
+  workflowDigest,
+} from '../src/dev-runtime/worktrees/bootstrap'
 import { createChannelAuthority } from '../src/dev-runtime/channel/authority'
 import { createCredentialVault } from '../src/dev-runtime/vault'
 import { directoryIdentity } from '../src/dev-runtime/worktrees/identity'
@@ -54,7 +69,7 @@ import {
   computeValidityDigest,
   type TemplateValidityComponents,
 } from '../src/dev-runtime/worktrees/templates'
-import { initRepo, projectIdA, scope } from '../../tests/worktree-fixtures'
+import { git, initRepo, projectIdA, scope } from '../../tests/worktree-fixtures'
 import { createOwnerApprovalVerifier, type OwnerApproval } from '../src/dev-runtime/authority'
 import { createRootBookmarkAuthority } from '../src/dev-runtime/roots'
 import {
@@ -219,7 +234,15 @@ async function main(): Promise<number> {
   })
 
   function execute(
-    operation: 'dev.worktree.create' | 'dev.worktree.lease' | 'dev.worktree.list',
+    operation:
+      | 'dev.worktree.create'
+      | 'dev.worktree.lease'
+      | 'dev.worktree.list'
+      | 'dev.worktree.retryBootstrap'
+      | 'dev.worktree.mergePlan'
+      | 'dev.worktree.mergeCommit'
+      | 'dev.worktree.cleanupPlan'
+      | 'dev.worktree.cleanupCommit',
     body: Record<string, unknown>,
     resource?: { kind: 'worktree'; id: string; generation: number }
   ): Promise<DevReply> {
@@ -418,6 +441,204 @@ async function main(): Promise<number> {
       !stale.ok && stale.error.code === 'stale_generation',
       'a stale envelope generation is refused with stale_generation',
       stale.ok ? 'unexpectedly ok' : stale.error.code
+    )
+
+    // 5. Full packaged lifecycle: create through the registrar, bind an
+    // approved workflow to that production service instance, bootstrap via
+    // the registrar, merge through its plan/commit pair, then complete and
+    // clean through the registrar's destructive plan/commit pair.
+    console.log('PROOF 5 create → bootstrap → merge-back → complete-and-clean')
+    const workflow: BootstrapWorkflow = {
+      id: 'packaged-lifecycle-bootstrap',
+      version: 1,
+      steps: [
+        {
+          id: 'write-marker',
+          argv: [
+            process.execPath,
+            '-e',
+            `await Bun.write('packaged-bootstrap.txt', 'bootstrapped through registrar\\n')`,
+          ],
+        },
+      ],
+    }
+    const approval: BootstrapApproval = {
+      method: 'owner_dialog',
+      reference: `packaged-bootstrap-${++approvalSequence}`,
+      approvedAt: new Date().toISOString(),
+      canonicalRepoRoot: realpathSync(repoPath),
+      workflowDigest: workflowDigest(workflow),
+      workflowVersion: workflow.version,
+      scope,
+    }
+    // The current registry contract carries only bootstrapWorkflowId; the
+    // production composition has no workflow/approval resolver yet. Create
+    // through the registrar-owned service seam with the exact workflow bound,
+    // then exercise retry, merge, and cleanup through signed registrar
+    // commands. This keeps the packaged proof truthful while preserving the
+    // explicit contract gap for the #397 follow-up.
+    const lifecycleCreated = await service.createWorktree({
+      scope,
+      repoId: repo.id,
+      projectId: projectIdA,
+      baseRef: 'main',
+      branchName: 'packaged-lifecycle',
+      worktreeBaseDir: join(workspace, 'adea-worktrees', 'primary'),
+      bootstrapWorkflow: workflow,
+      bootstrapApproval: approval,
+    })
+    check(
+      lifecycleCreated.worktree.lifecycle === 'ready',
+      'lifecycle create and initial bootstrap completed through the registrar-owned service seam'
+    )
+    const lifecycleInitial = lifecycleCreated.worktree
+    const markerPath = join(lifecycleInitial.canonicalRoot, 'packaged-bootstrap.txt')
+    service.bindBootstrap({
+      worktreeId: lifecycleInitial.id,
+      workflow,
+      approval,
+    })
+    const bootstrapped = await execute(
+      'dev.worktree.retryBootstrap',
+      { worktreeId: lifecycleInitial.id, expectedGeneration: lifecycleInitial.generation },
+      { kind: 'worktree', id: lifecycleInitial.id, generation: lifecycleInitial.generation }
+    )
+    check(
+      bootstrapped.ok,
+      'bootstrap retry completed through the production registrar',
+      bootstrapped.ok ? undefined : `${bootstrapped.error.code}: ${bootstrapped.error.message}`
+    )
+    if (!bootstrapped.ok) return finish(1, artifactPath, appBundle, bundleDigest, startedAt)
+    const lifecycleReady = (
+      bootstrapped.value as {
+        worktree: { id: string; canonicalRoot: string; generation: number }
+      }
+    ).worktree
+    check(
+      readFileSync(markerPath, 'utf8') === 'bootstrapped through registrar\n',
+      'the approved bootstrap step left its marker in the created worktree'
+    )
+
+    writeFileSync(join(lifecycleReady.canonicalRoot, 'merged-from-packaged.txt'), 'merged\n')
+    check(git(lifecycleReady.canonicalRoot, ['add', '.']).code === 0, 'lifecycle change staged')
+    check(
+      git(lifecycleReady.canonicalRoot, ['commit', '-m', 'packaged lifecycle change']).code === 0,
+      'lifecycle change committed on the created branch'
+    )
+    const mergePlanReply = await execute(
+      'dev.worktree.mergePlan',
+      {
+        worktreeId: lifecycleReady.id,
+        expectedGeneration: lifecycleReady.generation,
+        targetRef: 'refs/heads/main',
+      },
+      { kind: 'worktree', id: lifecycleReady.id, generation: lifecycleReady.generation }
+    )
+    check(mergePlanReply.ok, 'merge plan was issued through the production registrar')
+    if (!mergePlanReply.ok) return finish(1, artifactPath, appBundle, bundleDigest, startedAt)
+    const mergePlan = mergePlanReply.value as {
+      id: string
+      digest: string
+      resource: { kind: 'worktree'; id: string; generation: number }
+    }
+    const mergeCommitReply = await execute(
+      'dev.worktree.mergeCommit',
+      { planId: mergePlan.id, planDigest: mergePlan.digest },
+      mergePlan.resource
+    )
+    check(
+      mergeCommitReply.ok &&
+        (mergeCommitReply.ok ? (mergeCommitReply.value as { state?: string }).state : '') ===
+          'completed',
+      'merge commit completed through the production registrar',
+      mergeCommitReply.ok
+        ? JSON.stringify(mergeCommitReply.value)
+        : `${mergeCommitReply.error.code}: ${mergeCommitReply.error.message}`
+    )
+    if (!mergeCommitReply.ok) return finish(1, artifactPath, appBundle, bundleDigest, startedAt)
+    check(
+      git(repoPath, ['show', '--format=', '--name-only', 'refs/heads/main']).stdout.includes(
+        'merged-from-packaged.txt'
+      ),
+      'the merge-back published the packaged worktree change on main'
+    )
+
+    // The merge is now integrated. Align the disposable source branch with
+    // main and record that upstream so cleanup can prove there are no
+    // unpushed changes before destructive steps.
+    check(
+      git(lifecycleReady.canonicalRoot, ['reset', '--hard', 'main']).code === 0,
+      'integrated source branch aligned with main'
+    )
+    check(
+      git(repoPath, ['branch', '--set-upstream-to=main', 'packaged-lifecycle']).code === 0,
+      'integrated source branch has a known upstream for cleanup preflight'
+    )
+    for (const lease of service.leases.list(lifecycleReady.id)) {
+      service.leases.release({ scope, worktreeId: lifecycleReady.id, leaseId: lease.lease.id })
+    }
+    const cleanupPlanReply = await execute(
+      'dev.worktree.cleanupPlan',
+      {
+        worktreeId: lifecycleReady.id,
+        expectedGeneration: lifecycleReady.generation,
+        selectedOwnedResourceIds: [],
+        allowedSteps: ['quarantine_worktree', 'unregister_worktree', 'delete_quarantine'],
+      },
+      { kind: 'worktree', id: lifecycleReady.id, generation: lifecycleReady.generation }
+    )
+    check(cleanupPlanReply.ok, 'complete-and-clean plan was issued through the registrar')
+    if (!cleanupPlanReply.ok) return finish(1, artifactPath, appBundle, bundleDigest, startedAt)
+    const cleanupPlan = cleanupPlanReply.value as {
+      id: string
+      digest: string
+      blockers: ReadonlyArray<unknown>
+      resource: { kind: 'worktree'; id: string; generation: number }
+    }
+    check(cleanupPlan.blockers.length === 0, 'complete-and-clean preflight has no blockers')
+    if (cleanupPlan.blockers.length > 0)
+      return finish(1, artifactPath, appBundle, bundleDigest, startedAt)
+    const cleanupCommitReply = await execute(
+      'dev.worktree.cleanupCommit',
+      { planId: cleanupPlan.id, planDigest: cleanupPlan.digest },
+      cleanupPlan.resource
+    )
+    check(
+      cleanupCommitReply.ok &&
+        (cleanupCommitReply.ok ? (cleanupCommitReply.value as { state?: string }).state : '') ===
+          'completed',
+      'complete-and-clean commit completed through the production registrar'
+    )
+    check(
+      !existsSync(lifecycleReady.canonicalRoot) &&
+        !git(repoPath, ['worktree', 'list', '--porcelain']).stdout.includes(
+          lifecycleReady.canonicalRoot
+        ),
+      'complete-and-clean removed the checkout and its git worktree registration'
+    )
+
+    // 6. Include-copy escape proof on the same production create path. A
+    // symlink candidate points outside the repository; creation must fail
+    // closed before any bytes reach the outside target.
+    console.log('PROOF 6 .worktreeinclude symlink escape refusal')
+    const outside = join(root, 'include-escape-target.txt')
+    writeFileSync(outside, 'outside sentinel\n')
+    writeFileSync(join(repoPath, '.worktreeinclude'), 'escape-link.txt\n')
+    symlinkSync(outside, join(repoPath, 'escape-link.txt'))
+    const includeEscape = await execute('dev.worktree.create', {
+      projectId: projectIdA,
+      repoId: repo.id,
+      baseRef: 'main',
+      branchName: 'packaged-include-escape',
+    })
+    check(
+      !includeEscape.ok && includeEscape.error.code === 'symlink_rejected',
+      'include-copy symlink escape was refused through the production registrar',
+      includeEscape.ok ? 'unexpected success' : includeEscape.error.code
+    )
+    check(
+      readFileSync(outside, 'utf8') === 'outside sentinel\n',
+      'include-copy escape target was untouched'
     )
 
     return finish(
