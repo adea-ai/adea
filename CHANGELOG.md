@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.5](https://github.com/adea-ai/adea/compare/v0.40.4...v0.40.5) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** bind event tokens to channel subscriptions ([#569](https://github.com/adea-ai/adea/issues/569)) ([6b0db9c](https://github.com/adea-ai/adea/commit/6b0db9c9715483ef34593fd6e58292bec4aa22f5))
+
 ## [0.40.4](https://github.com/adea-ai/adea/compare/v0.40.3...v0.40.4) (2026-09-22)
 
 
