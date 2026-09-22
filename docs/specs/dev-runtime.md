@@ -2065,6 +2065,28 @@ terminal, generation, nonce, event kind, and payload digest. OSC 52 is denied
 unless a user explicitly approves the exact clipboard action. Titles, links,
 notifications, and cwd URLs are sanitized and bounded.
 
+The terminal pane presents shell-integration truthfully across two separated
+evidence channels ("Terminal pane experience"): host-declared wrapper features
+and MAC-verified observations prove the authenticated channel — command
+blocks, exit codes, and cwd labels render only on it — while standard
+unauthenticated OSC 133/7 markers parsed from the display stream are tracked
+as their own evidence and never upgrade the presentation. A shell without the
+hook degrades to a typed `unavailable` status with its reason, never a silent
+blank. The pane's interaction features are permissioned or locally scoped:
+selection and copy run through the host's permissioned clipboard seam (#471
+substrate) where denial is a typed outcome that degrades the affordance in
+place; the search bar is a real in-pane surface with next/previous stepping
+and a live match count (no window prompts); links open only through the
+consented open path; multiline paste uses bracketed paste with the terminal's
+newline confirmation; IME composition and TUI raw-mode key routing keep
+full-screen applications in control of every key, with the pane intercepting
+only its own explicit shortcuts. Fallback shell selection is typed and
+confirmed: a missing or unusable `$SHELL` offers the host's advertised
+profiles as an explicit choice — a fallback is never spawned silently, and a
+profile without an installed wrapper is honestly marked as running without
+shell integration. Pinned by `packages/dev-view/tests/terminal-pane-experience.test.ts`
+and `packages/dev-view/tests/terminal-shell-events.test.ts`.
+
 `TerminalInputAuthority` admits one source (`terminal_user`, `chat_user`,
 `prompt_delivery`, `browser_takeover`) for one generation. Admission is repeated
 after asynchronous yield and before each chunk, so a partial paste cannot cross
