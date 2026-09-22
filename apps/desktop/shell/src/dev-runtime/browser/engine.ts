@@ -809,7 +809,14 @@ export function createBunWebViewLaneEngine(
         session.close('stale_generation', 'browser lane generation changed')
         return
       }
+      let closed = false
+      let cleanup: (() => void) | undefined
+      session.onClose = () => {
+        closed = true
+        cleanup?.()
+      }
       const attachToState = (state: LaneState): void => {
+        if (closed) return
         if (
           !ensureGeneration(state) ||
           session.grant.resource.generation !== state.lane.generation
@@ -840,6 +847,11 @@ export function createBunWebViewLaneEngine(
           }),
         }
         state.subscribers.add(subscriber)
+        cleanup = () => {
+          if (!cleanup) return
+          cleanup = undefined
+          removeSubscriber(state, subscriber)
+        }
         session.onFrame = (frame) => {
           if (frame.type === 'ack') {
             subscriber.creditBytes = frame.availableCreditBytes
@@ -854,13 +866,13 @@ export function createBunWebViewLaneEngine(
             })
           }
         }
-        session.onClose = () => removeSubscriber(state, subscriber)
         void startScreencast(state)
       }
       const existing = lanes.get(laneId)
       if (existing) {
         // Keep the already-provisioned path synchronous so an input frame
         // arriving in the same turn as attach cannot be dropped.
+        existing.lane = lane
         attachToState(existing)
         return
       }
@@ -868,8 +880,17 @@ export function createBunWebViewLaneEngine(
       // first navigate/screenshot call has provisioned the view. Provision
       // that view here instead of misclassifying a valid grant as stale.
       void stateFor(lane)
-        .then(attachToState)
+        .then((state) => {
+          const current = options.laneLookup?.(laneId) ?? state.lane
+          if (!current || session.grant.resource.generation !== current.generation) {
+            session.close('stale_generation', 'browser lane generation changed')
+            return
+          }
+          state.lane = current
+          attachToState(state)
+        })
         .catch((error) => {
+          if (closed) return
           diagnostic(laneId, {
             level: 'error',
             category: 'crash',
