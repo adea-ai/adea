@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type JSX } from 'solid-js'
+import { Index, Show, createSignal, type JSX } from 'solid-js'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
@@ -72,16 +72,16 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
         when={items().length > 0}
         fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
       >
-        <For each={items()}>
+        <Index each={items()}>
           {(item) => (
             <ChatTranscriptRow
-              item={item}
+              item={item()}
               answers={answers}
               setAnswers={setAnswers}
               props={props}
             />
           )}
-        </For>
+        </Index>
       </Show>
     </section>
   )
