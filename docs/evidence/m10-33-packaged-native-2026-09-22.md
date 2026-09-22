@@ -79,8 +79,9 @@ passed, and the diff check passed.
 
 ## Application gap
 
-This evidence proves the bundled runtime capability, not adoption by the
-application's M10 authority. The current implementation still:
+This evidence proves the bundled runtime capability in the recorded source
+commit, not an application-level vault or host-store journey. At that source
+commit, the application still:
 
 - invokes `/usr/bin/security` from
   `apps/desktop/shell/src/dev-runtime/vault.ts` for its production key store;
@@ -90,6 +91,7 @@ application's M10 authority. The current implementation still:
   than `bun:sqlite`.
 
 No application-level Bun.secrets adapter, SQLite schema, migration, recovery
-compatibility path, or packaged vault round-trip test exists in this source
-commit. Issue #33 therefore remains open for the reviewed implementation and
-migration work.
+compatibility path, or packaged vault round-trip test existed in the recorded
+source commit. The Bun.secrets adapter was subsequently merged in PR #577;
+this artifact does not test that newer application's vault path. Issue #33
+remains open for SQLite migration and packaged application-level acceptance.
