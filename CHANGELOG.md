@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.3](https://github.com/adea-ai/adea/compare/v0.40.2...v0.40.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** fail closed on ambiguous keychain errors ([#567](https://github.com/adea-ai/adea/issues/567)) ([8ae4a8c](https://github.com/adea-ai/adea/commit/8ae4a8c186284bee6d61b5eb9e64bbfe104f9fda))
+
 ## [0.40.2](https://github.com/adea-ai/adea/compare/v0.40.1...v0.40.2) (2026-09-22)
 
 
