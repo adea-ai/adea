@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, integer, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { check, index, integer, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 
 import { entityId, timestampColumns } from './conventions'
 import { appSchema } from './schema'
@@ -16,6 +16,7 @@ export const contentStoragePolicy = appSchema.enum('content_storage_policy', ['l
 export const contentSynchronizationPolicy = appSchema.enum('content_synchronization_policy', [
   'local_only',
   'e2e_optional',
+  'agent_hq_e2ee_sync',
 ])
 export const contentAvailability = appSchema.enum('content_availability', [
   'available',
@@ -58,6 +59,7 @@ export const contentRefs = appSchema.table(
       'content_refs_deletion_consistent',
       sql`(${table.availability} = 'deleted' and ${table.deletedAt} is not null) or (${table.availability} <> 'deleted' and ${table.deletedAt} is null)`
     ),
+    unique('content_refs_workspace_id_unique').on(table.workspaceId, table.id),
     index('content_refs_workspace_availability_idx').on(
       table.workspaceId,
       table.availability,

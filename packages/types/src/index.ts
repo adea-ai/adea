@@ -130,8 +130,26 @@ export type ContentRefSummary = Readonly<{
   schemaVersion: number
   sensitivity: 'sensitive' | 'restricted'
   storagePolicy: 'local_authority'
-  synchronizationPolicy: 'local_only' | 'e2e_optional'
+  synchronizationPolicy: 'local_only' | 'e2e_optional' | 'agent_hq_e2ee_sync'
   taskId?: string
+  updatedAt: string
+  workspaceId: string
+}>
+
+/** Physical encrypted storage attached to one logical ContentRef revision. */
+export type ContentReplicaSummary = Readonly<{
+  availability: 'available' | 'offline' | 'missing' | 'deleted'
+  ciphertext: string
+  contentRefId: string
+  createdAt: string
+  deletedAt?: string
+  digestSha256: string
+  id: string
+  keyEpochId?: string
+  nonce: string
+  replicaKind: 'local_authority' | 'self_hosted_authority' | 'agent_hq_e2ee_sync'
+  revision: number
+  schemaVersion: number
   updatedAt: string
   workspaceId: string
 }>
