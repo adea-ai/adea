@@ -1,12 +1,14 @@
+import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime'
 import type {
   DevRuntimePage,
+  DevStreamFrame,
   Group,
   Project,
   RuntimeEvent,
   RuntimeSession,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import type { DevRuntimeService } from '../../platform'
+import type { DevRuntimeService, DevStreamTransportSocket } from '../../platform'
 
 import { buildDevCommand } from '../../browser/command'
 import {
@@ -19,6 +21,7 @@ import {
 } from './commands'
 import {
   acceptRuntimeStreamFrame,
+  CHAT_EVENT_RETENTION_LIMIT,
   createTranscriptAccumulator,
   type TranscriptAccumulator,
 } from './transcript'
@@ -48,6 +51,9 @@ const lifecycleByEvent: Readonly<Record<string, ChatConversationStatus>> = {
   'session.cancelled': 'cancelled',
 }
 
+/** Matches the host's durable session-create result replay window. */
+export const CHAT_CREATE_REPLAY_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
+
 function scopeMatches(left: Scope, right: Scope): boolean {
   return (
     left.accountId === right.accountId &&
@@ -62,6 +68,31 @@ function eventSequence(event: RuntimeEvent): bigint {
   } catch {
     return -1n
   }
+}
+
+function compareEvents(left: RuntimeEvent, right: RuntimeEvent): number {
+  if (left.generation !== right.generation) return left.generation < right.generation ? -1 : 1
+  const leftSequence = eventSequence(left)
+  const rightSequence = eventSequence(right)
+  return leftSequence === rightSequence ? 0 : leftSequence < rightSequence ? -1 : 1
+}
+
+function eventIdentity(event: RuntimeEvent): string {
+  return `${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
+}
+
+function mergeSessionEvents(
+  runtimeSessionId: string,
+  existing: readonly RuntimeEvent[],
+  incoming: readonly RuntimeEvent[]
+): RuntimeEvent[] {
+  const merged = [...existing]
+  for (const event of incoming) {
+    if (event.runtimeSessionId !== runtimeSessionId) continue
+    if (merged.some((entry) => eventIdentity(entry) === eventIdentity(event))) continue
+    merged.push(event)
+  }
+  return merged.toSorted(compareEvents).slice(-CHAT_EVENT_RETENTION_LIMIT)
 }
 
 function payloadText(event: RuntimeEvent): string | undefined {
@@ -88,7 +119,7 @@ export function deriveConversationTitle(
     .filter(
       (event) => event.runtimeSessionId === session.id && event.generation <= session.generation
     )
-    .toSorted((left, right) => (eventSequence(left) < eventSequence(right) ? -1 : 1))
+    .toSorted(compareEvents)
     .map(payloadText)
     .find((text): text is string => text !== undefined)
   if (firstPrompt) return Array.from(firstPrompt).slice(0, 80).join('').trim()
@@ -104,7 +135,7 @@ export function deriveConversationStatus(
     .filter(
       (event) => event.runtimeSessionId === session.id && event.generation === session.generation
     )
-    .toSorted((left, right) => (eventSequence(left) < eventSequence(right) ? -1 : 1))
+    .toSorted(compareEvents)
     .at(-1)
   return (latest ? lifecycleByEvent[latest.kind] : undefined) ?? session.lifecycle
 }
@@ -140,9 +171,7 @@ export function projectChatConversations(
     const project = projectsById.get(session.projectId)
     if (!project) continue
     const events = [...(input.events?.get(session.id) ?? [])]
-    const retentionEvents = events.toSorted((left, right) =>
-      eventSequence(left) < eventSequence(right) ? -1 : 1
-    )
+    const retentionEvents = events.toSorted(compareEvents)
     const draft = input.drafts?.get(session.id) ?? ''
     conversations.push({
       runtimeSessionId: session.id,
@@ -223,10 +252,14 @@ export function createChatConversationModel(
   const drafts = new Map<string, string>()
   const groups: Group[] = []
   const projects: Project[] = []
-  const createRequests = new Map<
-    string,
-    { fingerprint: string; promise: Promise<ChatConversation> }
-  >()
+  type CreateRequest = {
+    fingerprint: string
+    promise?: Promise<ChatConversation>
+    result?: ChatConversation
+    createdAt: number
+    expirationTimer?: ReturnType<typeof setTimeout>
+  }
+  const createRequests = new Map<string, CreateRequest>()
   const now = options.now ?? (() => new Date())
   const randomId = options.randomId ?? (() => crypto.randomUUID())
   let selectedRuntimeSessionId: string | undefined
@@ -289,10 +322,7 @@ export function createChatConversationModel(
         message: 'The canonical project registry has not resolved this session.',
       })
     sessions.set(session.id, session)
-    const merged = events.get(session.id) ?? []
-    for (const event of newEvents)
-      if (!merged.some((entry) => entry.eventId === event.eventId)) merged.push(event)
-    events.set(session.id, merged)
+    events.set(session.id, mergeSessionEvents(session.id, events.get(session.id) ?? [], newEvents))
     selectedRuntimeSessionId = selectedRuntimeSessionId ?? session.id
     return requireConversation(session.id)
   }
@@ -311,9 +341,11 @@ export function createChatConversationModel(
     )
   }
   const create = async (input: ConversationCreateInput): Promise<ChatConversation> => {
+    const hasAgentProfileId = input.agentProfileId !== undefined
+    const hasAgentProfileVersion = input.agentProfileVersion !== undefined
     if (
-      input.initialPrompt !== undefined &&
-      (input.agentProfileId === undefined || input.agentProfileVersion === undefined)
+      hasAgentProfileId !== hasAgentProfileVersion ||
+      (input.initialPrompt !== undefined && (!hasAgentProfileId || !hasAgentProfileVersion))
     )
       throw new ChatRuntimeError({
         code: 'invalid_state',
@@ -321,6 +353,13 @@ export function createChatConversationModel(
         message: 'An agent profile is required when creating a prompted conversation.',
       })
     const idempotencyKey = input.idempotencyKey ?? randomId()
+    const cutoff = now().getTime() - CHAT_CREATE_REPLAY_RETENTION_MS
+    for (const [key, request] of createRequests) {
+      if (request.createdAt <= cutoff) {
+        if (request.expirationTimer !== undefined) clearTimeout(request.expirationTimer)
+        createRequests.delete(key)
+      }
+    }
     const fingerprint = JSON.stringify({ ...input, idempotencyKey: undefined })
     const existing = createRequests.get(idempotencyKey)
     if (existing) {
@@ -330,7 +369,12 @@ export function createChatConversationModel(
           retryable: false,
           message: 'The idempotency key was reused for another conversation.',
         })
-      return existing.promise
+      if (existing.result) return existing.result
+      if (existing.promise) return existing.promise
+    }
+    const request: CreateRequest = {
+      fingerprint,
+      createdAt: now().getTime(),
     }
     const promise = (async () => {
       await loadHierarchy()
@@ -359,8 +403,22 @@ export function createChatConversationModel(
         idempotencyKey,
       })
       const created = await executeChatCommand<RuntimeSession>(service, createCommand)
+      const currentRequest = createRequests.get(idempotencyKey)
+      if (currentRequest !== request) {
+        // A newer request owns this key after the replay window elapsed. Do
+        // not admit the late response into the projection; let the caller
+        // observe the replacement result when it is available.
+        if (currentRequest?.result) return currentRequest.result
+        if (currentRequest?.promise) return currentRequest.promise
+        return requireConversation(created.id)
+      }
       let canonical = remember(created)
       if (input.agentProfileId !== undefined || input.initialPrompt !== undefined) {
+        // An expired pending request may finish after a newer retry has
+        // replayed the same host idempotency key. Only the current request
+        // may orchestrate the launch, so a late transport response cannot
+        // duplicate the side effect.
+        if (createRequests.get(idempotencyKey) !== request) return canonical
         const launchOperation = input.harnessInstallationId
           ? 'dev.session.launchHarness'
           : 'dev.session.launchDefault'
@@ -376,20 +434,51 @@ export function createChatConversationModel(
       }
       return canonical
     })()
-    createRequests.set(idempotencyKey, { fingerprint, promise })
-    return promise
+    request.promise = promise as Promise<ChatConversation>
+    createRequests.set(idempotencyKey, request)
+    const expirationTimer = setTimeout(() => {
+      if (createRequests.get(idempotencyKey) === request) createRequests.delete(idempotencyKey)
+    }, CHAT_CREATE_REPLAY_RETENTION_MS)
+    request.expirationTimer = expirationTimer
+    if (typeof expirationTimer === 'object' && expirationTimer !== null)
+      (expirationTimer as { unref?: () => void }).unref?.()
+    try {
+      const result = await promise
+      if (createRequests.get(idempotencyKey) === request) request.result = result
+      return result
+    } catch (error) {
+      // A transport loss may follow a committed host create. Keep the body's
+      // fingerprint, but retry the same key through the durable host replay.
+      if (createRequests.get(idempotencyKey) === request) request.promise = undefined
+      throw error
+    } finally {
+      if (createRequests.get(idempotencyKey) === request) request.promise = undefined
+    }
   }
   const attach = async (runtimeSessionId: string): Promise<ChatConversation> => {
     await loadHierarchy()
-    const page = await executeChatCommand<DevRuntimePage<RuntimeSession>>(
-      service,
-      buildDevCommand({
-        operation: 'dev.session.list',
-        scope,
-        body: { runtimeSessionId },
-      })
-    )
-    const session = page.items.find((item) => item.id === runtimeSessionId)
+    let cursor: string | undefined
+    const seenCursors = new Set<string>()
+    let session: RuntimeSession | undefined
+    do {
+      const body = cursor === undefined ? { limit: 500 } : { cursor, limit: 500 }
+      const page = await executeChatCommand<DevRuntimePage<RuntimeSession>>(
+        service,
+        buildDevCommand({ operation: 'dev.session.list', scope, body })
+      )
+      session = page.items.find((item) => item.id === runtimeSessionId)
+      if (session) break
+      if (page.nextCursor !== undefined) {
+        if (seenCursors.has(page.nextCursor))
+          throw new ChatRuntimeError({
+            code: 'invalid_state',
+            retryable: true,
+            message: 'The runtime session list returned a repeated cursor.',
+          })
+        seenCursors.add(page.nextCursor)
+      }
+      cursor = page.nextCursor
+    } while (cursor !== undefined)
     if (!session)
       throw new ChatRuntimeError({
         code: 'not_found',
@@ -507,24 +596,57 @@ export function createChatConversationModel(
       generation: grant.resource.generation,
       fromSequence: grant.fromSequence,
     })
-    const socket = transport.connect(grant as never, {
+    let socket: DevStreamTransportSocket | undefined
+    const pendingAcks: DevStreamFrame[] = []
+    socket = transport.connect(grant as never, {
       onFrame: (frame) => {
-        transcript = acceptRuntimeStreamFrame(
-          transcript,
-          frame,
-          eventSourceForStream({ source: streamOptions.source })
-        )
+        const source = eventSourceForStream({ source: streamOptions.source })
+        let decodedEvent: RuntimeEvent | undefined
         if (frame.type === 'data') {
-          const latest = transcript.events.at(-1)
-          if (latest) {
-            const existing = events.get(runtimeSessionId) ?? []
-            if (!existing.some((event) => event.eventId === latest.eventId)) existing.push(latest)
-            events.set(runtimeSessionId, existing)
+          try {
+            const decoded = decodeCbor(frame.bytes)
+            const candidate = decodeRuntimeEvent(decoded.value, { source })
+            if (
+              candidate.seq === frame.sequence &&
+              candidate.runtimeSessionId === runtimeSessionId &&
+              candidate.generation === current.generation
+            )
+              decodedEvent = candidate
+          } catch {
+            decodedEvent = undefined
+          }
+        }
+        transcript = acceptRuntimeStreamFrame(transcript, frame, source)
+        if (frame.type === 'data' && decodedEvent) {
+          const accepted = transcript.events.some(
+            (event) => eventIdentity(event) === eventIdentity(decodedEvent!)
+          )
+          if (accepted)
+            events.set(
+              runtimeSessionId,
+              mergeSessionEvents(runtimeSessionId, events.get(runtimeSessionId) ?? [], [
+                decodedEvent,
+              ])
+            )
+          if (
+            accepted &&
+            transcript.availability.status !== 'resync_required' &&
+            transcript.availability.status !== 'conflict' &&
+            transcript.availability.status !== 'stale_generation'
+          ) {
+            const ack: DevStreamFrame = {
+              type: 'ack',
+              throughSequence: frame.sequence,
+              availableCreditBytes: frame.bytes.byteLength,
+            }
+            if (socket?.open) socket.send(ack)
+            else pendingAcks.push(ack)
           }
         }
       },
       onClose: (_code, _reason) => undefined,
     })
+    for (const ack of pendingAcks) if (socket.open) socket.send(ack)
     return { state: () => transcript, close: () => socket.close(1000, 'chat detached') }
   }
 

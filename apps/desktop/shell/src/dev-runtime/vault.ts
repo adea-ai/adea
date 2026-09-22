@@ -155,7 +155,8 @@ const SECURITY_TIMEOUT_MS = 10_000
  * Pure failure classification for one `security` process outcome. Exported
  * so the taxonomy is deterministically testable without touching a real
  * keychain: `security` exits 44 for errSecItemNotFound, and the stderr text
- * is the secondary signal across platform versions.
+ * is the secondary signal across platform versions. Lock and denial signals
+ * take precedence over absence so ambiguous diagnostics cannot create a key.
  */
 export function classifySecurityFailure(input: {
   exitCode?: number
@@ -177,15 +178,6 @@ export function classifySecurityFailure(input: {
     }
   }
   const stderr = input.stderr
-  if (
-    (input.exitCode === 44 || input.exitCode === 0x1002c) &&
-    ITEM_NOT_FOUND_PATTERN.test(stderr)
-  ) {
-    return { reason: 'item_not_found', message: 'keychain item not found' }
-  }
-  if (ITEM_NOT_FOUND_PATTERN.test(stderr)) {
-    return { reason: 'item_not_found', message: 'keychain item not found' }
-  }
   if (LOCKED_PATTERN.test(stderr)) {
     return {
       reason: 'keychain_locked',
@@ -197,6 +189,9 @@ export function classifySecurityFailure(input: {
       reason: 'access_denied',
       message: 'access to the OS keychain item was denied',
     }
+  }
+  if (ITEM_NOT_FOUND_PATTERN.test(stderr)) {
+    return { reason: 'item_not_found', message: 'keychain item not found' }
   }
   return {
     reason: 'process_failure',

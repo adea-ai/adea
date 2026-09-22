@@ -577,6 +577,13 @@ Acceptance:
       confirmation and policy edit/revoke/expiry are audited.
 - [ ] Performance covers 100 sessions and 1,000 processes with no polling storm
       or >16 ms UI task; resource/cleanup soak proves bounded history.
+
+The named performance lane now records a synthetic 100-session/1,000-process
+sampler and row-projection result alongside screenshot retention. It verifies
+complete PID coverage over 16 bounded pulls, one `ps` observation per pull,
+and the pure 1,000-row projection p95. This is not a packaged UI long-task or
+resource/cleanup soak record; those acceptance proofs remain open.
+
 - [ ] Dependency-template caches appear in the retained-data breakdown and as
       cleanup candidates; clearing one never touches worktrees or the primary
       checkout.
@@ -745,6 +752,21 @@ bun run test:security:dev-view
 bun run test:soak:dev-view
 bun run test:packaged:dev-view
 ```
+
+Issue #538 owns two additional terminal checks. The browser lane is always
+headless and runs the fixture-only authenticated terminal attach journey:
+
+```sh
+bun run test:e2e:dev-view-terminal
+bun run test:terminal-endurance
+```
+
+The endurance command repeats the terminal transport/pane reducers for a
+bounded local run and writes `artifacts/dev-runtime/terminal-endurance-summary.json`.
+The 24-hour acceptance run sets
+`ADEA_DEV_RUNTIME_TERMINAL_ENDURANCE_DURATION_MS=86400000` and still requires
+the packaged PTY, resource, display-loss, update, and daemon-version evidence;
+the bounded local run cannot close those gates.
 
 Run focused package/test commands during each slice, then the full applicable
 set. #396/#422 own packaged smoke fixtures; #424 owns resource/cleanup

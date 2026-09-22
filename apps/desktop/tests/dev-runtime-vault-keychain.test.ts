@@ -68,6 +68,18 @@ describe('security CLI failure classification (pure)', () => {
     expect(classifySecurityFailure({ exitCode: 1, stderr: 'errSecItemNotFound' })).toMatchObject({
       reason: 'item_not_found',
     })
+    expect(
+      classifySecurityFailure({
+        exitCode: 44,
+        stderr: 'The specified item could not be found. keychain is locked',
+      })
+    ).toMatchObject({ reason: 'keychain_locked' })
+    expect(
+      classifySecurityFailure({
+        exitCode: 1,
+        stderr: 'errSecItemNotFound: access denied',
+      })
+    ).toMatchObject({ reason: 'access_denied' })
     expect(classifySecurityFailure({ exitCode: 51, stderr: 'keychain is locked' })).toMatchObject({
       reason: 'keychain_locked',
     })
