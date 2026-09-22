@@ -226,7 +226,7 @@ export function createChatConversationModel(
   const projects: Project[] = []
   const createRequests = new Map<
     string,
-    { fingerprint: string; promise: Promise<ChatConversation> }
+    { fingerprint: string; promise?: Promise<ChatConversation> }
   >()
   const now = options.now ?? (() => new Date())
   const randomId = options.randomId ?? (() => crypto.randomUUID())
@@ -331,7 +331,7 @@ export function createChatConversationModel(
           retryable: false,
           message: 'The idempotency key was reused for another conversation.',
         })
-      return existing.promise
+      if (existing.promise) return existing.promise
     }
     const promise = (async () => {
       await loadHierarchy()
@@ -377,8 +377,16 @@ export function createChatConversationModel(
       }
       return canonical
     })()
-    createRequests.set(idempotencyKey, { fingerprint, promise })
-    return promise
+    const request = { fingerprint, promise: promise as Promise<ChatConversation> | undefined }
+    createRequests.set(idempotencyKey, request)
+    try {
+      return await promise
+    } catch (error) {
+      // A transport loss may follow a committed host create. Keep the body's
+      // fingerprint, but retry the same key through the durable host replay.
+      if (createRequests.get(idempotencyKey) === request) request.promise = undefined
+      throw error
+    }
   }
   const attach = async (runtimeSessionId: string): Promise<ChatConversation> => {
     await loadHierarchy()

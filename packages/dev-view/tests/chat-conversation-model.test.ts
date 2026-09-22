@@ -300,6 +300,52 @@ describe('ChatConversationModel', () => {
     })
   })
 
+  test('retries a rejected create with the same key after a transport loss', async () => {
+    const created = session({ lifecycle: 'ready' })
+    const calls: string[] = []
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      calls.push(command.operation)
+      if (command.operation === 'dev.session.create') {
+        expect(command.idempotencyKey).toBe('retry-key')
+        if (calls.filter((operation) => operation === 'dev.session.create').length === 1)
+          throw new Error('transport lost after host committed the session')
+        return ok(command.operation, created)
+      }
+      if (command.operation === 'dev.session.launchDefault')
+        return ok(command.operation, {
+          id: 'run-1',
+          runtimeSessionId: created.id,
+          state: 'starting',
+        })
+      if (command.operation === 'dev.session.get') return ok(command.operation, created)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    const input = {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 1,
+      initialPrompt: 'Start here',
+      idempotencyKey: 'retry-key',
+    }
+
+    await expect(model.create(input)).rejects.toThrow('transport lost')
+    await expect(model.create({ ...input, initialPrompt: 'Different prompt' })).rejects.toThrow(
+      'idempotency key'
+    )
+    expect((await model.create(input)).runtimeSessionId).toBe(created.id)
+    expect(calls).toEqual([
+      'dev.session.create',
+      'dev.session.create',
+      'dev.session.launchDefault',
+      'dev.session.get',
+    ])
+  })
+
   test('resume, cancel, archive, and explicit input preserve the canonical session', async () => {
     const current = session({ activeHarnessRunId: 'run-1' })
     const calls: string[] = []

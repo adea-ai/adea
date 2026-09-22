@@ -1248,6 +1248,10 @@ returns that session after a process restart; a changed body refuses with
 only after accepting a frame. Replay delivered during stream attach queues
 the acknowledgement until the socket is available; a decode error, sequence
 gap, conflict, or stale generation never acknowledges the rejected frame.
+If a Chat create request loses its transport response, the client retains the
+key/body fingerprint but clears its rejected in-flight promise. Retrying the
+same request then reaches the host's durable result replay; reusing the key for
+a changed body still refuses before dispatch.
 
 M13 first-run onboarding consumes identity and model-access entitlement facts
 from the owning desktop composition. The guest state with no model entitlement
