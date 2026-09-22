@@ -10,7 +10,17 @@ import {
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 
 import { createDesktopStreamTransport } from './desktop-stream-transport'
-import type { DesktopShell } from './desktop-bridge'
+
+/** The structural slice of the injected bridge this module touches. Declared
+ *  locally, never imported: the boundary test pins that this module does not
+ *  depend on the desktop-bridge module — the injected `window.__adeaDesktop`
+ *  global is the only channel to the shell, and even a type-only import would
+ *  start couples this file to its module graph. */
+type BridgeLike = {
+  invoke?: unknown
+  devExecute?: unknown
+  listen(event: string, handler: (payload: unknown) => void): Promise<() => void>
+}
 
 /** The shell event the git status-invalidation pushes ride (published by the
  *  composition's watcher lane; delivered over the gateway's authenticated
@@ -64,7 +74,7 @@ export function decodeStatusInvalidated(value: unknown): DevGitStatusInvalidated
  * the listen surface; consumers then keep generation-fenced pull.
  */
 export function createDesktopEventSurface(options: {
-  bridge: DesktopShell
+  bridge: BridgeLike
   execute: (command: DevCommand) => Promise<DevReply>
 }): DevEventSubscription | undefined {
   const { bridge, execute } = options
