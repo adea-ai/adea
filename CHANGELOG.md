@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.43.0](https://github.com/adea-ai/adea/compare/v0.42.0...v0.43.0) (2026-09-22)
+
+
+### Features
+
+* **content:** add durable encrypted replicas ([#572](https://github.com/adea-ai/adea/issues/572)) ([11c11b6](https://github.com/adea-ai/adea/commit/11c11b62dec2f94ddc60312414360364648ce107))
+
 ## [0.42.0](https://github.com/adea-ai/adea/compare/v0.41.0...v0.42.0) (2026-09-22)
 
 
