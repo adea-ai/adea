@@ -144,6 +144,8 @@ type DurableSqliteOptions<T> = Readonly<{
   /** Convert legacy JSON into this scope's records; undefined skips a source
    * that belongs to another scope while establishing a native-state guard. */
   migrateLegacy?: (value: unknown) => ReadonlyArray<T> | undefined
+  /** Validate decoded records inside the SQLite corruption-retention boundary. */
+  validateRecords?: (records: ReadonlyArray<T>) => void
 }>
 
 type MigrationLedger = Readonly<{
@@ -725,6 +727,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
           'corrupt_state',
           `${options.label} payload is not a record list`
         )
+      options.validateRecords?.(decoded as ReadonlyArray<T>)
       return {
         schemaVersion: row.schemaVersion,
         savedAt: row.savedAt,
@@ -751,6 +754,7 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
     let db: Database | undefined
     let failure: unknown
     try {
+      options.validateRecords?.(records)
       const opened = openDatabase()
       db = opened.db
       const ledger = readMigrationLedger(
