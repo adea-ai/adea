@@ -2382,6 +2382,16 @@ Managed deletion:
 7. persist continuation if a sweep page is capped, until all proven entries are
    processed.
 
+On `dev.worktree.cleanupResume`, the host replays the durable journal and
+returns one result for every selected step. A restart in the narrow window
+after quarantine's fsynced completion and before the worktree record update is
+rolled back only when the journaled trash root, generated entry name, recorded
+identity, and missing canonical path all match; the original checkout is
+restored and that step is reported as `rolled_back` with the job `partial`.
+Any later journaled step, missing provenance, or identity mismatch remains
+`recovery_required` for explicit operator handling. Resume never guesses past
+an ambiguous side effect.
+
 Multi-file metadata/history changes stage all writes and restore prior disk and
 memory state if any commit fails. No deletion error is logged-and-ignored.
 

@@ -127,7 +127,11 @@ export type CleanupResult = Readonly<{
   worktreeId: string
   state: 'completed' | 'partial' | 'blocked' | 'recovery_required'
   stepResults: ReadonlyArray<
-    Readonly<{ step: CleanupStepKind; state: 'completed' | 'skipped' | 'failed'; detail?: string }>
+    Readonly<{
+      step: CleanupStepKind
+      state: 'completed' | 'skipped' | 'failed' | 'rolled_back'
+      detail?: string
+    }>
   >
 }>
 

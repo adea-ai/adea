@@ -571,7 +571,10 @@ Acceptance:
       backoff, and terms policy; estimates are not billing truth.
 - [ ] Telemetry is off by default and redaction tests cover all private fields.
 - [ ] Cleanup plan exposes every blocker; changed facts invalidate commit;
-      partial/crash recovery resumes without unrelated data loss.
+      partial/crash recovery resumes without unrelated data loss. A restart
+      after quarantine rolls back only with durable identity proof and reports
+      per-step `rolled_back`/`pending` results; ambiguous later steps remain
+      `recovery_required`.
 - [ ] Automatic cleanup runs only under the versioned, previously approved
       project policy and exact safe predicates; unknown/stale facts request
       confirmation and policy edit/revoke/expiry are audited.

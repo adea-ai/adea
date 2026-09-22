@@ -555,9 +555,11 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
           state:
             step.state === 'completed'
               ? 'completed'
-              : step.state === 'skipped'
-                ? 'pending'
-                : 'failed',
+              : step.state === 'rolled_back'
+                ? 'rolled_back'
+                : step.state === 'skipped'
+                  ? 'pending'
+                  : 'failed',
           ...(step.detail !== undefined ? { message: step.detail } : {}),
           observedAt: new Date(now()).toISOString(),
         })),
@@ -578,7 +580,14 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
         state: result.state,
         stepResults: result.stepResults.map((step) => ({
           stepId: step.step,
-          state: step.state === 'completed' ? 'completed' : 'failed',
+          state:
+            step.state === 'completed'
+              ? 'completed'
+              : step.state === 'rolled_back'
+                ? 'rolled_back'
+                : step.state === 'skipped'
+                  ? 'pending'
+                  : 'failed',
           ...(step.detail !== undefined ? { message: step.detail } : {}),
           observedAt: new Date(now()).toISOString(),
         })),

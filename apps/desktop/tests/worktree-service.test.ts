@@ -12,6 +12,7 @@ import { WorktreeError } from '../shell/src/dev-runtime/worktrees/errors'
 import { directoryIdentity } from '../shell/src/dev-runtime/worktrees/identity'
 import { workflowDigest } from '../shell/src/dev-runtime/worktrees/bootstrap'
 import { createCleanupJournal } from '../shell/src/dev-runtime/worktrees/journal'
+import { createWorktreeService as createRestartedWorktreeService } from '../shell/src/dev-runtime/worktrees/service'
 import { git, initRepo, projectIdA, scope, fixture, approved } from './worktree-fixtures'
 
 const scratchRoots: string[] = []
@@ -589,7 +590,7 @@ describe('complete-and-clean', () => {
     }
   })
 
-  test('crash mid-cleanup surfaces recovery_required and keeps data', async () => {
+  test('crash after quarantine rolls back safely after service restart with per-step results', async () => {
     const f = fixture()
     try {
       const { worktree } = await cleanWorktree(f)
@@ -630,19 +631,101 @@ describe('complete-and-clean', () => {
         seq: 2,
         step: 'quarantine',
         state: 'completed',
-        result: { trashRoot: moved.trashRoot, entryName: moved.entryName },
+        result: {
+          trashRoot: moved.trashRoot,
+          entryName: moved.entryName,
+          identity: {
+            device: identity.identity.device ?? '',
+            inode: identity.identity.inode ?? '',
+          },
+        },
       })
 
-      // Recovery: the journal proves a quarantined checkout; resume surfaces
-      // recovery_required instead of silently finishing; data stays in trash.
-      const resumed = await f.service.resumeCleanup({
+      // Restart the coordinator: durable job metadata and the fsynced journal
+      // are the only recovery inputs; no in-memory plan is reused.
+      const restarted = createRestartedWorktreeService({
+        dataDir: f.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        roots: f.roots,
+        clock: () => new Date(),
+      })
+      const resumed = await restarted.resumeCleanup({
+        scope,
+        worktreeId: worktree.id,
+        jobId: plan.planId,
+      })
+      expect(resumed.state).toBe('partial')
+      expect(resumed.stepResults).toEqual([
+        { step: 'quarantine_worktree', state: 'rolled_back', detail: 'rolled back safely' },
+        {
+          step: 'unregister_worktree',
+          state: 'skipped',
+          detail: 'step was not reached before interruption',
+        },
+        {
+          step: 'delete_quarantine',
+          state: 'skipped',
+          detail: 'step was not reached before interruption',
+        },
+      ])
+      expect(restarted.getWorktree(scope, worktree.id).lifecycle).toBe('ready')
+      expect(existsSync(join(worktree.canonicalRoot, 'README.md'))).toBe(true)
+      expect(existsSync(moved.trashPath)).toBe(false)
+      expect(existsSync(join(moved.trashRoot, `${moved.entryName}.record.json`))).toBe(false)
+    } finally {
+      f.cleanup()
+    }
+  })
+
+  test('ambiguous interrupted quarantine stays recovery_required after restart', async () => {
+    const f = fixture()
+    try {
+      const { worktree } = await cleanWorktree(f)
+      const plan = await f.service.planCleanup({
+        scope,
+        worktreeId: worktree.id,
+        expectedGeneration: worktree.generation,
+        selectedSteps: ['quarantine_worktree', 'unregister_worktree'],
+      })
+      const journal = createCleanupJournal({
+        file: join(f.dataDir, 'dev-runtime', 'worktrees', 'journal', `${plan.planId}.jsonl`),
+      })
+      const identity = directoryIdentity(worktree.canonicalRoot)
+      const moved = await import('../shell/src/dev-runtime/worktrees/trash').then((trash) =>
+        trash.quarantineWorktree({
+          worktreeId: worktree.id,
+          worktreePath: worktree.canonicalRoot,
+          repoPath: f.repoPath,
+          expectedIdentity: {
+            device: identity.identity.device ?? '',
+            inode: identity.identity.inode ?? '',
+          },
+        })
+      )
+      journal.append({
+        jobId: plan.planId,
+        worktreeId: worktree.id,
+        seq: 1,
+        step: 'quarantine',
+        state: 'completed',
+        // An older or damaged journal lacks the identity proof required for rollback.
+        result: { trashRoot: moved.trashRoot, entryName: moved.entryName },
+      })
+      const restarted = createRestartedWorktreeService({
+        dataDir: f.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        roots: f.roots,
+        clock: () => new Date(),
+      })
+      const resumed = await restarted.resumeCleanup({
         scope,
         worktreeId: worktree.id,
         jobId: plan.planId,
       })
       expect(resumed.state).toBe('recovery_required')
-      expect(f.service.getWorktree(scope, worktree.id).lifecycle).toBe('recovery_required')
+      expect(restarted.getWorktree(scope, worktree.id).lifecycle).toBe('recovery_required')
       expect(existsSync(join(moved.trashPath, 'README.md'))).toBe(true)
+      expect(existsSync(worktree.canonicalRoot)).toBe(false)
     } finally {
       f.cleanup()
     }
