@@ -1416,10 +1416,39 @@ operation is introduced by this consumer.
 
 The desktop shell's project/session register is the host-side canonical
 authority for projects, runtime sessions, groups, and the archive journal —
-not a projection of other state. One snapshot record commits groups, projects,
-sessions, and `ArchiveRecord`s together in a single atomic file write, so
+not a projection of other state. One versioned snapshot payload commits groups,
+projects, sessions, and `ArchiveRecord`s together in the WAL-backed per-scope
+`dev-runtime/project-session/authority-<sha256(scope)>.sqlite3` store, so
 `dev.session.archive`/`dev.session.unarchive` persist the session flip and its
-durable record in one transaction. The register serves `dev.group.*` (now
+durable record in one SQLite transaction. The store enables `journal_mode=WAL`,
+`synchronous=FULL`, and foreign keys on every open, uses a format-version guard,
+and binds its single row to the `(accountId, workspaceId, runtimeNodeId)` scope
+key before returning records. Each scope has an independent database and
+ledger, so switching workspaces never makes one scope open or overwrite another
+scope's file. The pre-slice `authority.sqlite3` is reused only when its stored
+row belongs to the requested scope; a different scope gets a new partition.
+A scope mismatch, malformed payload, or
+unsupported format/schema version fails closed and retains an unread database
+copy for recovery; the original database is never replaced by a recovery copy.
+An interrupted migration transaction rolls back and leaves its JSON source for
+the next open to retry while the SQLite database identity is unchanged. Each
+partition has an owner-only sidecar migration ledger
+(`authority-<sha256(scope)>.sqlite3.migration.json`), which
+records the legacy source digest and database identity, and survives SQLite
+loss: a recreated database refuses to re-import stale JSON and reports
+`corrupt_state` for recovery. A first open without a legacy source creates a
+native-state ledger before accepting a save; if the SQLite metadata survives
+alone, a missing ledger is regenerated before records are returned. The
+SQLite database and ledger are separate durable files, but deleting both is a
+complete local state loss with no surviving identity; a later open cannot
+distinguish that event from a first install and this slice does not claim to
+prevent stale legacy re-import in that case. External backup or recovery
+protection must cover that trust boundary. The retained `authority.json` source
+is filtered by scope for each partition, so an A-to-B-to-A restart preserves
+both migrated records without cross-scope import; legacy authority and
+projection files must be regular owner-only files, and duplicate same-scope
+legacy rows fail closed as `corrupt_state` instead of selecting the first row.
+The register serves `dev.group.*` (now
 including `create`/`update`/`delete`: a created group is placed after
 `afterGroupId` or at the end and every displaced group's `version` bumps;
 `delete` requires an empty group plus a `confirmationId` and the `group`
@@ -1435,9 +1464,15 @@ Import and create commit the new project and every affected group's membership
 ordering in one snapshot write. Every mutation enforces the scope triple
 (`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
 concurrency (`stale_version`); a stored record that fails structural decode
-fails closed with `corrupt_state` and is retained unread. The earlier local
-`projection.json` is seeded into the authority store exactly once and never
-deleted.
+fails closed with `corrupt_state` and is retained unread. The previous
+`authority.json` envelope is migrated exactly once inside a SQLite transaction;
+if migration is interrupted, the transaction rolls back and the next open
+retries from the untouched JSON source only when it is the same database
+identity. The earlier local `projection.json` is
+seeded into the authority store exactly once and neither legacy JSON source is
+deleted or rewritten. Other Dev Runtime authorities remain on the existing
+JSON store until an independently reviewed migration slice covers their schema
+and rollback contract.
 
 On the client, project/session selection resolves only inside the active
 scope's projection and enforces archive state, explicit revocation, generation
@@ -1680,6 +1715,19 @@ Defaults:
   legacy read, write, or verification failure fails closed without generating
   or replacing a key. A runtime below the floor or without `Bun.secrets` keeps
   the existing `security` adapter unchanged.
+- vault metadata uses `dev-runtime/vault/credentials.sqlite3` with WAL and
+  full-sync durability. The SQLite row contains only strictly decoded
+  `CredentialRef` metadata; sealed credential files remain separate, and
+  plaintext, sealed bytes, and any vault key material are refused before a
+  record reaches SQLite. The prior `credentials.json` envelope is retained as
+  a recovery source and is imported transactionally through an owner-only
+  migration ledger that binds the source digest and SQLite database identity.
+  Restart retries an interrupted migration from the untouched source;
+  scope-mismatched, corrupt, or lost SQLite state fails closed and retains the
+  unread database for recovery. The legacy source is never deleted; migration
+  leaves it unchanged, while revocation writes a redacted metadata tombstone
+  there after the sealed file is removed so an older runtime cannot resolve a
+  revoked reference during a downgrade or crash recovery.
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -4020,6 +4068,14 @@ can distinguish intentional spec evolution from drift:
   `archived_seconds` — and the cleanup-policy authority awaits either facts
   shape, failing closed on unknown worktrees and unobservable facts. Pinned by
   `apps/desktop/tests/dev-runtime-resources.test.ts`.
+- **2026-09-22 — M10 #33 vault metadata migration.** Credential references now
+  migrate from the retained `dev-runtime/vault/credentials.json` envelope into
+  the reviewed WAL/full-sync `credentials.sqlite3` store. Strict metadata
+  decoding refuses secret-shaped fields, scope-invalid records, duplicate IDs,
+  and malformed versions before persistence; migration rollback, restart
+  recovery, SQLite loss, corrupt-payload retention, and the downgrade-visible
+  revocation tombstone are pinned by `apps/desktop/tests/dev-runtime-vault.test.ts`.
+  The Bun.secrets and legacy OS-keychain key adapter remains unchanged.
 - **2026-09-21 — #185: live supervision events under a crash-storm bound,
   and the managed Pi as a truthful-absence manifest component.** Two
   follow-ups to the packaged supervision wiring. (1) The supervision
@@ -4699,7 +4755,14 @@ files in the same commit:
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
   project/session authority: restart survival without fixtures, transactional
   archive records, scope/generation/version rejection, fail-closed corruption,
-  and the legacy-seed migration; `apps/desktop/tests/repo-registry.test.ts`
+  scope-partitioned A-to-B-to-A restart, legacy-source mode/symlink checks,
+  duplicate-row refusal, and the legacy-seed migration.
+  `apps/desktop/tests/host-store.test.ts` pins
+  the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
+  guard, corruption retention, restart recovery, and interrupted migration
+  retry, native-state refusal after SQLite loss, and stale-source refusal after
+  SQLite loss;
+  `apps/desktop/tests/repo-registry.test.ts`
   pins the repository registry (#398 follow-up): adopt-time
   containment/identity proof with durable restart, unknown/stale/foreign-scope
   refusals, out-of-root containment refusal before any write, read-only
@@ -4755,6 +4818,17 @@ files in the same commit:
   key read-back, locked/denied/unavailable refusals, legacy-key retention, and
   key-mismatch fail-closed behavior, including sealed-vault access after a
   runtime downgrade;
+- `apps/desktop/tests/dev-runtime-vault.test.ts` also pins the credential
+  metadata migration, retained legacy source, restart/rollback recovery,
+  SQLite loss refusal, scope filtering, corruption retention, downgrade-visible
+  revocation tombstones, and the absence of plaintext or key material from
+  SQLite;
+- `scripts/test-m10-33-packaged-vault.mjs` bundles
+  `apps/desktop/shell/scripts/packaged-vault-smoke.ts` and executes the real
+  adapter with the Bun runtime from a macOS app bundle. Its disposable
+  Keychain journey proves legacy-slot retention across upgrade/downgrade and
+  records redacted denied/locked/mismatched-store refusals with parent and
+  child cleanup;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind
