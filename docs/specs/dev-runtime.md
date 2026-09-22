@@ -2661,6 +2661,16 @@ the correctness path; when the event surface is absent — a web non-desktop
 runtime, or a bridge predating the listen seam — panes keep generation-fenced
 pull unchanged.
 
+The shell bridge's legacy SSE subscription token is event-scoped. The
+`POST /__adea/events-token` request MUST authenticate the channel and mint a
+single-use token bound to the exact non-empty event name in its JSON body. The
+`GET /__adea/events` request MUST present the same trusted origin, channel,
+credential, token, and event query value; the authority MUST reject a missing,
+expired, replayed, or differently named event before opening the stream and
+MUST consume the token before subscribing. After validation, the gateway passes
+that validated event value directly to the subscriber. A token minted for one
+event therefore cannot be substituted into another event stream.
+
 ### Canonical byte encoding in proofs
 
 The command-proof canonical JSON encodes a `Uint8Array` body field (the

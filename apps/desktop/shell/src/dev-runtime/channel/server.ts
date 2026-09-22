@@ -441,7 +441,7 @@ export function createChannelGateway(input: {
           token
         )
         if (!ok) return unauthenticated()
-        return sseStream(url.searchParams.get('event') ?? '')
+        return sseStream(event)
       }
       if (path === '/__adea/channel' && request.method === 'GET') {
         if (!trusted(request)) return untrusted()
