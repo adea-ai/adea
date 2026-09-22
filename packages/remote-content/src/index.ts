@@ -97,7 +97,7 @@ export type RemoteContentReplayGuardOptions = Readonly<{
   workspaceId: string
   runtimeNodeId: string
   ledger: RemoteContentReplayLedger
-  now?: Date | string | number
+  now?: () => Date | string | number
 }>
 
 /**
@@ -105,7 +105,8 @@ export type RemoteContentReplayGuardOptions = Readonly<{
  *
  * The ledger remains responsible for durable atomicity. This adapter prevents a
  * caller from accidentally reusing a ledger across scopes and refuses claims
- * that expire while a decrypt/dispatch handoff is in flight.
+ * that expire while a decrypt/dispatch handoff is in flight. The clock is
+ * called for every claim, rather than captured when the guard is created.
  */
 export function createRemoteContentReplayGuard(
   input: RemoteContentReplayGuardOptions
@@ -115,7 +116,7 @@ export function createRemoteContentReplayGuard(
   return {
     claim: async (claim) => {
       if (claim.workspaceId !== workspaceId || claim.runtimeNodeId !== runtimeNodeId) return false
-      const now = timestampToMs(input.now ?? Date.now())
+      const now = timestampToMs(input.now?.() ?? Date.now())
       if (now >= timestampToMs(claim.expiresAt)) return false
       return input.ledger.claim(claim)
     },

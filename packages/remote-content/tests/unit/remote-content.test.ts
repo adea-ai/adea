@@ -166,7 +166,7 @@ describe('RemoteContentEnvelope v1', () => {
           return true
         },
       },
-      now: LATER,
+      now: () => LATER,
     })
 
     await expect(
@@ -201,7 +201,7 @@ describe('RemoteContentEnvelope v1', () => {
           return true
         },
       },
-      now: LATER,
+      now: () => LATER,
     })
 
     await expect(
@@ -217,8 +217,9 @@ describe('RemoteContentEnvelope v1', () => {
     expect(claims).toHaveLength(0)
   })
 
-  test('refuses an expired replay claim before the ledger can claim it', async () => {
+  test('rechecks a replay claim against the current clock before the ledger can claim it', async () => {
     const claims: RemoteContentReplayClaim[] = []
+    let now = LATER
     const guard = createRemoteContentReplayGuard({
       workspaceId: METADATA.workspaceId,
       runtimeNodeId: METADATA.runtimeNodeId,
@@ -228,9 +229,10 @@ describe('RemoteContentEnvelope v1', () => {
           return true
         },
       },
-      now: '2026-09-22T12:10:00.000Z',
+      now: () => now,
     })
 
+    now = '2026-09-22T12:10:00.000Z'
     await expect(
       guard.claim({
         workspaceId: METADATA.workspaceId,

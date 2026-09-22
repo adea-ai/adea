@@ -67,11 +67,15 @@ atomically claim `(workspaceId, runtimeNodeId, requestId, keyId, enc)` in the
 host's durable CommandInbox or equivalent ledger after successful
 authentication and before dispatch. The claim includes `expiresAt`; the host
 adapter refuses a claim outside its bound workspace/runtime-node scope and
-rechecks expiry immediately before calling the ledger. A missing guard fails
-closed as `replay_unavailable`; a duplicate claim fails as `replayed`. Use
-`createRemoteContentReplayGuard` to bind a host ledger to one authenticated
-scope. The ledger callback must provide the durable atomic insert/compare-and-
-set operation; the package cannot prove atomicity for an adapter backed by an
+rechecks expiry immediately before calling the ledger using a clock evaluated
+for every claim. A missing guard fails closed as `replay_unavailable`; a
+duplicate claim fails as `replayed`. Use `createRemoteContentReplayGuard` to
+bind a host ledger to one authenticated scope. The tuple above is the
+envelope-level replay identity. The host's existing command idempotency index
+must also reject a reused `(workspaceId, runtimeNodeId, requestId)` paired with
+a fresh `enc` or `keyId`; this adapter does not add a second durable index.
+The ledger callback must provide the durable atomic insert/compare-and-set
+operation; the package cannot prove atomicity for an adapter backed by an
 external database.
 
 ## Key boundary and lifecycle
