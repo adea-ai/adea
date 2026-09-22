@@ -4,10 +4,13 @@
 
 The stable Electrobun payload was built from source commit
 `aa47a7a7c2f0a7dba9253925b148d820da5d0deb` and its bundled Bun 1.4.0
-executable ran the native capability probe successfully. The probe uses a
-synthetic Keychain secret, deletes it in a `finally` cleanup path, and never
-prints the value or a digest of the value. Its SQLite database is disposable
-and is removed after the probe.
+executable ran the native capability probe successfully. The parent generates
+the synthetic Keychain service ID and passes it to the bundled child; the
+child deletes the item in a `finally` cleanup path, and the parent runs a
+bounded bundled-Bun cleanup attempt for the same service ID after every child
+exit, including timeout. The probe never prints the secret, service ID, or a
+digest of the secret. Its SQLite database is disposable and is removed after
+the probe.
 
 The evidence-only commits in this branch do not modify the desktop bundle
 inputs, so the recorded application source commit remains the bundle source
@@ -39,6 +42,7 @@ bun scripts/test-m10-33-packaged-native.mjs \
   --app-bundle apps/desktop/shell/build/stable-macos-arm64/Adea.app \
   --artifact artifacts/packaged/m10-33-native-evidence.json \
   --source-commit aa47a7a7c2f0a7dba9253925b148d820da5d0deb
+bun scripts/test-m10-33-packaged-native.mjs --self-test
 ```
 
 The final command passed with:
@@ -48,22 +52,30 @@ The final command passed with:
 - `bun:sqlite`: available; WAL database opened; an injected unique-constraint
   failure rolled back the preceding insert; reopening retained only the
   committed row.
-- The script bounds payload extraction at 120 seconds and the bundled probe at
-  30 seconds. Temporary extraction and database directories are removed on
-  every exit path.
+- The script bounds payload extraction at 120 seconds, the bundled probe at 30
+  seconds, and the parent cleanup attempt at 10 seconds. Temporary extraction
+  and database directories are removed on every exit path. The self-test checks
+  that a false secret round-trip, deletion, SQLite rollback, or SQLite reopen
+  boolean fails the probe before a PASS artifact is emitted.
 
 Additional checks:
 
 ```sh
-bun test apps/desktop/tests/dev-runtime-vault.test.ts \
+bun scripts/test-m10-33-packaged-native.mjs --self-test
+bunx oxfmt --check scripts/test-m10-33-packaged-native.mjs \
+  docs/evidence/m10-33-packaged-native-2026-09-22.md
+bunx oxlint scripts/test-m10-33-packaged-native.mjs
+bun test scripts/docs-boundary.test.ts \
+  apps/desktop/tests/dev-runtime-vault.test.ts \
   apps/desktop/tests/dev-runtime-vault-keychain.test.ts \
   apps/desktop/tests/host-store.test.ts
 npx code-foundry doctor
 git diff --check
 ```
 
-The focused tests passed 22/22, the repository doctor passed, and the diff
-check passed.
+The self-test passed. Formatting, lint, and docs boundary checks passed; the
+combined test command passed 26/26 (143 expect calls), the repository doctor
+passed, and the diff check passed.
 
 ## Application gap
 

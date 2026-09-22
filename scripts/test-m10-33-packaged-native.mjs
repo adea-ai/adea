@@ -2,7 +2,7 @@
 // Runs only the Bun executable shipped inside an Electrobun bundle. The child
 // probe creates synthetic secret material and a disposable SQLite database;
 // neither the secret nor a secret-derived digest is emitted.
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   createReadStream,
   existsSync,
@@ -21,6 +21,7 @@ const defaultBundle = join(repoRoot, 'apps/desktop/shell/build/stable-macos-arm6
 const defaultArtifact = join(repoRoot, 'artifacts/packaged/m10-33-native-evidence.json')
 const EXTRACT_TIMEOUT_MS = 120_000
 const PROBE_TIMEOUT_MS = 30_000
+const CLEANUP_TIMEOUT_MS = 10_000
 
 const childProbe = String.raw`
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -34,7 +35,10 @@ const report = {
   bunSqlite: { available: typeof Database === 'function' },
 }
 
-const service = 'com.adea.m10.evidence.' + process.pid + '.' + Date.now()
+const service = process.env.ADEA_M10_SERVICE_ID
+if (typeof service !== 'string' || service.length === 0) {
+  throw new Error('missing packaged probe service id')
+}
 const name = 'round-trip'
 const secret = 'synthetic-' + crypto.randomUUID()
 if (report.bunSecrets.available) {
@@ -126,9 +130,17 @@ try {
 console.log(JSON.stringify(report))
 `
 
+const cleanupProbe = String.raw`
+const service = process.env.ADEA_M10_SERVICE_ID
+if (typeof service !== 'string' || service.length === 0) {
+  throw new Error('missing packaged cleanup service id')
+}
+await Bun.secrets.delete({ service, name: 'round-trip' })
+`
+
 function usage() {
   console.error(
-    'usage: bun scripts/test-m10-33-packaged-native.mjs [--app-bundle <Adea.app>] [--artifact <path>] [--source-commit <sha>]'
+    'usage: bun scripts/test-m10-33-packaged-native.mjs [--app-bundle <Adea.app>] [--artifact <path>] [--source-commit <sha>] [--self-test]'
   )
   process.exit(2)
 }
@@ -137,6 +149,7 @@ function parseArgs() {
   let appBundle = defaultBundle
   let artifact = defaultArtifact
   let sourceCommit
+  let selfTest = false
   for (let index = 2; index < process.argv.length; index += 1) {
     const flag = process.argv[index]
     const value = process.argv[index + 1]
@@ -149,6 +162,8 @@ function parseArgs() {
     } else if (flag === '--source-commit' && value) {
       sourceCommit = value
       index += 1
+    } else if (flag === '--self-test') {
+      selfTest = true
     } else if (flag === '--help') {
       usage()
     } else {
@@ -158,6 +173,7 @@ function parseArgs() {
   return {
     appBundle,
     artifact,
+    selfTest,
     sourceCommit: sourceCommit ?? run('git', ['rev-parse', 'HEAD'], 5_000).stdout.trim(),
   }
 }
@@ -172,20 +188,72 @@ function digestFile(file) {
   })
 }
 
-function run(command, args, timeout, input) {
+function run(command, args, timeout, input, environment) {
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     encoding: 'utf8',
     input,
     maxBuffer: 2 * 1024 * 1024,
     timeout,
+    ...(environment ? { env: { ...process.env, ...environment } } : {}),
   })
-  if (result.error) throw new Error(`${command} failed: ${result.error.name}`)
+  if (result.error) throw new Error(`packaged command failed: ${result.error.name}`)
   if (result.status !== 0) {
     const signal = result.signal ? ` (${result.signal})` : ''
-    throw new Error(`${command} exited ${result.status ?? 'unknown'}${signal}`)
+    throw new Error(`packaged command exited ${result.status ?? 'unknown'}${signal}`)
   }
   return result
+}
+
+function assertProbe(probe) {
+  const failures = []
+  if (probe?.bunSecrets?.available !== true) failures.push('Bun.secrets unavailable')
+  if (probe?.bunSecrets?.roundTrip !== true) failures.push('Bun.secrets round trip failed')
+  if (probe?.bunSecrets?.absentAfterDelete !== true) {
+    failures.push('Bun.secrets deletion check failed')
+  }
+  if (probe?.bunSqlite?.available !== true) failures.push('bun:sqlite unavailable')
+  if (probe?.bunSqlite?.journalMode !== 'WAL') failures.push('bun:sqlite WAL check failed')
+  if (probe?.bunSqlite?.failureInjected !== true) {
+    failures.push('bun:sqlite failure injection failed')
+  }
+  if (probe?.bunSqlite?.rollbackPreserved !== true) {
+    failures.push('bun:sqlite rollback check failed')
+  }
+  if (probe?.bunSqlite?.reopenDurable !== true) {
+    failures.push('bun:sqlite reopen check failed')
+  }
+  if (failures.length > 0) throw new Error('packaged probe assertions failed')
+}
+
+function runSelfTest() {
+  const passingProbe = {
+    bunSecrets: { available: true, roundTrip: true, absentAfterDelete: true },
+    bunSqlite: {
+      available: true,
+      journalMode: 'WAL',
+      failureInjected: true,
+      rollbackPreserved: true,
+      reopenDurable: true,
+    },
+  }
+  assertProbe(passingProbe)
+  for (const field of [
+    ['bunSecrets', 'roundTrip'],
+    ['bunSecrets', 'absentAfterDelete'],
+    ['bunSqlite', 'rollbackPreserved'],
+    ['bunSqlite', 'reopenDurable'],
+  ]) {
+    const failedProbe = structuredClone(passingProbe)
+    failedProbe[field[0]][field[1]] = false
+    try {
+      assertProbe(failedProbe)
+    } catch {
+      continue
+    }
+    throw new Error('packaged probe assertion self-test failed')
+  }
+  console.log('M10-33 PACKAGED NATIVE SELF-TEST PASS')
 }
 
 function resolveRuntime(appBundle) {
@@ -225,23 +293,34 @@ function relativeArtifactPath(file) {
 }
 
 async function main() {
+  const { appBundle, artifact, sourceCommit, selfTest } = parseArgs()
+  if (selfTest) {
+    runSelfTest()
+    return
+  }
   if (process.platform !== 'darwin') {
     throw new Error('packaged Bun.secrets evidence requires macOS')
   }
-  const { appBundle, artifact, sourceCommit } = parseArgs()
   if (!/^[0-9a-f]{7,40}$/.test(sourceCommit)) {
     throw new Error('source commit must be a lowercase hexadecimal Git object id')
   }
   if (!existsSync(appBundle)) throw new Error('app bundle does not exist')
 
   let resolved
+  let serviceId
+  let artifactValue
+  let primaryError
   try {
     resolved = resolveRuntime(appBundle)
-    const result = run(resolved.runtimePath, ['-'], PROBE_TIMEOUT_MS, childProbe)
+    serviceId = `com.adea.m10.evidence.${randomUUID()}`
+    const result = run(resolved.runtimePath, ['-'], PROBE_TIMEOUT_MS, childProbe, {
+      ADEA_M10_SERVICE_ID: serviceId,
+    })
     const probe = JSON.parse(result.stdout)
-    const artifactValue = {
+    artifactValue = {
       schemaVersion: 1,
       lane: 'm10-33-packaged-native-evidence',
+      status: 'failed',
       sourceCommit,
       bundle: {
         kind: resolved.archivePath ? 'stable-payload' : 'direct-bundle',
@@ -253,14 +332,44 @@ async function main() {
         ),
       },
       probe,
+      cleanup: { attempted: false, succeeded: false },
     }
-    mkdirSync(dirname(artifact), { recursive: true })
-    writeFileSync(artifact, `${JSON.stringify(artifactValue, null, 2)}\n`, { mode: 0o600 })
-    console.log('M10-33 PACKAGED NATIVE EVIDENCE PASS')
-    console.log(JSON.stringify(artifactValue))
+    assertProbe(probe)
+    artifactValue.status = 'passed'
+  } catch (error) {
+    primaryError = error instanceof Error ? error : new Error('unknown packaged probe failure')
   } finally {
+    if (serviceId && resolved?.runtimePath) {
+      try {
+        run(resolved.runtimePath, ['-'], CLEANUP_TIMEOUT_MS, cleanupProbe, {
+          ADEA_M10_SERVICE_ID: serviceId,
+        })
+        if (artifactValue) artifactValue.cleanup = { attempted: true, succeeded: true }
+      } catch {
+        if (artifactValue) {
+          artifactValue.status = 'failed'
+          artifactValue.cleanup = {
+            attempted: true,
+            succeeded: false,
+            failure: 'packaged cleanup failed',
+          }
+        }
+        if (!primaryError) primaryError = new Error('packaged Bun cleanup failed')
+      }
+    }
+    if (artifactValue) {
+      try {
+        mkdirSync(dirname(artifact), { recursive: true })
+        writeFileSync(artifact, `${JSON.stringify(artifactValue, null, 2)}\n`, { mode: 0o600 })
+      } catch {
+        if (!primaryError) primaryError = new Error('packaged evidence artifact write failed')
+      }
+    }
     if (resolved?.extractDir) rmSync(resolved.extractDir, { recursive: true, force: true })
   }
+  if (primaryError) throw primaryError
+  console.log('M10-33 PACKAGED NATIVE EVIDENCE PASS')
+  console.log(JSON.stringify(artifactValue))
 }
 
 main().catch((error) => {
