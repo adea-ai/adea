@@ -1257,8 +1257,8 @@ data. Chat accepts the first data frame only at that disclosed checkpoint; a
 data frame that jumps past the requested cursor without the checkpoint, or a
 later sequence jump, requires resync and is never acknowledged. Remembered
 events are admitted only for their canonical runtime session and are capped at
-the 1,000-event retention bound per generation, with the newest generation
-preserved when sequence numbers restart. The client keeps create request
+the global 1,000-event retention bound using generation-aware ordering, with the
+newest generation preserved when sequence numbers restart. The client keeps create request
 fingerprints/results only through the same seven-day replay window as the host
 authority, so expired initial prompts cannot remain in an unbounded cache.
 If a Chat create request loses its transport response, the client retains the
