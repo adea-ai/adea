@@ -73,6 +73,57 @@ Web/remote providers implement the same contract and return explicit capability
 states. `packages/dev-view` MUST NOT import `apps/desktop`, desktop bridge
 modules, or read `window.__adeaDesktop`.
 
+## Execution location policy (M11 #186)
+
+Execution location is an explicit, durable choice on an execution attempt. It
+is not a different Task, Agent, Profile, or conversation product. The pure
+contract is implemented in
+[`packages/types/src/execution-location.ts`](../../packages/types/src/execution-location.ts)
+and consumes a normalized RuntimeNode read model; it does not discover nodes,
+authorize transport, mint entitlements, or move work.
+
+- When no preference or per-task override is present, the policy selects the
+  paired `local_device` identified by `localRuntimeNodeId`. A `remote_host`
+  selection always names its registered `runtimeNodeId` explicitly.
+- The policy evaluates only the selected location. It MUST NOT silently use a
+  different local node, self-hosted node, or Agent HQ Cloud location when the
+  selected location is unavailable.
+- An `offline` or `stale` selected node produces a queued decision with a
+  reconnect/refresh remediation. A `revoked`, `incompatible`, missing, or
+  capability-mismatched selection produces a blocked decision with typed
+  remediation. Unknown or malformed availability is blocked. These decisions
+  retain the selected location for the caller to persist and display.
+- A node read model MUST include an observation timestamp. An `available` node
+  MUST also include a fresh proof timestamp. Observations or proofs older than
+  the bounded five-minute admission window queue as `location_stale`; missing,
+  invalid, or future timestamps block as `location_unknown`. A retry performs
+  this freshness and availability admission again against the current read
+  model; a prior `available` result is never reused as authority.
+- `agent_hq_cloud` is reserved behind an explicit feature gate. A disabled
+  gate blocks the request; the policy never treats cloud as a fallback for a
+  local or self-hosted selection. A future enabled gate may evaluate cloud
+  capabilities without changing this location contract.
+- Retries retain the prior attempt's selected location. A changed location is
+  accepted only with a non-empty opaque `authorizationProof` bound to the
+  attempt's account/workspace/task/actor scope, attempt number, and exact
+  target location. A valid proof still requires current location admission.
+  A changed location is represented as a new attempt decision; a retry does
+  not mutate the previous attempt's provenance. A raw authorization boolean
+  is not an admission proof.
+
+Execution availability and conversation/content availability are separate
+dimensions. The policy carries these read-model states independently:
+`channelMessageMetadata`, `synchronizedHistory`, and `localOnlyContent`.
+Consequently, a selected host may be offline while channel metadata and
+authorized synchronized history remain available, while local-authority
+bodies remain explicitly unavailable. RuntimeNode availability MUST NOT be
+used as a substitute for ContentSyncDevice or content-key authorization.
+
+The M11 Control Plane integration still owns persisted Task/attempt history,
+actual execution admission, ContentSyncDevice authorization, and transport.
+Those integrations MUST record the selected location and, after admission,
+the actual RuntimeNode provenance rather than inferring it from UI state.
+
 ## Stable identifiers
 
 All externally visible IDs are opaque lowercase UUIDs unless an upstream

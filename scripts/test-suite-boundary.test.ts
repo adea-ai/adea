@@ -85,7 +85,7 @@ describe('test suite boundaries', () => {
 
   test('enforces the repository coverage goal on durable core code', () => {
     expect(packageJson.scripts['test:coverage']).toBe(
-      'bun test packages/auth/tests/unit packages/db/tests/unit scripts/*.test.ts --coverage'
+      'bun test packages/auth/tests/unit packages/db/tests/unit packages/types/tests/execution-location.test.ts scripts/*.test.ts --coverage'
     )
 
     const bunfig = readFileSync(resolve(root, 'bunfig.toml'), 'utf8')
