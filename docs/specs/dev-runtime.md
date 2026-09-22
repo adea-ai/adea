@@ -4688,6 +4688,12 @@ files in the same commit:
   SQLite loss refusal, scope filtering, corruption retention, downgrade-visible
   revocation tombstones, and the absence of plaintext or key material from
   SQLite;
+- `scripts/test-m10-33-packaged-vault.mjs` bundles
+  `apps/desktop/shell/scripts/packaged-vault-smoke.ts` and executes the real
+  adapter with the Bun runtime from a macOS app bundle. Its disposable
+  Keychain journey proves legacy-slot retention across upgrade/downgrade and
+  records redacted denied/locked/mismatched-store refusals with parent and
+  child cleanup;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind
