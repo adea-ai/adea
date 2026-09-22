@@ -69,12 +69,13 @@ function retention(
   const oldestSequence = ordered[0]?.seq
   const newestSequence = ordered.at(-1)?.seq
   const bounded = oldestSequence !== undefined && sequence(requestedFrom) < sequence(oldestSequence)
+  const retentionReason = reason ?? (bounded ? ('retention' as const) : undefined)
   return {
     maxEvents: CHAT_EVENT_RETENTION_LIMIT,
     ...(oldestSequence !== undefined ? { oldestSequence } : {}),
     ...(newestSequence !== undefined ? { newestSequence } : {}),
-    complete: !bounded && reason === undefined,
-    ...(bounded ? { reason: 'retention' as const } : reason !== undefined ? { reason } : {}),
+    complete: retentionReason === undefined,
+    ...(retentionReason !== undefined ? { reason: retentionReason } : {}),
   }
 }
 
@@ -126,11 +127,7 @@ export function acceptRuntimeEvent(
 
   const expected = state.expectedSequence
   const eventSequence = sequence(event.seq)
-  // The host may drop the oldest portion of a bounded replay. The first
-  // frame can therefore start after the requested sequence; subsequent jumps
-  // remain genuine gaps and require a resync.
-  const boundedReplayStart = state.events.length === 0 && expected !== undefined
-  if (expected !== undefined && eventSequence > sequence(expected) && !boundedReplayStart) {
+  if (expected !== undefined && eventSequence > sequence(expected)) {
     return {
       ...state,
       availability: {
@@ -149,25 +146,24 @@ export function acceptRuntimeEvent(
   const nextSequence = (eventSequence + 1n).toString()
   const bounded =
     events.length > CHAT_EVENT_RETENTION_LIMIT ? events.slice(-CHAT_EVENT_RETENTION_LIMIT) : events
-  const window = retention(
-    bounded,
-    state.fromSequence,
-    boundedReplayStart ? 'retention' : undefined
-  )
-  const boundedFromRetention = window.reason === 'retention'
+  const priorBoundedReason =
+    state.availability.status === 'bounded' ? state.availability.reason : undefined
+  const window = retention(bounded, state.fromSequence, priorBoundedReason)
+  const boundedReason = window.reason
   return {
     ...state,
     expectedSequence:
       expected === undefined || eventSequence >= sequence(expected) ? nextSequence : expected,
     events: bounded,
-    availability: boundedFromRetention
-      ? {
-          status: 'bounded',
-          reason: 'retention',
-          oldestSequence: window.oldestSequence,
-          requestedFromSequence: state.fromSequence,
-        }
-      : { status: 'available' },
+    availability:
+      boundedReason !== undefined
+        ? {
+            status: 'bounded',
+            reason: boundedReason,
+            oldestSequence: window.oldestSequence,
+            ...(boundedReason === 'retention' ? { requestedFromSequence: state.fromSequence } : {}),
+          }
+        : { status: 'available' },
     retention: window,
   }
 }
@@ -237,6 +233,7 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'resync') {
     return {
       ...state,
+      expectedSequence: frame.checkpointSequence,
       availability: {
         status: 'bounded',
         reason: frame.reason,

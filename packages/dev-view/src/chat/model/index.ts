@@ -51,6 +51,9 @@ const lifecycleByEvent: Readonly<Record<string, ChatConversationStatus>> = {
   'session.cancelled': 'cancelled',
 }
 
+/** Matches the host's durable session-create result replay window. */
+export const CHAT_CREATE_REPLAY_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
+
 function scopeMatches(left: Scope, right: Scope): boolean {
   return (
     left.accountId === right.accountId &&
@@ -65,6 +68,13 @@ function eventSequence(event: RuntimeEvent): bigint {
   } catch {
     return -1n
   }
+}
+
+function compareEvents(left: RuntimeEvent, right: RuntimeEvent): number {
+  if (left.generation !== right.generation) return left.generation < right.generation ? -1 : 1
+  const leftSequence = eventSequence(left)
+  const rightSequence = eventSequence(right)
+  return leftSequence === rightSequence ? 0 : leftSequence < rightSequence ? -1 : 1
 }
 
 function eventIdentity(event: RuntimeEvent): string {
@@ -82,9 +92,7 @@ function mergeSessionEvents(
     if (merged.some((entry) => eventIdentity(entry) === eventIdentity(event))) continue
     merged.push(event)
   }
-  return merged
-    .toSorted((left, right) => (eventSequence(left) < eventSequence(right) ? -1 : 1))
-    .slice(-CHAT_EVENT_RETENTION_LIMIT)
+  return merged.toSorted(compareEvents).slice(-CHAT_EVENT_RETENTION_LIMIT)
 }
 
 function payloadText(event: RuntimeEvent): string | undefined {
@@ -111,7 +119,7 @@ export function deriveConversationTitle(
     .filter(
       (event) => event.runtimeSessionId === session.id && event.generation <= session.generation
     )
-    .toSorted((left, right) => (eventSequence(left) < eventSequence(right) ? -1 : 1))
+    .toSorted(compareEvents)
     .map(payloadText)
     .find((text): text is string => text !== undefined)
   if (firstPrompt) return Array.from(firstPrompt).slice(0, 80).join('').trim()
@@ -127,7 +135,7 @@ export function deriveConversationStatus(
     .filter(
       (event) => event.runtimeSessionId === session.id && event.generation === session.generation
     )
-    .toSorted((left, right) => (eventSequence(left) < eventSequence(right) ? -1 : 1))
+    .toSorted(compareEvents)
     .at(-1)
   return (latest ? lifecycleByEvent[latest.kind] : undefined) ?? session.lifecycle
 }
@@ -163,9 +171,7 @@ export function projectChatConversations(
     const project = projectsById.get(session.projectId)
     if (!project) continue
     const events = [...(input.events?.get(session.id) ?? [])]
-    const retentionEvents = events.toSorted((left, right) =>
-      eventSequence(left) < eventSequence(right) ? -1 : 1
-    )
+    const retentionEvents = events.toSorted(compareEvents)
     const draft = input.drafts?.get(session.id) ?? ''
     conversations.push({
       runtimeSessionId: session.id,
@@ -246,10 +252,13 @@ export function createChatConversationModel(
   const drafts = new Map<string, string>()
   const groups: Group[] = []
   const projects: Project[] = []
-  const createRequests = new Map<
-    string,
-    { fingerprint: string; promise?: Promise<ChatConversation> }
-  >()
+  type CreateRequest = {
+    fingerprint: string
+    promise?: Promise<ChatConversation>
+    result?: ChatConversation
+    createdAt: number
+  }
+  const createRequests = new Map<string, CreateRequest>()
   const now = options.now ?? (() => new Date())
   const randomId = options.randomId ?? (() => crypto.randomUUID())
   let selectedRuntimeSessionId: string | undefined
@@ -343,6 +352,10 @@ export function createChatConversationModel(
         message: 'An agent profile is required when creating a prompted conversation.',
       })
     const idempotencyKey = input.idempotencyKey ?? randomId()
+    const cutoff = now().getTime() - CHAT_CREATE_REPLAY_RETENTION_MS
+    for (const [key, request] of createRequests) {
+      if (request.promise === undefined && request.createdAt <= cutoff) createRequests.delete(key)
+    }
     const fingerprint = JSON.stringify({ ...input, idempotencyKey: undefined })
     const existing = createRequests.get(idempotencyKey)
     if (existing) {
@@ -352,6 +365,7 @@ export function createChatConversationModel(
           retryable: false,
           message: 'The idempotency key was reused for another conversation.',
         })
+      if (existing.result) return existing.result
       if (existing.promise) return existing.promise
     }
     const promise = (async () => {
@@ -398,15 +412,23 @@ export function createChatConversationModel(
       }
       return canonical
     })()
-    const request = { fingerprint, promise: promise as Promise<ChatConversation> | undefined }
+    const request: CreateRequest = {
+      fingerprint,
+      promise: promise as Promise<ChatConversation> | undefined,
+      createdAt: now().getTime(),
+    }
     createRequests.set(idempotencyKey, request)
     try {
-      return await promise
+      const result = await promise
+      if (createRequests.get(idempotencyKey) === request) request.result = result
+      return result
     } catch (error) {
       // A transport loss may follow a committed host create. Keep the body's
       // fingerprint, but retry the same key through the durable host replay.
       if (createRequests.get(idempotencyKey) === request) request.promise = undefined
       throw error
+    } finally {
+      if (createRequests.get(idempotencyKey) === request) request.promise = undefined
     }
   }
   const attach = async (runtimeSessionId: string): Promise<ChatConversation> => {

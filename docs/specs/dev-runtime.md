@@ -1251,12 +1251,16 @@ gap, conflict, or stale generation never acknowledges the rejected frame.
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
-newest retained frame, the first accepted frame may advance past the
-requested sequence and is reported as retention-bounded; a later sequence
-jump is a real gap and requires resync. Remembered events are admitted only
-for their canonical runtime session and are capped at the 1,000-event
-retention bound, so an unrelated session or an unbounded client cache cannot
-enter the projection.
+newest retained frame, it emits a `resync` frame with
+`reason: 'checkpoint_required'` and the actual retained floor before replaying
+data. Chat accepts the first data frame only at that disclosed checkpoint; a
+data frame that jumps past the requested cursor without the checkpoint, or a
+later sequence jump, requires resync and is never acknowledged. Remembered
+events are admitted only for their canonical runtime session and are capped at
+the 1,000-event retention bound per generation, with the newest generation
+preserved when sequence numbers restart. The client keeps create request
+fingerprints/results only through the same seven-day replay window as the host
+authority, so expired initial prompts cannot remain in an unbounded cache.
 If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
@@ -2985,11 +2989,13 @@ created/starting/resumed/cancelled; observed status transitions) as
 `authoritative` host events with `workspace_metadata` classification; harness
 turn/tool/approval events arrive only through their own tiers and are never
 fabricated here. At attach the handler replays at most the newest 500 events
-of the granted generation from (or after) `fromSequence`, streams live
-append-matched events as CBOR `data` frames, accepts only `ack` control
-frames, and closes `stale_generation` when the session moves to a newer
-generation — grants minted under an old generation are inert, never
-ambiguous.
+of the granted generation from (or after) `fromSequence`. When that bound
+raises the actual replay floor above the requested cursor, the handler emits a
+`resync { reason: 'checkpoint_required', checkpointSequence }` frame naming
+that floor before the CBOR `data` frames. It then streams live
+append-matched events, accepts only `ack` control frames, and closes
+`stale_generation` when the session moves to a newer generation — grants
+minted under an old generation are inert, never ambiguous.
 
 ## Browser and device lanes
 

@@ -264,6 +264,43 @@ describe('projectChatConversations', () => {
     expect(conversation.events[0]?.seq).toBe('1')
     expect(conversation.events.at(-1)?.seq).toBe('1000')
   })
+
+  test('retains the current generation when sequence numbers restart', async () => {
+    const current = session({ generation: 2 })
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    await model.attach(current.id)
+    const retained = [
+      ...Array.from({ length: 1_000 }, (_, index) =>
+        event({
+          eventId: `generation-1-${index}`,
+          sourceEventId: `generation-1-${index}`,
+          generation: 1,
+          seq: String(index),
+        })
+      ),
+      ...Array.from({ length: 100 }, (_, index) =>
+        event({
+          eventId: `generation-2-${index}`,
+          sourceEventId: `generation-2-${index}`,
+          generation: 2,
+          seq: String(index),
+        })
+      ),
+    ]
+
+    model.remember(current, retained)
+    const conversation = model.project().conversations[0]!
+    expect(conversation.events).toHaveLength(1_000)
+    expect(conversation.events.filter((item) => item.generation === 2)).toHaveLength(100)
+    expect(conversation.events.find((item) => item.generation === 2)?.seq).toBe('0')
+  })
 })
 
 describe('ChatConversationModel', () => {
@@ -437,6 +474,45 @@ describe('ChatConversationModel', () => {
       'dev.session.launchDefault',
       'dev.session.get',
     ])
+  })
+
+  test('expires create fingerprints after the seven-day replay window', async () => {
+    const created = session({ lifecycle: 'ready' })
+    let currentTime = Date.parse('2026-09-22T10:00:00.000Z')
+    let createCalls = 0
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.create') {
+        createCalls += 1
+        return ok(command.operation, created)
+      }
+      if (command.operation === 'dev.session.launchDefault')
+        return ok(command.operation, {
+          id: `run-${createCalls}`,
+          runtimeSessionId: created.id,
+          state: 'starting',
+        })
+      if (command.operation === 'dev.session.get') return ok(command.operation, created)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE, {
+      now: () => new Date(currentTime),
+    })
+    const input = {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 1,
+      initialPrompt: 'First prompt',
+      idempotencyKey: 'expiring-key',
+    }
+
+    await model.create(input)
+    currentTime += 7 * 24 * 60 * 60 * 1_000 + 1
+    await expect(model.create({ ...input, initialPrompt: 'Second prompt' })).resolves.toBeDefined()
+    expect(createCalls).toBe(2)
   })
 
   test('resume, cancel, archive, and explicit input preserve the canonical session', async () => {
@@ -639,7 +715,7 @@ describe('ChatConversationModel', () => {
 })
 
 describe('runtime-events-v1 transcript projection', () => {
-  test('accepts the first frame after a bounded replay floor, then detects later gaps', () => {
+  test('requires an explicit checkpoint before accepting a bounded replay floor', () => {
     let state = createTranscriptAccumulator({
       runtimeSessionId: session().id,
       generation: 1,
@@ -652,18 +728,44 @@ describe('runtime-events-v1 transcript projection', () => {
     )
     state = acceptRuntimeStreamFrame(
       state,
-      { type: 'data', sequence: '100', bytes: encodeCbor(event({ seq: '100' })) },
+      { type: 'data', sequence: '502', bytes: encodeCbor(event({ seq: '502' })) },
       'host'
     )
-    expect(state.availability).toMatchObject({ status: 'bounded', reason: 'retention' })
-    expect(state.expectedSequence).toBe('101')
+    expect(state.availability).toMatchObject({ status: 'resync_required', reason: 'sequence_gap' })
+
+    state = createTranscriptAccumulator({
+      runtimeSessionId: session().id,
+      generation: 1,
+      fromSequence: '500',
+    })
+    state = acceptRuntimeStreamFrame(
+      state,
+      { type: 'opened', protocol: 'runtime-events-v1', generation: 1, nextSequence: '500' },
+      'host'
+    )
+    state = acceptRuntimeStreamFrame(
+      state,
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '502' },
+      'host'
+    )
+    state = acceptRuntimeStreamFrame(
+      state,
+      {
+        type: 'data',
+        sequence: '502',
+        bytes: encodeCbor(event({ seq: '502', sourceEventId: 'source-502' })),
+      },
+      'host'
+    )
+    expect(state.availability).toMatchObject({ status: 'bounded', reason: 'checkpoint_required' })
+    expect(state.expectedSequence).toBe('503')
 
     state = acceptRuntimeStreamFrame(
       state,
       {
         type: 'data',
-        sequence: '102',
-        bytes: encodeCbor(event({ seq: '102', sourceEventId: 'source-102' })),
+        sequence: '504',
+        bytes: encodeCbor(event({ seq: '504', sourceEventId: 'source-504' })),
       },
       'host'
     )
