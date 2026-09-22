@@ -398,12 +398,22 @@ describe('project/session authority store', () => {
           idempotencyKey: 'expired-chat-create',
         }) as DevCommand
       const created = provider(first, 'dev.session.create')(keyed(body)) as RuntimeSession
-      const storeFile = join(dataDir, 'dev-runtime', 'project-session', 'authority.json')
-      const envelope = JSON.parse(readFileSync(storeFile, 'utf8')) as {
-        records: Array<{ sessionCreates?: Array<Record<string, unknown>> }>
+      const storeFile = join(dataDir, 'dev-runtime', 'project-session', 'authority.sqlite3')
+      const db = new Database(storeFile)
+      try {
+        const row = db.query('SELECT payload FROM durable_store_records WHERE id = 1').get() as {
+          payload: string
+        }
+        const records = JSON.parse(row.payload) as Array<{
+          sessionCreates?: Array<Record<string, unknown>>
+        }>
+        records[0]!.sessionCreates![0]!.createdAt = '2020-01-01T00:00:00.000Z'
+        db.query('UPDATE durable_store_records SET payload = ? WHERE id = 1').run(
+          JSON.stringify(records)
+        )
+      } finally {
+        db.close()
       }
-      envelope.records[0]!.sessionCreates![0]!.createdAt = '2020-01-01T00:00:00.000Z'
-      writeFileSync(storeFile, JSON.stringify(envelope), { mode: 0o600 })
 
       const restarted = registerProjectSessionRuntime({
         authority: { registerCommandProvider() {} },
