@@ -161,6 +161,21 @@ function assertEvidence(value) {
   if (failures.length) throw new Error('packaged vault assertions failed')
 }
 
+function assertCleanupSucceeded(value) {
+  if (
+    value?.securityCliSucceeded !== true ||
+    value?.bundledRuntimeSucceeded !== true ||
+    value?.succeeded !== true
+  ) {
+    throw new Error('packaged vault cleanup failed')
+  }
+}
+
+function appendFailure(existing, next) {
+  if (!existing) return next
+  return new Error(`${existing.message}; ${next.message}`)
+}
+
 function runSelfTest() {
   const passing = {
     journey: {
@@ -193,7 +208,25 @@ function runSelfTest() {
     }
     throw new Error('packaged vault assertion self-test failed')
   }
-  console.log('M10-33 PACKAGED VAULT SELF-TEST PASS')
+  assertCleanupSucceeded({
+    securityCliSucceeded: true,
+    bundledRuntimeSucceeded: true,
+    succeeded: true,
+  })
+  try {
+    assertCleanupSucceeded({
+      securityCliSucceeded: true,
+      bundledRuntimeSucceeded: false,
+      succeeded: false,
+    })
+  } catch {
+    // A cleanup failure must stay a process failure even when the probe had
+    // no other error.
+    console.log('M10-33 PACKAGED VAULT CLEANUP FAILURE SELF-TEST PASS')
+    console.log('M10-33 PACKAGED VAULT SELF-TEST PASS')
+    return
+  }
+  throw new Error('packaged vault cleanup assertion self-test failed')
 }
 
 async function main() {
@@ -270,6 +303,11 @@ async function main() {
           succeeded: securityCleanup && bundledCleanup,
         }
         if (!artifactValue.cleanup.succeeded) artifactValue.status = 'failed'
+        try {
+          assertCleanupSucceeded(artifactValue.cleanup)
+        } catch (error) {
+          primaryError = appendFailure(primaryError, error)
+        }
       }
     }
     if (artifactValue) {
@@ -277,7 +315,7 @@ async function main() {
         mkdirSync(dirname(artifact), { recursive: true })
         writeFileSync(artifact, `${JSON.stringify(artifactValue, null, 2)}\n`, { mode: 0o600 })
       } catch {
-        if (!primaryError) primaryError = new Error('evidence artifact write failed')
+        primaryError = appendFailure(primaryError, new Error('evidence artifact write failed'))
       }
     }
     if (resolved?.extractDir) rmSync(resolved.extractDir, { recursive: true, force: true })
