@@ -69,8 +69,13 @@ authentication and before dispatch. The claim includes `expiresAt`; the host
 adapter refuses a claim outside its bound workspace/runtime-node scope and
 rechecks expiry immediately before calling the ledger using a clock evaluated
 for every claim. A missing guard fails closed as `replay_unavailable`; a
-duplicate claim fails as `replayed`. Use `createRemoteContentReplayGuard` to
-bind a host ledger to one authenticated scope. The tuple above is the
+duplicate claim fails as `replayed`. `openRemoteContent` only accepts the
+runtime-branded guard returned by `createRemoteContentReplayGuard`; a raw
+structural `{ claim }` callback fails closed as `replay_unavailable`. The
+adapter rechecks expiry after the awaited ledger result as well, so a ledger
+that completes after expiry cannot release plaintext. The host ledger should
+also enforce expiry atomically in its durable insert/compare-and-set. The
+tuple above is the
 envelope-level replay identity. The host's existing command idempotency index
 must also reject a reused `(workspaceId, runtimeNodeId, requestId)` paired with
 a fresh `enc` or `keyId`; this adapter does not add a second durable index.

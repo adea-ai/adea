@@ -49,14 +49,18 @@ const toBase64Url = (value: ArrayBufferLike | ArrayBufferView) => {
 
 const replayGuard = (): RemoteContentReplayGuard => {
   const claims = new Set<string>()
-  return {
-    claim: async (input: RemoteContentReplayClaim) => {
-      const claimId = `${input.workspaceId}:${input.runtimeNodeId}:${input.requestId}:${input.keyId}:${input.enc}`
-      if (claims.has(claimId)) return false
-      claims.add(claimId)
-      return true
+  return createRemoteContentReplayGuard({
+    workspaceId: METADATA.workspaceId,
+    runtimeNodeId: METADATA.runtimeNodeId,
+    ledger: {
+      claim: async (input: RemoteContentReplayClaim) => {
+        const claimId = `${input.workspaceId}:${input.runtimeNodeId}:${input.requestId}:${input.keyId}:${input.enc}`
+        if (claims.has(claimId)) return false
+        claims.add(claimId)
+        return true
+      },
     },
-  }
+  })
 }
 
 describe('RemoteContentEnvelope v1', () => {
@@ -145,6 +149,27 @@ describe('RemoteContentEnvelope v1', () => {
     await expect(openRemoteContent({ ...input, replayGuard: undefined })).rejects.toMatchObject({
       code: 'replay_unavailable',
     })
+  })
+
+  test('rejects a structurally compatible but unbranded replay callback', async () => {
+    const recipient = await deriveRemoteCommandKeyPair(toBytes('unbranded replay guard'))
+    const envelope = await sealRemoteContent({
+      keyId: 'node-key-v1',
+      recipientPublicKey: recipient.publicKey,
+      aad: METADATA,
+      plaintext: toBytes('unbranded command'),
+      now: NOW,
+    })
+
+    await expect(
+      openRemoteContent({
+        envelope,
+        keyId: envelope.keyId,
+        recipientPrivateKey: recipient.privateKey,
+        replayGuard: { claim: async () => true } as never,
+        now: LATER,
+      })
+    ).rejects.toMatchObject({ code: 'replay_unavailable' })
   })
 
   test('binds replay claims to the authenticated workspace and runtime node scope', async () => {
@@ -244,6 +269,39 @@ describe('RemoteContentEnvelope v1', () => {
       })
     ).resolves.toBe(false)
     expect(claims).toHaveLength(0)
+  })
+
+  test('fails closed when the ledger completes after the envelope expires', async () => {
+    const recipient = await deriveRemoteCommandKeyPair(toBytes('replay ledger expiry race'))
+    const envelope = await sealRemoteContent({
+      keyId: 'node-key-v1',
+      recipientPublicKey: recipient.publicKey,
+      aad: METADATA,
+      plaintext: toBytes('expiry race command'),
+      now: NOW,
+    })
+    let now = LATER
+    const guard = createRemoteContentReplayGuard({
+      workspaceId: METADATA.workspaceId,
+      runtimeNodeId: METADATA.runtimeNodeId,
+      ledger: {
+        claim: async () => {
+          now = EXPIRES
+          return true
+        },
+      },
+      now: () => now,
+    })
+
+    await expect(
+      openRemoteContent({
+        envelope,
+        keyId: envelope.keyId,
+        recipientPrivateKey: recipient.privateKey,
+        replayGuard: guard,
+        now: LATER,
+      })
+    ).rejects.toMatchObject({ code: 'replayed' })
   })
 
   test('matches the checked-in standards-library cross-runtime vector', async () => {
