@@ -56,7 +56,16 @@ import {
 } from './resources/policy'
 import { createProcessSampler } from './resources/sample-processes'
 import { createRetainedDataProjection } from './resources/retained-data'
-import { createCleanupWorktreeFacts } from './resources/cleanup-facts'
+import {
+  createCleanupWorktreeFacts,
+  type OwnedResourceRef,
+} from './resources/cleanup-facts'
+import {
+  createHarnessUsageAdapter,
+  createTerminalUsageAdapter,
+  createTypedUnavailableUsageAdapter,
+} from './usage/on-device'
+import { RUN_TERMINAL_STATES } from './harness/status'
 import { createUsageService, type UsageService } from './usage/service'
 import type { RetainedDataRecord } from '../../../../../packages/types/src/dev-runtime'
 import { registerWorktreeRuntime } from './worktrees/register'
@@ -193,7 +202,11 @@ export type CreateDevRuntimeHostInput = {
   /** #424: retained-data breakdown source (terminal/checkpoint/templates).
    *  Absent composes the real read-only projection over the local stores. */
   retainedData?: () => readonly RetainedDataRecord[]
-  /** #424: usage adapter cache; a default empty service is composed without it. */
+  /** #424: usage adapter cache; absent composes the real service over the
+   *  on-device adapters (harness session counts and wall-clock durations from
+   *  the durable run history, terminal durable-history bytes from the sealed
+   *  checkpoint segments) plus typed-unavailable rows for file-stream bytes
+   *  and provider-billed usage. */
   usage?: UsageService
   /** #424: live worktree facts for cleanup-policy evaluation; absence fails
    *  the evaluation closed (never satisfied). Absent composes the real
@@ -550,21 +563,84 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           'records.json'
         ),
       })
-    const worktreeFacts =
-      input.cleanupWorktreeFacts ??
-      (worktreeService
-        ? createCleanupWorktreeFacts({ worktrees: worktreeService, scope: input.scope })
-        : undefined)
-    resources = registerResourcesRuntime({
-      authority: input.authority,
-      scope: input.scope,
-      ports: browserDevices.ports,
-      ...(supervisionView ? { supervision: supervisionView } : {}),
-      ...(supervisionRecords ? { supervisionRecords } : {}),
-      retainedData,
-      ...(input.usage ? { usage: input.usage } : {}),
-      sampleProcesses,
-    })
+    const worktreeFacts = (() => {
+      if (input.cleanupWorktreeFacts) return input.cleanupWorktreeFacts
+      if (!worktreeService) return undefined
+      // #424: the two provable cleanup facts the read-only adapter gained.
+      // `pr_merged` cites the merge service's durable journal and verifies the
+      // recorded ref state; `active_owned_resources` counts the live
+      // owned-resource census built from the registries this composition
+      // already holds (terminal census, harness run history, browser lane
+      // registry, joined through the project-session records). A census or
+      // journal failure leaves the fact absent — every cleanup predicate over
+      // an absent fact fails closed.
+      const liveLaneStates: ReadonlySet<string> = new Set([
+        'provisioning',
+        'ready',
+        'navigating',
+        'suspended',
+        'recovering',
+      ])
+      const ownedResourceCensus = async (): Promise<readonly OwnedResourceRef[]> => {
+        const resources: OwnedResourceRef[] = []
+        // Running terminals by the terminal registrar's live census. A
+        // sidecar failure THROWS (a census that cannot observe cannot prove
+        // absence), which the facts adapter turns into fail-closed absence.
+        if (terminal?.census) {
+          for (const entry of await terminal.census()) {
+            resources.push({
+              id: entry.terminalId,
+              kind: 'terminal',
+              worktreeId: entry.worktreeId,
+              generation: entry.generation,
+            })
+          }
+        }
+        // Active harness runs (durable run history), joined to their worktree
+        // through the runtime-session record. Terminal-state runs are not
+        // attached; `unknown` is a holding state and still counts.
+        if (harness && projectSession) {
+          for (const run of harness.history.list()) {
+            if (RUN_TERMINAL_STATES.includes(run.state)) continue
+            const session = projectSession.getSession(run.runtimeSessionId)
+            if (!session) continue
+            resources.push({
+              id: run.id,
+              kind: 'harness',
+              worktreeId: session.worktreeId,
+              generation: session.generation,
+            })
+          }
+        }
+        // Active browser lanes (the lane registry's live records), joined to
+        // their worktree the same way. Closed/closing/crashed lanes hold
+        // nothing.
+        for (const lane of browserDevices.lanes.list({}).items) {
+          if (!liveLaneStates.has(lane.state)) continue
+          if (
+            lane.scope.accountId !== input.scope!.accountId ||
+            lane.scope.workspaceId !== input.scope!.workspaceId ||
+            lane.scope.runtimeNodeId !== input.scope!.runtimeNodeId
+          )
+            continue
+          const session = projectSession?.getSession(lane.runtimeSessionId)
+          if (!session) continue
+          resources.push({
+            id: lane.id,
+            kind: 'browser',
+            worktreeId: session.worktreeId,
+            generation: lane.generation,
+          })
+        }
+        return resources
+      }
+      return createCleanupWorktreeFacts({
+        worktrees: worktreeService,
+        scope: input.scope,
+        mergeRecordsPath: join(input.dataDir, 'dev-runtime', 'worktrees', 'merge-records.json'),
+        census: ownedResourceCensus,
+      })
+    })()
     cleanupPolicies = createCleanupPolicyAuthority({
       authority: input.authority,
       dataDir: input.dataDir,
@@ -572,7 +648,39 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
       approvalVerifier: input.approvalVerifier,
       ...(worktreeFacts ? { worktreeFacts } : {}),
     })
-    usage = usage ?? createUsageService({ adapters: [] })
+    // #424: the usage surface serves the on-device facts the durable records
+    // prove (harness session counts and wall-clock durations, terminal
+    // durable-history bytes) plus typed-unavailable rows for everything no
+    // provable source exists yet: file-stream bytes (the relay keeps sessions
+    // in memory only) and provider-billed usage (no reviewed endpoint and no
+    // vault credential — the handoff stays open until terms review lands).
+    const usageAdapters = [
+      ...(harness?.history ? [createHarnessUsageAdapter({ runs: harness.history })] : []),
+      createTerminalUsageAdapter({ runtimeRoot: input.runtimeRoot }),
+      createTypedUnavailableUsageAdapter({
+        provider: 'device:file-stream',
+        source: 'harness_protocol',
+        reason:
+          'the stream relay keeps its sessions in memory only; file-stream usage needs a durable transfer journal, which does not exist yet',
+      }),
+      ...(['codex', 'claude'] as const).map((provider) =>
+        createTypedUnavailableUsageAdapter({
+          provider,
+          reason: `no reviewed ${provider} usage endpoint exists; provider-billed usage needs a terms-reviewed fixed endpoint and a vault credential`,
+        })
+      ),
+    ]
+    usage = usage ?? createUsageService({ adapters: usageAdapters })
+    resources = registerResourcesRuntime({
+      authority: input.authority,
+      scope: input.scope,
+      ports: browserDevices.ports,
+      ...(supervisionView ? { supervision: supervisionView } : {}),
+      ...(supervisionRecords ? { supervisionRecords } : {}),
+      retainedData,
+      usage,
+      sampleProcesses,
+    })
   }
 
   // Everything without a reachable provider gets an explicit typed refusal,

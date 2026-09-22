@@ -132,6 +132,26 @@ export type TerminalRuntimeRegistration = {
   onTerminalExited(
     cb: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
   ): () => void
+  /**
+   * #424 read-only live census: the sidecar's live terminal snapshots joined
+   * with this registrar's worktree bindings. One entry per attached terminal
+   * whose observed lifecycle is not `exited` (a still-terminating terminal is
+   * counted — the safe direction for cleanup facts). A sidecar failure THROWS
+   * the typed sidecar error rather than resolving empty: a census that cannot
+   * observe cannot prove absence, and the cleanup-facts consumer fails closed
+   * on the throw (a silent empty census would undercount running terminals).
+   */
+  census(): Promise<readonly TerminalCensusEntry[]>
+}
+
+/** One census entry: the registrar's binding for a live terminal, cited by
+ *  terminal id (the provenance unit the #424 cleanup facts use). */
+export type TerminalCensusEntry = {
+  terminalId: string
+  runtimeSessionId: string
+  worktreeId: string
+  generation: number
+  state: TerminalState
 }
 
 function devError(code: DevError['code'], message: string, retryable = false): DevError {
@@ -911,11 +931,34 @@ export function registerTerminalRuntime(
     }
   }
 
+  async function census(): Promise<readonly TerminalCensusEntry[]> {
+    const listed = await input.sidecar.list()
+    if (!listed.ok) throw sidecarFailure(listed.code, listed.message)
+    const entries: TerminalCensusEntry[] = []
+    for (const snapshot of listed.value.terminals as SidecarSnapshot[]) {
+      const entry = registry.get(snapshot.terminalId)
+      // Terminals adopted from a prior app process are rebound by the
+      // session registry slice; they are not advertised until then.
+      if (!entry) continue
+      const state = LIFECYCLE_TO_STATE[snapshot.lifecycle] ?? 'creating'
+      if (state === 'exited') continue
+      entries.push({
+        terminalId: snapshot.terminalId,
+        runtimeSessionId: entry.runtimeSessionId,
+        worktreeId: entry.worktreeId,
+        generation: entry.generation,
+        state,
+      })
+    }
+    return entries
+  }
+
   return {
     commands: Object.keys(handlers) as DevOperation[],
     deliverPrompt,
     spawnHarnessTerminal,
     onTerminalExited,
+    census,
     dispose() {
       for (const [, state] of readSessions) {
         try {

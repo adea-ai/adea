@@ -3735,6 +3735,23 @@ explicit spawn timeout for the same reason.
 Post-baseline contract changes are recorded here so issue mirrors and audits
 can distinguish intentional spec evolution from drift:
 
+- **2026-09-22 — #424: on-device usage adapters and provable cleanup facts.**
+  The `usage` surface stopped being truthful-empty where the runtime can prove
+  a number: on-device adapters serve harness session counts and wall-clock
+  durations from the registrar's durable run history and terminal
+  durable-history bytes from the sealed checkpoint segments (source
+  `harness_protocol`, confidence `measured`, declared 60-second freshness,
+  bounded reads — no shell, no network, no spawning). Provider-billed usage
+  has no reviewed endpoint and stays a typed `capability_unavailable` row;
+  file-stream bytes stay typed-unavailable until a durable transfer journal
+  exists. Cleanup facts became provable-or-absent: the worktree facts seam
+  joins durable records to live read-only observations — `pr_merged` (with
+  source) from the GitHub provider's durable merge journal verified against
+  the remote ref, `active_owned_resources` from the composed owned-resource
+  census observed asynchronously, plus git clean/pushed, leases, and
+  `archived_seconds` — and the cleanup-policy authority awaits either facts
+  shape, failing closed on unknown worktrees and unobservable facts. Pinned by
+  `apps/desktop/tests/dev-runtime-resources.test.ts`.
 - **2026-09-21 — #185: live supervision events under a crash-storm bound,
   and the managed Pi as a truthful-absence manifest component.** Two
   follow-ups to the packaged supervision wiring. (1) The supervision
