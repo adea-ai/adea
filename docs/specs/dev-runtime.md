@@ -3290,6 +3290,16 @@ redacted by construction, resume/jump affordances through caller-owned
 callbacks only). Both ride their own lazy chunks inside the Dev boundary and
 render their capability state truthfully when the runtime is unavailable.
 
+The Chat history search composes those newest-first `HarnessRun` pages with
+the selected session's retained canonical event windows on each query. It
+uses bounded opaque cursors (at most 500 rows/page), offers session/event jump
+targets, and exports only the requested generation's retained window. Search
+and export do not create an index or cache; known display fields are redacted
+before rendering or writing. Desktop notification intents are derived from a
+canonical before/after run snapshot and delivered through the host sink: the
+body contains only a generic state label, focused or authority-owned sessions
+are suppressed, and no notification state watcher is retained.
+
 The Agents pane also carries an Activity section built from `dev.harness.runs`
 (event provenance: the harness substrate's run records). Rows show the
 agent/profile, model, state, and elapsed time; `awaiting_input` and

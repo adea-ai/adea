@@ -3,7 +3,7 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { HarnessRun, Scope } from '@adea-ai/types/dev-runtime'
-import { buildRunHistoryRows } from '../src/history/run-history-model'
+import { buildRunHistoryRows, virtualHistoryRows } from '../src/history/run-history-model'
 
 const SCOPE: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -49,6 +49,7 @@ describe('buildRunHistoryRows', () => {
     const rows = buildRunHistoryRows([older, resumed])
     expect(rows.map((row) => row.runId)).toEqual(['gen-2', 'gen-1'])
     expect(rows[0]).toMatchObject({
+      runtimeSessionId: 'session-1',
       generation: 2,
       modelId: 'pi-large',
       state: 'working',
@@ -60,6 +61,7 @@ describe('buildRunHistoryRows', () => {
       state: 'disconnected',
       tone: 'failure',
       resumable: true,
+      resumeReason: 'available',
     })
   })
 
@@ -97,6 +99,8 @@ describe('buildRunHistoryRows', () => {
     ])
     const resumable = Object.fromEntries(rows.map((row) => [row.runId, row.resumable]))
     expect(resumable).toEqual({ c: false, d: true, e: true, f: false })
+    expect(rows.find((row) => row.runId === 'c')?.resumeReason).toBe('cancelled')
+    expect(rows.find((row) => row.runId === 'f')?.resumeReason).toBe('missing_start')
   })
 
   test('rows carry no credential- or path-shaped fields', () => {
@@ -106,5 +110,28 @@ describe('buildRunHistoryRows', () => {
       expect(encoded).not.toMatch(/token|secret|password|credential/i)
       expect(encoded).not.toMatch(/\//)
     }
+  })
+
+  test('virtual history window bounds rows with controlled overscan', () => {
+    const rows = buildRunHistoryRows(
+      Array.from({ length: 40 }, (_, index) =>
+        run({
+          id: `run-${index}`,
+          startedAt: new Date(Date.UTC(2026, 8, 1, 0, index)).toISOString(),
+        })
+      ),
+      { limit: 40 }
+    )
+    const visible = virtualHistoryRows(rows, { start: 20, visible: 4, overscan: 2 })
+    expect(visible.map((row) => row.runId)).toEqual([
+      'run-21',
+      'run-20',
+      'run-19',
+      'run-18',
+      'run-17',
+      'run-16',
+      'run-15',
+      'run-14',
+    ])
   })
 })
