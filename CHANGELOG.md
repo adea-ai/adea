@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.4](https://github.com/adea-ai/adea/compare/v0.40.3...v0.40.4) (2026-09-22)
+
+
+### Tests
+
+* **m12:** cover terminal pane and endurance lane ([#553](https://github.com/adea-ai/adea/issues/553)) ([89b9c4a](https://github.com/adea-ai/adea/commit/89b9c4af5b38059669d2aa6d966bec1cefd91477))
+
 ## [0.40.3](https://github.com/adea-ai/adea/compare/v0.40.2...v0.40.3) (2026-09-22)
 
 
