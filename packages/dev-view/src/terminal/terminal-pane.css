@@ -1,0 +1,395 @@
+/*
+ * Terminal pane hooks (#396). Scoped to this package so the shared dev-view
+ * stylesheet stays with its owner; every color, border, and overlay layer
+ * comes from the theme tokens the other pane hooks use.
+ */
+
+.dev-terminal-pane {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.dev-terminal-pane-header {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+}
+
+.dev-terminal-pane-status {
+  color: var(--muted-foreground);
+}
+
+.dev-terminal-pane-status[data-state='open'] {
+  color: var(--foreground);
+}
+
+.dev-terminal-pane-status[data-state='reconnecting'],
+.dev-terminal-pane-status[data-state='closed'] {
+  color: var(--destructive);
+}
+
+.dev-terminal-pane-worktree {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 550;
+}
+
+.dev-terminal-pane-integration {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+.dev-terminal-pane-integration[data-status='active'] {
+  color: var(--foreground);
+}
+
+.dev-terminal-pane-integration[data-status='unavailable'] {
+  color: var(--muted-foreground);
+  background: transparent;
+  border: 1px dashed var(--border);
+}
+
+.dev-terminal-pane-cwd {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--muted-foreground);
+}
+
+.dev-terminal-copy-button {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.dev-terminal-copy-button:hover:not(:disabled),
+.dev-terminal-copy-button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.dev-terminal-copy-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.dev-terminal-copy-button:disabled {
+  color: var(--muted-foreground);
+  border-style: dashed;
+}
+
+.dev-terminal-copy-button[data-degraded='true'] {
+  color: var(--destructive);
+}
+
+.dev-terminal-hint {
+  flex-basis: 100%;
+  color: var(--muted-foreground);
+}
+
+.dev-terminal-blocks {
+  display: flex;
+  flex: none;
+  max-height: 30%;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.25rem 0.6rem;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.dev-terminal-block {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.3rem;
+  font-size: 0.72rem;
+}
+
+.dev-terminal-block[data-state='running'] {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.dev-terminal-block code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.dev-terminal-block-exit {
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.dev-terminal-block-exit[data-exit='0'] {
+  color: var(--foreground);
+}
+
+.dev-terminal-surface-anchor {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.dev-terminal-surface {
+  min-height: 0;
+  flex: 1;
+  padding: 0.35rem 0.6rem;
+}
+
+.dev-terminal-surface:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+/* Search bar: pane-local overlay anchored over the surface, stacked on the
+ * named menu scale. */
+.dev-terminal-search {
+  position: absolute;
+  inset-inline: 0.5rem;
+  top: 0.35rem;
+  z-index: var(--z-menu, 140);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+}
+
+.dev-terminal-search input[type='text'] {
+  min-width: 0;
+  flex: 1;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.dev-terminal-search input[type='text']:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.dev-terminal-search button {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.dev-terminal-search button:disabled {
+  color: var(--muted-foreground);
+}
+
+.dev-terminal-search-count {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.dev-terminal-search-case {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+/* Multiline paste confirmation, shared by the surface and the compose editor. */
+.dev-terminal-paste-confirm {
+  position: absolute;
+  inset-inline: 0.5rem;
+  bottom: 0.5rem;
+  z-index: var(--z-dialog, 180);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  box-shadow: 0 0.35rem 1rem color-mix(in srgb, var(--scrim, #000) 32%, transparent);
+  font-size: 0.72rem;
+}
+
+.dev-terminal-editor {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.dev-terminal-editor textarea {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: var(--background);
+  color: var(--foreground);
+  resize: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.dev-terminal-editor textarea:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.dev-terminal-editor footer {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.dev-terminal-editor footer button {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.dev-terminal-editor footer button:hover,
+.dev-terminal-editor footer button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.dev-terminal-editor footer button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.dev-terminal-raw-note {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.6rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.dev-terminal-raw-note button {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--foreground);
+}
+
+/* Typed fallback shell chooser: modal-toned panel, list of explicit picks. */
+.dev-terminal-shell-chooser {
+  position: absolute;
+  inset: 15% 10%;
+  z-index: var(--z-dialog, 180);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  box-shadow: 0 0.6rem 1.6rem color-mix(in srgb, var(--scrim, #000) 40%, transparent);
+  overflow-y: auto;
+}
+
+.dev-terminal-shell-chooser h2 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.dev-terminal-shell-chooser p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.dev-terminal-shell-chooser ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dev-terminal-shell-chooser button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--foreground);
+  text-align: start;
+}
+
+.dev-terminal-shell-chooser button:hover,
+.dev-terminal-shell-chooser button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.dev-terminal-shell-chooser button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.dev-terminal-shell-chooser button[aria-pressed='true'] {
+  border-color: var(--ring);
+}
+
+.dev-terminal-shell-path {
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+}
+
+/* Pane-local screen-reader text (self-contained; no utility-class reliance). */
+.dev-terminal-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

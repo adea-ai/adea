@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.0](https://github.com/adea-ai/adea/compare/v0.39.0...v0.40.0) (2026-09-22)
+
+
+### Features
+
+* **m12:** terminal pane experience, on-device usage adapters, provable cleanup facts, and the M13 chat plan ([#544](https://github.com/adea-ai/adea/issues/544)) ([1eedef4](https://github.com/adea-ai/adea/commit/1eedef483db0e68bd1f02ea1737a58b9a1402ffd))
+
 ## [0.39.0](https://github.com/adea-ai/adea/compare/v0.38.1...v0.39.0) (2026-09-22)
 
 

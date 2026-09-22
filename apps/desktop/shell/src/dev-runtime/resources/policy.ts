@@ -47,8 +47,12 @@ export type CleanupPolicyAuthorityInput = Readonly<{
   /** Single-use owner approvals; without it approval fails closed. */
   approvalVerifier?: OwnerApprovalVerifier
   /** Live worktree facts (git state, leases, owned resources) for one
-   * worktree. Returning undefined fails the evaluation closed. */
-  worktreeFacts?: (worktreeId: string) => CleanupFacts | undefined
+   *  worktree. Returning undefined fails the evaluation closed. The census
+   *  seam may observe asynchronously, so the facts function may resolve a
+   *  promise; either shape is awaited. */
+  worktreeFacts?: (
+    worktreeId: string
+  ) => CleanupFacts | undefined | Promise<CleanupFacts | undefined>
   now?: () => number
   randomId?: () => string
 }>
@@ -316,7 +320,7 @@ export function createCleanupPolicyAuthority(
       return page(policies)
     },
 
-    'dev.cleanupPolicy.evaluate': (command) => {
+    'dev.cleanupPolicy.evaluate': async (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.cleanupPolicy.evaluate'].request(command.body)
       const policy = findPolicy(body.cleanupPolicyId as string)
@@ -340,7 +344,7 @@ export function createCleanupPolicyAuthority(
       const evaluatedAt = new Date(now()).toISOString()
       const expired = policy.expiresAt !== undefined && Date.parse(policy.expiresAt) <= now()
       const worktreeId = body.worktreeId as string
-      const facts = expired ? undefined : input.worktreeFacts?.(worktreeId)
+      const facts = expired ? undefined : await input.worktreeFacts?.(worktreeId)
       if (facts === undefined) {
         // Fail closed: no provable facts, no automatic cleanup.
         return {
