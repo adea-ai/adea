@@ -1275,6 +1275,20 @@ key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
 a changed body still refuses before dispatch.
 
+Inline approval and question controls are fail-closed. The Chat transcript may
+render an `approval.requested` or `question.requested` event, but it MUST keep
+the corresponding response controls disabled with a visible reason until the
+host supplies an authorized, generation-bound response operation through the
+`DevRuntimeService` integration. A missing callback is not an invitation to
+send a best-effort event, type into a PTY, or report success. The current
+runtime operation registry has session lifecycle and event-read commands but no
+approval/question response command; adding one requires an M11 contract that
+binds account/workspace/runtime-node/session/generation, event identity, input
+owner, capability, single-use/idempotency, and canonical resolved/expired
+events. Until that contract exists, Chat's disabled state is the truthful
+projection and the existing Dev terminal remains the only available control
+surface for a harness that supports such responses.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection

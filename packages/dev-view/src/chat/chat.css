@@ -122,6 +122,12 @@
   gap: 0.5rem;
 }
 
+.dev-chat__action-status {
+  margin: 0;
+  color: var(--dev-muted, var(--muted-foreground));
+  font-size: 0.75rem;
+}
+
 .dev-chat__question input,
 .dev-chat__composer textarea {
   width: 100%;
