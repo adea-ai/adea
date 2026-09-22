@@ -403,6 +403,15 @@ export function createChatConversationModel(
         idempotencyKey,
       })
       const created = await executeChatCommand<RuntimeSession>(service, createCommand)
+      const currentRequest = createRequests.get(idempotencyKey)
+      if (currentRequest !== request) {
+        // A newer request owns this key after the replay window elapsed. Do
+        // not admit the late response into the projection; let the caller
+        // observe the replacement result when it is available.
+        if (currentRequest?.result) return currentRequest.result
+        if (currentRequest?.promise) return currentRequest.promise
+        return requireConversation(created.id)
+      }
       let canonical = remember(created)
       if (input.agentProfileId !== undefined || input.initialPrompt !== undefined) {
         // An expired pending request may finish after a newer retry has

@@ -1262,9 +1262,10 @@ newest generation preserved when sequence numbers restart. The client keeps
 create request fingerprints/results only through the same seven-day replay
 window as the host authority, including pending requests. After that window a
 same-key retry may safely replay the host's durable create; only the current
-request may continue to launch, so a late response from an expired request
-cannot duplicate the run side effect. Expired initial prompts therefore cannot
-remain in an unbounded cache.
+request may update the projection or continue to launch, so a late response
+from an expired request cannot overwrite newer session state or duplicate the
+run side effect. Expired initial prompts therefore cannot remain in an
+unbounded cache.
 If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for

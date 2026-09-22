@@ -570,6 +570,69 @@ describe('ChatConversationModel', () => {
     expect(launchCalls).toBe(1)
   })
 
+  test('does not let a late expired create overwrite a newer canonical projection', async () => {
+    const stale = session({ lifecycle: 'preparing', version: 1 })
+    const retried = session({ lifecycle: 'ready', version: 2, activeHarnessRunId: 'run-2' })
+    let currentTime = Date.parse('2026-09-22T10:00:00.000Z')
+    let createCalls = 0
+    let launchCalls = 0
+    let resolveFirstCreate: ((reply: DevReply) => void) | undefined
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.create') {
+        createCalls += 1
+        if (createCalls === 1)
+          return await new Promise<DevReply>((resolve) => {
+            resolveFirstCreate = resolve
+          })
+        return ok(command.operation, retried)
+      }
+      if (command.operation === 'dev.session.launchDefault') {
+        launchCalls += 1
+        return ok(command.operation, {
+          id: 'run-2',
+          runtimeSessionId: retried.id,
+          state: 'starting',
+        })
+      }
+      if (command.operation === 'dev.session.get') return ok(command.operation, retried)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE, {
+      now: () => new Date(currentTime),
+    })
+    const input = {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 1,
+      initialPrompt: 'Do not regress the newer session state',
+      idempotencyKey: 'late-projection-key',
+    }
+
+    const first = model.create(input)
+    await Promise.resolve()
+    currentTime += 8 * 24 * 60 * 60 * 1_000
+    await expect(model.create(input)).resolves.toMatchObject({
+      runtimeSessionId: retried.id,
+      version: 2,
+      activeHarnessRunId: 'run-2',
+    })
+    expect(launchCalls).toBe(1)
+
+    resolveFirstCreate!(ok('dev.session.create', stale))
+    await expect(first).resolves.toMatchObject({ runtimeSessionId: stale.id })
+    expect(model.project().conversations[0]).toMatchObject({
+      runtimeSessionId: retried.id,
+      status: 'ready',
+      version: 2,
+      activeHarnessRunId: 'run-2',
+    })
+    expect(launchCalls).toBe(1)
+  })
+
   test('resume, cancel, archive, and explicit input preserve the canonical session', async () => {
     const current = session({ activeHarnessRunId: 'run-1' })
     const calls: string[] = []
