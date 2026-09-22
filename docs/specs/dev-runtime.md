@@ -1244,7 +1244,10 @@ loaded. `dev.session.create` records the scoped, hashed idempotency key, body
 fingerprint, and canonical session ID in the same durable authority snapshot
 as the new session. Within the seven-day result window, a matching retry
 returns that session after a process restart; a changed body refuses with
-`idempotency_conflict`.
+`idempotency_conflict`. Chat's `runtime-events-v1` consumer returns read credit
+only after accepting a frame. Replay delivered during stream attach queues
+the acknowledgement until the socket is available; a decode error, sequence
+gap, conflict, or stale generation never acknowledges the rejected frame.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
