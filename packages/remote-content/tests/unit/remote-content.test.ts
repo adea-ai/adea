@@ -20,9 +20,9 @@ import { Aes128Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from '@hpke
 
 import vector from '../../fixtures/remote-content-envelope-v1.json'
 
-const NOW = '2026-09-22T12:00:00.000Z'
-const LATER = '2026-09-22T12:05:00.000Z'
-const EXPIRES = '2026-09-22T12:10:00.000Z'
+const NOW = '2029-09-22T12:00:00.000Z'
+const LATER = '2029-09-22T12:05:00.000Z'
+const EXPIRES = '2029-09-22T12:10:00.000Z'
 const METADATA = {
   workspaceId: '00000000-0000-4000-8000-000000000001',
   runtimeNodeId: '00000000-0000-4000-8000-000000000002',
@@ -257,7 +257,7 @@ describe('RemoteContentEnvelope v1', () => {
       now: () => now,
     })
 
-    now = '2026-09-22T12:10:00.000Z'
+    now = '2029-09-22T12:10:00.000Z'
     await expect(
       guard.claim({
         workspaceId: METADATA.workspaceId,
@@ -439,7 +439,7 @@ describe('RemoteContentEnvelope v1', () => {
         envelope,
         keyId: envelope.keyId,
         recipientPrivateKey: recipient.privateKey,
-        now: '2026-09-22T12:11:00.000Z',
+        now: '2029-09-22T12:11:00.000Z',
       })
     ).rejects.toMatchObject({
       code: 'expired',
