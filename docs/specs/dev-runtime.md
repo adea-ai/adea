@@ -1577,6 +1577,16 @@ Defaults:
   legacy read, write, or verification failure fails closed without generating
   or replacing a key. A runtime below the floor or without `Bun.secrets` keeps
   the existing `security` adapter unchanged.
+- vault metadata uses `dev-runtime/vault/credentials.sqlite3` with WAL and
+  full-sync durability. The SQLite row contains only strictly decoded
+  `CredentialRef` metadata; sealed credential files remain separate, and
+  plaintext, sealed bytes, and any vault key material are refused before a
+  record reaches SQLite. The prior `credentials.json` envelope is retained as
+  a recovery source and is imported transactionally through an owner-only
+  migration ledger that binds the source digest and SQLite database identity.
+  Restart retries an interrupted migration from the untouched source;
+  scope-mismatched, corrupt, or lost SQLite state fails closed and retains the
+  unread database for recovery. The legacy source is never deleted or rewritten.
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -3869,6 +3879,14 @@ can distinguish intentional spec evolution from drift:
   `archived_seconds` — and the cleanup-policy authority awaits either facts
   shape, failing closed on unknown worktrees and unobservable facts. Pinned by
   `apps/desktop/tests/dev-runtime-resources.test.ts`.
+- **2026-09-22 — M10 #33 vault metadata migration.** Credential references now
+  migrate from the retained `dev-runtime/vault/credentials.json` envelope into
+  the reviewed WAL/full-sync `credentials.sqlite3` store. Strict metadata
+  decoding refuses secret-shaped fields, scope-invalid records, duplicate IDs,
+  and malformed versions before persistence; migration rollback, restart
+  recovery, SQLite loss, and corrupt-payload retention are pinned by
+  `apps/desktop/tests/dev-runtime-vault.test.ts`. The Bun.secrets and legacy
+  OS-keychain key adapter remains unchanged.
 - **2026-09-21 — #185: live supervision events under a crash-storm bound,
   and the managed Pi as a truthful-absence manifest component.** Two
   follow-ups to the packaged supervision wiring. (1) The supervision
@@ -4607,6 +4625,10 @@ files in the same commit:
   key read-back, locked/denied/unavailable refusals, legacy-key retention, and
   key-mismatch fail-closed behavior, including sealed-vault access after a
   runtime downgrade;
+- `apps/desktop/tests/dev-runtime-vault.test.ts` also pins the credential
+  metadata migration, retained legacy source, restart/rollback recovery,
+  SQLite loss refusal, scope filtering, corruption retention, and the absence
+  of plaintext or key material from SQLite;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind

@@ -24,7 +24,7 @@ import {
   type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
-import { createDurableJsonStore } from './host-store'
+import { createDurableSqliteStore } from './host-store'
 
 export type CredentialRefKind = 'git_https' | 'github_token' | 'ssh_key' | 'other'
 export type CredentialRefState = 'ready' | 'expired' | 'revoked' | 'unknown'
@@ -79,6 +79,108 @@ const HOST_PATTERN = /^[A-Za-z0-9.-]+(?::\d+)?$/
 const SECRET_MAX_CHARS = 8192
 const MAX_PAGE_LIMIT = 500
 const DEFAULT_PAGE_LIMIT = 100
+const CREDENTIAL_KINDS = new Set<CredentialRefKind>([
+  'git_https',
+  'github_token',
+  'ssh_key',
+  'other',
+])
+const CREDENTIAL_STATES = new Set<CredentialRefState>(['ready', 'expired', 'revoked', 'unknown'])
+const CREDENTIAL_RECORD_KEYS = new Set([
+  'id',
+  'scope',
+  'label',
+  'host',
+  'kind',
+  'state',
+  'version',
+  'createdAt',
+  'updatedAt',
+  'revokedAt',
+  'revokedReason',
+])
+
+function invalidCredentialMetadata(): DevAuthorityError {
+  return new DevAuthorityError('corrupt_state', 'credential vault metadata failed to decode')
+}
+
+function isBoundedText(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+}
+
+/** Strictly decode metadata before it reaches the vault authority. Unknown
+ * fields are refused so a legacy envelope cannot smuggle plaintext, sealed
+ * bytes, or key material into the SQLite metadata payload. */
+function decodeCredentialRecord(value: unknown): CredentialRefRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw invalidCredentialMetadata()
+  const candidate = value as Record<string, unknown>
+  if (Object.keys(candidate).some((key) => !CREDENTIAL_RECORD_KEYS.has(key)))
+    throw invalidCredentialMetadata()
+  const candidateScope = candidate.scope
+  if (
+    typeof candidateScope !== 'object' ||
+    candidateScope === null ||
+    Array.isArray(candidateScope) ||
+    !isBoundedText((candidateScope as Record<string, unknown>).accountId, 256) ||
+    !isBoundedText((candidateScope as Record<string, unknown>).workspaceId, 256) ||
+    !isBoundedText((candidateScope as Record<string, unknown>).runtimeNodeId, 256) ||
+    !isUuid(candidate.id) ||
+    !isBoundedText(candidate.label, 128) ||
+    !isBoundedText(candidate.host, 253) ||
+    !HOST_PATTERN.test(candidate.host) ||
+    !CREDENTIAL_KINDS.has(candidate.kind as CredentialRefKind) ||
+    !CREDENTIAL_STATES.has(candidate.state as CredentialRefState) ||
+    !Number.isSafeInteger(candidate.version) ||
+    (candidate.version as number) < 1 ||
+    !isBoundedText(candidate.createdAt, 64) ||
+    !Number.isFinite(Date.parse(candidate.createdAt)) ||
+    !isBoundedText(candidate.updatedAt, 64) ||
+    !Number.isFinite(Date.parse(candidate.updatedAt))
+  )
+    throw invalidCredentialMetadata()
+  if (
+    candidate.revokedAt !== undefined &&
+    (!isBoundedText(candidate.revokedAt, 64) || !Number.isFinite(Date.parse(candidate.revokedAt)))
+  )
+    throw invalidCredentialMetadata()
+  if (candidate.revokedReason !== undefined && !isBoundedText(candidate.revokedReason, 256))
+    throw invalidCredentialMetadata()
+  const decodedScope = candidateScope as {
+    accountId: string
+    workspaceId: string
+    runtimeNodeId: string
+  }
+  const version = candidate.version as number
+  return {
+    id: candidate.id,
+    scope: {
+      accountId: decodedScope.accountId,
+      workspaceId: decodedScope.workspaceId,
+      runtimeNodeId: decodedScope.runtimeNodeId,
+    },
+    label: candidate.label,
+    host: candidate.host,
+    kind: candidate.kind as CredentialRefKind,
+    state: candidate.state as CredentialRefState,
+    version,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    ...(candidate.revokedAt !== undefined ? { revokedAt: candidate.revokedAt } : {}),
+    ...(candidate.revokedReason !== undefined ? { revokedReason: candidate.revokedReason } : {}),
+  }
+}
+
+function decodeCredentialRecords(value: unknown): CredentialRefRecord[] {
+  if (!Array.isArray(value)) throw invalidCredentialMetadata()
+  const ids = new Set<string>()
+  return value.map((candidate) => {
+    const record = decodeCredentialRecord(candidate)
+    if (ids.has(record.id)) throw invalidCredentialMetadata()
+    ids.add(record.id)
+    return record
+  })
+}
 
 /** A malformed id and a foreign-scope id read identically: not found. */
 function findRef(
@@ -539,6 +641,8 @@ export function createCredentialVault(options: {
   approvalVerifier: OwnerApprovalVerifier
   /** Injectable only for deterministic tests and approved host adapters. */
   credentialStore?: VaultKeyStore
+  /** Test-only seam for proving transactional metadata migration rollback. */
+  onMigrationStage?: (stage: 'before_commit') => void
 }) {
   const { dataDir, audit, approvalVerifier } = options
   if (!approvalVerifier) {
@@ -552,18 +656,26 @@ export function createCredentialVault(options: {
   mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
   const vaultKeyStore = options.credentialStore ?? createSystemVaultKeyStore()
   const vaultKey = loadVaultKey(vaultKeyStore)
-  const store = createDurableJsonStore<CredentialRefRecord>({
-    file: join(vaultDir, 'credentials.json'),
+  const store = createDurableSqliteStore<CredentialRefRecord>({
+    file: join(vaultDir, 'credentials.sqlite3'),
     schemaVersion: 1,
     label: 'credential vault',
+    legacyFile: join(vaultDir, 'credentials.json'),
+    migrateLegacy: (value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value))
+        throw invalidCredentialMetadata()
+      return decodeCredentialRecords((value as { records?: unknown }).records)
+    },
+    validateRecords: decodeCredentialRecords,
+    onMigrationStage: options.onMigrationStage,
   })
 
   function load(): CredentialRefRecord[] {
-    return [...store.load().records]
+    return decodeCredentialRecords(store.load().records)
   }
 
   function save(records: ReadonlyArray<CredentialRefRecord>): void {
-    store.save(records)
+    store.save(decodeCredentialRecords(records))
   }
 
   function seal(refId: string, secret: string): string {
