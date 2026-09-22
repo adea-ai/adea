@@ -12,7 +12,7 @@ export type LocalContentRef = Readonly<{
   digestSha256: string
   sensitivity: 'restricted' | 'sensitive'
   storagePolicy: 'local_authority'
-  synchronizationPolicy: 'e2e_optional' | 'local_only'
+  synchronizationPolicy: 'agent_hq_e2ee_sync' | 'e2e_optional' | 'local_only'
   availability: 'available' | 'deleted' | 'missing' | 'offline'
   schemaVersion: number
   keyVersion: number

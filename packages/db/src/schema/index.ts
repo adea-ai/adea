@@ -39,6 +39,7 @@ export {
   contentSynchronizationPolicy,
   contentType,
 } from './content-refs'
+export { contentReplicaAvailability, contentReplicaKind, contentReplicas } from './content-replicas'
 export { taskDependencies, taskLifecycleState, taskMutations, taskPriority, tasks } from './tasks'
 export {
   artifactAvailability,
