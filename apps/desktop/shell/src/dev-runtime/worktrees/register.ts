@@ -438,8 +438,12 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
 
     'dev.worktree.mergeCommit': async (command) => {
       const body = devOperationDecoders['dev.worktree.mergeCommit'].request(command.body)
-      requireWorktreeResource(command, body as { worktreeId: string })
       const entry = livePlan(mergePlans, body.planId as string)
+      // The commit DTO binds to its worktree through the stored plan; its
+      // public body intentionally carries only planId and planDigest.
+      // Validate that resource binding before evaluating the digest or
+      // dispatching the side effect.
+      requireWorktreeResource(command, { worktreeId: entry.plan.worktreeId })
       // The envelope resource generation MUST equal the plan's bound target
       // generation before the digest or any side effect is evaluated.
       if (entry.boundGeneration !== command.resource!.generation) {
@@ -534,8 +538,10 @@ export function registerWorktreeRuntime(input: RegistrarInput): {
 
     'dev.worktree.cleanupCommit': async (command) => {
       const body = devOperationDecoders['dev.worktree.cleanupCommit'].request(command.body)
-      requireWorktreeResource(command, body as { worktreeId: string })
       const entry = livePlan(cleanupPlans, body.planId as string)
+      // As with mergeCommit, cleanupCommit carries no worktreeId in its
+      // public DTO. Bind the resource to the immutable stored plan first.
+      requireWorktreeResource(command, { worktreeId: entry.plan.worktreeId })
       if (entry.boundGeneration !== command.resource!.generation) {
         throw devError('stale_generation', 'the plan is bound to another worktree generation')
       }
