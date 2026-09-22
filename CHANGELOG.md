@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.0](https://github.com/adea-ai/adea/compare/v0.44.0...v0.45.0) (2026-09-22)
+
+
+### Features
+
+* integrate the Codex wave — vault SQLite, live CDP browser engine, M13 chat, worktree evidence, and replay-claim binding ([#588](https://github.com/adea-ai/adea/issues/588)) ([71563ca](https://github.com/adea-ai/adea/commit/71563ca169dcae4b6e32d40f9c286a739942f795))
+
 ## [0.44.0](https://github.com/adea-ai/adea/compare/v0.43.1...v0.44.0) (2026-09-22)
 
 
