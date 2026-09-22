@@ -1,12 +1,13 @@
 import type {
   DevRuntimePage,
+  DevStreamFrame,
   Group,
   Project,
   RuntimeEvent,
   RuntimeSession,
   Scope,
 } from '@adea-ai/types/dev-runtime'
-import type { DevRuntimeService } from '../../platform'
+import type { DevRuntimeService, DevStreamTransportSocket } from '../../platform'
 
 import { buildDevCommand } from '../../browser/command'
 import {
@@ -507,7 +508,9 @@ export function createChatConversationModel(
       generation: grant.resource.generation,
       fromSequence: grant.fromSequence,
     })
-    const socket = transport.connect(grant as never, {
+    let socket: DevStreamTransportSocket | undefined
+    const pendingAcks: DevStreamFrame[] = []
+    socket = transport.connect(grant as never, {
       onFrame: (frame) => {
         transcript = acceptRuntimeStreamFrame(
           transcript,
@@ -521,10 +524,24 @@ export function createChatConversationModel(
             if (!existing.some((event) => event.eventId === latest.eventId)) existing.push(latest)
             events.set(runtimeSessionId, existing)
           }
+          if (
+            transcript.availability.status !== 'resync_required' &&
+            transcript.availability.status !== 'conflict' &&
+            transcript.availability.status !== 'stale_generation'
+          ) {
+            const ack: DevStreamFrame = {
+              type: 'ack',
+              throughSequence: frame.sequence,
+              availableCreditBytes: frame.bytes.byteLength,
+            }
+            if (socket?.open) socket.send(ack)
+            else pendingAcks.push(ack)
+          }
         }
       },
       onClose: (_code, _reason) => undefined,
     })
+    for (const ack of pendingAcks) if (socket.open) socket.send(ack)
     return { state: () => transcript, close: () => socket.close(1000, 'chat detached') }
   }
 

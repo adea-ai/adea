@@ -382,6 +382,62 @@ describe('ChatConversationModel', () => {
       text: 'hello',
     })
   })
+
+  test('runtime event stream returns credit even when replay arrives during attach', async () => {
+    const current = session()
+    const firstEvent = event({ seq: '0' })
+    const bytes = encodeCbor(firstEvent)
+    const sent: Array<{ type: string; throughSequence?: string; availableCreditBytes?: number }> =
+      []
+    const service: DevRuntimeService = {
+      ...fakeService(async (command) => {
+        const hierarchy = hierarchyReply(command.operation)
+        if (hierarchy) return hierarchy
+        if (command.operation === 'dev.session.list')
+          return ok(command.operation, {
+            items: [current],
+            observedAt: '2026-09-22T10:00:00Z',
+          })
+        if (command.operation === 'dev.session.events')
+          return ok(command.operation, {
+            schemaVersion: 1,
+            grantId: 'grant-1',
+            protocol: 'runtime-events-v1',
+            channelId: 'channel-1',
+            scope: SCOPE,
+            resource: { kind: 'runtime_session', id: current.id, generation: 1 },
+            direction: 'read',
+            fromSequence: '0',
+            expiresAt: '2026-09-22T10:01:00Z',
+            maxFrameBytes: 1_024,
+          })
+        throw new Error(`unexpected ${command.operation}`)
+      }),
+      streams: () => ({
+        connect: (_grant, handlers) => {
+          handlers.onFrame({
+            type: 'opened',
+            protocol: 'runtime-events-v1',
+            generation: 1,
+            nextSequence: '0',
+          })
+          handlers.onFrame({ type: 'data', sequence: '0', bytes })
+          return {
+            open: true,
+            send: (frame) => sent.push(frame),
+            close: () => undefined,
+          }
+        },
+      }),
+    }
+    const model = createChatConversationModel(service, SCOPE)
+    await model.attach(current.id)
+    const transcript = await model.openTranscript(current.id)
+    expect(transcript.state().events).toHaveLength(1)
+    expect(sent).toEqual([
+      { type: 'ack', throughSequence: '0', availableCreditBytes: bytes.byteLength },
+    ])
+  })
 })
 
 describe('runtime-events-v1 transcript projection', () => {
