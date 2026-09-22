@@ -187,6 +187,42 @@ describe('session event log semantics', () => {
     }
   }, 30_000)
 
+  test('retention orders generation-local sequences before evicting a session', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-events-generation-bounds-'))
+    try {
+      const store = createSessionEventLog({
+        dataDir,
+        scope: SCOPE_A,
+        maxPerSession: 10,
+        maxTotal: 50,
+      })
+      const sessionId = '00000000-0000-4000-8000-0000000000b7'
+      for (let index = 0; index < 10; index += 1)
+        store.append(
+          eventInput({
+            runtimeSessionId: sessionId,
+            generation: 1,
+            sourceEventId: `generation-1-${index}`,
+          })
+        )
+      for (let index = 0; index < 4; index += 1)
+        store.append(
+          eventInput({
+            runtimeSessionId: sessionId,
+            generation: 2,
+            sourceEventId: `generation-2-${index}`,
+          })
+        )
+
+      const retained = store.events().filter((event) => event.runtimeSessionId === sessionId)
+      expect(retained).toHaveLength(10)
+      expect(retained.filter((event) => event.generation === 1)).toHaveLength(6)
+      expect(retained.filter((event) => event.generation === 2)).toHaveLength(4)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('reads are bounded, ascending, and windowed by fromSequence', () => {
     const store = openLog()
     try {

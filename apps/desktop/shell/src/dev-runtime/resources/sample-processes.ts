@@ -94,15 +94,26 @@ function parseSampleRow(line: string): ResourceSample | undefined {
  */
 export function createProcessSampler(input: ProcessSamplerInput = {}): ProcessSampler {
   const runPs = input.runPs ?? defaultRunPs
-  const maxPids = input.maxPids ?? SAMPLE_MAX_PIDS
+  const maxPids =
+    input.maxPids !== undefined && Number.isSafeInteger(input.maxPids) && input.maxPids > 0
+      ? input.maxPids
+      : SAMPLE_MAX_PIDS
+  let nextIndex = 0
   return async (pids) => {
-    const unique = [...new Set(pids)]
-      .filter((pid) => Number.isSafeInteger(pid) && pid > 0)
-      .slice(0, maxPids)
+    const unique = [...new Set(pids)].filter((pid) => Number.isSafeInteger(pid) && pid > 0)
     if (unique.length === 0) return []
+    // Preserve one bounded `ps` call per pull while moving through the full
+    // inventory. Repeated snapshots of a stable large list eventually observe
+    // every PID instead of permanently sampling only its first 64 entries.
+    const count = Math.min(unique.length, maxPids)
+    const selected = Array.from(
+      { length: count },
+      (_, offset) => unique[(nextIndex + offset) % unique.length]!
+    )
+    nextIndex = (nextIndex + count) % unique.length
     let result: PsRunResult
     try {
-      result = await runPs(['-o', 'pid=,time=,rss=', '-p', unique.join(',')])
+      result = await runPs(['-o', 'pid=,time=,rss=', '-p', selected.join(',')])
     } catch {
       return []
     }
@@ -116,7 +127,7 @@ export function createProcessSampler(input: ProcessSamplerInput = {}): ProcessSa
       if (sample) byPid.set(sample.pid, sample)
     }
     // Only requested PIDs come back, and only ones ps actually reported.
-    return unique.flatMap((pid) => {
+    return selected.flatMap((pid) => {
       const sample = byPid.get(pid)
       return sample ? [sample] : []
     })

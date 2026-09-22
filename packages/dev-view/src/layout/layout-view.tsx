@@ -12,6 +12,8 @@ export type DevLayoutViewProps = Readonly<{
   /** #399: renders the central editor leaf when a file is open; when it
    *  returns undefined (or is omitted) the placeholder stays. */
   renderEditorLeaf?(leaf: PaneLeaf): JSX.Element | undefined
+  /** Renders an attached terminal when an authenticated stream is available. */
+  renderTerminalLeaf?(leaf: PaneLeaf): JSX.Element | undefined
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
@@ -51,6 +53,8 @@ function Pane(props: {
   focused: boolean
   unavailable: boolean
   renderEditorLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
+  /** Renders an attached terminal when an authenticated stream is available. */
+  renderTerminalLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
   onClose(): string
   onFocus(): void
   onMoveTo(
@@ -146,16 +150,18 @@ function Pane(props: {
           )
         }
       >
-        <div class="dev-terminal-placeholder">
-          <p>$ dev runtime status</p>
-          <p class="dev-terminal-muted">
-            Terminal output rides the authenticated terminal-bytes-v1 stream; this provider does not
-            expose the attach seam yet, so no PTY is bound to this pane.
-          </p>
-          <Show when={props.unavailable}>
-            <p>Capability state: unavailable</p>
-          </Show>
-        </div>
+        {props.renderTerminalLeaf?.(props.leaf) ?? (
+          <div class="dev-terminal-placeholder">
+            <p>$ dev runtime status</p>
+            <p class="dev-terminal-muted">
+              Terminal output rides the authenticated terminal-bytes-v1 stream; this provider does
+              not expose the attach seam yet, so no PTY is bound to this pane.
+            </p>
+            <Show when={props.unavailable}>
+              <p>Capability state: unavailable</p>
+            </Show>
+          </div>
+        )}
       </Show>
       <span class="sr-only" aria-live="polite">
         {dropIntent() ? 'Drop to place pane here' : ''}
@@ -178,6 +184,7 @@ function Split(props: {
   state: DevLayoutState
   unavailable: boolean
   renderEditorLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
+  renderTerminalLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
@@ -267,6 +274,7 @@ function LayoutNode(props: {
   state: DevLayoutState
   unavailable: boolean
   renderEditorLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
+  renderTerminalLeaf?: (leaf: PaneLeaf) => JSX.Element | undefined
   onClose(leafId: string): string
   onFocus(leafId: string): void
   onResize(splitId: string, ratio: number): void
@@ -286,6 +294,7 @@ function LayoutNode(props: {
             focused={props.state.focusedLeafId === leaf().id}
             unavailable={props.unavailable}
             renderEditorLeaf={props.renderEditorLeaf}
+            renderTerminalLeaf={props.renderTerminalLeaf}
             onClose={() => props.onClose(leaf().id)}
             onFocus={() => props.onFocus(leaf().id)}
             onMoveTo={props.onMoveTo}

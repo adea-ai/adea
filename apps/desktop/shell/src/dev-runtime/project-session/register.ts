@@ -881,7 +881,10 @@ export function registerProjectSessionRuntime(input: {
           harnessInstallationId: body.harnessInstallationId,
         })
       )
-      const prior = record.sessionCreates?.find((entry) => entry.keyHash === keyHash)
+      const retained = (record.sessionCreates ?? []).filter(
+        (entry) => Date.now() - Date.parse(entry.createdAt) <= SESSION_CREATE_RETENTION_MS
+      )
+      const prior = retained.find((entry) => entry.keyHash === keyHash)
       if (prior) {
         if (prior.bodyHash !== bodyHash)
           throw devError('idempotency_conflict', 'session create key was used for another request')
@@ -924,9 +927,6 @@ export function registerProjectSessionRuntime(input: {
           ? { harnessInstallationId: body.harnessInstallationId }
           : {}),
       }
-      const retained = (record.sessionCreates ?? []).filter(
-        (entry) => Date.now() - Date.parse(entry.createdAt) <= SESSION_CREATE_RETENTION_MS
-      )
       record = {
         ...record,
         sessions: [...record.sessions, created],

@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.40.0",
+  "version": "0.41.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -23,11 +23,13 @@
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
     "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts apps/web/e2e/dev-view.spec.ts apps/web/e2e/appearance.spec.ts",
+    "test:e2e:dev-view-terminal": "bun scripts/e2e-setup.mjs && PLAYWRIGHT_HEADLESS=1 playwright test --config=playwright.config.ts apps/web/e2e/dev-view-terminal.spec.ts",
     "test:e2e:visual": "playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts",
     "test:packaged": "bun scripts/test-dev-runtime-packaged.mjs",
     "test:security:dev-runtime": "bun scripts/test-dev-runtime-security.mjs",
     "test:performance:dev-runtime": "bun scripts/test-dev-runtime-performance.mjs",
     "test:soak:dev-runtime": "bun scripts/test-dev-runtime-soak.mjs",
+    "test:terminal-endurance": "bun scripts/test-dev-runtime-terminal-endurance.mjs",
     "test:perf": "bun run test:performance:dev-runtime",
     "test:security": "bun test scripts/desktop-auth-boundary.test.ts scripts/desktop-ipc-boundary.test.ts scripts/desktop-origin-boundary.test.ts",
     "test:soak": "bun run test:soak:dev-runtime"
