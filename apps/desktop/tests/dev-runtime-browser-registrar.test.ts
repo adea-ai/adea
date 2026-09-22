@@ -144,6 +144,35 @@ describe('production registrar composition', () => {
     runtime.lanes.close(lane.id, runtime.lanes.get(lane.id).generation)
   })
 
+  test('associates owned ports with the ready task lane for the same session', async () => {
+    const authority = createChannelAuthority({
+      shellHost: '127.0.0.1',
+      shellOrigin: 'https://127.0.0.1:4789',
+    })
+    const runtime = registerBrowserDeviceRuntime({
+      authority,
+      scope,
+      runLsof: async () => 'p1234\ncvite\nn127.0.0.1:5173 (LISTEN)',
+      ownedServices: () => [
+        {
+          host: '127.0.0.1',
+          port: 5173,
+          ownerId: 'process-1',
+          runtimeSessionId: 'session-1',
+        },
+      ],
+    })
+    const lane = runtime.lanes.create({ scope, runtimeSessionId: 'session-1', kind: 'task_owned' })
+    runtime.lanes.navigate(lane.id)
+    runtime.lanes.markReady(lane.id)
+
+    const port = (await runtime.ports.snapshot()).ports.find((record) => record.port === 5173)
+    expect(port?.preview).toEqual({
+      browserLaneId: lane.id,
+      url: 'http://127.0.0.1:5173/',
+    })
+  })
+
   test('attach grants are minted by the authority against the channel identity', async () => {
     const { authority, runtime } = productionRuntime()
     const channel = handshakeChannel(authority)

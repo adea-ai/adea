@@ -89,7 +89,22 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
         port: service.port,
         processRecordId: service.ownerId,
         ownerId: service.ownerId,
+        ...(service.runtimeSessionId ? { runtimeSessionId: service.runtimeSessionId } : {}),
       })),
+    previewForPort: ({ port, runtimeSessionId }) => {
+      if (!runtimeSessionId) return undefined
+      const lane = lanes.list({
+        scope: input.scope ?? LOCAL_SCOPE,
+        runtimeSessionId,
+        kind: 'task_owned',
+        state: 'ready',
+      }).items[0]
+      if (!lane) return undefined
+      return {
+        browserLaneId: lane.id,
+        url: `http://127.0.0.1:${port}/`,
+      }
+    },
   })
 
   const deviceEngine: DeviceEngine =

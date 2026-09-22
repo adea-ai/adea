@@ -515,6 +515,11 @@ type PortRecord = {
   processRecordId?: string
   runtimeSessionId?: string
   generation?: number
+  // Present only when the host matched the service to a ready task-owned lane.
+  preview?: {
+    browserLaneId: string
+    url: string
+  }
   state: 'observed' | 'stale' | 'gone'
   observedAt: string
 }
@@ -4377,7 +4382,10 @@ can distinguish intentional spec evolution from drift:
   non-transplantable origins (google.com) unless explicitly overridden, and
   fully rolled back on any failure or cancellation with values never logged;
   the port inventory scans loopback listeners only (no LAN probe), marks
-  Adea-owned services from launch metadata, and keeps vanished ports stale;
+  Adea-owned services from launch metadata, keeps vanished ports stale, and
+  associates a confirmed listener with the ready task-owned browser lane for
+  the same runtime session when one exists. Unknown, unconfirmed, and stale
+  rows never receive a new preview association and remain non-actionable;
   device inventory is capability-gated `xcrun simctl`/`adb` with fixed argv
   templates bound to verified inventory IDs, and stops only an Adea-launched,
   still-identity-matching process (user-booted devices detach, never shut

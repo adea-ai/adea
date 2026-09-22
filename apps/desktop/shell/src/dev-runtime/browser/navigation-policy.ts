@@ -18,6 +18,8 @@ export type AdeaOwnedService = Readonly<{
   port: number
   /** Adea launch/session owner record; loopback presence alone is not proof. */
   ownerId: string
+  /** Runtime session used to associate the service with a task-owned preview lane. */
+  runtimeSessionId?: string
 }>
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:'])

@@ -617,6 +617,47 @@ describe('port inventory', () => {
     expect(inventory.previewableService(snapshot.services, 5173)).toBe(true)
     expect(inventory.previewableService(snapshot.services, 8080)).toBe(false)
   })
+
+  test('associates a proven service with its task-owned browser preview lane', async () => {
+    const inventory = createPortInventory({
+      scope,
+      runLsof: async () => 'p1\ncvite\nn127.0.0.1:5173 (LISTEN)',
+      ownedServices: () => [
+        { port: 5173, processRecordId: 'proc-1', runtimeSessionId: sessionId, ownerId: 'owner-1' },
+      ],
+      previewForPort: ({ port, runtimeSessionId }) =>
+        runtimeSessionId === sessionId
+          ? { browserLaneId: 'lane-1', url: `http://127.0.0.1:${port}/` }
+          : undefined,
+    })
+    const snapshot = await inventory.snapshot()
+    expect(snapshot.ports.find((port) => port.port === 5173)?.preview).toEqual({
+      browserLaneId: 'lane-1',
+      url: 'http://127.0.0.1:5173/',
+    })
+  })
+
+  test('does not associate external or unconfirmed ports and keeps stale rows inert', async () => {
+    let output = 'p1\ncvite\nn127.0.0.1:5173 (LISTEN)\np2\nctest\nn127.0.0.1:8080 (LISTEN)'
+    const inventory = createPortInventory({
+      scope,
+      runLsof: async () => output,
+      ownedServices: () => [
+        { port: 5173, processRecordId: 'proc-1', runtimeSessionId: sessionId, ownerId: 'owner-1' },
+        { port: 9000, processRecordId: 'proc-2', runtimeSessionId: sessionId, ownerId: 'owner-2' },
+      ],
+      previewForPort: ({ port }) => ({ browserLaneId: 'lane-1', url: `http://127.0.0.1:${port}/` }),
+    })
+    const first = await inventory.snapshot()
+    expect(first.ports.find((port) => port.port === 5173)?.preview).toBeDefined()
+    expect(first.ports.find((port) => port.port === 8080)?.preview).toBeUndefined()
+    expect(first.services.find((service) => service.port === 9000)?.health).toBe('unconfirmed')
+    output = ''
+    const second = await inventory.snapshot()
+    expect(second.ports.find((port) => port.port === 5173)?.state).toBe('stale')
+    expect(second.ports.find((port) => port.port === 5173)?.preview).toBeDefined()
+    expect(inventory.previewableService(second.services, 5173)).toBe(false)
+  })
 })
 
 describe('diagnostics and screenshots', () => {
