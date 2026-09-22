@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.45.1](https://github.com/adea-ai/adea/compare/v0.45.0...v0.45.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** accept same-origin subresource fetches without an Origin header ([#590](https://github.com/adea-ai/adea/issues/590)) ([36d45a2](https://github.com/adea-ai/adea/commit/36d45a29f813d784d6c3cfbd122559bdfdfdf459))
+
 ## [0.45.0](https://github.com/adea-ai/adea/compare/v0.44.0...v0.45.0) (2026-09-22)
 
 
