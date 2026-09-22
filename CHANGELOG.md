@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.41.0](https://github.com/adea-ai/adea/compare/v0.40.5...v0.41.0) (2026-09-22)
+
+
+### Features
+
+* **chat:** add canonical conversation model ([#552](https://github.com/adea-ai/adea/issues/552)) ([a6646a5](https://github.com/adea-ai/adea/commit/a6646a5e186a92aba71df5fe3dd9247ead5957cd))
+
 ## [0.40.5](https://github.com/adea-ai/adea/compare/v0.40.4...v0.40.5) (2026-09-22)
 
 
