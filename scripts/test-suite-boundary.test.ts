@@ -56,6 +56,12 @@ describe('test suite boundaries', () => {
     // rename or drop them silently. This is the documented-raise surface for
     // them (package.json itself carries no comments).
     expect(packageJson.scripts['test:packaged']).toBe('bun scripts/test-dev-runtime-packaged.mjs')
+    expect(packageJson.scripts['test:packaged:owner-journey']).toBe(
+      'bun apps/desktop/shell/scripts/packaged-owner-journey.ts'
+    )
+    expect(
+      existsSync(resolve(root, 'apps/desktop/shell/scripts/packaged-owner-journey.ts'))
+    ).toBeTrue()
     // The umbrella names stay stable while the Dev Runtime lanes own the
     // harnesses: perf and soak delegate to the dev-runtime lane scripts, so
     // round counts (ADEA_DEV_RUNTIME_SOAK_ROUNDS) and budgets stay defined in
