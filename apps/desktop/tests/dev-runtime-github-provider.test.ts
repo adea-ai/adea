@@ -7,7 +7,7 @@
 // merge / update-branch, the force-with-lease flow, PR-create reconciliation,
 // and token redaction on every error surface.
 import { createHmac, randomBytes } from 'node:crypto'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -191,6 +191,7 @@ function runtimeFor(fixture: Fixture, runGh: GhRunner) {
   const registered = registerGithubRuntime({
     authority,
     scope,
+    dataDir: fixture.root,
     resolveRepo: (repoId) =>
       repoId === REPO_ID
         ? {
@@ -389,6 +390,7 @@ describe('github remote provider', () => {
     registerGithubRuntime({
       authority: absentAuthority,
       scope,
+      dataDir: fixture.root,
       resolveRepo: () => undefined,
       listRepos: () => [],
       resolveWorktree: () => undefined,
@@ -560,6 +562,7 @@ describe('github remote provider', () => {
     registerGithubRuntime({
       authority: badAuthority,
       scope,
+      dataDir: fixture.root,
       resolveRepo: () => undefined,
       listRepos: () => [],
       resolveWorktree: () => undefined,
@@ -923,7 +926,9 @@ describe('github remote provider', () => {
         return { stdout: JSON.stringify(searchResult) }
       if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
         createCalls += 1
-        return { stdout: prJson({ headSha, baseSha: headSha, draft: true }) }
+        const created = prJson({ headSha, baseSha: headSha, draft: true })
+        searchResult = [JSON.parse(created)]
+        return { stdout: created }
       }
       return { exitCode: 1, stderr: 'unexpected' }
     })
@@ -968,12 +973,15 @@ describe('github remote provider', () => {
     // Ambiguous delivery: the create timed out, the re-search found the PR.
     searchResult = []
     let failCreateOnce = true
+    let ambiguousPosts = 0
     const { runner: retryRunner } = ghFixture((path, args) => {
       if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
         return { stdout: JSON.stringify(searchResult) }
       if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        ambiguousPosts += 1
         if (failCreateOnce) {
           failCreateOnce = false
+          searchResult = [JSON.parse(prJson({ headSha, baseSha: headSha, draft: true }))]
           return { exitCode: 1, stderr: 'context deadline exceeded' }
         }
         createCalls += 1
@@ -988,6 +996,7 @@ describe('github remote provider', () => {
     registerGithubRuntime({
       authority: retryAuthority,
       scope,
+      dataDir: fixture.root,
       resolveRepo: (repoId) =>
         repoId === REPO_ID
           ? { repoId, canonicalRoot: fixture.repoPath, defaultBranch: 'main' }
@@ -997,7 +1006,6 @@ describe('github remote provider', () => {
       runGh: retryRunner,
     })
     const retryChannel = handshakeChannel(retryAuthority)
-    searchResult = [JSON.parse(prJson({ headSha, baseSha: headSha }))]
     const recovered = await execute(
       retryChannel,
       retryAuthority,
@@ -1005,7 +1013,184 @@ describe('github remote provider', () => {
     )
     expect(recovered.ok).toBe(true)
     if (recovered.ok) expect(recovered.value.reconciled).toBe(true)
+    expect(ambiguousPosts).toBe(1)
   })
+
+  test('a timed-out PR create with no visible result cannot post again on retry', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const headSha = fixture.headSha()
+    let visiblePullRequest: unknown[] = []
+    let postCount = 0
+    const { runner } = ghFixture((path, args) => {
+      if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
+        return { stdout: JSON.stringify(visiblePullRequest) }
+      if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        postCount += 1
+        return { exitCode: 1, stderr: 'context deadline exceeded' }
+      }
+      return { exitCode: 1, stderr: 'unexpected' }
+    })
+    const { authority } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const body = {
+      repoId: REPO_ID,
+      headRef: 'feat/widgets',
+      baseRef: 'main',
+      title: 'Add widget support',
+      body: 'Implements widgets',
+      draft: true,
+    }
+    const first = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(first.ok).toBe(false)
+    expect(postCount).toBe(1)
+
+    const retry = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(retry.ok).toBe(false)
+    expect(postCount).toBe(1)
+
+    const restartedAuthority = createChannelAuthority({
+      shellHost: '127.0.0.1',
+      shellOrigin: 'https://127.0.0.1:4789',
+    })
+    registerGithubRuntime({
+      authority: restartedAuthority,
+      scope,
+      dataDir: fixture.root,
+      resolveRepo: (repoId) =>
+        repoId === REPO_ID ? { repoId, canonicalRoot: fixture.repoPath } : undefined,
+      listRepos: () => [],
+      resolveWorktree: () => undefined,
+      runGh: runner,
+    })
+    const restartedChannel = handshakeChannel(restartedAuthority)
+    const afterRestart = await execute(
+      restartedChannel,
+      restartedAuthority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(afterRestart.ok).toBe(false)
+    expect(postCount).toBe(1)
+
+    visiblePullRequest = [
+      JSON.parse(prJson({ headSha, baseSha: headSha, headRef: 'feat/other', draft: true })),
+    ]
+    const wrongBranch = await execute(
+      restartedChannel,
+      restartedAuthority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(wrongBranch.ok).toBe(false)
+    expect(postCount).toBe(1)
+
+    visiblePullRequest = [JSON.parse(prJson({ headSha, baseSha: headSha, draft: true }))]
+    const recovered = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(recovered.ok).toBe(true)
+    if (recovered.ok) expect(recovered.value.reconciled).toBe(true)
+    expect(postCount).toBe(1)
+  }, 30_000)
+
+  test('a corrupt PR-create intent stays fail-closed after its first failed read', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    let postCount = 0
+    const { runner } = ghFixture((path, args) => {
+      if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
+        return { stdout: '[]' }
+      if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        postCount += 1
+        return { exitCode: 1, stderr: 'context deadline exceeded' }
+      }
+      return { exitCode: 1, stderr: 'unexpected' }
+    })
+    const { authority } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const body = {
+      repoId: REPO_ID,
+      headRef: 'feat/widgets',
+      baseRef: 'main',
+      title: 'Add widget support',
+      body: 'Implements widgets',
+      draft: true,
+    }
+    const create = () =>
+      execute(channel, authority, makeCommand('dev.github.createPullRequest', body, repoResource()))
+    expect((await create()).ok).toBe(false)
+    const intentDir = join(fixture.root, 'dev-runtime', 'github', 'pr-create')
+    const intent = readdirSync(intentDir).find((file) => file.endsWith('.json'))
+    expect(intent).toBeDefined()
+    writeFileSync(join(intentDir, intent!), '{')
+    expect((await create()).ok).toBe(false)
+    expect((await create()).ok).toBe(false)
+    expect(postCount).toBe(1)
+  }, 30_000)
+
+  test('two host registrars cannot post the same pull request concurrently', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const headSha = fixture.headSha()
+    let visiblePullRequest: unknown[] = []
+    let postCount = 0
+    let startPost!: () => void
+    let releasePost!: () => void
+    const postStarted = new Promise<void>((resolve) => (startPost = resolve))
+    const postGate = new Promise<void>((resolve) => (releasePost = resolve))
+    const runner: GhRunner = async (args) => {
+      const path = args[1] ?? ''
+      if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
+        return { stdout: JSON.stringify(visiblePullRequest), stderr: '', exitCode: 0 }
+      if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        postCount += 1
+        startPost()
+        await postGate
+        const created = prJson({ headSha, baseSha: headSha, draft: true })
+        visiblePullRequest = [JSON.parse(created)]
+        return { stdout: created, stderr: '', exitCode: 0 }
+      }
+      return { stdout: '', stderr: 'unexpected', exitCode: 1 }
+    }
+    const first = runtimeFor(fixture, runner)
+    const firstChannel = handshakeChannel(first.authority)
+    const second = runtimeFor(fixture, runner)
+    const secondChannel = handshakeChannel(second.authority)
+    const body = {
+      repoId: REPO_ID,
+      headRef: 'feat/widgets',
+      baseRef: 'main',
+      title: 'Add widget support',
+      body: 'Implements widgets',
+      draft: true,
+    }
+    const pending = execute(
+      firstChannel,
+      first.authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    await postStarted
+    const competing = await execute(
+      secondChannel,
+      second.authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(competing.ok).toBe(false)
+    expect(postCount).toBe(1)
+    releasePost()
+    const created = await pending
+    expect(created.ok).toBe(true)
+    expect(postCount).toBe(1)
+  }, 30_000)
 
   test('PR update is a versioned plan/commit pair that refuses drifted server truth', async () => {
     const fixture = makeFixture()
@@ -1165,6 +1350,7 @@ describe('github remote provider', () => {
     registerGithubRuntime({
       authority: driftAuthority,
       scope,
+      dataDir: fixture.root,
       resolveRepo: (repoId) =>
         repoId === REPO_ID
           ? { repoId, canonicalRoot: fixture.repoPath, defaultBranch: 'main' }

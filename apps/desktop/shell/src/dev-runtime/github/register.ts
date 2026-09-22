@@ -25,6 +25,8 @@
 // `--force-with-lease=<ref>:<expectedSha>` flow, which refuses protected and
 // default branches outright.
 import { createHash, randomUUID } from 'node:crypto'
+import { chmodSync, closeSync, mkdirSync, openSync, readdirSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
 
 import type {
   DevCommand,
@@ -45,6 +47,7 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
+import { createDurableJsonStore } from '../host-store'
 import { GIT_CHILD_TIMEOUT_MS, gitChildEnv, runGit } from '../worktrees/git-run'
 import type { FileIdentityValue } from '../worktrees/identity'
 
@@ -292,6 +295,8 @@ export type GithubWorktreeContext = Readonly<{
 export type GithubRegistrarInput = {
   authority: ChannelAuthority
   scope: Scope
+  /** Owner-only runtime data directory for crash-safe PR-create reconciliation. */
+  dataDir: string
   /** Fail-closed resolution of the registered repository record. */
   resolveRepo(repoId: string): GithubRepoContext | undefined
   /** Registered repository records, for binding a remote PR to a local repo. */
@@ -353,6 +358,7 @@ type PlanEntry =
     }
 
 type CacheEntry = Readonly<{ value: unknown; observedAt: number }>
+type PrCreateRecord = Readonly<{ startedAt: string }>
 
 const PR_ID_PATTERN = /^gh:([A-Za-z0-9-]{1,100})\/([A-Za-z0-9._-]{1,100})#(\d{1,9})$/
 const SHA_PATTERN = /^[0-9a-f]{40}$/
@@ -373,6 +379,9 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
   const protectedRefs = input.protectedRefs ?? []
   const plans = new Map<string, PlanEntry>()
   const cache = new Map<string, CacheEntry>()
+  const prCreateDir = join(input.dataDir, 'dev-runtime', 'github', 'pr-create')
+  const prCreateLocksDir = join(prCreateDir, 'locks')
+  const creatingPullRequests = new Set<string>()
   /** Local optimistic-concurrency tokens for PR read models: the version
    *  bumps only when the server-side updatedAt moved. */
   const prVersions = new Map<string, { updatedAt: string; version: number }>()
@@ -1191,46 +1200,125 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       if (body.draft !== true)
         throw devError('invalid_state', 'pull requests are created as draft in this slice')
       const parsed = await remoteOf(record.canonicalRoot, 'origin')
-      // Reconciliation first: an open PR for the same head/base is returned
-      // instead of duplicated, so a retried or timed-out create can never
-      // produce an undetected second PR.
-      const existing = await searchOpenPullRequest(parsed, headRef, baseRef)
-      if (existing !== undefined) {
-        const pr = mapPullRequest(existing, record.repoId, 0)
-        return { ...pr, reconciled: true }
-      }
-      let created: unknown
+      const key = sha256Text(
+        JSON.stringify([
+          command.scope.accountId,
+          command.scope.workspaceId,
+          command.scope.runtimeNodeId,
+          record.repoId,
+          parsed.host,
+          parsed.owner,
+          parsed.repo,
+          headRef,
+          baseRef,
+        ])
+      )
+      if (creatingPullRequests.has(key))
+        throw devError('remote_unavailable', 'a pull request create is already in progress', true)
+      creatingPullRequests.add(key)
+      const lockFile = join(prCreateLocksDir, `${key}.lock`)
+      let lockHandle: number | undefined
       try {
-        created = await ghJson(
-          apiArgs(parsed.host, `repos/${parsed.owner}/${parsed.repo}/pulls`, [
-            '--method',
-            'POST',
-            '-f',
-            `title=${title}`,
-            '-f',
-            `body=${description}`,
-            '-f',
-            `head=${parsed.owner}:${headRef}`,
-            '-f',
-            `base=${baseRef}`,
-            '-F',
-            'draft=true',
-          ]),
-          { staleFallback: false }
-        )
-      } catch (error) {
-        // Ambiguous delivery (timeout / network loss / 5xx): re-search before
-        // failing, so a created-but-unreported PR is reconciled, not duplicated.
-        const code = (error as { code?: unknown }).code
-        if (code !== 'remote_unavailable' && code !== 'timeout' && code !== 'unavailable')
+        // A retry always reads server truth first. The durable intent below
+        // survives a timeout or process crash, including the interval before
+        // GitHub's search has indexed an already-created pull request.
+        const existing = await searchOpenPullRequest(parsed, headRef, baseRef)
+        if (existing !== undefined) {
+          clearPrCreateRecord(key)
+          const pr = mapPullRequest(existing, record.repoId, 0)
+          return { ...pr, reconciled: true }
+        }
+        mkdirSync(prCreateLocksDir, { recursive: true, mode: 0o700 })
+        chmodSync(prCreateLocksDir, 0o700)
+        try {
+          lockHandle = openSync(lockFile, 'wx', 0o600)
+        } catch (error) {
+          if ((error as { code?: string }).code === 'EEXIST')
+            throw devError(
+              'remote_unavailable',
+              'a pull request create may be running on another host process; verify it on GitHub before retrying',
+              true
+            )
           throw error
-        const recovered = await searchOpenPullRequest(parsed, headRef, baseRef)
-        if (recovered === undefined) throw error
-        const pr = mapPullRequest(recovered, record.repoId, 0)
-        return { ...pr, reconciled: true }
+        }
+        // A concurrent host can complete between the first read and our lock.
+        const afterLock = await searchOpenPullRequest(parsed, headRef, baseRef)
+        if (afterLock !== undefined) {
+          clearPrCreateRecord(key)
+          const pr = mapPullRequest(afterLock, record.repoId, 0)
+          return { ...pr, reconciled: true }
+        }
+        const intentStore = prCreateStoreFor(key)
+        if (readdirSync(prCreateDir).some((file) => file.startsWith(`${key}.json.corrupt-`)))
+          throw devError(
+            'corrupt_state',
+            'an earlier pull request create record needs manual recovery before another create'
+          )
+        if (intentStore.load().records.length > 0)
+          throw devError(
+            'remote_unavailable',
+            'an earlier pull request create has an unknown outcome; verify it on GitHub before another create',
+            true
+          )
+        // Persist before the external side effect. A crash after this save
+        // can block a create that never reached GitHub, but cannot duplicate
+        // one whose response was lost.
+        intentStore.save([{ startedAt: iso(now()) }])
+        let created: unknown
+        try {
+          created = await ghJson(
+            apiArgs(parsed.host, `repos/${parsed.owner}/${parsed.repo}/pulls`, [
+              '--method',
+              'POST',
+              '-f',
+              `title=${title}`,
+              '-f',
+              `body=${description}`,
+              '-f',
+              `head=${parsed.owner}:${headRef}`,
+              '-f',
+              `base=${baseRef}`,
+              '-F',
+              'draft=true',
+            ]),
+            { staleFallback: false }
+          )
+        } catch (error) {
+          // Re-search after ambiguous delivery. If no exact match is visible
+          // yet, leave the durable intent in place and refuse another POST.
+          const code = (error as { code?: unknown }).code
+          if (code !== 'remote_unavailable' && code !== 'timeout' && code !== 'unavailable')
+            throw error
+          const recovered = await searchOpenPullRequest(parsed, headRef, baseRef)
+          if (recovered === undefined) throw error
+          const pr = mapPullRequest(recovered, record.repoId, 0)
+          clearPrCreateRecord(key)
+          return { ...pr, reconciled: true }
+        }
+        const accepted = mapPullRequest(created, record.repoId, 0)
+        if (
+          accepted.headRef !== headRef ||
+          accepted.baseRef !== baseRef ||
+          accepted.state !== 'open'
+        )
+          throw devError('corrupt_state', 'GitHub returned a pull request for another head or base')
+        const verified = await searchOpenPullRequest(parsed, headRef, baseRef)
+        if (verified === undefined)
+          throw devError(
+            'remote_unavailable',
+            'pull request creation was accepted but server verification is pending',
+            true
+          )
+        const pr = mapPullRequest(verified, record.repoId, 0)
+        clearPrCreateRecord(key)
+        return { ...pr, reconciled: false }
+      } finally {
+        if (lockHandle !== undefined) {
+          closeSync(lockHandle)
+          unlinkSync(lockFile)
+        }
+        creatingPullRequests.delete(key)
       }
-      const pr = mapPullRequest(created, record.repoId, 0)
-      return { ...pr, reconciled: false }
     },
 
     // ── PR metadata update: plan/commit pair ─────────────────────────────
@@ -1665,7 +1753,37 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
       apiArgs(parsed.host, `repos/${parsed.owner}/${parsed.repo}/pulls?${query}`),
       { staleFallback: false }
     )
-    return decodeJsonList(payload, 'pulls')[0]
+    return decodeJsonList(payload, 'pulls').find((candidate) => {
+      const pr = mapPullRequest(candidate, '', 0)
+      const head = obj(obj(candidate, 'pullRequest').head, 'pullRequest.head')
+      const headRepo = obj(head.repo, 'pullRequest.head.repo')
+      const headOwner = str(
+        obj(headRepo.owner, 'pullRequest.head.repo.owner').login,
+        'head owner',
+        100
+      )
+      return (
+        pr.state === 'open' &&
+        pr.owner === parsed.owner &&
+        pr.repo === parsed.repo &&
+        pr.headRef === headRef &&
+        pr.baseRef === baseRef &&
+        headOwner === parsed.owner
+      )
+    })
+  }
+
+  function clearPrCreateRecord(key: string): void {
+    const store = prCreateStoreFor(key)
+    if (store.load().records.length > 0) store.save([])
+  }
+
+  function prCreateStoreFor(key: string) {
+    return createDurableJsonStore<PrCreateRecord>({
+      file: join(prCreateDir, `${key}.json`),
+      schemaVersion: 1,
+      label: 'GitHub PR create',
+    })
   }
 
   let registeredCommands = 0
