@@ -366,6 +366,69 @@ describe('ChatConversationModel', () => {
     expect(model.project().conversations).toHaveLength(0)
   })
 
+  test('Dev↔Chat repeated switching preserves the canonical session, draft, sequence, and scrollback', async () => {
+    const current = session({ displayName: 'Shared Dev session' })
+    const scrollback = [
+      event({
+        runtimeSessionId: current.id,
+        eventId: 'event-0',
+        sourceEventId: 'source-0',
+        seq: '0',
+        kind: 'turn.user_input',
+        payload: { text: 'Keep this draft while switching views' },
+      }),
+      event({
+        runtimeSessionId: current.id,
+        eventId: 'event-1',
+        seq: '1',
+        kind: 'turn.assistant_message',
+        payload: { text: 'The same runtime session remains attached.' },
+      }),
+    ]
+    const calls: string[] = []
+    const service = fakeService(async (command) => {
+      calls.push(command.operation)
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    await model.list()
+    model.remember(current, scrollback)
+    model.setDraft(current.id, 'unfinished composer draft')
+
+    const snapshot = () => {
+      const conversation = model.project().conversations[0]
+      if (!conversation) throw new Error('conversation disappeared during switch proof')
+      return {
+        runtimeSessionId: conversation.runtimeSessionId,
+        generation: conversation.generation,
+        eventSequence: conversation.events.map((item) => item.seq),
+        eventIds: conversation.events.map((item) => item.eventId),
+        draft: conversation.draft,
+      }
+    }
+    const expected = snapshot()
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      model.switchTo(current.id)
+      expect(snapshot()).toEqual(expected)
+      await model.attach(current.id)
+      expect(snapshot()).toEqual(expected)
+    }
+
+    expect(calls.filter((operation) => operation.startsWith('dev.session.'))).toEqual([
+      'dev.session.list',
+      'dev.session.list',
+      'dev.session.list',
+      'dev.session.list',
+    ])
+    expect(calls.some((operation) => operation.includes('launch'))).toBe(false)
+    expect(calls.some((operation) => operation === 'dev.session.create')).toBe(false)
+  })
+
   test('create is staged and idempotent, with one session, run, and prompt', async () => {
     const calls: Array<{
       operation: string

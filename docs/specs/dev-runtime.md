@@ -1351,6 +1351,14 @@ model-access gate and guest onboarding requires sign-in; no client-side
 entitlement is inferred from identity or profile data. Packaged first-run
 certification remains an M13.4 acceptance gate.
 
+The Dev↔Chat switch proof drives the model from the Chat side through repeated
+Dev projection and Chat attach cycles. Each cycle must observe the same
+`runtimeSessionId`, generation-qualified event sequence and retained window,
+draft, and transcript scrollback; the only allowed operations during a switch
+are authenticated, mutation-free canonical hierarchy and generation-fenced
+session reads. A switch never invokes create, launch, resume, cancel, archive,
+or an event-log write.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection
