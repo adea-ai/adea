@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.43.1](https://github.com/adea-ai/adea/compare/v0.43.0...v0.43.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **desktop:** migrate vault key store to Bun.secrets ([#577](https://github.com/adea-ai/adea/issues/577)) ([9288412](https://github.com/adea-ai/adea/commit/92884124d3d39cfee1d790b2d0b9cb2125c13c97))
+
+
+### Tests
+
+* **desktop:** retain packaged native runtime evidence ([#574](https://github.com/adea-ai/adea/issues/574)) ([1058904](https://github.com/adea-ai/adea/commit/10589041b10f64e5528330c98e7dd9c46fbdbe33))
+
 ## [0.43.0](https://github.com/adea-ai/adea/compare/v0.42.0...v0.43.0) (2026-09-22)
 
 
