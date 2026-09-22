@@ -1234,6 +1234,14 @@ The following invariants are mandatory:
    removing the old scope's cache. No projection, selection, path label, or
    preference from the old node may be used for the new node.
 
+The M13 Chat model projects the canonical session, project, and group registry
+pages. It resolves those registries before creating or attaching a visible
+conversation, and a complete unfiltered session refresh removes records absent
+from the canonical list. A missing project must remain unresolved; Chat must
+not synthesize a project to make a session appear. A projected event window
+without an authoritative retention cursor cannot claim its full history was
+loaded.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection
