@@ -4048,15 +4048,28 @@ git-ignored `artifacts/packaged/`:
    (`stale_generation`). Host-side modules run on the packaged lane; running
    them inside the packaged app process arrives with the production
    composition root and stays named work, not packaged evidence.
-4. **Browser/devices matrix** (`packaged-browser-matrix`): lane registration
-   through the M10 gate with per-kind profile identities, fail-closed
-   navigation without a serving engine (`capability_unavailable`), the SSRF
-   regression matrix on the per-hop admission gate, the typed capability
-   matrix (host toolchains as typed available/unavailable with guidance),
-   and real host device inventory through the gate. The real browser lane
-   engine (Bun.WebView / CDP navigation + screenshots through the admission
-   gate) is explicitly out of scope until a serving engine exists; it is
-   recorded as typed-unavailable, never faked.
+4. **Browser/devices matrix** (`packaged-browser-matrix`): organized by the
+   host's engine era — what its Bun reports for `Bun.WebView` — so every row
+   passes on both host classes and the proof never leaves a lane crashed.
+   Era-agnostic rows: lane registration through the M10 gate with per-kind
+   profile identities; the human_embedded lane's typed
+   `capability_unavailable` (the packaged CEF handle is unexposed); an
+   SSRF-target navigation refused by the provider's admission gate before any
+   engine involvement; the SSRF regression matrix on the per-hop admission
+   gate (loopback, metadata, and both textual IPv4-mapped-IPv6 forms); the
+   typed capability matrix; and real host device inventory through the gate.
+   Engine-available rows (conditional on `Bun.WebView` existing): lane
+   provisioning and admitted navigation against the proof's own loopback
+   Adea-owned service, admitHop-gated redirect chains (admitted per hop, and
+   refused mid-flight onto an unowned loopback port), screenshot publication
+   with provider-admitted provenance, frame publication through a real minted
+   `browser-frames-v1` grant attached before the view exists, and crash →
+   typed recovery (an admitted-but-dead owned port yields `crash_loop` and the
+   same lane recovers to ready by navigating again). The engine-seam row
+   (runs on both eras, last) proves through `attachBrowserEngine(undefined)`
+   that an admitted navigation without an attached engine is refused with
+   typed `capability_unavailable` — the engine-less era contract — never
+   faked.
 
 The `bun test` wrappers in `apps/desktop/tests/` shell out to the same
 scripts and skip loudly when the bundle has not been built; the packaged
