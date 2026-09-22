@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.44.0](https://github.com/adea-ai/adea/compare/v0.43.1...v0.44.0) (2026-09-22)
+
+
+### Features
+
+* **types:** add execution location policy contract ([#581](https://github.com/adea-ai/adea/issues/581)) ([7d8cfa7](https://github.com/adea-ai/adea/commit/7d8cfa7e0976e92cd8ae9397ef48c3a3fcb0d154))
+
 ## [0.43.1](https://github.com/adea-ai/adea/compare/v0.43.0...v0.43.1) (2026-09-22)
 
 
