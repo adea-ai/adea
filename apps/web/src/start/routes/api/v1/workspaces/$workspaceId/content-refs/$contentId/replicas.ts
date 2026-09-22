@@ -6,10 +6,8 @@ import type {
 import { listContentReplicasForUser, upsertContentReplica } from '@adea-ai/db'
 
 import { withRequestScope } from '../../../../../../../../server/request-scope'
-import {
-  contentReplicaErrorResponse,
-  parseContentReplicaUpsertInput,
-} from '../../../../../../../../server/content-replica-request'
+import { contentReplicaErrorResponse } from '../../../../../../../../server/content-replica-request'
+import { readContentReplicaRequest } from '../../../../../../../../server/content-replica-body'
 import { applicationDatabase } from '../../../../../../../../server/database'
 import {
   guardDesktopWorkspaceRequest,
@@ -35,17 +33,21 @@ async function get(request: Request, { params }: Context) {
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   if (!(await authorizeWorkspace(resolution.principal, 'workspace.read', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
-  const payload: ApiContentReplicaListResponse = {
-    contentReplicas: await listContentReplicasForUser(
-      applicationDatabase(),
-      workspaceId,
-      contentId,
-      resolution.principal
-    ),
+  try {
+    const payload: ApiContentReplicaListResponse = {
+      contentReplicas: await listContentReplicasForUser(
+        applicationDatabase(),
+        workspaceId,
+        contentId,
+        resolution.principal
+      ),
+    }
+    return workspaceJsonResponse(payload, resolution, request, {
+      headers: { 'cache-control': 'private, no-store' },
+    })
+  } catch (error) {
+    return contentReplicaErrorResponse(error, resolution, request)
   }
-  return workspaceJsonResponse(payload, resolution, request, {
-    headers: { 'cache-control': 'private, no-store' },
-  })
 }
 
 async function post(request: Request, { params }: Context) {
@@ -57,12 +59,7 @@ async function post(request: Request, { params }: Context) {
   if (!resolution) return workspaceUnavailableResponse(request, 401)
   if (!(await authorizeWorkspace(resolution.principal, 'workspace.update', workspaceId)).allowed)
     return workspaceUnavailableResponse(request)
-  let input
-  try {
-    input = parseContentReplicaUpsertInput(await request.json())
-  } catch {
-    return workspaceInvalidRequestResponse(request)
-  }
+  const input = await readContentReplicaRequest(request)
   if (!input) return workspaceInvalidRequestResponse(request)
   try {
     const result = await upsertContentReplica(

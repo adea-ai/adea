@@ -25,8 +25,26 @@ export type ContentReplicaUpsertResult = Readonly<{
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DIGEST = /^[0-9a-f]{64}$/
-const BASE64URL = /^[A-Za-z0-9_-]+$/
 const NONCE = /^[A-Za-z0-9_-]{16}$/
+const MAX_CIPHERTEXT_BYTES = 2 * 1024 * 1024
+const MIN_CIPHERTEXT_BYTES = 16
+const BASE64URL = /^[A-Za-z0-9_-]+$/
+
+function decodeCanonicalBase64Url(value: string): Uint8Array | null {
+  if (!BASE64URL.test(value) || value.length % 4 === 1) return null
+  const padded = `${value.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat((4 - (value.length % 4)) % 4)}`
+  try {
+    const binary = atob(padded)
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+    let binaryBytes = ''
+    for (let offset = 0; offset < bytes.length; offset += 0x8000)
+      binaryBytes += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+    const canonical = btoa(binaryBytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+    return canonical === value ? bytes : null
+  } catch {
+    return null
+  }
+}
 
 async function requireMembership(
   database: Database,
@@ -50,7 +68,6 @@ function validateInput(input: ContentReplicaUpsertInput) {
   if (
     !DIGEST.test(input.digestSha256) ||
     !NONCE.test(input.nonce) ||
-    !BASE64URL.test(input.ciphertext) ||
     !Number.isSafeInteger(input.revision) ||
     input.revision < 1 ||
     !Number.isSafeInteger(input.schemaVersion) ||
@@ -58,11 +75,16 @@ function validateInput(input: ContentReplicaUpsertInput) {
     (input.keyEpochId !== undefined && !UUID.test(input.keyEpochId))
   )
     throw new Error('Content replica metadata invalid')
+  const ciphertext = decodeCanonicalBase64Url(input.ciphertext)
+  if (
+    !ciphertext ||
+    ciphertext.byteLength < MIN_CIPHERTEXT_BYTES ||
+    ciphertext.byteLength > MAX_CIPHERTEXT_BYTES
+  )
+    throw new Error('Content replica metadata invalid')
   if (input.replicaKind === 'agent_hq_e2ee_sync' && input.keyEpochId === undefined)
     throw new Error('Content replica metadata invalid')
   if (input.replicaKind !== 'agent_hq_e2ee_sync' && input.keyEpochId !== undefined)
-    throw new Error('Content replica metadata invalid')
-  if (input.availability === 'deleted' && input.ciphertext.length === 0)
     throw new Error('Content replica metadata invalid')
 }
 
@@ -231,8 +253,15 @@ export async function listContentReplicasForUser(
   contentRefId: string,
   principal: UserPrincipalRef
 ): Promise<ContentReplicaSummary[]> {
-  if (!UUID.test(contentRefId)) return []
+  if (!UUID.test(contentRefId)) throw new Error('Content replica unavailable')
   await requireMembership(database, workspaceId, principal)
+  const [contentRef] = await database
+    .select({ synchronizationPolicy: contentRefs.synchronizationPolicy })
+    .from(contentRefs)
+    .where(and(eq(contentRefs.workspaceId, workspaceId), eq(contentRefs.id, contentRefId)))
+    .limit(1)
+  if (!contentRef || contentRef.synchronizationPolicy !== 'agent_hq_e2ee_sync')
+    throw new Error('Content replica unavailable')
   const rows = await database
     .select()
     .from(contentReplicas)

@@ -63,6 +63,15 @@ export const contentReplicas = appSchema.table(
     check('content_replicas_nonce_base64url', sql`${table.nonce} ~ '^[A-Za-z0-9_-]{16}$'`),
     check('content_replicas_ciphertext_base64url', sql`${table.ciphertext} ~ '^[A-Za-z0-9_-]+$'`),
     check(
+      'content_replicas_ciphertext_size',
+      // 16-byte tag minimum and 2 MiB decoded maximum in unpadded base64url.
+      sql`length(${table.ciphertext}) between 22 and 2796203`
+    ),
+    check(
+      'content_replicas_kind_epoch_consistent',
+      sql`(${table.replicaKind} = 'agent_hq_e2ee_sync' and ${table.keyEpochId} is not null) or (${table.replicaKind} <> 'agent_hq_e2ee_sync' and ${table.keyEpochId} is null)`
+    ),
+    check(
       'content_replicas_deletion_consistent',
       sql`(${table.availability} = 'deleted' and ${table.deletedAt} is not null) or (${table.availability} <> 'deleted' and ${table.deletedAt} is null)`
     ),

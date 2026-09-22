@@ -162,6 +162,20 @@
       "when": 1790064634488,
       "tag": "0022_overjoyed_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790065806170,
+      "tag": "0023_past_thunderbolts",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790065834909,
+      "tag": "0024_aromatic_avengers",
+      "breakpoints": true
     }
   ]
 }

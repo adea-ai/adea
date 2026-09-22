@@ -98,6 +98,10 @@ describe('persistence schema', () => {
     expect(columns).not.toContain('plaintext')
     expect(config.checks.some(({ name }) => name === 'content_replicas_digest_sha256')).toBe(true)
     expect(config.checks.some(({ name }) => name === 'content_replicas_nonce_base64url')).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'content_replicas_ciphertext_size')).toBe(true)
+    expect(
+      config.checks.some(({ name }) => name === 'content_replicas_kind_epoch_consistent')
+    ).toBe(true)
     expect(config.checks.some(({ name }) => name === 'content_replicas_deletion_consistent')).toBe(
       true
     )
