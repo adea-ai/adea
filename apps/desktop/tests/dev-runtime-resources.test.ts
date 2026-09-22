@@ -762,7 +762,7 @@ describe('cleanup policies', () => {
     expect(approved.state).toBe('approved')
     expect(approved.version).toBe(2)
     expect(consumed).toBe(1)
-    const matched = authority.providers['dev.cleanupPolicy.evaluate']!(
+    const matched = (await authority.providers['dev.cleanupPolicy.evaluate']!(
       command(
         'dev.cleanupPolicy.evaluate',
         {
@@ -773,11 +773,11 @@ describe('cleanup policies', () => {
         },
         { kind: 'cleanup_policy', id: policy.id, generation: 2 }
       )
-    ) as { matched: boolean; executesNothing: boolean; blockers: unknown[] }
+    )) as { matched: boolean; executesNothing: boolean; blockers: unknown[] }
     expect(matched.matched).toBe(true)
     expect(matched.executesNothing).toBe(true)
     // Unprovable facts block automatic cleanup (fail closed).
-    const unmatched = authority.providers['dev.cleanupPolicy.evaluate']!(
+    const unmatched = (await authority.providers['dev.cleanupPolicy.evaluate']!(
       command(
         'dev.cleanupPolicy.evaluate',
         {
@@ -788,7 +788,7 @@ describe('cleanup policies', () => {
         },
         { kind: 'cleanup_policy', id: policy.id, generation: 2 }
       )
-    ) as { matched: boolean; blockers: Array<{ code: string }> }
+    )) as { matched: boolean; blockers: Array<{ code: string }> }
     expect(unmatched.matched).toBe(false)
     expect(unmatched.blockers[0]).toMatchObject({ code: 'capability_unavailable' })
     // A stale policy version refuses evaluation.

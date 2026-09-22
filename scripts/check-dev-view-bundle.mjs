@@ -15,8 +15,14 @@ if (devChunks.length !== 1) {
 }
 const devChunk = devChunks[0]
 const devBytes = (await stat(path.join(assets, devChunk.file))).size
-if (devBytes > 70 * 1024) {
-  throw new Error(`Dev View chunk is ${devBytes} bytes; budget is 71680 bytes`)
+// The ratchet: 70 KiB held through the M12 build-out, but F3's hunk staging +
+// quick-open landed the chunk at 71,600 bytes (80 bytes of headroom) and the
+// Wave K product surfaces (live browser frames, terminal UX depth, owner-
+// journey hardening) would blow that wall immediately. 84 KiB carries them;
+// the eager-shell prohibition below stays the real guard. Re-tighten after
+// Wave K if the landed surfaces allow.
+if (devBytes > 84 * 1024) {
+  throw new Error(`Dev View chunk is ${devBytes} bytes; budget is 86016 bytes`)
 }
 const initial = contents.filter(({ file }) =>
   /(?:workspace-mount|workspace-navigation-entry|client)-/.test(file)
