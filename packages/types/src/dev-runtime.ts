@@ -1213,6 +1213,11 @@ export type PortRecord = Readonly<{
   processRecordId?: string
   runtimeSessionId?: string
   generation?: number
+  /** A host-proven browser lane and URL for opening this service in Preview. */
+  preview?: Readonly<{
+    browserLaneId: string
+    url: string
+  }>
   state: 'observed' | 'stale' | 'gone'
   observedAt: string
 }>
@@ -1946,7 +1951,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
     exactKeys(
       item,
       ['id', 'scope', 'protocol', 'host', 'port', 'owner', 'state', 'observedAt'],
-      ['processRecordId', 'runtimeSessionId', 'generation'],
+      ['processRecordId', 'runtimeSessionId', 'generation', 'preview'],
       path
     )
     stringValue(item.id, `${path}.id`, 1, 256)
@@ -1960,6 +1965,12 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.runtimeSessionId !== undefined)
       stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
     if (item.generation !== undefined) integerValue(item.generation, `${path}.generation`, 0)
+    if (item.preview !== undefined) {
+      const preview = record(item.preview, `${path}.preview`)
+      exactKeys(preview, ['browserLaneId', 'url'], [], `${path}.preview`)
+      stringValue(preview.browserLaneId, `${path}.preview.browserLaneId`, 1, 256)
+      stringValue(preview.url, `${path}.preview.url`, 1, 4096)
+    }
     literal(item.state, ['observed', 'stale', 'gone'], `${path}.state`)
     timestamp(item.observedAt, `${path}.observedAt`)
     return value

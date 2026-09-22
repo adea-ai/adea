@@ -83,6 +83,19 @@ export type PortInventoryOptions = Readonly<{
    * primary inventory; the lsof scan only confirms ownership of listeners.
    */
   ownedServices: () => readonly AdeaOwnedPortService[]
+  /** Resolves a proven service to its task-owned browser preview lane. */
+  previewForPort?: (
+    service: Readonly<{
+      port: number
+      processRecordId: string
+      runtimeSessionId?: string
+    }>
+  ) => PortPreviewAssociation | undefined
+}>
+
+export type PortPreviewAssociation = Readonly<{
+  browserLaneId: string
+  url: string
 }>
 
 export type AdeaOwnedPortService = Readonly<{
@@ -137,6 +150,14 @@ export function createPortInventory(options: PortInventoryOptions) {
       for (const listener of listeners) {
         seen.add(listener.port)
         const owner = ownedByPort.get(listener.port)
+        const preview =
+          owner && options.previewForPort
+            ? options.previewForPort({
+                port: owner.port,
+                processRecordId: owner.processRecordId,
+                ...(owner.runtimeSessionId ? { runtimeSessionId: owner.runtimeSessionId } : {}),
+              })
+            : undefined
         const record: PortRecord = {
           id: randomId(),
           scope: options.scope,
@@ -149,6 +170,7 @@ export function createPortInventory(options: PortInventoryOptions) {
                 processRecordId: owner.processRecordId,
                 runtimeSessionId: owner.runtimeSessionId,
                 generation: 1,
+                ...(preview ? { preview } : {}),
               }
             : {}),
           state: 'observed',
