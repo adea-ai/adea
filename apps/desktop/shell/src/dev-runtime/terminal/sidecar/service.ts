@@ -1,5 +1,5 @@
 // The terminal sidecar service (issue #396): the in-process core behind the
-// detached sidecar binary. It authenticates every connection against the
+// detached sidecar process. It authenticates every connection against the
 // endpoint credential with a fresh nonce, binds one scope per connection,
 // and serves terminal operations on top of the session manager, the
 // checkpoint sinks, and the shell-integration observers.
