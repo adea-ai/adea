@@ -520,9 +520,13 @@
 }
 
 .dev-row-badge {
+  /* A solid pill pairs the badge text with the workspace background instead
+     of whatever row wash it sits on, so every status tone keeps 4.5:1 on
+     selected/hover rows (WCAG audit #599). */
   padding: 0 0.3rem;
   border: 1px solid var(--dev-border);
   border-radius: 999px;
+  background: var(--background);
   color: var(--dev-muted);
   font-size: 0.56rem;
   line-height: 1.4;

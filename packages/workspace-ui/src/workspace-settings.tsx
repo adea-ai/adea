@@ -152,7 +152,13 @@ export function WorkspaceSettingsDialog(props: {
 
   const selectSection = (next: SettingsSection, focus = false) => {
     setSection(next)
-    window.history.replaceState(null, '', `#settings/${next}`)
+    // Re-writing an already-current hash makes the router re-resolve the route,
+    // whose server-only entry loader then runs on the client and tears the
+    // whole workspace down — observed as the dialog dismissing when the
+    // already-selected tab trigger is clicked (#601). Only write the deep link
+    // when it actually changes.
+    const nextHash = `#settings/${next}`
+    if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash)
     if (focus) requestAnimationFrame(() => navigationRefs.get(next)?.focus())
   }
   const close = () => {
