@@ -110,6 +110,186 @@ export function createInMemoryVaultKeyStore(): VaultKeyStore {
 
 const VAULT_KEY_SERVICE = 'com.adea.desktop.dev-runtime'
 const VAULT_KEY_ACCOUNT = 'master-key-v1'
+const BUN_SECRETS_MIN_VERSION = '1.4.0'
+
+export type BunSecretsApi = Readonly<{
+  get(options: { service: string; name: string }): Promise<string | null>
+  set(options: { service: string; name: string; value: string }): Promise<void>
+  delete?(options: { service: string; name: string }): Promise<boolean>
+}>
+
+type BunRuntime = Readonly<{
+  version?: string
+  secrets?: BunSecretsApi
+}>
+
+function currentBunRuntime(): BunRuntime | undefined {
+  return (globalThis as typeof globalThis & { Bun?: BunRuntime }).Bun
+}
+
+function supportsBunSecrets(version: string): boolean {
+  const current = version.match(/^(\d+)\.(\d+)\.(\d+)/)
+  const minimum = BUN_SECRETS_MIN_VERSION.match(/^(\d+)\.(\d+)\.(\d+)/)
+  if (!current || !minimum) return false
+  for (let index = 1; index <= 3; index += 1) {
+    const currentPart = Number(current[index])
+    const minimumPart = Number(minimum[index])
+    if (currentPart !== minimumPart) return currentPart > minimumPart
+  }
+  return true
+}
+
+function decodeVaultKey(encoded: string, source: string): Buffer {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 === 1) {
+    throw new DevAuthorityError('corrupt_state', `${source} vault key is malformed`)
+  }
+  const key = Buffer.from(encoded, 'base64')
+  if (key.byteLength !== 32 || key.toString('base64') !== encoded) {
+    throw new DevAuthorityError('corrupt_state', `${source} vault key has an unexpected size`)
+  }
+  return key
+}
+
+function assertVaultKey(key: Buffer, source: string): Buffer {
+  if (key.byteLength !== 32) {
+    throw new DevAuthorityError('corrupt_state', `${source} vault key has an unexpected size`)
+  }
+  return Buffer.from(key)
+}
+
+function bunSecretsFailure(action: 'read' | 'write' | 'verify'): DevAuthorityError {
+  // Bun's native errors can include account names or platform diagnostics.
+  // Keep them out of the authority surface and logs.
+  return new DevAuthorityError('auth_required', `the Bun credential store refused to ${action}`)
+}
+
+function createLoadedVaultKeyStore(key: Buffer): VaultKeyStore {
+  const loaded = assertVaultKey(key, 'loaded')
+  return {
+    get: (service, account) =>
+      service === VAULT_KEY_SERVICE && account === VAULT_KEY_ACCOUNT
+        ? Buffer.from(loaded)
+        : undefined,
+    set: (service, account, next) => {
+      if (service !== VAULT_KEY_SERVICE || account !== VAULT_KEY_ACCOUNT) {
+        throw new DevAuthorityError('not_found', 'unknown vault key slot')
+      }
+      if (next.byteLength !== 32) throw new DevAuthorityError('corrupt_state', 'invalid vault key')
+      if (!Buffer.from(next).equals(loaded)) {
+        throw new DevAuthorityError('corrupt_state', 'vault key replacement is refused')
+      }
+    },
+    delete: (service, account) => {
+      if (service === VAULT_KEY_SERVICE && account === VAULT_KEY_ACCOUNT) {
+        throw new DevAuthorityError('unauthorized', 'vault key deletion is refused')
+      }
+    },
+  }
+}
+
+function seedLegacyVaultKey(legacyStore: VaultKeyStore, key: Buffer): void {
+  const current = legacyStore.get(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+  if (current !== undefined) {
+    if (!assertVaultKey(current, 'legacy').equals(key)) {
+      throw new DevAuthorityError('corrupt_state', 'vault key stores disagree')
+    }
+    return
+  }
+
+  try {
+    legacyStore.set(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT, key)
+    const written = legacyStore.get(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+    if (written === undefined)
+      throw new DevAuthorityError('auth_required', 'legacy vault key was not retained')
+    if (!assertVaultKey(written, 'legacy').equals(key)) {
+      throw new DevAuthorityError('corrupt_state', 'legacy vault key read-back differs')
+    }
+  } catch (error) {
+    if (error instanceof DevAuthorityError) throw error
+    throw new DevAuthorityError('auth_required', 'the legacy credential store refused to write')
+  }
+}
+
+/**
+ * Resolve the vault master key through Bun's native credential store during
+ * application startup. The returned store keeps the existing synchronous
+ * `VaultKeyStore` contract for the authority graph while the async Bun API is
+ * used only during this bounded bootstrap step.
+ *
+ * The legacy `/usr/bin/security` slot is read before migration and is never
+ * deleted. A Bun read/write/read-back failure refuses startup rather than
+ * falling through to a new key, so an upgrade cannot strand existing sealed
+ * credentials behind a fabricated replacement key. If the packaged runtime
+ * lacks a supported Bun.secrets API, the legacy adapter is returned unchanged.
+ */
+export async function createBunSecretsVaultKeyStore(options?: {
+  legacyStore?: VaultKeyStore
+  secrets?: BunSecretsApi
+  runtimeVersion?: string
+}): Promise<VaultKeyStore> {
+  const legacyStore = options?.legacyStore ?? createSystemVaultKeyStore()
+  const runtime = currentBunRuntime()
+  const secrets = options?.secrets ?? runtime?.secrets
+  const runtimeVersion = options?.runtimeVersion ?? runtime?.version
+
+  // The app-level caller supplies Bun.version. An injected backend without a
+  // runtime version is deliberately allowed for deterministic tests.
+  if (!secrets || (runtimeVersion !== undefined && !supportsBunSecrets(runtimeVersion))) {
+    return legacyStore
+  }
+
+  const slot = { service: VAULT_KEY_SERVICE, name: VAULT_KEY_ACCOUNT }
+  let bunKey: Buffer | undefined
+  try {
+    const encoded = await secrets.get(slot)
+    if (encoded !== null) bunKey = decodeVaultKey(encoded, 'Bun.secrets')
+  } catch (error) {
+    if (error instanceof DevAuthorityError) throw error
+    throw bunSecretsFailure('read')
+  }
+
+  // Do not attempt a Bun write when the old slot cannot be read. The old
+  // adapter's classified failure is the source of truth for compatibility.
+  let legacyKey: Buffer | undefined
+  const candidate = legacyStore.get(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+  if (candidate !== undefined) legacyKey = assertVaultKey(candidate, 'legacy')
+
+  if (bunKey && legacyKey && !bunKey.equals(legacyKey)) {
+    throw new DevAuthorityError('corrupt_state', 'vault key stores disagree')
+  }
+  if (bunKey) {
+    // A Bun-only key may have been created by an interrupted/older rollout.
+    // Repair the legacy slot before returning so a downgrade cannot generate a
+    // different key and strand the sealed vault.
+    if (!legacyKey) seedLegacyVaultKey(legacyStore, bunKey)
+    return createLoadedVaultKeyStore(bunKey)
+  }
+
+  const key = legacyKey ?? assertVaultKey(randomBytes(32), 'generated')
+  // Fresh installs must seed both stores before either runtime is allowed to
+  // open the vault. If the legacy store cannot retain the key, no Bun-only
+  // state is created that an older runtime could replace with a new key.
+  if (!legacyKey) seedLegacyVaultKey(legacyStore, key)
+  try {
+    await secrets.set({ ...slot, value: key.toString('base64') })
+  } catch {
+    // The legacy key remains intact and the next startup can retry safely.
+    throw bunSecretsFailure('write')
+  }
+
+  let verified: string | null
+  try {
+    verified = await secrets.get(slot)
+  } catch {
+    throw bunSecretsFailure('verify')
+  }
+  if (verified === null) throw bunSecretsFailure('verify')
+  const verifiedKey = decodeVaultKey(verified, 'Bun.secrets')
+  if (!verifiedKey.equals(key)) {
+    throw new DevAuthorityError('corrupt_state', 'Bun.secrets returned a different vault key')
+  }
+  return createLoadedVaultKeyStore(key)
+}
 
 /** Why a `security` CLI invocation failed. Only `item_not_found` may permit
  * first-time key generation; every other class fails closed. */
