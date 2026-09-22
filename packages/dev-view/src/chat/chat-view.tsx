@@ -1,4 +1,4 @@
-import { onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js'
+import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js'
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
 import { createTranscriptAccumulator, transcriptWindow } from './model'
@@ -47,22 +47,42 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     props.connected === false ? 'disconnected' : 'idle'
   )
   const [streamError, setStreamError] = createSignal<string | undefined>()
+  const [mounted, setMounted] = createSignal(false)
   let closeStream: (() => void) | undefined
+  let attachment = 0
 
-  const attach = async () => {
-    if (!props.model) return
+  const detach = () => {
+    attachment += 1
     closeStream?.()
     closeStream = undefined
+  }
+
+  const attach = async () => {
+    const model = props.model
+    if (!model) return
+    detach()
+    const currentAttachment = attachment
+    const runtimeSessionId = props.conversation.runtimeSessionId
+    const generation = props.conversation.generation
     setStreamState('connecting')
     setStreamError(undefined)
     try {
-      const handle = await props.model.openTranscript(props.conversation.runtimeSessionId, {
+      const handle = await model.openTranscript(runtimeSessionId, {
         fromSequence:
           transcript().retention.newestSequence ??
           props.conversation.retention.newestSequence ??
           '0',
       })
+      if (
+        currentAttachment !== attachment ||
+        props.conversation.runtimeSessionId !== runtimeSessionId ||
+        props.conversation.generation !== generation
+      ) {
+        handle.close()
+        return
+      }
       const poll = window.setInterval(() => {
+        if (currentAttachment !== attachment) return
         const next = handle.state()
         setTranscript(next)
         if (
@@ -79,15 +99,34 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       setTranscript(handle.state())
       setStreamState('connected')
     } catch (error) {
+      if (currentAttachment !== attachment) return
       setStreamState('disconnected')
       setStreamError(error instanceof Error ? error.message : 'Runtime stream unavailable.')
     }
   }
 
-  onMount(() => {
-    if (props.autoAttach !== false) void attach()
-  })
-  onCleanup(() => closeStream?.())
+  onMount(() => setMounted(true))
+  createEffect(
+    on(
+      () =>
+        [
+          mounted(),
+          props.conversation.runtimeSessionId,
+          props.conversation.generation,
+          props.model,
+          props.autoAttach,
+        ] as const,
+      ([ready]) => {
+        if (!ready) return
+        detach()
+        setTranscript(initialTranscript(props.conversation))
+        setStreamState(props.connected === false ? 'disconnected' : 'idle')
+        setStreamError(undefined)
+        if (props.autoAttach !== false) void attach()
+      }
+    )
+  )
+  onCleanup(detach)
 
   const connected = () => props.connected ?? streamState() === 'connected'
   const status = () => transcript().availability.status
@@ -134,24 +173,30 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           </button>
         </div>
       </Show>
-      <ChatTranscript
-        events={transcript().events}
-        projection={props.conversation.projection}
-        transcript={transcript()}
-        onResolveApproval={props.onResolveApproval}
-        onResolveQuestion={props.onResolveQuestion}
-        onJumpToTerminal={props.onJumpToTerminal}
-      />
-      <ChatComposer
-        conversation={props.conversation}
-        authority={props.authority}
-        connected={connected()}
-        awaitingApproval={props.awaitingApproval}
-        busy={props.conversation.status === 'active'}
-        onSend={send}
-        onSteer={props.onSteer}
-        onStop={stop}
-      />
+      <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
+        {() => (
+          <>
+            <ChatTranscript
+              events={transcript().events}
+              projection={props.conversation.projection}
+              transcript={transcript()}
+              onResolveApproval={props.onResolveApproval}
+              onResolveQuestion={props.onResolveQuestion}
+              onJumpToTerminal={props.onJumpToTerminal}
+            />
+            <ChatComposer
+              conversation={props.conversation}
+              authority={props.authority}
+              connected={connected()}
+              awaitingApproval={props.awaitingApproval}
+              busy={props.conversation.status === 'active'}
+              onSend={send}
+              onSteer={props.onSteer}
+              onStop={stop}
+            />
+          </>
+        )}
+      </For>
     </section>
   )
 }
