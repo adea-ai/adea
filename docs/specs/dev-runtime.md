@@ -4274,7 +4274,9 @@ can distinguish intentional spec evolution from drift:
     `access_denied`, `malformed_output`, `process_failure`, `timeout`,
     `unavailable_executable`). Only item-not-found permits first-time key
     generation; every other outcome fails closed without generating or
-    overwriting a key, and lookups re-validate base64 strictly.
+    overwriting a key. If CLI stderr contains conflicting signals, locked or
+    denied takes precedence over item-not-found; a mixed diagnostic never
+    permits first-time generation. Lookups re-validate base64 strictly.
   - **Production registration matrix.** The composition root
     (`apps/desktop/shell/src/dev-runtime/index.ts`) registers every provider
     with a reachable implementation — capability snapshot, project/session
