@@ -1332,10 +1332,39 @@ authority.
 
 The desktop shell's project/session register is the host-side canonical
 authority for projects, runtime sessions, groups, and the archive journal —
-not a projection of other state. One snapshot record commits groups, projects,
-sessions, and `ArchiveRecord`s together in a single atomic file write, so
+not a projection of other state. One versioned snapshot payload commits groups,
+projects, sessions, and `ArchiveRecord`s together in the WAL-backed per-scope
+`dev-runtime/project-session/authority-<sha256(scope)>.sqlite3` store, so
 `dev.session.archive`/`dev.session.unarchive` persist the session flip and its
-durable record in one transaction. The register serves `dev.group.*` (now
+durable record in one SQLite transaction. The store enables `journal_mode=WAL`,
+`synchronous=FULL`, and foreign keys on every open, uses a format-version guard,
+and binds its single row to the `(accountId, workspaceId, runtimeNodeId)` scope
+key before returning records. Each scope has an independent database and
+ledger, so switching workspaces never makes one scope open or overwrite another
+scope's file. The pre-slice `authority.sqlite3` is reused only when its stored
+row belongs to the requested scope; a different scope gets a new partition.
+A scope mismatch, malformed payload, or
+unsupported format/schema version fails closed and retains an unread database
+copy for recovery; the original database is never replaced by a recovery copy.
+An interrupted migration transaction rolls back and leaves its JSON source for
+the next open to retry while the SQLite database identity is unchanged. Each
+partition has an owner-only sidecar migration ledger
+(`authority-<sha256(scope)>.sqlite3.migration.json`), which
+records the legacy source digest and database identity, and survives SQLite
+loss: a recreated database refuses to re-import stale JSON and reports
+`corrupt_state` for recovery. A first open without a legacy source creates a
+native-state ledger before accepting a save; if the SQLite metadata survives
+alone, a missing ledger is regenerated before records are returned. The
+SQLite database and ledger are separate durable files, but deleting both is a
+complete local state loss with no surviving identity; a later open cannot
+distinguish that event from a first install and this slice does not claim to
+prevent stale legacy re-import in that case. External backup or recovery
+protection must cover that trust boundary. The retained `authority.json` source
+is filtered by scope for each partition, so an A-to-B-to-A restart preserves
+both migrated records without cross-scope import; legacy authority and
+projection files must be regular owner-only files, and duplicate same-scope
+legacy rows fail closed as `corrupt_state` instead of selecting the first row.
+The register serves `dev.group.*` (now
 including `create`/`update`/`delete`: a created group is placed after
 `afterGroupId` or at the end and every displaced group's `version` bumps;
 `delete` requires an empty group plus a `confirmationId` and the `group`
@@ -1351,9 +1380,15 @@ Import and create commit the new project and every affected group's membership
 ordering in one snapshot write. Every mutation enforces the scope triple
 (`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
 concurrency (`stale_version`); a stored record that fails structural decode
-fails closed with `corrupt_state` and is retained unread. The earlier local
-`projection.json` is seeded into the authority store exactly once and never
-deleted.
+fails closed with `corrupt_state` and is retained unread. The previous
+`authority.json` envelope is migrated exactly once inside a SQLite transaction;
+if migration is interrupted, the transaction rolls back and the next open
+retries from the untouched JSON source only when it is the same database
+identity. The earlier local `projection.json` is
+seeded into the authority store exactly once and neither legacy JSON source is
+deleted or rewritten. Other Dev Runtime authorities remain on the existing
+JSON store until an independently reviewed migration slice covers their schema
+and rollback contract.
 
 On the client, project/session selection resolves only inside the active
 scope's projection and enforces archive state, explicit revocation, generation
@@ -4564,7 +4599,14 @@ files in the same commit:
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
   project/session authority: restart survival without fixtures, transactional
   archive records, scope/generation/version rejection, fail-closed corruption,
-  and the legacy-seed migration; `apps/desktop/tests/repo-registry.test.ts`
+  scope-partitioned A-to-B-to-A restart, legacy-source mode/symlink checks,
+  duplicate-row refusal, and the legacy-seed migration.
+  `apps/desktop/tests/host-store.test.ts` pins
+  the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
+  guard, corruption retention, restart recovery, and interrupted migration
+  retry, native-state refusal after SQLite loss, and stale-source refusal after
+  SQLite loss;
+  `apps/desktop/tests/repo-registry.test.ts`
   pins the repository registry (#398 follow-up): adopt-time
   containment/identity proof with durable restart, unknown/stale/foreign-scope
   refusals, out-of-root containment refusal before any write, read-only

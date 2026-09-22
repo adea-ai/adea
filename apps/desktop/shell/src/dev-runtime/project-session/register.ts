@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { Database } from 'bun:sqlite'
+import { chmodSync, existsSync, lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type {
@@ -16,7 +17,7 @@ import type {
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
 import { DevAuthorityError } from '../authority'
-import { createDurableJsonStore } from '../host-store'
+import { createDurableSqliteStore } from '../host-store'
 
 export type ProjectRepoBindingView = Readonly<{
   repoId: string
@@ -49,9 +50,9 @@ export type ProjectSessionRuntime = Readonly<{
  *
  * One snapshot record commits groups, projects, sessions, and the archive
  * journal together, so `dev.session.archive`/`dev.session.unarchive` persist
- * the session flip and its `ArchiveRecord` in a single atomic file write
- * (fsync + rename + directory fsync) — a crash can never leave an archived
- * session without its durable record. The legacy `projection.json` written by
+ * the session flip and its `ArchiveRecord` in one SQLite transaction. The
+ * authority database uses WAL/full sync and retains the legacy JSON envelope
+ * as a retryable migration source. The legacy `projection.json` written by
  * the earlier local projection is seeded once and never deleted; it was never
  * an authority, but its records are user data and are migrated losslessly.
  *
@@ -78,7 +79,9 @@ type AuthorityRecord = Readonly<{
   }>
 }>
 
-const AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
+const AUTHORITY_STORE_DIRECTORY = join('dev-runtime', 'project-session')
+const AUTHORITY_STORE_FILE = join(AUTHORITY_STORE_DIRECTORY, 'authority.sqlite3')
+const LEGACY_AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
 const LEGACY_PROJECTION_FILE = join('dev-runtime', 'project-session', 'projection.json')
 const AUTHORITY_SCHEMA_VERSION = 1
 const SESSION_CREATE_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
@@ -248,6 +251,44 @@ function sha256Text(value: string): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
+function scopeKey(scope: Scope): string {
+  return JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])
+}
+
+/**
+ * One durable file belongs to one authority scope. The old unpartitioned file
+ * remains readable when its stored row belongs to the requested scope; a
+ * different scope gets its own file instead of being allowed to overwrite or
+ * reject the first workspace's records.
+ */
+function authorityStoreFile(dataDir: string, scope: Scope): string {
+  const directory = join(dataDir, AUTHORITY_STORE_DIRECTORY)
+  const scopedFile = join(directory, `authority-${sha256Text(scopeKey(scope))}.sqlite3`)
+  if (existsSync(scopedFile)) return scopedFile
+  const sharedFile = join(dataDir, AUTHORITY_STORE_FILE)
+  try {
+    const stats = lstatSync(sharedFile)
+    if (stats.isSymbolicLink() || !stats.isFile()) return sharedFile
+  } catch {
+    return scopedFile
+  }
+
+  let database: Database | undefined
+  try {
+    database = new Database(sharedFile, { readonly: true })
+    const rows = database
+      .query('SELECT scope_key AS scopeKey FROM durable_store_records')
+      .all() as Array<{ scopeKey?: unknown }>
+    return rows.some((row) => row.scopeKey === scopeKey(scope)) ? sharedFile : scopedFile
+  } catch {
+    // Let the durable store own corruption retention and fail closed for the
+    // legacy path rather than routing an unreadable shared file elsewhere.
+    return sharedFile
+  } finally {
+    database?.close()
+  }
+}
+
 /** The envelope resource for runtime_session operations must name this
  * session at its current generation: a stale or foreign binding is refused
  * before the provider touches the record. */
@@ -330,7 +371,16 @@ function archiveRecord(
  */
 function legacySeedRecords(dataDir: string, scope: Scope): AuthorityRecord | undefined {
   const legacyFile = join(dataDir, LEGACY_PROJECTION_FILE)
-  if (!existsSync(legacyFile)) return undefined
+  let stats
+  try {
+    stats = lstatSync(legacyFile)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw new DevAuthorityError('corrupt_state', 'legacy projection cannot be inspected')
+  }
+  if (stats.isSymbolicLink() || !stats.isFile())
+    throw new DevAuthorityError('corrupt_state', 'legacy projection is not a regular file')
+  chmodSync(legacyFile, 0o600)
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(legacyFile, 'utf8'))
@@ -341,9 +391,14 @@ function legacySeedRecords(dataDir: string, scope: Scope): AuthorityRecord | und
   }
   const envelope = parsed as { schemaVersion?: unknown; records?: unknown }
   if (envelope.schemaVersion !== 1 || !Array.isArray(envelope.records)) return undefined
-  const candidate = envelope.records[0] as AuthorityRecord | undefined
-  if (!candidate || !isScope(candidate.scope) || !sameScope(candidate.scope, scope))
-    return undefined
+  const matches = envelope.records.filter((record) => {
+    const candidate = record as AuthorityRecord | null
+    return Boolean(candidate && isScope(candidate.scope) && sameScope(candidate.scope, scope))
+  }) as AuthorityRecord[]
+  if (matches.length > 1)
+    throw new DevAuthorityError('corrupt_state', 'legacy projection has duplicate scope records')
+  const candidate = matches[0]
+  if (!candidate) return undefined
   return {
     scope,
     groups: Array.isArray(candidate.groups) ? [...candidate.groups] : [],
@@ -374,10 +429,25 @@ export function registerProjectSessionRuntime(input: {
    */
   resolveImportRoot?: (rootBookmarkId: string) => { canonicalRoot: string }
 }): ProjectSessionRuntime {
-  const store = createDurableJsonStore<AuthorityRecord>({
-    file: join(input.dataDir, AUTHORITY_STORE_FILE),
+  const store = createDurableSqliteStore<AuthorityRecord>({
+    file: authorityStoreFile(input.dataDir, input.scope),
     schemaVersion: AUTHORITY_SCHEMA_VERSION,
     label: 'project/session authority',
+    legacyFile: join(input.dataDir, LEGACY_AUTHORITY_STORE_FILE),
+    scope: input.scope,
+    migrateLegacy: (value) => {
+      const records = (value as { records?: unknown } | null)?.records
+      if (!Array.isArray(records)) return []
+      const scoped = records.filter((record): record is AuthorityRecord => {
+        const candidate = record as Partial<AuthorityRecord> | null
+        if (!candidate || !isScope(candidate.scope))
+          throw new DevAuthorityError('corrupt_state', 'legacy authority record is malformed')
+        return sameScope(candidate.scope, input.scope)
+      })
+      if (scoped.length > 1)
+        throw new DevAuthorityError('corrupt_state', 'legacy authority has duplicate scope records')
+      return scoped.length > 0 ? scoped : undefined
+    },
   })
   const emptyRecord = (): AuthorityRecord => ({
     scope: input.scope,
@@ -387,10 +457,7 @@ export function registerProjectSessionRuntime(input: {
     archiveRecords: [],
     sessionCreates: [],
   })
-  const storeFile = join(input.dataDir, AUTHORITY_STORE_FILE)
-  const loaded = existsSync(storeFile)
-    ? store.load()
-    : { schemaVersion: AUTHORITY_SCHEMA_VERSION, savedAt: '', records: [] as AuthorityRecord[] }
+  const loaded = store.load()
   const seededFromLegacy = !loaded.records[0]
   let record: AuthorityRecord = seededFromLegacy
     ? (legacySeedRecords(input.dataDir, input.scope) ?? emptyRecord())
