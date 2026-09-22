@@ -16,7 +16,7 @@ import type {
 import { devOperationDecoders } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
 import { DevAuthorityError } from '../authority'
-import { createDurableJsonStore } from '../host-store'
+import { createDurableSqliteStore } from '../host-store'
 
 export type ProjectRepoBindingView = Readonly<{
   repoId: string
@@ -49,9 +49,9 @@ export type ProjectSessionRuntime = Readonly<{
  *
  * One snapshot record commits groups, projects, sessions, and the archive
  * journal together, so `dev.session.archive`/`dev.session.unarchive` persist
- * the session flip and its `ArchiveRecord` in a single atomic file write
- * (fsync + rename + directory fsync) — a crash can never leave an archived
- * session without its durable record. The legacy `projection.json` written by
+ * the session flip and its `ArchiveRecord` in one SQLite transaction. The
+ * authority database uses WAL/full sync and retains the legacy JSON envelope
+ * as a retryable migration source. The legacy `projection.json` written by
  * the earlier local projection is seeded once and never deleted; it was never
  * an authority, but its records are user data and are migrated losslessly.
  *
@@ -71,7 +71,8 @@ type AuthorityRecord = Readonly<{
   archiveRecords: ArchiveRecord[]
 }>
 
-const AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
+const AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.sqlite3')
+const LEGACY_AUTHORITY_STORE_FILE = join('dev-runtime', 'project-session', 'authority.json')
 const LEGACY_PROJECTION_FILE = join('dev-runtime', 'project-session', 'projection.json')
 const AUTHORITY_SCHEMA_VERSION = 1
 
@@ -346,10 +347,12 @@ export function registerProjectSessionRuntime(input: {
    */
   resolveImportRoot?: (rootBookmarkId: string) => { canonicalRoot: string }
 }): ProjectSessionRuntime {
-  const store = createDurableJsonStore<AuthorityRecord>({
+  const store = createDurableSqliteStore<AuthorityRecord>({
     file: join(input.dataDir, AUTHORITY_STORE_FILE),
     schemaVersion: AUTHORITY_SCHEMA_VERSION,
     label: 'project/session authority',
+    legacyFile: join(input.dataDir, LEGACY_AUTHORITY_STORE_FILE),
+    scope: input.scope,
   })
   const emptyRecord = (): AuthorityRecord => ({
     scope: input.scope,
@@ -358,10 +361,7 @@ export function registerProjectSessionRuntime(input: {
     sessions: [],
     archiveRecords: [],
   })
-  const storeFile = join(input.dataDir, AUTHORITY_STORE_FILE)
-  const loaded = existsSync(storeFile)
-    ? store.load()
-    : { schemaVersion: AUTHORITY_SCHEMA_VERSION, savedAt: '', records: [] as AuthorityRecord[] }
+  const loaded = store.load()
   const seededFromLegacy = !loaded.records[0]
   let record: AuthorityRecord = seededFromLegacy
     ? (legacySeedRecords(input.dataDir, input.scope) ?? emptyRecord())
