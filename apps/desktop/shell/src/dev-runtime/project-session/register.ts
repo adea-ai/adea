@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Database } from 'bun:sqlite'
-import { existsSync, lstatSync, readFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type {
@@ -371,7 +371,16 @@ function archiveRecord(
  */
 function legacySeedRecords(dataDir: string, scope: Scope): AuthorityRecord | undefined {
   const legacyFile = join(dataDir, LEGACY_PROJECTION_FILE)
-  if (!existsSync(legacyFile)) return undefined
+  let stats
+  try {
+    stats = lstatSync(legacyFile)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw new DevAuthorityError('corrupt_state', 'legacy projection cannot be inspected')
+  }
+  if (stats.isSymbolicLink() || !stats.isFile())
+    throw new DevAuthorityError('corrupt_state', 'legacy projection is not a regular file')
+  chmodSync(legacyFile, 0o600)
   let parsed: unknown
   try {
     parsed = JSON.parse(readFileSync(legacyFile, 'utf8'))
@@ -382,9 +391,14 @@ function legacySeedRecords(dataDir: string, scope: Scope): AuthorityRecord | und
   }
   const envelope = parsed as { schemaVersion?: unknown; records?: unknown }
   if (envelope.schemaVersion !== 1 || !Array.isArray(envelope.records)) return undefined
-  const candidate = envelope.records[0] as AuthorityRecord | undefined
-  if (!candidate || !isScope(candidate.scope) || !sameScope(candidate.scope, scope))
-    return undefined
+  const matches = envelope.records.filter((record) => {
+    const candidate = record as AuthorityRecord | null
+    return Boolean(candidate && isScope(candidate.scope) && sameScope(candidate.scope, scope))
+  }) as AuthorityRecord[]
+  if (matches.length > 1)
+    throw new DevAuthorityError('corrupt_state', 'legacy projection has duplicate scope records')
+  const candidate = matches[0]
+  if (!candidate) return undefined
   return {
     scope,
     groups: Array.isArray(candidate.groups) ? [...candidate.groups] : [],
@@ -430,6 +444,8 @@ export function registerProjectSessionRuntime(input: {
           throw new DevAuthorityError('corrupt_state', 'legacy authority record is malformed')
         return sameScope(candidate.scope, input.scope)
       })
+      if (scoped.length > 1)
+        throw new DevAuthorityError('corrupt_state', 'legacy authority has duplicate scope records')
       return scoped.length > 0 ? scoped : undefined
     },
   })

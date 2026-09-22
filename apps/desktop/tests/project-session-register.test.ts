@@ -640,6 +640,38 @@ describe('project/session authority store', () => {
     }
   })
 
+  test('rejects a symlinked legacy projection before reading it', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
+      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
+      const targetFile = join(legacyDir, 'projection-target.json')
+      const projectionFile = join(legacyDir, 'projection.json')
+      writeFileSync(
+        targetFile,
+        JSON.stringify({
+          schemaVersion: 1,
+          savedAt: new Date().toISOString(),
+          records: [{ scope, groups: [group], projects: [project], sessions: [] }],
+        }),
+        { mode: 0o644 }
+      )
+      symlinkSync(targetFile, projectionFile)
+      expectCode(
+        () =>
+          registerProjectSessionRuntime({
+            authority: { registerCommandProvider() {} },
+            dataDir,
+            scope,
+          }),
+        'corrupt_state'
+      )
+      expect(readFileSync(targetFile, 'utf8')).toContain(project.id)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('migrates the legacy authority envelope losslessly and retains its source', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {
@@ -673,6 +705,37 @@ describe('project/session authority store', () => {
       ).toBe(project.id)
       expect(authorityFile(dataDir)).toContain('authority-')
       expect(existsSync(join(legacyDir, 'authority.json'))).toBeTrue()
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects duplicate same-scope legacy authority records', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const legacyDir = join(dataDir, 'dev-runtime', 'project-session')
+      mkdirSync(legacyDir, { recursive: true, mode: 0o700 })
+      const record = {
+        scope,
+        groups: [group],
+        projects: [project],
+        sessions: [],
+        archiveRecords: [],
+      }
+      writeFileSync(
+        join(legacyDir, 'authority.json'),
+        JSON.stringify({ schemaVersion: 1, savedAt: 'duplicate', records: [record, record] }),
+        { mode: 0o600 }
+      )
+      expectCode(
+        () =>
+          registerProjectSessionRuntime({
+            authority: { registerCommandProvider() {} },
+            dataDir,
+            scope,
+          }),
+        'corrupt_state'
+      )
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }

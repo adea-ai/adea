@@ -8,6 +8,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -106,6 +107,26 @@ describe('durable SQLite host store', () => {
         database.query('SELECT migration_state FROM durable_store_metadata WHERE id = 1').get()
       ).toMatchObject({ migration_state: 'migrated' })
       database.close()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a symlinked legacy source before reading it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-sqlite-store-'))
+    try {
+      const legacyFile = join(root, 'state', 'records.json')
+      const targetFile = join(root, 'state', 'records-target.json')
+      mkdirSync(join(root, 'state'), { recursive: true, mode: 0o700 })
+      writeFileSync(
+        targetFile,
+        JSON.stringify({ schemaVersion: 1, savedAt: 'legacy', records: [{ value: 'unsafe' }] }),
+        { mode: 0o644 }
+      )
+      symlinkSync(targetFile, legacyFile)
+
+      expect(() => sqliteStore(root, { legacyFile }).load()).toThrow('corrupt_state')
+      expect(statSync(targetFile).mode & 0o777).toBe(0o644)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

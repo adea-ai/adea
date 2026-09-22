@@ -1310,7 +1310,10 @@ distinguish that event from a first install and this slice does not claim to
 prevent stale legacy re-import in that case. External backup or recovery
 protection must cover that trust boundary. The retained `authority.json` source
 is filtered by scope for each partition, so an A-to-B-to-A restart preserves
-both migrated records without cross-scope import. The register serves `dev.group.*` (now
+both migrated records without cross-scope import; legacy authority and
+projection files must be regular owner-only files, and duplicate same-scope
+legacy rows fail closed as `corrupt_state` instead of selecting the first row.
+The register serves `dev.group.*` (now
 including `create`/`update`/`delete`: a created group is placed after
 `afterGroupId` or at the end and every displaced group's `version` bumps;
 `delete` requires an empty group plus a `confirmationId` and the `group`
@@ -4545,7 +4548,8 @@ files in the same commit:
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
   project/session authority: restart survival without fixtures, transactional
   archive records, scope/generation/version rejection, fail-closed corruption,
-  scope-partitioned A-to-B-to-A restart, and the legacy-seed migration.
+  scope-partitioned A-to-B-to-A restart, legacy-source mode/symlink checks,
+  duplicate-row refusal, and the legacy-seed migration.
   `apps/desktop/tests/host-store.test.ts` pins
   the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
   guard, corruption retention, restart recovery, and interrupted migration

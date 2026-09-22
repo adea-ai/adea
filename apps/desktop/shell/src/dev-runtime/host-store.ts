@@ -298,6 +298,20 @@ function ensureMigrationLedgerOwnerOnly(file: string): void {
   chmodSync(file, 0o600)
 }
 
+function ensureLegacyOwnerOnly(file: string, label: string): boolean {
+  let stats
+  try {
+    stats = lstatSync(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw new DevAuthorityError('corrupt_state', `${label} legacy store cannot be inspected`)
+  }
+  if (stats.isSymbolicLink() || !stats.isFile())
+    throw new DevAuthorityError('corrupt_state', `${label} legacy store is not a regular file`)
+  chmodSync(file, 0o600)
+  return true
+}
+
 function readMigrationLedger(
   file: string,
   options: DurableSqliteOptions<unknown>,
@@ -441,7 +455,9 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
             count?: unknown
           } | null
         )?.count
-        const hasLegacySource = Boolean(options.legacyFile && existsSync(options.legacyFile))
+        const hasLegacySource = options.legacyFile
+          ? ensureLegacyOwnerOnly(options.legacyFile, options.label)
+          : false
         if (!hasLegacySource || migrationState === 'migrated' || Number(recordCount) > 0) {
           const legacyBytes = hasLegacySource ? readFileSync(options.legacyFile!) : undefined
           writeMigrationLedger(ledgerFile, {
@@ -483,7 +499,8 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
   function readLegacy():
     | { savedAt: string; records: ReadonlyArray<T> | undefined; sourceDigest: string }
     | undefined {
-    if (!options.legacyFile || !existsSync(options.legacyFile)) return undefined
+    if (!options.legacyFile || !ensureLegacyOwnerOnly(options.legacyFile, options.label))
+      return undefined
     const rawBytes = readFileSync(options.legacyFile)
     let parsed: unknown
     try {
