@@ -9,6 +9,11 @@ synthetic Keychain secret, deletes it in a `finally` cleanup path, and never
 prints the value or a digest of the value. Its SQLite database is disposable
 and is removed after the probe.
 
+The evidence-only commits in this branch do not modify the desktop bundle
+inputs, so the recorded application source commit remains the bundle source
+commit even though the reproducibility script and this report are layered on
+top of it.
+
 The redacted machine result is retained at
 `artifacts/packaged/m10-33-native-evidence.json` (ignored generated output).
 
