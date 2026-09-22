@@ -91,16 +91,25 @@ authorize transport, mint entitlements, or move work.
 - An `offline` or `stale` selected node produces a queued decision with a
   reconnect/refresh remediation. A `revoked`, `incompatible`, missing, or
   capability-mismatched selection produces a blocked decision with typed
-  remediation. These decisions retain the selected location for the caller to
-  persist and display.
+  remediation. Unknown or malformed availability is blocked. These decisions
+  retain the selected location for the caller to persist and display.
+- A node read model MUST include an observation timestamp. An `available` node
+  MUST also include a fresh proof timestamp. Observations or proofs older than
+  the bounded five-minute admission window queue as `location_stale`; missing,
+  invalid, or future timestamps block as `location_unknown`. A retry performs
+  this freshness and availability admission again against the current read
+  model; a prior `available` result is never reused as authority.
 - `agent_hq_cloud` is reserved behind an explicit feature gate. A disabled
   gate blocks the request; the policy never treats cloud as a fallback for a
   local or self-hosted selection. A future enabled gate may evaluate cloud
   capabilities without changing this location contract.
 - Retries retain the prior attempt's selected location. A changed location is
-  accepted only with an explicit authorized reroute and is represented as a
-  new attempt decision. A retry does not mutate the previous attempt's
-  provenance.
+  accepted only with a non-empty opaque `authorizationProof` bound to the
+  attempt's account/workspace/task/actor scope, attempt number, and exact
+  target location. A valid proof still requires current location admission.
+  A changed location is represented as a new attempt decision; a retry does
+  not mutate the previous attempt's provenance. A raw authorization boolean
+  is not an admission proof.
 
 Execution availability and conversation/content availability are separate
 dimensions. The policy carries these read-model states independently:

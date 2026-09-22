@@ -23,9 +23,13 @@ export const executionRuntimeNodeAvailability = [
   'revoked',
   'stale',
   'incompatible',
+  'unknown',
 ] as const
 
 export type ExecutionRuntimeNodeAvailability = (typeof executionRuntimeNodeAvailability)[number]
+
+/** A health observation older than this cannot authorize a new execution. */
+export const EXECUTION_LOCATION_MAX_OBSERVATION_AGE_MS = 5 * 60 * 1_000
 
 /**
  * The smallest normalized node read model required by this policy. Callers
@@ -38,6 +42,10 @@ export type RuntimeNodeExecutionReadModel = Readonly<{
   displayName: string
   id: string
   kind: RuntimeNodeLocationKind
+  /** Timestamp at which this node read model was observed. */
+  observedAt: string
+  /** Last accepted node proof. Required and fresh when availability is `available`. */
+  proofAt: string | null
 }>
 
 export type ExecutionDataAvailability = Readonly<{
@@ -63,6 +71,8 @@ export type ExecutionLocationPolicyInput = Readonly<{
   nodes: readonly RuntimeNodeExecutionReadModel[]
   requiredCapabilities: readonly string[]
   requestedLocation?: ExecutionLocationSelection
+  /** Admission time used for deterministic observation/proof freshness checks. */
+  now: string
 }>
 
 export type ExecutionLocationBlocker =
@@ -73,6 +83,7 @@ export type ExecutionLocationBlocker =
   | 'location_incompatible'
   | 'capability_mismatch'
   | 'cloud_feature_disabled'
+  | 'location_unknown'
 
 export type ExecutionLocationRemediationAction =
   | 'select_registered_location'
@@ -116,21 +127,62 @@ export type ExecutionLocationDecision =
 /** The durable location binding for one task execution attempt. */
 export type ExecutionLocationAttempt = Readonly<{
   attempt: number
+  scope: ExecutionLocationAttemptScope
   selectedLocation: ExecutionLocationSelection
+}>
+
+/** The task/actor scope an authorization proof must bind exactly. */
+export type ExecutionLocationAttemptScope = Readonly<{
+  accountId: string
+  actorId: string
+  taskId: string
+  workspaceId: string
+}>
+
+/**
+ * Opaque Control Plane authorization, bound to one attempt and target. The
+ * Control Plane issues/validates the proof; this pure policy only checks its
+ * scope binding before admitting a reroute.
+ */
+export type ExecutionLocationRerouteAuthorization = Readonly<{
+  attempt: number
+  authorizationProof: string
+  scope: ExecutionLocationAttemptScope
+  targetLocation: ExecutionLocationSelection
 }>
 
 export type ExecutionRetryResolution =
   | Readonly<{
+      admission: Extract<ExecutionLocationDecision, { action: 'execute' }>
       attempt: ExecutionLocationAttempt
       change: 'sticky_retry' | 'authorized_reroute'
       ok: true
     }>
   | Readonly<{
-      change: 'reroute_requires_authorization'
+      change: 'location_not_admissible'
+      decision: Exclude<ExecutionLocationDecision, { action: 'execute' }>
+      ok: false
+      previousLocation: ExecutionLocationSelection
+    }>
+  | Readonly<{
+      change: 'reroute_authorization_invalid' | 'reroute_requires_authorization'
       ok: false
       previousLocation: ExecutionLocationSelection
       requestedLocation: ExecutionLocationSelection
     }>
+  | Readonly<{
+      change: 'attempt_invalid'
+      ok: false
+      previousLocation: ExecutionLocationSelection
+    }>
+
+export function normalizeExecutionRuntimeNodeAvailability(
+  value: unknown
+): ExecutionRuntimeNodeAvailability {
+  return executionRuntimeNodeAvailability.includes(value as ExecutionRuntimeNodeAvailability)
+    ? (value as ExecutionRuntimeNodeAvailability)
+    : 'unknown'
+}
 
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values)].toSorted((left, right) => (left < right ? -1 : left > right ? 1 : 0))
@@ -173,6 +225,8 @@ function remediationForBlocker(
       }
     case 'cloud_feature_disabled':
       return { action: 'enable_cloud_feature' }
+    case 'location_unknown':
+      return { action: 'refresh_location' }
   }
 }
 
@@ -190,6 +244,28 @@ function blocked(
     remediation: remediationForBlocker(blocker, missing),
     selectedLocation,
   }
+}
+
+function parseTimestamp(value: string): number | null {
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? timestamp : null
+}
+
+function observationFreshness(
+  node: RuntimeNodeExecutionReadModel,
+  availability: ExecutionRuntimeNodeAvailability,
+  now: string
+): 'fresh' | 'stale' | 'unknown' {
+  const nowMs = parseTimestamp(now)
+  const observedAtMs = parseTimestamp(node.observedAt)
+  if (nowMs === null || observedAtMs === null || observedAtMs > nowMs) return 'unknown'
+  if (nowMs - observedAtMs > EXECUTION_LOCATION_MAX_OBSERVATION_AGE_MS) return 'stale'
+
+  if (availability !== 'available') return 'fresh'
+  if (!node.proofAt) return 'unknown'
+  const proofAtMs = parseTimestamp(node.proofAt)
+  if (proofAtMs === null || proofAtMs > nowMs || proofAtMs > observedAtMs) return 'unknown'
+  return nowMs - proofAtMs > EXECUTION_LOCATION_MAX_OBSERVATION_AGE_MS ? 'stale' : 'fresh'
 }
 
 /**
@@ -222,7 +298,20 @@ export function decideExecutionLocation(
   )
   if (!node) return blocked(input, selectedLocation, 'location_missing')
 
-  switch (node.availability) {
+  const availability = normalizeExecutionRuntimeNodeAvailability(node.availability)
+  const freshness = observationFreshness(node, availability, input.now)
+  if (availability === 'unknown' || freshness === 'unknown')
+    return blocked(input, selectedLocation, 'location_unknown')
+  if (freshness === 'stale')
+    return {
+      action: 'queue',
+      blocker: 'location_stale',
+      dataAvailability: input.dataAvailability,
+      remediation: remediationForBlocker('location_stale'),
+      selectedLocation,
+    }
+
+  switch (availability) {
     case 'offline':
       return {
         action: 'queue',
@@ -263,29 +352,103 @@ export function decideExecutionLocation(
 export function resolveExecutionRetry(
   input: Readonly<{
     attempt: ExecutionLocationAttempt
-    authorizedReroute?: boolean
+    policy: ExecutionLocationPolicyInput
     requestedLocation?: ExecutionLocationSelection
+    rerouteAuthorization?: ExecutionLocationRerouteAuthorization
   }>
 ): ExecutionRetryResolution {
+  if (!isValidAttempt(input.attempt))
+    return {
+      change: 'attempt_invalid',
+      ok: false,
+      previousLocation: input.attempt.selectedLocation,
+    }
+
   const requestedLocation = input.requestedLocation ?? input.attempt.selectedLocation
-  if (
-    !locationsEqual(requestedLocation, input.attempt.selectedLocation) &&
-    input.authorizedReroute !== true
-  )
+  const rerouted = !locationsEqual(requestedLocation, input.attempt.selectedLocation)
+  if (rerouted && !input.rerouteAuthorization)
     return {
       change: 'reroute_requires_authorization',
       ok: false,
       previousLocation: input.attempt.selectedLocation,
       requestedLocation,
     }
+  if (
+    rerouted &&
+    input.rerouteAuthorization &&
+    !isValidRerouteAuthorization({
+      attempt: input.attempt,
+      authorization: input.rerouteAuthorization,
+      requestedLocation,
+    })
+  )
+    return {
+      change: 'reroute_authorization_invalid',
+      ok: false,
+      previousLocation: input.attempt.selectedLocation,
+      requestedLocation,
+    }
 
-  const rerouted = !locationsEqual(requestedLocation, input.attempt.selectedLocation)
+  const admission = decideExecutionLocation({ ...input.policy, requestedLocation })
+  if (admission.action !== 'execute')
+    return {
+      change: 'location_not_admissible',
+      decision: admission,
+      ok: false,
+      previousLocation: input.attempt.selectedLocation,
+    }
+
   return {
     attempt: {
       attempt: input.attempt.attempt + 1,
+      scope: input.attempt.scope,
       selectedLocation: requestedLocation,
     },
     change: rerouted ? 'authorized_reroute' : 'sticky_retry',
+    admission,
     ok: true,
   }
+}
+
+function sameScope(left: ExecutionLocationAttemptScope, right: ExecutionLocationAttemptScope) {
+  return (
+    left.accountId === right.accountId &&
+    left.actorId === right.actorId &&
+    left.taskId === right.taskId &&
+    left.workspaceId === right.workspaceId
+  )
+}
+
+function hasText(value: string): boolean {
+  return value.trim().length > 0
+}
+
+function isValidScope(scope: ExecutionLocationAttemptScope): boolean {
+  return (
+    hasText(scope.accountId) &&
+    hasText(scope.actorId) &&
+    hasText(scope.taskId) &&
+    hasText(scope.workspaceId)
+  )
+}
+
+function isValidAttempt(attempt: ExecutionLocationAttempt): boolean {
+  return Number.isInteger(attempt.attempt) && attempt.attempt > 0 && isValidScope(attempt.scope)
+}
+
+function isValidRerouteAuthorization(
+  input: Readonly<{
+    attempt: ExecutionLocationAttempt
+    authorization: ExecutionLocationRerouteAuthorization
+    requestedLocation: ExecutionLocationSelection
+  }>
+): boolean {
+  const { attempt, authorization, requestedLocation } = input
+  return (
+    hasText(authorization.authorizationProof) &&
+    authorization.attempt === attempt.attempt &&
+    isValidScope(authorization.scope) &&
+    sameScope(authorization.scope, attempt.scope) &&
+    locationsEqual(authorization.targetLocation, requestedLocation)
+  )
 }
