@@ -422,20 +422,26 @@ export function createChannelGateway(input: {
           headers: Object.fromEntries(request.headers),
           body,
         })
-        return Response.json(authority.mintEventsToken(identity))
+        const event = (parseJson(body) as { event?: unknown }).event
+        if (typeof event !== 'string') {
+          throw new ChannelRejection('invalid_state', 'event name is malformed', 400)
+        }
+        return Response.json(authority.mintEventsToken(identity, event))
       }
       if (path === '/__adea/events' && request.method === 'GET') {
         if (!trusted(request)) return untrusted()
         const channel = url.searchParams.get('channel')
         const credential = url.searchParams.get('credential')
+        const event = url.searchParams.get('event')
         const token = url.searchParams.get('token')
-        if (!channel || !credential || !token) return unauthenticated()
+        if (!channel || !credential || !event || !token) return unauthenticated()
         const ok = authority.consumeEventsToken(
           { channelId: channel, clientCredentialId: credential },
+          event,
           token
         )
         if (!ok) return unauthenticated()
-        return sseStream(url.searchParams.get('event') ?? '')
+        return sseStream(event)
       }
       if (path === '/__adea/channel' && request.method === 'GET') {
         if (!trusted(request)) return untrusted()
