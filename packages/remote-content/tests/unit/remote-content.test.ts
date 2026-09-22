@@ -10,6 +10,7 @@ import {
   createRemoteContentAad,
   deriveRemoteCommandKeyPair,
   openRemoteContent,
+  parseRemoteContentEnvelope,
   sealRemoteContent,
 } from '../../src/index'
 import { Aes128Gcm, CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from '@hpke/core'
@@ -43,7 +44,106 @@ const toBase64Url = (value: ArrayBufferLike | ArrayBufferView) => {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
 }
 
+const replayGuard = () => {
+  const claims = new Set<string>()
+  return {
+    claim: async (input: { requestId: string; enc: string }) => {
+      const claimId = `${input.requestId}:${input.enc}`
+      if (claims.has(claimId)) return false
+      claims.add(claimId)
+      return true
+    },
+  }
+}
+
 describe('RemoteContentEnvelope v1', () => {
+  test('caps encoded fields before atob processes attacker-controlled input', () => {
+    const originalAtob = globalThis.atob
+    let atobCalls = 0
+    globalThis.atob = (value) => {
+      atobCalls += 1
+      return originalAtob(value)
+    }
+    try {
+      expect(() =>
+        parseRemoteContentEnvelope({
+          version: 1,
+          suite: REMOTE_CONTENT_SUITE,
+          keyId: 'node-key-v1',
+          enc: 'A'.repeat(16 * 1024 * 1024),
+          ciphertext: vector.ciphertext,
+          aad: vector.aad,
+        })
+      ).toThrow(RemoteContentEnvelopeError)
+      expect(atobCalls).toBe(0)
+
+      expect(() =>
+        parseRemoteContentEnvelope({
+          version: 1,
+          suite: REMOTE_CONTENT_SUITE,
+          keyId: 'node-key-v1',
+          enc: vector.enc,
+          ciphertext: 'A'.repeat(16 * 1024 * 1024),
+          aad: vector.aad,
+        })
+      ).toThrow(RemoteContentEnvelopeError)
+      expect(atobCalls).toBe(1)
+    } finally {
+      globalThis.atob = originalAtob
+    }
+  })
+
+  test('rejects an outer key-id retag even when the caller supplies the retagged id', async () => {
+    const recipient = await deriveRemoteCommandKeyPair(toBytes('retagged key-id regression'))
+    const envelope = await sealRemoteContent({
+      keyId: 'node-key-v1',
+      recipientPublicKey: recipient.publicKey,
+      aad: METADATA,
+      plaintext: toBytes('key-id binding'),
+      now: NOW,
+    })
+    const retagged = {
+      ...envelope,
+      keyId: 'node-key-v2',
+      aad: { ...envelope.aad, keyId: 'node-key-v2' },
+    }
+
+    await expect(
+      openRemoteContent({
+        envelope: retagged,
+        keyId: 'node-key-v2',
+        recipientPrivateKey: recipient.privateKey,
+        replayGuard: replayGuard(),
+        now: LATER,
+      })
+    ).rejects.toMatchObject({ code: 'decryption_failed' })
+  })
+
+  test('requires and enforces an atomic dispatch replay claim', async () => {
+    const recipient = await deriveRemoteCommandKeyPair(toBytes('replay regression'))
+    const envelope = await sealRemoteContent({
+      keyId: 'node-key-v1',
+      recipientPublicKey: recipient.publicKey,
+      aad: METADATA,
+      plaintext: toBytes('one-shot command'),
+      now: NOW,
+    })
+    const guard = replayGuard()
+    const input = {
+      envelope,
+      keyId: envelope.keyId,
+      recipientPrivateKey: recipient.privateKey,
+      replayGuard: guard,
+      now: LATER,
+    }
+
+    await expect(openRemoteContent(input)).resolves.toEqual(toBytes('one-shot command'))
+    await expect(openRemoteContent(input)).rejects.toMatchObject({ code: 'replayed' })
+    await expect(openRemoteContent({ ...input, replayGuard: undefined })).rejects.toMatchObject({
+      code: 'replay_unavailable',
+    })
+  })
+
   test('matches the checked-in standards-library cross-runtime vector', async () => {
     const hpke = new CipherSuite({
       kem: new DhkemX25519HkdfSha256(),
@@ -53,7 +153,7 @@ describe('RemoteContentEnvelope v1', () => {
     const recipient = await hpke.kem.deriveKeyPair(toBytes(vector.recipientIkm))
     const sender = await hpke.createSenderContext({
       recipientPublicKey: recipient.publicKey,
-      info: toBytes('adea-remote-content-envelope:v1'),
+      info: toBytes('adea-remote-content-envelope:v1\u0000node-key-v1'),
       ekm: toBytes(vector.ephemeralIkm),
     })
     const ciphertext = await sender.seal(
@@ -75,6 +175,7 @@ describe('RemoteContentEnvelope v1', () => {
       },
       keyId: 'node-key-v1',
       recipientPrivateKey: recipient.privateKey,
+      replayGuard: replayGuard(),
       now: LATER,
     })
     expect(fromBytes(plaintext)).toBe(vector.plaintext)
@@ -94,7 +195,7 @@ describe('RemoteContentEnvelope v1', () => {
 
     expect(envelope.version).toBe(REMOTE_CONTENT_VERSION)
     expect(envelope.suite).toBe(REMOTE_CONTENT_SUITE)
-    expect(envelope.aad).toEqual(createRemoteContentAad(METADATA))
+    expect(envelope.aad).toEqual(createRemoteContentAad(METADATA, 'node-key-v1'))
     expect(envelope.enc).toHaveLength(43)
     expect(envelope.ciphertext).not.toContain('cross-runtime')
 
@@ -102,6 +203,7 @@ describe('RemoteContentEnvelope v1', () => {
       envelope,
       keyId: envelope.keyId,
       recipientPrivateKey: recipient.privateKey,
+      replayGuard: replayGuard(),
       now: LATER,
     })
     expect(fromBytes(plaintext)).toBe('cross-runtime command fixture')

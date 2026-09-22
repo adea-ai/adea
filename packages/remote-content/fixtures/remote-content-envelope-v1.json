@@ -3,9 +3,10 @@
   "ephemeralIkm": "ephemeral sender material for vector 0001",
   "plaintext": "cross-runtime command fixture",
   "enc": "KRI1Ah7xlNV2eDFLthzUjmlhd4hgf7cU8ydhQy3knSs",
-  "ciphertext": "Y8gr_pN19Hzn8MvSLj3VaNlHkLrWt3aSt8NbUHneb-azupXtu2yvQhslDBA6",
+  "ciphertext": "RVH7YBxX01vHfGEvhR_qBaZ0nsa4AxmVoxCFlDUyJrBBJKQUF143ZsU91X1l",
   "aad": {
     "version": 1,
+    "keyId": "node-key-v1",
     "workspaceId": "00000000-0000-4000-8000-000000000001",
     "runtimeNodeId": "00000000-0000-4000-8000-000000000002",
     "requestId": "00000000-0000-4000-8000-000000000003",

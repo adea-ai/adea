@@ -5,9 +5,13 @@ export const REMOTE_CONTENT_SUITE = 'DHKEM(X25519,HKDF-SHA256)/HKDF-SHA256/AES-1
 export const REMOTE_CONTENT_SCHEMA_VERSION = 1 as const
 export const MAX_REMOTE_CONTENT_PLAINTEXT_BYTES = 1024 * 1024
 export const MAX_REMOTE_CONTENT_CIPHERTEXT_BYTES = MAX_REMOTE_CONTENT_PLAINTEXT_BYTES + 16
+export const MAX_REMOTE_CONTENT_ENC_CHARS = 43
+export const MAX_REMOTE_CONTENT_CIPHERTEXT_CHARS = Math.ceil(
+  (MAX_REMOTE_CONTENT_CIPHERTEXT_BYTES * 4) / 3
+)
 export const MAX_REMOTE_CONTENT_TTL_MS = 24 * 60 * 60 * 1000
 
-const REMOTE_CONTENT_INFO = new TextEncoder().encode('adea-remote-content-envelope:v1')
+const REMOTE_CONTENT_INFO_PREFIX = 'adea-remote-content-envelope:v1\u0000'
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const KEY_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/
 const PAYLOAD_TYPE_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/
@@ -28,6 +32,8 @@ export type RemoteContentErrorCode =
   | 'invalid_envelope'
   | 'key_mismatch'
   | 'payload_too_large'
+  | 'replayed'
+  | 'replay_unavailable'
   | 'unsupported_suite'
   | 'unsupported_version'
 
@@ -43,6 +49,7 @@ export class RemoteContentEnvelopeError extends Error {
 
 export type RemoteContentAad = Readonly<{
   version: typeof REMOTE_CONTENT_VERSION
+  keyId: string
   workspaceId: string
   runtimeNodeId: string
   requestId: string
@@ -65,15 +72,28 @@ export type RemoteContentEnvelope = Readonly<{
 export type RemoteContentEnvelopeInput = Readonly<{
   keyId: string
   recipientPublicKey: CryptoKey
-  aad: Omit<RemoteContentAad, 'version'>
+  aad: Omit<RemoteContentAad, 'version' | 'keyId'>
   plaintext: ArrayBufferLike | ArrayBufferView
   now?: Date | string | number
+}>
+
+export type RemoteContentReplayClaim = Readonly<{
+  requestId: string
+  keyId: string
+  enc: string
+  expiresAt: string
+}>
+
+/** The caller must atomically claim a command/result identity in its durable inbox. */
+export type RemoteContentReplayGuard = Readonly<{
+  claim(input: RemoteContentReplayClaim): Promise<boolean>
 }>
 
 export type OpenRemoteContentInput = Readonly<{
   envelope: unknown
   recipientPrivateKey: CryptoKey
   keyId: string
+  replayGuard: RemoteContentReplayGuard | undefined
   now?: Date | string | number
 }>
 
@@ -89,11 +109,15 @@ export function deriveRemoteCommandKeyPair(
   return suite.kem.deriveKeyPair(ikm)
 }
 
-export function createRemoteContentAad(input: Omit<RemoteContentAad, 'version'>): RemoteContentAad {
-  const candidate = { version: REMOTE_CONTENT_VERSION, ...input }
+export function createRemoteContentAad(
+  input: Omit<RemoteContentAad, 'version' | 'keyId'>,
+  keyId: string
+): RemoteContentAad {
+  const candidate = { version: REMOTE_CONTENT_VERSION, keyId, ...input }
   validateAad(candidate)
   return {
     version: REMOTE_CONTENT_VERSION,
+    keyId: candidate.keyId,
     workspaceId: candidate.workspaceId,
     runtimeNodeId: candidate.runtimeNodeId,
     requestId: candidate.requestId,
@@ -109,7 +133,7 @@ export async function sealRemoteContent(
   input: RemoteContentEnvelopeInput
 ): Promise<RemoteContentEnvelope> {
   const keyId = validateKeyId(input.keyId)
-  const aad = createRemoteContentAad(input.aad)
+  const aad = createRemoteContentAad(input.aad, keyId)
   const now = timestampToMs(input.now ?? Date.now())
   assertWindow(aad, now)
 
@@ -121,7 +145,7 @@ export async function sealRemoteContent(
   try {
     const sender = await suite.createSenderContext({
       recipientPublicKey: input.recipientPublicKey,
-      info: REMOTE_CONTENT_INFO,
+      info: hpkeInfo(keyId),
     })
     const ciphertext = await sender.seal(plaintext, aadBytes(aad))
     const ciphertextBytes = new Uint8Array(ciphertext)
@@ -144,7 +168,8 @@ export async function sealRemoteContent(
 
 export async function openRemoteContent(input: OpenRemoteContentInput): Promise<Uint8Array> {
   const envelope = parseRemoteContentEnvelope(input.envelope)
-  if (validateKeyId(input.keyId) !== envelope.keyId) {
+  const keyId = validateKeyId(input.keyId)
+  if (keyId !== envelope.keyId) {
     throw new RemoteContentEnvelopeError('key_mismatch')
   }
   const now = timestampToMs(input.now ?? Date.now())
@@ -158,17 +183,31 @@ export async function openRemoteContent(input: OpenRemoteContentInput): Promise<
   if (ciphertext.byteLength > MAX_REMOTE_CONTENT_CIPHERTEXT_BYTES) {
     throw new RemoteContentEnvelopeError('payload_too_large')
   }
-
   try {
     const recipient = await suite.createRecipientContext({
       recipientKey: input.recipientPrivateKey,
       enc,
-      info: REMOTE_CONTENT_INFO,
+      info: hpkeInfo(keyId),
     })
     const plaintext = new Uint8Array(await recipient.open(ciphertext, aadBytes(envelope.aad)))
     if (plaintext.byteLength > MAX_REMOTE_CONTENT_PLAINTEXT_BYTES) {
       throw new RemoteContentEnvelopeError('payload_too_large')
     }
+    if (input.replayGuard === undefined) {
+      throw new RemoteContentEnvelopeError('replay_unavailable')
+    }
+    let claimed: boolean
+    try {
+      claimed = await input.replayGuard.claim({
+        requestId: envelope.aad.requestId,
+        keyId: envelope.keyId,
+        enc: envelope.enc,
+        expiresAt: envelope.aad.expiresAt,
+      })
+    } catch {
+      throw new RemoteContentEnvelopeError('replay_unavailable')
+    }
+    if (claimed !== true) throw new RemoteContentEnvelopeError('replayed')
     return plaintext
   } catch (error) {
     if (error instanceof RemoteContentEnvelopeError) throw error
@@ -195,13 +234,19 @@ export function parseRemoteContentEnvelope(value: unknown): RemoteContentEnvelop
   let ciphertext: string
   try {
     keyId = validateKeyId(value.keyId)
-    enc = validateEncodedBytes(value.enc, 32)
-    ciphertext = validateEncodedBytes(value.ciphertext)
+    enc = validateEncodedBytes(value.enc, 32, MAX_REMOTE_CONTENT_ENC_CHARS, 'invalid_envelope')
+    ciphertext = validateEncodedBytes(
+      value.ciphertext,
+      undefined,
+      MAX_REMOTE_CONTENT_CIPHERTEXT_CHARS,
+      'payload_too_large'
+    )
   } catch (error) {
     if (error instanceof RemoteContentEnvelopeError) throw error
     throw new RemoteContentEnvelopeError('invalid_envelope')
   }
   const aad = parseAad(value.aad)
+  if (aad.keyId !== keyId) throw new RemoteContentEnvelopeError('key_mismatch')
   const ciphertextBytes = decodeBase64Url(ciphertext)
   if (ciphertextBytes.byteLength < 16) throw new RemoteContentEnvelopeError('invalid_envelope')
   if (ciphertextBytes.byteLength > MAX_REMOTE_CONTENT_CIPHERTEXT_BYTES) {
@@ -221,6 +266,7 @@ function parseAad(value: unknown): RemoteContentAad {
   if (!isRecord(value)) throw new RemoteContentEnvelopeError('invalid_envelope')
   const keys = [
     'version',
+    'keyId',
     'workspaceId',
     'runtimeNodeId',
     'requestId',
@@ -235,6 +281,7 @@ function parseAad(value: unknown): RemoteContentAad {
   if (value.version !== REMOTE_CONTENT_VERSION)
     throw new RemoteContentEnvelopeError('unsupported_version')
   if (
+    typeof value.keyId !== 'string' ||
     typeof value.workspaceId !== 'string' ||
     typeof value.runtimeNodeId !== 'string' ||
     typeof value.requestId !== 'string' ||
@@ -248,6 +295,7 @@ function parseAad(value: unknown): RemoteContentAad {
   }
   const aad = {
     version: REMOTE_CONTENT_VERSION,
+    keyId: value.keyId,
     workspaceId: value.workspaceId,
     runtimeNodeId: value.runtimeNodeId,
     requestId: value.requestId,
@@ -264,6 +312,7 @@ function parseAad(value: unknown): RemoteContentAad {
 function validateAad(value: RemoteContentAad): void {
   const requiredKeys = [
     'version',
+    'keyId',
     'workspaceId',
     'runtimeNodeId',
     'requestId',
@@ -277,6 +326,7 @@ function validateAad(value: RemoteContentAad): void {
     throw new RemoteContentEnvelopeError('invalid_envelope')
   }
   if (
+    !KEY_ID_PATTERN.test(value.keyId) ||
     !UUID_PATTERN.test(value.workspaceId) ||
     !UUID_PATTERN.test(value.runtimeNodeId) ||
     !UUID_PATTERN.test(value.requestId)
@@ -311,8 +361,16 @@ function validateKeyId(value: unknown): string {
   return value
 }
 
-function validateEncodedBytes(value: unknown, expectedLength?: number): string {
+function validateEncodedBytes(
+  value: unknown,
+  expectedLength?: number,
+  maxEncodedLength?: number,
+  tooLargeCode: RemoteContentErrorCode = 'invalid_envelope'
+): string {
   if (typeof value !== 'string') throw new RemoteContentEnvelopeError('invalid_envelope')
+  if (maxEncodedLength !== undefined && value.length > maxEncodedLength) {
+    throw new RemoteContentEnvelopeError(tooLargeCode)
+  }
   const bytes = decodeBase64Url(value)
   if (expectedLength !== undefined && bytes.byteLength !== expectedLength) {
     throw new RemoteContentEnvelopeError('invalid_envelope')
@@ -335,6 +393,10 @@ function timestampToMs(value: Date | string | number): number {
 
 function aadBytes(aad: RemoteContentAad): Uint8Array {
   return textEncoder.encode(JSON.stringify(aad))
+}
+
+function hpkeInfo(keyId: string): Uint8Array {
+  return textEncoder.encode(`${REMOTE_CONTENT_INFO_PREFIX}${keyId}`)
 }
 
 function toBytes(value: ArrayBufferLike | ArrayBufferView): Uint8Array {

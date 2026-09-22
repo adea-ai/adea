@@ -35,6 +35,7 @@ The JSON shape is:
   "ciphertext": "base64url HPKE ciphertext",
   "aad": {
     "version": 1,
+    "keyId": "node-key-v1",
     "workspaceId": "canonical UUID",
     "runtimeNodeId": "canonical UUID",
     "requestId": "canonical UUID",
@@ -48,16 +49,25 @@ The JSON shape is:
 ```
 
 AAD keys are ordered and serialized by the package before being passed to HPKE;
-unknown keys, unsupported envelope or payload schema versions/suites,
-noncanonical base64url, malformed UUIDs/timestamps, and invalid digest shapes
-are rejected. The expected `keyId` is required by `openRemoteContent`, so a
-caller cannot silently decrypt with a key from another registration or version.
+the key ID is also included in the HPKE `info` bytes. Unknown keys, unsupported
+envelope or payload schema versions/suites, noncanonical base64url, malformed
+UUIDs/timestamps, and invalid digest shapes are rejected. A retagged outer key
+ID fails AAD validation or HPKE authentication even if a caller supplies the
+retagged ID with the original private key.
 
 The plaintext limit is 1 MiB. Ciphertext is bounded to plaintext plus the
 16-byte AES-GCM tag. Envelope lifetimes must be positive and at most 24 hours;
-an envelope at or after `expiresAt` is rejected before decryption. Errors have
-stable codes and never include plaintext, ciphertext, key material, or library
-details.
+an envelope at or after `expiresAt` is rejected before decryption. Encoded
+`enc` and `ciphertext` fields are capped before base64 decoding, so oversized
+attacker input cannot force an unbounded `atob` allocation. Errors have stable
+codes and never include plaintext, ciphertext, key material, or library details.
+
+`openRemoteContent` requires a caller-supplied replay guard. The guard must
+atomically claim `(requestId, keyId, enc)` in the host's durable CommandInbox
+or equivalent ledger after successful authentication and before dispatch. A
+missing guard fails closed as `replay_unavailable`; a duplicate claim fails as
+`replayed`. This package supplies the typed boundary and ordering but cannot
+prove atomicity for an adapter backed by an external database.
 
 ## Key boundary and lifecycle
 
@@ -66,7 +76,8 @@ objects. The caller owns the trusted native/host boundary and must keep private
 key material in OS secure storage or an approved self-hosted secrets provider.
 This package does not register RuntimeNodes, persist public keys, rotate or
 revoke keys, retain queued envelopes, or access cloud/Neon state. Signing keys
-and ContentSyncDevice synchronization keys remain separate contracts.
+and ContentSyncDevice synchronization keys remain separate contracts. The
+replay guard adapter remains the host/dispatch integration responsibility.
 
 The checked-in fixture contains deterministic test-only input material and
 known ciphertext. It is not a production key. The fixture demonstrates that a
@@ -79,7 +90,7 @@ require their owning lanes.
 
 - `packages/remote-content/tests/unit/remote-content.test.ts` — deterministic
   standards-library vector, round-trip encryption, AAD/ciphertext/recipient
-  tampering, expiry, downgrade, suite/key mismatch, malformed fields, size
-  bounds, and error redaction.
+  tampering, key-ID retagging, expiry, downgrade, suite/key mismatch, malformed
+  fields, encoded-size preflight, replay-guard ordering, and error redaction.
 - `packages/remote-content/fixtures/remote-content-envelope-v1.json` — known
   nonproduction vector inputs and expected RFC 9180 envelope bytes.
