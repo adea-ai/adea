@@ -3476,6 +3476,8 @@ serialization. Secret patterns are defense in depth, not authorization. Error
 messages never echo untrusted payloads, credentials, full terminal output, or
 private file content. Audit records contain IDs, operation, actor, scope,
 result/error code, byte/count summaries, and redacted target labels.
+Chat transcript projection also drops any `credential`-classified event before
+rendering, including a malformed producer's otherwise renderable event kind.
 
 ## Error contract
 
