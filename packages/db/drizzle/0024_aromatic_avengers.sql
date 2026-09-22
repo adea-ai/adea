@@ -1,0 +1,1 @@
+ALTER TABLE "app"."content_replicas" ADD CONSTRAINT "content_replicas_ciphertext_size" CHECK (length("app"."content_replicas"."ciphertext") between 22 and 2796203);

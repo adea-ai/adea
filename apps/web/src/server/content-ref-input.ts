@@ -42,7 +42,9 @@ export function parseContentRefCreateInput(value: unknown): ApiContentRefCreateI
     !positiveInteger(input.schemaVersion) ||
     !['sensitive', 'restricted'].includes(String(input.sensitivity)) ||
     input.storagePolicy !== 'local_authority' ||
-    !['local_only', 'e2e_optional'].includes(String(input.synchronizationPolicy)) ||
+    !['local_only', 'e2e_optional', 'agent_hq_e2ee_sync'].includes(
+      String(input.synchronizationPolicy)
+    ) ||
     !['available', 'offline', 'missing'].includes(String(input.availability)) ||
     (input.taskId !== undefined && !isContentRefUuid(input.taskId)) ||
     (input.messageId !== undefined && !isContentRefUuid(input.messageId))

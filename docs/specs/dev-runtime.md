@@ -1234,6 +1234,43 @@ The following invariants are mandatory:
    removing the old scope's cache. No projection, selection, path label, or
    preference from the old node may be used for the new node.
 
+The M13 Chat model projects the canonical session, project, and group registry
+pages. It resolves those registries before creating or attaching a visible
+conversation, and a complete unfiltered session refresh removes records absent
+from the canonical list. A missing project must remain unresolved; Chat must
+not synthesize a project to make a session appear. A projected event window
+without an authoritative retention cursor cannot claim its full history was
+loaded. `dev.session.create` records the scoped, hashed idempotency key, body
+fingerprint, and canonical session ID in the same durable authority snapshot
+as the new session. Within the seven-day result window, a matching retry
+returns that session after a process restart; a changed body refuses with
+`idempotency_conflict`. Chat's `runtime-events-v1` consumer returns read credit
+only after accepting a frame. Replay delivered during stream attach queues
+the acknowledgement until the socket is available; a decode error, sequence
+gap, conflict, or stale generation never acknowledges the rejected frame.
+Chat attaches an existing session by walking the legal paged
+`dev.session.list` body and its opaque cursors; the list body has no
+`runtimeSessionId` filter. Since the host may start a bounded replay at the
+newest retained frame, it emits a `resync` frame with
+`reason: 'checkpoint_required'` and the actual retained floor before replaying
+data. Chat accepts the first data frame only at that disclosed checkpoint; a
+data frame that jumps past the requested cursor without the checkpoint, or a
+later sequence jump, requires resync and is never acknowledged. Remembered
+events are admitted only for their canonical runtime session and are capped at
+the global 1,000-event retention bound using generation-aware ordering, with the
+newest generation preserved when sequence numbers restart. The client keeps
+create request fingerprints/results only through the same seven-day replay
+window as the host authority, including pending requests. After that window a
+same-key retry may safely replay the host's durable create; only the current
+request may update the projection or continue to launch, so a late response
+from an expired request cannot overwrite newer session state or duplicate the
+run side effect. Expired initial prompts therefore cannot remain in an
+unbounded cache.
+If a Chat create request loses its transport response, the client retains the
+key/body fingerprint but clears its rejected in-flight promise. Retrying the
+same request then reaches the host's durable result replay; reusing the key for
+a changed body still refuses before dispatch.
+
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
 `DevRuntimeService`/provider adapter maps registry replies into this projection
@@ -1522,7 +1559,17 @@ Defaults:
 - command expiry: 60 seconds; maximum accepted clock skew: 30 seconds;
 - credential-vault master keys are held by the host OS credential store (macOS
   Keychain in the desktop lane), never by a `vault.key` file in app data;
-  unavailable or denied stores fail closed;
+  unavailable or denied stores fail closed. The packaged desktop bootstrap
+  probes `Bun.secrets` only when the bundled Bun runtime is at least 1.4.0;
+  when available, it reads the Bun slot, validates the 32-byte key, and uses
+  the existing `/usr/bin/security` slot as the compatibility source. Migration
+  writes the legacy key to Bun, reads it back, and requires an exact match
+  before the vault opens. A fresh install or Bun-only state also seeds and
+  verifies the legacy slot before opening, so a downgrade cannot fabricate a
+  different key. The legacy slot is retained for rollback and every Bun or
+  legacy read, write, or verification failure fails closed without generating
+  or replacing a key. A runtime below the floor or without `Bun.secrets` keeps
+  the existing `security` adapter unchanged.
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -2984,19 +3031,21 @@ serves the canonical event log: append-only, sequence-ordered per (session,
 generation) with canonical uint64 `seq`; dedupe on
 `(runtimeSessionId, generation, source, sourceEventId)` where the identical
 event is an ignored duplicate and a different event under the same key is
-`idempotency_conflict`; bounded retention (oldest dropped first per session —
-1,000 events/session, 5,000/scope); reads are bounded ascending windows
+`idempotency_conflict`; bounded retention (oldest dropped first per session in
+generation-aware order — 1,000 events/session, 5,000/scope); reads are bounded ascending windows
 (page maximum 500, default 100). The host appends `session.*`/`run.*`
 lifecycle facts (session created via the register's publishes; run
 created/starting/resumed/cancelled; observed status transitions) as
 `authoritative` host events with `workspace_metadata` classification; harness
 turn/tool/approval events arrive only through their own tiers and are never
 fabricated here. At attach the handler replays at most the newest 500 events
-of the granted generation from (or after) `fromSequence`, streams live
-append-matched events as CBOR `data` frames, accepts only `ack` control
-frames, and closes `stale_generation` when the session moves to a newer
-generation — grants minted under an old generation are inert, never
-ambiguous.
+of the granted generation from (or after) `fromSequence`. When that bound
+raises the actual replay floor above the requested cursor, the handler emits a
+`resync { reason: 'checkpoint_required', checkpointSequence }` frame naming
+that floor before the CBOR `data` frames. It then streams live
+append-matched events, accepts only `ack` control frames, and closes
+`stale_generation` when the session moves to a newer generation — grants
+minted under an old generation are inert, never ambiguous.
 
 ## Browser and device lanes
 
@@ -4545,6 +4594,11 @@ files in the same commit:
   consumption, replay/expiry/wrong-scope/forgery refusals);
 - `apps/desktop/tests/dev-runtime-vault-keychain.test.ts` pins the keychain
   failure taxonomy (only item-not-found permits first-time generation);
+- `apps/desktop/tests/dev-runtime-vault-bun-secrets.test.ts` pins the
+  application-level Bun.secrets migration, runtime-version fallback, exact
+  key read-back, locked/denied/unavailable refusals, legacy-key retention, and
+  key-mismatch fail-closed behavior, including sealed-vault access after a
+  runtime downgrade;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind

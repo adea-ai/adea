@@ -366,6 +366,19 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
     )
     const liveGeneration = created.generation + 1
 
+    // Seed beyond the 500-frame replay bound so the stream must disclose the
+    // actual retained floor before sending data. The requested attach cursor
+    // remains zero, while the newest retained window starts later.
+    for (let index = 0; index < 501; index += 1)
+      host!.harness!.events.append({
+        runtimeSessionId: created.id,
+        generation: liveGeneration,
+        kind: 'capability.restored',
+        sourceEventId: `bounded-replay-${index}`,
+      })
+    const replayLatest = host!.harness!.events.latestSequence(created.id, liveGeneration)
+    const replayFloor = (BigInt(replayLatest) - 500n + 1n).toString()
+
     // Mint the stream grant through the caller's authenticated identity.
     const grant = okValue(
       await channel.execute(
@@ -397,20 +410,31 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
       nextSequence: '0',
     })
 
+    const checkpoint = await channel.next()
+    expect(checkpoint.frame).toEqual({
+      type: 'resync',
+      reason: 'checkpoint_required',
+      checkpointSequence: replayFloor,
+    })
+
     // Bounded replay: the launch facts arrive as CBOR data frames carrying
     // strict wire events with host provenance, in append order.
-    const replay = [await channel.next(), await channel.next(), await channel.next()]
+    const replay = await Promise.all(Array.from({ length: 500 }, () => channel.next()))
     const replayKinds = replay.map((message, index) => {
       const frame = message.frame as { type: string; sequence: string; bytes: Uint8Array }
       expect(frame.type).toBe('data')
-      expect(frame.sequence).toBe(String(index + 1))
+      expect(frame.sequence).toBe((BigInt(replayFloor) + BigInt(index)).toString())
       const decoded = decodeCbor(frame.bytes).value as RuntimeEvent
       expect(decoded.runtimeSessionId).toBe(created.id)
       expect(decoded.generation).toBe(liveGeneration)
       expect(decodeRuntimeEvent(decoded, { source: 'host' }).seq).toBe(frame.sequence)
       return decoded.kind
     })
-    expect(replayKinds).toEqual(['run.created', 'run.starting', 'session.starting'])
+    expect(replayKinds.slice(0, 3)).toEqual([
+      'capability.restored',
+      'capability.restored',
+      'capability.restored',
+    ])
 
     // Live push: an observed transition appends events and the stream carries
     // them without any re-attach.
@@ -440,7 +464,7 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
 
     // Ack control frames are accepted on the read stream; the channel stays
     // open (proven by another command round-trip and no close frame).
-    channel.sendFrame({ type: 'ack', throughSequence: '5', availableCreditBytes: 4096 })
+    channel.sendFrame({ type: 'ack', throughSequence: replayLatest, availableCreditBytes: 4096 })
     okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
 
     // A newer generation fences the stream: cancel bumps the session

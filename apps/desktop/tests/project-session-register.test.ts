@@ -339,6 +339,88 @@ describe('project/session authority store', () => {
     }
   })
 
+  test('dev.session.create replays one canonical session for the same key across restart', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const first = seedRuntime(dataDir)
+      const body = {
+        projectId: project.id,
+        repoId: project.repoIds[0]!,
+        worktreeId: '00000000-0000-4000-8000-000000000051',
+      }
+      const keyed = (input: typeof body) =>
+        ({
+          ...command(input),
+          idempotencyKey: 'chat-create-1',
+        }) as DevCommand
+      const created = provider(first, 'dev.session.create')(keyed(body)) as RuntimeSession
+      expect((provider(first, 'dev.session.create')(keyed(body)) as RuntimeSession).id).toBe(
+        created.id
+      )
+
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      expect((provider(restarted, 'dev.session.create')(keyed(body)) as RuntimeSession).id).toBe(
+        created.id
+      )
+      const sessions = provider(restarted, 'dev.session.list')(command({})) as {
+        items: RuntimeSession[]
+      }
+      expect(sessions.items.filter((entry) => entry.worktreeId === body.worktreeId)).toHaveLength(1)
+      expectCode(
+        () =>
+          provider(
+            restarted,
+            'dev.session.create'
+          )(keyed({ ...body, worktreeId: '00000000-0000-4000-8000-000000000052' })),
+        'idempotency_conflict'
+      )
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('dev.session.create forgets a key after the seven-day replay window', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const first = seedRuntime(dataDir)
+      const body = {
+        projectId: project.id,
+        repoId: project.repoIds[0]!,
+        worktreeId: '00000000-0000-4000-8000-000000000051',
+      }
+      const keyed = (input: typeof body) =>
+        ({
+          ...command(input),
+          idempotencyKey: 'expired-chat-create',
+        }) as DevCommand
+      const created = provider(first, 'dev.session.create')(keyed(body)) as RuntimeSession
+      const storeFile = join(dataDir, 'dev-runtime', 'project-session', 'authority.json')
+      const envelope = JSON.parse(readFileSync(storeFile, 'utf8')) as {
+        records: Array<{ sessionCreates?: Array<Record<string, unknown>> }>
+      }
+      envelope.records[0]!.sessionCreates![0]!.createdAt = '2020-01-01T00:00:00.000Z'
+      writeFileSync(storeFile, JSON.stringify(envelope), { mode: 0o600 })
+
+      const restarted = registerProjectSessionRuntime({
+        authority: { registerCommandProvider() {} },
+        dataDir,
+        scope,
+      })
+      const recreated = provider(restarted, 'dev.session.create')(keyed(body)) as RuntimeSession
+      expect(recreated.id).not.toBe(created.id)
+      const sessions = provider(restarted, 'dev.session.list')(command({})) as {
+        items: RuntimeSession[]
+      }
+      expect(sessions.items.filter((entry) => entry.worktreeId === body.worktreeId)).toHaveLength(2)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('upserts are the canonical write path: stale versions and lower generations are rejected', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {

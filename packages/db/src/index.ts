@@ -23,6 +23,12 @@ export {
   type ContentRefUpdateInput,
 } from './content-refs'
 export {
+  listContentReplicasForUser,
+  upsertContentReplica,
+  type ContentReplicaUpsertInput,
+  type ContentReplicaUpsertResult,
+} from './content-replicas'
+export {
   claimTemporaryUserSession,
   claimTemporaryUserSessionForUser,
   createUserWithAuthIdentity,

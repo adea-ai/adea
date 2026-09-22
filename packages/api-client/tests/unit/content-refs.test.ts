@@ -31,11 +31,23 @@ describe('ContentRef API client', () => {
       keyVersion: 1,
       revision: 1,
     })
+    await client.listContentReplicas('workspace/1', 'content/1')
+    await client.upsertContentReplica('workspace/1', 'content/1', {
+      availability: 'available',
+      ciphertext: 'ZW5jcnlwdGVk',
+      digestSha256: 'a'.repeat(64),
+      nonce: 'A'.repeat(16),
+      replicaKind: 'local_authority',
+      revision: 1,
+      schemaVersion: 1,
+    })
 
     expect(requests.map(({ url }) => new URL(url).pathname)).toEqual([
       '/api/v1/workspaces/workspace%2F1/content-refs',
       '/api/v1/workspaces/workspace%2F1/content-refs/content%2F1',
       '/api/v1/workspaces/workspace%2F1/content-refs/content%2F1',
+      '/api/v1/workspaces/workspace%2F1/content-refs/content%2F1/replicas',
+      '/api/v1/workspaces/workspace%2F1/content-refs/content%2F1/replicas',
     ])
     expect(await requests[0]!.text()).not.toMatch(/plaintext|ciphertext|nonce|masterKey/i)
     expect(requests[2]?.method).toBe('PATCH')

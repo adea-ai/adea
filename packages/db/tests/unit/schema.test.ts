@@ -9,6 +9,7 @@ import {
   channelParticipants,
   channels,
   contentRefs,
+  contentReplicas,
   desktopAuthorizationCodes,
   eventInbox,
   messageArtifactReferences,
@@ -85,6 +86,29 @@ describe('persistence schema', () => {
     expect(config.checks.some(({ name }) => name === 'content_refs_digest_sha256')).toBe(true)
     expect(config.checks.some(({ name }) => name === 'content_refs_deletion_consistent')).toBe(true)
     expect(config.indexes).toHaveLength(3)
+  })
+
+  test('stores ContentReplica ciphertext with physical identity constraints', () => {
+    const config = getTableConfig(contentReplicas)
+    const columns = config.columns.map(({ name }) => name)
+
+    expect(columns).toContain('content_ref_id')
+    expect(columns).toContain('ciphertext')
+    expect(columns).toContain('nonce')
+    expect(columns).not.toContain('plaintext')
+    expect(config.checks.some(({ name }) => name === 'content_replicas_digest_sha256')).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'content_replicas_nonce_base64url')).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'content_replicas_ciphertext_size')).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'content_replicas_ciphertext_canonical')).toBe(
+      true
+    )
+    expect(
+      config.checks.some(({ name }) => name === 'content_replicas_kind_epoch_consistent')
+    ).toBe(true)
+    expect(config.checks.some(({ name }) => name === 'content_replicas_deletion_consistent')).toBe(
+      true
+    )
+    expect(config.indexes).toHaveLength(4)
   })
 
   test('represents constraints and indexes in schema metadata', () => {
