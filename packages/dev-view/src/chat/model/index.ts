@@ -1,3 +1,4 @@
+import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime'
 import type {
   DevRuntimePage,
   DevStreamFrame,
@@ -20,6 +21,7 @@ import {
 } from './commands'
 import {
   acceptRuntimeStreamFrame,
+  CHAT_EVENT_RETENTION_LIMIT,
   createTranscriptAccumulator,
   type TranscriptAccumulator,
 } from './transcript'
@@ -63,6 +65,26 @@ function eventSequence(event: RuntimeEvent): bigint {
   } catch {
     return -1n
   }
+}
+
+function eventIdentity(event: RuntimeEvent): string {
+  return `${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
+}
+
+function mergeSessionEvents(
+  runtimeSessionId: string,
+  existing: readonly RuntimeEvent[],
+  incoming: readonly RuntimeEvent[]
+): RuntimeEvent[] {
+  const merged = [...existing]
+  for (const event of incoming) {
+    if (event.runtimeSessionId !== runtimeSessionId) continue
+    if (merged.some((entry) => eventIdentity(entry) === eventIdentity(event))) continue
+    merged.push(event)
+  }
+  return merged
+    .toSorted((left, right) => (eventSequence(left) < eventSequence(right) ? -1 : 1))
+    .slice(-CHAT_EVENT_RETENTION_LIMIT)
 }
 
 function payloadText(event: RuntimeEvent): string | undefined {
@@ -290,10 +312,7 @@ export function createChatConversationModel(
         message: 'The canonical project registry has not resolved this session.',
       })
     sessions.set(session.id, session)
-    const merged = events.get(session.id) ?? []
-    for (const event of newEvents)
-      if (!merged.some((entry) => entry.eventId === event.eventId)) merged.push(event)
-    events.set(session.id, merged)
+    events.set(session.id, mergeSessionEvents(session.id, events.get(session.id) ?? [], newEvents))
     selectedRuntimeSessionId = selectedRuntimeSessionId ?? session.id
     return requireConversation(session.id)
   }
@@ -312,9 +331,11 @@ export function createChatConversationModel(
     )
   }
   const create = async (input: ConversationCreateInput): Promise<ChatConversation> => {
+    const hasAgentProfileId = input.agentProfileId !== undefined
+    const hasAgentProfileVersion = input.agentProfileVersion !== undefined
     if (
-      input.initialPrompt !== undefined &&
-      (input.agentProfileId === undefined || input.agentProfileVersion === undefined)
+      hasAgentProfileId !== hasAgentProfileVersion ||
+      (input.initialPrompt !== undefined && (!hasAgentProfileId || !hasAgentProfileVersion))
     )
       throw new ChatRuntimeError({
         code: 'invalid_state',
@@ -390,15 +411,28 @@ export function createChatConversationModel(
   }
   const attach = async (runtimeSessionId: string): Promise<ChatConversation> => {
     await loadHierarchy()
-    const page = await executeChatCommand<DevRuntimePage<RuntimeSession>>(
-      service,
-      buildDevCommand({
-        operation: 'dev.session.list',
-        scope,
-        body: { runtimeSessionId },
-      })
-    )
-    const session = page.items.find((item) => item.id === runtimeSessionId)
+    let cursor: string | undefined
+    const seenCursors = new Set<string>()
+    let session: RuntimeSession | undefined
+    do {
+      const body = cursor === undefined ? { limit: 500 } : { cursor, limit: 500 }
+      const page = await executeChatCommand<DevRuntimePage<RuntimeSession>>(
+        service,
+        buildDevCommand({ operation: 'dev.session.list', scope, body })
+      )
+      session = page.items.find((item) => item.id === runtimeSessionId)
+      if (session) break
+      if (page.nextCursor !== undefined) {
+        if (seenCursors.has(page.nextCursor))
+          throw new ChatRuntimeError({
+            code: 'invalid_state',
+            retryable: true,
+            message: 'The runtime session list returned a repeated cursor.',
+          })
+        seenCursors.add(page.nextCursor)
+      }
+      cursor = page.nextCursor
+    } while (cursor !== undefined)
     if (!session)
       throw new ChatRuntimeError({
         code: 'not_found',
@@ -520,19 +554,36 @@ export function createChatConversationModel(
     const pendingAcks: DevStreamFrame[] = []
     socket = transport.connect(grant as never, {
       onFrame: (frame) => {
-        transcript = acceptRuntimeStreamFrame(
-          transcript,
-          frame,
-          eventSourceForStream({ source: streamOptions.source })
-        )
+        const source = eventSourceForStream({ source: streamOptions.source })
+        let decodedEvent: RuntimeEvent | undefined
         if (frame.type === 'data') {
-          const latest = transcript.events.at(-1)
-          if (latest) {
-            const existing = events.get(runtimeSessionId) ?? []
-            if (!existing.some((event) => event.eventId === latest.eventId)) existing.push(latest)
-            events.set(runtimeSessionId, existing)
+          try {
+            const decoded = decodeCbor(frame.bytes)
+            const candidate = decodeRuntimeEvent(decoded.value, { source })
+            if (
+              candidate.seq === frame.sequence &&
+              candidate.runtimeSessionId === runtimeSessionId &&
+              candidate.generation === current.generation
+            )
+              decodedEvent = candidate
+          } catch {
+            decodedEvent = undefined
           }
+        }
+        transcript = acceptRuntimeStreamFrame(transcript, frame, source)
+        if (frame.type === 'data' && decodedEvent) {
+          const accepted = transcript.events.some(
+            (event) => eventIdentity(event) === eventIdentity(decodedEvent!)
+          )
+          if (accepted)
+            events.set(
+              runtimeSessionId,
+              mergeSessionEvents(runtimeSessionId, events.get(runtimeSessionId) ?? [], [
+                decodedEvent,
+              ])
+            )
           if (
+            accepted &&
             transcript.availability.status !== 'resync_required' &&
             transcript.availability.status !== 'conflict' &&
             transcript.availability.status !== 'stale_generation'

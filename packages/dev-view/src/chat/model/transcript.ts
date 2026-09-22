@@ -126,7 +126,11 @@ export function acceptRuntimeEvent(
 
   const expected = state.expectedSequence
   const eventSequence = sequence(event.seq)
-  if (expected !== undefined && eventSequence > sequence(expected)) {
+  // The host may drop the oldest portion of a bounded replay. The first
+  // frame can therefore start after the requested sequence; subsequent jumps
+  // remain genuine gaps and require a resync.
+  const boundedReplayStart = state.events.length === 0 && expected !== undefined
+  if (expected !== undefined && eventSequence > sequence(expected) && !boundedReplayStart) {
     return {
       ...state,
       availability: {
@@ -145,7 +149,11 @@ export function acceptRuntimeEvent(
   const nextSequence = (eventSequence + 1n).toString()
   const bounded =
     events.length > CHAT_EVENT_RETENTION_LIMIT ? events.slice(-CHAT_EVENT_RETENTION_LIMIT) : events
-  const window = retention(bounded, state.fromSequence)
+  const window = retention(
+    bounded,
+    state.fromSequence,
+    boundedReplayStart ? 'retention' : undefined
+  )
   const boundedFromRetention = window.reason === 'retention'
   return {
     ...state,
@@ -252,13 +260,15 @@ export function transcriptWindow(
   options: { runtimeSessionId: string; generation: number; fromSequence?: string; limit?: number }
 ): TranscriptAccumulator {
   const initial = createTranscriptAccumulator(options)
-  const limit = Math.min(Math.max(options.limit ?? 100, 1), 500)
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), CHAT_EVENT_RETENTION_LIMIT)
+  const fromSequence = sequence(options.fromSequence ?? '0')
   let state = initial
   for (const item of [...events]
     .filter(
       (event) =>
         event.runtimeSessionId === options.runtimeSessionId &&
-        event.generation === options.generation
+        event.generation === options.generation &&
+        sequence(event.seq) >= fromSequence
     )
     .toSorted((left, right) => (sequence(left.seq) < sequence(right.seq) ? -1 : 1))
     .slice(0, limit)) {

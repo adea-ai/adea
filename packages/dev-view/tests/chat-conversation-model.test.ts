@@ -17,6 +17,7 @@ import {
   acceptRuntimeEvent,
   acceptRuntimeStreamFrame,
   createTranscriptAccumulator,
+  transcriptWindow,
   type TranscriptAccumulator,
 } from '../src/chat/model/transcript'
 
@@ -170,6 +171,98 @@ describe('projectChatConversations', () => {
         sessions: [first],
       }).conversations
     ).toHaveLength(0)
+  })
+
+  test('attaches by walking legal session list pages without an id filter', async () => {
+    const target = session({ id: '00000000-0000-4000-8000-000000000012' })
+    const other = session({ id: '00000000-0000-4000-8000-000000000013' })
+    const listBodies: Array<Record<string, unknown>> = []
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list') {
+        listBodies.push(command.body)
+        return command.body.cursor === 'page-2'
+          ? ok(command.operation, { items: [target], observedAt: '2026-09-22T10:00:00Z' })
+          : ok(command.operation, {
+              items: [other],
+              nextCursor: 'page-2',
+              observedAt: '2026-09-22T10:00:00Z',
+            })
+      }
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+
+    await expect(model.attach(target.id)).resolves.toMatchObject({
+      runtimeSessionId: target.id,
+    })
+    expect(listBodies).toEqual([{ limit: 500 }, { cursor: 'page-2', limit: 500 }])
+    expect(listBodies.every((body) => !('runtimeSessionId' in body))).toBe(true)
+  })
+
+  test('rejects a partial agent profile before creating a durable session', async () => {
+    const calls: string[] = []
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      calls.push(command.operation)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+
+    await expect(
+      model.create({
+        projectId: 'project-1',
+        repoId: 'repo-1',
+        worktreeId: 'worktree-1',
+        agentProfileId: 'profile-1',
+      })
+    ).rejects.toMatchObject({ code: 'invalid_state' })
+    expect(calls).toEqual([])
+  })
+
+  test('ignores events belonging to another runtime session', async () => {
+    const current = session()
+    const other = session({ id: '00000000-0000-4000-8000-000000000014' })
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    await model.attach(current.id)
+
+    model.remember(current, [event({ runtimeSessionId: other.id })])
+    expect(model.project().conversations[0]?.events).toEqual([])
+  })
+
+  test('bounds remembered session events to canonical retention', async () => {
+    const current = session()
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    await model.attach(current.id)
+    const retained = Array.from({ length: 1_001 }, (_, index) =>
+      event({
+        eventId: `event-${index}`,
+        sourceEventId: `source-${index}`,
+        seq: String(index),
+      })
+    )
+
+    model.remember(current, retained)
+    const conversation = model.project().conversations[0]!
+    expect(conversation.events).toHaveLength(1_000)
+    expect(conversation.events[0]?.seq).toBe('1')
+    expect(conversation.events.at(-1)?.seq).toBe('1000')
   })
 })
 
@@ -484,9 +577,120 @@ describe('ChatConversationModel', () => {
       { type: 'ack', throughSequence: '0', availableCreditBytes: bytes.byteLength },
     ])
   })
+
+  test('does not acknowledge data for another session or generation', async () => {
+    const current = session()
+    const bytes = [
+      encodeCbor(event({ seq: '0' })),
+      encodeCbor(event({ seq: '1', runtimeSessionId: '00000000-0000-4000-8000-000000000015' })),
+      encodeCbor(event({ seq: '2', generation: 2 })),
+    ]
+    const sent: Array<{ type: string; throughSequence?: string }> = []
+    const service: DevRuntimeService = {
+      ...fakeService(async (command) => {
+        const hierarchy = hierarchyReply(command.operation)
+        if (hierarchy) return hierarchy
+        if (command.operation === 'dev.session.list')
+          return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+        if (command.operation === 'dev.session.events')
+          return ok(command.operation, {
+            schemaVersion: 1,
+            grantId: 'grant-1',
+            protocol: 'runtime-events-v1',
+            channelId: 'channel-1',
+            scope: SCOPE,
+            resource: { kind: 'runtime_session', id: current.id, generation: 1 },
+            direction: 'read',
+            fromSequence: '0',
+            expiresAt: '2026-09-22T10:01:00Z',
+            maxFrameBytes: 1_024,
+          })
+        throw new Error(`unexpected ${command.operation}`)
+      }),
+      streams: () => ({
+        connect: (_grant, handlers) => {
+          handlers.onFrame({
+            type: 'opened',
+            protocol: 'runtime-events-v1',
+            generation: 1,
+            nextSequence: '0',
+          })
+          handlers.onFrame({ type: 'data', sequence: '0', bytes: bytes[0]! })
+          handlers.onFrame({ type: 'data', sequence: '1', bytes: bytes[1]! })
+          handlers.onFrame({ type: 'data', sequence: '2', bytes: bytes[2]! })
+          return {
+            open: true,
+            send: (frame) => {
+              if (frame.type === 'ack') sent.push(frame)
+            },
+            close: () => undefined,
+          }
+        },
+      }),
+    }
+    const model = createChatConversationModel(service, SCOPE)
+    await model.attach(current.id)
+    await model.openTranscript(current.id)
+
+    expect(sent).toEqual([
+      { type: 'ack', throughSequence: '0', availableCreditBytes: bytes[0]!.byteLength },
+    ])
+  })
 })
 
 describe('runtime-events-v1 transcript projection', () => {
+  test('accepts the first frame after a bounded replay floor, then detects later gaps', () => {
+    let state = createTranscriptAccumulator({
+      runtimeSessionId: session().id,
+      generation: 1,
+      fromSequence: '0',
+    })
+    state = acceptRuntimeStreamFrame(
+      state,
+      { type: 'opened', protocol: 'runtime-events-v1', generation: 1, nextSequence: '0' },
+      'host'
+    )
+    state = acceptRuntimeStreamFrame(
+      state,
+      { type: 'data', sequence: '100', bytes: encodeCbor(event({ seq: '100' })) },
+      'host'
+    )
+    expect(state.availability).toMatchObject({ status: 'bounded', reason: 'retention' })
+    expect(state.expectedSequence).toBe('101')
+
+    state = acceptRuntimeStreamFrame(
+      state,
+      {
+        type: 'data',
+        sequence: '102',
+        bytes: encodeCbor(event({ seq: '102', sourceEventId: 'source-102' })),
+      },
+      'host'
+    )
+    expect(state.availability).toMatchObject({ status: 'resync_required', reason: 'sequence_gap' })
+  })
+
+  test('starts a bounded window at the requested sequence', () => {
+    const events = Array.from({ length: 1_000 }, (_, index) =>
+      event({
+        eventId: `event-${index}`,
+        sourceEventId: `source-${index}`,
+        seq: String(index),
+      })
+    )
+    const state = transcriptWindow(events, {
+      runtimeSessionId: session().id,
+      generation: 1,
+      fromSequence: '500',
+      limit: 500,
+    })
+
+    expect(state.events).toHaveLength(500)
+    expect(state.events[0]?.seq).toBe('500')
+    expect(state.events.at(-1)?.seq).toBe('999')
+    expect(state.availability).toMatchObject({ status: 'available' })
+  })
+
   test('dedupes canonical duplicate delivery and reports a sequence gap', () => {
     let state = createTranscriptAccumulator({ runtimeSessionId: session().id, generation: 1 })
     state = acceptRuntimeEvent(state, event())
