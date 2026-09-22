@@ -3125,6 +3125,31 @@ controlling user's input, a `task_owned` lane accepts input only within the
 owning task's grant, and `none` rejects input. Ownership transfer increments
 the generation, so input granted under an old generation is inert.
 
+The packaged browser engine uses Bun 1.4 `Bun.WebView` with the Chrome/CDP
+backend for task-owned and user-context lanes. Each view requests an
+owner-only persistent `dataStore` directory derived from the immutable lane
+profile identity; the shell's bundled Electrobun CEF window is never reused.
+Because Bun's Chrome backend currently shares one Chrome process (and therefore
+one process-level data store) across views, production cookie/profile
+isolation still requires the packaged host to provide a process-per-lane CDP
+adapter or an equivalent CEF profile boundary; this engine does not claim that
+acceptance evidence yet.
+The engine enables CDP `Fetch.requestPaused` for document requests before
+navigation. It calls the provider's admission hook for the initial request and
+each redirect, continues only admitted URLs, records console and failed-network
+diagnostics, and fails closed when the view reports a navigation error. CDP
+`Page.captureScreenshot`, DOM inspection, viewport emulation, and
+`Page.startScreencast` provide the live host surface. Screencast publication
+uses the one-in-flight/latest-frame bound and sends `video` frames through the
+authenticated `browser-frames-v1` stream; write frames decode only bounded
+CBOR input controls, and Escape invokes the generation-fenced release path.
+
+The current Electrobun 2.0.1 shell declaration exposes only `BrowserWindow`;
+it has no BrowserView/CDP handle for the human embedded CEF context. The
+engine therefore keeps that context isolated and does not claim a CEF target
+until the packaged host exposes an authorized BrowserView seam. Packaged
+macOS CEF evidence remains a required #537/#426 acceptance gate.
+
 Screenshots/annotations carry origin, viewport, time, lane/profile, and
 redaction provenance; maximum 25 MiB each and workspace retention limits apply.
 Browser page content cannot invoke Adea commands through origin or loopback.
