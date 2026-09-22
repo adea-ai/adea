@@ -67,7 +67,7 @@ export function redactSearchText(value: string, limit = MAX_TEXT): string {
       )
       .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{1,512}/gi, 'Bearer [secret redacted]')
       .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,512}/gi, '[secret redacted]')
-      .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`\"']{1,512}/g, '[private path]'),
+      .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`"']{1,512}/g, '[private path]'),
     limit
   )
 }
