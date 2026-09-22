@@ -1248,6 +1248,28 @@ returns that session after a process restart; a changed body refuses with
 only after accepting a frame. Replay delivered during stream attach queues
 the acknowledgement until the socket is available; a decode error, sequence
 gap, conflict, or stale generation never acknowledges the rejected frame.
+Chat attaches an existing session by walking the legal paged
+`dev.session.list` body and its opaque cursors; the list body has no
+`runtimeSessionId` filter. Since the host may start a bounded replay at the
+newest retained frame, it emits a `resync` frame with
+`reason: 'checkpoint_required'` and the actual retained floor before replaying
+data. Chat accepts the first data frame only at that disclosed checkpoint; a
+data frame that jumps past the requested cursor without the checkpoint, or a
+later sequence jump, requires resync and is never acknowledged. Remembered
+events are admitted only for their canonical runtime session and are capped at
+the global 1,000-event retention bound using generation-aware ordering, with the
+newest generation preserved when sequence numbers restart. The client keeps
+create request fingerprints/results only through the same seven-day replay
+window as the host authority, including pending requests. After that window a
+same-key retry may safely replay the host's durable create; only the current
+request may update the projection or continue to launch, so a late response
+from an expired request cannot overwrite newer session state or duplicate the
+run side effect. Expired initial prompts therefore cannot remain in an
+unbounded cache.
+If a Chat create request loses its transport response, the client retains the
+key/body fingerprint but clears its rejected in-flight promise. Retrying the
+same request then reaches the host's durable result replay; reusing the key for
+a changed body still refuses before dispatch.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
@@ -2676,6 +2698,16 @@ the correctness path; when the event surface is absent — a web non-desktop
 runtime, or a bridge predating the listen seam — panes keep generation-fenced
 pull unchanged.
 
+The shell bridge's legacy SSE subscription token is event-scoped. The
+`POST /__adea/events-token` request MUST authenticate the channel and mint a
+single-use token bound to the exact non-empty event name in its JSON body. The
+`GET /__adea/events` request MUST present the same trusted origin, channel,
+credential, token, and event query value; the authority MUST reject a missing,
+expired, replayed, or differently named event before opening the stream and
+MUST consume the token before subscribing. After validation, the gateway passes
+that validated event value directly to the subscriber. A token minted for one
+event therefore cannot be substituted into another event stream.
+
 ### Canonical byte encoding in proofs
 
 The command-proof canonical JSON encodes a `Uint8Array` body field (the
@@ -2964,19 +2996,21 @@ serves the canonical event log: append-only, sequence-ordered per (session,
 generation) with canonical uint64 `seq`; dedupe on
 `(runtimeSessionId, generation, source, sourceEventId)` where the identical
 event is an ignored duplicate and a different event under the same key is
-`idempotency_conflict`; bounded retention (oldest dropped first per session —
-1,000 events/session, 5,000/scope); reads are bounded ascending windows
+`idempotency_conflict`; bounded retention (oldest dropped first per session in
+generation-aware order — 1,000 events/session, 5,000/scope); reads are bounded ascending windows
 (page maximum 500, default 100). The host appends `session.*`/`run.*`
 lifecycle facts (session created via the register's publishes; run
 created/starting/resumed/cancelled; observed status transitions) as
 `authoritative` host events with `workspace_metadata` classification; harness
 turn/tool/approval events arrive only through their own tiers and are never
 fabricated here. At attach the handler replays at most the newest 500 events
-of the granted generation from (or after) `fromSequence`, streams live
-append-matched events as CBOR `data` frames, accepts only `ack` control
-frames, and closes `stale_generation` when the session moves to a newer
-generation — grants minted under an old generation are inert, never
-ambiguous.
+of the granted generation from (or after) `fromSequence`. When that bound
+raises the actual replay floor above the requested cursor, the handler emits a
+`resync { reason: 'checkpoint_required', checkpointSequence }` frame naming
+that floor before the CBOR `data` frames. It then streams live
+append-matched events, accepts only `ack` control frames, and closes
+`stale_generation` when the session moves to a newer generation — grants
+minted under an old generation are inert, never ambiguous.
 
 ## Browser and device lanes
 
@@ -3212,7 +3246,11 @@ listing without a source is truthful-empty rather than fabricated:
   metrics surface is read, never on a timer. CPU is a monotonic delta
   between consecutive samples of one owner; the first sample carries no
   `cpuPercent`, and unobservable values stay absent (never numeric zero).
-  History is bounded to 720 points per owner and 24 hours.
+  History is bounded to 720 points per owner and 24 hours. Each pull makes at
+  most one `ps` observation of 64 distinct PIDs. The sampler rotates that
+  bounded window through the current inventory, so a stable large inventory
+  is covered across successive pulls without a command burst or permanent
+  first-page bias. An unsampled process has no fabricated metric.
 - Usage adapters are sequenced by a cache service with exponential backoff
   plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
   floor. A failed poll stores an explicit typed-failure row (quantity
@@ -4285,7 +4323,9 @@ can distinguish intentional spec evolution from drift:
     `access_denied`, `malformed_output`, `process_failure`, `timeout`,
     `unavailable_executable`). Only item-not-found permits first-time key
     generation; every other outcome fails closed without generating or
-    overwriting a key, and lookups re-validate base64 strictly.
+    overwriting a key. If CLI stderr contains conflicting signals, locked or
+    denied takes precedence over item-not-found; a mixed diagnostic never
+    permits first-time generation. Lookups re-validate base64 strictly.
   - **Production registration matrix.** The composition root
     (`apps/desktop/shell/src/dev-runtime/index.ts`) registers every provider
     with a reachable implementation — capability snapshot, project/session

@@ -269,6 +269,11 @@ Before release:
   packaged desktop paths; M12 additionally proves the remote-ready adapter with
   authorized fake-node, revocation, and scope-isolation fixtures, while M14
   owns production remote-node evidence;
+- the M10 privileged-command matrix covers exact shell origin/rebinding,
+  normalized workspace-path traversal, opaque `CredentialRef` key-role
+  boundaries, registry capability/resource binding, and event-scoped single-use
+  channel tokens (`apps/desktop/tests/dev-runtime-command-matrix.test.ts` and
+  `apps/desktop/tests/shell-channel.test.ts`);
 - every privileged command produces a secret-free audit result keyed by actor,
   scope, node, resource, generation, operation, and error code;
 - security telemetry counts rejected replay, stale generation, identity race,

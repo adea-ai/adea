@@ -69,12 +69,13 @@ function retention(
   const oldestSequence = ordered[0]?.seq
   const newestSequence = ordered.at(-1)?.seq
   const bounded = oldestSequence !== undefined && sequence(requestedFrom) < sequence(oldestSequence)
+  const retentionReason = reason ?? (bounded ? ('retention' as const) : undefined)
   return {
     maxEvents: CHAT_EVENT_RETENTION_LIMIT,
     ...(oldestSequence !== undefined ? { oldestSequence } : {}),
     ...(newestSequence !== undefined ? { newestSequence } : {}),
-    complete: !bounded && reason === undefined,
-    ...(bounded ? { reason: 'retention' as const } : reason !== undefined ? { reason } : {}),
+    complete: retentionReason === undefined,
+    ...(retentionReason !== undefined ? { reason: retentionReason } : {}),
   }
 }
 
@@ -145,21 +146,24 @@ export function acceptRuntimeEvent(
   const nextSequence = (eventSequence + 1n).toString()
   const bounded =
     events.length > CHAT_EVENT_RETENTION_LIMIT ? events.slice(-CHAT_EVENT_RETENTION_LIMIT) : events
-  const window = retention(bounded, state.fromSequence)
-  const boundedFromRetention = window.reason === 'retention'
+  const priorBoundedReason =
+    state.availability.status === 'bounded' ? state.availability.reason : undefined
+  const window = retention(bounded, state.fromSequence, priorBoundedReason)
+  const boundedReason = window.reason
   return {
     ...state,
     expectedSequence:
       expected === undefined || eventSequence >= sequence(expected) ? nextSequence : expected,
     events: bounded,
-    availability: boundedFromRetention
-      ? {
-          status: 'bounded',
-          reason: 'retention',
-          oldestSequence: window.oldestSequence,
-          requestedFromSequence: state.fromSequence,
-        }
-      : { status: 'available' },
+    availability:
+      boundedReason !== undefined
+        ? {
+            status: 'bounded',
+            reason: boundedReason,
+            oldestSequence: window.oldestSequence,
+            ...(boundedReason === 'retention' ? { requestedFromSequence: state.fromSequence } : {}),
+          }
+        : { status: 'available' },
     retention: window,
   }
 }
@@ -229,6 +233,7 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'resync') {
     return {
       ...state,
+      expectedSequence: frame.checkpointSequence,
       availability: {
         status: 'bounded',
         reason: frame.reason,
@@ -252,13 +257,15 @@ export function transcriptWindow(
   options: { runtimeSessionId: string; generation: number; fromSequence?: string; limit?: number }
 ): TranscriptAccumulator {
   const initial = createTranscriptAccumulator(options)
-  const limit = Math.min(Math.max(options.limit ?? 100, 1), 500)
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), CHAT_EVENT_RETENTION_LIMIT)
+  const fromSequence = sequence(options.fromSequence ?? '0')
   let state = initial
   for (const item of [...events]
     .filter(
       (event) =>
         event.runtimeSessionId === options.runtimeSessionId &&
-        event.generation === options.generation
+        event.generation === options.generation &&
+        sequence(event.seq) >= fromSequence
     )
     .toSorted((left, right) => (sequence(left.seq) < sequence(right.seq) ? -1 : 1))
     .slice(0, limit)) {
