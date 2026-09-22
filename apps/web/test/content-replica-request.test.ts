@@ -5,6 +5,7 @@ import {
   readContentReplicaRequest,
 } from '../src/server/content-replica-body'
 import { parseContentReplicaUpsertInput } from '../src/server/content-replica-input'
+import { classifyContentReplicaError } from '../src/server/content-replica-error-classification'
 
 const base = {
   availability: 'available',
@@ -41,6 +42,10 @@ describe('ContentReplica request boundary', () => {
     expect(parseContentReplicaUpsertInput({ ...base, digestSha256: 'not-a-digest' })).toBeNull()
     expect(parseContentReplicaUpsertInput({ ...base, ciphertext: 'contains plaintext' })).toBeNull()
     expect(parseContentReplicaUpsertInput({ ...base, ciphertext: 'A' })).toBeNull()
+    expect(parseContentReplicaUpsertInput({ ...base, ciphertext: `${'A'.repeat(21)}B` })).toBeNull()
+    expect(
+      parseContentReplicaUpsertInput({ ...base, ciphertext: 'A'.repeat(10 * 1024 * 1024) })
+    ).toBeNull()
     expect(
       parseContentReplicaUpsertInput({
         ...base,
@@ -61,5 +66,12 @@ describe('ContentReplica request boundary', () => {
       method: 'POST',
     })
     await expect(readContentReplicaRequest(declaredOversized)).resolves.toBeNull()
+  })
+
+  test('classifies infrastructure errors as retryable instead of invalid requests', () => {
+    expect(classifyContentReplicaError(new Error('database connection refused'))).toBe('retryable')
+    expect(classifyContentReplicaError(new Error('Content replica metadata invalid'))).toBe(
+      'invalid'
+    )
   })
 })

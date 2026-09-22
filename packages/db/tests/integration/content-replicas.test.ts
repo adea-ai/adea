@@ -120,6 +120,18 @@ describe.skipIf(!connectionUrl)('cloud-safe ContentReplica persistence', () => {
     await expect(
       upsertContentReplica(connection.db, workspace.id, contentRefId, owner.principal, {
         ...revisionOne,
+        ciphertext: `${'A'.repeat(21)}B`,
+      })
+    ).rejects.toThrow('metadata invalid')
+    await expect(
+      upsertContentReplica(connection.db, workspace.id, contentRefId, owner.principal, {
+        ...revisionOne,
+        ciphertext: 'A'.repeat(10 * 1024 * 1024),
+      })
+    ).rejects.toThrow('metadata invalid')
+    await expect(
+      upsertContentReplica(connection.db, workspace.id, contentRefId, owner.principal, {
+        ...revisionOne,
         ciphertext: Buffer.alloc(2 * 1024 * 1024 + 1).toString('base64url'),
       })
     ).rejects.toThrow('metadata invalid')

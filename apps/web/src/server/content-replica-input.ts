@@ -5,6 +5,8 @@ import { isContentRefUuid } from './content-ref-input'
 const DIGEST = /^[0-9a-f]{64}$/
 const MAX_CIPHERTEXT_BYTES = 2 * 1024 * 1024
 const MIN_CIPHERTEXT_BYTES = 16
+const MAX_CIPHERTEXT_BASE64URL_CHARS = 2_796_203
+const MIN_CIPHERTEXT_BASE64URL_CHARS = 22
 const BASE64URL = /^[A-Za-z0-9_-]+$/
 const NONCE = /^[A-Za-z0-9_-]{16}$/
 const KEYS = new Set([
@@ -45,7 +47,14 @@ export function parseContentReplicaUpsertInput(
 }
 
 function decodeCiphertext(value: unknown) {
-  if (typeof value !== 'string' || !BASE64URL.test(value) || value.length % 4 === 1) return null
+  if (
+    typeof value !== 'string' ||
+    value.length < MIN_CIPHERTEXT_BASE64URL_CHARS ||
+    value.length > MAX_CIPHERTEXT_BASE64URL_CHARS ||
+    !BASE64URL.test(value) ||
+    value.length % 4 === 1
+  )
+    return null
   const padded = `${value.replace(/-/g, '+').replace(/_/g, '/')}${'='.repeat((4 - (value.length % 4)) % 4)}`
   let decoded: Uint8Array
   try {

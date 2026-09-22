@@ -68,6 +68,12 @@ export const contentReplicas = appSchema.table(
       sql`length(${table.ciphertext}) between 22 and 2796203`
     ),
     check(
+      'content_replicas_ciphertext_canonical',
+      // For unpadded base64url, unused tail bits must be zero. This rejects
+      // encodings such as AAAAAAAAAAAAAAAAAAAAAAAB for the same bytes.
+      sql`length(${table.ciphertext}) % 4 = 0 or (length(${table.ciphertext}) % 4 = 2 and right(${table.ciphertext}, 1) ~ '^[AQgw]$') or (length(${table.ciphertext}) % 4 = 3 and right(${table.ciphertext}, 1) ~ '^[AEIMQUYcgkosw048]$')`
+    ),
+    check(
       'content_replicas_kind_epoch_consistent',
       sql`(${table.replicaKind} = 'agent_hq_e2ee_sync' and ${table.keyEpochId} is not null) or (${table.replicaKind} <> 'agent_hq_e2ee_sync' and ${table.keyEpochId} is null)`
     ),

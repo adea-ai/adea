@@ -18,7 +18,8 @@ schema, and key-epoch identity.
 Ciphertext decodes to at least a 16-byte authentication tag and at most 2 MiB.
 The HTTP request body is bounded to the encoded ciphertext plus a fixed metadata
 allowance before JSON parsing; the database boundary repeats the decoded-size
-and canonical-base64url checks.
+and canonical-base64url checks. The PostgreSQL schema also rejects noncanonical
+unused tail bits and bounds the encoded length.
 
 Replica kinds are `local_authority`, `self_hosted_authority`, and
 `agent_hq_e2ee_sync`. The E2E kind requires a `keyEpochId`; authority replicas
@@ -54,6 +55,9 @@ floor, kind/key-epoch consistency, deletion consistency, workspace and
 ContentRef foreign keys, and partial unique indexes for epoch and no-epoch
 physical identities. Integration fixtures use an encoded ciphertext canary and
 assert that the persisted Neon-shaped rows contain no plaintext or key material.
+
+Malformed metadata returns a client error, while unexpected storage failures
+return a retryable 503 response; unavailable ContentRefs remain explicit 404s.
 
 The separate `RemoteContentEnvelope` execution transport and HPKE key-envelope
 implementation are intentionally outside this contract.
