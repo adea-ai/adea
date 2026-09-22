@@ -320,6 +320,107 @@ describe('live Bun WebView/CDP browser engine', () => {
     engine.close(browserLane)
   })
 
+  test('does not attach a stream after its socket closes during first-view provisioning', async () => {
+    const views: FakeWebView[] = []
+    let releasePrepare!: () => void
+    const prepare = new Promise<void>((resolve) => {
+      releasePrepare = resolve
+    })
+    const lanes = createBrowserLaneRegistry()
+    const browserLane = lanes.create({ scope, runtimeSessionId: 'session-1', kind: 'task_owned' })
+    const engine = createBunWebViewLaneEngine({
+      webViewFactory: (options) => {
+        const view = new (class extends FakeWebView {
+          override async navigate(url: string): Promise<void> {
+            if (url === 'about:blank') await prepare
+            await super.navigate(url)
+          }
+        })(options)
+        views.push(view)
+        return view
+      },
+      laneLookup: (laneId) => {
+        try {
+          return lanes.get(laneId)
+        } catch {
+          return undefined
+        }
+      },
+    })
+    const frames: DevStreamFrame[] = []
+    let closeCalls = 0
+    const session = {
+      grant: {
+        maxFrameBytes: 8 * 1024 * 1024,
+        resource: { id: browserLane.id, generation: browserLane.generation },
+      },
+      send: (frame: DevStreamFrame) => frames.push(frame),
+      close: () => {
+        closeCalls += 1
+      },
+      onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
+      onClose: undefined as (() => void) | undefined,
+    }
+    engine.attachStream(session)
+    expect(session.onClose).toBeDefined()
+    session.onClose?.()
+    releasePrepare()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(views).toHaveLength(1)
+    views[0]?.screencast([11, 12, 13])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(frames.find((frame) => frame.type === 'video')).toBeUndefined()
+    expect(closeCalls).toBe(0)
+    engine.close(browserLane)
+  })
+
+  test('refuses a first attach when lane ownership changes during provisioning', async () => {
+    let releasePrepare!: () => void
+    const prepare = new Promise<void>((resolve) => {
+      releasePrepare = resolve
+    })
+    const lanes = createBrowserLaneRegistry()
+    const browserLane = lanes.create({ scope, runtimeSessionId: 'session-1', kind: 'task_owned' })
+    const engine = createBunWebViewLaneEngine({
+      webViewFactory: (options) =>
+        new (class extends FakeWebView {
+          override async navigate(url: string): Promise<void> {
+            if (url === 'about:blank') await prepare
+            await super.navigate(url)
+          }
+        })(options),
+      laneLookup: (laneId) => {
+        try {
+          return lanes.get(laneId)
+        } catch {
+          return undefined
+        }
+      },
+    })
+    let refused: { code: string; reason?: string } | undefined
+    const session = {
+      grant: {
+        maxFrameBytes: 8 * 1024 * 1024,
+        resource: { id: browserLane.id, generation: browserLane.generation },
+      },
+      send: () => {},
+      close: (code: string, reason?: string) => {
+        refused = { code, ...(reason ? { reason } : {}) }
+      },
+      onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
+      onClose: undefined as (() => void) | undefined,
+    }
+    engine.attachStream(session)
+    const takenOver = lanes.takeover(browserLane.id, browserLane.generation)
+    releasePrepare()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(refused).toEqual({
+      code: 'stale_generation',
+      reason: 'browser lane generation changed',
+    })
+    engine.close(takenOver)
+  })
+
   test('Escape invokes the generation-fenced release hook', async () => {
     const views: FakeWebView[] = []
     const released: string[] = []

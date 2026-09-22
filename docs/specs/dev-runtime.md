@@ -3131,7 +3131,10 @@ The host resolves the lane from its registry, provisions the owner-scoped view
 at stream attach, and checks the lane generation again after asynchronous setup
 before publishing frames. A missing lane, stale generation, or failed setup
 closes the stream with a typed refusal; a valid first attach is not treated as
-stale merely because no view existed yet.
+stale merely because no view existed yet. The handler installs the stream's
+close cleanup before provisioning begins, so a socket that closes while the
+view is starting cannot acquire a subscriber after setup completes; an
+authoritative generation change during that window also refuses the attach.
 
 The packaged browser engine uses Bun 1.4 `Bun.WebView` with the Chrome/CDP
 backend for task-owned and user-context lanes. Each view requests an
