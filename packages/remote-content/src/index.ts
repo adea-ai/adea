@@ -78,16 +78,49 @@ export type RemoteContentEnvelopeInput = Readonly<{
 }>
 
 export type RemoteContentReplayClaim = Readonly<{
+  workspaceId: string
+  runtimeNodeId: string
   requestId: string
   keyId: string
   enc: string
   expiresAt: string
 }>
 
-/** The caller must atomically claim a command/result identity in its durable inbox. */
-export type RemoteContentReplayGuard = Readonly<{
+/** The host must atomically claim a command/result identity in its durable inbox. */
+export type RemoteContentReplayLedger = Readonly<{
   claim(input: RemoteContentReplayClaim): Promise<boolean>
 }>
+
+export type RemoteContentReplayGuard = RemoteContentReplayLedger
+
+export type RemoteContentReplayGuardOptions = Readonly<{
+  workspaceId: string
+  runtimeNodeId: string
+  ledger: RemoteContentReplayLedger
+  now?: Date | string | number
+}>
+
+/**
+ * Bind a host's atomic replay ledger to one authenticated workspace/node scope.
+ *
+ * The ledger remains responsible for durable atomicity. This adapter prevents a
+ * caller from accidentally reusing a ledger across scopes and refuses claims
+ * that expire while a decrypt/dispatch handoff is in flight.
+ */
+export function createRemoteContentReplayGuard(
+  input: RemoteContentReplayGuardOptions
+): RemoteContentReplayGuard {
+  const workspaceId = validateReplayScopeId(input.workspaceId)
+  const runtimeNodeId = validateReplayScopeId(input.runtimeNodeId)
+  return {
+    claim: async (claim) => {
+      if (claim.workspaceId !== workspaceId || claim.runtimeNodeId !== runtimeNodeId) return false
+      const now = timestampToMs(input.now ?? Date.now())
+      if (now >= timestampToMs(claim.expiresAt)) return false
+      return input.ledger.claim(claim)
+    },
+  }
+}
 
 export type OpenRemoteContentInput = Readonly<{
   envelope: unknown
@@ -199,6 +232,8 @@ export async function openRemoteContent(input: OpenRemoteContentInput): Promise<
     let claimed: boolean
     try {
       claimed = await input.replayGuard.claim({
+        workspaceId: envelope.aad.workspaceId,
+        runtimeNodeId: envelope.aad.runtimeNodeId,
         requestId: envelope.aad.requestId,
         keyId: envelope.keyId,
         enc: envelope.enc,
@@ -356,6 +391,13 @@ function assertWindow(aad: RemoteContentAad, now: number): void {
 
 function validateKeyId(value: unknown): string {
   if (typeof value !== 'string' || !KEY_ID_PATTERN.test(value)) {
+    throw new RemoteContentEnvelopeError('invalid_envelope')
+  }
+  return value
+}
+
+function validateReplayScopeId(value: unknown): string {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
     throw new RemoteContentEnvelopeError('invalid_envelope')
   }
   return value

@@ -63,11 +63,16 @@ attacker input cannot force an unbounded `atob` allocation. Errors have stable
 codes and never include plaintext, ciphertext, key material, or library details.
 
 `openRemoteContent` requires a caller-supplied replay guard. The guard must
-atomically claim `(requestId, keyId, enc)` in the host's durable CommandInbox
-or equivalent ledger after successful authentication and before dispatch. A
-missing guard fails closed as `replay_unavailable`; a duplicate claim fails as
-`replayed`. This package supplies the typed boundary and ordering but cannot
-prove atomicity for an adapter backed by an external database.
+atomically claim `(workspaceId, runtimeNodeId, requestId, keyId, enc)` in the
+host's durable CommandInbox or equivalent ledger after successful
+authentication and before dispatch. The claim includes `expiresAt`; the host
+adapter refuses a claim outside its bound workspace/runtime-node scope and
+rechecks expiry immediately before calling the ledger. A missing guard fails
+closed as `replay_unavailable`; a duplicate claim fails as `replayed`. Use
+`createRemoteContentReplayGuard` to bind a host ledger to one authenticated
+scope. The ledger callback must provide the durable atomic insert/compare-and-
+set operation; the package cannot prove atomicity for an adapter backed by an
+external database.
 
 ## Key boundary and lifecycle
 
@@ -77,7 +82,10 @@ key material in OS secure storage or an approved self-hosted secrets provider.
 This package does not register RuntimeNodes, persist public keys, rotate or
 revoke keys, retain queued envelopes, or access cloud/Neon state. Signing keys
 and ContentSyncDevice synchronization keys remain separate contracts. The
-replay guard adapter remains the host/dispatch integration responsibility.
+replay ledger adapter remains the host/dispatch integration responsibility.
+This package does not choose a database schema or claim retention policy; a
+host implementation must retain claims through their envelope expiry and may
+garbage-collect expired records transactionally.
 
 The checked-in fixture contains deterministic test-only input material and
 known ciphertext. It is not a production key. The fixture demonstrates that a
@@ -91,6 +99,7 @@ require their owning lanes.
 - `packages/remote-content/tests/unit/remote-content.test.ts` — deterministic
   standards-library vector, round-trip encryption, AAD/ciphertext/recipient
   tampering, key-ID retagging, expiry, downgrade, suite/key mismatch, malformed
-  fields, encoded-size preflight, replay-guard ordering, and error redaction.
+  fields, encoded-size preflight, scope-bound replay-guard ordering and
+  expiry, and error redaction.
 - `packages/remote-content/fixtures/remote-content-envelope-v1.json` — known
   nonproduction vector inputs and expected RFC 9180 envelope bytes.

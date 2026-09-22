@@ -7,7 +7,10 @@ import {
   REMOTE_CONTENT_SCHEMA_VERSION,
   REMOTE_CONTENT_VERSION,
   RemoteContentEnvelopeError,
+  type RemoteContentReplayClaim,
+  type RemoteContentReplayGuard,
   createRemoteContentAad,
+  createRemoteContentReplayGuard,
   deriveRemoteCommandKeyPair,
   openRemoteContent,
   parseRemoteContentEnvelope,
@@ -44,11 +47,11 @@ const toBase64Url = (value: ArrayBufferLike | ArrayBufferView) => {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '')
 }
 
-const replayGuard = () => {
+const replayGuard = (): RemoteContentReplayGuard => {
   const claims = new Set<string>()
   return {
-    claim: async (input: { requestId: string; enc: string }) => {
-      const claimId = `${input.requestId}:${input.enc}`
+    claim: async (input: RemoteContentReplayClaim) => {
+      const claimId = `${input.workspaceId}:${input.runtimeNodeId}:${input.requestId}:${input.keyId}:${input.enc}`
       if (claims.has(claimId)) return false
       claims.add(claimId)
       return true
@@ -142,6 +145,103 @@ describe('RemoteContentEnvelope v1', () => {
     await expect(openRemoteContent({ ...input, replayGuard: undefined })).rejects.toMatchObject({
       code: 'replay_unavailable',
     })
+  })
+
+  test('binds replay claims to the authenticated workspace and runtime node scope', async () => {
+    const recipient = await deriveRemoteCommandKeyPair(toBytes('scoped replay guard'))
+    const envelope = await sealRemoteContent({
+      keyId: 'node-key-v1',
+      recipientPublicKey: recipient.publicKey,
+      aad: METADATA,
+      plaintext: toBytes('scoped command'),
+      now: NOW,
+    })
+    const claims: RemoteContentReplayClaim[] = []
+    const guard = createRemoteContentReplayGuard({
+      workspaceId: METADATA.workspaceId,
+      runtimeNodeId: METADATA.runtimeNodeId,
+      ledger: {
+        claim: async (claim) => {
+          claims.push(claim)
+          return true
+        },
+      },
+      now: LATER,
+    })
+
+    await expect(
+      openRemoteContent({
+        envelope,
+        keyId: envelope.keyId,
+        recipientPrivateKey: recipient.privateKey,
+        replayGuard: guard,
+        now: LATER,
+      })
+    ).resolves.toEqual(toBytes('scoped command'))
+    expect(claims).toEqual([
+      {
+        workspaceId: METADATA.workspaceId,
+        runtimeNodeId: METADATA.runtimeNodeId,
+        requestId: METADATA.requestId,
+        keyId: envelope.keyId,
+        enc: envelope.enc,
+        expiresAt: METADATA.expiresAt,
+      },
+    ])
+  })
+
+  test('refuses a replay claim outside its bound scope without touching the ledger', async () => {
+    const claims: RemoteContentReplayClaim[] = []
+    const guard = createRemoteContentReplayGuard({
+      workspaceId: METADATA.workspaceId,
+      runtimeNodeId: METADATA.runtimeNodeId,
+      ledger: {
+        claim: async (claim) => {
+          claims.push(claim)
+          return true
+        },
+      },
+      now: LATER,
+    })
+
+    await expect(
+      guard.claim({
+        workspaceId: '00000000-0000-4000-8000-0000000000a1',
+        runtimeNodeId: METADATA.runtimeNodeId,
+        requestId: METADATA.requestId,
+        keyId: 'node-key-v1',
+        enc: vector.enc,
+        expiresAt: EXPIRES,
+      })
+    ).resolves.toBe(false)
+    expect(claims).toHaveLength(0)
+  })
+
+  test('refuses an expired replay claim before the ledger can claim it', async () => {
+    const claims: RemoteContentReplayClaim[] = []
+    const guard = createRemoteContentReplayGuard({
+      workspaceId: METADATA.workspaceId,
+      runtimeNodeId: METADATA.runtimeNodeId,
+      ledger: {
+        claim: async (claim) => {
+          claims.push(claim)
+          return true
+        },
+      },
+      now: '2026-09-22T12:10:00.000Z',
+    })
+
+    await expect(
+      guard.claim({
+        workspaceId: METADATA.workspaceId,
+        runtimeNodeId: METADATA.runtimeNodeId,
+        requestId: METADATA.requestId,
+        keyId: 'node-key-v1',
+        enc: vector.enc,
+        expiresAt: EXPIRES,
+      })
+    ).resolves.toBe(false)
+    expect(claims).toHaveLength(0)
   })
 
   test('matches the checked-in standards-library cross-runtime vector', async () => {
