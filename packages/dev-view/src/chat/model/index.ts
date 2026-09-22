@@ -257,6 +257,7 @@ export function createChatConversationModel(
     promise?: Promise<ChatConversation>
     result?: ChatConversation
     createdAt: number
+    expirationTimer?: ReturnType<typeof setTimeout>
   }
   const createRequests = new Map<string, CreateRequest>()
   const now = options.now ?? (() => new Date())
@@ -354,7 +355,10 @@ export function createChatConversationModel(
     const idempotencyKey = input.idempotencyKey ?? randomId()
     const cutoff = now().getTime() - CHAT_CREATE_REPLAY_RETENTION_MS
     for (const [key, request] of createRequests) {
-      if (request.promise === undefined && request.createdAt <= cutoff) createRequests.delete(key)
+      if (request.createdAt <= cutoff) {
+        if (request.expirationTimer !== undefined) clearTimeout(request.expirationTimer)
+        createRequests.delete(key)
+      }
     }
     const fingerprint = JSON.stringify({ ...input, idempotencyKey: undefined })
     const existing = createRequests.get(idempotencyKey)
@@ -367,6 +371,10 @@ export function createChatConversationModel(
         })
       if (existing.result) return existing.result
       if (existing.promise) return existing.promise
+    }
+    const request: CreateRequest = {
+      fingerprint,
+      createdAt: now().getTime(),
     }
     const promise = (async () => {
       await loadHierarchy()
@@ -397,6 +405,11 @@ export function createChatConversationModel(
       const created = await executeChatCommand<RuntimeSession>(service, createCommand)
       let canonical = remember(created)
       if (input.agentProfileId !== undefined || input.initialPrompt !== undefined) {
+        // An expired pending request may finish after a newer retry has
+        // replayed the same host idempotency key. Only the current request
+        // may orchestrate the launch, so a late transport response cannot
+        // duplicate the side effect.
+        if (createRequests.get(idempotencyKey) !== request) return canonical
         const launchOperation = input.harnessInstallationId
           ? 'dev.session.launchHarness'
           : 'dev.session.launchDefault'
@@ -412,12 +425,14 @@ export function createChatConversationModel(
       }
       return canonical
     })()
-    const request: CreateRequest = {
-      fingerprint,
-      promise: promise as Promise<ChatConversation> | undefined,
-      createdAt: now().getTime(),
-    }
+    request.promise = promise as Promise<ChatConversation>
     createRequests.set(idempotencyKey, request)
+    const expirationTimer = setTimeout(() => {
+      if (createRequests.get(idempotencyKey) === request) createRequests.delete(idempotencyKey)
+    }, CHAT_CREATE_REPLAY_RETENTION_MS)
+    request.expirationTimer = expirationTimer
+    if (typeof expirationTimer === 'object' && expirationTimer !== null)
+      (expirationTimer as { unref?: () => void }).unref?.()
     try {
       const result = await promise
       if (createRequests.get(idempotencyKey) === request) request.result = result

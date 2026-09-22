@@ -515,6 +515,61 @@ describe('ChatConversationModel', () => {
     expect(createCalls).toBe(2)
   })
 
+  test('expires an indefinitely pending create before retrying the host key', async () => {
+    const created = session({ lifecycle: 'ready' })
+    let currentTime = Date.parse('2026-09-22T10:00:00.000Z')
+    let createCalls = 0
+    let launchCalls = 0
+    let resolveFirstCreate: ((reply: DevReply) => void) | undefined
+    const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
+      if (command.operation === 'dev.session.create') {
+        createCalls += 1
+        if (createCalls === 1)
+          return await new Promise<DevReply>((resolve) => {
+            resolveFirstCreate = resolve
+          })
+        return ok(command.operation, created)
+      }
+      if (command.operation === 'dev.session.launchDefault') {
+        launchCalls += 1
+        return ok(command.operation, {
+          id: 'run-1',
+          runtimeSessionId: created.id,
+          state: 'starting',
+        })
+      }
+      if (command.operation === 'dev.session.get') return ok(command.operation, created)
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE, {
+      now: () => new Date(currentTime),
+    })
+    const input = {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 1,
+      initialPrompt: 'Retain this only through the retry window',
+      idempotencyKey: 'pending-expiring-key',
+    }
+
+    const first = model.create(input)
+    await Promise.resolve()
+    currentTime += 8 * 24 * 60 * 60 * 1_000
+    await expect(model.create(input)).resolves.toMatchObject({ runtimeSessionId: created.id })
+    expect(createCalls).toBe(2)
+    expect(launchCalls).toBe(1)
+
+    resolveFirstCreate!(ok('dev.session.create', created))
+    await expect(first).resolves.toMatchObject({ runtimeSessionId: created.id })
+    // The expired request may finish after its safe host retry, but it must
+    // not launch the same session a second time.
+    expect(launchCalls).toBe(1)
+  })
+
   test('resume, cancel, archive, and explicit input preserve the canonical session', async () => {
     const current = session({ activeHarnessRunId: 'run-1' })
     const calls: string[] = []

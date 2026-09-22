@@ -1258,9 +1258,13 @@ data frame that jumps past the requested cursor without the checkpoint, or a
 later sequence jump, requires resync and is never acknowledged. Remembered
 events are admitted only for their canonical runtime session and are capped at
 the global 1,000-event retention bound using generation-aware ordering, with the
-newest generation preserved when sequence numbers restart. The client keeps create request
-fingerprints/results only through the same seven-day replay window as the host
-authority, so expired initial prompts cannot remain in an unbounded cache.
+newest generation preserved when sequence numbers restart. The client keeps
+create request fingerprints/results only through the same seven-day replay
+window as the host authority, including pending requests. After that window a
+same-key retry may safely replay the host's durable create; only the current
+request may continue to launch, so a late response from an expired request
+cannot duplicate the run side effect. Expired initial prompts therefore cannot
+remain in an unbounded cache.
 If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
@@ -2981,8 +2985,8 @@ serves the canonical event log: append-only, sequence-ordered per (session,
 generation) with canonical uint64 `seq`; dedupe on
 `(runtimeSessionId, generation, source, sourceEventId)` where the identical
 event is an ignored duplicate and a different event under the same key is
-`idempotency_conflict`; bounded retention (oldest dropped first per session —
-1,000 events/session, 5,000/scope); reads are bounded ascending windows
+`idempotency_conflict`; bounded retention (oldest dropped first per session in
+generation-aware order — 1,000 events/session, 5,000/scope); reads are bounded ascending windows
 (page maximum 500, default 100). The host appends `session.*`/`run.*`
 lifecycle facts (session created via the register's publishes; run
 created/starting/resumed/cancelled; observed status transitions) as
