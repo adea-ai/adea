@@ -566,6 +566,11 @@ type PortRecord = {
   processRecordId?: string
   runtimeSessionId?: string
   generation?: number
+  // Present only when the host matched the service to a ready task-owned lane.
+  preview?: {
+    browserLaneId: string
+    url: string
+  }
   state: 'observed' | 'stale' | 'gone'
   observedAt: string
 }
@@ -2559,6 +2564,16 @@ Managed deletion:
 7. persist continuation if a sweep page is capped, until all proven entries are
    processed.
 
+On `dev.worktree.cleanupResume`, the host replays the durable journal and
+returns one result for every selected step. A restart in the narrow window
+after quarantine's fsynced completion and before the worktree record update is
+rolled back only when the journaled trash root, generated entry name, recorded
+identity, and missing canonical path all match; the original checkout is
+restored and that step is reported as `rolled_back` with the job `partial`.
+Any later journaled step, missing provenance, or identity mismatch remains
+`recovery_required` for explicit operator handling. Resume never guesses past
+an ambiguous side effect.
+
 Multi-file metadata/history changes stage all writes and restore prior disk and
 memory state if any commit fails. No deletion error is logged-and-ignored.
 
@@ -3204,6 +3219,31 @@ controlling user's input, a `task_owned` lane accepts input only within the
 owning task's grant, and `none` rejects input. Ownership transfer increments
 the generation, so input granted under an old generation is inert.
 
+The packaged browser engine uses Bun 1.4 `Bun.WebView` with the Chrome/CDP
+backend for task-owned and user-context lanes. Each view requests an
+owner-only persistent `dataStore` directory derived from the immutable lane
+profile identity; the shell's bundled Electrobun CEF window is never reused.
+Because Bun's Chrome backend currently shares one Chrome process (and therefore
+one process-level data store) across views, production cookie/profile
+isolation still requires the packaged host to provide a process-per-lane CDP
+adapter or an equivalent CEF profile boundary; this engine does not claim that
+acceptance evidence yet.
+The engine enables CDP `Fetch.requestPaused` for document requests before
+navigation. It calls the provider's admission hook for the initial request and
+each redirect, continues only admitted URLs, records console and failed-network
+diagnostics, and fails closed when the view reports a navigation error. CDP
+`Page.captureScreenshot`, DOM inspection, viewport emulation, and
+`Page.startScreencast` provide the live host surface. Screencast publication
+uses the one-in-flight/latest-frame bound and sends `video` frames through the
+authenticated `browser-frames-v1` stream; write frames decode only bounded
+CBOR input controls, and Escape invokes the generation-fenced release path.
+
+The current Electrobun 2.0.1 shell declaration exposes only `BrowserWindow`;
+it has no BrowserView/CDP handle for the human embedded CEF context. The
+engine therefore keeps that context isolated and does not claim a CEF target
+until the packaged host exposes an authorized BrowserView seam. Packaged
+macOS CEF evidence remains a required #537/#426 acceptance gate.
+
 Screenshots/annotations carry origin, viewport, time, lane/profile, and
 redaction provenance; maximum 25 MiB each and workspace retention limits apply.
 Browser page content cannot invoke Adea commands through origin or loopback.
@@ -3312,7 +3352,18 @@ authenticated transport option, never output to scrape.
 Credentials are host/account scoped. Enterprise hosts require explicit trust;
 github.com credentials are never sent elsewhere. All mutation results are
 reread before success. PR create uses an idempotency/reconciliation key and
-searches for an existing matching head/base after timeout.
+searches for an existing matching head/base after timeout. Before a PR-create
+POST, the host durably records the authorized scope, repository, head, and base
+as an opaque key under its owner-only runtime data directory. It returns only
+an exact open head/base match whose head owner and base repository match the
+authorized remote. A per-key file lock fences concurrent host processes before
+the POST. A timed-out POST, lost response, verification failure, or
+host crash keeps the record: later attempts reread GitHub, reconcile when the
+matching PR becomes visible, and refuse another POST while the outcome is
+unknown. A successful POST also requires an authoritative reread before the
+record is cleared. A corrupt retained record also blocks further POSTs. An
+unresolved record requires manual GitHub verification; the UI must never
+silently retry creation for the same head/base.
 
 Push defaults to normal fast-forward/upstream setup. Force requires a separate
 plan and confirmation using `--force-with-lease=<ref>:<expectedSha>`; raw force
@@ -4549,7 +4600,10 @@ can distinguish intentional spec evolution from drift:
   non-transplantable origins (google.com) unless explicitly overridden, and
   fully rolled back on any failure or cancellation with values never logged;
   the port inventory scans loopback listeners only (no LAN probe), marks
-  Adea-owned services from launch metadata, and keeps vanished ports stale;
+  Adea-owned services from launch metadata, keeps vanished ports stale, and
+  associates a confirmed listener with the ready task-owned browser lane for
+  the same runtime session when one exists. Unknown, unconfirmed, and stale
+  rows never receive a new preview association and remain non-actionable;
   device inventory is capability-gated `xcrun simctl`/`adb` with fixed argv
   templates bound to verified inventory IDs, and stops only an Adea-launched,
   still-identity-matching process (user-booted devices detach, never shut

@@ -24,13 +24,14 @@ import { createBunDeviceRunner, createHostDeviceEngine, type DeviceEngine } from
 import { parseAdbDevices, parseAvdList, parseSimctlDevicesJson } from '../devices/inventory'
 import { createDeviceProviders, deviceProviderError } from '../devices/providers'
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
-import type { ChannelGateway } from '../channel/server'
+import type { ChannelGateway, StreamProvider } from '../channel/server'
 import { createCookieImportService } from './cookie-import'
 import { createBrowserLaneRegistry } from './lane-registry'
 import { evaluateNavigation, type AdeaOwnedService } from './navigation-policy'
 import { createPortInventory } from './port-inventory'
 import { browserProviderError, createBrowserProviders, type LaneEngine } from './providers'
 import { createScreenshotStore, type ScreenshotStore } from './screenshots'
+import { createBunWebViewLaneEngine } from './engine'
 
 export type BrowserDeviceRuntimeInput = Readonly<{
   authority: ChannelAuthority
@@ -45,6 +46,10 @@ export type BrowserDeviceRuntimeInput = Readonly<{
   scope?: { accountId: string; workspaceId: string; runtimeNodeId: string }
   /** Overrides the host device engine (tests inject scripted runners). */
   deviceEngine?: DeviceEngine
+  /** Overrides the live browser engine (tests inject a deterministic seam). */
+  browserEngine?: LaneEngine
+  /** Owner-only data root for persistent browser profiles. */
+  dataDir?: string
 }>
 
 async function runDeviceProbe(argv: string[]): Promise<string> {
@@ -59,7 +64,7 @@ async function runDeviceProbe(argv: string[]): Promise<string> {
 }
 
 const unavailableStream = (session: { close: (code: 'incompatible', reason?: string) => void }) =>
-  session.close('incompatible', 'browser/device frame engine unavailable')
+  session.close('incompatible', 'device frame engine unavailable')
 
 const LOCAL_SCOPE = {
   accountId: '00000000-0000-4000-8000-000000000000',
@@ -68,6 +73,9 @@ const LOCAL_SCOPE = {
 } as const
 
 type StreamProtocol = 'browser-frames-v1' | 'device-frames-v1'
+type LiveBrowserEngine = LaneEngine & {
+  attachStream?: (session: Parameters<StreamProvider>[0]) => void
+}
 
 export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
   const lanes = createBrowserLaneRegistry()
@@ -81,7 +89,22 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
         port: service.port,
         processRecordId: service.ownerId,
         ownerId: service.ownerId,
+        ...(service.runtimeSessionId ? { runtimeSessionId: service.runtimeSessionId } : {}),
       })),
+    previewForPort: ({ port, runtimeSessionId }) => {
+      if (!runtimeSessionId) return undefined
+      const lane = lanes.list({
+        scope: input.scope ?? LOCAL_SCOPE,
+        runtimeSessionId,
+        kind: 'task_owned',
+        state: 'ready',
+      }).items[0]
+      if (!lane) return undefined
+      return {
+        browserLaneId: lane.id,
+        url: `http://127.0.0.1:${port}/`,
+      }
+    },
   })
 
   const deviceEngine: DeviceEngine =
@@ -178,6 +201,39 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     screenshotRecorder: screenshots,
     mintStreamGrant: mintGrant('browser-frames-v1'),
   })
+  const browserEngine: LiveBrowserEngine =
+    input.browserEngine ??
+    createBunWebViewLaneEngine({
+      ...(input.dataDir ? { dataDir: input.dataDir } : {}),
+      laneGeneration: (laneId) => {
+        try {
+          return lanes.get(laneId).generation
+        } catch {
+          return undefined
+        }
+      },
+      onDiagnostic: (laneId, diagnostic) => {
+        const report = browser.diagnosticsFor(laneId)
+        if (diagnostic.category === 'console') report.console(diagnostic.level, diagnostic.message)
+        else if (diagnostic.category === 'network')
+          report.network(diagnostic.level, diagnostic.message)
+        else if (diagnostic.category === 'policy') report.policy(diagnostic.message)
+        else report.crash(diagnostic.message)
+      },
+      onEscape: (laneId) => {
+        try {
+          const lane = lanes.get(laneId)
+          if (lane.automationOwner === 'human_takeover') {
+            const released = lanes.release(laneId, lane.generation)
+            browserEngine.generationChanged?.(released.id, released.generation)
+          }
+        } catch {
+          // Escape is a best-effort release path for a lane that may have
+          // closed between the input event and the registry lookup.
+        }
+      },
+    })
+  browser.setEngine(browserEngine)
   input.authority.registerStreamProvider('browser-frames-v1')
   input.authority.registerStreamProvider('device-frames-v1')
   const devices = createDeviceProviders({
@@ -189,10 +245,12 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     mintStreamGrant: mintGrant('device-frames-v1'),
   })
   if (input.gateway) {
-    // Frame streams stay typed-`incompatible` until a frame engine publishes
-    // through `attachFrameHandler`; grants are never minted for streams the
-    // gateway cannot serve.
-    input.gateway.registerStreamHandler('browser-frames-v1', unavailableStream)
+    // Browser frames are published by the real WebView/CDP engine. Device
+    // frames remain typed-unavailable until a host device capture engine is
+    // installed; the grant authority refuses unsupported protocols.
+    input.gateway.registerStreamHandler('browser-frames-v1', (session) => {
+      browserEngine.attachStream?.(session)
+    })
     input.gateway.registerStreamHandler('device-frames-v1', unavailableStream)
   }
 
@@ -238,6 +296,11 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     /** Composition seam: installs (or clears) the live browser lane engine. */
     attachBrowserEngine(engine: LaneEngine | undefined): void {
       browser.setEngine(engine)
+      if (engine && 'attachStream' in engine) {
+        input.gateway?.registerStreamHandler('browser-frames-v1', (session) => {
+          ;(engine as LiveBrowserEngine).attachStream?.(session)
+        })
+      }
     },
     /** Composition seam: swaps the device engine (host tooling by default). */
     setDeviceEngine(engine: DeviceEngine | undefined): void {

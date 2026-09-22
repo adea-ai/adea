@@ -71,6 +71,7 @@ import {
   worktreeTrashRoot,
   deleteQuarantinedWorktree,
   restoreWorktreeFromTrash,
+  isTrashEntryName,
 } from './trash'
 import {
   buildCleanupPlan,
@@ -104,6 +105,12 @@ export type WorktreeLifecycle =
   | 'partial'
   | 'recovery_required'
   | 'failed'
+
+function cleanupJournalStepName(step: CleanupStepKind): string {
+  if (step === 'quarantine_worktree') return 'quarantine'
+  if (step === 'unregister_worktree') return 'unregister'
+  return step
+}
 
 export type RepoRecord = Readonly<{
   id: string
@@ -397,6 +404,8 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     observedAt: string
     generation: number
     version: number
+    /** Selected steps survive a shell restart for recovery reporting. */
+    selectedSteps?: CleanupStepKind[]
   }>({
     file: join(storesDir, 'cleanup-jobs.json'),
     schemaVersion: 1,
@@ -1197,6 +1206,7 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       observedAt: nowIso(clock),
       generation: record.generation,
       version: 1,
+      selectedSteps: [...plan.selectedSteps],
     })
     cleanupJobStore.save(jobs)
     return plan
@@ -1527,21 +1537,92 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
     jobId: string
   }): Promise<CleanupResult> {
     const journal = journalFor(input.jobId)
-    const done = journal.completedSteps(input.jobId)
     const record = findWorktree(input.scope, input.worktreeId)
-    if (done.has('quarantine') && !done.has('delete_quarantine')) {
-      if (record.lifecycle !== 'quarantined' && record.lifecycle !== 'cleaned') {
-        putWorktree({ ...record, lifecycle: 'recovery_required', updatedAt: nowIso(clock) })
-      }
-    }
     const jobs = [...cleanupJobStore.load().records]
     const job = jobs.find((entry) => entry.jobId === input.jobId)
+    const latest = journal.latestSteps(input.jobId)
+    const selectedSteps = job?.selectedSteps ?? []
+
+    const recoveryResults = (): CleanupResult['stepResults'] =>
+      selectedSteps.map((step) => {
+        const entry =
+          step === 'stop_owned_resource'
+            ? [...latest.entries()].find(([name]) => name.startsWith('stop:'))?.[1]
+            : latest.get(cleanupJournalStepName(step))
+        if (!entry) {
+          return { step, state: 'skipped', detail: 'step was not reached before interruption' }
+        }
+        if (entry.state === 'completed') return { step, state: 'completed' }
+        if (entry.state === 'rolled_back')
+          return { step, state: 'rolled_back', detail: 'rolled back safely' }
+        return { step, state: 'failed', detail: 'step was interrupted before durable completion' }
+      })
+
+    // The only automatic rollback is the narrow crash window after a proven
+    // quarantine rename and before the worktree record update. Later steps
+    // may have changed Git registration or deleted the trash entry, so those
+    // cases remain recovery_required for an explicit operator decision.
+    const quarantine = latest.get('quarantine')
+    const laterStepExists = [...latest.keys()].some((step) => step !== 'quarantine')
+    if (
+      quarantine?.state === 'completed' &&
+      !laterStepExists &&
+      record.lifecycle !== 'quarantined' &&
+      record.lifecycle !== 'cleaned'
+    ) {
+      const result = quarantine.result
+      const trashRoot = typeof result?.trashRoot === 'string' ? result.trashRoot : undefined
+      const entryName = typeof result?.entryName === 'string' ? result.entryName : undefined
+      const identity = result?.identity
+      const identityMatches =
+        identity &&
+        typeof identity === 'object' &&
+        (identity as { device?: unknown }).device === record.rootIdentity.device &&
+        (identity as { inode?: unknown }).inode === record.rootIdentity.inode
+      const expectedTrashRoot = resolve(worktreeTrashRoot(record.canonicalRoot))
+      const trashPath = trashRoot && entryName ? join(resolve(trashRoot), entryName) : undefined
+      const provenanceProven =
+        trashRoot !== undefined &&
+        entryName !== undefined &&
+        isTrashEntryName(entryName) &&
+        resolve(trashRoot) === expectedTrashRoot &&
+        trashPath === resolve(join(trashRoot, entryName)) &&
+        identityMatches === true &&
+        !existsSync(record.canonicalRoot) &&
+        existsSync(trashPath)
+      if (provenanceProven && restoreWorktreeFromTrash(trashPath, record.canonicalRoot)) {
+        const rolledBack = journal.append({
+          jobId: input.jobId,
+          worktreeId: record.id,
+          seq: journal.lastSeq(input.jobId) + 1,
+          step: 'quarantine',
+          state: 'rolled_back',
+          result: { restored: true },
+        })
+        latest.set('quarantine', rolledBack)
+        const index = job ? jobs.indexOf(job) : -1
+        if (index >= 0 && job) {
+          jobs[index] = { ...job, state: 'partial', observedAt: nowIso(clock) }
+          cleanupJobStore.save(jobs)
+        }
+        return {
+          planId: input.jobId,
+          worktreeId: input.worktreeId,
+          state: 'partial',
+          stepResults: recoveryResults(),
+        }
+      }
+    }
+
+    if (record.lifecycle !== 'quarantined' && record.lifecycle !== 'cleaned') {
+      putWorktree({ ...record, lifecycle: 'recovery_required', updatedAt: nowIso(clock) })
+    }
     if (job && job.state === 'completed') {
       return {
         planId: input.jobId,
         worktreeId: input.worktreeId,
         state: 'completed',
-        stepResults: [],
+        stepResults: recoveryResults(),
       }
     }
     // Recovery state is a result, not an exception: the caller needs the
@@ -1550,13 +1631,16 @@ export function createWorktreeService(options: WorktreeServiceOptions) {
       planId: input.jobId,
       worktreeId: input.worktreeId,
       state: 'recovery_required',
-      stepResults: [
-        {
-          step: 'quarantine_worktree',
-          state: 'failed',
-          detail: 'quarantine completed without a full plan; re-plan and re-approve to continue',
-        },
-      ],
+      stepResults:
+        recoveryResults().length > 0
+          ? recoveryResults()
+          : [
+              {
+                step: 'quarantine_worktree',
+                state: 'failed',
+                detail: 'cleanup job has no durable plan; re-plan and re-approve to continue',
+              },
+            ],
     }
   }
 
