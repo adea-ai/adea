@@ -114,6 +114,29 @@ describe('process sampler', () => {
     expect(SAMPLE_MAX_PIDS).toBe(64)
   })
 
+  test('rotates one bounded observation across a stable 1,000-process inventory', async () => {
+    const pids = Array.from({ length: 1_000 }, (_, index) => index + 1_000)
+    const observed = new Set<number>()
+    let calls = 0
+    const sampler = createProcessSampler({
+      runPs: async (args) => {
+        calls += 1
+        const selected = args[3]!.split(',').map(Number)
+        expect(selected.length).toBeLessThanOrEqual(SAMPLE_MAX_PIDS)
+        return {
+          exitCode: 0,
+          stdout: selected.map((pid) => `${pid} 0:01 1`).join('\n'),
+          stderr: '',
+        }
+      },
+    })
+    for (let pull = 0; pull < Math.ceil(pids.length / SAMPLE_MAX_PIDS); pull += 1) {
+      for (const sample of await sampler(pids)) observed.add(sample.pid)
+    }
+    expect(calls).toBe(16)
+    expect(observed.size).toBe(pids.length)
+  })
+
   test('cpu-time parser handles the darwin and Linux display shapes', () => {
     expect(parseCpuSeconds('0:00')).toBe(0)
     expect(parseCpuSeconds('12:34')).toBe(754)
