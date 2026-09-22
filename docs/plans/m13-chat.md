@@ -168,6 +168,17 @@ are not yet pinned, the slice pins the adea-side request/reply types, renders
 `auth_required`/`unavailable` truthfully, and leaves the developer path fully
 functional — it does not fork a local resolver.
 
+The Adea consumer pins control-plane `decision-resolution.v1` at
+`{ major: 1, minor: 0 }`. Its request/reply DTOs and decoder are owned by
+`packages/dev-view/src/chat/composer/decision-layer.ts`. Auto submits an empty
+`explicitPins` object; Customize supplies the explicit harness/model and other
+developer pins. The host is responsible for adapting the response's logical
+`harnessId` to an authenticated local installation and invoking the existing
+#400 create/launch transaction with the same idempotency key. A missing
+decision channel, invalid response, withheld model, or missing adapter is a
+typed recovery state and never a silent default launch. This slice adds no new
+Dev Runtime wire operation.
+
 Acceptance criteria:
 
 - [ ] Auto mode resolves only through the CP decision-layer contract; no

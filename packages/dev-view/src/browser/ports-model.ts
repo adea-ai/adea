@@ -29,6 +29,10 @@ export type DiscoveredLoopbackServer = Readonly<{
   owner: 'adea' | 'external' | 'unknown'
   health: 'listening' | 'unconfirmed' | 'stale'
   runtimeSessionId?: string
+  preview?: Readonly<{
+    browserLaneId: string
+    url: string
+  }>
 }>
 
 export type PreviewableServer = DiscoveredLoopbackServer & {

@@ -2,7 +2,7 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, untrack, Show } from 'solid-js'
+import { createEffect, createSignal, untrack, Show, type JSX } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
@@ -215,6 +215,7 @@ export type WorkspaceNavigationAccount = Readonly<{
 export type WorkspaceNavigationProps = Readonly<{
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
+  chatEntry?: (fallback: JSX.Element) => JSX.Element
   client: AgentHqApiClient
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
@@ -529,14 +530,27 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           <Show
             when={view() === 'virtual'}
             fallback={
-              <ConventionalWorkspace
-                client={props.client}
-                deepLink={deepLink}
-                manageSettings={false}
-                onConsumeDeepLink={consumeDeepLink}
-                onViewChange={changeView}
-                services={props.services}
-              />
+              props.chatEntry ? (
+                props.chatEntry(
+                  <ConventionalWorkspace
+                    client={props.client}
+                    deepLink={deepLink}
+                    manageSettings={false}
+                    onConsumeDeepLink={consumeDeepLink}
+                    onViewChange={changeView}
+                    services={props.services}
+                  />
+                )
+              ) : (
+                <ConventionalWorkspace
+                  client={props.client}
+                  deepLink={deepLink}
+                  manageSettings={false}
+                  onConsumeDeepLink={consumeDeepLink}
+                  onViewChange={changeView}
+                  services={props.services}
+                />
+              )
             }
           >
             <Show

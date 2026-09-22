@@ -18,6 +18,8 @@ const PAYLOAD_TYPE_PATTERN = /^[a-z][a-z0-9_.-]{0,63}$/
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/
 const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
 const textEncoder = new TextEncoder()
+const remoteContentReplayGuardBrand = Symbol('adea.remote-content.replay-guard')
+const remoteContentReplayGuards = new WeakSet<object>()
 
 const suite = new CipherSuite({
   kem: new DhkemX25519HkdfSha256(),
@@ -78,16 +80,59 @@ export type RemoteContentEnvelopeInput = Readonly<{
 }>
 
 export type RemoteContentReplayClaim = Readonly<{
+  workspaceId: string
+  runtimeNodeId: string
   requestId: string
   keyId: string
   enc: string
   expiresAt: string
 }>
 
-/** The caller must atomically claim a command/result identity in its durable inbox. */
-export type RemoteContentReplayGuard = Readonly<{
+/** The host must atomically claim a command/result identity in its durable inbox. */
+export type RemoteContentReplayLedger = Readonly<{
   claim(input: RemoteContentReplayClaim): Promise<boolean>
 }>
+
+export type RemoteContentReplayGuard = RemoteContentReplayLedger &
+  Readonly<{
+    [remoteContentReplayGuardBrand]: true
+  }>
+
+export type RemoteContentReplayGuardOptions = Readonly<{
+  workspaceId: string
+  runtimeNodeId: string
+  ledger: RemoteContentReplayLedger
+  now?: () => Date | string | number
+}>
+
+/**
+ * Bind a host's atomic replay ledger to one authenticated workspace/node scope.
+ *
+ * The ledger remains responsible for durable atomicity. This adapter prevents a
+ * caller from accidentally reusing a ledger across scopes and refuses claims
+ * that expire while a decrypt/dispatch handoff is in flight. The clock is
+ * called for every claim, rather than captured when the guard is created.
+ */
+export function createRemoteContentReplayGuard(
+  input: RemoteContentReplayGuardOptions
+): RemoteContentReplayGuard {
+  const workspaceId = validateReplayScopeId(input.workspaceId)
+  const runtimeNodeId = validateReplayScopeId(input.runtimeNodeId)
+  const guard: RemoteContentReplayGuard = Object.freeze({
+    [remoteContentReplayGuardBrand]: true,
+    claim: async (claim) => {
+      if (claim.workspaceId !== workspaceId || claim.runtimeNodeId !== runtimeNodeId) return false
+      const expiresAt = timestampToMs(claim.expiresAt)
+      const now = timestampToMs(input.now?.() ?? Date.now())
+      if (now >= expiresAt) return false
+      const claimed = await input.ledger.claim(claim)
+      if (claimed !== true) return false
+      return timestampToMs(input.now?.() ?? Date.now()) < expiresAt
+    },
+  })
+  remoteContentReplayGuards.add(guard)
+  return guard
+}
 
 export type OpenRemoteContentInput = Readonly<{
   envelope: unknown
@@ -193,12 +238,14 @@ export async function openRemoteContent(input: OpenRemoteContentInput): Promise<
     if (plaintext.byteLength > MAX_REMOTE_CONTENT_PLAINTEXT_BYTES) {
       throw new RemoteContentEnvelopeError('payload_too_large')
     }
-    if (input.replayGuard === undefined) {
+    if (!isRemoteContentReplayGuard(input.replayGuard)) {
       throw new RemoteContentEnvelopeError('replay_unavailable')
     }
     let claimed: boolean
     try {
       claimed = await input.replayGuard.claim({
+        workspaceId: envelope.aad.workspaceId,
+        runtimeNodeId: envelope.aad.runtimeNodeId,
         requestId: envelope.aad.requestId,
         keyId: envelope.keyId,
         enc: envelope.enc,
@@ -361,6 +408,13 @@ function validateKeyId(value: unknown): string {
   return value
 }
 
+function validateReplayScopeId(value: unknown): string {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
+    throw new RemoteContentEnvelopeError('invalid_envelope')
+  }
+  return value
+}
+
 function validateEncodedBytes(
   value: unknown,
   expectedLength?: number,
@@ -432,6 +486,16 @@ function decodeBase64Url(value: string): Uint8Array {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isRemoteContentReplayGuard(value: unknown): value is RemoteContentReplayGuard {
+  if (!isRecord(value)) return false
+  const candidate = value as Record<PropertyKey, unknown>
+  return (
+    remoteContentReplayGuards.has(value) &&
+    candidate[remoteContentReplayGuardBrand] === true &&
+    typeof candidate.claim === 'function'
+  )
 }
 
 function hasExactKeys(value: Record<string, unknown>, keys: string[]): boolean {

@@ -8,7 +8,7 @@ import { dirname } from 'node:path'
 
 import { nowIso } from '../authority'
 
-export type JournalStepState = 'started' | 'completed'
+export type JournalStepState = 'started' | 'completed' | 'rolled_back'
 
 export type JournalEntry = Readonly<{
   jobId: string
@@ -87,7 +87,16 @@ export function createCleanupJournal(options: { file: string }) {
     return seq
   }
 
-  return Object.freeze({ append, replay, completedSteps, lastSeq })
+  /** Latest durable state for each step, including a recorded rollback. */
+  function latestSteps(jobId: string): Map<string, JournalEntry> {
+    const latest = new Map<string, JournalEntry>()
+    for (const entry of replay()) {
+      if (entry.jobId === jobId) latest.set(entry.step, entry)
+    }
+    return latest
+  }
+
+  return Object.freeze({ append, replay, completedSteps, lastSeq, latestSteps })
 }
 
 export function digestOf(value: unknown): string {

@@ -7,7 +7,15 @@
 // material, and the sealed holder refuses JSON/string coercion so a resolved
 // secret cannot silently enter ordinary client state or a log line.
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 
@@ -24,7 +32,7 @@ import {
   type OwnerApprovalVerifier,
 } from './authority'
 import type { AuthorityAudit } from './audit'
-import { createDurableJsonStore } from './host-store'
+import { createDurableSqliteStore } from './host-store'
 
 export type CredentialRefKind = 'git_https' | 'github_token' | 'ssh_key' | 'other'
 export type CredentialRefState = 'ready' | 'expired' | 'revoked' | 'unknown'
@@ -79,6 +87,108 @@ const HOST_PATTERN = /^[A-Za-z0-9.-]+(?::\d+)?$/
 const SECRET_MAX_CHARS = 8192
 const MAX_PAGE_LIMIT = 500
 const DEFAULT_PAGE_LIMIT = 100
+const CREDENTIAL_KINDS = new Set<CredentialRefKind>([
+  'git_https',
+  'github_token',
+  'ssh_key',
+  'other',
+])
+const CREDENTIAL_STATES = new Set<CredentialRefState>(['ready', 'expired', 'revoked', 'unknown'])
+const CREDENTIAL_RECORD_KEYS = new Set([
+  'id',
+  'scope',
+  'label',
+  'host',
+  'kind',
+  'state',
+  'version',
+  'createdAt',
+  'updatedAt',
+  'revokedAt',
+  'revokedReason',
+])
+
+function invalidCredentialMetadata(): DevAuthorityError {
+  return new DevAuthorityError('corrupt_state', 'credential vault metadata failed to decode')
+}
+
+function isBoundedText(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= max
+}
+
+/** Strictly decode metadata before it reaches the vault authority. Unknown
+ * fields are refused so a legacy envelope cannot smuggle plaintext, sealed
+ * bytes, or key material into the SQLite metadata payload. */
+function decodeCredentialRecord(value: unknown): CredentialRefRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw invalidCredentialMetadata()
+  const candidate = value as Record<string, unknown>
+  if (Object.keys(candidate).some((key) => !CREDENTIAL_RECORD_KEYS.has(key)))
+    throw invalidCredentialMetadata()
+  const candidateScope = candidate.scope
+  if (
+    typeof candidateScope !== 'object' ||
+    candidateScope === null ||
+    Array.isArray(candidateScope) ||
+    !isBoundedText((candidateScope as Record<string, unknown>).accountId, 256) ||
+    !isBoundedText((candidateScope as Record<string, unknown>).workspaceId, 256) ||
+    !isBoundedText((candidateScope as Record<string, unknown>).runtimeNodeId, 256) ||
+    !isUuid(candidate.id) ||
+    !isBoundedText(candidate.label, 128) ||
+    !isBoundedText(candidate.host, 253) ||
+    !HOST_PATTERN.test(candidate.host) ||
+    !CREDENTIAL_KINDS.has(candidate.kind as CredentialRefKind) ||
+    !CREDENTIAL_STATES.has(candidate.state as CredentialRefState) ||
+    !Number.isSafeInteger(candidate.version) ||
+    (candidate.version as number) < 1 ||
+    !isBoundedText(candidate.createdAt, 64) ||
+    !Number.isFinite(Date.parse(candidate.createdAt)) ||
+    !isBoundedText(candidate.updatedAt, 64) ||
+    !Number.isFinite(Date.parse(candidate.updatedAt))
+  )
+    throw invalidCredentialMetadata()
+  if (
+    candidate.revokedAt !== undefined &&
+    (!isBoundedText(candidate.revokedAt, 64) || !Number.isFinite(Date.parse(candidate.revokedAt)))
+  )
+    throw invalidCredentialMetadata()
+  if (candidate.revokedReason !== undefined && !isBoundedText(candidate.revokedReason, 256))
+    throw invalidCredentialMetadata()
+  const decodedScope = candidateScope as {
+    accountId: string
+    workspaceId: string
+    runtimeNodeId: string
+  }
+  const version = candidate.version as number
+  return {
+    id: candidate.id,
+    scope: {
+      accountId: decodedScope.accountId,
+      workspaceId: decodedScope.workspaceId,
+      runtimeNodeId: decodedScope.runtimeNodeId,
+    },
+    label: candidate.label,
+    host: candidate.host,
+    kind: candidate.kind as CredentialRefKind,
+    state: candidate.state as CredentialRefState,
+    version,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    ...(candidate.revokedAt !== undefined ? { revokedAt: candidate.revokedAt } : {}),
+    ...(candidate.revokedReason !== undefined ? { revokedReason: candidate.revokedReason } : {}),
+  }
+}
+
+function decodeCredentialRecords(value: unknown): CredentialRefRecord[] {
+  if (!Array.isArray(value)) throw invalidCredentialMetadata()
+  const ids = new Set<string>()
+  return value.map((candidate) => {
+    const record = decodeCredentialRecord(candidate)
+    if (ids.has(record.id)) throw invalidCredentialMetadata()
+    ids.add(record.id)
+    return record
+  })
+}
 
 /** A malformed id and a foreign-scope id read identically: not found. */
 function findRef(
@@ -539,6 +649,8 @@ export function createCredentialVault(options: {
   approvalVerifier: OwnerApprovalVerifier
   /** Injectable only for deterministic tests and approved host adapters. */
   credentialStore?: VaultKeyStore
+  /** Test-only seam for proving transactional metadata migration rollback. */
+  onMigrationStage?: (stage: 'before_commit') => void
 }) {
   const { dataDir, audit, approvalVerifier } = options
   if (!approvalVerifier) {
@@ -552,18 +664,82 @@ export function createCredentialVault(options: {
   mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
   const vaultKeyStore = options.credentialStore ?? createSystemVaultKeyStore()
   const vaultKey = loadVaultKey(vaultKeyStore)
-  const store = createDurableJsonStore<CredentialRefRecord>({
-    file: join(vaultDir, 'credentials.json'),
+  const legacyFile = join(vaultDir, 'credentials.json')
+  const store = createDurableSqliteStore<CredentialRefRecord>({
+    file: join(vaultDir, 'credentials.sqlite3'),
     schemaVersion: 1,
     label: 'credential vault',
+    legacyFile,
+    migrateLegacy: (value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value))
+        throw invalidCredentialMetadata()
+      return decodeCredentialRecords((value as { records?: unknown }).records)
+    },
+    validateRecords: decodeCredentialRecords,
+    onMigrationStage: options.onMigrationStage,
   })
 
   function load(): CredentialRefRecord[] {
-    return [...store.load().records]
+    return decodeCredentialRecords(store.load().records)
   }
 
   function save(records: ReadonlyArray<CredentialRefRecord>): void {
-    store.save(records)
+    store.save(decodeCredentialRecords(records))
+  }
+
+  /** Keep downgrade readers from resolving a reference after a revocation.
+   * The legacy envelope remains present for recovery, but a successful revoke
+   * writes its visible tombstone there as well. The sealed file is removed
+   * before the SQLite commit, so an interruption leaves no usable secret at
+   * either authority boundary. */
+  function writeLegacyRevocationTombstone(
+    record: CredentialRefRecord,
+    revoked: CredentialRefRecord
+  ): void {
+    if (!existsSync(legacyFile)) return
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(legacyFile, 'utf8'))
+    } catch {
+      return
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return
+    const envelope = parsed as { schemaVersion?: unknown; savedAt?: unknown; records?: unknown }
+    if (envelope.schemaVersion !== 1 || !Array.isArray(envelope.records)) return
+    const index = envelope.records.findIndex(
+      (candidate) =>
+        typeof candidate === 'object' &&
+        candidate !== null &&
+        (candidate as { id?: unknown }).id === record.id
+    )
+    if (index < 0) return
+    const legacyRecord = envelope.records[index]
+    if (typeof legacyRecord !== 'object' || legacyRecord === null) return
+    const tombstone = {
+      ...(legacyRecord as Record<string, unknown>),
+      state: 'revoked',
+      version: revoked.version,
+      updatedAt: revoked.updatedAt,
+      ...(revoked.revokedAt ? { revokedAt: revoked.revokedAt } : {}),
+      ...(revoked.revokedReason ? { revokedReason: revoked.revokedReason } : {}),
+    }
+    const nextEnvelope = {
+      ...envelope,
+      savedAt: revoked.updatedAt,
+      records: envelope.records.map((candidate, candidateIndex) =>
+        candidateIndex === index ? tombstone : candidate
+      ),
+    }
+    const temporary = `${legacyFile}.tmp-${process.pid}-${Date.now()}`
+    try {
+      writeFileSync(temporary, `${JSON.stringify(nextEnvelope)}\n`, { mode: 0o600 })
+      renameSync(temporary, legacyFile)
+      chmodSync(legacyFile, 0o600)
+    } catch {
+      rmSync(temporary, { force: true })
+      // SQLite is authoritative and the sealed material is already gone. A
+      // failed compatibility write therefore remains safe for downgrade.
+    }
   }
 
   function seal(refId: string, secret: string): string {
@@ -757,8 +933,11 @@ export function createCredentialVault(options: {
       revokedAt: nowIso(),
       ...(input.reason ? { revokedReason: input.reason.slice(0, 256) } : {}),
     }
-    save(all.map((entry) => (entry.id === record.id ? revoked : entry)))
+    // Remove the secret first. If the process stops before the metadata write,
+    // both the retained legacy record and SQLite still lack usable material.
     rmSync(sealedPath(record.id), { force: true })
+    save(all.map((entry) => (entry.id === record.id ? revoked : entry)))
+    writeLegacyRevocationTombstone(record, revoked)
     // The master key remains in Keychain for other references; revoking one
     // credential must never rotate or export it.
     log('vault.revoked', record.id, 'revoked')

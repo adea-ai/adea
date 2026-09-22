@@ -25,6 +25,7 @@ import {
   type DesktopWorkspaceBootstrap,
 } from '../lib/desktop-workspace-session'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
+import { DesktopFirstRunChat } from './desktop-first-run-chat'
 import type { WorkspaceShellProps } from './workspace-shell'
 
 type AppStatus =
@@ -311,6 +312,22 @@ function DesktopWorkspace(props: {
         onSignOut: () => void props.onSignOut(),
       }}
       activeWorkspace={props.activeWorkspace}
+      chatEntry={(fallback) => (
+        <DesktopFirstRunChat
+          client={props.client}
+          fallback={fallback}
+          onOpenDev={() => {
+            const nextUrl = new URL(window.location.href)
+            nextUrl.searchParams.set('view', 'dev')
+            window.history.replaceState(null, '', nextUrl)
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          }}
+          runtime={devRuntime}
+          onSignIn={props.onBeginSignIn}
+          temporary={!signedIn()}
+          workspaceId={props.activeWorkspace.id}
+        />
+      )}
       client={props.client}
       onAuthorizeWorkspace={(workspaceId) => localContentAuthority.authorizeWorkspace(workspaceId)}
       platform="desktop"

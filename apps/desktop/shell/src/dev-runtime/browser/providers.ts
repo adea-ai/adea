@@ -9,11 +9,13 @@
 // injectable engine seam; without one they return the typed
 // `capability_unavailable` instead of pretending success.
 import type {
+  BrowserAnnotation,
   DevCommand,
   DevErrorCode,
   DevStreamGrant,
   ScreenshotRef,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { randomUUID } from 'node:crypto'
 import type { ChannelIdentity } from '../channel/authority'
 
 import { CookieImportError } from './cookie-import'
@@ -134,6 +136,10 @@ export type LaneEngine = Readonly<{
       mobile: boolean
     }>
   ): Promise<void>
+  /** Releases the engine view and attached frame streams for a closed lane. */
+  close?(lane: BrowserLaneRecord): void
+  /** Invalidates streams as soon as lane ownership generation changes. */
+  generationChanged?(laneId: string, generation: number): void
 }>
 
 export type ScreenshotRecorder = Readonly<{
@@ -387,7 +393,9 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       const lane = laneFor(command)
       const expected = expectedGeneration(command)
       assertGeneration(lane, expected)
-      return input.lanes.close(lane.id, expected)
+      const closed = input.lanes.close(lane.id, expected)
+      input.engine?.close?.(closed)
+      return closed
     },
     'dev.browser.navigate': async (command) => {
       const lane = laneFor(command)
@@ -449,6 +457,19 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
         navigationLedger.delete(lane.id)
         // A contract-violating engine was already crashed and diagnosed.
         if (engineViolatedContract) throw error
+        const engineCode =
+          error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+        if (
+          engineCode === 'capability_unavailable' ||
+          engineCode === 'ssrf_blocked' ||
+          engineCode === 'navigation_blocked'
+        ) {
+          input.lanes.markIdle(lane.id)
+          throw new DevCommandProviderError(
+            engineCode,
+            error instanceof Error ? error.message : 'navigation refused'
+          )
+        }
         if (error instanceof DevCommandProviderError) {
           // A gate refusal (the engine aborted a redirect) and an unavailable
           // engine both roll back the transient navigating state so recovery
@@ -534,12 +555,67 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
         },
       })
     },
-    'dev.browser.annotate': (command) => {
+    'dev.browser.annotate': async (command) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
-      // Annotations persist with the screenshot provenance inside the engine
-      // seam; without an attached engine the operation stays typed-unavailable.
-      return unavailableEngine()
+      const req = body(command)
+      const targetId = requireString(req.targetId, 'targetId')
+      const annotation = req.annotation
+      if (!annotation || typeof annotation !== 'object' || Array.isArray(annotation))
+        throw new DevCommandProviderError('invalid_state', 'body.annotation is required')
+      const raw = annotation as Record<string, unknown>
+      const kind = raw.kind
+      if (kind !== 'point' && kind !== 'rect' && kind !== 'text')
+        throw new DevCommandProviderError('invalid_state', 'annotation kind is invalid')
+      const numberField = (name: string): number => {
+        const value = raw[name]
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1)
+          throw new DevCommandProviderError('invalid_state', `annotation ${name} is invalid`)
+        return value
+      }
+      const x = numberField('x')
+      const y = numberField('y')
+      const width = raw.width === undefined ? undefined : numberField('width')
+      const height = raw.height === undefined ? undefined : numberField('height')
+      if (kind === 'rect' && (width === undefined || height === undefined))
+        throw new DevCommandProviderError('invalid_state', 'rect annotation requires width/height')
+      const text = raw.text
+      if (kind === 'text' && (typeof text !== 'string' || text.length > 4096))
+        throw new DevCommandProviderError('invalid_state', 'text annotation requires bounded text')
+      const capture = input.engine
+        ? await input.engine.screenshot(lane, { targetId, format: 'png' })
+        : unavailableEngine()
+      const screenshot = input.screenshotRecorder.record({
+        bytes: capture.bytes,
+        format: 'png',
+        width: capture.width,
+        height: capture.height,
+        provenance: {
+          ownerId: lane.id,
+          laneKind: lane.kind,
+          profileId: lane.profileId,
+          origin: lastAdmittedUrlByLane.get(lane.id) ?? 'about:blank',
+          viewport: {
+            width: lane.viewport.width,
+            height: lane.viewport.height,
+            deviceScaleFactor: lane.viewport.deviceScaleFactor,
+          },
+          redacted: false,
+        },
+      })
+      const result: BrowserAnnotation = {
+        targetId,
+        kind,
+        x,
+        y,
+        ...(width === undefined ? {} : { width }),
+        ...(height === undefined ? {} : { height }),
+        ...(text === undefined ? {} : { text: text as string }),
+        id: randomUUID(),
+        screenshotId: screenshot.id,
+        createdAt: new Date().toISOString(),
+      }
+      return result
     },
     'dev.browser.inspect': async (command) => {
       const lane = laneFor(command)
@@ -569,16 +645,22 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
     },
     'dev.browser.takeover': (command) => {
       const lane = laneFor(command)
-      return input.lanes.takeover(lane.id, expectedGeneration(command))
+      const updated = input.lanes.takeover(lane.id, expectedGeneration(command))
+      input.engine?.generationChanged?.(updated.id, updated.generation)
+      return updated
     },
     'dev.browser.release': (command) => {
       const lane = laneFor(command)
-      return input.lanes.release(lane.id, expectedGeneration(command))
+      const updated = input.lanes.release(lane.id, expectedGeneration(command))
+      input.engine?.generationChanged?.(updated.id, updated.generation)
+      return updated
     },
     'dev.browser.profileReset': (command) => {
       const lane = laneFor(command)
       const confirmationId = requireString(body(command).confirmationId, 'confirmationId')
-      return input.lanes.profileReset(lane.id, expectedGeneration(command), confirmationId)
+      const updated = input.lanes.profileReset(lane.id, expectedGeneration(command), confirmationId)
+      input.engine?.close?.(updated)
+      return updated
     },
     'dev.browser.profilePolicies': () => ({
       items: input.lanes.profilePolicies(),
@@ -674,5 +756,15 @@ export function browserProviderError(error: unknown): DevCommandProviderError {
     return new DevCommandProviderError(error.code as DevErrorCode, error.message)
   if (error instanceof ScreenshotStoreError)
     return new DevCommandProviderError(error.code as DevErrorCode, error.message)
+  if (error instanceof Error) {
+    const code = (error as Error & { code?: unknown }).code
+    if (
+      code === 'capability_unavailable' ||
+      code === 'crash_loop' ||
+      code === 'navigation_blocked' ||
+      code === 'ssrf_blocked'
+    )
+      return new DevCommandProviderError(code, error.message, code === 'capability_unavailable')
+  }
   return new DevCommandProviderError('invalid_state', 'browser provider failed', false)
 }

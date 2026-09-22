@@ -3,7 +3,7 @@
   "ephemeralIkm": "ephemeral sender material for vector 0001",
   "plaintext": "cross-runtime command fixture",
   "enc": "KRI1Ah7xlNV2eDFLthzUjmlhd4hgf7cU8ydhQy3knSs",
-  "ciphertext": "RVH7YBxX01vHfGEvhR_qBaZ0nsa4AxmVoxCFlDUyJrBBJKQUF143ZsU91X1l",
+  "ciphertext": "RVH7YBxX01vHfGEvhR_qBaZ0nsa4AxmVoxCFlDWhXnVdTD-NUTj-qQ4ux2vb",
   "aad": {
     "version": 1,
     "keyId": "node-key-v1",
@@ -13,7 +13,7 @@
     "payloadType": "command.input",
     "schemaVersion": 1,
     "issuedAt": "2026-09-22T12:00:00.000Z",
-    "expiresAt": "2026-09-22T12:10:00.000Z",
+    "expiresAt": "2026-09-22T20:00:00.000Z",
     "contentDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
 }

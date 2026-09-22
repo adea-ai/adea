@@ -15,6 +15,7 @@ export function RunHistoryPane(props: {
   limit?: number
   nowMs?: number
   onResume?: (row: RunHistoryRow) => void
+  onJumpToSession?: (row: RunHistoryRow) => void
   onJumpToTerminal?: (row: RunHistoryRow) => void
 }) {
   const rows = (): readonly RunHistoryRow[] =>
@@ -45,6 +46,20 @@ export function RunHistoryPane(props: {
                 aria-label={`Resume harness run generation ${row.generation}`}
               >
                 Resume
+              </button>
+            </Show>
+            <Show when={!row.resumable}>
+              <span aria-label={`Run is not resumable: ${row.resumeReason}`}>
+                Not resumable ({row.resumeReason.replace('_', ' ')})
+              </span>
+            </Show>
+            <Show when={props.onJumpToSession}>
+              <button
+                type="button"
+                onClick={() => props.onJumpToSession?.(row)}
+                aria-label={`Open conversation for run generation ${row.generation}`}
+              >
+                Conversation
               </button>
             </Show>
             <Show when={props.onJumpToTerminal}>

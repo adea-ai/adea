@@ -566,6 +566,11 @@ type PortRecord = {
   processRecordId?: string
   runtimeSessionId?: string
   generation?: number
+  // Present only when the host matched the service to a ready task-owned lane.
+  preview?: {
+    browserLaneId: string
+    url: string
+  }
   state: 'observed' | 'stale' | 'gone'
   observedAt: string
 }
@@ -1299,6 +1304,12 @@ returns that session after a process restart; a changed body refuses with
 only after accepting a frame. Replay delivered during stream attach queues
 the acknowledgement until the socket is available; a decode error, sequence
 gap, conflict, or stale generation never acknowledges the rejected frame.
+The Chat surface closes its transcript stream when the selected session or
+generation changes or the view unmounts. A late stream-open response must close
+its own handle without installing a poller or replacing the newer session's
+transcript; session-local answer and composer draft state reset on selection.
+During append-only streaming, existing transcript row DOM nodes stay mounted so
+the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
@@ -1321,6 +1332,51 @@ If a Chat create request loses its transport response, the client retains the
 key/body fingerprint but clears its rejected in-flight promise. Retrying the
 same request then reaches the host's durable result replay; reusing the key for
 a changed body still refuses before dispatch.
+M13 first-run onboarding consumes identity and model-access entitlement facts
+from the owning desktop composition. The guest state with no model entitlement
+offers sign-in as its one recovery action; it never invents free guest model
+access or displays a raw credential field. Managed-Pi install state is a
+separate visible status while identity is resolving. Typed driver errors map to
+one safe action (retry the install or update the app), and raw diagnostic
+details do not render. An unresolved project or AgentProfile remains a visible
+setup gate rather than a fabricated default. Once ready, onboarding creates a
+canonical Chat conversation with the initial prompt and a stable idempotency
+key across transport retries. It sends no harness or model pin, leaving the
+root-default policy and the existing staged launch transaction authoritative.
+The adapter exposes `dev.harness.preferenceReset` for explicit reset-to-
+discovered; the host's effective projection then returns managed Pi first.
+The initial UI projection and adapter are implemented in
+`packages/dev-view/src/chat/onboarding/`. The desktop Chat entry mounts that
+surface only after the authenticated runtime projection, ready worktree list,
+and workspace `AgentProfile` list resolve from their owning authorities;
+missing records leave the existing Chat surface in place and never create a
+synthetic launch context. The current desktop API has no Control Plane model-
+entitlement projection, so signed-in onboarding stays at an explicit
+model-access gate and guest onboarding requires sign-in; no client-side
+entitlement is inferred from identity or profile data. Packaged first-run
+certification remains an M13.4 acceptance gate.
+
+The Dev↔Chat switch proof drives the model from the Chat side through repeated
+Dev projection and Chat attach cycles. Each cycle must observe the same
+`runtimeSessionId`, generation-qualified event sequence and retained window,
+draft, and transcript scrollback; the only allowed operations during a switch
+are authenticated, mutation-free canonical hierarchy and generation-fenced
+session reads. A switch never invokes create, launch, resume, cancel, archive,
+or an event-log write.
+
+Inline approval and question controls are fail-closed. The Chat transcript may
+render an `approval.requested` or `question.requested` event, but it MUST keep
+the corresponding response controls disabled with a visible reason until the
+host supplies an authorized, generation-bound response operation through the
+`DevRuntimeService` integration. A missing callback is not an invitation to
+send a best-effort event, type into a PTY, or report success. The current
+runtime operation registry has session lifecycle and event-read commands but no
+approval/question response command; adding one requires an M11 contract that
+binds account/workspace/runtime-node/session/generation, event identity, input
+owner, capability, single-use/idempotency, and canonical resolved/expired
+events. Until that contract exists, Chat's disabled state is the truthful
+projection; a host may direct the user to another separately authorized
+control surface when one exists, but Chat must not invent that route.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
@@ -1328,14 +1384,71 @@ a changed body still refuses before dispatch.
 and never creates a second session, event, approval, credential, or runtime-node
 authority.
 
+### Chat composer decision-layer consumer (M13 #533)
+
+The Chat composer consumes control-plane `decision-resolution.v1` from
+control-plane#558. The Adea-side request and reply types live under
+`packages/dev-view/src/chat/composer/decision-layer.ts` and mirror the pinned
+contract version `{ major: 1, minor: 0 }`: objective, AgentProfile, available
+runtimes, entitlements, required capabilities, cost/latency preference,
+project/profile defaults, and explicit pins are submitted as one request. The
+reply contains the eight resolved outputs (harness, model, skills,
+capabilities, runtime, sandbox, context package, and delegation), precedence
+trace, diagnostics, and digest.
+
+Auto mode always sends an empty `explicitPins` object. Customize mode forwards
+the user's explicit pins; the composer never applies precedence or chooses a
+harness/model locally. The response's logical `harnessId` is not treated as a
+local `harnessInstallationId`: the authenticated host adapter must map the
+resolved selection into the existing #400 `dev.session.create` plus
+`dev.session.launchDefault`/`launchHarness` transaction with the same
+idempotency key. If that adapter, the decision contract, or model entitlement
+is unavailable, the consumer returns `auth_required` or `unavailable` with one
+recovery action and does not launch a default.
+
+Composer mode, agent, favorites, and recents may be persisted only under the
+authenticated `(accountId, workspaceId, projectId)` preference key. Preference
+records contain IDs and presentation choices only; credentials and credential
+values are never persisted by the Chat package. No new Dev Runtime wire
+operation is introduced by this consumer.
+
 ### Durable project/session authority (desktop host)
 
 The desktop shell's project/session register is the host-side canonical
 authority for projects, runtime sessions, groups, and the archive journal —
-not a projection of other state. One snapshot record commits groups, projects,
-sessions, and `ArchiveRecord`s together in a single atomic file write, so
+not a projection of other state. One versioned snapshot payload commits groups,
+projects, sessions, and `ArchiveRecord`s together in the WAL-backed per-scope
+`dev-runtime/project-session/authority-<sha256(scope)>.sqlite3` store, so
 `dev.session.archive`/`dev.session.unarchive` persist the session flip and its
-durable record in one transaction. The register serves `dev.group.*` (now
+durable record in one SQLite transaction. The store enables `journal_mode=WAL`,
+`synchronous=FULL`, and foreign keys on every open, uses a format-version guard,
+and binds its single row to the `(accountId, workspaceId, runtimeNodeId)` scope
+key before returning records. Each scope has an independent database and
+ledger, so switching workspaces never makes one scope open or overwrite another
+scope's file. The pre-slice `authority.sqlite3` is reused only when its stored
+row belongs to the requested scope; a different scope gets a new partition.
+A scope mismatch, malformed payload, or
+unsupported format/schema version fails closed and retains an unread database
+copy for recovery; the original database is never replaced by a recovery copy.
+An interrupted migration transaction rolls back and leaves its JSON source for
+the next open to retry while the SQLite database identity is unchanged. Each
+partition has an owner-only sidecar migration ledger
+(`authority-<sha256(scope)>.sqlite3.migration.json`), which
+records the legacy source digest and database identity, and survives SQLite
+loss: a recreated database refuses to re-import stale JSON and reports
+`corrupt_state` for recovery. A first open without a legacy source creates a
+native-state ledger before accepting a save; if the SQLite metadata survives
+alone, a missing ledger is regenerated before records are returned. The
+SQLite database and ledger are separate durable files, but deleting both is a
+complete local state loss with no surviving identity; a later open cannot
+distinguish that event from a first install and this slice does not claim to
+prevent stale legacy re-import in that case. External backup or recovery
+protection must cover that trust boundary. The retained `authority.json` source
+is filtered by scope for each partition, so an A-to-B-to-A restart preserves
+both migrated records without cross-scope import; legacy authority and
+projection files must be regular owner-only files, and duplicate same-scope
+legacy rows fail closed as `corrupt_state` instead of selecting the first row.
+The register serves `dev.group.*` (now
 including `create`/`update`/`delete`: a created group is placed after
 `afterGroupId` or at the end and every displaced group's `version` bumps;
 `delete` requires an empty group plus a `confirmationId` and the `group`
@@ -1351,9 +1464,15 @@ Import and create commit the new project and every affected group's membership
 ordering in one snapshot write. Every mutation enforces the scope triple
 (`unauthorized`), the ownership epoch (`stale_generation`), and optimistic
 concurrency (`stale_version`); a stored record that fails structural decode
-fails closed with `corrupt_state` and is retained unread. The earlier local
-`projection.json` is seeded into the authority store exactly once and never
-deleted.
+fails closed with `corrupt_state` and is retained unread. The previous
+`authority.json` envelope is migrated exactly once inside a SQLite transaction;
+if migration is interrupted, the transaction rolls back and the next open
+retries from the untouched JSON source only when it is the same database
+identity. The earlier local `projection.json` is
+seeded into the authority store exactly once and neither legacy JSON source is
+deleted or rewritten. Other Dev Runtime authorities remain on the existing
+JSON store until an independently reviewed migration slice covers their schema
+and rollback contract.
 
 On the client, project/session selection resolves only inside the active
 scope's projection and enforces archive state, explicit revocation, generation
@@ -1596,6 +1715,19 @@ Defaults:
   legacy read, write, or verification failure fails closed without generating
   or replacing a key. A runtime below the floor or without `Bun.secrets` keeps
   the existing `security` adapter unchanged.
+- vault metadata uses `dev-runtime/vault/credentials.sqlite3` with WAL and
+  full-sync durability. The SQLite row contains only strictly decoded
+  `CredentialRef` metadata; sealed credential files remain separate, and
+  plaintext, sealed bytes, and any vault key material are refused before a
+  record reaches SQLite. The prior `credentials.json` envelope is retained as
+  a recovery source and is imported transactionally through an owner-only
+  migration ledger that binds the source digest and SQLite database identity.
+  Restart retries an interrupted migration from the untouched source;
+  scope-mismatched, corrupt, or lost SQLite state fails closed and retains the
+  unread database for recovery. The legacy source is never deleted; migration
+  leaves it unchanged, while revocation writes a redacted metadata tombstone
+  there after the sealed file is removed so an older runtime cannot resolve a
+  revoked reference during a downgrade or crash recovery.
 - attach/input tokens: single-use where possible, at most 60 seconds;
 - control payload: 256 KiB; bulk operations use bounded streaming, not a larger
   control message;
@@ -2480,6 +2612,16 @@ Managed deletion:
 7. persist continuation if a sweep page is capped, until all proven entries are
    processed.
 
+On `dev.worktree.cleanupResume`, the host replays the durable journal and
+returns one result for every selected step. A restart in the narrow window
+after quarantine's fsynced completion and before the worktree record update is
+rolled back only when the journaled trash root, generated entry name, recorded
+identity, and missing canonical path all match; the original checkout is
+restored and that step is reported as `rolled_back` with the job `partial`.
+Any later journaled step, missing provenance, or identity mismatch remains
+`recovery_required` for explicit operator handling. Resume never guesses past
+an ambiguous side effect.
+
 Multi-file metadata/history changes stage all writes and restore prior disk and
 memory state if any commit fails. No deletion error is logged-and-ignored.
 
@@ -3125,6 +3267,58 @@ controlling user's input, a `task_owned` lane accepts input only within the
 owning task's grant, and `none` rejects input. Ownership transfer increments
 the generation, so input granted under an old generation is inert.
 
+The `browser-frames-v1` handler may receive a valid stream grant immediately
+after lane creation, before navigation or screenshot has provisioned a view.
+The host resolves the lane from its registry, provisions the owner-scoped view
+at stream attach, and checks the lane generation again after asynchronous setup
+before publishing frames. A missing lane, stale generation, or failed setup
+closes the stream with a typed refusal; a valid first attach is not treated as
+stale merely because no view existed yet. The handler installs the stream's
+close cleanup before provisioning begins, so a socket that closes while the
+view is starting cannot acquire a subscriber after setup completes; an
+authoritative generation change during that window also refuses the attach.
+
+The packaged browser engine uses Bun 1.4 `Bun.WebView` with the Chrome/CDP
+backend for task-owned and user-context lanes. Each view requests an
+owner-only persistent `dataStore` directory derived from the immutable lane
+profile identity; the shell's bundled Electrobun CEF window is never reused.
+Because Bun's Chrome backend currently shares one Chrome process (and therefore
+one process-level data store) across views, production cookie/profile
+isolation still requires the packaged host to provide a process-per-lane CDP
+adapter or an equivalent CEF profile boundary; this engine does not claim that
+acceptance evidence yet.
+The engine enables CDP `Fetch.requestPaused` for document requests before
+navigation. It calls the provider's admission hook for the initial request and
+each redirect, continues only admitted URLs, records console and failed-network
+diagnostics, and fails closed when the view reports a navigation error. CDP
+`Page.captureScreenshot`, DOM inspection, viewport emulation, and
+`Page.startScreencast` provide the live host surface. Screencast publication
+uses the one-in-flight/latest-frame bound and sends `video` frames through the
+authenticated `browser-frames-v1` stream; write frames decode only bounded
+CBOR input controls, and Escape invokes the generation-fenced release path.
+
+The current Electrobun 2.0.1 shell declaration exposes only `BrowserWindow`;
+it has no BrowserView/CDP handle for the human embedded CEF context. The
+engine therefore keeps that context isolated and does not claim a CEF target
+until the packaged host exposes an authorized BrowserView seam. Packaged
+macOS CEF evidence remains a required #537/#426 acceptance gate.
+
+When the CDP target contains iframes, `Page.getFrameTree` supplies child-frame
+targets and `Page.createIsolatedWorld` gives element picking a frame-specific
+execution context. The picker can therefore inspect same-origin and
+cross-origin iframe DOM through the authorized CDP target without injecting a
+page script. Screencast frames remain compositor output for the whole page;
+they include iframe pixels but carry no separate iframe byte stream. A future
+requirement for per-frame capture or frame-specific redaction needs a host
+adapter that exposes OOPIF capture identities and coordinate transforms.
+
+Profile directories remain immutable and owner-only, but Bun's Chrome backend
+does not expose a process-per-`dataStore` guarantee. The engine refuses to
+reuse a lane directory while it is alive; this is useful lifecycle protection,
+not proof that two Chromium profiles cannot share process state. Packaged
+acceptance still needs an independently supervised browser process per lane or
+an equivalent CEF profile boundary before cookie/profile isolation can close.
+
 Screenshots/annotations carry origin, viewport, time, lane/profile, and
 redaction provenance; maximum 25 MiB each and workspace retention limits apply.
 Browser page content cannot invoke Adea commands through origin or loopback.
@@ -3208,6 +3402,15 @@ launch with actionable guidance through the permissions page (denied
 accessibility routes to the exact Settings pane); TCC denial is never
 silently degraded into a working-looking lane.
 
+The current packaged shell does not expose a native Screen Recording helper,
+CGWindow/ScreenCaptureKit bridge, or authorized accessibility-tree bridge to
+the Bun process. The browser CDP frame path cannot satisfy computer-use
+capture: it sees only the browser lane and cannot claim the full desktop.
+Therefore #542's packaged activity-frame, TCC-denied, capture/input/takeover,
+and reconnect smoke gates remain open until the host supplies those explicit
+bridges and records their permission identity, frame provenance, and
+generation revocation behavior.
+
 | Capability | Depends on                                             | This lane's honest state until proven otherwise                          |
 | ---------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
 | input      | accessibility grant + host input tool + active consent | `denied`/`not_determined`/`unavailable` mirrors the probe; never assumed |
@@ -3233,7 +3436,18 @@ authenticated transport option, never output to scrape.
 Credentials are host/account scoped. Enterprise hosts require explicit trust;
 github.com credentials are never sent elsewhere. All mutation results are
 reread before success. PR create uses an idempotency/reconciliation key and
-searches for an existing matching head/base after timeout.
+searches for an existing matching head/base after timeout. Before a PR-create
+POST, the host durably records the authorized scope, repository, head, and base
+as an opaque key under its owner-only runtime data directory. It returns only
+an exact open head/base match whose head owner and base repository match the
+authorized remote. A per-key file lock fences concurrent host processes before
+the POST. A timed-out POST, lost response, verification failure, or
+host crash keeps the record: later attempts reread GitHub, reconcile when the
+matching PR becomes visible, and refuse another POST while the outcome is
+unknown. A successful POST also requires an authoritative reread before the
+record is cleared. A corrupt retained record also blocks further POSTs. An
+unresolved record requires manual GitHub verification; the UI must never
+silently retry creation for the same head/base.
 
 Push defaults to normal fast-forward/upstream setup. Force requires a separate
 plan and confirmation using `--force-with-lease=<ref>:<expectedSha>`; raw force
@@ -3533,6 +3747,8 @@ serialization. Secret patterns are defense in depth, not authorization. Error
 messages never echo untrusted payloads, credentials, full terminal output, or
 private file content. Audit records contain IDs, operation, actor, scope,
 result/error code, byte/count summaries, and redacted target labels.
+Chat transcript projection also drops any `credential`-classified event before
+rendering, including a malformed producer's otherwise renderable event kind.
 
 ## Error contract
 
@@ -3888,6 +4104,14 @@ can distinguish intentional spec evolution from drift:
   `archived_seconds` — and the cleanup-policy authority awaits either facts
   shape, failing closed on unknown worktrees and unobservable facts. Pinned by
   `apps/desktop/tests/dev-runtime-resources.test.ts`.
+- **2026-09-22 — M10 #33 vault metadata migration.** Credential references now
+  migrate from the retained `dev-runtime/vault/credentials.json` envelope into
+  the reviewed WAL/full-sync `credentials.sqlite3` store. Strict metadata
+  decoding refuses secret-shaped fields, scope-invalid records, duplicate IDs,
+  and malformed versions before persistence; migration rollback, restart
+  recovery, SQLite loss, corrupt-payload retention, and the downgrade-visible
+  revocation tombstone are pinned by `apps/desktop/tests/dev-runtime-vault.test.ts`.
+  The Bun.secrets and legacy OS-keychain key adapter remains unchanged.
 - **2026-09-21 — #185: live supervision events under a crash-storm bound,
   and the managed Pi as a truthful-absence manifest component.** Two
   follow-ups to the packaged supervision wiring. (1) The supervision
@@ -4468,7 +4692,10 @@ can distinguish intentional spec evolution from drift:
   non-transplantable origins (google.com) unless explicitly overridden, and
   fully rolled back on any failure or cancellation with values never logged;
   the port inventory scans loopback listeners only (no LAN probe), marks
-  Adea-owned services from launch metadata, and keeps vanished ports stale;
+  Adea-owned services from launch metadata, keeps vanished ports stale, and
+  associates a confirmed listener with the ready task-owned browser lane for
+  the same runtime session when one exists. Unknown, unconfirmed, and stale
+  rows never receive a new preview association and remain non-actionable;
   device inventory is capability-gated `xcrun simctl`/`adb` with fixed argv
   templates bound to verified inventory IDs, and stops only an Adea-launched,
   still-identity-matching process (user-booted devices detach, never shut
@@ -4564,7 +4791,14 @@ files in the same commit:
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
   project/session authority: restart survival without fixtures, transactional
   archive records, scope/generation/version rejection, fail-closed corruption,
-  and the legacy-seed migration; `apps/desktop/tests/repo-registry.test.ts`
+  scope-partitioned A-to-B-to-A restart, legacy-source mode/symlink checks,
+  duplicate-row refusal, and the legacy-seed migration.
+  `apps/desktop/tests/host-store.test.ts` pins
+  the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
+  guard, corruption retention, restart recovery, and interrupted migration
+  retry, native-state refusal after SQLite loss, and stale-source refusal after
+  SQLite loss;
+  `apps/desktop/tests/repo-registry.test.ts`
   pins the repository registry (#398 follow-up): adopt-time
   containment/identity proof with durable restart, unknown/stale/foreign-scope
   refusals, out-of-root containment refusal before any write, read-only
@@ -4620,6 +4854,17 @@ files in the same commit:
   key read-back, locked/denied/unavailable refusals, legacy-key retention, and
   key-mismatch fail-closed behavior, including sealed-vault access after a
   runtime downgrade;
+- `apps/desktop/tests/dev-runtime-vault.test.ts` also pins the credential
+  metadata migration, retained legacy source, restart/rollback recovery,
+  SQLite loss refusal, scope filtering, corruption retention, downgrade-visible
+  revocation tombstones, and the absence of plaintext or key material from
+  SQLite;
+- `scripts/test-m10-33-packaged-vault.mjs` bundles
+  `apps/desktop/shell/scripts/packaged-vault-smoke.ts` and executes the real
+  adapter with the Bun runtime from a macOS app bundle. Its disposable
+  Keychain journey proves legacy-slot retention across upgrade/downgrade and
+  records redacted denied/locked/mismatched-store refusals with parent and
+  child cleanup;
 - `apps/desktop/tests/dev-runtime-composition.test.ts` boots the actual shell
   registration graph and pins the operation/provider matrix, the
   scope-before-dispatch gate ordering, revocation and refused-rebind

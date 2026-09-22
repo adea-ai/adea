@@ -17,6 +17,7 @@ import {
   type DevCommand,
   type DevOperation,
   type DevReply,
+  type Group,
   type RetainedDataRecord,
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
@@ -921,6 +922,19 @@ describe('dev runtime composition', () => {
       const first = await shell.openChannel()
       const ok = await first.execute(commandFor('dev.project.list', SCOPE_A, {}))
       expect(ok.ok).toBe(true)
+      const aGroup: Group = {
+        id: randomUUID(),
+        scope: SCOPE_A,
+        name: 'workspace-a',
+        projectIds: [],
+        sortKey: 'workspace-a',
+        version: 1,
+      }
+      shell.currentHost().projectSession!.upsertGroup(aGroup)
+      expect(await first.execute(commandFor('dev.group.list', SCOPE_A, {}))).toMatchObject({
+        ok: true,
+        value: { items: [aGroup] },
+      })
 
       // Re-bind under a different workspace: the composition revokes every
       // channel minted under the previous binding.
@@ -932,8 +946,28 @@ describe('dev runtime composition', () => {
       const second = await shell.openChannel()
       const rebound = await second.execute(commandFor('dev.project.list', SCOPE_B, {}))
       expect(rebound.ok).toBe(true)
+      const bGroup: Group = {
+        id: randomUUID(),
+        scope: SCOPE_B,
+        name: 'workspace-b',
+        projectIds: [],
+        sortKey: 'workspace-b',
+        version: 1,
+      }
+      shell.currentHost().projectSession!.upsertGroup(bGroup)
+      expect(await second.execute(commandFor('dev.group.list', SCOPE_B, {}))).toMatchObject({
+        ok: true,
+        value: { items: [bGroup] },
+      })
       const oldScope = await second.execute(commandFor('dev.project.list', SCOPE_A, {}))
       expect(oldScope).toMatchObject({ ok: false, error: { code: 'channel_unauthorized' } })
+
+      await shell.bind(SCOPE_A)
+      const third = await shell.openChannel()
+      expect(await third.execute(commandFor('dev.group.list', SCOPE_A, {}))).toMatchObject({
+        ok: true,
+        value: { items: [aGroup] },
+      })
     } finally {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }

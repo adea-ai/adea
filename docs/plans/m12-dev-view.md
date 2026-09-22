@@ -571,7 +571,10 @@ Acceptance:
       backoff, and terms policy; estimates are not billing truth.
 - [ ] Telemetry is off by default and redaction tests cover all private fields.
 - [ ] Cleanup plan exposes every blocker; changed facts invalidate commit;
-      partial/crash recovery resumes without unrelated data loss.
+      partial/crash recovery resumes without unrelated data loss. A restart
+      after quarantine rolls back only with durable identity proof and reports
+      per-step `rolled_back`/`pending` results; ambiguous later steps remain
+      `recovery_required`.
 - [ ] Automatic cleanup runs only under the versioned, previously approved
       project policy and exact safe predicates; unknown/stale facts request
       confirmation and policy edit/revoke/expiry are audited.
@@ -767,6 +770,22 @@ The 24-hour acceptance run sets
 `ADEA_DEV_RUNTIME_TERMINAL_ENDURANCE_DURATION_MS=86400000` and still requires
 the packaged PTY, resource, display-loss, update, and daemon-version evidence;
 the bounded local run cannot close those gates.
+
+The #541 packaged owner-journey lane is executable independently after the
+Electrobun build and writes `artifacts/packaged/owner-journey.json`:
+
+```sh
+bun run test:packaged:owner-journey -- \
+  --app-bundle apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app \
+  --artifact artifacts/packaged/owner-journey.json
+```
+
+It exercises the production project import, isolated Git worktree, runtime
+session, and archive/unarchive authorities in a disposable repository. The
+result is `blocked` with an explicit blocker when #537's packaged CEF/CDP
+engine is unavailable; browser frames, screenshots, video, annotations,
+element picking, and takeover are never represented as passing evidence by a
+typed-unavailable fixture.
 
 Run focused package/test commands during each slice, then the full applicable
 set. #396/#422 own packaged smoke fixtures; #424 owns resource/cleanup

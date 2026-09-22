@@ -142,11 +142,14 @@ export function BrowserPane(props: BrowserPaneProps) {
       scanner: (ports()?.items ?? []).map((port) => ({
         host: port.host,
         port: port.port,
-        url: `http://${port.host === '127.0.0.1' ? 'localhost' : port.host}:${port.port}/`,
+        url:
+          port.preview?.url ??
+          `http://${port.host === '127.0.0.1' ? 'localhost' : port.host}:${port.port}/`,
         processName: null,
         owner: port.owner,
         health: port.state === 'observed' ? 'listening' : 'stale',
         ...(port.runtimeSessionId ? { runtimeSessionId: port.runtimeSessionId } : {}),
+        ...(port.preview ? { preview: port.preview } : {}),
       })),
       configuredUrls: [],
     })
@@ -489,6 +492,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                 class="dev-browser__row"
                 disabled={!isPreviewableRow(row)}
                 onClick={() => {
+                  if (row.preview) setActiveLaneId(row.preview.browserLaneId)
                   setUrlDraft(row.requestedUrl)
                   submitUrl()
                 }}

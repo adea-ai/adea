@@ -376,6 +376,47 @@ describe('Dev Runtime reply envelope', () => {
   })
 })
 
+describe('PortRecord preview association', () => {
+  test('decodes an optional browser preview link strictly', () => {
+    const reply = {
+      schemaVersion: 1,
+      operation: 'dev.resources.ports',
+      requestId: '00000000-0000-4000-8000-000000000004',
+      ok: true,
+      value: {
+        items: [
+          {
+            id: 'port-1',
+            scope,
+            protocol: 'tcp',
+            host: '127.0.0.1',
+            port: 5173,
+            owner: 'adea',
+            runtimeSessionId: 'session-1',
+            preview: { browserLaneId: 'lane-1', url: 'http://127.0.0.1:5173/' },
+            state: 'observed',
+            observedAt: '2026-09-22T12:00:00.000Z',
+          },
+        ],
+        observedAt: '2026-09-22T12:00:00.000Z',
+      },
+      observedAt: '2026-09-22T12:00:00.000Z',
+    }
+    expect(devOperationDecoders['dev.resources.ports'].reply(reply)).toEqual(reply)
+    expect(() =>
+      devOperationDecoders['dev.resources.ports'].reply({
+        ...reply,
+        value: {
+          ...reply.value,
+          items: [
+            { ...reply.value.items[0], preview: { ...reply.value.items[0].preview, extra: true } },
+          ],
+        },
+      })
+    ).toThrow('unknown key')
+  })
+})
+
 describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
   const rootBookmark = {
     id: '00000000-0000-4000-8000-000000000010',
