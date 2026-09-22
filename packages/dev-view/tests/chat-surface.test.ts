@@ -50,6 +50,11 @@ describe('chat surface presentation', () => {
         kind: 'unknown.event' as RuntimeEvent['kind'],
         payload: { secret: 'do not render' },
       }),
+      event({
+        eventId: 'credential-1',
+        classification: 'credential',
+        payload: { text: 'unclassified-secret-without-a-pattern' },
+      }),
     ])
 
     expect(rows).toHaveLength(2)
@@ -57,6 +62,7 @@ describe('chat surface presentation', () => {
     expect(rows[0]?.text).toContain('[secret redacted]')
     expect(rows[0]?.text).not.toContain('supersecret')
     expect(rows[1]?.role).toBe('approval')
+    expect(rows.some((row) => row.id === 'credential-1')).toBe(false)
   })
 
   test('adds an explicit terminal fallback projection label', () => {

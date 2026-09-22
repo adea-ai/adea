@@ -90,6 +90,9 @@ export function projectTranscriptEvents(
 ): readonly ChatTranscriptItem[] {
   const rows: ChatTranscriptItem[] = []
   for (const event of events) {
+    // Credential-classified payloads are never renderer content, even if a
+    // malformed upstream producer gives one a normally renderable event kind.
+    if (event.classification === 'credential') continue
     const role = roleFor(event.kind)
     if (!role) continue
     const text = textFromPayload(event)
