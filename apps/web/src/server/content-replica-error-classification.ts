@@ -2,8 +2,10 @@ export type ContentReplicaErrorClass = 'conflict' | 'invalid' | 'unavailable' | 
 
 export function classifyContentReplicaError(error: unknown): ContentReplicaErrorClass {
   const message = error instanceof Error ? error.message : ''
-  if (message.endsWith('conflict')) return 'conflict'
-  if (message.endsWith('unavailable')) return 'unavailable'
+  // These exact strings are the only domain sentinels emitted by the replica
+  // service. Arbitrary infrastructure messages must stay retryable.
+  if (message === 'Content replica digest conflict') return 'conflict'
+  if (message === 'Content replica unavailable') return 'unavailable'
   if (message === 'Content replica metadata invalid') return 'invalid'
   return 'retryable'
 }

@@ -69,7 +69,14 @@ describe('ContentReplica request boundary', () => {
   })
 
   test('classifies infrastructure errors as retryable instead of invalid requests', () => {
-    expect(classifyContentReplicaError(new Error('database connection refused'))).toBe('retryable')
+    expect(classifyContentReplicaError(new Error('database unavailable'))).toBe('retryable')
+    expect(classifyContentReplicaError(new Error('serialization conflict'))).toBe('retryable')
+    expect(classifyContentReplicaError(new Error('Content replica digest conflict'))).toBe(
+      'conflict'
+    )
+    expect(classifyContentReplicaError(new Error('Content replica unavailable'))).toBe(
+      'unavailable'
+    )
     expect(classifyContentReplicaError(new Error('Content replica metadata invalid'))).toBe(
       'invalid'
     )
