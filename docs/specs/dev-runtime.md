@@ -3197,7 +3197,11 @@ listing without a source is truthful-empty rather than fabricated:
   metrics surface is read, never on a timer. CPU is a monotonic delta
   between consecutive samples of one owner; the first sample carries no
   `cpuPercent`, and unobservable values stay absent (never numeric zero).
-  History is bounded to 720 points per owner and 24 hours.
+  History is bounded to 720 points per owner and 24 hours. Each pull makes at
+  most one `ps` observation of 64 distinct PIDs. The sampler rotates that
+  bounded window through the current inventory, so a stable large inventory
+  is covered across successive pulls without a command burst or permanent
+  first-page bias. An unsampled process has no fabricated metric.
 - Usage adapters are sequenced by a cache service with exponential backoff
   plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
   floor. A failed poll stores an explicit typed-failure row (quantity
