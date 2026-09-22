@@ -126,7 +126,7 @@ console.log(JSON.stringify(report))
 
 function usage() {
   console.error(
-    'usage: bun scripts/test-m10-33-packaged-native.mjs [--app-bundle <Adea.app>] [--artifact <path>]'
+    'usage: bun scripts/test-m10-33-packaged-native.mjs [--app-bundle <Adea.app>] [--artifact <path>] [--source-commit <sha>]'
   )
   process.exit(2)
 }
@@ -134,6 +134,7 @@ function usage() {
 function parseArgs() {
   let appBundle = defaultBundle
   let artifact = defaultArtifact
+  let sourceCommit
   for (let index = 2; index < process.argv.length; index += 1) {
     const flag = process.argv[index]
     const value = process.argv[index + 1]
@@ -143,13 +144,20 @@ function parseArgs() {
     } else if (flag === '--artifact' && value) {
       artifact = resolve(value)
       index += 1
+    } else if (flag === '--source-commit' && value) {
+      sourceCommit = value
+      index += 1
     } else if (flag === '--help') {
       usage()
     } else {
       usage()
     }
   }
-  return { appBundle, artifact }
+  return {
+    appBundle,
+    artifact,
+    sourceCommit: sourceCommit ?? run('git', ['rev-parse', 'HEAD'], 5_000).stdout.trim(),
+  }
 }
 
 function digestFile(file) {
@@ -218,7 +226,10 @@ async function main() {
   if (process.platform !== 'darwin') {
     throw new Error('packaged Bun.secrets evidence requires macOS')
   }
-  const { appBundle, artifact } = parseArgs()
+  const { appBundle, artifact, sourceCommit } = parseArgs()
+  if (!/^[0-9a-f]{7,40}$/.test(sourceCommit)) {
+    throw new Error('source commit must be a lowercase hexadecimal Git object id')
+  }
   if (!existsSync(appBundle)) throw new Error('app bundle does not exist')
 
   let resolved
@@ -229,7 +240,7 @@ async function main() {
     const artifactValue = {
       schemaVersion: 1,
       lane: 'm10-33-packaged-native-evidence',
-      sourceCommit: run('git', ['rev-parse', 'HEAD'], 5_000).stdout.trim(),
+      sourceCommit,
       bundle: {
         kind: resolved.archivePath ? 'stable-payload' : 'direct-bundle',
         app: relativeArtifactPath(resolved.appRoot),

@@ -32,7 +32,8 @@ bun run --cwd apps/desktop shell:build
 bunx --bun electrobun build --env=stable
 bun scripts/test-m10-33-packaged-native.mjs \
   --app-bundle apps/desktop/shell/build/stable-macos-arm64/Adea.app \
-  --artifact artifacts/packaged/m10-33-native-evidence.json
+  --artifact artifacts/packaged/m10-33-native-evidence.json \
+  --source-commit aa47a7a7c2f0a7dba9253925b148d820da5d0deb
 ```
 
 The final command passed with:
