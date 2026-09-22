@@ -1,6 +1,15 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -123,6 +132,73 @@ describe('durable SQLite host store', () => {
       const retried = sqliteStore(root, { legacyFile })
       expect(retried.load().records).toEqual([{ value: 'retry' }])
       expect(readdirSync(join(root, 'state'))).toContain('records.json')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('fails closed instead of reimporting stale JSON after SQLite data loss', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-sqlite-store-'))
+    try {
+      const file = join(root, 'state', 'records.sqlite3')
+      const legacyFile = join(root, 'state', 'records.json')
+      mkdirSync(join(root, 'state'), { recursive: true, mode: 0o700 })
+      writeFileSync(
+        legacyFile,
+        JSON.stringify({ schemaVersion: 1, savedAt: 'legacy', records: [{ value: 'A' }] }),
+        { mode: 0o600 }
+      )
+      const store = sqliteStore(root, { legacyFile })
+      expect(store.load().records).toEqual([{ value: 'A' }])
+      store.save([{ value: 'B' }])
+
+      rmSync(file, { force: true })
+      rmSync(`${file}-wal`, { force: true })
+      rmSync(`${file}-shm`, { force: true })
+
+      expect(() => sqliteStore(root, { legacyFile }).load()).toThrow('corrupt_state')
+      expect(readdirSync(join(root, 'state'))).toContain('records.sqlite3.migration.json')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('retries a persisted pending migration only for the same SQLite identity', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-sqlite-store-'))
+    try {
+      const file = join(root, 'state', 'records.sqlite3')
+      const legacyFile = join(root, 'state', 'records.json')
+      const ledgerFile = `${file}.migration.json`
+      mkdirSync(join(root, 'state'), { recursive: true, mode: 0o700 })
+      sqliteStore(root).load()
+      const db = new Database(file)
+      const databaseId = (
+        db.query('SELECT database_id FROM durable_store_metadata WHERE id = 1').get() as {
+          database_id: string
+        }
+      ).database_id
+      db.close()
+      const legacyBytes = Buffer.from(
+        JSON.stringify({ schemaVersion: 1, savedAt: 'legacy', records: [{ value: 'retry' }] })
+      )
+      writeFileSync(legacyFile, legacyBytes, { mode: 0o600 })
+      writeFileSync(
+        ledgerFile,
+        JSON.stringify({
+          formatVersion: 1,
+          schemaVersion: 1,
+          scopeKey: JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId]),
+          databaseId,
+          sourceDigest: createHash('sha256').update(legacyBytes).digest('hex'),
+          state: 'pending',
+        }),
+        { mode: 0o600 }
+      )
+
+      expect(sqliteStore(root, { legacyFile }).load().records).toEqual([{ value: 'retry' }])
+      expect(JSON.parse(readFileSync(ledgerFile, 'utf8')) as { state: string }).toMatchObject({
+        state: 'complete',
+      })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

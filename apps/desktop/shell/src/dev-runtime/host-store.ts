@@ -20,6 +20,7 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
 import { dirname } from 'node:path'
 import { Database } from 'bun:sqlite'
 
@@ -115,6 +116,7 @@ export function createDurableJsonStore<T>(options: {
 export type DurableJsonStore<T> = ReturnType<typeof createDurableJsonStore<T>>
 
 const SQLITE_FORMAT_VERSION = 1
+const MIGRATION_LEDGER_VERSION = 1
 const SQLITE_MIGRATION_STAGES = ['before_commit'] as const
 
 export type DurableStoreScope = Readonly<{
@@ -143,6 +145,15 @@ type DurableSqliteOptions<T> = Readonly<{
   migrateLegacy?: (value: unknown) => ReadonlyArray<T>
 }>
 
+type MigrationLedger = Readonly<{
+  formatVersion: number
+  schemaVersion: number
+  scopeKey: string
+  databaseId: string
+  sourceDigest: string
+  state: 'pending' | 'complete'
+}>
+
 type SqliteRecord = Readonly<{
   id: number
   scopeKey: string
@@ -153,6 +164,8 @@ type SqliteRecord = Readonly<{
   savedAt: string
   payload: string
 }>
+
+type OpenDatabase = Readonly<{ db: Database; databaseId: string }>
 
 class MigrationInterruptedError extends Error {
   constructor(readonly cause: unknown) {
@@ -183,6 +196,56 @@ function scopeParts(scope: DurableStoreScope | undefined): {
     accountId: scope.accountId,
     workspaceId: scope.workspaceId,
     runtimeNodeId: scope.runtimeNodeId,
+  }
+}
+
+function migrationLedgerPath(file: string): string {
+  return `${file}.migration.json`
+}
+
+function migrationDigest(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+function writeOwnerOnlyAtomic(file: string, value: string): void {
+  const directory = dirname(file)
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  chmodSync(directory, 0o700)
+  const temporary = `${file}.tmp-${process.pid}-${Date.now()}`
+  const handle = openSync(temporary, 'wx', 0o600)
+  try {
+    writeSync(handle, value)
+    fsyncSync(handle)
+  } finally {
+    closeSync(handle)
+  }
+  renameSync(temporary, file)
+  chmodSync(file, 0o600)
+  try {
+    const directoryHandle = openSync(directory, 'r')
+    try {
+      fsyncSync(directoryHandle)
+    } finally {
+      closeSync(directoryHandle)
+    }
+  } catch {
+    // Directory fsync is unsupported on some platforms; the file fsync still
+    // bounds the loss window to the atomic rename.
+  }
+}
+
+function removeOwnerOnlyFile(file: string): void {
+  if (!existsSync(file)) return
+  unlinkSync(file)
+  try {
+    const directoryHandle = openSync(dirname(file), 'r')
+    try {
+      fsyncSync(directoryHandle)
+    } finally {
+      closeSync(directoryHandle)
+    }
+  } catch {
+    // Best-effort directory durability after an explicit same-process rollback.
   }
 }
 
@@ -223,7 +286,48 @@ function ensureSqliteOwnerOnly(file: string): void {
   }
 }
 
-function ensureSqliteSchema(db: Database, options: DurableSqliteOptions<unknown>): void {
+function ensureMigrationLedgerOwnerOnly(file: string): void {
+  if (!existsSync(file)) return
+  const stats = lstatSync(file)
+  if (stats.isSymbolicLink() || !stats.isFile())
+    throw new DevAuthorityError('corrupt_state', 'durable migration ledger is not a regular file')
+  chmodSync(file, 0o600)
+}
+
+function readMigrationLedger(
+  file: string,
+  options: DurableSqliteOptions<unknown>,
+  expectedScopeKey: string
+): MigrationLedger | undefined {
+  if (!existsSync(file)) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    throw new DevAuthorityError('corrupt_state', `${options.label} migration ledger is corrupt`)
+  }
+  const candidate = parsed as Partial<MigrationLedger> | null
+  if (
+    !candidate ||
+    typeof candidate !== 'object' ||
+    candidate.formatVersion !== MIGRATION_LEDGER_VERSION ||
+    candidate.schemaVersion !== options.schemaVersion ||
+    candidate.scopeKey !== expectedScopeKey ||
+    typeof candidate.databaseId !== 'string' ||
+    candidate.databaseId.length < 16 ||
+    typeof candidate.sourceDigest !== 'string' ||
+    !/^[0-9a-f]{64}$/.test(candidate.sourceDigest) ||
+    (candidate.state !== 'pending' && candidate.state !== 'complete')
+  )
+    throw new DevAuthorityError('corrupt_state', `${options.label} migration ledger is invalid`)
+  return candidate as MigrationLedger
+}
+
+function writeMigrationLedger(file: string, ledger: MigrationLedger): void {
+  writeOwnerOnlyAtomic(file, `${JSON.stringify(ledger)}\n`)
+}
+
+function ensureSqliteSchema(db: Database, options: DurableSqliteOptions<unknown>): string {
   const version = (db.query('PRAGMA user_version').get() as { user_version?: unknown } | null)
     ?.user_version
   if (version !== 0 && version !== SQLITE_FORMAT_VERSION)
@@ -236,6 +340,7 @@ function ensureSqliteSchema(db: Database, options: DurableSqliteOptions<unknown>
       CREATE TABLE IF NOT EXISTS durable_store_metadata (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         format_version INTEGER NOT NULL,
+        database_id TEXT,
         migration_state TEXT NOT NULL CHECK (migration_state IN ('native', 'migrating', 'migrated'))
       );
       CREATE TABLE IF NOT EXISTS durable_store_records (
@@ -251,21 +356,35 @@ function ensureSqliteSchema(db: Database, options: DurableSqliteOptions<unknown>
       PRAGMA user_version = 1;
     `)
   }
+  const metadataColumns = db.query('PRAGMA table_info(durable_store_metadata)').all() as Array<{
+    name?: unknown
+  }>
+  if (!metadataColumns.some((column) => column.name === 'database_id'))
+    db.exec('ALTER TABLE durable_store_metadata ADD COLUMN database_id TEXT')
+  const databaseId = randomUUID()
   db.query(
-    "INSERT OR IGNORE INTO durable_store_metadata (id, format_version, migration_state) VALUES (1, ?, 'native')"
-  ).run(SQLITE_FORMAT_VERSION)
+    "INSERT OR IGNORE INTO durable_store_metadata (id, format_version, database_id, migration_state) VALUES (1, ?, ?, 'native')"
+  ).run(SQLITE_FORMAT_VERSION, databaseId)
+  db.query(
+    "UPDATE durable_store_metadata SET database_id = ? WHERE id = 1 AND (database_id IS NULL OR database_id = '')"
+  ).run(databaseId)
   const metadata = db
-    .query('SELECT format_version, migration_state FROM durable_store_metadata WHERE id = 1')
-    .get() as { format_version?: unknown; migration_state?: unknown } | null
+    .query(
+      'SELECT format_version, database_id, migration_state FROM durable_store_metadata WHERE id = 1'
+    )
+    .get() as { format_version?: unknown; database_id?: unknown; migration_state?: unknown } | null
   if (
     !metadata ||
     metadata.format_version !== SQLITE_FORMAT_VERSION ||
+    typeof metadata.database_id !== 'string' ||
+    metadata.database_id.length < 16 ||
     !['native', 'migrating', 'migrated'].includes(String(metadata.migration_state))
   )
     throw new DevAuthorityError(
       'unsupported_version',
       `${options.label} SQLite schema is unsupported`
     )
+  return metadata.database_id
 }
 
 /**
@@ -279,9 +398,11 @@ function ensureSqliteSchema(db: Database, options: DurableSqliteOptions<unknown>
  */
 export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
   const expectedScope = scopeParts(options.scope)
+  const ledgerFile = migrationLedgerPath(options.file)
 
-  function openDatabase(): Database {
+  function openDatabase(): OpenDatabase {
     ensureSqliteOwnerOnly(options.file)
+    ensureMigrationLedgerOwnerOnly(ledgerFile)
     const original = existsSync(options.file) ? readFileSync(options.file) : undefined
     let db: Database | undefined
     try {
@@ -301,10 +422,10 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
           'corrupt_state',
           `${options.label} SQLite pragmas are not fail-closed`
         )
-      ensureSqliteSchema(db, options as DurableSqliteOptions<unknown>)
+      const databaseId = ensureSqliteSchema(db, options as DurableSqliteOptions<unknown>)
       chmodSync(options.file, 0o600)
       ensureSqliteOwnerOnly(options.file)
-      return db
+      return { db, databaseId }
     } catch (error) {
       db?.close()
       sqliteCorruptCopy(options.file, original)
@@ -327,11 +448,14 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
       .all() as SqliteRecord[]
   }
 
-  function readLegacy(): { savedAt: string; records: ReadonlyArray<T> } | undefined {
+  function readLegacy():
+    | { savedAt: string; records: ReadonlyArray<T>; sourceDigest: string }
+    | undefined {
     if (!options.legacyFile || !existsSync(options.legacyFile)) return undefined
+    const rawBytes = readFileSync(options.legacyFile)
     let parsed: unknown
     try {
-      parsed = JSON.parse(readFileSync(options.legacyFile, 'utf8'))
+      parsed = JSON.parse(rawBytes.toString('utf8'))
     } catch {
       sqliteCorruptCopy(options.legacyFile)
       throw new DevAuthorityError('corrupt_state', `${options.label} legacy store is corrupt`)
@@ -372,14 +496,49 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
     return {
       savedAt: typeof candidate.savedAt === 'string' ? candidate.savedAt : '',
       records,
+      sourceDigest: migrationDigest(rawBytes),
     }
   }
 
-  function migrate(db: Database): void {
+  function migrate(db: Database, databaseId: string, ledger: MigrationLedger | undefined): void {
     const legacy = readLegacy()
-    if (!legacy) return
+    if (!legacy) {
+      if (ledger?.state === 'pending')
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration source disappeared before commit`
+        )
+      return
+    }
+    if (ledger) {
+      if (ledger.databaseId !== databaseId)
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration ledger belongs to another database`
+        )
+      if (ledger.state === 'complete')
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration ledger has no authoritative row`
+        )
+      if (ledger.sourceDigest !== legacy.sourceDigest)
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration source changed during recovery`
+        )
+    } else {
+      writeMigrationLedger(ledgerFile, {
+        formatVersion: MIGRATION_LEDGER_VERSION,
+        schemaVersion: options.schemaVersion,
+        scopeKey: expectedScope.key,
+        databaseId,
+        sourceDigest: legacy.sourceDigest,
+        state: 'pending',
+      })
+    }
     const payload = JSON.stringify(legacy.records)
     let hookRunning = false
+    let committed = false
     try {
       db.transaction(() => {
         db.query(
@@ -405,7 +564,23 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
           "UPDATE durable_store_metadata SET migration_state = 'migrated' WHERE id = 1"
         ).run()
       })()
+      committed = true
+      writeMigrationLedger(ledgerFile, {
+        formatVersion: MIGRATION_LEDGER_VERSION,
+        schemaVersion: options.schemaVersion,
+        scopeKey: expectedScope.key,
+        databaseId,
+        sourceDigest: legacy.sourceDigest,
+        state: 'complete',
+      })
     } catch (error) {
+      if (!committed) {
+        try {
+          removeOwnerOnlyFile(ledgerFile)
+        } catch {
+          // A failed cleanup leaves the pending ledger as a recovery gate.
+        }
+      }
       if (hookRunning) throw new MigrationInterruptedError(error)
       if (error instanceof DevAuthorityError) throw error
       throw new DevAuthorityError('corrupt_state', `${options.label} migration failed`)
@@ -416,10 +591,24 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
     let db: Database | undefined
     let failure: unknown
     try {
-      db = openDatabase()
+      const opened = openDatabase()
+      db = opened.db
+      const ledger = readMigrationLedger(
+        ledgerFile,
+        options as DurableSqliteOptions<unknown>,
+        expectedScope.key
+      )
       let records = rows(db)
+      if (ledger && ledger.databaseId !== opened.databaseId)
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration ledger belongs to another database`
+        )
+      if (ledger?.state === 'pending' && records.length > 0) {
+        writeMigrationLedger(ledgerFile, { ...ledger, state: 'complete' })
+      }
       if (records.length === 0) {
-        migrate(db)
+        migrate(db, opened.databaseId, ledger)
         records = rows(db)
       }
       if (records.length > 1)
@@ -469,8 +658,24 @@ export function createDurableSqliteStore<T>(options: DurableSqliteOptions<T>) {
     let db: Database | undefined
     let failure: unknown
     try {
-      db = openDatabase()
+      const opened = openDatabase()
+      db = opened.db
+      const ledger = readMigrationLedger(
+        ledgerFile,
+        options as DurableSqliteOptions<unknown>,
+        expectedScope.key
+      )
+      if (ledger && ledger.databaseId !== opened.databaseId)
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration ledger belongs to another database`
+        )
       const existing = rows(db)
+      if (ledger && existing.length === 0)
+        throw new DevAuthorityError(
+          'corrupt_state',
+          `${options.label} migration ledger has no authoritative row`
+        )
       if (existing.length > 1 || (existing[0] && existing[0].scopeKey !== expectedScope.key))
         throw new DevAuthorityError(
           'corrupt_state',

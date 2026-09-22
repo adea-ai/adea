@@ -1255,7 +1255,11 @@ key before returning records. A scope mismatch, malformed payload, or
 unsupported format/schema version fails closed and retains an unread database
 copy for recovery; the original database is never replaced by a recovery copy.
 An interrupted migration transaction rolls back and leaves its JSON source for
-the next open to retry. The register serves `dev.group.*` (now
+the next open to retry while the SQLite database identity is unchanged. A
+sidecar migration ledger (`authority.sqlite3.migration.json`) is owner-only,
+records the legacy source digest and database identity, and survives SQLite
+loss: a recreated database refuses to re-import stale JSON and reports
+`corrupt_state` for recovery. The register serves `dev.group.*` (now
 including `create`/`update`/`delete`: a created group is placed after
 `afterGroupId` or at the end and every displaced group's `version` bumps;
 `delete` requires an empty group plus a `confirmationId` and the `group`
@@ -1274,7 +1278,8 @@ concurrency (`stale_version`); a stored record that fails structural decode
 fails closed with `corrupt_state` and is retained unread. The previous
 `authority.json` envelope is migrated exactly once inside a SQLite transaction;
 if migration is interrupted, the transaction rolls back and the next open
-retries from the untouched JSON source. The earlier local `projection.json` is
+retries from the untouched JSON source only when it is the same database
+identity. The earlier local `projection.json` is
 seeded into the authority store exactly once and neither legacy JSON source is
 deleted or rewritten. Other Dev Runtime authorities remain on the existing
 JSON store until an independently reviewed migration slice covers their schema
@@ -4480,7 +4485,8 @@ files in the same commit:
   and the legacy-seed migration. `apps/desktop/tests/host-store.test.ts` pins
   the shared SQLite boundary's WAL/full-sync setup, scope isolation, format
   guard, corruption retention, restart recovery, and interrupted migration
-  retry; `apps/desktop/tests/repo-registry.test.ts`
+  retry plus stale-source refusal after SQLite loss;
+  `apps/desktop/tests/repo-registry.test.ts`
   pins the repository registry (#398 follow-up): adopt-time
   containment/identity proof with durable restart, unknown/stale/foreign-scope
   refusals, out-of-root containment refusal before any write, read-only
