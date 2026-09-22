@@ -1,4 +1,5 @@
 export * from './model'
+export * from './composer'
 export {
   ChatComposer,
   chatComposerDisabledReason,

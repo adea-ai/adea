@@ -1252,6 +1252,34 @@ returns that session after a process restart; a changed body refuses with
 and never creates a second session, event, approval, credential, or runtime-node
 authority.
 
+### Chat composer decision-layer consumer (M13 #533)
+
+The Chat composer consumes control-plane `decision-resolution.v1` from
+control-plane#558. The Adea-side request and reply types live under
+`packages/dev-view/src/chat/composer/decision-layer.ts` and mirror the pinned
+contract version `{ major: 1, minor: 0 }`: objective, AgentProfile, available
+runtimes, entitlements, required capabilities, cost/latency preference,
+project/profile defaults, and explicit pins are submitted as one request. The
+reply contains the eight resolved outputs (harness, model, skills,
+capabilities, runtime, sandbox, context package, and delegation), precedence
+trace, diagnostics, and digest.
+
+Auto mode always sends an empty `explicitPins` object. Customize mode forwards
+the user's explicit pins; the composer never applies precedence or chooses a
+harness/model locally. The response's logical `harnessId` is not treated as a
+local `harnessInstallationId`: the authenticated host adapter must map the
+resolved selection into the existing #400 `dev.session.create` plus
+`dev.session.launchDefault`/`launchHarness` transaction with the same
+idempotency key. If that adapter, the decision contract, or model entitlement
+is unavailable, the consumer returns `auth_required` or `unavailable` with one
+recovery action and does not launch a default.
+
+Composer mode, agent, favorites, and recents may be persisted only under the
+authenticated `(accountId, workspaceId, projectId)` preference key. Preference
+records contain IDs and presentation choices only; credentials and credential
+values are never persisted by the Chat package. No new Dev Runtime wire
+operation is introduced by this consumer.
+
 ### Durable project/session authority (desktop host)
 
 The desktop shell's project/session register is the host-side canonical
