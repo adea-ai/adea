@@ -48,7 +48,10 @@ export function createIntegrationState(hostFeatures: readonly string[] = []): In
   }
 }
 
-export function reduceIntegration(state: IntegrationState, event: IntegrationEvent): IntegrationState {
+export function reduceIntegration(
+  state: IntegrationState,
+  event: IntegrationEvent
+): IntegrationState {
   switch (event.type) {
     case 'observation':
       if (state.authenticatedObservation) return state

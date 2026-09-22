@@ -29,8 +29,8 @@ cross-product certification; M14 — #475 — gates on this milestone closing).
 Standing owner directives; a slice PR that crosses these lines is wrong:
 
 1. **No harness engineering.** Chat code never rewrites prompts, never
-   compacts, never injects context, never intercepts tools. Policy *selects*;
-   the harness *executes* (#400 ownership boundary, control-plane#558).
+   compacts, never injects context, never intercepts tools. Policy _selects_;
+   the harness _executes_ (#400 ownership boundary, control-plane#558).
 2. **No Control-Plane-side work.** The decision layer that resolves
    harness/model/skills/tools/runtime/sandbox/context-package/delegation is
    control-plane#558; consumer model-access provisioning is control-plane#552.
@@ -63,7 +63,7 @@ Standing owner directives; a slice PR that crosses these lines is wrong:
   never fabricates semantic state a tier cannot prove.
 - **Lifecycle maps onto the existing session state machine**
   (`idle → starting → working ↔ awaiting_input/awaiting_approval →
-  completed|failed|cancelled|disconnected|unknown`, plus independent
+completed|failed|cancelled|disconnected|unknown`, plus independent
   `stale`). Chat's affordances (send, stop, approve, answer, resume, archive)
   are the existing command surface — `dev.session.*`, `dev.harness.*` — not
   new chat commands.
@@ -270,43 +270,43 @@ Acceptance criteria:
 
 **Wave A — conversation model first (everything reads it):**
 
-| Agent | Issue | Gate to close |
-| ----- | ----- | ------------- |
-| S1 | M13.1 conversation model | M12 session core landed (#400 merged); standalone |
+| Agent | Issue                    | Gate to close                                     |
+| ----- | ------------------------ | ------------------------------------------------- |
+| S1    | M13.1 conversation model | M12 session core landed (#400 merged); standalone |
 
 **Wave B — surface + history (parallel, disjoint paths above the S1 layer):**
 
-| Agent | Issue | Extra closure deps |
-| ----- | ----- | ------------------ |
-| S2 | M13.2 chat surface | S1 merged |
-| S5 | M13.5 history/search/notifications | S1 merged (fixtures may start earlier) |
+| Agent | Issue                              | Extra closure deps                     |
+| ----- | ---------------------------------- | -------------------------------------- |
+| S2    | M13.2 chat surface                 | S1 merged                              |
+| S5    | M13.5 history/search/notifications | S1 merged (fixtures may start earlier) |
 
 **Wave C — consumer modes (build on the merged S2 surface):**
 
-| Agent | Issue | Extra closure deps |
-| ----- | ----- | ------------------ |
-| S3 | M13.3 auto mode | S2 merged; CP#558 contract state noted on the issue (adea-side types pin independently) |
-| S4 | M13.4 first-run onboarding | S2 merged; #31 lifecycle + #400 root-default policy (landed) |
+| Agent | Issue                      | Extra closure deps                                                                      |
+| ----- | -------------------------- | --------------------------------------------------------------------------------------- |
+| S3    | M13.3 auto mode            | S2 merged; CP#558 contract state noted on the issue (adea-side types pin independently) |
+| S4    | M13.4 first-run onboarding | S2 merged; #31 lifecycle + #400 root-default policy (landed)                            |
 
 **Wave D — certification evidence (closes last):**
 
-| Agent | Issue | Extra closure deps |
-| ----- | ----- | ------------------ |
-| S6 | M13.6 certification path | S1–S5 merged; #42/#130 themselves are the cross-product gates |
+| Agent | Issue                    | Extra closure deps                                            |
+| ----- | ------------------------ | ------------------------------------------------------------- |
+| S6    | M13.6 certification path | S1–S5 merged; #42/#130 themselves are the cross-product gates |
 
 Branch naming: `feat/m13-<issue>-<slug>`. PRs: draft → ready after local
 validation → squash merge into `main`.
 
 ## File-ownership map
 
-| Agent | Issue | Owned paths (exclusive while open) |
-| ----- | ----- | ---------------------------------- |
-| S1 | M13.1 | `packages/dev-view/src/chat/model/**`, additive DTO blocks in `packages/types/src/dev-runtime.ts` |
-| S2 | M13.2 | `packages/dev-view/src/chat/**` except `model/**` and `composer/**` + `onboarding/**` (created later), dev-view chat CSS additions, dev-view chunk-budget ratchet when chat code lands |
-| S3 | M13.3 | `packages/dev-view/src/chat/composer/**` |
-| S4 | M13.4 | `packages/dev-view/src/chat/onboarding/**`, shell onboarding entry modules under `apps/desktop/shell/src/**` (new files only; existing shell files append-only with PR-noted coordination) |
-| S5 | M13.5 | `packages/dev-view/src/history/**`, `packages/dev-view/src/chat/search/**`, shell notification modules (new files only) |
-| S6 | M13.6 | `apps/web/e2e/**` chat fixtures, `artifacts/**` lane outputs, scripts/lane wiring for chat evidence |
+| Agent | Issue | Owned paths (exclusive while open)                                                                                                                                                         |
+| ----- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S1    | M13.1 | `packages/dev-view/src/chat/model/**`, additive DTO blocks in `packages/types/src/dev-runtime.ts`                                                                                          |
+| S2    | M13.2 | `packages/dev-view/src/chat/**` except `model/**` and `composer/**` + `onboarding/**` (created later), dev-view chat CSS additions, dev-view chunk-budget ratchet when chat code lands     |
+| S3    | M13.3 | `packages/dev-view/src/chat/composer/**`                                                                                                                                                   |
+| S4    | M13.4 | `packages/dev-view/src/chat/onboarding/**`, shell onboarding entry modules under `apps/desktop/shell/src/**` (new files only; existing shell files append-only with PR-noted coordination) |
+| S5    | M13.5 | `packages/dev-view/src/history/**`, `packages/dev-view/src/chat/search/**`, shell notification modules (new files only)                                                                    |
+| S6    | M13.6 | `apps/web/e2e/**` chat fixtures, `artifacts/**` lane outputs, scripts/lane wiring for chat evidence                                                                                        |
 
 Shared files — append/coordinate, never rewrite: `packages/types/src/
 dev-runtime.ts` (additive DTO blocks only), dev-view CSS additions (own

@@ -56,10 +56,7 @@ import {
 } from './resources/policy'
 import { createProcessSampler } from './resources/sample-processes'
 import { createRetainedDataProjection } from './resources/retained-data'
-import {
-  createCleanupWorktreeFacts,
-  type OwnedResourceRef,
-} from './resources/cleanup-facts'
+import { createCleanupWorktreeFacts, type OwnedResourceRef } from './resources/cleanup-facts'
 import {
   createHarnessUsageAdapter,
   createTerminalUsageAdapter,
@@ -582,13 +579,13 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         'recovering',
       ])
       const ownedResourceCensus = async (): Promise<readonly OwnedResourceRef[]> => {
-        const resources: OwnedResourceRef[] = []
+        const owned: OwnedResourceRef[] = []
         // Running terminals by the terminal registrar's live census. A
         // sidecar failure THROWS (a census that cannot observe cannot prove
         // absence), which the facts adapter turns into fail-closed absence.
         if (terminal?.census) {
           for (const entry of await terminal.census()) {
-            resources.push({
+            owned.push({
               id: entry.terminalId,
               kind: 'terminal',
               worktreeId: entry.worktreeId,
@@ -604,7 +601,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
             if (RUN_TERMINAL_STATES.includes(run.state)) continue
             const session = projectSession.getSession(run.runtimeSessionId)
             if (!session) continue
-            resources.push({
+            owned.push({
               id: run.id,
               kind: 'harness',
               worktreeId: session.worktreeId,
@@ -625,14 +622,14 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
             continue
           const session = projectSession?.getSession(lane.runtimeSessionId)
           if (!session) continue
-          resources.push({
+          owned.push({
             id: lane.id,
             kind: 'browser',
             worktreeId: session.worktreeId,
             generation: lane.generation,
           })
         }
-        return resources
+        return owned
       }
       return createCleanupWorktreeFacts({
         worktrees: worktreeService,

@@ -91,8 +91,9 @@ export function createHarnessUsageAdapter(input: {
       const completed = runs
         .filter((run) => run.startedAt !== undefined && run.finishedAt !== undefined)
         .toSorted((left, right) => (left.finishedAt ?? '').localeCompare(right.finishedAt ?? ''))
-      const perRun: readonly UsageObservation[] = completed.slice(-MAX_PER_RUN_ROWS).flatMap(
-        (run): UsageObservation[] => {
+      const perRun: readonly UsageObservation[] = completed
+        .slice(-MAX_PER_RUN_ROWS)
+        .flatMap((run): UsageObservation[] => {
           const seconds = runWallClockSeconds(run)
           if (seconds === undefined) return []
           return [
@@ -110,8 +111,7 @@ export function createHarnessUsageAdapter(input: {
               expiresInSeconds: ON_DEVICE_FRESHNESS_SECONDS,
             },
           ]
-        }
-      )
+        })
       const aggregates: readonly UsageObservation[] = [
         {
           ownerId: `usage:${provider}`,

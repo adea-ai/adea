@@ -163,21 +163,23 @@ describe('typed fallback shell selection', () => {
   test('unknown-kind shells are selectable but honestly marked integration-less', () => {
     expect(shellKindOf('/usr/local/bin/elvish')).toBe('unknown')
     expect(shellKindOf('/bin/bash')).toBe('bash')
-    expect(profileIntegrationNote(profilesWithUnknown[2]!)).toContain('without Adea shell integration')
+    expect(profileIntegrationNote(profilesWithUnknown[2]!)).toContain(
+      'without Adea shell integration'
+    )
     expect(profileIntegrationNote(profiles[0]!)).toBeUndefined()
   })
 })
 
-describe('surface key routing (TUI pass-through, IME-safe)', () => {
-  const key = (overrides: Partial<Parameters<typeof routePaneKey>[0]> = {}) => ({
-    key: 'x',
-    metaKey: false,
-    ctrlKey: false,
-    shiftKey: false,
-    altKey: false,
-    ...overrides,
-  })
+const key = (overrides: Partial<Parameters<typeof routePaneKey>[0]> = {}) => ({
+  key: 'x',
+  metaKey: false,
+  ctrlKey: false,
+  shiftKey: false,
+  altKey: false,
+  ...overrides,
+})
 
+describe('surface key routing (TUI pass-through, IME-safe)', () => {
   test('plain Ctrl+F and Ctrl+C reach the terminal untouched (readline regression)', () => {
     expect(routePaneKey(key({ key: 'f', ctrlKey: true }), 'raw')).toBe('none')
     expect(routePaneKey(key({ key: 'c', ctrlKey: true }), 'raw')).toBe('none')
@@ -193,9 +195,9 @@ describe('surface key routing (TUI pass-through, IME-safe)', () => {
   })
 
   test('shifted Ctrl+C with alt and unmodified keys stay terminal-bound', () => {
-    expect(routePaneKey(key({ key: 'C', ctrlKey: true, shiftKey: true, altKey: true }), 'raw')).toBe(
-      'none'
-    )
+    expect(
+      routePaneKey(key({ key: 'C', ctrlKey: true, shiftKey: true, altKey: true }), 'raw')
+    ).toBe('none')
     expect(routePaneKey(key({ key: 'f' }), 'raw')).toBe('none')
   })
 

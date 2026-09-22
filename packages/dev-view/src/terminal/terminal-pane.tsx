@@ -6,7 +6,15 @@
 // multiline paste (bracketed), IME-safe shortcuts, raw-mode TUI pass-through,
 // per-worktree identity, and the typed fallback shell chooser. Composition
 // only — every decision lives in the tested pure modules beside this file.
-import { createEffect, createMemo, createRenderEffect, createSignal, onCleanup, onMount, Show } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createRenderEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+} from 'solid-js'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
@@ -134,18 +142,16 @@ export function TerminalPane(props: TerminalPaneProps) {
   const policy = createRendererPolicy()
   const [policyVersion, setPolicyVersion] = createSignal(0)
   const [blocks, setBlocks] = createSignal(createBlocksState())
-  const [editor, setEditor] = createSignal(
-    createEditorState(props.commandHistory ?? [])
-  )
+  const [editor, setEditor] = createSignal(createEditorState(props.commandHistory ?? []))
   const [connection, setConnection] = createSignal('connecting')
   const [clipboard, setClipboard] = createSignal(createClipboardState())
   const [search, setSearch] = createSignal(createSearchState())
   const [integration, setIntegration] = createSignal(
     createIntegrationState(props.hostFeatures ?? [])
   )
-  const [cwd, setCwd] = createSignal<{ cwd: string; source: 'authenticated' | 'stream' } | undefined>(
-    undefined
-  )
+  const [cwd, setCwd] = createSignal<
+    { cwd: string; source: 'authenticated' | 'stream' } | undefined
+  >(undefined)
   const [hasSelection, setHasSelection] = createSignal(false)
   const [surfacePaste, setSurfacePaste] = createSignal<string | undefined>(undefined)
   const [announcement, setAnnouncement] = createSignal('')
@@ -277,7 +283,10 @@ export function TerminalPane(props: TerminalPaneProps) {
 
   let searchInputElement: HTMLInputElement | undefined
 
-  function runFind(state: ReturnType<typeof createSearchState>, direction: 'next' | 'previous'): void {
+  function runFind(
+    state: ReturnType<typeof createSearchState>,
+    direction: 'next' | 'previous'
+  ): void {
     const options = {
       caseSensitive: state.caseSensitive,
       decorations: SEARCH_DECORATIONS,
@@ -391,7 +400,9 @@ export function TerminalPane(props: TerminalPaneProps) {
       const parsed = parseOsc7Cwd(data)
       if (!parsed) return false
       setIntegration((state) => reduceIntegration(state, { type: 'stream-cwd' }))
-      setCwd((current) => (current?.source === 'authenticated' ? current : { cwd: parsed.cwd, source: 'stream' }))
+      setCwd((current) =>
+        current?.source === 'authenticated' ? current : { cwd: parsed.cwd, source: 'stream' }
+      )
       return false
     })
     terminal.parser.registerOscHandler(133, (data) => {
@@ -407,10 +418,8 @@ export function TerminalPane(props: TerminalPaneProps) {
     searchAddon.onDidChangeResults((results) => {
       setSearch((state) => searchSetResults(state, results))
     })
-    terminal.attachCustomKeyEventHandler((event) =>
-      runPaneKeyAction(routePaneKey(event, editor().mode), event)
-        ? false
-        : true
+    terminal.attachCustomKeyEventHandler(
+      (event) => !runPaneKeyAction(routePaneKey(event, editor().mode), event)
     )
     // Captured before xterm's textarea: the pane owns the paste path.
     element.addEventListener('paste', onSurfacePaste, true)
@@ -474,7 +483,9 @@ export function TerminalPane(props: TerminalPaneProps) {
   return (
     <section
       class="dev-terminal-pane"
-      aria-label={props.worktreeLabel ? `Integrated terminal — ${props.worktreeLabel}` : 'Integrated terminal'}
+      aria-label={
+        props.worktreeLabel ? `Integrated terminal — ${props.worktreeLabel}` : 'Integrated terminal'
+      }
       data-policy-version={policyVersion()}
       data-worktree-id={props.worktreeId}
       data-attach-from={props.fromSequence}
@@ -543,9 +554,11 @@ export function TerminalPane(props: TerminalPaneProps) {
                   <button
                     type="button"
                     class="dev-terminal-copy-button"
-                    onClick={() => void copyThroughSeam(text()).then((outcome) => {
-                      setClipboard(applyCopyOutcome(clipboard(), outcome))
-                    })}
+                    onClick={() =>
+                      void copyThroughSeam(text()).then((outcome) => {
+                        setClipboard(applyCopyOutcome(clipboard(), outcome))
+                      })
+                    }
                   >
                     Copy
                   </button>
@@ -559,7 +572,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         <Show when={search().open}>
           <div class="dev-terminal-search" role="search" aria-label="Search terminal">
             <input
-              ref={searchInputElement}
+              ref={(element) => (searchInputElement = element)}
               type="text"
               placeholder="Search terminal"
               aria-label="Search terminal"
@@ -629,7 +642,10 @@ export function TerminalPane(props: TerminalPaneProps) {
         when={editor().mode === 'compose'}
         fallback={
           <div class="dev-terminal-raw-note">
-            <p>Raw keyboard mode — every key reaches the terminal. Paste with the system shortcut; multiline pastes ask first.</p>
+            <p>
+              Raw keyboard mode — every key reaches the terminal. Paste with the system shortcut;
+              multiline pastes ask first.
+            </p>
             <button type="button" onClick={() => setEditor(editorToggleMode(editor()))}>
               Compose mode
             </button>

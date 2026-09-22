@@ -39,7 +39,12 @@ export function selectShellProfile(input: {
     if (match) return { status: 'preferred', profile: match }
     const proposal = input.profiles[0]
     if (proposal) {
-      return { status: 'fallback', profile: proposal, reason: 'preferred_missing', preferredShell: preferred }
+      return {
+        status: 'fallback',
+        profile: proposal,
+        reason: 'preferred_missing',
+        preferredShell: preferred,
+      }
     }
     return { status: 'unresolved', reason: 'no_profiles', preferredShell: preferred }
   }
@@ -107,7 +112,8 @@ export function shellSelectionPresentation(state: ShellSelectionState): ShellSel
       detail:
         'That shell is not usable on this host. Choose one of the available shells below — ' +
         'nothing starts until you pick one.',
-      selectedLabel: state.selectedProfileId === choice.profile.id ? choice.profile.label : undefined,
+      selectedLabel:
+        state.selectedProfileId === choice.profile.id ? choice.profile.label : undefined,
       announcement: `Your shell is not available. Choose a fallback shell.`,
     }
   }
