@@ -1286,8 +1286,8 @@ approval/question response command; adding one requires an M11 contract that
 binds account/workspace/runtime-node/session/generation, event identity, input
 owner, capability, single-use/idempotency, and canonical resolved/expired
 events. Until that contract exists, Chat's disabled state is the truthful
-projection and the existing Dev terminal remains the only available control
-surface for a harness that supports such responses.
+projection; a host may direct the user to another separately authorized
+control surface when one exists, but Chat must not invent that route.
 
 `packages/data` owns the scoped query keys and cancellation/invalidation seam;
 `packages/state` owns only ephemeral selected IDs and presentation state. The
