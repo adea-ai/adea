@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.40.2](https://github.com/adea-ai/adea/compare/v0.40.1...v0.40.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* **resources:** rotate bounded process samples at scale ([#554](https://github.com/adea-ai/adea/issues/554)) ([1edd517](https://github.com/adea-ai/adea/commit/1edd5172e768fad5464a0686f11988cb3b18e009))
+
 ## [0.40.1](https://github.com/adea-ai/adea/compare/v0.40.0...v0.40.1) (2026-09-22)
 
 
