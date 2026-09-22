@@ -3273,7 +3273,18 @@ authenticated transport option, never output to scrape.
 Credentials are host/account scoped. Enterprise hosts require explicit trust;
 github.com credentials are never sent elsewhere. All mutation results are
 reread before success. PR create uses an idempotency/reconciliation key and
-searches for an existing matching head/base after timeout.
+searches for an existing matching head/base after timeout. Before a PR-create
+POST, the host durably records the authorized scope, repository, head, and base
+as an opaque key under its owner-only runtime data directory. It returns only
+an exact open head/base match whose head owner and base repository match the
+authorized remote. A per-key file lock fences concurrent host processes before
+the POST. A timed-out POST, lost response, verification failure, or
+host crash keeps the record: later attempts reread GitHub, reconcile when the
+matching PR becomes visible, and refuse another POST while the outcome is
+unknown. A successful POST also requires an authoritative reread before the
+record is cleared. A corrupt retained record also blocks further POSTs. An
+unresolved record requires manual GitHub verification; the UI must never
+silently retry creation for the same head/base.
 
 Push defaults to normal fast-forward/upstream setup. Force requires a separate
 plan and confirmation using `--force-with-lease=<ref>:<expectedSha>`; raw force

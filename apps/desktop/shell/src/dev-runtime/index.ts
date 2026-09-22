@@ -489,6 +489,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ? registerGithubRuntime({
         authority: input.authority,
         scope: input.scope,
+        dataDir: input.dataDir,
         resolveRepo: (repoId) =>
           registeredRepos(worktreeService)().find((repo) => repo.repoId === repoId),
         listRepos: registeredRepos(worktreeService),
