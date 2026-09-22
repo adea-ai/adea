@@ -102,6 +102,18 @@
       "development": "./src/chat/model/index.ts",
       "import": "./dist/chat/model/index.js"
     },
+    "./chat/search": {
+      "types": "./dist/chat/search/index.d.ts",
+      "solid": "./src/chat/search/index.ts",
+      "development": "./src/chat/search/index.ts",
+      "import": "./dist/chat/search/index.js"
+    },
+    "./chat/notifications": {
+      "types": "./dist/chat/notifications/index.d.ts",
+      "solid": "./src/chat/notifications/index.ts",
+      "development": "./src/chat/notifications/index.ts",
+      "import": "./dist/chat/notifications/index.js"
+    },
     "./files/file-stream": {
       "types": "./dist/files/file-stream.d.ts",
       "solid": "./src/files/file-stream.ts",
