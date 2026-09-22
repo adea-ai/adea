@@ -1,4 +1,5 @@
 import type {
+  DevRuntimePage,
   Group,
   Project,
   RuntimeEvent,
@@ -165,7 +166,9 @@ export function projectChatConversations(
         maxEvents: 1_000,
         ...(retentionEvents[0] ? { oldestSequence: retentionEvents[0].seq } : {}),
         ...(retentionEvents.at(-1) ? { newestSequence: retentionEvents.at(-1)!.seq } : {}),
-        complete: true,
+        // A projected event array has no proof that earlier retained windows
+        // were loaded. Only the runtime-events-v1 stream can supply that fact.
+        complete: false,
       },
     })
   }
@@ -237,6 +240,26 @@ export function createChatConversationModel(
       events,
       drafts,
     })
+  const loadHierarchy = async (): Promise<void> => {
+    const [projectPage, groupPage] = await Promise.all([
+      executeChatCommand<DevRuntimePage<Project>>(
+        service,
+        buildDevCommand({ operation: 'dev.project.list', scope, body: {} })
+      ),
+      executeChatCommand<DevRuntimePage<Group>>(
+        service,
+        buildDevCommand({ operation: 'dev.group.list', scope, body: {} })
+      ),
+    ])
+    if (projectPage.nextCursor !== undefined || groupPage.nextCursor !== undefined)
+      throw new ChatRuntimeError({
+        code: 'invalid_state',
+        retryable: true,
+        message: 'Project and group registry pages must be complete before projection.',
+      })
+    projects.splice(0, projects.length, ...projectPage.items)
+    groups.splice(0, groups.length, ...groupPage.items)
+  }
   const requireConversation = (runtimeSessionId: string): ChatConversation => {
     const conversation = registry().conversations.find(
       (item) => item.runtimeSessionId === runtimeSessionId
@@ -259,22 +282,17 @@ export function createChatConversationModel(
         retryable: false,
         message: 'Runtime session belongs to another scope.',
       })
+    if (!projects.some((project) => project.id === session.projectId))
+      throw new ChatRuntimeError({
+        code: 'not_found',
+        retryable: true,
+        message: 'The canonical project registry has not resolved this session.',
+      })
     sessions.set(session.id, session)
     const merged = events.get(session.id) ?? []
     for (const event of newEvents)
       if (!merged.some((entry) => entry.eventId === event.eventId)) merged.push(event)
     events.set(session.id, merged)
-    if (!projects.some((project) => project.id === session.projectId)) {
-      projects.push({
-        id: session.projectId,
-        scope,
-        name: session.projectId,
-        groupIds: [],
-        repoIds: [session.repoId],
-        lifecycle: 'ready',
-        version: 1,
-      })
-    }
     selectedRuntimeSessionId = selectedRuntimeSessionId ?? session.id
     return requireConversation(session.id)
   }
@@ -334,6 +352,7 @@ export function createChatConversationModel(
         idempotencyKey,
       })
       const created = await executeChatCommand<RuntimeSession>(service, createCommand)
+      await loadHierarchy()
       let canonical = remember(created)
       if (input.agentProfileId !== undefined || input.initialPrompt !== undefined) {
         const launchOperation = input.harnessInstallationId
@@ -354,8 +373,25 @@ export function createChatConversationModel(
     createRequests.set(idempotencyKey, { fingerprint, promise })
     return promise
   }
-  const attach = async (runtimeSessionId: string): Promise<ChatConversation> =>
-    refresh(runtimeSessionId)
+  const attach = async (runtimeSessionId: string): Promise<ChatConversation> => {
+    await loadHierarchy()
+    const page = await executeChatCommand<DevRuntimePage<RuntimeSession>>(
+      service,
+      buildDevCommand({
+        operation: 'dev.session.list',
+        scope,
+        body: { runtimeSessionId },
+      })
+    )
+    const session = page.items.find((item) => item.id === runtimeSessionId)
+    if (!session)
+      throw new ChatRuntimeError({
+        code: 'not_found',
+        retryable: false,
+        message: `Runtime session ${runtimeSessionId} was not found.`,
+      })
+    return remember(session)
+  }
   const mutateSession = async (
     runtimeSessionId: string,
     operation: 'dev.session.resumeHarness' | 'dev.session.cancelHarness',
@@ -490,11 +526,33 @@ export function createChatConversationModel(
     create,
     attach,
     async list(listOptions = {}) {
-      const command = buildDevCommand({ operation: 'dev.session.list', scope, body: listOptions })
-      const page = await executeChatCommand<{ items: readonly RuntimeSession[] }>(service, command)
-      for (const item of page.items) remember(item)
+      const sessionPage = await executeChatCommand<DevRuntimePage<RuntimeSession>>(
+        service,
+        buildDevCommand({ operation: 'dev.session.list', scope, body: listOptions })
+      )
+      await loadHierarchy()
+      for (const item of sessionPage.items) remember(item)
+      if (
+        sessionPage.nextCursor === undefined &&
+        listOptions.projectId === undefined &&
+        listOptions.worktreeId === undefined &&
+        listOptions.archived === undefined &&
+        listOptions.cursor === undefined &&
+        listOptions.limit === undefined
+      ) {
+        const currentIds = new Set(sessionPage.items.map((item) => item.id))
+        for (const id of sessions.keys()) {
+          if (currentIds.has(id)) continue
+          sessions.delete(id)
+          events.delete(id)
+          drafts.delete(id)
+          if (selectedRuntimeSessionId === id) selectedRuntimeSessionId = undefined
+        }
+      }
+      const pageIds = new Set(sessionPage.items.map((item) => item.id))
       return registry().conversations.filter(
         (item) =>
+          pageIds.has(item.runtimeSessionId) &&
           (listOptions.projectId === undefined || item.projectId === listOptions.projectId) &&
           (listOptions.worktreeId === undefined || item.worktreeId === listOptions.worktreeId) &&
           (listOptions.archived === undefined || item.archived === listOptions.archived)

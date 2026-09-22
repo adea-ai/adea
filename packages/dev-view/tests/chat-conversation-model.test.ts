@@ -72,6 +72,27 @@ function ok<T>(operation: DevReply['operation'], value: T, requestId = 'request-
   } as DevReply
 }
 
+function hierarchyReply(operation: DevReply['operation']): DevReply | undefined {
+  if (operation === 'dev.project.list')
+    return ok(operation, {
+      items: [
+        {
+          id: 'project-1',
+          scope: SCOPE,
+          name: 'Canonical project',
+          groupIds: [],
+          repoIds: ['repo-1'],
+          lifecycle: 'ready',
+          version: 1,
+        },
+      ],
+      observedAt: '2026-09-22T10:00:00Z',
+    })
+  if (operation === 'dev.group.list')
+    return ok(operation, { items: [], observedAt: '2026-09-22T10:00:00Z' })
+  return undefined
+}
+
 describe('projectChatConversations', () => {
   test('projects groups and sessions with no chat-owned identity and canonical title', () => {
     const first = session({ displayName: 'Runtime label' })
@@ -133,6 +154,7 @@ describe('projectChatConversations', () => {
       title: 'Fix the login flow',
       status: 'active',
       groupIds: ['group-1'],
+      retention: { complete: false },
     })
     expect(projected.conversations[1]).toMatchObject({
       runtimeSessionId: second.id,
@@ -152,6 +174,68 @@ describe('projectChatConversations', () => {
 })
 
 describe('ChatConversationModel', () => {
+  test('remember refuses a session without a canonical project record', () => {
+    const model = createChatConversationModel(
+      fakeService(async () => {
+        throw new Error('unexpected transport')
+      }),
+      SCOPE
+    )
+    expect(() => model.remember(session())).toThrow(
+      'The canonical project registry has not resolved this session.'
+    )
+    expect(model.project().conversations).toHaveLength(0)
+  })
+
+  test('list projects canonical sessions and hierarchy and drops removed sessions', async () => {
+    let listedSessions: RuntimeSession[] = [session()]
+    const service = fakeService(async (command) => {
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, { items: listedSessions, observedAt: '2026-09-22T10:00:00Z' })
+      if (command.operation === 'dev.project.list')
+        return ok(command.operation, {
+          items: [
+            {
+              id: 'project-1',
+              scope: SCOPE,
+              name: 'Canonical project',
+              groupIds: ['group-1'],
+              repoIds: ['repo-1'],
+              lifecycle: 'ready',
+              version: 1,
+            },
+          ],
+          observedAt: '2026-09-22T10:00:00Z',
+        })
+      if (command.operation === 'dev.group.list')
+        return ok(command.operation, {
+          items: [
+            {
+              id: 'group-1',
+              scope: SCOPE,
+              name: 'Canonical group',
+              projectIds: ['project-1'],
+              sortKey: 'a',
+              version: 1,
+            },
+          ],
+          observedAt: '2026-09-22T10:00:00Z',
+        })
+      throw new Error(`unexpected ${command.operation}`)
+    })
+    const model = createChatConversationModel(service, SCOPE)
+    expect(await model.list()).toHaveLength(1)
+    expect(model.project().projects[0]).toMatchObject({
+      name: 'Canonical project',
+      groupIds: ['group-1'],
+    })
+    expect(model.project().groups[0]).toMatchObject({ name: 'Canonical group' })
+
+    listedSessions = []
+    expect(await model.list()).toHaveLength(0)
+    expect(model.project().conversations).toHaveLength(0)
+  })
+
   test('create is staged and idempotent, with one session, run, and prompt', async () => {
     const calls: Array<{
       operation: string
@@ -166,6 +250,8 @@ describe('ChatConversationModel', () => {
       state: 'starting',
     }
     const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
       calls.push({
         operation: command.operation,
         idempotencyKey: command.idempotencyKey,
@@ -219,6 +305,8 @@ describe('ChatConversationModel', () => {
     const calls: string[] = []
     const inputs: ChatUserInput[] = []
     const service = fakeService(async (command) => {
+      const hierarchy = hierarchyReply(command.operation)
+      if (hierarchy) return hierarchy
       calls.push(command.operation)
       if (command.operation === 'dev.session.resumeHarness')
         return ok(command.operation, {
@@ -245,6 +333,11 @@ describe('ChatConversationModel', () => {
           archivedBy: 'owner',
           generation: 2,
         })
+      if (command.operation === 'dev.session.list')
+        return ok(command.operation, {
+          items: [current],
+          observedAt: '2026-09-22T10:00:00Z',
+        })
       if (command.operation === 'dev.session.get')
         return ok(command.operation, {
           ...current,
@@ -256,7 +349,8 @@ describe('ChatConversationModel', () => {
     const model = createChatConversationModel(service, SCOPE, {
       sendInput: async (input) => inputs.push(input),
     })
-    model.remember(current)
+    await model.attach(current.id)
+    calls.length = 0
 
     const resumed = await model.resume(current.id, 'run-1')
     expect(resumed.generation).toBe(2)
