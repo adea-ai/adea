@@ -282,6 +282,19 @@ describe('execution location retries', () => {
   }
   const policy = input()
 
+  test('rejects an invalid attempt before evaluating location admission', () => {
+    expect(
+      resolveExecutionRetry({
+        attempt: { ...attempt, attempt: 0 },
+        policy,
+      })
+    ).toEqual({
+      change: 'attempt_invalid',
+      ok: false,
+      previousLocation: attempt.selectedLocation,
+    })
+  })
+
   test('preserves the selected location when retrying', () => {
     expect(resolveExecutionRetry({ attempt, policy })).toMatchObject({
       admission: expect.objectContaining({ action: 'execute' }),
