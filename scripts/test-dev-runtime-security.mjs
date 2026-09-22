@@ -11,6 +11,7 @@ const startedAt = new Date()
 const command = 'bun run test:security:dev-runtime'
 
 const suites = [
+  'apps/desktop/tests/dev-runtime-command-matrix.test.ts',
   'apps/desktop/tests/shell-channel.test.ts',
   'apps/desktop/tests/dev-runtime-browser.test.ts',
   'apps/desktop/tests/dev-runtime-vault.test.ts',
