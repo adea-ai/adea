@@ -67,6 +67,8 @@ export type BunWebViewLaneEngineOptions = Readonly<{
   /** Owner-only root for persistent lane profiles. */
   dataDir?: string
   webViewFactory?: BrowserWebViewFactory
+  /** Resolves a granted lane before its first stream/screenshot/navigation. */
+  laneLookup?: (laneId: string) => BrowserLaneRecord | undefined
   laneGeneration?: (laneId: string) => number | undefined
   onDiagnostic?: (laneId: string, diagnostic: BrowserEngineDiagnostic) => void
   onEscape?: (laneId: string) => void
@@ -802,49 +804,79 @@ export function createBunWebViewLaneEngine(
 
     attachStream(session) {
       const laneId = session.grant.resource.id
-      const state = lanes.get(laneId)
-      if (!state || session.grant.resource.generation !== state.lane.generation) {
+      const lane = options.laneLookup?.(laneId) ?? lanes.get(laneId)?.lane
+      if (!lane || session.grant.resource.generation !== lane.generation) {
         session.close('stale_generation', 'browser lane generation changed')
         return
       }
-      const subscriber: Subscriber = {
-        session,
-        creditBytes: session.grant.maxFrameBytes,
-        pacer: createLaneScreencast({
-          onFrame: (frame) => {
-            if (subscriber.creditBytes < frame.bytes.byteLength) return
-            subscriber.creditBytes -= frame.bytes.byteLength
-            try {
-              session.send({
-                type: 'video',
-                sequence: frame.sequence,
-                timestampMs: now(),
-                keyframe: frame.keyframe,
-                bytes: frame.bytes,
-              })
-            } catch {
-              removeSubscriber(state, subscriber)
-            }
-          },
-        }),
-      }
-      state.subscribers.add(subscriber)
-      session.onFrame = (frame) => {
-        if (frame.type === 'ack') {
-          subscriber.creditBytes = frame.availableCreditBytes
-          subscriber.pacer.ack(frame.throughSequence, subscriber.creditBytes > 0 ? 1 : 0)
-        } else if (frame.type === 'input' || frame.type === 'resize') {
-          void handleInput(state, subscriber, frame).catch((error) => {
-            diagnostic(state.lane.id, {
-              level: 'warning',
-              category: 'network',
-              message: messageFrom(error),
-            })
-          })
+      const attachToState = (state: LaneState): void => {
+        if (
+          !ensureGeneration(state) ||
+          session.grant.resource.generation !== state.lane.generation
+        ) {
+          session.close('stale_generation', 'browser lane generation changed')
+          return
         }
+        let subscriber: Subscriber
+        subscriber = {
+          session,
+          creditBytes: session.grant.maxFrameBytes,
+          pacer: createLaneScreencast({
+            onFrame: (frame) => {
+              if (subscriber.creditBytes < frame.bytes.byteLength) return
+              subscriber.creditBytes -= frame.bytes.byteLength
+              try {
+                session.send({
+                  type: 'video',
+                  sequence: frame.sequence,
+                  timestampMs: now(),
+                  keyframe: frame.keyframe,
+                  bytes: frame.bytes,
+                })
+              } catch {
+                removeSubscriber(state, subscriber)
+              }
+            },
+          }),
+        }
+        state.subscribers.add(subscriber)
+        session.onFrame = (frame) => {
+          if (frame.type === 'ack') {
+            subscriber.creditBytes = frame.availableCreditBytes
+            subscriber.pacer.ack(frame.throughSequence, subscriber.creditBytes > 0 ? 1 : 0)
+          } else if (frame.type === 'input' || frame.type === 'resize') {
+            void handleInput(state, subscriber, frame).catch((error) => {
+              diagnostic(state.lane.id, {
+                level: 'warning',
+                category: 'network',
+                message: messageFrom(error),
+              })
+            })
+          }
+        }
+        session.onClose = () => removeSubscriber(state, subscriber)
+        void startScreencast(state)
       }
-      session.onClose = () => removeSubscriber(state, subscriber)
-      void startScreencast(state)
+      const existing = lanes.get(laneId)
+      if (existing) {
+        // Keep the already-provisioned path synchronous so an input frame
+        // arriving in the same turn as attach cannot be dropped.
+        attachToState(existing)
+        return
+      }
+      // A stream may be attached immediately after laneCreate, before the
+      // first navigate/screenshot call has provisioned the view. Provision
+      // that view here instead of misclassifying a valid grant as stale.
+      void stateFor(lane)
+        .then(attachToState)
+        .catch((error) => {
+          diagnostic(laneId, {
+            level: 'error',
+            category: 'crash',
+            message: `browser stream setup failed: ${messageFrom(error)}`,
+          })
+          session.close('incompatible', 'browser stream setup unavailable')
+        })
     },
 
     close(lane) {

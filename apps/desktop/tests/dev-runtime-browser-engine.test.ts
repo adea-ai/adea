@@ -282,6 +282,44 @@ describe('live Bun WebView/CDP browser engine', () => {
     expect(views[0]?.cdpCalls.some((call) => call.method === 'Page.startScreencast')).toBe(true)
   })
 
+  test('provisions a lane when the first frames stream attaches before navigation', async () => {
+    const views: FakeWebView[] = []
+    const lanes = createBrowserLaneRegistry()
+    const browserLane = lanes.create({ scope, runtimeSessionId: 'session-1', kind: 'task_owned' })
+    const engine = createBunWebViewLaneEngine({
+      webViewFactory: fakeFactory(views),
+      laneLookup: (laneId) => {
+        try {
+          return lanes.get(laneId)
+        } catch {
+          return undefined
+        }
+      },
+    })
+    const frames: DevStreamFrame[] = []
+    const session = {
+      grant: {
+        maxFrameBytes: 8 * 1024 * 1024,
+        resource: { id: browserLane.id, generation: browserLane.generation },
+      },
+      send: (frame: DevStreamFrame) => frames.push(frame),
+      close: () => {},
+      onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
+      onClose: undefined as (() => void) | undefined,
+    }
+    engine.attachStream(session)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(views).toHaveLength(1)
+    views[0]?.screencast([8, 9, 10])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(frames.find((frame) => frame.type === 'video')).toMatchObject({
+      type: 'video',
+      sequence: '1',
+      keyframe: true,
+    })
+    engine.close(browserLane)
+  })
+
   test('Escape invokes the generation-fenced release hook', async () => {
     const views: FakeWebView[] = []
     const released: string[] = []

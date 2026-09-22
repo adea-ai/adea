@@ -3015,6 +3015,14 @@ controlling user's input, a `task_owned` lane accepts input only within the
 owning task's grant, and `none` rejects input. Ownership transfer increments
 the generation, so input granted under an old generation is inert.
 
+The `browser-frames-v1` handler may receive a valid stream grant immediately
+after lane creation, before navigation or screenshot has provisioned a view.
+The host resolves the lane from its registry, provisions the owner-scoped view
+at stream attach, and checks the lane generation again after asynchronous setup
+before publishing frames. A missing lane, stale generation, or failed setup
+closes the stream with a typed refusal; a valid first attach is not treated as
+stale merely because no view existed yet.
+
 The packaged browser engine uses Bun 1.4 `Bun.WebView` with the Chrome/CDP
 backend for task-owned and user-context lanes. Each view requests an
 owner-only persistent `dataStore` directory derived from the immutable lane
