@@ -3040,6 +3040,22 @@ engine therefore keeps that context isolated and does not claim a CEF target
 until the packaged host exposes an authorized BrowserView seam. Packaged
 macOS CEF evidence remains a required #537/#426 acceptance gate.
 
+When the CDP target contains iframes, `Page.getFrameTree` supplies child-frame
+targets and `Page.createIsolatedWorld` gives element picking a frame-specific
+execution context. The picker can therefore inspect same-origin and
+cross-origin iframe DOM through the authorized CDP target without injecting a
+page script. Screencast frames remain compositor output for the whole page;
+they include iframe pixels but carry no separate iframe byte stream. A future
+requirement for per-frame capture or frame-specific redaction needs a host
+adapter that exposes OOPIF capture identities and coordinate transforms.
+
+Profile directories remain immutable and owner-only, but Bun's Chrome backend
+does not expose a process-per-`dataStore` guarantee. The engine refuses to
+reuse a lane directory while it is alive; this is useful lifecycle protection,
+not proof that two Chromium profiles cannot share process state. Packaged
+acceptance still needs an independently supervised browser process per lane or
+an equivalent CEF profile boundary before cookie/profile isolation can close.
+
 Screenshots/annotations carry origin, viewport, time, lane/profile, and
 redaction provenance; maximum 25 MiB each and workspace retention limits apply.
 Browser page content cannot invoke Adea commands through origin or loopback.
@@ -3122,6 +3138,15 @@ and reports the same. Capability-missing and permission-denied states block
 launch with actionable guidance through the permissions page (denied
 accessibility routes to the exact Settings pane); TCC denial is never
 silently degraded into a working-looking lane.
+
+The current packaged shell does not expose a native Screen Recording helper,
+CGWindow/ScreenCaptureKit bridge, or authorized accessibility-tree bridge to
+the Bun process. The browser CDP frame path cannot satisfy computer-use
+capture: it sees only the browser lane and cannot claim the full desktop.
+Therefore #542's packaged activity-frame, TCC-denied, capture/input/takeover,
+and reconnect smoke gates remain open until the host supplies those explicit
+bridges and records their permission identity, frame provenance, and
+generation revocation behavior.
 
 | Capability | Depends on                                             | This lane's honest state until proven otherwise                          |
 | ---------- | ------------------------------------------------------ | ------------------------------------------------------------------------ |
