@@ -190,6 +190,13 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     input.browserEngine ??
     createBunWebViewLaneEngine({
       ...(input.dataDir ? { dataDir: input.dataDir } : {}),
+      laneLookup: (laneId) => {
+        try {
+          return lanes.get(laneId)
+        } catch {
+          return undefined
+        }
+      },
       laneGeneration: (laneId) => {
         try {
           return lanes.get(laneId).generation
