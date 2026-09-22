@@ -20,6 +20,15 @@ describe('test suite boundaries', () => {
     expect(integrationRunner).toContain("'tests'")
     expect(integrationRunner).toContain("'integration'")
     expect(packageJson.scripts['test:e2e']).toContain('playwright')
+    // The Dev View chunk budget is a documented-raise ratchet, not a silent
+    // dial: the check script carries the raise rationale, and this pin makes
+    // any further raise a deliberate test edit.
+    expect(packageJson.scripts['test:bundle:dev-view']).toContain(
+      'bun scripts/check-dev-view-bundle.mjs'
+    )
+    const bundleCheck = readFileSync(resolve(root, 'scripts/check-dev-view-bundle.mjs'), 'utf8')
+    expect(bundleCheck).toContain('84 * 1024')
+    expect(bundleCheck).not.toContain('70 * 1024')
     // The visual pixel lane is a durable gate: the CI workflow must keep
     // running the workstation command against the committed baselines, and the
     // route/asset gate must keep booting the production build.
