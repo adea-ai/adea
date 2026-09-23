@@ -9,7 +9,15 @@
 // terminal lane adopts its sidecar through the existing seam: packaged
 // boots start it through the engine, dev runs keep the dev fallback.
 import { describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -333,6 +341,66 @@ describe('boot reconcile (#185): persisted launch adoption', () => {
     expect(outcome.error).toBe('journal unreadable')
     expect(outcome.adopted).toEqual([])
     expect(outcome.unadoptable).toEqual([])
+  })
+
+  // #185 acceptance: "Agent HQ Channel/Message and encrypted ContentRef history
+  // survive Control Plane/Restate/runtime update/restart independently from
+  // native session history", and #34's "canonical history remains intact across
+  // component restart even when native runtime session history is unavailable".
+  // Both were structural (separate stores) and unpinned.
+  test('a component restart leaves Agent HQ history and the vault untouched, even with the component history gone', async () => {
+    const recordsDir = mkdtempSync(join(tmpdir(), 'adea-state-independence-'))
+    const seeded = seedLaunch(recordsDir, { pid: 707 })
+    const booted = await boot({
+      manifest: sidecarManifest(),
+      adapter: livePidAdapter(707),
+      recordsDir,
+    })
+    try {
+      // Agent HQ's own durable state, staged where the app keeps it: the
+      // encrypted local-content store and the M10 credential vault.
+      const contentDir = join(booted.dataDir, 'local-content')
+      const contentStore = join(contentDir, 'agent-hq-content.sqlite')
+      const vaultDir = join(booted.dataDir, 'dev-runtime', 'vault')
+      mkdirSync(contentDir, { recursive: true, mode: 0o700 })
+      mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
+      writeFileSync(contentStore, 'encrypted-channel-message-history')
+      writeFileSync(join(vaultDir, 'credentials.sqlite3'), 'vault-bytes')
+      const contentBefore = readFileSync(contentStore, 'utf8')
+      const vaultBefore = readFileSync(join(vaultDir, 'credentials.sqlite3'), 'utf8')
+
+      // The component's OWN data — the native runtime session history — is gone
+      // between runs: the shape where the component cannot replay from its own
+      // state and Agent HQ must not be affected by that absence.
+      const componentData = join(booted.dataDir, 'dev-runtime', 'terminal-sidecar')
+      mkdirSync(componentData, { recursive: true, mode: 0o700 })
+      writeFileSync(join(componentData, 'session.log'), 'native-history')
+      rmSync(componentData, { recursive: true, force: true })
+
+      const outcome = await reconcileSupervisionAtBoot(booted.host)
+      expect(outcome.attempted).toBe(true)
+      if (!outcome.attempted) return
+      // The restart really reconciled the component (the launch was adopted),
+      // so the assertions below are about a restart that happened, not a no-op.
+      expect(outcome.adopted).toEqual([
+        {
+          componentId: 'dev-runtime-sidecar',
+          processRecordId: seeded.processRecordId,
+          generation: 1,
+          pid: 707,
+        },
+      ])
+
+      // Agent HQ's history is byte-identical afterwards.
+      expect(readFileSync(contentStore, 'utf8')).toBe(contentBefore)
+      expect(readFileSync(join(vaultDir, 'credentials.sqlite3'), 'utf8')).toBe(vaultBefore)
+      expect(readdirSync(contentDir)).toEqual(['agent-hq-content.sqlite'])
+      // Nothing was fabricated to fill the gap the component left behind.
+      expect(existsSync(componentData)).toBe(false)
+    } finally {
+      rmSync(booted.dataDir, { recursive: true, force: true })
+      rmSync(recordsDir, { recursive: true, force: true })
+    }
   })
 })
 
