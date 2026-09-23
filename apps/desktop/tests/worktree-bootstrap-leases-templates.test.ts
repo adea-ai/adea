@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  BOOTSTRAP_OUTPUT_CAP_BYTES,
   createBootstrapRunner,
   workflowDigest,
   type BootstrapApproval,
@@ -231,6 +232,120 @@ describe('approved bootstrap', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  // #33 acceptance: "Security tests cover … environment injection, output
+  // limits". Both properties were enforced in bootstrap.ts but unpinned, so a
+  // future refactor could widen the child environment or drop the cap without
+  // a failing test.
+  test('a step receives only the allowlisted environment, so host variables and loader injection never reach it', async () => {
+    const dir = scratch()
+    const { repo, worktree, identity } = worktreeFixture(dir)
+    const observed = join(dir, 'env-observation.json')
+    // Everything here is present in the PARENT process: a hostile variable, two
+    // loader hooks that would execute code in the child, a cloud credential, and
+    // the user's SSH agent socket. Only the explicitly allowlisted key may pass.
+    const injected = {
+      ADEA_HOSTILE_INJECTION: 'pwned',
+      NODE_OPTIONS: '--require /tmp/evil.js',
+      LD_PRELOAD: '/tmp/evil.so',
+      AWS_SECRET_ACCESS_KEY: 'secret',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+      ADEA_EXPLICIT_ALLOW: 'yes',
+    }
+    const previous = Object.fromEntries(
+      Object.keys(injected).map((key) => [key, process.env[key] as string | undefined])
+    )
+    Object.assign(process.env, injected)
+    try {
+      const runner = createBootstrapRunner()
+      const workflow: BootstrapWorkflow = {
+        id: 'wf-env',
+        version: 1,
+        steps: [
+          {
+            id: 'observe-env',
+            argv: [
+              process.execPath,
+              '-e',
+              `await Bun.write(${JSON.stringify(observed)}, JSON.stringify({
+                hostile: process.env.ADEA_HOSTILE_INJECTION ?? null,
+                nodeOptions: process.env.NODE_OPTIONS ?? null,
+                preload: process.env.LD_PRELOAD ?? null,
+                aws: process.env.AWS_SECRET_ACCESS_KEY ?? null,
+                ssh: process.env.SSH_AUTH_SOCK ?? null,
+                allowed: process.env.ADEA_EXPLICIT_ALLOW ?? null,
+                hasPath: (process.env.PATH ?? '').length > 0,
+                hasHome: (process.env.HOME ?? '').length > 0,
+              }))`,
+            ],
+            envAllowlistKeys: ['ADEA_EXPLICIT_ALLOW'],
+          },
+        ],
+      }
+      const outcomes = await runner.run({
+        worktreeRoot: worktree,
+        worktreeIdentity: identity,
+        workflow,
+        approval: approvalFor(workflow, repo),
+        scope,
+        canonicalRepoRoot: repo,
+      })
+      expect(outcomes[0]!.state).toBe('completed')
+      expect(JSON.parse(readFileSync(observed, 'utf8'))).toEqual({
+        hostile: null,
+        nodeOptions: null,
+        preload: null,
+        aws: null,
+        ssh: null,
+        allowed: 'yes',
+        // The base environment still reaches the step: PATH/HOME are allowed by
+        // construction, not by the parent's ambient variables.
+        hasPath: true,
+        hasHome: true,
+      })
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a step that floods stdout fails at the output cap instead of retaining it unbounded', async () => {
+    const dir = scratch()
+    const { repo, worktree, identity } = worktreeFixture(dir)
+    try {
+      const runner = createBootstrapRunner()
+      const flood = BOOTSTRAP_OUTPUT_CAP_BYTES + 512 * 1024
+      const workflow: BootstrapWorkflow = {
+        id: 'wf-flood',
+        version: 1,
+        steps: [
+          {
+            id: 'flood-stdout',
+            argv: [
+              process.execPath,
+              '-e',
+              `const chunk = 'x'.repeat(64 * 1024); for (let written = 0; written < ${flood}; written += chunk.length) process.stdout.write(chunk)`,
+            ],
+          },
+        ],
+      }
+      await expect(
+        runner.run({
+          worktreeRoot: worktree,
+          worktreeIdentity: identity,
+          workflow,
+          approval: approvalFor(workflow, repo),
+          scope,
+          canonicalRepoRoot: repo,
+        })
+      ).rejects.toMatchObject({ code: 'bootstrap_failed' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
 })
 
 describe('lease lifecycle', () => {
