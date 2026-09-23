@@ -54,7 +54,7 @@ function event(overrides: Partial<RuntimeEvent>): RuntimeEvent {
     confidence: 'authoritative',
     classification: 'workspace_metadata',
     kind: 'turn.user_input',
-    payload: { text: 'deploy token_sk-secret-value from /Users/amf/private' },
+    payload: { text: 'deploy token_sk-secret-value from /Users/example/private' },
     ...overrides,
   }
 }
