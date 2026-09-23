@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.49.0](https://github.com/adea-ai/adea/compare/v0.48.1...v0.49.0) (2026-09-23)
+
+
+### Features
+
+* **chat:** give execution location a user-visible surface ([#633](https://github.com/adea-ai/adea/issues/633)) ([6d33da8](https://github.com/adea-ai/adea/commit/6d33da818dd4705cfdf4d39ab6464c2a53cc3711))
+
+
+### Tests
+
+* **chat:** pin the Control Plane decision-resolution contract against drift ([#632](https://github.com/adea-ai/adea/issues/632)) ([74fa6b8](https://github.com/adea-ai/adea/commit/74fa6b80ba0b08bd250acb05eab9b74f0123e9c3)), closes [#36](https://github.com/adea-ai/adea/issues/36)
+
 ## [0.48.1](https://github.com/adea-ai/adea/compare/v0.48.0...v0.48.1) (2026-09-23)
 
 
