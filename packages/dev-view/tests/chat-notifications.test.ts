@@ -15,7 +15,7 @@ const session: RuntimeSession = {
   projectId: 'project-1',
   repoId: 'repo-1',
   worktreeId: 'worktree-1',
-  displayName: 'Deploy /Users/amf/private token_sk-secret-value',
+  displayName: 'Deploy /Users/example/private token_sk-secret-value',
   lifecycle: 'active',
   archived: false,
   projection: 'structured',

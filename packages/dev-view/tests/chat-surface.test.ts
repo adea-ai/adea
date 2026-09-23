@@ -37,7 +37,7 @@ describe('chat surface presentation', () => {
     const rows = projectTranscriptEvents([
       event({
         payload: {
-          text: 'Read /Users/amf/private/project with token_sk-supersecret-value',
+          text: 'Read /Users/example/private/project with token_sk-supersecret-value',
         },
       }),
       event({
