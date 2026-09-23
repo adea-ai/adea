@@ -114,6 +114,12 @@
       "development": "./src/chat/notifications/index.ts",
       "import": "./dist/chat/notifications/index.js"
     },
+    "./chat/visual-fixture": {
+      "types": "./dist/chat/visual-fixture.d.ts",
+      "solid": "./src/chat/visual-fixture.tsx",
+      "development": "./src/chat/visual-fixture.tsx",
+      "import": "./dist/chat/visual-fixture.js"
+    },
     "./files/file-stream": {
       "types": "./dist/files/file-stream.d.ts",
       "solid": "./src/files/file-stream.ts",

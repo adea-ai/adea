@@ -186,11 +186,21 @@ export function WorkspaceSettingsDialog(props: {
       description="Product preferences and boundaries for this Adea workspace."
     >
       <div class="conventional-settings-shell">
-        <nav aria-label="Settings sections" class="conventional-settings-nav">
+        {/* WAI-ARIA tabs pattern: the section nav IS the tablist. Group
+            captions take role="none" so the tablist's owned content stays
+            only its tab buttons (axe aria-required-children). */}
+        <nav
+          role="tablist"
+          aria-orientation="vertical"
+          aria-label="Settings sections"
+          class="conventional-settings-nav"
+        >
           <For each={settingsSectionGroups}>
             {(group) => (
               <div class="conventional-settings-nav__group">
-                <p class="conventional-settings-nav__label">{group.label}</p>
+                <p role="none" class="conventional-settings-nav__label">
+                  {group.label}
+                </p>
                 <For each={group.items}>
                   {(item) => {
                     const Icon = sectionIcons[item]
@@ -200,10 +210,11 @@ export function WorkspaceSettingsDialog(props: {
                           if (element) navigationRefs.set(item, element)
                           else navigationRefs.delete(item)
                         }}
+                        id={`settings-tab-${item}`}
                         type="button"
                         role="tab"
                         aria-selected={section() === item}
-                        aria-controls={`settings-panel-${item}`}
+                        aria-controls="settings-panel"
                         tabIndex={section() === item ? 0 : -1}
                         onClick={() => selectSection(item)}
                         onKeyDown={(event) => {
@@ -228,11 +239,13 @@ export function WorkspaceSettingsDialog(props: {
             )}
           </For>
         </nav>
+        {/* One swapping panel: a stable id keeps every tab's aria-controls
+            resolvable, and the selected tab names it (tabs pattern). */}
         <section
-          id={`settings-panel-${section()}`}
+          id="settings-panel"
           class="conventional-settings-panel"
           role="tabpanel"
-          aria-label={settingsSectionLabels[section()]}
+          aria-labelledby={`settings-tab-${section()}`}
         >
           <Show when={section() === 'account'}>
             <>

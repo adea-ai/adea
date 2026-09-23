@@ -7,7 +7,15 @@
 // merge / update-branch, the force-with-lease flow, PR-create reconciliation,
 // and token redaction on every error surface.
 import { createHmac, randomBytes } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1134,6 +1142,219 @@ describe('github remote provider', () => {
     writeFileSync(join(intentDir, intent!), '{')
     expect((await create()).ok).toBe(false)
     expect((await create()).ok).toBe(false)
+    expect(postCount).toBe(1)
+  }, 30_000)
+
+  test('a deterministic 422 refusal clears the durable intent so a retry creates exactly one pull request (#597)', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const headSha = fixture.headSha()
+    let visiblePullRequest: unknown[] = []
+    let postCount = 0
+    let refuseCreate = true
+    const { runner } = ghFixture((path, args) => {
+      if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
+        return { stdout: JSON.stringify(visiblePullRequest) }
+      if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        postCount += 1
+        if (refuseCreate)
+          return {
+            exitCode: 1,
+            // The #597 live repro: a definitive validation refusal. GitHub
+            // evaluated the POST and provably created nothing.
+            stderr:
+              'gh: HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/pulls)',
+          }
+        const created = prJson({ headSha, baseSha: headSha, draft: true })
+        visiblePullRequest = [JSON.parse(created)]
+        return { stdout: created }
+      }
+      return { exitCode: 1, stderr: 'unexpected' }
+    })
+    const { authority } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const body = {
+      repoId: REPO_ID,
+      headRef: 'feat/widgets',
+      baseRef: 'main',
+      title: 'Add widget support',
+      body: 'Implements widgets',
+      draft: true,
+    }
+    const create = () =>
+      execute(channel, authority, makeCommand('dev.github.createPullRequest', body, repoResource()))
+
+    // The deterministic refusal surfaces typed, and the intent record seeded
+    // before the POST is released again instead of wedging the pair.
+    const refused = await create()
+    expect(refused).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    if (refused.ok) return
+    expect(refused.error.message).toContain('HTTP 422')
+    const intentDir = join(fixture.root, 'dev-runtime', 'github', 'pr-create')
+    const intentFile = readdirSync(intentDir).find((file) => file.endsWith('.json'))
+    expect(intentFile).toBeDefined()
+    const envelope = JSON.parse(readFileSync(join(intentDir, intentFile!), 'utf8')) as {
+      records: unknown[]
+    }
+    expect(envelope.records).toEqual([])
+
+    // The retry reaches GitHub again and creates exactly one pull request —
+    // no "unknown outcome" refusal, no duplicate.
+    refuseCreate = false
+    const retry = await create()
+    expect(retry.ok).toBe(true)
+    if (retry.ok) expect(retry.value.reconciled).toBe(false)
+    expect(postCount).toBe(2)
+    expect(visiblePullRequest).toHaveLength(1)
+
+    // The pair stays healthy: a later create reconciles without a new POST.
+    const again = await create()
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.value.reconciled).toBe(true)
+    expect(postCount).toBe(2)
+  }, 30_000)
+
+  test('a 422 already-exists refusal reconciles the existing pull request instead of wedging', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const headSha = fixture.headSha()
+    let visiblePullRequest: unknown[] = []
+    let postCount = 0
+    const { runner } = ghFixture((path, args) => {
+      if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
+        return { stdout: JSON.stringify(visiblePullRequest) }
+      if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        postCount += 1
+        // GitHub refuses the duplicate POST and the PR is visible to the
+        // immediate reread: the refusal must reconcile, never wedge.
+        visiblePullRequest = [JSON.parse(prJson({ headSha, baseSha: headSha, draft: true }))]
+        return {
+          exitCode: 1,
+          stderr:
+            'gh: HTTP 422: Validation Failed (https://api.github.com/repos/acme/widgets/pulls)  [{"message":"Validation Failed","errors":["A pull request already exists for acme:feat/widgets."]}]',
+        }
+      }
+      return { exitCode: 1, stderr: 'unexpected' }
+    })
+    const { authority } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const body = {
+      repoId: REPO_ID,
+      headRef: 'feat/widgets',
+      baseRef: 'main',
+      title: 'Add widget support',
+      body: 'Implements widgets',
+      draft: true,
+    }
+    const reply = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(reply.ok).toBe(true)
+    if (reply.ok) expect(reply.value.reconciled).toBe(true)
+    expect(postCount).toBe(1)
+
+    // The intent was cleared with the reconciliation: a later create
+    // reconciles again without another POST.
+    const intentDir = join(fixture.root, 'dev-runtime', 'github', 'pr-create')
+    const intentFile = readdirSync(intentDir).find((file) => file.endsWith('.json'))
+    if (intentFile !== undefined) {
+      const envelope = JSON.parse(readFileSync(join(intentDir, intentFile), 'utf8')) as {
+        records: unknown[]
+      }
+      expect(envelope.records).toEqual([])
+    }
+    const again = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.value.reconciled).toBe(true)
+    expect(postCount).toBe(1)
+  }, 30_000)
+
+  test('a 5xx create failure keeps the durable fence like an ambiguous timeout', async () => {
+    const fixture = makeFixture()
+    fixtures.push(fixture)
+    const headSha = fixture.headSha()
+    let visiblePullRequest: unknown[] = []
+    let postCount = 0
+    const { runner } = ghFixture((path, args) => {
+      if (path.includes('/pulls?head=acme%3Afeat%2Fwidgets&base=main&state=open'))
+        return { stdout: JSON.stringify(visiblePullRequest) }
+      if (path === 'repos/acme/widgets/pulls' && args.includes('POST')) {
+        postCount += 1
+        // A 5xx is NOT a deterministic refusal: GitHub may have evaluated
+        // the request, so the fence must stay.
+        return {
+          exitCode: 1,
+          stderr: 'gh: HTTP 502: Bad Gateway (https://api.github.com/repos/acme/widgets/pulls)',
+        }
+      }
+      return { exitCode: 1, stderr: 'unexpected' }
+    })
+    const { authority } = runtimeFor(fixture, runner)
+    const channel = handshakeChannel(authority)
+    const body = {
+      repoId: REPO_ID,
+      headRef: 'feat/widgets',
+      baseRef: 'main',
+      title: 'Add widget support',
+      body: 'Implements widgets',
+      draft: true,
+    }
+    const first = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(first.ok).toBe(false)
+    expect(postCount).toBe(1)
+
+    const retry = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(retry.ok).toBe(false)
+    if (!retry.ok) expect(retry.error.message).toContain('unknown outcome')
+    expect(postCount).toBe(1)
+
+    // The fence survives a registrar restart (durable intent).
+    const restartedAuthority = createChannelAuthority({
+      shellHost: '127.0.0.1',
+      shellOrigin: 'https://127.0.0.1:4789',
+    })
+    registerGithubRuntime({
+      authority: restartedAuthority,
+      scope,
+      dataDir: fixture.root,
+      resolveRepo: (repoId) =>
+        repoId === REPO_ID ? { repoId, canonicalRoot: fixture.repoPath } : undefined,
+      listRepos: () => [],
+      resolveWorktree: () => undefined,
+      runGh: runner,
+    })
+    const restartedChannel = handshakeChannel(restartedAuthority)
+    const afterRestart = await execute(
+      restartedChannel,
+      restartedAuthority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(afterRestart.ok).toBe(false)
+    expect(postCount).toBe(1)
+
+    // Once the PR becomes visible, the same fence reconciles instead.
+    visiblePullRequest = [JSON.parse(prJson({ headSha, baseSha: headSha, draft: true }))]
+    const recovered = await execute(
+      channel,
+      authority,
+      makeCommand('dev.github.createPullRequest', body, repoResource())
+    )
+    expect(recovered.ok).toBe(true)
+    if (recovered.ok) expect(recovered.value.reconciled).toBe(true)
     expect(postCount).toBe(1)
   }, 30_000)
 

@@ -3444,8 +3444,15 @@ authorized remote. A per-key file lock fences concurrent host processes before
 the POST. A timed-out POST, lost response, verification failure, or
 host crash keeps the record: later attempts reread GitHub, reconcile when the
 matching PR becomes visible, and refuse another POST while the outcome is
-unknown. A successful POST also requires an authoritative reread before the
-record is cleared. A corrupt retained record also blocks further POSTs. An
+unknown; the same holds for an HTTP 5xx response or any other failure without
+an observable HTTP verdict. A definitive refusal that proves GitHub created
+nothing — an HTTP 4xx response body, or a pre-flight failure that never
+reached GitHub's evaluator (missing `gh` binary, pre-flight auth gate,
+rate-limit throttle) — clears the record after one final reread, so an
+"already exists" refusal reconciles and a pure validation refusal leaves the
+head/base pair retryable instead of wedged (#597). A successful POST also
+requires an authoritative reread before the record is cleared. A corrupt
+retained record also blocks further POSTs. An
 unresolved record requires manual GitHub verification; the UI must never
 silently retry creation for the same head/base.
 
@@ -3525,7 +3532,11 @@ listing without a source is truthful-empty rather than fabricated:
   most one `ps` observation of 64 distinct PIDs. The sampler rotates that
   bounded window through the current inventory, so a stable large inventory
   is covered across successive pulls without a command burst or permanent
-  first-page bias. An unsampled process has no fabricated metric.
+  first-page bias. An unsampled process has no fabricated metric. Reads
+  maintain the full listing between pulls — points append in listing order
+  under the monotonic sampler clock and reads fold only the delta since the
+  last read — so host read cost tracks the bounded sample delta instead of
+  re-deriving every retained point (#596).
 - Usage adapters are sequenced by a cache service with exponential backoff
   plus jitter, per-provider in-flight dedup, and the 60-second manual-refresh
   floor. A failed poll stores an explicit typed-failure row (quantity
@@ -4048,15 +4059,28 @@ git-ignored `artifacts/packaged/`:
    (`stale_generation`). Host-side modules run on the packaged lane; running
    them inside the packaged app process arrives with the production
    composition root and stays named work, not packaged evidence.
-4. **Browser/devices matrix** (`packaged-browser-matrix`): lane registration
-   through the M10 gate with per-kind profile identities, fail-closed
-   navigation without a serving engine (`capability_unavailable`), the SSRF
-   regression matrix on the per-hop admission gate, the typed capability
-   matrix (host toolchains as typed available/unavailable with guidance),
-   and real host device inventory through the gate. The real browser lane
-   engine (Bun.WebView / CDP navigation + screenshots through the admission
-   gate) is explicitly out of scope until a serving engine exists; it is
-   recorded as typed-unavailable, never faked.
+4. **Browser/devices matrix** (`packaged-browser-matrix`): organized by the
+   host's engine era — what its Bun reports for `Bun.WebView` — so every row
+   passes on both host classes and the proof never leaves a lane crashed.
+   Era-agnostic rows: lane registration through the M10 gate with per-kind
+   profile identities; the human_embedded lane's typed
+   `capability_unavailable` (the packaged CEF handle is unexposed); an
+   SSRF-target navigation refused by the provider's admission gate before any
+   engine involvement; the SSRF regression matrix on the per-hop admission
+   gate (loopback, metadata, and both textual IPv4-mapped-IPv6 forms); the
+   typed capability matrix; and real host device inventory through the gate.
+   Engine-available rows (conditional on `Bun.WebView` existing): lane
+   provisioning and admitted navigation against the proof's own loopback
+   Adea-owned service, admitHop-gated redirect chains (admitted per hop, and
+   refused mid-flight onto an unowned loopback port), screenshot publication
+   with provider-admitted provenance, frame publication through a real minted
+   `browser-frames-v1` grant attached before the view exists, and crash →
+   typed recovery (an admitted-but-dead owned port yields `crash_loop` and the
+   same lane recovers to ready by navigating again). The engine-seam row
+   (runs on both eras, last) proves through `attachBrowserEngine(undefined)`
+   that an admitted navigation without an attached engine is refused with
+   typed `capability_unavailable` — the engine-less era contract — never
+   faked.
 
 The `bun test` wrappers in `apps/desktop/tests/` shell out to the same
 scripts and skip loudly when the bundle has not been built; the packaged

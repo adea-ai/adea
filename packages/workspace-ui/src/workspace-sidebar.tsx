@@ -175,6 +175,7 @@ type Props = Readonly<{
 
 export function WorkspaceSidebar(props: Props) {
   const [sidebar, setSidebar] = createSignal<HTMLElement>()
+  const [sidebarWidth, setSidebarWidth] = createSignal(SIDEBAR_DEFAULT_WIDTH)
   const [editingRoom, setEditingRoom] = createSignal<RoomSummary | null>(null)
   const [renamingChannel, setRenamingChannel] = createSignal<ChannelSummary | null>(null)
   const [actionError, setActionError] = createSignal<string | null>(null)
@@ -240,7 +241,9 @@ export function WorkspaceSidebar(props: Props) {
     const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY))
     if (!Number.isFinite(stored) || stored <= 0) return
     const root = workspaceRootFor(sidebar())
-    if (root) applySidebarWidth(root, stored)
+    if (!root) return
+    applySidebarWidth(root, stored)
+    setSidebarWidth(clampSidebarWidth(stored))
   })
 
   const startResize = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
@@ -257,12 +260,14 @@ export function WorkspaceSidebar(props: Props) {
     const onMove = (moveEvent: PointerEvent) => {
       width = clampSidebarWidth(startWidth + (moveEvent.clientX - startX))
       applySidebarWidth(root, width)
+      setSidebarWidth(width)
     }
     const onEnd = () => {
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onEnd)
       handle.removeEventListener('pointercancel', onEnd)
       applySidebarWidth(root, width)
+      setSidebarWidth(width)
       window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
     }
     handle.addEventListener('pointermove', onMove)
@@ -275,6 +280,7 @@ export function WorkspaceSidebar(props: Props) {
     if (!root) return
     const width = clampSidebarWidth(currentSidebarWidth(root) + delta)
     applySidebarWidth(root, width)
+    setSidebarWidth(width)
     window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width))
   }
 
@@ -304,11 +310,16 @@ export function WorkspaceSidebar(props: Props) {
         class={`conventional-sidebar${props.mobileOpen ? ' conventional-sidebar--open' : ''}`}
         aria-label="Workspace navigation"
       >
+        {/* Focusable separator widget: keyboard-resizable, so it must expose
+            its value range (axe aria-required-attr on focusable separators). */}
         <div
           class="conventional-sidebar__resize"
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize workspace navigation"
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
+          aria-valuenow={sidebarWidth()}
           tabIndex={0}
           onPointerDown={startResize}
           onKeyDown={onResizeKeyDown}

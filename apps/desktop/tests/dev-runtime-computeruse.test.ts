@@ -939,6 +939,302 @@ describe('dev.computeruse.* providers', () => {
   })
 })
 
+/**
+ * Explicit composition of the exact production pieces
+ * `registerComputerUseRuntime` wires (registry + consent gate + providers),
+ * with the consent gate's clock injected so every revocation bound below is
+ * measured on the test clock — never on sleeps or scheduler timing. Spec:
+ * "dev.computeruse.takeover suspends agent input instantly"; "A permission
+ * that moved from granted revokes admission immediately" (docs/specs/
+ * dev-runtime.md, "Computer use lanes").
+ */
+function timingHarness() {
+  const clock = { now: 1_000_000 }
+  const permissions = scriptedPermissions(snapshotWith('granted'))
+  const capabilities = createComputerUseCapabilityService({
+    platform: 'darwin',
+    permissions,
+  })
+  const lanes = createComputerUseLaneRegistry({ now: () => new Date(clock.now).toISOString() })
+  const gate = createConsentGate({
+    permissions,
+    capabilities,
+    now: () => clock.now,
+    nowIso: () => new Date(clock.now).toISOString(),
+  })
+  const engine = scriptedEngine()
+  const providers = createComputerUseProviders({
+    lanes,
+    gate,
+    capabilities: () => capabilities.report(),
+    engine: () => engine.engine as never,
+    mintStreamGrant: (req) =>
+      ({
+        schemaVersion: 1,
+        grantId: 'grant-1',
+        protocol: 'desktop-frames-v1',
+        channelId: identity.channelId,
+        scope: req.scope,
+        resource: req.resource,
+        direction: req.direction,
+        fromSequence: req.fromSequence ?? '0',
+        expiresAt: new Date(clock.now + 30_000).toISOString(),
+        maxFrameBytes: 262_144,
+      }) satisfies DevStreamGrant,
+    inputBudget: { maxInputPerSecond: 240 },
+  })
+  return { clock, permissions, lanes, gate, providers, engine }
+}
+
+/** Activates one lane through the provider commands: consent issued, bound,
+ *  and a live write-direction input grant minted at generation 2. */
+async function activateLiveLane(
+  h: ReturnType<typeof timingHarness>
+): Promise<{ laneId: string; consentId: string }> {
+  const lane = h.lanes.create({ scope, runtimeSessionId: sessionId })
+  const consent = (await h.providers.providers['dev.computeruse.consent']?.(
+    commandFor(
+      'dev.computeruse.consent',
+      { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+      { kind: 'computeruse_lane', id: lane.id, generation: 1 }
+    )
+  )) as { consentId: string }
+  await h.providers.providers['dev.computeruse.input']?.(
+    commandFor(
+      'dev.computeruse.input',
+      {
+        computerUseLaneId: lane.id,
+        expectedGeneration: 2,
+        consentId: consent.consentId,
+        direction: 'write',
+      },
+      { kind: 'computeruse_lane', id: lane.id, generation: 2 }
+    ),
+    identity
+  )
+  return { laneId: lane.id, consentId: consent.consentId }
+}
+
+function frameFor(
+  laneId: string,
+  generation: number,
+  sequence: string
+): {
+  laneId: string
+  generation: number
+  sequence: string
+  bytes: Uint8Array
+} {
+  return {
+    laneId,
+    generation,
+    sequence,
+    bytes: encodeCbor({ kind: 'key', code: 5 }),
+  }
+}
+
+describe('revocation timing (input stops within one interaction)', () => {
+  test('takeover stops admitted input at the very next frame, on the same clock tick', async () => {
+    const h = timingHarness()
+    const { laneId } = await activateLiveLane(h)
+    const admitted = await h.providers.admitInputFrame(frameFor(laneId, 2, '1'))
+    expect(admitted.accepted).toBe(true)
+    expect(h.engine.injected).toHaveLength(1)
+
+    // The revoke interaction itself: no clock advance, no sleep, no poll.
+    h.providers.providers['dev.computeruse.takeover']?.(
+      commandFor(
+        'dev.computeruse.takeover',
+        { computerUseLaneId: laneId, expectedGeneration: 2 },
+        { kind: 'computeruse_lane', id: laneId, generation: 2 }
+      )
+    )
+    h.clock.now += 0 // revocation is synchronous: zero time owed
+
+    // One interaction later, both the old-generation and current-generation
+    // frames are refused, and the engine saw nothing more.
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 2, '2'))).rejects.toThrow(
+      /generation/
+    )
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 3, '3'))).rejects.toThrow(
+      /suspended during human takeover/
+    )
+    expect(h.engine.injected).toHaveLength(1)
+    // The takeover also dropped the lane's consent records: the old consent
+    // id cannot re-mint an input grant.
+    await expect(
+      h.providers.providers['dev.computeruse.input']?.(
+        commandFor(
+          'dev.computeruse.input',
+          {
+            computerUseLaneId: laneId,
+            expectedGeneration: 3,
+            consentId: 'revoked-record',
+            direction: 'write',
+          },
+          { kind: 'computeruse_lane', id: laneId, generation: 3 }
+        )
+      ) as Promise<unknown>
+    ).rejects.toThrow()
+  })
+
+  test('the kill switch (laneClose) stops input at the very next frame', async () => {
+    const h = timingHarness()
+    const { laneId } = await activateLiveLane(h)
+    expect((await h.providers.admitInputFrame(frameFor(laneId, 2, '1'))).accepted).toBe(true)
+    h.providers.providers['dev.computeruse.laneClose']?.(
+      commandFor(
+        'dev.computeruse.laneClose',
+        { computerUseLaneId: laneId, expectedGeneration: 2 },
+        { kind: 'computeruse_lane', id: laneId, generation: 2 }
+      )
+    )
+    h.clock.now += 0
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 2, '2'))).rejects.toThrow(
+      /generation/
+    )
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 3, '3'))).rejects.toThrow(
+      /lane is closed/
+    )
+    expect(h.engine.injected).toHaveLength(1)
+    expect(h.lanes.get(laneId).state).toBe('closed')
+  })
+
+  test('a TCC grant that moves to denied stops input at the first frame after the freshness window', async () => {
+    const h = timingHarness()
+    const { laneId } = await activateLiveLane(h)
+    // Within the freshness window the gate does not re-probe: the frame is
+    // admitted (this is the recorded, bounded window, not an open-ended one).
+    expect((await h.providers.admitInputFrame(frameFor(laneId, 2, '1'))).accepted).toBe(true)
+
+    // The permission state moves (fixture-driven TCC flip through the #471
+    // seam) and the clock passes the freshness boundary: the FIRST frame
+    // after it is refused and the engine never sees it. No further frames
+    // are admitted either — input stays stopped, every interaction re-probes.
+    h.permissions.set(snapshotWith('denied'))
+    h.clock.now += 10_001 // PERMISSION_FRESHNESS_MS elapsed
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 2, '2'))).rejects.toThrow(
+      /accessibility grant behind this consent moved/
+    )
+    h.clock.now += 1
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 2, '3'))).rejects.toThrow(
+      /accessibility grant behind this consent moved/
+    )
+    expect(h.engine.injected).toHaveLength(1)
+
+    // The stop is bounded by the consent TTL, not permanent: a record whose
+    // digest matches again re-admits only while it is still live — past
+    // expiresAt the old record can never resurrect admission, and input waits
+    // for a freshly issued consent.
+    h.clock.now = 1_060_001 // past the record's 60-second TTL
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 2, '4'))).rejects.toThrow(
+      /live consent record/
+    )
+    expect(h.engine.injected).toHaveLength(1)
+  }, 2000)
+})
+
+describe('takeover UX (suspend instantly, Escape releases, re-consent gates agent input)', () => {
+  test('the human principal is admitted during takeover while agent input is suspended', () => {
+    const lanes = createComputerUseLaneRegistry()
+    const lane = lanes.create({ scope, runtimeSessionId: sessionId })
+    lanes.activate(lane.id, {
+      consentId: '00000000-0000-4000-8000-0000000000d5',
+      computerUseLaneId: lane.id,
+      runtimeSessionId: sessionId,
+      scope,
+      generation: 2,
+      permissionDigest: 'a'.repeat(64),
+      createdAt: '2026-09-19T00:00:00.000Z',
+      expiresAt: '2026-09-19T00:01:00.000Z',
+    })
+    const taken = lanes.takeover(lane.id, 2)
+    // The controlling human acts at the takeover generation without a consent
+    // record (they are typing on the real keyboard, not synthesizing).
+    expect(() =>
+      lanes.admit(taken, { principal: 'human', action: 'input', generation: taken.generation })
+    ).not.toThrow()
+    expect(() =>
+      lanes.admit(taken, { principal: 'agent', action: 'input', generation: taken.generation })
+    ).toThrow(/suspended during human takeover/)
+  })
+
+  test('Escape (dev.computeruse.release) returns authority; agent input waits for fresh consent', async () => {
+    const h = timingHarness()
+    const { laneId, consentId } = await activateLiveLane(h)
+    expect((await h.providers.admitInputFrame(frameFor(laneId, 2, '1'))).accepted).toBe(true)
+
+    // Human takeover suspends agent input instantly.
+    h.providers.providers['dev.computeruse.takeover']?.(
+      commandFor(
+        'dev.computeruse.takeover',
+        { computerUseLaneId: laneId, expectedGeneration: 2 },
+        { kind: 'computeruse_lane', id: laneId, generation: 2 }
+      )
+    )
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 3, '2'))).rejects.toThrow(
+      /suspended during human takeover/
+    )
+
+    // Escape: the release command (generation-fenced) hands authority back.
+    const released = (await h.providers.providers['dev.computeruse.release']?.(
+      commandFor(
+        'dev.computeruse.release',
+        { computerUseLaneId: laneId, expectedGeneration: 3 },
+        { kind: 'computeruse_lane', id: laneId, generation: 3 }
+      )
+    )) as { state: string; automationOwner: string; generation: number }
+    expect(released.state).toBe('idle')
+    expect(released.automationOwner).toBe('agent')
+    expect(released.generation).toBe(4)
+
+    // The takeover dropped the consent records: neither the old consent id
+    // nor an absent one admits agent input after release.
+    await expect(
+      h.providers.providers['dev.computeruse.input']?.(
+        commandFor(
+          'dev.computeruse.input',
+          {
+            computerUseLaneId: laneId,
+            expectedGeneration: 4,
+            consentId,
+            direction: 'write',
+          },
+          { kind: 'computeruse_lane', id: laneId, generation: 4 }
+        )
+      ) as Promise<unknown>
+    ).rejects.toThrow(/unknown or already dropped/)
+    await expect(h.providers.admitInputFrame(frameFor(laneId, 4, '3'))).rejects.toThrow(
+      /live consent record/
+    )
+    expect(h.engine.injected).toHaveLength(1)
+
+    // A FRESH owner confirmation re-arms agent input at the new generation.
+    const fresh = (await h.providers.providers['dev.computeruse.consent']?.(
+      commandFor(
+        'dev.computeruse.consent',
+        { computerUseLaneId: laneId, expectedGeneration: 4, confirmationId: 'owner-again' },
+        { kind: 'computeruse_lane', id: laneId, generation: 4 }
+      )
+    )) as { consentId: string }
+    await h.providers.providers['dev.computeruse.input']?.(
+      commandFor(
+        'dev.computeruse.input',
+        {
+          computerUseLaneId: laneId,
+          expectedGeneration: 5,
+          consentId: fresh.consentId,
+          direction: 'write',
+        },
+        { kind: 'computeruse_lane', id: laneId, generation: 5 }
+      ),
+      identity
+    )
+    expect((await h.providers.admitInputFrame(frameFor(laneId, 5, '4'))).accepted).toBe(true)
+    expect(h.engine.injected).toHaveLength(2)
+  })
+})
+
 describe('computer-use registration', () => {
   test('registers every dev.computeruse operation and the desktop-frames stream', () => {
     const h = harness()

@@ -1,8 +1,10 @@
-// Packaged browser/devices evidence matrix (#422) as a bun test suite: lane
-// registration through the M10 gate, the SSRF regression matrix, and the
-// typed capability matrix — the packaged-path proofs possible WITHOUT a real
-// browser engine (the real-engine lane stays explicitly out of scope; see
-// the script header). Requires the Electrobun bundle (run `bun run
+// Packaged browser/devices evidence matrix (#422, redesigned for #592) as a
+// bun test suite: it shells out to the packaged-lane script and asserts the
+// proof passes on THIS host's engine era. The script's matrix rows are
+// era-aware — with Bun.WebView available the real CDP lane engine is driven
+// (provisioning, admitHop-gated navigation, frames, crash → typed recovery);
+// without it the typed-unavailable contract holds — and every row passes on
+// both host classes. Requires the Electrobun bundle (run `bun run
 // test:packaged` first). Run test files ONE AT A TIME in fresh worktrees.
 import { existsSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
@@ -37,10 +39,11 @@ describe.skipIf(process.platform !== 'darwin' || !existsSync(bundlePath))(
       const output = `${proc.stdout.toString()}${proc.stderr.toString()}`
       console.log(output)
       expect(proc.exitCode).toBe(0)
+      expect(output).toMatch(/engine era: Bun\.WebView (available|unavailable)/)
       expect(output).toContain('SSRF regression matrix')
       expect(output).toContain('typed capability matrix')
       expect(output).toContain('PACKAGED-BROWSER-MATRIX PASS')
       expect(output).not.toContain('FAIL:')
-    }, 240_000)
+    }, 300_000)
   }
 )

@@ -433,6 +433,27 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
     )
   }
 
+  /** True when a failed PR-create POST provably had zero side effects: the
+   *  request never reached GitHub's evaluator (spawn failure or pre-flight
+   *  auth gate), was throttled before evaluation (rate limit), or GitHub
+   *  evaluated it and refused it with a definitive HTTP 4xx response. Only
+   *  these outcomes may release the durable create intent for retry
+   *  (#597). Ambiguous deliveries — timeouts, HTTP 5xx, lost networks,
+   *  unreadable output — keep the fence: GitHub may have created the pull
+   *  request even though no response was observed. */
+  function deterministicPrCreateRefusal(result: GhRunResult): boolean {
+    if (result.spawnCode === 'capability_unavailable') return true
+    const status = Number(result.stderr.match(/HTTP (\d{3})/)?.[1])
+    if (Number.isSafeInteger(status)) return status >= 400 && status <= 499
+    // No HTTP verdict on stderr: only pre-flight local refusals are
+    // definitive; anything else (generic failures, killed processes) stays
+    // ambiguous and keeps the durable intent.
+    const code = classifyGh(result, 'pull request create').code
+    return (
+      code === 'capability_unavailable' || code === 'unauthenticated' || code === 'rate_limited'
+    )
+  }
+
   type GhJsonOptions = Readonly<{
     cacheKey?: string
     /** Serve a fresh cached payload instead of running gh (read models). */
@@ -1264,9 +1285,22 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
         // can block a create that never reached GitHub, but cannot duplicate
         // one whose response was lost.
         intentStore.save([{ startedAt: iso(now()) }])
-        let created: unknown
+        /** Reconcile after a delivery whose outcome is unknown. A visible
+         *  exact match clears the intent and returns reconciled; anything
+         *  else keeps the durable intent in place (the fence) and rethrows. */
+        const reconcileOrKeep = async (failure: DevError): Promise<unknown> => {
+          const recovered = await searchOpenPullRequest(parsed, headRef, baseRef)
+          if (recovered === undefined) throw failure
+          const pr = mapPullRequest(recovered, record.repoId, 0)
+          clearPrCreateRecord(key)
+          return { ...pr, reconciled: true }
+        }
+        // The POST runs through the raw transport (not ghJson): the durable
+        // intent's fate depends on the shape of the transport failure, which
+        // ghJson collapses into a typed error before throwing.
+        let post: GhRunResult
         try {
-          created = await ghJson(
+          post = await runGh(
             apiArgs(parsed.host, `repos/${parsed.owner}/${parsed.repo}/pulls`, [
               '--method',
               'POST',
@@ -1280,20 +1314,59 @@ export function registerGithubRuntime(input: GithubRegistrarInput): {
               `base=${baseRef}`,
               '-F',
               'draft=true',
-            ]),
-            { staleFallback: false }
+            ])
           )
         } catch (error) {
-          // Re-search after ambiguous delivery. If no exact match is visible
-          // yet, leave the durable intent in place and refuse another POST.
-          const code = (error as { code?: unknown }).code
-          if (code !== 'remote_unavailable' && code !== 'timeout' && code !== 'unavailable')
-            throw error
-          const recovered = await searchOpenPullRequest(parsed, headRef, baseRef)
-          if (recovered === undefined) throw error
-          const pr = mapPullRequest(recovered, record.repoId, 0)
-          clearPrCreateRecord(key)
-          return { ...pr, reconciled: true }
+          // The transport died before a verdict (e.g. an output-budget
+          // kill): the request may still have been delivered, so this is
+          // ambiguous delivery, never a deterministic refusal.
+          const candidate = error as { code?: unknown; message?: unknown }
+          const failure =
+            candidate && typeof candidate.code === 'string' && typeof candidate.message === 'string'
+              ? (error as DevError)
+              : devError(
+                  'remote_unavailable',
+                  'the pull request create transport failed mid-flight',
+                  true
+                )
+          return await reconcileOrKeep(failure)
+        }
+        if (post.exitCode !== 0) {
+          const failure = classifyGh(post, 'pull request create')
+          if (deterministicPrCreateRefusal(post)) {
+            // Definitive, zero-side-effect refusal (#597): GitHub evaluated
+            // the request (or never received it) and refused it, so it
+            // created nothing. An "already exists" body still reconciles; a
+            // pure validation refusal releases the durable intent so the
+            // head/base pair stays usable, instead of wedging until manual
+            // file recovery.
+            let visible: unknown
+            try {
+              visible = await searchOpenPullRequest(parsed, headRef, baseRef)
+            } catch {
+              // The refusal itself already proves non-creation; a failing
+              // verification read must not mask the typed refusal.
+            }
+            if (visible !== undefined) {
+              const pr = mapPullRequest(visible, record.repoId, 0)
+              clearPrCreateRecord(key)
+              return { ...pr, reconciled: true }
+            }
+            clearPrCreateRecord(key)
+            throw failure
+          }
+          // Ambiguous delivery (timeout, 5xx, lost network): GitHub may have
+          // created the pull request. If no exact match is visible yet, leave
+          // the durable intent in place and refuse another POST.
+          return await reconcileOrKeep(failure)
+        }
+        let created: unknown
+        try {
+          created = JSON.parse(post.stdout)
+        } catch {
+          // Unreadable success output: the POST may have created the pull
+          // request, so this is ambiguous — the durable intent stays.
+          throw devError('corrupt_state', 'gh returned output that is not valid JSON')
         }
         const accepted = mapPullRequest(created, record.repoId, 0)
         if (

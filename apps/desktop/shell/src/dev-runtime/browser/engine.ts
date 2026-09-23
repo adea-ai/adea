@@ -67,6 +67,13 @@ export type BunWebViewLaneEngineOptions = Readonly<{
   /** Owner-only root for persistent lane profiles. */
   dataDir?: string
   webViewFactory?: BrowserWebViewFactory
+  /**
+   * Overrides the WebView backend availability probe. The default probe
+   * checks for `Bun.WebView` on this host; tests script the engine-less
+   * host with `() => false`. Only consulted when no `webViewFactory` is
+   * injected.
+   */
+  webViewBackendProbe?: () => boolean
   /** Resolves a granted lane before its first stream/screenshot/navigation. */
   laneLookup?: (laneId: string) => BrowserLaneRecord | undefined
   laneGeneration?: (laneId: string) => number | undefined
@@ -148,6 +155,17 @@ const MAX_TEXT_INPUT = 4096
 
 function defaultFactory(options: Parameters<BrowserWebViewFactory>[0]): BrowserWebView {
   return new Bun.WebView(options) as unknown as BrowserWebView
+}
+
+/**
+ * Whether this host can construct the headless WebView backend at all. An
+ * engine-less host (no `Bun.WebView`) is an environmental absence, not a lane
+ * fault: live-target operations must refuse typed-`capability_unavailable`
+ * instead of letting the bare factory TypeError crash the lane.
+ */
+function probeBunWebViewBackend(): boolean {
+  const backend = (globalThis as { Bun?: { WebView?: unknown } }).Bun?.WebView
+  return typeof backend === 'function'
 }
 
 function messageFrom(value: unknown): string {
@@ -614,6 +632,19 @@ export function createBunWebViewLaneEngine(
       existing.lane = lane
       return existing
     }
+    // An injected factory owns its own failure semantics. The default path
+    // must refuse typed-unavailable BEFORE any profile directory is created
+    // or leased, so an environmental absence never surfaces as the bare
+    // factory TypeError (which the provider would misclassify as crash_loop)
+    // and never strands a profile lease behind it.
+    const backendReady =
+      options.webViewFactory !== undefined ||
+      (options.webViewBackendProbe ?? probeBunWebViewBackend)()
+    if (!backendReady)
+      throw Object.assign(
+        new Error('this host does not provide the headless WebView backend browser lanes require'),
+        { code: 'capability_unavailable' }
+      )
     const directory = profileDirectory(lane)
     let view: BrowserWebView
     try {

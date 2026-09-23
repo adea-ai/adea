@@ -48,6 +48,12 @@ export type BrowserDeviceRuntimeInput = Readonly<{
   deviceEngine?: DeviceEngine
   /** Overrides the live browser engine (tests inject a deterministic seam). */
   browserEngine?: LaneEngine
+  /**
+   * Overrides the WebView backend availability probe for the default browser
+   * engine (tests script the engine-less host); ignored when
+   * `browserEngine` is injected.
+   */
+  webViewBackendProbe?: () => boolean
   /** Owner-only data root for persistent browser profiles. */
   dataDir?: string
 }>
@@ -205,6 +211,7 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     input.browserEngine ??
     createBunWebViewLaneEngine({
       ...(input.dataDir ? { dataDir: input.dataDir } : {}),
+      ...(input.webViewBackendProbe ? { webViewBackendProbe: input.webViewBackendProbe } : {}),
       laneLookup: (laneId) => {
         try {
           return lanes.get(laneId)

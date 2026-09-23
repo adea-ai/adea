@@ -94,14 +94,16 @@ function browserCommand(
   operation: Extract<DevOperation, `dev.browser.${string}`>,
   body: Record<string, unknown>,
   laneId: string,
-  generation: number
+  generation: number,
+  requestId = '00000000-0000-4000-8000-000000000005',
+  nonce = 'dGhpcy1ub25jZS1oYXMtYXQtbGVhc3QtMTI4LWJpdHM'
 ): DevCommand {
   const definition = devOperationDefinitions[operation]
   return {
     schemaVersion: 1,
     operation,
-    requestId: '00000000-0000-4000-8000-000000000005',
-    nonce: 'dGhpcy1ub25jZS1oYXMtYXQtbGVhc3QtMTI4LWJpdHM',
+    requestId,
+    nonce,
     issuedAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 30_000).toISOString(),
     scope,
@@ -288,5 +290,83 @@ describe('production registrar composition', () => {
     })
     expect(reply.ok).toBe(false)
     expect(reply.error?.code).toBe('profile_scope_denied')
+  })
+
+  test('an engine-less host refuses an admitted navigation typed-unavailable and keeps the lane recoverable', async () => {
+    const authority = createChannelAuthority({
+      shellHost: '127.0.0.1',
+      shellOrigin: 'https://127.0.0.1:4789',
+    })
+    // Production composition: the registrar always installs the default
+    // engine; only the WebView backend is missing on this scripted host.
+    const runtime = registerBrowserDeviceRuntime({
+      authority,
+      scope,
+      webViewBackendProbe: () => false,
+      resolveDns: async () => [{ address: '93.184.216.34', family: 4 }],
+    })
+    const channel = handshakeChannel(authority)
+    const lane = runtime.lanes.create({ scope, runtimeSessionId: 'session-1', kind: 'task_owned' })
+    // Attach mints its stream grant against the channel identity even while
+    // the lane is still provisioning.
+    const attach = await executeCommand(
+      authority,
+      channel,
+      browserCommand(
+        'dev.browser.attach',
+        { browserLaneId: lane.id, expectedGeneration: lane.generation, direction: 'read' },
+        lane.id,
+        lane.generation,
+        '00000000-0000-4000-8000-0000000000a1',
+        'ZW5naW5lLWxlc3MtYXR0YWNoLW5vbmNlLXdpdGgtYXQtbGVhc3QtMTI4LWJpdHMtb2YtZW50cm9weQ'
+      )
+    )
+    expect(attach.ok).toBe(true)
+    // The provider admitted the URL; the engine's missing WebView backend
+    // must refuse typed-unavailable, not surface the bare factory TypeError
+    // as crash_loop.
+    const navigate = await executeCommand(
+      authority,
+      channel,
+      browserCommand(
+        'dev.browser.navigate',
+        {
+          browserLaneId: lane.id,
+          expectedGeneration: lane.generation,
+          url: 'https://example.test/',
+        },
+        lane.id,
+        lane.generation,
+        '00000000-0000-4000-8000-0000000000a2',
+        'ZW5naW5lLWxlc3MtbmF2aWdhdGUtbm9uY2Utd2l0aC1hdC1sZWFzdC0xMjgtYml0cy1vZi1lbnRyb3B5'
+      )
+    )
+    expect(navigate.ok).toBe(false)
+    expect(navigate.error?.code).toBe('capability_unavailable')
+    // Recoverable: the transient navigating state rolled back instead of the
+    // lane being crashed by an environmental absence.
+    expect(runtime.lanes.get(lane.id).state).toBe('ready')
+    // And the retry stays typed-unavailable (still no backend), never
+    // crash_loop, with the lane ready to recover once a backend exists.
+    const attached = runtime.lanes.get(lane.id)
+    const retry = await executeCommand(
+      authority,
+      channel,
+      browserCommand(
+        'dev.browser.navigate',
+        {
+          browserLaneId: lane.id,
+          expectedGeneration: attached.generation,
+          url: 'https://example.test/',
+        },
+        lane.id,
+        attached.generation,
+        '00000000-0000-4000-8000-0000000000a3',
+        'ZW5naW5lLWxlc3MtcmV0cnktbm9uY2Utd2l0aC1hdC1sZWFzdC0xMjgtYml0cy1vZi1lbnRyb3B5'
+      )
+    )
+    expect(retry.ok).toBe(false)
+    expect(retry.error?.code).toBe('capability_unavailable')
+    expect(runtime.lanes.get(lane.id).state).toBe('ready')
   })
 })

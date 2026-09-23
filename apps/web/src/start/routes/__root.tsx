@@ -11,6 +11,9 @@ import '../globals.css'
  */
 export type WorkspaceSearch = {
   channel?: string
+  /** Development-only ChatView visual fixture selector (#536 evidence lane). */
+  chatE2e?: string
+  chatState?: string
   /** Dev View deep links: deterministic project/session selection. */
   devProject?: string
   devSession?: string

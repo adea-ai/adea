@@ -16,7 +16,14 @@ import type { DevCommand, DevOperation, Scope } from '../../../packages/types/sr
 import type { SupervisionRecord } from '../shell/src/supervision/records'
 import type { SupervisionSnapshot } from '../shell/src/supervision/supervisor'
 import { registerResourcesRuntime } from '../shell/src/dev-runtime/resources/register'
-import { createMetricsHistory } from '../shell/src/dev-runtime/resources/metrics'
+import {
+  createMetricsHistory,
+  MAX_POINTS_PER_OWNER,
+} from '../shell/src/dev-runtime/resources/metrics'
+import {
+  createProcessSampler,
+  SAMPLE_MAX_PIDS,
+} from '../shell/src/dev-runtime/resources/sample-processes'
 import {
   createCleanupPolicyAuthority,
   evaluatePredicates,
@@ -507,6 +514,263 @@ describe('metric history', () => {
     history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 4.0 })
     expect(history.list()).toHaveLength(2)
     expect(history.list().every((point) => point.confidence === 'measured')).toBe(true)
+  })
+
+  test('the default 720-point cap binds when a single owner is sampled past it', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock })
+    for (let sample = 0; sample < MAX_POINTS_PER_OWNER + 10; sample += 1) {
+      clock += 1_000
+      history.recordSample(
+        { ownerId: 'p1', processRecordId: 'p1', runtimeSessionId: 'session-000' },
+        { pid: 1, cpuSeconds: 1 + sample * 0.5, residentBytes: 1024 }
+      )
+    }
+    expect(history.list()).toHaveLength(MAX_POINTS_PER_OWNER)
+  })
+
+  test('the full listing stays globally ordered and exact while owners are appended and evicted (#596)', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock, maxPointsPerOwner: 4 })
+    // Three owners interleaved: the listing must stay sorted by observedAt
+    // across appends, per-owner cap evictions, and repeated reads, and it
+    // must always equal the union of the per-owner histories.
+    for (let round = 0; round < 10; round += 1) {
+      for (const ownerId of ['p1', 'p2', 'p3']) {
+        clock += 500
+        history.recordSample({ ownerId, processRecordId: ownerId }, { pid: 1, cpuSeconds: 1 })
+        expect(history.list({ processRecordId: ownerId }).length).toBeLessThanOrEqual(4)
+      }
+      const listing = history.list()
+      for (let index = 1; index < listing.length; index += 1) {
+        expect(listing[index - 1]!.observedAt <= listing[index]!.observedAt).toBe(true)
+      }
+      const union = ['p1', 'p2', 'p3'].flatMap((ownerId) =>
+        history.list({ processRecordId: ownerId })
+      )
+      expect([...listing].toSorted((a, b) => a.observedAt.localeCompare(b.observedAt))).toEqual(
+        [...union].toSorted((a, b) => a.observedAt.localeCompare(b.observedAt))
+      )
+    }
+    // Cap eviction binds per owner in the full listing too: 10 rounds × 3
+    // owners with a 4-point cap leaves exactly 12 points, the newest 4 each.
+    expect(history.list()).toHaveLength(12)
+    const oldestKept = history
+      .list({ processRecordId: 'p1' })
+      .map((point) => point.observedAt)
+      .at(0)
+    expect(oldestKept).toBeDefined()
+    clock += 500
+    history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 1 })
+    expect(
+      history.list({ processRecordId: 'p1' }).some((point) => point.observedAt === oldestKept)
+    ).toBe(false)
+  })
+
+  test('reads never observe the store mutate a listing handed out earlier (#596)', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock })
+    history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 1 })
+    const first = history.list()
+    expect(first).toHaveLength(1)
+    clock += 1_000
+    history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 2 })
+    // Appends and evictions rebind the maintained listing; the array a caller
+    // already holds stays frozen at what it observed.
+    expect(first).toHaveLength(1)
+    expect(history.list()).toHaveLength(2)
+    clock += 1_000
+    history.recordSample({ ownerId: 'p2', processRecordId: 'p2' }, { pid: 2, cpuSeconds: 1 })
+    expect(first).toHaveLength(1)
+    expect(history.list().map((point) => point.ownerId)).toEqual(['p1', 'p1', 'p2'])
+  })
+
+  test('same-millisecond points keep the legacy listing order (owner creation, then record order)', () => {
+    let clock = 1_000
+    const history = createMetricsHistory({ now: () => clock })
+    // One pull samples many processes at one clock value: all points share an
+    // observedAt. The listing must order them by owner creation order, then
+    // record order — exactly the legacy owner-major stable sort.
+    clock = 5_000
+    for (const ownerId of ['o-b', 'o-a', 'o-c', 'o-a']) {
+      history.recordSample({ ownerId, processRecordId: ownerId }, { pid: 1, cpuSeconds: 1 })
+    }
+    expect(history.list().map((point) => point.ownerId)).toEqual(['o-b', 'o-a', 'o-a', 'o-c'])
+    // The order survives a read between appends (the boundary fold), too.
+    clock = 6_000
+    history.recordSample({ ownerId: 'o-d', processRecordId: 'o-d' }, { pid: 1, cpuSeconds: 1 })
+    expect(history.list().map((point) => point.ownerId)).toEqual([
+      'o-b',
+      'o-a',
+      'o-a',
+      'o-c',
+      'o-d',
+    ])
+    clock = 6_000
+    history.recordSample({ ownerId: 'o-e', processRecordId: 'o-e' }, { pid: 1, cpuSeconds: 1 })
+    history.recordSample({ ownerId: 'o-b2', processRecordId: 'o-b2' }, { pid: 1, cpuSeconds: 1 })
+    expect(history.list().map((point) => point.ownerId)).toEqual([
+      'o-b',
+      'o-a',
+      'o-a',
+      'o-c',
+      'o-d',
+      'o-e',
+      'o-b2',
+    ])
+  })
+
+  test('a non-monotonic clock still yields the exact sorted listing (rebuild path)', () => {
+    let clock = 5_000
+    const history = createMetricsHistory({ now: () => clock })
+    for (const step of [1_000, 1_000, -2_500, 3_000, -1_000, 2_500]) {
+      clock += step
+      history.recordSample({ ownerId: 'p1', processRecordId: 'p1' }, { pid: 1, cpuSeconds: 1 })
+      history.recordSample({ ownerId: 'p2', processRecordId: 'p2' }, { pid: 2, cpuSeconds: 1 })
+    }
+    const listing = history.list()
+    expect(listing).toHaveLength(12)
+    for (let index = 1; index < listing.length; index += 1) {
+      expect(listing[index - 1]!.observedAt <= listing[index]!.observedAt).toBe(true)
+    }
+    expect(new Set(listing.map((point) => point.ownerId))).toEqual(new Set(['p1', 'p2']))
+  })
+})
+
+describe('resource scale seams (100 sessions / 1,000 processes)', () => {
+  // The #424 scale budget at unit size: the production seams — durable launch
+  // journal joined against the live snapshot, the bounded rotating ps
+  // sampler, and the returned metrics history — must carry 1,000 processes
+  // across 100 sessions with exactly one bounded `ps` observation per pull
+  // and history that stays inside the named caps. The measured scale lane
+  // (scripts/test-dev-runtime-scale.mjs) pins the latency budgets on top.
+  const PROCESSES = 1_000
+  const SESSIONS = 100
+
+  function scaleInventory() {
+    const records: Array<Extract<SupervisionRecord, { kind: 'launched' }>> = []
+    const components: Array<SupervisionSnapshot['components'][number]> = []
+    for (let index = 0; index < PROCESSES; index += 1) {
+      const componentId = `comp-${String(index).padStart(4, '0')}`
+      records.push(
+        launchedRecord(componentId, {
+          processRecordId: `record-${componentId}`,
+          identity: {
+            pid: 10_000 + index,
+            pidStartIdentity: `start-${index}`,
+            executableIdentity: `/exe/${index}`,
+          },
+          processGroup: `grp-${index}`,
+        })
+      )
+      components.push(
+        snapshotComponent(componentId, {
+          launch: {
+            identity: {
+              pid: 10_000 + index,
+              pidStartIdentity: `start-${index}`,
+              executableIdentity: `/exe/${index}`,
+            },
+            processGroup: `grp-${index}`,
+            startedAt: new Date(1_000).toISOString(),
+          },
+        })
+      )
+    }
+    const sessionOf = (componentId: string) => {
+      const index = Number(componentId.slice(5))
+      return `session-${String(Math.floor(index / (PROCESSES / SESSIONS))).padStart(3, '0')}`
+    }
+    return { records, components, sessionOf }
+  }
+
+  function bootScaleSeams(inventory: ReturnType<typeof scaleInventory>) {
+    let clock = 1_000_000
+    const authority = stubAuthority()
+    let psCalls = 0
+    let maxPidsPerCall = 0
+    const sampler = createProcessSampler({
+      runPs: async (args) => {
+        psCalls += 1
+        const selected = args[3].split(',').map(Number)
+        maxPidsPerCall = Math.max(maxPidsPerCall, selected.length)
+        return {
+          exitCode: 0,
+          stdout: selected.map((pid) => `${pid} 0:01 1024`).join('\n'),
+          stderr: '',
+        }
+      },
+    })
+    const registered = registerResourcesRuntime({
+      authority: authority as never,
+      scope: SCOPE,
+      supervision: {
+        snapshot: () => ({ components: inventory.components }) as SupervisionSnapshot,
+        requestStop: () => ({ ok: true as const, value: { confirmationId: 'c', generation: 1 } }),
+        stop: async () => ({ ok: false as const, code: 'invalid_state', message: 'unused' }),
+      },
+      supervisionRecords: { list: () => inventory.records },
+      resolveOwner: (componentId) => ({
+        ownerKind: 'harness' as const,
+        ownerId: inventory.sessionOf(componentId),
+        runtimeSessionId: inventory.sessionOf(componentId),
+      }),
+      sampleProcesses: sampler,
+      now: () => clock,
+    })
+    const pull = async () => {
+      clock += 2_000
+      return (await authority.providers['dev.resources.snapshot']!(
+        command('dev.resources.snapshot', {})
+      )) as { processes: unknown[]; metrics: Array<{ ownerId: string; runtimeSessionId?: string }> }
+    }
+    return {
+      registered,
+      authority,
+      pull,
+      psCalls: () => psCalls,
+      maxPidsPerCall: () => maxPidsPerCall,
+    }
+  }
+
+  test('one bounded ps observation per pull covers the full rotating inventory', async () => {
+    const inventory = scaleInventory()
+    const seams = bootScaleSeams(inventory)
+    await seams.pull() // warm-up
+    const pulls = 25 // 25 × 64-PID windows ≥ 1,000: full coverage
+    for (let index = 0; index < pulls; index += 1) await seams.pull()
+    expect(seams.psCalls()).toBe(pulls + 1)
+    expect(seams.maxPidsPerCall()).toBe(SAMPLE_MAX_PIDS)
+    const points = seams.registered.metrics.list()
+    const owners = new Set(points.map((point) => point.ownerId))
+    const sessions = new Set(
+      points.map((point) => point.runtimeSessionId).filter((id) => id !== undefined)
+    )
+    expect(owners.size).toBe(PROCESSES)
+    expect(sessions.size).toBe(SESSIONS)
+    expect(points.every((point) => point.confidence === 'measured')).toBe(true)
+  })
+
+  test('process pagination stays correct at 1,000 rows', async () => {
+    const inventory = scaleInventory()
+    const seams = bootScaleSeams(inventory)
+    const authority = seams.authority
+    const seen = new Set<string>()
+    let cursor: string | undefined
+    let pages = 0
+    do {
+      const page = (await authority.providers['dev.resources.processes']!(
+        command('dev.resources.processes', {
+          limit: 100,
+          ...(cursor !== undefined ? { cursor } : {}),
+        })
+      )) as { items: Array<{ id: string }>; nextCursor?: string }
+      for (const item of page.items) seen.add(item.id)
+      cursor = page.nextCursor
+      pages += 1
+    } while (cursor !== undefined)
+    expect(pages).toBe(PROCESSES / 100)
+    expect(seen.size).toBe(PROCESSES)
   })
 })
 

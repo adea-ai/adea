@@ -75,6 +75,19 @@ describe('test suite boundaries', () => {
     expect(soak).toContain('ADEA_DEV_RUNTIME_SOAK_ROUNDS ?? 20')
     expect(soak).toContain('rounds > 1000')
     expect(soak).toContain("writeLaneSummary('soak'")
+    // The #424 scale lane is a named durable harness: it seeds the production
+    // registrar seams at 100 sessions / 1,000 processes and pins the issue's
+    // measured budgets (one fixed-argv ps per pull within the named PID cap,
+    // the 16 ms UI-task pipeline budget, the named 720-point metrics cap).
+    // The budgets live in exactly one place, so relaxing one is a deliberate
+    // edit to the harness plus this pin.
+    expect(packageJson.scripts['test:scale']).toBe('bun run test:scale:dev-runtime')
+    const scale = readFileSync(resolve(root, 'scripts/test-dev-runtime-scale.mjs'), 'utf8')
+    expect(scale).toContain("writeLaneSummary('scale'")
+    expect(scale).toContain('SAMPLE_MAX_PIDS')
+    expect(scale).toContain('MAX_POINTS_PER_OWNER')
+    expect(scale).toContain('HISTORY_WINDOW_MS')
+    expect(scale).toContain('PULL_BUDGET_MS = 16')
     // The umbrella security entry runs the three desktop boundary scanners
     // (PKCE/callback, IPC surface, loopback origin) directly. There is no
     // scripts/security-* helper today; if one lands it must be wired into
