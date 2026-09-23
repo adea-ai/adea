@@ -769,4 +769,64 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       node.id
     )
   })
+
+  // #85 acceptance: "Security tests cover replay, expiry, wrong scope, duplicate
+  // delivery, node restart, downstream timeout-after-effect, and unavailable-
+  // status recovery." The node-restart item is the one this file could not point
+  // at: a restarted node must be governed by its durable row, never by whatever
+  // the previous process held in memory. Both directions are pinned here — a
+  // rotated node resumes with its NEW key, and a revoked node cannot come back by
+  // restarting.
+  test('a restarted node resumes with its rotated key and cannot outlive its revocation', async () => {
+    const { owner, workspace } = await fixture('runtime-node-restart')
+    const node = await registerRuntimeNode(connection.db, {
+      challengeId: (await challenge(workspace.id, owner.principal.userId, 'local_device'))
+        .challengeId,
+      displayName: 'Restarting device',
+      keys: keys('signing-restart-v1', 'encryption-restart-v1'),
+      kind: 'local_device',
+      ownerUserId: owner.principal.userId,
+      platform: 'macOS 26.0 arm64',
+      softwareVersion: '0.20.0',
+      workspaceId: workspace.id,
+    })
+
+    await rotateRuntimeNodeKeys(connection.db, {
+      challengeId: (
+        await challenge(workspace.id, owner.principal.userId, 'local_device', 'rotate', node.id)
+      ).challengeId,
+      keys: keys('signing-restart-v2', 'encryption-restart-v2'),
+      ownerUserId: owner.principal.userId,
+      runtimeNodeId: node.id,
+      workspaceId: workspace.id,
+    })
+
+    // A restarted process re-proves eligibility from the row: it is admitted on
+    // the NEW key, and the retired key is no longer what the workspace expects.
+    const afterRotation = await requireEligibleRuntimeNode(connection.db, workspace.id, node.id)
+    expect(afterRotation.signingKeyFingerprint).toBe(fingerprintOf(fakeKey('signing-restart-v2')))
+    expect(afterRotation.signingKeyFingerprint).not.toBe(
+      fingerprintOf(fakeKey('signing-restart-v1'))
+    )
+    expect(await activeRuntimeNodeSigningKey(connection.db, workspace.id, node.id)).toMatchObject({
+      publicKey: fakeKey('signing-restart-v2'),
+    })
+
+    await revokeRuntimeNode(connection.db, {
+      actorUserId: owner.principal.userId,
+      reason: 'device lost',
+      runtimeNodeId: node.id,
+      workspaceId: workspace.id,
+    })
+
+    // Restarting the node does not clear the revocation: the *first* call a
+    // fresh process makes is the one that refuses it.
+    await expect(requireEligibleRuntimeNode(connection.db, workspace.id, node.id)).rejects.toThrow(
+      RuntimeNodeError
+    )
+    // And the durable row still records the revocation rather than merely
+    // failing the call: a restart reads a revoked node, not an unknown one.
+    const durable = await readRuntimeNode(connection.db, workspace.id, node.id)
+    expect(durable.pairingState).toBe('revoked')
+  }, 30_000)
 })

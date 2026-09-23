@@ -93,6 +93,36 @@ describe('dispatchLocal fail-closed', () => {
   })
 })
 
+describe('direct-local independence (#85)', () => {
+  test('a local dispatch completes with the network closed and no channel identity', async () => {
+    // The box asks that direct-local operation "remains functional when Agent
+    // HQ Cloud or the remote gateway is unavailable". The strongest portable
+    // proof is that the path never reaches for the network at all: `fetch` is
+    // replaced with a throw-on-call guard for the duration of the dispatch.
+    const runtime = authority()
+    runtime.registerCommandProvider('dev.capability.snapshot', () => ({ local: true }))
+    const originalFetch = globalThis.fetch
+    let fetchCalls = 0
+    globalThis.fetch = (async () => {
+      fetchCalls += 1
+      throw new Error('network is closed')
+    }) as typeof fetch
+    try {
+      const reply = expectOk(
+        await runtime.dispatchLocal(INTERNAL_DISPATCH_MARKER, snapshotCommand())
+      )
+      expect(reply.value).toEqual({ local: true })
+      expect(fetchCalls).toBe(0)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    // Nothing on the accepted audit record names a channel or cloud peer.
+    const accepted = runtime.auditSnapshot().find((record) => record.kind === 'command_accepted')
+    expect(accepted?.channelId).toBeUndefined()
+    expect(accepted?.clientCredentialId).toBeUndefined()
+  })
+})
+
 describe('dispatchLocal terminal steps (marker satisfied)', () => {
   test('a valid envelope dispatches the registered provider and audits without channel fields', async () => {
     const runtime = authority()
