@@ -670,14 +670,29 @@ export function createManagedPiDriver(input: ManagedPiDriverInput): ManagedPiDri
     } catch (error) {
       // Rollback: drop staging and restore the rotated-aside installation if
       // the swap lost it, so the previous managed version keeps serving.
-      rmSync(staging, { recursive: true, force: true })
-      const previous = readdirSync(installRoot, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && entry.name.startsWith('.previous-'))
-        .map((entry) => entry.name)
-      for (const name of previous) {
-        const path = join(installRoot, name)
-        if (!existsSync(target)) renameSync(path, target)
-        else rmSync(path, { recursive: true, force: true })
+      //
+      // Every step here is best-effort, and it has to be: the failure that got
+      // us here is usually the filesystem (disk pressure, a read-only or
+      // non-directory install root), which is exactly when cleanup calls fail
+      // too. A cleanup that threw would mask the typed retryable failure and
+      // skip the restore, which is the #185 failure-atomicity contract.
+      try {
+        rmSync(staging, { recursive: true, force: true })
+      } catch {
+        // staging was never fully created, or the root is not writable
+      }
+      try {
+        const previous = readdirSync(installRoot, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory() && entry.name.startsWith('.previous-'))
+          .map((entry) => entry.name)
+        for (const name of previous) {
+          const path = join(installRoot, name)
+          if (!existsSync(target)) renameSync(path, target)
+          else rmSync(path, { recursive: true, force: true })
+        }
+      } catch {
+        // The previous installation could not be restored; the typed failure
+        // below still reports the install as retryable.
       }
       throw fail(
         record,
