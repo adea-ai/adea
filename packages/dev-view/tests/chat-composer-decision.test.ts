@@ -6,6 +6,7 @@ import {
   loadComposerPreferences,
   resolveAndLaunchComposer,
   resolveDecisionLayer,
+  resolvedLocationLabel,
   DecisionLayerUnavailableError,
   saveComposerPreferences,
   type DecisionLayerResolution,
@@ -86,6 +87,43 @@ describe('chat decision-layer consumer', () => {
         explicitPins: { model: { modelId: 'local-choice' } },
       })
     ).toThrow('Auto mode cannot carry explicit selection pins')
+
+    // The location pin travels the same way (#37/#186): choosing a registered
+    // runtime is an explicit selection, and it is refused in Auto mode for the
+    // same reason the other pins are.
+    const located = buildComposerDecisionRequest({
+      ...baseRequest,
+      mode: 'customize',
+      explicitPins: { runtime: { runtimeDefinitionId: 'rtd_01' } },
+    })
+    expect(located.explicitPins).toEqual({ runtime: { runtimeDefinitionId: 'rtd_01' } })
+    expect(() =>
+      buildComposerDecisionRequest({
+        ...baseRequest,
+        mode: 'auto',
+        explicitPins: { runtime: { runtimeDefinitionId: 'rtd_01' } },
+      })
+    ).toThrow('Auto mode cannot carry explicit selection pins')
+  })
+
+  test('the resolved location is labelled from the resolution, not from the request (#37/#186)', () => {
+    const at = (
+      kind: 'local' | 'self-hosted' | 'cloud',
+      transport: 'direct-local' | 'remote-gateway'
+    ) =>
+      resolvedLocationLabel({
+        ...resolution,
+        resolution: {
+          ...resolution.resolution,
+          runtime: { ...resolution.resolution.runtime, kind, transport },
+        },
+      })
+    expect(at('local', 'direct-local')).toBe('Local device · direct local')
+    expect(at('self-hosted', 'remote-gateway')).toBe('Self-hosted host · remote gateway')
+    expect(at('cloud', 'remote-gateway')).toBe('Agent HQ Cloud · remote gateway')
+    // The label is derived from the runtime the resolution selected, so a
+    // request that asked for one location and got another reports what ran.
+    expect(resolvedLocationLabel(resolution)).toBe('Local device · direct local')
   })
 
   test('submits to the client and hands the validated response to the #400 launch adapter', async () => {

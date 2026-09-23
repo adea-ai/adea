@@ -2,6 +2,7 @@ import { createSignal, Show, type JSX } from 'solid-js'
 
 import type { ChatConversation } from './model'
 import {
+  resolvedLocationLabel,
   resolveAndLaunchComposer,
   type ComposerAgentProfile,
   type ComposerCustomization,
@@ -54,6 +55,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const [draft, setDraft] = createSignal(props.conversation.draft)
   const [sending, setSending] = createSignal(false)
   const [mode, setMode] = createSignal<ComposerMode>(props.mode ?? 'auto')
+  const [resolvedLocation, setResolvedLocation] = createSignal<string | undefined>(undefined)
   const [resolving, setResolving] = createSignal(false)
   const [resolutionStatus, setResolutionStatus] = createSignal<string>()
   const authority = () => props.authority ?? 'chat'
@@ -91,12 +93,20 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               ...(props.customization?.modelId
                 ? { model: { modelId: props.customization.modelId } }
                 : {}),
+              ...(props.customization?.runtimeDefinitionId
+                ? { runtime: { runtimeDefinitionId: props.customization.runtimeDefinitionId } }
+                : {}),
             }
           : {}
       const request = props.decisionRequest({ mode: mode(), objective, explicitPins })
       const outcome = await resolveAndLaunchComposer(props.decisionConsumer, request)
-      if (outcome.kind === 'resolved') setResolutionStatus('Launch decision received.')
-      else setResolutionStatus(outcome.message)
+      if (outcome.kind === 'resolved') {
+        // Which location actually runs is the resolution's answer, not the
+        // user's request: show it rather than implying the pin was honoured by
+        // construction (#37/#186).
+        setResolvedLocation(resolvedLocationLabel(outcome.resolution))
+        setResolutionStatus('Launch decision received.')
+      } else setResolutionStatus(outcome.message)
     } catch (error) {
       setResolutionStatus(error instanceof Error ? error.message : 'Decision layer is unavailable.')
     } finally {
@@ -176,6 +186,19 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
                 <option value={option.id}>{option.label}</option>
               ))}
             </select>
+            <Show when={(customization().runtimeOptions ?? []).length > 0}>
+              <label for="dev-chat-composer-runtime">Location</label>
+              <select
+                id="dev-chat-composer-runtime"
+                value={customization().runtimeDefinitionId ?? ''}
+                onChange={(event) => customization().onRuntimeChange?.(event.currentTarget.value)}
+              >
+                <option value="">Control Plane default</option>
+                {(customization().runtimeOptions ?? []).map((option) => (
+                  <option value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            </Show>
           </div>
         )}
       </Show>
@@ -192,6 +215,13 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           {(reason) => reason()}
         </Show>
       </p>
+      <Show when={resolvedLocation()}>
+        {(label) => (
+          <p class="dev-chat__composer-location" aria-live="polite">
+            Running on {label()}
+          </p>
+        )}
+      </Show>
       <Show when={mode() === 'customize'}>
         <p>Customize pins are submitted to the Control Plane and remain authoritative.</p>
       </Show>

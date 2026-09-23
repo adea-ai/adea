@@ -23,10 +23,18 @@ export type ComposerPinOption = Readonly<{ id: string; label: string }>
 export type ComposerCustomization = Readonly<{
   harnessOptions: readonly ComposerPinOption[]
   modelOptions: readonly ComposerPinOption[]
+  /**
+   * Registered execution locations the user may pin (#37/#186). Omitted when
+   * the host knows no registered runtimes, in which case the composer simply
+   * does not offer a location choice.
+   */
+  runtimeOptions?: readonly ComposerPinOption[]
   harnessId?: string
   modelId?: string
+  runtimeDefinitionId?: string
   onHarnessChange?: (harnessId: string) => void
   onModelChange?: (modelId: string) => void
+  onRuntimeChange?: (runtimeDefinitionId: string) => void
 }>
 
 export type ComposerPreferences = Readonly<{
@@ -118,6 +126,23 @@ function hasPins(pins: DecisionPins | undefined): boolean {
 }
 
 /** Build the exact #558 request; Auto never accepts local selection pins. */
+/**
+ * Human label for the execution location a resolution selected (#37/#186). The
+ * location policy decides *whether* a location may run; this is the surface
+ * that shows the user which one actually did, so an execution never appears to
+ * have run somewhere it did not.
+ */
+export function resolvedLocationLabel(resolution: DecisionLayerResolution): string {
+  const { kind, transport } = resolution.resolution.runtime
+  const where =
+    kind === 'local'
+      ? 'Local device'
+      : kind === 'self-hosted'
+        ? 'Self-hosted host'
+        : 'Agent HQ Cloud'
+  return transport === 'direct-local' ? `${where} · direct local` : `${where} · remote gateway`
+}
+
 export function buildComposerDecisionRequest(
   input: ComposerDecisionInputs
 ): DecisionResolutionRequest {
