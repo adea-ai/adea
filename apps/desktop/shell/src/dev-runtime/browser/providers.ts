@@ -13,13 +13,20 @@ import type {
   DevCommand,
   DevErrorCode,
   DevStreamGrant,
+  MutationPlan,
   ScreenshotRef,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { ChannelIdentity } from '../channel/authority'
 
-import { CookieImportError } from './cookie-import'
+import {
+  CookieImportError,
+  type CookieImportPlan,
+  type CookieImportService,
+  type ImportedCookie,
+  type LaneCookieStore,
+} from './cookie-import'
 import { detectCookieSources } from './cookie-sources'
 import { createLaneDiagnostics, type LaneDiagnostics } from './diagnostics'
 import {
@@ -185,6 +192,25 @@ export type BrowserProvidersInput = Readonly<{
   cookieSourceHomeDir?: () => string
   /** Keychain read for the Chromium family; defaults to the host's own. */
   keychainSecret?: (service: string) => string | null
+  /**
+   * Cookie import (#610). The plan/commit pair needs a reader over a detected
+   * source and a store over the lane's own profile; without this seam both
+   * answer typed-unavailable rather than pretending an import happened.
+   */
+  cookieImport?: Readonly<{
+    service: CookieImportService
+    /** Reads one detected source by its `<kind>:<profile>` id. */
+    readSource: (sourceProfileId: string) => Promise<readonly ImportedCookie[]>
+    /** The write target: the lane profile's own cookie store. */
+    targetStore: (lane: BrowserLaneRecord) => LaneCookieStore
+    /**
+     * Refuses a commit while the lane still owns its profile. A running engine
+     * holds the cookie database open and rewrites it from memory, so a write
+     * into a live profile would be lost — the host states that precondition,
+     * this provider only enforces it.
+     */
+    assertTargetIdle: (lane: BrowserLaneRecord) => void
+  }>
 }>
 
 function assertScopeMatch(command: DevCommand, lane: BrowserLaneRecord): void {
@@ -727,17 +753,39 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       }))
       return { items: rows, nextCursor: null, total: rows.length }
     },
-    'dev.browser.cookieImportPlan': (command) => {
+    'dev.browser.cookieImportPlan': async (command) => {
       const lane = laneFor(command)
       assertGeneration(lane, expectedGeneration(command))
-      // Plan building needs the source-profile reader seam, owned by the
-      // vault integration; without it the plan/commit pair stays
-      // typed-unavailable.
-      return unavailableEngine()
+      const seam = input.cookieImport
+      // Without a seam the plan/commit pair stays typed-unavailable: an import
+      // that cannot read a source or reach the lane profile must never look
+      // like an import that staged nothing.
+      if (!seam) return unavailableEngine()
+      const req = body(command)
+      const sourceProfileId = String(req.sourceProfileId ?? '')
+      const plan = await seam.service.plan({
+        browserLaneId: lane.id,
+        laneGeneration: lane.generation,
+        sourceProfileId,
+        domains: Array.isArray(req.domains) ? req.domains.map((domain) => String(domain)) : [],
+        includeExcluded: req.includeExcluded === true,
+        readSource: () => seam.readSource(sourceProfileId),
+        targetStore: seam.targetStore(lane),
+      })
+      return cookieMutationPlan(command, plan)
     },
-    'dev.browser.cookieImportCommit': (command) => {
-      laneFor(command)
-      return unavailableEngine()
+    'dev.browser.cookieImportCommit': async (command) => {
+      const lane = laneFor(command)
+      const seam = input.cookieImport
+      if (!seam) return unavailableEngine()
+      assertGeneration(lane, expectedGeneration(command))
+      seam.assertTargetIdle(lane)
+      const req = body(command)
+      return seam.service.commit(
+        String(req.planId ?? ''),
+        String(req.planDigest ?? ''),
+        seam.targetStore(lane)
+      )
     },
   }
 
@@ -767,8 +815,42 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
   }
 }
 
-export function browserProviderError(error: unknown): DevCommandProviderError {
-  if (error instanceof DevCommandProviderError) return error
+/**
+ * The preview a plan/commit mutation returns. Cookie VALUES stay inside the
+ * service's own plan record: the wire plan carries what the transaction is
+ * bound to (the source, the accepted domains, how many rows each step touches)
+ * so a preview can be shown and a commit can be refused if the facts moved —
+ * and never a value, a name, or a digest of them.
+ */
+function cookieMutationPlan(command: DevCommand, plan: CookieImportPlan): MutationPlan {
+  return {
+    id: plan.id,
+    operation: 'dev.browser.cookieImportCommit',
+    scope: command.scope,
+    resource: {
+      kind: 'browser_lane',
+      id: plan.browserLaneId,
+      generation: plan.laneGeneration,
+    },
+    factVersions: {
+      sourceProfileId: plan.scope.sourceProfileId,
+      domains: [...plan.scope.domains].toSorted().join(','),
+      stagedWrites: String(plan.stagedWrites.length),
+      stagedRemovals: String(plan.stagedRemovals.length),
+      skipped: String(plan.skipped),
+    },
+    steps: [
+      { id: 'remove', kind: 'cookie_remove', targetId: plan.browserLaneId, dependsOn: [] },
+      { id: 'write', kind: 'cookie_write', targetId: plan.browserLaneId, dependsOn: ['remove'] },
+    ],
+    blockers: [],
+    requiredApprovalIds: [],
+    digest: plan.digest,
+    expiresAt: plan.expiresAt,
+  }
+}
+
+export function browserProviderError(error: unknown): DevCommandProviderError {  if (error instanceof DevCommandProviderError) return error
   if (error instanceof BrowserLaneError)
     return new DevCommandProviderError(
       error.code as DevErrorCode,

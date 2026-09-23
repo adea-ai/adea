@@ -58,7 +58,7 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.browser.cookieImportPlan': {
-    body: '{ browserLaneId: string; expectedGeneration: integer; sourceProfileId: string; domains: string[]<=128 }',
+    body: '{ browserLaneId: string; expectedGeneration: integer; sourceProfileId: string; domains: string[]<=128; includeExcluded?: boolean }',
     capabilities: ['dev.browser.cookies'],
     reply: 'MutationPlan',
     resource: { kind: 'browser_lane', idField: 'browserLaneId' },

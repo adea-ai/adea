@@ -153,6 +153,24 @@ const DEFAULT_DATA_DIR = join(process.env.HOME ?? '.', 'Library', 'Application S
 const MAX_INPUT_BYTES = 4096
 const MAX_TEXT_INPUT = 4096
 
+/**
+ * The profile root every lane lives under. Exported because a lane's profile is
+ * addressed from outside the engine too (the cookie import target writes the
+ * profile's own store), and two formulas for one path is how an import ends up
+ * confidently writing a store the browser never reads.
+ */
+export function browserLaneProfileRoot(dataDir?: string): string {
+  const root = dataDir ?? process.env.ADEA_DATA_DIR ?? DEFAULT_DATA_DIR
+  return join(root, 'dev-runtime', 'browser', 'profiles')
+}
+
+export function browserLaneProfileDirectory(
+  lane: Pick<BrowserLaneRecord, 'profileDirectory'>,
+  dataDir?: string
+): string {
+  return join(browserLaneProfileRoot(dataDir), lane.profileDirectory)
+}
+
 function defaultFactory(options: Parameters<BrowserWebViewFactory>[0]): BrowserWebView {
   return new Bun.WebView(options) as unknown as BrowserWebView
 }
@@ -322,7 +340,7 @@ export function createBunWebViewLaneEngine(
   }
 
   function directoryFor(lane: BrowserLaneRecord): string {
-    return join(dataDir, 'dev-runtime', 'browser', 'profiles', lane.profileDirectory)
+    return browserLaneProfileDirectory(lane, dataDir)
   }
 
   function profileDirectory(lane: BrowserLaneRecord): string {

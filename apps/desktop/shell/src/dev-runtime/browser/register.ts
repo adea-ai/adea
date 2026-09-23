@@ -18,6 +18,7 @@
 // engine defaults to the real host implementation — its absence is a genuine
 // toolchain absence, not omitted wiring.
 import type { DevCommand, DevOperation } from '../../../../../../packages/types/src/dev-runtime'
+import { homedir } from 'node:os'
 
 import { createDeviceSessionRegistry, type VerifiedInventory } from '../devices/device-sessions'
 import { createBunDeviceRunner, createHostDeviceEngine, type DeviceEngine } from '../devices/engine'
@@ -26,12 +27,19 @@ import { createDeviceProviders, deviceProviderError } from '../devices/providers
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway, StreamProvider } from '../channel/server'
 import { createCookieImportService } from './cookie-import'
-import { createBrowserLaneRegistry } from './lane-registry'
+import { detectCookieSources, readCookieSource } from './cookie-sources'
+import { createChromiumLaneCookieStore } from './lane-cookie-store'
+import { createBrowserLaneRegistry, type LaneKind } from './lane-registry'
 import { evaluateNavigation, type AdeaOwnedService } from './navigation-policy'
 import { createPortInventory } from './port-inventory'
-import { browserProviderError, createBrowserProviders, type LaneEngine } from './providers'
+import {
+  browserProviderError,
+  createBrowserProviders,
+  DevCommandProviderError,
+  type LaneEngine,
+} from './providers'
 import { createScreenshotStore, type ScreenshotStore } from './screenshots'
-import { createBunWebViewLaneEngine } from './engine'
+import { browserLaneProfileDirectory, createBunWebViewLaneEngine } from './engine'
 
 export type BrowserDeviceRuntimeInput = Readonly<{
   authority: ChannelAuthority
@@ -56,6 +64,26 @@ export type BrowserDeviceRuntimeInput = Readonly<{
   webViewBackendProbe?: () => boolean
   /** Owner-only data root for persistent browser profiles. */
   dataDir?: string
+  /**
+   * Cookie import (#610). A host opts in by naming the browser a lane's cookie
+   * store belongs to: the import writes the profile's own Chromium database
+   * with that browser's Keychain item, so an unknown item is a typed refusal
+   * rather than a write into a store nobody reads.
+   */
+  cookieImport?: Readonly<{
+    /** Keychain item the target profile's values are encrypted with. */
+    keychainService: string
+    /**
+     * Lane kinds whose profile is a Chromium cookie store. Defaults to the
+     * external user-context lane (ADR 0006's Chromium-over-CDP lane); the
+     * embedded WebView lanes are not backed by one.
+     */
+    laneKinds?: readonly LaneKind[]
+  }>
+  /** Home directory the cookie-source detection scans (#610). */
+  cookieSourceHomeDir?: () => string
+  /** Keychain read for the Chromium family (tests script it). */
+  keychainSecret?: (service: string) => string | null
 }>
 
 async function runDeviceProbe(argv: string[]): Promise<string> {
@@ -206,6 +234,62 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
     ownedServices: input.ownedServices ?? (() => []),
     screenshotRecorder: screenshots,
     mintStreamGrant: mintGrant('browser-frames-v1'),
+    ...(input.cookieSourceHomeDir ? { cookieSourceHomeDir: input.cookieSourceHomeDir } : {}),
+    ...(input.keychainSecret ? { keychainSecret: input.keychainSecret } : {}),
+    ...(input.cookieImport
+      ? {
+          cookieImport: {
+            service: cookies,
+            readSource: (sourceProfileId) => {
+              const home = (input.cookieSourceHomeDir ?? homedir)()
+              const source = detectCookieSources(home).find(
+                (candidate) => candidate.id === sourceProfileId
+              )
+              if (!source)
+                throw new DevCommandProviderError(
+                  'invalid_state',
+                  'no installed browser profile matches that cookie source'
+                )
+              const result = readCookieSource(
+                source,
+                input.keychainSecret ? { keychainSecret: input.keychainSecret } : {}
+              )
+              // A typed refusal is the answer, never an empty list: the plan
+              // must fail as `cookie_import_failed`, not stage zero rows.
+              if (!result.ok) throw new Error(`${result.code}: ${result.message}`)
+              return Promise.resolve(result.cookies)
+            },
+            targetStore: (lane) => {
+              const kinds = input.cookieImport?.laneKinds ?? ['user_context']
+              if (!kinds.includes(lane.kind))
+                throw new DevCommandProviderError(
+                  'capability_unavailable',
+                  `a ${lane.kind} lane does not keep a Chromium cookie store`,
+                  true
+                )
+              return createChromiumLaneCookieStore({
+                profileDirectory: browserLaneProfileDirectory(lane, input.dataDir),
+                keychainService: input.cookieImport!.keychainService,
+                ...(input.keychainSecret ? { keychainSecret: input.keychainSecret } : {}),
+              })
+            },
+            assertTargetIdle: (lane) => {
+              // A started lane owns its profile: the engine holds the cookie
+              // database open and rewrites it from memory, so an import into a
+              // live profile is lost work, not a merge. Import is a
+              // stopped-profile operation; starting the lane afterwards is what
+              // makes the imported cookies live.
+              const state = lanes.get(lane.id).state
+              if (state !== 'provisioning' && state !== 'closed' && state !== 'crashed')
+                throw new DevCommandProviderError(
+                  'invalid_state',
+                  `close the browser lane before importing cookies (lane is ${state})`,
+                  true
+                )
+            },
+          },
+        }
+      : {}),
   })
   const browserEngine: LiveBrowserEngine =
     input.browserEngine ??
