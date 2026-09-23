@@ -66,6 +66,13 @@ export type BackpressuredSocketWriter = {
   notifyDrain(): void
   /** Bytes awaiting the socket (excludes what the kernel already took). */
   pendingBytes(): number
+  /**
+   * Resolves once the queued tail is at or below `highWaterBytes`, or as soon
+   * as the writer is gone. A producer replaying a span far larger than the
+   * queue bound paces on this instead of enqueueing the whole span and
+   * tripping the overflow guard.
+   */
+  whenBelow(highWaterBytes: number): Promise<void>
   isClosed(): boolean
   /** Stops accepting, flushes within the grace window, then ends the socket. */
   close(): Promise<void>
@@ -90,11 +97,22 @@ export function createBackpressuredSocketWriter(
   let accepting = true
   let dead = false
   let drainWaiters: Array<() => void> = []
+  // Producers pacing a large replay wait here until the queue falls to their
+  // own watermark (or the writer dies, so no producer can hang).
+  let capacityWaiters: Array<{ highWaterBytes: number; resolve: () => void }> = []
 
   function wakeDrainWaiters(): void {
     const waiters = drainWaiters
     drainWaiters = []
     for (const waiter of waiters) waiter()
+  }
+
+  function wakeCapacityWaiters(): void {
+    if (capacityWaiters.length === 0) return
+    const ready = capacityWaiters.filter((waiter) => dead || queuedBytes <= waiter.highWaterBytes)
+    if (ready.length === 0) return
+    capacityWaiters = capacityWaiters.filter((waiter) => !ready.includes(waiter))
+    for (const waiter of ready) waiter.resolve()
   }
 
   function fail(reason: SocketWriterOverflowReason): void {
@@ -104,6 +122,7 @@ export function createBackpressuredSocketWriter(
     queue = []
     queuedBytes = 0
     wakeDrainWaiters()
+    wakeCapacityWaiters()
     options.onOverflow?.(reason)
     try {
       socket.end()
@@ -144,6 +163,7 @@ export function createBackpressuredSocketWriter(
         if (accepted === head.byteLength) {
           queue.shift()
           queuedBytes -= head.byteLength
+          wakeCapacityWaiters()
           continue
         }
         // Partial or rejected: the accepted prefix is in the kernel; requeue
@@ -151,6 +171,7 @@ export function createBackpressuredSocketWriter(
         if (accepted > 0) {
           queue[0] = head.subarray(accepted)
           queuedBytes -= accepted
+          wakeCapacityWaiters()
         }
         await waitDrain()
       }
@@ -158,6 +179,7 @@ export function createBackpressuredSocketWriter(
       pumping = false
       // A close() racing the final drain must still see the empty queue.
       wakeDrainWaiters()
+      wakeCapacityWaiters()
     }
   }
 
@@ -203,6 +225,16 @@ export function createBackpressuredSocketWriter(
       return queuedBytes
     },
 
+    whenBelow(highWaterBytes: number): Promise<void> {
+      if (dead || queuedBytes <= highWaterBytes) return Promise.resolve()
+      return new Promise((resolve) => {
+        capacityWaiters.push({ highWaterBytes, resolve })
+        // The drain event is the primary wakeup; this bounded poll keeps a
+        // missed wakeup from stalling a replay the way it would stall the pump.
+        setTimeout(() => wakeCapacityWaiters(), drainPollMs)
+      })
+    },
+
     isClosed(): boolean {
       return dead
     },
@@ -216,6 +248,7 @@ export function createBackpressuredSocketWriter(
       queue = []
       queuedBytes = 0
       wakeDrainWaiters()
+      wakeCapacityWaiters()
       try {
         socket.end()
       } catch {

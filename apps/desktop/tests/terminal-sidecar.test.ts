@@ -30,7 +30,7 @@ import {
 import { createBunPtyAdapter } from '../shell/src/dev-runtime/terminal/pty-adapter'
 import { TERMINAL_LIMITS } from '../shell/src/dev-runtime/terminal/limits'
 import { createFakePtyAdapter } from './fixtures/fake-pty'
-import { createLoopbackPair } from './fixtures/loopback-duplex'
+import { createBoundedLoopbackPair, createLoopbackPair } from './fixtures/loopback-duplex'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -711,7 +711,16 @@ describe('real sidecar process on this platform', () => {
 })
 
 describe('durable replay across the ring boundary', () => {
-  async function smallRingHarness() {
+  async function smallRingHarness(
+    options: {
+      /** Model the transport's bounded write queue (its size, in bytes). */
+      queueBound?: number
+      /** Offer the transport's pacing seam; `false` is the pre-#593 shape. */
+      paced?: boolean
+      /** Override the per-subscriber high-water the bridge paces against. */
+      subscriberHighWaterBytes?: number
+    } = {}
+  ) {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-sidecar-ring-'))
     const runtimeRoot = join(dataDir, 'dev-runtime')
     mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
@@ -724,9 +733,24 @@ describe('durable replay across the ring boundary', () => {
       credential,
       executableIdentity,
       pidStartIdentity: 'test-start-identity',
-      managerLimits: { ...TERMINAL_LIMITS, ringMaxBytes: 96 },
+      managerLimits: {
+        ...TERMINAL_LIMITS,
+        ringMaxBytes: 96,
+        ...(options.subscriberHighWaterBytes === undefined
+          ? {}
+          : { subscriberHighWaterBytes: options.subscriberHighWaterBytes }),
+      },
     })
-    const [clientSide, serverSide] = createLoopbackPair()
+    const bounded =
+      options.queueBound === undefined
+        ? undefined
+        : createBoundedLoopbackPair({
+            queueBound: options.queueBound,
+            ...(options.paced === undefined ? {} : { paced: options.paced }),
+          })
+    const [clientSide, serverSide] = bounded
+      ? [bounded.client, bounded.server]
+      : createLoopbackPair()
     service.handleConnection(serverSide)
     const connected = await connectSidecarClient({
       duplex: clientSide,
@@ -741,6 +765,7 @@ describe('durable replay across the ring boundary', () => {
       runtimeRoot,
       client: connected.client,
       received: [] as FrameRecord[],
+      overflowed: () => bounded?.overflowed() ?? false,
       cleanup: () => rmSync(dataDir, { recursive: true, force: true }),
     }
   }
@@ -781,6 +806,80 @@ describe('durable replay across the ring boundary', () => {
       expect(Array.from(harness.received[11]!.bytes)).toEqual(
         Array.from(new Uint8Array(24).fill(0x6c))
       )
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
+
+  // #593: the bridge is routinely larger than the transport's write queue, and
+  // the attach path used to hand the whole span over synchronously — the
+  // connection was ended mid-replay (queue_overflow) and every reconnect
+  // re-requested the same oversized bridge, a non-converging loop.
+  test('a durable bridge larger than the transport queue paces instead of dying mid-replay (#593)', async () => {
+    // The bound holds one full ring replay (the 96-byte ring is 4 framed
+    // chunks) but is far below what an unpaced handover of the bridge queues —
+    // the next test pins that the same bound really does trip without pacing.
+    // The pacing watermark sits below one framed chunk so every chunk must
+    // wait its turn rather than sliding in under a larger watermark.
+    const harness = await smallRingHarness({
+      queueBound: 1536,
+      subscriberHighWaterBytes: 100,
+    })
+    try {
+      harness.client.setEvents({
+        onDataFrame: (meta, bytes) => harness.received.push({ meta, bytes }),
+      })
+      await createTerminal(harness.client)
+      for (let batch = 0; batch < 12; batch += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61 + batch))
+        await Bun.sleep(6)
+      }
+      const attached = await harness.client.attach({
+        terminalId,
+        subscriberId: 'sub-paced',
+        sinceSeq: '0',
+      })
+      // The reply still lands after the whole bridge, in order and complete.
+      expect(attached).toMatchObject({
+        ok: true,
+        value: { resyncRequired: false, replayed: 12 },
+      })
+      expect(harness.overflowed()).toBe(false)
+      await Bun.sleep(50)
+      expect(harness.received.map((frame) => frame.meta.seq)).toEqual(
+        Array.from({ length: 12 }, (_, index) => String(index))
+      )
+      expect(Array.from(harness.received[11]!.bytes)).toEqual(
+        Array.from(new Uint8Array(24).fill(0x6c))
+      )
+    } finally {
+      harness.cleanup()
+    }
+  }, 20_000)
+
+  test('an unpaced handover of the same bridge trips the queue bound (#593 mechanism)', async () => {
+    // Same bound as the paced test: without the pacing seam the whole span is
+    // queued at once and the transport fails closed — the failure #593
+    // reported from the soak lane.
+    const harness = await smallRingHarness({ queueBound: 1536, paced: false })
+    try {
+      harness.client.setEvents({
+        onDataFrame: (meta, bytes) => harness.received.push({ meta, bytes }),
+      })
+      await createTerminal(harness.client)
+      for (let batch = 0; batch < 12; batch += 1) {
+        harness.fake.processes[0]!.emit(new Uint8Array(24).fill(0x61 + batch))
+        await Bun.sleep(6)
+      }
+      await harness.client.attach({
+        terminalId,
+        subscriberId: 'sub-unpaced',
+        sinceSeq: '0',
+      })
+      await Bun.sleep(50)
+      // Without the pacing seam the whole span is queued at once and the
+      // transport fails closed — the failure #593 reported from the soak lane.
+      expect(harness.overflowed()).toBe(true)
     } finally {
       harness.cleanup()
     }
