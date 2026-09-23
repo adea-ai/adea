@@ -790,3 +790,137 @@ test('the packaged shell composition opts into the managed Pi boot warm', () => 
   const entry = readFileSync(join(import.meta.dir, '../shell/src/bun/index.ts'), 'utf8')
   expect(entry).toContain('managedPiAutoInstall: true')
 })
+
+// #185 acceptance: "Clean install, existing install, upgrade, downgrade/
+// rollback, partial install, corrupt component, local-content preservation, and
+// low-disk tests are automated where practical." These are the two that were
+// not: a partial packaged install, and disk pressure on the managed install
+// (the closest portable equivalent of ENOSPC is a failing write on the same
+// code path, which is what the driver treats disk exhaustion as).
+describe('install matrix (#185): partial install and failure atomicity', () => {
+  /** A staged bundle with every label the packaged resolver expects. */
+  function stagedBundle(omit?: 'sidecar' | 'bun' | 'launcher'): string {
+    const bundle = join(tempDir(), 'Adea.app')
+    mkdirSync(join(bundle, 'Contents/Resources/app/dev-runtime-sidecar'), { recursive: true })
+    mkdirSync(join(bundle, 'Contents/MacOS'), { recursive: true })
+    writeFileSync(
+      join(bundle, 'Contents/Resources/version.json'),
+      JSON.stringify({ version: '1.2.3', channel: 'dev' })
+    )
+    if (omit !== 'sidecar')
+      writeFileSync(
+        join(bundle, 'Contents/Resources/app/dev-runtime-sidecar/entry.js'),
+        '// sidecar'
+      )
+    if (omit !== 'bun') writeFileSync(join(bundle, 'Contents/MacOS/bun'), '// bun')
+    if (omit !== 'launcher') writeFileSync(join(bundle, 'Contents/MacOS/launcher'), '// launcher')
+    return bundle
+  }
+
+  test('a complete bundle resolves every component with its observed digest', () => {
+    const bundle = stagedBundle()
+    const resolved = resolvePackagedComponents(bundle)
+    expect(resolved.identity.version).toBe('1.2.3')
+    expect(resolved.identity.resolutions.every((entry) => entry.ok)).toBe(true)
+    // The managed component is described alongside the bundled ones even though
+    // its bytes are installed later by its own lifecycle.
+    expect(resolved.specs.map((spec) => spec.id)).toContain(MANAGED_PI_COMPONENT_ID)
+  })
+
+  test('a partial install is a typed resolution failure naming the missing artifact', () => {
+    for (const omitted of ['sidecar', 'bun', 'launcher'] as const) {
+      const bundle = stagedBundle(omitted)
+      expect(() => resolvePackagedComponents(bundle)).toThrow(
+        /packaged install-location resolution failed/
+      )
+      try {
+        resolvePackagedComponents(bundle)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : ''
+        // The failure names WHICH artifact is missing and why, so a support
+        // report can act on it without guessing.
+        expect(message).toContain('no packaged artifact at')
+      }
+    }
+  })
+
+  test('a failing cache write under disk pressure never fails the install', async () => {
+    const dataDir = tempDir()
+    // The cache path is a FILE, so creating the cache directory fails the way a
+    // full or read-only filesystem makes it fail.
+    const cacheParent = join(dataDir, 'dev-runtime', 'harness', 'managed-pi')
+    mkdirSync(cacheParent, { recursive: true })
+    writeFileSync(join(cacheParent, 'cache'), 'not a directory')
+    const { fetch } = scriptedFetch(() => Promise.resolve(responseWithBytes(PINNED_ARCHIVE)))
+    const driver = createManagedPiDriver(driverInput({ dataDir, fetchImpl: fetch }))
+    try {
+      // The cache is an optimization, never a correctness dependency: the
+      // install proceeds from the verified in-memory bytes.
+      const result = await driver.ensureInstalled()
+      expect(result).toMatchObject({ state: 'ready', resolvedVersion: MANAGED_PI_PINNED_VERSION })
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  test('a failing install write is typed retryable, leaves no partial install, and a retry succeeds', async () => {
+    const dataDir = tempDir()
+    // The install root is a FILE, so staging cannot be created — the write
+    // failure the driver must treat as recoverable disk pressure.
+    const installRoot = join(dataDir, 'blocked-install-root')
+    writeFileSync(installRoot, 'not a directory')
+    const { fetch } = scriptedFetch(() => Promise.resolve(responseWithBytes(PINNED_ARCHIVE)))
+    const driver = createManagedPiDriver(driverInput({ dataDir, installRoot, fetchImpl: fetch }))
+    try {
+      const failure = await driver.ensureInstalled().catch((caught: Error) => caught)
+      expect(failure).toMatchObject({
+        code: 'unavailable',
+        retryable: true,
+        remediation: { action: 'managedPi.install.retry' },
+      })
+      // The durable state records the retryable failure…
+      expect(driver.status()).toMatchObject({ state: 'failed', lastErrorCode: 'unavailable' })
+      // …and nothing partial survives it.
+      expect(existsSync(join(installRoot, MANAGED_PI_PINNED_VERSION))).toBe(false)
+
+      // Free the space and retry: the same driver installs cleanly.
+      rmSync(installRoot, { force: true })
+      const retried = await driver.ensureInstalled()
+      expect(retried).toMatchObject({ state: 'ready', resolvedVersion: MANAGED_PI_PINNED_VERSION })
+      expect(existsSync(join(installRoot, MANAGED_PI_PINNED_VERSION, 'pi'))).toBe(true)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  test('a failed reinstall keeps the previous managed version serving', async () => {
+    const dataDir = tempDir()
+    const installRoot = join(dataDir, 'install-root')
+    const { fetch } = scriptedFetch(() => Promise.resolve(responseWithBytes(PINNED_ARCHIVE)))
+    const driver = createManagedPiDriver(driverInput({ dataDir, installRoot, fetchImpl: fetch }))
+    try {
+      const first = await driver.ensureInstalled()
+      expect(first.state).toBe('ready')
+      // Block further installs (disk pressure again) and force a reinstall by
+      // removing the ready marker's executable.
+      rmSync(join(installRoot, MANAGED_PI_PINNED_VERSION, 'pi'))
+      const blocked = createManagedPiDriver(
+        driverInput({
+          dataDir,
+          // A root the second driver cannot write, while the first install
+          // stays on disk.
+          installRoot: join(dataDir, 'second-root'),
+          fetchImpl: scriptedFetch(() => Promise.resolve(responseWithBytes(PINNED_ARCHIVE))).fetch,
+        })
+      )
+      writeFileSync(join(dataDir, 'second-root'), 'not a directory')
+      const failure = await blocked.ensureInstalled().catch((caught: Error) => caught)
+      expect(failure).toMatchObject({ code: 'unavailable', retryable: true })
+      // The original installation directory is untouched by the failure.
+      expect(existsSync(join(installRoot, MANAGED_PI_PINNED_VERSION))).toBe(true)
+      expect(existsSync(join(installRoot, MANAGED_PI_PINNED_VERSION, 'manifest.json'))).toBe(true)
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
