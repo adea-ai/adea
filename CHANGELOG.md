@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.48.0](https://github.com/adea-ai/adea/compare/v0.47.3...v0.48.0) (2026-09-23)
+
+
+### Features
+
+* **shell:** default-deny policy for sensitive paths inside an approved root ([#626](https://github.com/adea-ai/adea/issues/626)) ([3d820aa](https://github.com/adea-ai/adea/commit/3d820aac49a469a569a50938a965ddd00ed1de59)), closes [#622](https://github.com/adea-ai/adea/issues/622)
+
 ## [0.47.3](https://github.com/adea-ai/adea/compare/v0.47.2...v0.47.3) (2026-09-23)
 
 
