@@ -60,6 +60,68 @@ describe('backpressured socket writer', () => {
     expect(writer.isClosed()).toBe(false)
   })
 
+  // #593: a durable-bridge replay far larger than the queue bound must pace on
+  // the writer instead of tripping queue_overflow mid-replay.
+  test('whenBelow resolves immediately when the queue is already under the watermark', async () => {
+    const writer = createBackpressuredSocketWriter({
+      write: (data) => data.byteLength,
+      end: () => undefined,
+    })
+    await writer.whenBelow(1024)
+    expect(writer.pendingBytes()).toBe(0)
+  })
+
+  test('whenBelow holds a paced producer until the paused socket drains', async () => {
+    // The socket accepts nothing until it "drains", and the poll fallback is
+    // slow enough that only the real drain event can wake the pump.
+    let accepting = false
+    const writer = createBackpressuredSocketWriter(
+      {
+        write: (data) => (accepting ? data.byteLength : 0),
+        end: () => undefined,
+      },
+      { maxQueuedBytes: 64 * 1024, drainPollMs: 5_000 }
+    )
+    for (let chunk = 0; chunk < 4; chunk += 1) writer.send(new Uint8Array(1024))
+    expect(writer.pendingBytes()).toBe(4096)
+
+    let released = false
+    const paced = writer.whenBelow(2048).then(() => {
+      released = true
+    })
+    await Bun.sleep(10)
+    expect(released).toBe(false)
+
+    accepting = true
+    writer.notifyDrain()
+    await paced
+    // The producer resumes as soon as the queue is under its watermark, not
+    // only when it is empty: a replay never has to drain the socket to zero.
+    expect(writer.pendingBytes()).toBeLessThanOrEqual(2048)
+  })
+
+  test('whenBelow releases a paced producer when the writer fails closed', async () => {
+    const overflow: SocketWriterOverflowReason[] = []
+    const writer = createBackpressuredSocketWriter(
+      {
+        write: () => 0,
+        end: () => undefined,
+      },
+      {
+        maxQueuedBytes: 1024,
+        drainPollMs: 5_000,
+        onOverflow: (reason) => overflow.push(reason),
+      }
+    )
+    writer.send(new Uint8Array(512))
+    const paced = writer.whenBelow(0)
+    // 512 + 1024 exceeds the bound: the writer fails the connection closed.
+    writer.send(new Uint8Array(1024))
+    await paced
+    expect(overflow).toEqual(['queue_overflow'])
+    expect(writer.isClosed()).toBe(true)
+  })
+
   test('a multi-megabyte flood through the real socket pair loses nothing and keeps exact order', async () => {
     const socketPath = join(tmpdir(), `adea-writer-flood-${randomUUID()}.sock`)
     // 20,000 small frames (the defect probe's shape) plus 64 × 64 KiB frames

@@ -174,4 +174,12 @@ export interface ByteDuplex {
   onData(callback: (bytes: Uint8Array) => void): () => void
   onClose(callback: () => void): void
   close(): void
+  /**
+   * Resolves once the transport's pending write queue is at or below
+   * `highWaterBytes`, or the connection is gone. A replay far larger than the
+   * transport's queue bound paces on this instead of enqueueing the whole span
+   * and tripping the overflow guard (#593). Absent on in-process duplexes with
+   * no queue that can overflow.
+   */
+  whenBelow?(highWaterBytes: number): Promise<void>
 }

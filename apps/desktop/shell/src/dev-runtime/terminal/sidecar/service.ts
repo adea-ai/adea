@@ -116,6 +116,9 @@ export function createSidecarService(options: SidecarServiceOptions) {
   const observationsByTerminal = new Map<string, ShellObservation[]>()
   const exitCodes = new Map<string, number | null>()
   const connections = new Set<ConnectionState>()
+  // The limit set the manager runs with; the durable-bridge pacing reuses its
+  // per-subscriber high-water so both paths agree on where backpressure starts.
+  const limits = options.managerLimits ?? TERMINAL_LIMITS
 
   const manager: TerminalManager = createTerminalManager({
     ptyAdapter: options.ptyAdapter,
@@ -416,7 +419,17 @@ export function createSidecarService(options: SidecarServiceOptions) {
             try {
               const bridge = durableBridge(sink, request.sinceSeq, coverage.oldestSeq)
               if (bridge) {
+                // The bridge can dwarf the transport's queue bound (8 MiB), so
+                // the replay paces on the transport instead of enqueueing the
+                // whole span: each chunk waits for the queue to fall to the
+                // per-subscriber high-water before it is handed over. Without
+                // this, a gap larger than the bound tripped queue_overflow
+                // mid-replay and every reconnect re-requested the same
+                // oversized bridge — a non-converging loop (#593). Order and
+                // exactly-once delivery are unchanged: the chunks still go out
+                // in sequence, only their handover is paced.
                 for (const chunk of bridge.chunks) {
+                  await state.duplex.whenBelow?.(limits.subscriberHighWaterBytes)
                   deliver({
                     terminalId: request.terminalId,
                     generation: snapshot.generation,
@@ -554,6 +567,10 @@ export function createSidecarService(options: SidecarServiceOptions) {
       subscribers: new Map(),
     }
     connections.add(state)
+    // Frames run through a per-connection promise chain: the attach path awaits
+    // transport capacity while it replays a durable bridge, and an open await
+    // must never let the next frame overtake the one in flight (#593).
+    let handling: Promise<void> = Promise.resolve()
     const unsubscribe = duplex.onData((bytes) => {
       let frames: DecodedSidecarFrame[]
       try {
@@ -565,12 +582,14 @@ export function createSidecarService(options: SidecarServiceOptions) {
         return
       }
       for (const frame of frames) {
-        try {
-          if (frame.channel === 0x01) handleControl(state, frame.message as SidecarRequest)
-          else handleByteFrame(state, frame)
-        } catch (cause) {
-          refuse(state, 'invalid_state', cause instanceof Error ? cause.message : String(cause))
-        }
+        handling = handling.then(async () => {
+          try {
+            if (frame.channel === 0x01) await handleControl(state, frame.message as SidecarRequest)
+            else handleByteFrame(state, frame)
+          } catch (cause) {
+            refuse(state, 'invalid_state', cause instanceof Error ? cause.message : String(cause))
+          }
+        })
       }
     })
     duplex.onClose(() => {

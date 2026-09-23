@@ -154,6 +154,11 @@ class SocketDuplex implements ByteDuplex {
     this.writer?.notifyDrain()
   }
 
+  /** Pacing seam for a durable replay larger than the writer's queue bound. */
+  whenBelow(highWaterBytes: number): Promise<void> {
+    return this.writer?.whenBelow(highWaterBytes) ?? Promise.resolve()
+  }
+
   send(bytes: Uint8Array): void {
     this.writer?.send(bytes)
   }
