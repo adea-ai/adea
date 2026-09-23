@@ -33,21 +33,21 @@ chunk. Three of those four are not comparable today by construction:
 Adopt these budgets. Each is enforced by a named lane; the lane is the
 authority and this table records the number it enforces.
 
-| Budget | Value | Enforced by | Baseline (2026-09-23) |
-| --- | --- | --- | --- |
-| Client JS bytes | ≤ 1,600,000 | `bun run --cwd apps/web start:check-bundle` | 1,597,600 (**99.85 %**) |
-| Client JS files | ≤ 72 | same | 68 |
-| Dev View lazy chunk | ≤ 86,016 B | `bun scripts/check-dev-view-bundle.mjs` | 73,030 |
-| Local TTFB (p50, built Worker) | ≤ 300 ms | `bun run test:performance:web` | 3.3 ms |
-| LCP (pinned Chromium, loopback) | ≤ 4,000 ms | same | 108 ms |
-| CLS (same run) | ≤ 0.15 | same | 0 |
-| Worst scripted interaction (INP proxy) | ≤ 500 ms | same | 24 ms |
-| Build tree carries no non-deploy file | except the plugin's local `.dev.vars` | same | `server/.dev.vars` only |
+| Budget                                 | Value                                 | Enforced by                                 | Baseline (2026-09-23)   |
+| -------------------------------------- | ------------------------------------- | ------------------------------------------- | ----------------------- |
+| Client JS bytes                        | ≤ 1,600,000                           | `bun run --cwd apps/web start:check-bundle` | 1,597,600 (**99.85 %**) |
+| Client JS files                        | ≤ 72                                  | same                                        | 68                      |
+| Dev View lazy chunk                    | ≤ 86,016 B                            | `bun scripts/check-dev-view-bundle.mjs`     | 73,030                  |
+| Local TTFB (p50, built Worker)         | ≤ 300 ms                              | `bun run test:performance:web`              | 3.3 ms                  |
+| LCP (pinned Chromium, loopback)        | ≤ 4,000 ms                            | same                                        | 108 ms                  |
+| CLS (same run)                         | ≤ 0.15                                | same                                        | 0                       |
+| Worst scripted interaction (INP proxy) | ≤ 500 ms                              | same                                        | 24 ms                   |
+| Build tree carries no non-deploy file  | except the plugin's local `.dev.vars` | same                                        | `server/.dev.vars` only |
 
 ## Go/no-go gates
 
 1. **Client JS is at the wall.** At 99.85 % of its byte budget, any further
-   client-JS addition is a *decision*, not a change: raise the budget with a
+   client-JS addition is a _decision_, not a change: raise the budget with a
    recorded reason, or split/remove code. No silent growth.
 2. **A full rebuild is the cost unit.** Because no incremental cache exists,
    build-time regressions are measured against cold/rebuild, never against a
