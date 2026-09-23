@@ -59,7 +59,12 @@ const DURABLE_MAX_BYTES_PER_SESSION = 256 * 1024 * 1024
 const DURABLE_SLACK_BYTES = 16 * 1024 * 1024
 const RECORD_BYTES = 34 // "SOAKLINE%06d|payload|\r\n" after PTY ONLCR
 
-const rounds = Number(process.env.ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS ?? 1)
+// A wall-clock budget governs the run when the caller gives one; an explicit
+// round count is then a hard upper bound. Without this, the round cap (whose
+// default is one round, and whose maximum is 10,000 ≈ 1.7h of warm rounds at
+// ~0.6s each) would end a 24-hour soak long before its budget.
+const roundsRequested = process.env.ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS !== undefined
+const rounds = roundsRequested ? Number(process.env.ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS) : 1
 const durationMs = Number(process.env.ADEA_DEV_RUNTIME_TERMINAL_SOAK_DURATION_MS ?? 0)
 const floodLines = Number(process.env.ADEA_DEV_RUNTIME_TERMINAL_SOAK_FLOOD_LINES ?? 40_000)
 if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10_000) {
@@ -785,7 +790,8 @@ try {
 
   let round = 0
   let phase = 0
-  while (round < rounds) {
+  const roundCap = roundsRequested ? rounds : durationMs > 0 ? Number.MAX_SAFE_INTEGER : rounds
+  while (round < roundCap) {
     round += 1
     const roundMs = await runRound(round)
     if (roundMs === null) break
@@ -828,7 +834,20 @@ try {
   sampleUntil = 0
   if (!received.contiguous) exitCode = 1
   if (failures.length > 0) exitCode = 1
-  else console.log(`TERMINAL-SOAK PASS (${verified.length} verified assertions, 0 failures)`)
+  // A wall-clock budget the round cap ends early is a silent false pass: a
+  // "24-hour" soak that stops after one round reports success. Fail loudly so
+  // an acceptance claim is only made when the budget actually bound.
+  const laneElapsedMs = Math.round(performance.now() - laneStarted)
+  const budgetHonored = durationMs === 0 || laneElapsedMs >= durationMs
+  if (!budgetHonored) {
+    exitCode = 1
+    console.error(
+      `TERMINAL-SOAK FAIL: the round cap (${rounds}) ended the run after ${laneElapsedMs}ms, ` +
+        `short of the ${durationMs}ms budget; raise ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS`
+    )
+  } else if (exitCode === 0) {
+    console.log(`TERMINAL-SOAK PASS (${verified.length} verified assertions, 0 failures)`)
+  }
   const rss = samples.map((sample) => sample.rssBytes).filter((value) => value !== null)
   const durable = samples.map((sample) => sample.durableBytes)
   const { writeLaneSummary } = await import('./dev-runtime-lane-report.mjs')
@@ -840,6 +859,7 @@ try {
       rounds: roundLedger.length,
       requestedRounds: rounds,
       durationBudgetMs: durationMs,
+      budgetHonored,
       floodLines,
       elapsedMs: Math.round(performance.now() - laneStarted),
       integrity: {
