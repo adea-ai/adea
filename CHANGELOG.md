@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.48.1](https://github.com/adea-ai/adea/compare/v0.48.0...v0.48.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **harness:** the managed-install rollback must not throw its own cleanup ([#629](https://github.com/adea-ai/adea/issues/629)) ([3bd21f2](https://github.com/adea-ai/adea/commit/3bd21f2e99c352da319f31a2fee5473f7dbb2a1f)), closes [#185](https://github.com/adea-ai/adea/issues/185)
+
+
+### Tests
+
+* **m10:** pin [#85](https://github.com/adea-ai/adea/issues/85)'s two open security boxes — local independence and node restart ([#630](https://github.com/adea-ai/adea/issues/630)) ([4eb0aa5](https://github.com/adea-ai/adea/commit/4eb0aa5335e3fd397cdd800954539ac9b39ce999))
+
 ## [0.48.0](https://github.com/adea-ai/adea/compare/v0.47.3...v0.48.0) (2026-09-23)
 
 
