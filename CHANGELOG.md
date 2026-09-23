@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.3](https://github.com/adea-ai/adea/compare/v0.46.2...v0.46.3) (2026-09-23)
+
+
+### Tests
+
+* **remote-content:** tamper a middle ciphertext group so the AEAD is what rejects it ([#613](https://github.com/adea-ai/adea/issues/613)) ([02157e1](https://github.com/adea-ai/adea/commit/02157e12af8bb110b66d27da73bcde319d56fcb5))
+
 ## [0.46.2](https://github.com/adea-ai/adea/compare/v0.46.1...v0.46.2) (2026-09-23)
 
 
