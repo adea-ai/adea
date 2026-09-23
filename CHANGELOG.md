@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.2](https://github.com/adea-ai/adea/compare/v0.46.1...v0.46.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **dev-runtime:** make a cookie-source read failure typed and pin partition fidelity ([#609](https://github.com/adea-ai/adea/issues/609)) ([f2b22a4](https://github.com/adea-ai/adea/commit/f2b22a41b986c2b199ed6080788861433a31fac9)), closes [#422](https://github.com/adea-ai/adea/issues/422)
+
 ## [0.46.1](https://github.com/adea-ai/adea/compare/v0.46.0...v0.46.1) (2026-09-23)
 
 
