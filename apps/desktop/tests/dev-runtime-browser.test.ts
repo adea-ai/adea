@@ -526,6 +526,68 @@ describe('cookie import', () => {
     await expect(service.commit(plan2.id, '0'.repeat(64), target)).rejects.toThrow('digest')
   })
 
+  test('a source reader failure is typed, surfaces its cause, and writes nothing', async () => {
+    const service = createCookieImportService({ now: () => '2026-09-18T12:00:00.000Z' })
+    const target = memoryStore([cookie('.example.com', 'existing', 'keep-me')])
+    // The reader is the host seam where a profile read or a keychain cookie
+    // decryption fails; it must surface as a typed import failure rather than a
+    // raw host error escaping the operation.
+    await expect(
+      service.plan({
+        browserLaneId: 'lane-1',
+        laneGeneration: 1,
+        sourceProfileId: 'chrome-default',
+        domains: ['example.com'],
+        readSource: async () => {
+          throw new Error('keychain decrypt refused')
+        },
+        targetStore: target,
+      })
+    ).rejects.toMatchObject({
+      code: 'cookie_import_failed',
+      message: expect.stringContaining('decrypt'),
+    })
+    // Planning writes nothing: the lane profile is exactly as it was.
+    expect(target.rows()).toEqual([cookie('.example.com', 'existing', 'keep-me')])
+  })
+
+  test('partition keys survive an import and are restored exactly on rollback', async () => {
+    const service = createCookieImportService({ now: () => '2026-09-18T12:00:00.000Z' })
+    const partition = { topLevelSite: 'https://embed.example', hasCrossSiteAncestor: true }
+    const target = memoryStore([
+      { ...cookie('.example.com', 'existing', 'keep-me'), partitionKey: partition },
+    ])
+    const plan = await service.plan({
+      browserLaneId: 'lane-1',
+      laneGeneration: 1,
+      sourceProfileId: 'chrome-default',
+      domains: ['example.com'],
+      readSource: async () => [
+        { ...cookie('.example.com', 'imported', 'new'), partitionKey: partition },
+      ],
+      targetStore: target,
+    })
+    expect((await service.commit(plan.id, plan.digest, target)).rolledBack).toBe(false)
+    expect(target.rows().find((row) => row.name === 'imported')?.partitionKey).toEqual(partition)
+    expect(target.rows().some((row) => row.name === 'existing')).toBe(false)
+
+    // Cancelling the next import must restore the replaced row with its
+    // ORIGINAL partition, not a partition-less copy of the same coordinates.
+    const second = await service.plan({
+      browserLaneId: 'lane-1',
+      laneGeneration: 1,
+      sourceProfileId: 'chrome-default',
+      domains: ['example.com'],
+      readSource: async () => [cookie('.example.com', 'imported', 'replacement')],
+      targetStore: target,
+    })
+    const cancelled = await service.commit(second.id, second.digest, target, { cancelled: true })
+    expect(cancelled.rolledBack).toBe(true)
+    const restored = target.rows().find((row) => row.name === 'imported')
+    expect(restored?.value).toBe('new')
+    expect(restored?.partitionKey).toEqual(partition)
+  })
+
   test('no cookie value ever appears in results, plans, or error messages', async () => {
     const service = createCookieImportService({ now: () => '2026-09-18T12:00:00.000Z' })
     const target = memoryStore([])
