@@ -706,6 +706,55 @@ describe('harness substrate behind the M10 gate', () => {
 })
 
 describe('ACP lane (#32)', () => {
+  test('a harness without native history still connects, and Agent HQ keeps its own timeline (#32)', async () => {
+    // The box: "Native history capability absence never prevents Agent HQ from
+    // using its own Channel/Message timeline." The driver here does not claim
+    // history at all (the refusal case elsewhere is the *inconsistent* driver
+    // that claims it while reporting it unavailable), so the connection must be
+    // admitted and the absence reported truthfully.
+    const events: Array<{ event: string; payload: Record<string, unknown> }> = []
+    const installationId = randomUUID()
+    const shell = await boot({
+      acpDriver: scriptedAcpDriver({ capabilities: ['session'], history: 'unavailable' }),
+      seedAcpInstallation: { id: installationId },
+      publish: (event, payload) =>
+        events.push({ event, payload: payload as Record<string, unknown> }),
+    })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      const connected = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.harness.acpConnect',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: session.generation,
+              harnessInstallationId: installationId,
+            },
+            { resource: sessionResource(session) }
+          )
+        )
+      )
+      expect(connected).toMatchObject({
+        runtimeSessionId: session.id,
+        harnessInstallationId: installationId,
+        state: 'ready',
+        history: 'unavailable',
+        driverId: 'scripted-acp',
+      })
+      // Nothing required went missing: history is simply not on offer.
+      expect(connected.missingRequiredCapabilities).toEqual([])
+      // Agent HQ's timeline is its own: the connect publishes against the
+      // canonical session, so the harness's absent history neither replaces nor
+      // invalidates it.
+      expect(events.some((entry) => JSON.stringify(entry.payload).includes(session.id))).toBe(true)
+    } finally {
+      await shell.host().shutdown?.()
+    }
+  })
+
   test('a negotiated ACP connection maps onto the canonical session', async () => {
     const events: Array<{ event: string; payload: Record<string, unknown> }> = []
     const installationId = randomUUID()
