@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.50.0](https://github.com/adea-ai/adea/compare/v0.49.1...v0.50.0) (2026-09-23)
+
+
+### Features
+
+* **browser:** detect and read native browser cookie sources ([#636](https://github.com/adea-ai/adea/issues/636)) ([331e776](https://github.com/adea-ai/adea/commit/331e77675add1f550cb59f4d65f9f31cc53ba033)), closes [#610](https://github.com/adea-ai/adea/issues/610)
+
 ## [0.49.1](https://github.com/adea-ai/adea/compare/v0.49.0...v0.49.1) (2026-09-23)
 
 
