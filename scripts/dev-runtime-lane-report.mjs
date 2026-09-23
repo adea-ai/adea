@@ -5,15 +5,19 @@ import { fileURLToPath } from 'node:url'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 /**
- * Retained summary for a named Dev Runtime validation lane. M12 evidence
- * requires each named command to end with a machine-readable summary under a
- * git-ignored artifacts directory; the lane prints the path on success and on
- * failure so CI and local runs leave the same breadcrumb.
+ * Retained summary for a named validation lane. Evidence requirements ask each
+ * named command to end with a machine-readable summary under a git-ignored
+ * artifacts directory; the lane prints the path on success and on failure so CI
+ * and local runs leave the same breadcrumb. `dir` defaults to the Dev Runtime
+ * namespace and can be pointed at another lane family (e.g. `artifacts/perf`).
  */
-export async function writeLaneSummary(lane, { command, status, startedAt, details = {} }) {
-  const dir = path.join(root, 'artifacts', 'dev-runtime')
-  await mkdir(dir, { recursive: true })
-  const summaryPath = path.join(dir, `${lane}-summary.json`)
+export async function writeLaneSummary(
+  lane,
+  { command, status, startedAt, details = {}, dir = 'artifacts/dev-runtime' }
+) {
+  const target = path.join(root, dir)
+  await mkdir(target, { recursive: true })
+  const summaryPath = path.join(target, `${lane}-summary.json`)
   const summary = {
     lane,
     command,
