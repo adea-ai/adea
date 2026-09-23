@@ -62,9 +62,25 @@ export const BASELINE = [
  * behaviour is testable. */
 export function scanSource(source, file) {
   const violations = []
+  let inBlockComment = false
   for (const [index, line] of source.split('\n').entries()) {
     const trimmed = line.trim()
-    if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue
+    // Comment state is tracked across lines: only the marker lines start with
+    // `*` or `/*`, so a documentation sentence on a continuation line (an
+    // issue number like `#599`) would otherwise read as chrome.
+    const wasInBlockComment = inBlockComment
+    if (inBlockComment) {
+      if (line.includes('*/')) inBlockComment = false
+    } else if (trimmed.startsWith('/*') && !trimmed.includes('*/')) {
+      inBlockComment = true
+    }
+    if (
+      wasInBlockComment ||
+      trimmed.startsWith('//') ||
+      trimmed.startsWith('*') ||
+      trimmed.startsWith('/*')
+    )
+      continue
 
     const literals = line.match(COLOR_LITERALS)
     if (!literals || literals.length === 0) continue

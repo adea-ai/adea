@@ -1118,6 +1118,46 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   })
 })
 
+test('the settings dialog survives re-selecting its active tab and keeps its dismissal contract', async ({
+  page,
+}) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(String(error)))
+  await mockWorkspace(page)
+  await page.goto('/#settings/account')
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+
+  // Re-clicking the already-selected trigger must keep the dialog open (#601):
+  // re-writing the current `#settings/…` hash re-resolved the route, whose
+  // server-only entry loader then ran on the client, crashed the route, and
+  // unmounted the whole workspace behind the error surface.
+  await settings.getByRole('tab', { name: 'Account & app' }).click()
+  await expect(settings).toBeVisible()
+  await expect(settings.getByRole('tab', { name: 'Account & app' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(page).toHaveURL(/#settings\/account$/)
+
+  // Escape dismisses per the dialog convention and leaves no inert background.
+  await page.keyboard.press('Escape')
+  await expect(settings).not.toBeVisible()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  expect(await page.locator('[inert]').count()).toBe(0)
+
+  // Outside pointerdown dismisses per the same convention.
+  await page.getByRole('button', { name: 'User settings' }).click()
+  await page.getByRole('menuitem', { name: 'Settings' }).click()
+  await expect(settings).toBeVisible()
+  await page.mouse.click(24, 400)
+  await expect(settings).not.toBeVisible()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  expect(await page.locator('[inert]').count()).toBe(0)
+  expect(pageErrors).toEqual([])
+})
+
 test('the appearance dialog keeps the ported Zeron composition', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')

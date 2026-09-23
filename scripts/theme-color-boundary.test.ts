@@ -36,6 +36,18 @@ describe('theme color contract', () => {
     expect(scanSource(`  color: var(--success);`, 'x.css')).toEqual([])
     // Comments are documentation, not chrome.
     expect(scanSource(`/* was #1a7f37 */\n// see #123456`, 'x.tsx')).toEqual([])
+    // A block comment's body is documentation on every line it spans, so an
+    // issue number inside it is not a color literal (the #599 false positive).
+    expect(
+      scanSource(
+        `/* muted text darkened\n   for WCAG 1.4.3 (#599)\n*/\n.x { color: var(--muted-foreground); }`,
+        'x.css'
+      )
+    ).toEqual([])
+    // The comment state must close: a literal after the comment still counts.
+    expect(scanSource(`/* a\n b */\n.x { color: #123456; }`, 'x.css')).toEqual([
+      { file: 'x.css', line: 3, literals: ['#123456'] },
+    ])
   })
 
   test('every baseline entry states why and names a real file', async () => {
