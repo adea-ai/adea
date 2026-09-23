@@ -22,6 +22,7 @@ import { isImeComposing, routePaneKey } from '../src/terminal/pane-keys'
 import {
   createSearchState,
   searchClose,
+  searchConsumeStep,
   searchOpen,
   searchPresentation,
   searchSetQuery,
@@ -108,6 +109,39 @@ describe('in-pane search state', () => {
     state = searchToggleCaseSensitive(searchSetQuery(searchOpen(state), 'x'))
     expect(state.caseSensitive).toBe(true)
     expect(state.results).toBeUndefined()
+  })
+
+  test('the ordinal is pane-owned, wraps, and survives a -1 addon index (#594)', () => {
+    let state = searchSetQuery(searchOpen(createSearchState()), 'needle')
+    state = searchSetResults(state, { resultCount: 3, resultIndex: 0 })
+    expect(searchPresentation(state).count).toBe('1 of 3 matches')
+
+    state = searchStep(state, 'next')
+    expect(searchPresentation(state).count).toBe('2 of 3 matches')
+    // The addon's decoration bookkeeping misses and reports -1; the ordinal
+    // the pane already moved to must hold instead of snapping back to "1 of 3".
+    state = searchSetResults(state, { resultCount: 3, resultIndex: -1 })
+    expect(searchPresentation(state).count).toBe('2 of 3 matches')
+
+    state = searchStep(searchConsumeStep(state), 'next')
+    expect(searchPresentation(state).count).toBe('3 of 3 matches')
+    // Wrapping forward returns to the first match...
+    state = searchStep(searchConsumeStep(state), 'next')
+    expect(searchPresentation(state).count).toBe('1 of 3 matches')
+    // ...and wrapping backwards returns to the last.
+    state = searchStep(searchConsumeStep(state), 'previous')
+    expect(searchPresentation(state).count).toBe('3 of 3 matches')
+
+    // A shrinking result set clamps the ordinal instead of reporting a match
+    // that no longer exists.
+    state = searchSetResults(state, { resultCount: 2, resultIndex: -1 })
+    expect(searchPresentation(state).count).toBe('2 of 2 matches')
+    // A fresh query resets to the first match the addon reports.
+    state = searchSetResults(searchSetQuery(state, 'other'), {
+      resultCount: 4,
+      resultIndex: 1,
+    })
+    expect(searchPresentation(state).count).toBe('2 of 4 matches')
   })
 })
 
