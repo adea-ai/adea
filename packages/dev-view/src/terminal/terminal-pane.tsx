@@ -296,8 +296,18 @@ export function TerminalPane(props: TerminalPaneProps) {
     else void searchAddon.findPrevious(state.query, options)
   }
 
+  // The search signal changes on every results event too, so the effect must
+  // not blindly re-find on each of its own updates: it would fight the
+  // Previous stepper (every step's findPrevious is undone by the effect's
+  // findNext) and eventually overflow the stack. Re-find only when the search
+  // inputs themselves changed. (Found by the dev-view-terminal-pane
+  // Playwright lane, #538.)
+  let lastFindKey = ''
   createEffect(() => {
     const state = search()
+    const key = `${state.open}\u0000${state.query}\u0000${state.caseSensitive}`
+    if (key === lastFindKey) return
+    lastFindKey = key
     if (!state.open) {
       searchAddon.clearDecorations()
       return
@@ -365,6 +375,10 @@ export function TerminalPane(props: TerminalPaneProps) {
     if (!element) return
     terminal.open(element)
     terminal.focus()
+    // The resize observer must actually observe the surface: without this the
+    // fit/refit ladder never runs and props.resize can never fire (found by
+    // the dev-view-terminal-pane Playwright lane, #538).
+    observer.observe(element)
     // Lazy WebGL first; DOM is the fallback on any failure or context loss.
     const next = policy.mounted()
     setPolicyVersion((version) => version + 1)

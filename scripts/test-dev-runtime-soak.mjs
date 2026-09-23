@@ -4,13 +4,17 @@
 // descriptor/listener/memory accumulation. Exits nonzero on the first failing
 // round, after writing its retained summary artifact.
 //
-// The lane also demonstrates bounded storage with real measured sizes (#424
-// evidence box): before the rounds it drives the terminal checkpoint store at
-// the real 256 MiB/session retention cap until retention must evict (bytes on
-// disk measured after feeding more than the cap — the write volume is the
-// acceleration, the cap and the production store are not), and drives the
-// metrics history until the 720-point/24-hour caps bind (stored JSON size
-// measured before/after extra samples). A probe failure fails the lane.
+// #538 extends the lane with parameterized durations and a real-sidecar
+// terminal phase:
+// - ADEA_DEV_RUNTIME_SOAK_DURATION_MS (0..86400000, default 0) bounds the
+//   whole lane by wall clock instead of round count. When set, the unit-suite
+//   phase uses at most a quarter of the budget (or its round cap) and the
+//   real-sidecar terminal soak receives the remaining wall clock through
+//   ADEA_DEV_RUNTIME_TERMINAL_SOAK_DURATION_MS.
+// - scripts/dev-runtime-terminal-soak.mjs drives PTY floods, checkpoint
+//   churn, resize storms, attach/detach churn, and crash/restart replay
+//   through the real sidecar process; see that file for its parameters.
+
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -33,8 +37,13 @@ import {
 const startedAt = new Date()
 const command = 'bun run test:soak:dev-runtime'
 const rounds = Number(process.env.ADEA_DEV_RUNTIME_SOAK_ROUNDS ?? 20)
+const durationMs = Number(process.env.ADEA_DEV_RUNTIME_SOAK_DURATION_MS ?? 0)
 if (!Number.isInteger(rounds) || rounds < 1 || rounds > 1000) {
   console.error('ADEA_DEV_RUNTIME_SOAK_ROUNDS must be an integer from 1 to 1000')
+  process.exit(2)
+}
+if (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 86_400_000) {
+  console.error('ADEA_DEV_RUNTIME_SOAK_DURATION_MS must be a number from 0 to 86400000')
   process.exit(2)
 }
 
@@ -159,6 +168,8 @@ function probeMetricsHistoryBound() {
   }
 }
 
+
+const laneStarted = performance.now()
 let storage = {}
 let probeFailure = null
 try {
@@ -173,36 +184,55 @@ try {
 
 const roundDurationsMs = []
 let failure = probeFailure ? { round: 0, exitCode: 1 } : null
-if (!failure) {
-  for (let round = 1; round <= rounds; round += 1) {
-    const roundStart = performance.now()
-    const result = spawnSync(
-      'bun',
-      ['test', '--timeout', '120000', 'apps/desktop/tests/terminal-channel.test.ts'],
-      {
-        stdio: 'inherit',
-      }
-    )
-    roundDurationsMs.push(Math.round(performance.now() - roundStart))
-    if (result.status !== 0) {
-      console.error(`Dev Runtime soak failed on round ${round}/${rounds}`)
-      failure = { round, exitCode: result.status ?? 1 }
-      break
+for (let round = 1; round <= rounds; round += 1) {
+  const roundStart = performance.now()
+  const result = spawnSync(
+    'bun',
+    ['test', '--timeout', '120000', 'apps/desktop/tests/terminal-channel.test.ts'],
+    {
+      stdio: 'inherit',
     }
+  )
+  roundDurationsMs.push(Math.round(performance.now() - roundStart))
+  if (result.status !== 0) {
+    console.error(`Dev Runtime soak failed on round ${round}/${rounds}`)
+    failure = { round, exitCode: result.status ?? 1 }
+    break
+  }
+  if (durationMs > 0 && performance.now() - laneStarted >= durationMs / 4) {
+    break
   }
 }
 
-await writeLaneSummary('soak', {
-  command,
-  status: failure ? 'failed' : 'passed',
-  startedAt,
-  details: {
-    rounds: failure ? failure.round : rounds,
-    requestedRounds: rounds,
-    exitCode: failure ? failure.exitCode : 0,
-    roundDurationsMs,
-    storage,
-    ...(probeFailure ? { storageProbeError: probeFailure } : {}),
-  },
-})
-process.exit(failure ? failure.exitCode : 0)
+// Real-sidecar terminal soak phase (#538). ADEA_DEV_RUNTIME_SOAK_SKIP_TERMINAL=1
+// opts out for a unit-rounds-only run; the named lane still reports the skip.
+let terminalExitCode = 0
+let terminalSkipped = false
+if (failure === null && process.env.ADEA_DEV_RUNTIME_SOAK_SKIP_TERMINAL !== '1') {
+  const phaseEnv = { ...process.env }
+  if (durationMs > 0 && phaseEnv.ADEA_DEV_RUNTIME_TERMINAL_SOAK_DURATION_MS === undefined) {
+    const remaining = Math.max(0, Math.round(durationMs - (performance.now() - laneStarted)))
+    phaseEnv.ADEA_DEV_RUNTIME_TERMINAL_SOAK_DURATION_MS = String(remaining)
+  }
+  const terminalStart = performance.now()
+  const terminal = spawnSync('bun', ['scripts/dev-runtime-terminal-soak.mjs'], {
+    stdio: 'inherit',
+    env: phaseEnv,
+  })
+  const terminalElapsedMs = Math.round(performance.now() - terminalStart)
+  terminalExitCode = terminal.status ?? 1
+  await writeLaneSummary('soak-terminal-phase', {
+    command: 'bun scripts/dev-runtime-terminal-soak.mjs',
+    status: terminalExitCode === 0 ? 'passed' : 'failed',
+    startedAt: new Date(),
+    details: {
+      elapsedMs: terminalElapsedMs,
+      exitCode: terminalExitCode,
+      summaryArtifact: 'artifacts/dev-runtime/terminal-soak-summary.json',
+    },
+  })
+} else {
+  terminalSkipped = true
+}
+
+const elapsedMs = Math.round(performance.now() - laneStarted)
