@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.47.2](https://github.com/adea-ai/adea/compare/v0.47.1...v0.47.2) (2026-09-23)
+
+
+### Tests
+
+* **shell:** pin Agent HQ state survival across component restart and rollback ([#621](https://github.com/adea-ai/adea/issues/621)) ([2c97e97](https://github.com/adea-ai/adea/commit/2c97e97cf69f1bc4bc9ee4c4127f989d66bdcee2))
+* **worktrees:** pin environment injection refusal and the output cap ([#620](https://github.com/adea-ai/adea/issues/620)) ([718e334](https://github.com/adea-ai/adea/commit/718e334d451d098625a7c9a2c958a89fb7864007)), closes [#33](https://github.com/adea-ai/adea/issues/33)
+
 ## [0.47.1](https://github.com/adea-ai/adea/compare/v0.47.0...v0.47.1) (2026-09-23)
 
 
