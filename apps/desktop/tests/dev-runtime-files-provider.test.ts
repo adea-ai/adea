@@ -72,7 +72,13 @@ type CapturedStreamProvider = (session: {
   onClose?: () => void
 }) => void
 
-function runtime(options: { lifecycle?: string; resolve?: (id: string) => boolean } = {}) {
+function runtime(
+  options: {
+    lifecycle?: string
+    resolve?: (id: string) => boolean
+    protectedRoots?: readonly string[]
+  } = {}
+) {
   const authority = createChannelAuthority({
     shellHost: '127.0.0.1',
     shellOrigin: 'https://127.0.0.1:4789',
@@ -80,6 +86,7 @@ function runtime(options: { lifecycle?: string; resolve?: (id: string) => boolea
   const registered = registerFilesRuntime({
     authority,
     scope,
+    ...(options.protectedRoots ? { protectedRoots: options.protectedRoots } : {}),
     resolveWorktree: (worktreeId) => {
       if (options.resolve && !options.resolve(worktreeId)) return undefined
       if (!roots) return undefined
@@ -849,3 +856,140 @@ describe('files/search provider', () => {
 function outsideBin(): string {
   return tmpdir()
 }
+
+// #622: containment proves a path is INSIDE an approved root; the default-deny
+// policy decides whether the path is one a grant should expose at all. These
+// cases pin the sensitivity half on the real dispatch path.
+describe('default-deny policy (#622)', () => {
+  test('a credential-store path inside the root refuses with path_denied (read and write)', async () => {
+    const sshDir = join(fixtureRoot(), '.ssh')
+    mkdirSync(sshDir, { recursive: true })
+    writeFileSync(join(sshDir, 'id_rsa'), 'PRIVATE KEY BYTES')
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+
+    const read = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.read',
+        { worktreeId: WORKTREE_ID, path: wsPath('.ssh/id_rsa') },
+        filesResource()
+      )
+    )
+    expect(read.ok).toBe(false)
+    if (!read.ok) expect(read.error.code).toBe('path_denied')
+
+    const write = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.write',
+        {
+          worktreeId: WORKTREE_ID,
+          path: wsPath('.ssh/injected'),
+          expectedIdentity: { mtimeNs: '0', size: '0' },
+          content: new TextEncoder().encode('x'),
+          eolPolicy: 'preserve',
+        },
+        filesResource()
+      )
+    )
+    expect(write.ok).toBe(false)
+    if (!write.ok) expect(write.error.code).toBe('path_denied')
+    expect(existsSync(join(sshDir, 'injected'))).toBe(false)
+  })
+
+  test('key material is denied by name even before it exists, and a symlink cannot route around the rule', async () => {
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+
+    // Create-as-write of a private key name: denied by NAME (the file may not
+    // exist yet), so the policy checks the target as well as its resolution.
+    // The parent must exist for resolution to reach the policy at all: a missing
+    // parent fails earlier as not_found, which is also fail-closed but exercises
+    // a different rule.
+    mkdirSync(join(fixtureRoot(), 'certs'), { recursive: true })
+    const create = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.write',
+        {
+          worktreeId: WORKTREE_ID,
+          path: wsPath('certs/new-issuer.key'),
+          expectedIdentity: { mtimeNs: '0', size: '0' },
+          content: new TextEncoder().encode('x'),
+          eolPolicy: 'preserve',
+        },
+        filesResource()
+      )
+    )
+    expect(create.ok).toBe(false)
+    if (!create.ok) expect(create.error.code).toBe('path_denied')
+
+    // A symlink pointing at the credential store resolves into it, and the
+    // resolved path is what the policy evaluates.
+    mkdirSync(join(fixtureRoot(), 'aws-store'), { recursive: true })
+    writeFileSync(join(fixtureRoot(), 'aws-store', '.aws-placeholder'), 'x')
+    mkdirSync(join(fixtureRoot(), 'linked'), { recursive: true })
+    symlinkSync(join(fixtureRoot(), 'aws-store'), join(fixtureRoot(), 'linked/aws'), 'dir')
+    mkdirSync(join(fixtureRoot(), 'aws-store/.aws'), { recursive: true })
+    writeFileSync(join(fixtureRoot(), 'aws-store/.aws/credentials'), 'aws creds')
+    const viaSymlink = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.read',
+        { worktreeId: WORKTREE_ID, path: wsPath('linked/aws/.aws/credentials') },
+        filesResource()
+      )
+    )
+    expect(viaSymlink.ok).toBe(false)
+    if (!viaSymlink.ok) expect(['path_denied', 'symlink_rejected']).toContain(viaSymlink.error.code)
+  })
+
+  test('an Agent HQ authority root is never exposed, and ordinary project files are unaffected', async () => {
+    const contentDir = join(fixtureRoot(), 'local-content')
+    mkdirSync(contentDir, { recursive: true })
+    writeFileSync(join(contentDir, 'agent-hq-content.sqlite'), 'ciphertext')
+    const { authority } = runtime({ protectedRoots: [contentDir] })
+    const channel = handshakeChannel(authority)
+
+    const guarded = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.read',
+        { worktreeId: WORKTREE_ID, path: wsPath('local-content/agent-hq-content.sqlite') },
+        filesResource()
+      )
+    )
+    expect(guarded.ok).toBe(false)
+    if (!guarded.ok) expect(guarded.error.code).toBe('path_denied')
+
+    // The policy must not over-block: a project's own dotfiles still read.
+    writeFileSync(join(fixtureRoot(), '.env'), 'FEATURE_FLAG=1\n')
+    writeFileSync(join(fixtureRoot(), 'cert.pem'), '-----BEGIN CERTIFICATE-----\n')
+    const env = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.read',
+        { worktreeId: WORKTREE_ID, path: wsPath('.env') },
+        filesResource()
+      )
+    )
+    expect(env.ok).toBe(true)
+    const certificate = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.read',
+        { worktreeId: WORKTREE_ID, path: wsPath('cert.pem') },
+        filesResource()
+      )
+    )
+    expect(certificate.ok).toBe(true)
+  })
+})
