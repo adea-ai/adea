@@ -16,9 +16,11 @@ import type {
   ScreenshotRef,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import type { ChannelIdentity } from '../channel/authority'
 
 import { CookieImportError } from './cookie-import'
+import { detectCookieSources } from './cookie-sources'
 import { createLaneDiagnostics, type LaneDiagnostics } from './diagnostics'
 import {
   BrowserLaneError,
@@ -176,6 +178,13 @@ export type BrowserProvidersInput = Readonly<{
   /** Live lane engine seam; absent engines fail typed-unavailable. */
   engine?: LaneEngine
   screenshotRecorder: ScreenshotRecorder
+  /**
+   * Home directory the cookie-source detection scans (#610). Defaults to the
+   * real home; tests script it so detection never depends on the machine.
+   */
+  cookieSourceHomeDir?: () => string
+  /** Keychain read for the Chromium family; defaults to the host's own. */
+  keychainSecret?: (service: string) => string | null
 }>
 
 function assertScopeMatch(command: DevCommand, lane: BrowserLaneRecord): void {
@@ -703,6 +712,20 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
         fromSequence:
           typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
       })
+    },
+    'dev.browser.cookieSources': () => {
+      // The detected sources are host facts, not lane state: the op reports
+      // what this machine has, typed — a browser that exists but cannot be
+      // parsed or read appears as a typed row rather than being hidden.
+      const home = input.cookieSourceHomeDir?.() ?? homedir()
+      const rows = detectCookieSources(home).map((source) => ({
+        id: source.id,
+        kind: source.kind,
+        label: source.label,
+        availability: source.availability,
+        ...(source.detail !== undefined ? { detail: source.detail } : {}),
+      }))
+      return { items: rows, nextCursor: null, total: rows.length }
     },
     'dev.browser.cookieImportPlan': (command) => {
       const lane = laneFor(command)
