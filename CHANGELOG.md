@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.0](https://github.com/adea-ai/adea/compare/v0.46.3...v0.47.0) (2026-09-23)
+
+
+### Features
+
+* **perf:** measure the M15 web/desktop baseline and gate the budgets ([#615](https://github.com/adea-ai/adea/issues/615)) ([4c38738](https://github.com/adea-ai/adea/commit/4c38738c7363e2359c9ef572e4d81a96645aa1ed))
+
 ## [0.46.3](https://github.com/adea-ai/adea/compare/v0.46.2...v0.46.3) (2026-09-23)
 
 
