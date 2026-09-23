@@ -199,3 +199,11 @@ export const workspaceStore = {
 export function useWorkspaceState<T>(selector: (state: WorkspaceState) => T): Accessor<T> {
   return createMemo(() => selector(state))
 }
+
+export {
+  browserStorage,
+  readPersisted,
+  writePersisted,
+  type PersistedRead,
+  type PersistedStorage,
+} from './persisted-storage'

@@ -1,5 +1,5 @@
 import { createEffect, createRoot, createSignal, onCleanup, onMount, type Accessor } from 'solid-js'
-import { workspaceStore, type WorkspaceState } from '@adea-ai/state'
+import { browserStorage, readPersisted, workspaceStore, type WorkspaceState } from '@adea-ai/state'
 
 import { createWorkspaceStatePersister } from './workspace-state-persister'
 
@@ -16,6 +16,61 @@ type PersistedState = Pick<
   | 'selectedWorkspaceId'
   | 'threadRootMessageId'
 >
+
+const ACTIVE_SURFACES = new Set(['agents', 'conversation', 'tasks'])
+const NULLABLE_ID_FIELDS = [
+  'selectedAgentId',
+  'selectedChannelId',
+  'selectedRoomId',
+  'selectedTaskId',
+  'selectedWorkspaceId',
+  'threadRootMessageId',
+] as const
+
+/**
+ * Validates a persisted blob for `restoreConventionalState`, which merges what
+ * it is handed straight into the store. A field that is PRESENT with the wrong
+ * type rejects the whole blob (corruption); a MISSING field is accepted (an
+ * older shape), so a legacy blob still restores what it has. Exported so the
+ * rejection rules are pinned by tests rather than by reading the store.
+ */
+export function validatePersistedState(parsed: unknown): Partial<PersistedState> | undefined {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+  const candidate = parsed as Record<string, unknown>
+  const restored: Partial<PersistedState> = {}
+
+  if ('activeSurface' in candidate) {
+    if (
+      typeof candidate.activeSurface !== 'string' ||
+      !ACTIVE_SURFACES.has(candidate.activeSurface)
+    )
+      return undefined
+    restored.activeSurface = candidate.activeSurface as PersistedState['activeSurface']
+  }
+  if ('collapsedRoomIds' in candidate) {
+    const ids = candidate.collapsedRoomIds
+    if (!Array.isArray(ids) || !ids.every((entry) => typeof entry === 'string')) return undefined
+    restored.collapsedRoomIds = ids as readonly string[]
+  }
+  if ('drafts' in candidate) {
+    const drafts = candidate.drafts
+    if (
+      drafts === null ||
+      typeof drafts !== 'object' ||
+      Array.isArray(drafts) ||
+      !Object.values(drafts as Record<string, unknown>).every((entry) => typeof entry === 'string')
+    )
+      return undefined
+    restored.drafts = drafts as Readonly<Record<string, string>>
+  }
+  for (const field of NULLABLE_ID_FIELDS) {
+    if (!(field in candidate)) continue
+    const value = candidate[field]
+    if (value !== null && typeof value !== 'string') return undefined
+    restored[field] = value
+  }
+  return restored
+}
 
 function persistedState(state: WorkspaceState): PersistedState {
   return {
@@ -55,12 +110,12 @@ function createPersistence(): Accessor<boolean> {
   // One-time restore: it tracks nothing, so onMount says what the effect was
   // silently relying on.
   onMount(() => {
-    try {
-      const saved = window.localStorage.getItem(STORAGE_KEY)
-      if (saved) workspaceStore.getState().restoreConventionalState(JSON.parse(saved))
-    } catch {
-      window.localStorage.removeItem(STORAGE_KEY)
-    }
+    // Through the persistence boundary (#302): malformed text is quarantined
+    // rather than deleted, and a blob whose present fields are the wrong type
+    // is dropped instead of being merged into the store — restoreConventionalState
+    // writes what it is given straight into the store.
+    const { value } = readPersisted(browserStorage(), STORAGE_KEY, validatePersistedState)
+    if (value) workspaceStore.getState().restoreConventionalState(value)
     setReady(true)
   })
 

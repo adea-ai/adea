@@ -1,4 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import { browserStorage, readPersisted, writePersisted } from '@adea-ai/state'
 
 import {
   categoryLabel,
@@ -80,64 +81,52 @@ type PersistedGlobalCatalog = Readonly<{
   plugins: readonly WorkspacePlugin[]
 }>
 
+function isCatalogSnapshot(entry: unknown): entry is PersistedGlobalCatalog {
+  if (entry === null || typeof entry !== 'object') return false
+  const candidate = entry as PersistedGlobalCatalog
+  return (
+    typeof candidate.catalogId === 'string' &&
+    Array.isArray(candidate.plugins) &&
+    typeof candidate.cachedAt === 'number' &&
+    Date.now() - candidate.cachedAt <= PLUGIN_CACHE_MAX_AGE_MS
+  )
+}
+
 function readPersistedGlobalCatalog(): PersistedGlobalCatalog | undefined {
-  try {
-    const raw = window.localStorage.getItem(GLOBAL_CATALOG_CACHE_KEY)
-    if (!raw) return undefined
-    const entry = JSON.parse(raw) as PersistedGlobalCatalog
-    if (
-      !entry ||
-      typeof entry.catalogId !== 'string' ||
-      !Array.isArray(entry.plugins) ||
-      typeof entry.cachedAt !== 'number' ||
-      Date.now() - entry.cachedAt > PLUGIN_CACHE_MAX_AGE_MS
-    ) {
-      return undefined
-    }
-    return entry
-  } catch {
-    return undefined
-  }
+  // Through the persistence boundary (#302): an expired or malformed entry is
+  // stale (dropped, no quarantine), while unparseable text is corruption and
+  // is preserved for diagnostics.
+  return readPersisted(browserStorage(), GLOBAL_CATALOG_CACHE_KEY, (parsed) =>
+    isCatalogSnapshot(parsed) ? parsed : undefined
+  ).value
 }
 
 function writePersistedGlobalCatalog(entry: PersistedGlobalCatalog): void {
-  try {
-    window.localStorage.setItem(GLOBAL_CATALOG_CACHE_KEY, JSON.stringify(entry))
-  } catch {
-    // Persistence is best-effort: private modes and full quotas simply skip it.
-  }
+  writePersisted(browserStorage(), GLOBAL_CATALOG_CACHE_KEY, entry)
 }
 
 function readPersistedPlugins(workspaceId: string): PersistedPluginCache | undefined {
-  try {
-    const raw = window.localStorage.getItem(PLUGIN_CACHE_STORAGE_KEY)
-    if (!raw) return undefined
-    const parsed = JSON.parse(raw) as Record<string, PersistedPluginCache>
-    const entry = parsed[workspaceId]
-    if (
-      !entry ||
-      typeof entry.catalogId !== 'string' ||
-      !Array.isArray(entry.plugins) ||
-      typeof entry.cachedAt !== 'number' ||
-      Date.now() - entry.cachedAt > PLUGIN_CACHE_MAX_AGE_MS
-    ) {
-      return undefined
-    }
-    return entry
-  } catch {
-    return undefined
-  }
+  // Same boundary, same rules: this workspace's entry must still be fresh.
+  return readPersisted(browserStorage(), PLUGIN_CACHE_STORAGE_KEY, (parsed) => {
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined
+    const entry = (parsed as Record<string, unknown>)[workspaceId]
+    return isCatalogSnapshot(entry) ? entry : undefined
+  }).value
 }
 
 function writePersistedPlugins(workspaceId: string, entry: PersistedPluginCache): void {
-  try {
-    const raw = window.localStorage.getItem(PLUGIN_CACHE_STORAGE_KEY)
-    const parsed = raw ? (JSON.parse(raw) as Record<string, PersistedPluginCache>) : {}
-    parsed[workspaceId] = entry
-    window.localStorage.setItem(PLUGIN_CACHE_STORAGE_KEY, JSON.stringify(parsed))
-  } catch {
-    // Persistence is best-effort: private modes and full quotas simply skip it.
-  }
+  // Read-modify-write over the per-workspace map: other workspaces' entries
+  // survive, and the read goes through the same boundary so unparseable text
+  // is quarantined rather than overwritten.
+  const current = readPersisted(browserStorage(), PLUGIN_CACHE_STORAGE_KEY, (parsed) =>
+    parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)
+      ? undefined
+      : (parsed as Record<string, PersistedPluginCache>)
+  ).value
+  writePersisted(browserStorage(), PLUGIN_CACHE_STORAGE_KEY, {
+    ...current,
+    [workspaceId]: entry,
+  })
 }
 
 export function createRegistryPluginsProvider(
