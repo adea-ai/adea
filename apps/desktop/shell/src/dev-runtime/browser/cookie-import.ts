@@ -253,7 +253,18 @@ export function createCookieImportService(
           'cookie_import_failed',
           'no importable domains remain after policy'
         )
-      const source = await input.readSource()
+      let source: readonly ImportedCookie[]
+      try {
+        source = await input.readSource()
+      } catch (cause) {
+        // A host reader failure — an unreadable profile, a keychain decrypt
+        // refusal — is a typed import failure, never a raw host error escaping
+        // the operation. Planning writes nothing, so the lane is untouched.
+        throw new CookieImportError(
+          'cookie_import_failed',
+          cause instanceof Error ? cause.message : 'the cookie source could not be read'
+        )
+      }
       if (source.length > MAX_COOKIES)
         throw new CookieImportError('limit_exceeded', 'source exceeds 10,000 cookies')
       const families = verdict.accepted
