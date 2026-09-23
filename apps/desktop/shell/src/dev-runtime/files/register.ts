@@ -36,6 +36,8 @@ import {
 } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 
+import { evaluateDenyPolicy } from './deny-policy'
+
 import type { ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway } from '../channel/server'
 import type {
@@ -84,6 +86,9 @@ export type FilesRegistrarInput = {
   /** External-editor/OS handoff seam (fixed argv, no shell); defaults to the
    *  macOS `open` handoff and refuses elsewhere. */
   openPath?: (absolutePath: string) => Promise<string | undefined>
+  /** Agent HQ authority directories (its encrypted content store, the vault,
+   *  the dev-runtime state) that no grant may expose — see #622. */
+  protectedRoots?: readonly string[]
   /** Test seam: rg binary resolution (undefined = PATH lookup). */
   rgPath?: () => string | undefined
   now?: () => number
@@ -197,6 +202,13 @@ function safeSegments(relativePath: string): string[] {
   return segments
 }
 
+/** The default-deny policy with this register's protected roots bound in. */
+function denyPolicy(path: string): ReturnType<typeof evaluateDenyPolicy> {
+  return evaluateDenyPolicy(path, { protectedRoots: denyProtectedRoots })
+}
+
+let denyProtectedRoots: readonly string[] = []
+
 function containsPath(parentPath: string, childPath: string): boolean {
   const rel = relative(parentPath, childPath)
   return rel === '' || (rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\'))
@@ -206,6 +218,12 @@ function containsPath(parentPath: string, childPath: string): boolean {
  *  deepest existing ancestor of the target and require it to stay inside the
  *  canonical root. Catches symlink swaps that happened after listing. */
 function proveContainment(canonicalRoot: string, target: string): void {
+  // Sensitivity first (#622): a denied NAME must refuse even when the file does
+  // not exist yet (a create), and a denied LOCATION must refuse once resolved —
+  // which is why both the target and its deepest existing ancestor are checked.
+  const targetVerdict = denyPolicy(target)
+  if (targetVerdict.denied)
+    throw devError('path_denied', `${targetVerdict.reason} (${targetVerdict.rule})`)
   let probe = target
   for (;;) {
     let resolved: string
@@ -220,6 +238,9 @@ function proveContainment(canonicalRoot: string, target: string): void {
     }
     if (!containsPath(canonicalRoot, resolved))
       throw devError('path_escape', 'resolved path escapes the worktree canonical root')
+    const resolvedVerdict = denyPolicy(resolved)
+    if (resolvedVerdict.denied)
+      throw devError('path_denied', `${resolvedVerdict.reason} (${resolvedVerdict.rule})`)
     return
   }
 }
@@ -729,6 +750,16 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
   commands: readonly DevOperation[]
   registeredCommands: number
 } {
+  // Canonicalize: the policy compares against RESOLVED paths, so an unresolved
+  // root (macOS /tmp -> /private/tmp) would never match and the guard would
+  // silently not apply.
+  denyProtectedRoots = (input.protectedRoots ?? []).map((root) => {
+    try {
+      return realpathSync(root)
+    } catch {
+      return root
+    }
+  })
   const now = input.now ?? Date.now
   const plans = new Map<string, FilePlanEntry>()
   const pendingReads = new Map<string, PendingReadRecord>()

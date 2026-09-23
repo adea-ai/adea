@@ -418,6 +418,8 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ? registerFilesRuntime({
         authority: input.authority,
         scope: input.scope,
+        // Agent HQ's own authority directories are never exposed to grants (#622).
+        protectedRoots: [join(input.dataDir, 'local-content'), join(input.dataDir, 'dev-runtime')],
         // The bulk file-bytes-v1 stream registers on the gateway when the
         // shell composed one; without it those operations stay
         // typed-unavailable through the composition fallback.

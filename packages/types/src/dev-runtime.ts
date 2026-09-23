@@ -74,6 +74,7 @@ export const devErrorCodes = [
   'idempotency_conflict',
   'unauthorized_root',
   'path_escape',
+  'path_denied',
   'symlink_rejected',
   'special_file_rejected',
   'file_changed',

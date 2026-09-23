@@ -15,6 +15,7 @@ export type DevAuthorityCode =
   | 'unauthorized'
   | 'unauthorized_root'
   | 'path_escape'
+  | 'path_denied'
   | 'symlink_rejected'
   | 'special_file_rejected'
   | 'identity_mismatch'
