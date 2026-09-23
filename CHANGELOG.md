@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.1](https://github.com/adea-ai/adea/compare/v0.47.0...v0.47.1) (2026-09-23)
+
+
+### Maintenance
+
+* **state:** give browser persistence one boundary and one failure policy ([#617](https://github.com/adea-ai/adea/issues/617)) ([353ac9f](https://github.com/adea-ai/adea/commit/353ac9f644b67a3aa841f20d7c42ce345517004a))
+
 ## [0.47.0](https://github.com/adea-ai/adea/compare/v0.46.3...v0.47.0) (2026-09-23)
 
 
