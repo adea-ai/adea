@@ -58,7 +58,13 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // lazy chunks: editor-mirror (CodeMirror, ~312kB), source-control (~17kB),
 // resources (~12kB), files (~9kB), permissions (~8kB), agents/history. The
 // per-chunk dev-view budget (check-dev-view-bundle) still guards eager bloat.
-const CLIENT_JS_BUDGET_BYTES = 1_600_000
+//
+// 2026-09-23 (#302, the M16 persistence boundary): 1,597,600 left 2,400 bytes
+// of runway, and the boundary — a validated read/quarantine helper plus the
+// conventional-workspace state validator — cost 3,168 bytes across the chunks
+// that use it. The raise is the deliberate decision ADR 0010's first gate asks
+// for (the M15 lane measured it; this gate caught it), not silent growth.
+const CLIENT_JS_BUDGET_BYTES = 1_605_000
 // Raised from 50 when the #399 stream/hunk residues landed as further
 // intentional lazy chunks: files-pane grew the quick-open dialog (17kB
 // chunk, still lazy), stream-transport rides its own module, and the hunk

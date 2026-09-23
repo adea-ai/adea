@@ -44,8 +44,7 @@ export function browserStorage(): PersistedStorage | undefined {
   }
 }
 
-/** Where corrupt text for `key` is preserved. Versioned like the data keys. */
-export function quarantineKeyFor(key: string): string {
+function quarantineKeyFor(key: string): string {
   return `${key}:quarantine:v1`
 }
 

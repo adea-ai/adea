@@ -3,13 +3,10 @@
 // failure is stale (dropped silently), and unavailable storage is best-effort.
 import { expect, test } from 'bun:test'
 
-import {
-  browserStorage,
-  quarantineKeyFor,
-  readPersisted,
-  writePersisted,
-  type PersistedStorage,
-} from '../src'
+import { browserStorage, readPersisted, writePersisted, type PersistedStorage } from '../src'
+
+/** The key corrupt text is preserved under (the boundary's own convention). */
+const quarantineKeyFor = (key: string) => `${key}:quarantine:v1`
 
 function memoryStorage(initial: Record<string, string> = {}): PersistedStorage & {
   entries: () => Record<string, string>

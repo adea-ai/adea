@@ -202,7 +202,6 @@ export function useWorkspaceState<T>(selector: (state: WorkspaceState) => T): Ac
 
 export {
   browserStorage,
-  quarantineKeyFor,
   readPersisted,
   writePersisted,
   type PersistedRead,
