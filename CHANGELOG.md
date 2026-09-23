@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.46.0](https://github.com/adea-ai/adea/compare/v0.45.1...v0.46.0) (2026-09-23)
+
+
+### Features
+
+* **m12:** browser-matrix real-engine proof, GitHub live-repo pass, PR-intent fix, a11y fixes, snapshot perf, and the M13 packaged chat evidence ([#602](https://github.com/adea-ai/adea/issues/602)) ([39f6164](https://github.com/adea-ai/adea/commit/39f61641f840796cd940ed9ec554030b48e73cb7))
+
 ## [0.45.1](https://github.com/adea-ai/adea/compare/v0.45.0...v0.45.1) (2026-09-22)
 
 
