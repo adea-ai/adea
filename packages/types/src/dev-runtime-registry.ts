@@ -64,6 +64,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'browser_lane', idField: 'browserLaneId' },
     stream: null,
   },
+  'dev.browser.cookieSources': {
+    body: '{ cursor?: string; limit?: integer(1..500) }',
+    capabilities: ['dev.browser.cookies'],
+    reply: 'Page<CookieSource>',
+    resource: null,
+    stream: null,
+  },
   'dev.browser.diagnostics': {
     body: '{ browserLaneId: string; expectedGeneration: integer; cursor?: string; limit?: integer(1..500) }',
     capabilities: ['dev.browser.read'],

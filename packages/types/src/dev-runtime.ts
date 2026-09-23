@@ -1663,6 +1663,22 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.version, `${path}.version`, 1)
     return value
   }
+  if (name === 'CookieSource') {
+    const item = record(value, path)
+    // No store path and no cookie value on the wire: a client addresses a
+    // source by id and never learns where the browser keeps its data.
+    exactKeys(item, ['id', 'kind', 'label', 'availability'], ['detail'], path)
+    stringValue(item.id, `${path}.id`, 1, 128)
+    literal(item.kind, ['chrome', 'chromium', 'brave', 'edge', 'firefox', 'safari'], `${path}.kind`)
+    stringValue(item.label, `${path}.label`, 1, 128)
+    literal(
+      item.availability,
+      ['available', 'locked', 'unsupported_format', 'unreadable'],
+      `${path}.availability`
+    )
+    if (item.detail !== undefined) stringValue(item.detail, `${path}.detail`, 1, 256)
+    return value
+  }
   if (name === 'DeviceSession') {
     const item = record(value, path)
     exactKeys(
@@ -3806,6 +3822,12 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.browser.lanes': (value) =>
     decodeDevRuntimePage(
       (item, path) => namedType('BrowserLane', item, path),
+      value,
+      'reply.value'
+    ),
+  'dev.browser.cookieSources': (value) =>
+    decodeDevRuntimePage(
+      (item, path) => namedType('CookieSource', item, path),
       value,
       'reply.value'
     ),

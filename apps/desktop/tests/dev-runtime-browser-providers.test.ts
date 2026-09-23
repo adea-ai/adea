@@ -21,12 +21,15 @@ const scope = {
 const otherScope = { ...scope, workspaceId: '00000000-0000-4000-8000-000000000099' } as const
 const sessionId = '00000000-0000-4000-8000-0000000000b1'
 
-function harness() {
+function harness(overrides: { cookieSourceHomeDir?: () => string } = {}) {
   const lanes = createBrowserLaneRegistry()
   const diagnosticsMap = new Map()
   const { providers, diagnosticsFor } = createBrowserProviders({
     lanes,
     diagnostics: diagnosticsMap,
+    ...(overrides.cookieSourceHomeDir
+      ? { cookieSourceHomeDir: overrides.cookieSourceHomeDir }
+      : {}),
     resolveDns: async (hostname) =>
       hostname === 'example.test'
         ? [{ address: '93.184.216.34', family: 4 }]
@@ -209,5 +212,49 @@ describe('browser providers', () => {
   test('browserProviderError maps lane errors onto the typed DevError codes', () => {
     const mapped = browserProviderError(new Error('boom'))
     expect(mapped.code).toBe('invalid_state')
+  })
+})
+
+// #610: the native cookie-source layer is reachable through the gate. Detection
+// is a host fact, so this drives the real provider with a scripted home — and
+// checks the wire shape carries no path.
+describe('cookie sources (#610)', () => {
+  test('lists detected sources with typed availability and no host paths on the wire', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const home = mkdtempSync(join(tmpdir(), 'adea-cookie-op-'))
+    try {
+      const chromeRoot = join(home, 'Library/Application Support/Google/Chrome/Default')
+      mkdirSync(chromeRoot, { recursive: true })
+      writeFileSync(join(chromeRoot, 'Cookies'), 'sqlite-ish')
+      mkdirSync(join(home, 'Library/Cookies'), { recursive: true })
+      writeFileSync(join(home, 'Library/Cookies/Cookies.binarycookies'), 'cook')
+
+      const { providers } = harness({ cookieSourceHomeDir: () => home })
+      const page = (await providers['dev.browser.cookieSources']!(
+        command('dev.browser.cookieSources', {})
+      )) as { items: Array<Record<string, unknown>>; total: number }
+
+      expect(page.total).toBe(2)
+      expect(page.items.map((item) => item.id).toSorted()).toEqual([
+        'chrome:Default',
+        'safari:legacy',
+      ])
+      // Typed availability: the unparseable browser is a row, not an absence.
+      expect(page.items.find((item) => item.id === 'safari:legacy')).toMatchObject({
+        kind: 'safari',
+        availability: 'unsupported_format',
+      })
+      expect(page.items.find((item) => item.id === 'chrome:Default')).toMatchObject({
+        kind: 'chrome',
+        availability: 'available',
+      })
+      // No store path (or any home path) crosses the wire.
+      expect(JSON.stringify(page)).not.toContain(home)
+      expect(JSON.stringify(page)).not.toContain('Cookies.binarycookies')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 })
