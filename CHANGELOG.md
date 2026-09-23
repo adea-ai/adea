@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.47.3](https://github.com/adea-ai/adea/compare/v0.47.2...v0.47.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **soak:** make the wall-clock budget bind, and fail loudly when it cannot ([#625](https://github.com/adea-ai/adea/issues/625)) ([9be00ad](https://github.com/adea-ai/adea/commit/9be00ad952c14cceb00368fcd99546112901afb6))
+
 ## [0.47.2](https://github.com/adea-ai/adea/compare/v0.47.1...v0.47.2) (2026-09-23)
 
 
