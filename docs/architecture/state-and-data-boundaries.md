@@ -18,27 +18,27 @@ what the title predicted.
 
 ## Ownership
 
-| Fact | Owner | Notes |
-| --- | --- | --- |
-| Server state (workspaces, rooms, agents, tasks, artifacts) | TanStack Query in `packages/data` | Query keys are declared once (`workspaceQueryKeys`, `roomQueryKeys`, …); SSE events map to keys through `queryKeysForEvent` for invalidation |
-| Realtime transport | `packages/data/src/events.ts` | One `createWorkspaceEventSubscription` (cursor, reconnect backoff, resync); the desktop shell does not open a second stream |
-| Ephemeral UI state (panels, collapsed groups, drafts, mobile drawer, Dev View pane selection) | `packages/state` workspace store | Selection + layout only; no server data is cached here |
-| Deep-linkable selection (`view`, `scene`, room/conversation/task in the URL) | TanStack Router search params | The store still mirrors `selectedScene` for the virtual scene; see the follow-up below |
-| Browser persistence | `packages/state/src/persisted-storage.ts` | The boundary this audit landed: one read/validate/quarantine discipline |
-| Desktop-shell facts (window geometry, preferences, vault) | Shell-side authorities | Web reaches them through the desktop bridge, never by reading shell storage |
+| Fact                                                                                          | Owner                                     | Notes                                                                                                                                        |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Server state (workspaces, rooms, agents, tasks, artifacts)                                    | TanStack Query in `packages/data`         | Query keys are declared once (`workspaceQueryKeys`, `roomQueryKeys`, …); SSE events map to keys through `queryKeysForEvent` for invalidation |
+| Realtime transport                                                                            | `packages/data/src/events.ts`             | One `createWorkspaceEventSubscription` (cursor, reconnect backoff, resync); the desktop shell does not open a second stream                  |
+| Ephemeral UI state (panels, collapsed groups, drafts, mobile drawer, Dev View pane selection) | `packages/state` workspace store          | Selection + layout only; no server data is cached here                                                                                       |
+| Deep-linkable selection (`view`, `scene`, room/conversation/task in the URL)                  | TanStack Router search params             | The store still mirrors `selectedScene` for the virtual scene; see the follow-up below                                                       |
+| Browser persistence                                                                           | `packages/state/src/persisted-storage.ts` | The boundary this audit landed: one read/validate/quarantine discipline                                                                      |
+| Desktop-shell facts (window geometry, preferences, vault)                                     | Shell-side authorities                    | Web reaches them through the desktop bridge, never by reading shell storage                                                                  |
 
 ## What was duplicated (and what happened to it)
 
 Six storage keys lived in four modules with **three different disciplines**:
 
-| Key | Was | Now |
-| --- | --- | --- |
-| `adea:rail-preferences:v1` | parse → normalize → quarantine unknown shapes | unchanged: the richest policy, kept as the reference for lossy normalization |
+| Key                              | Was                                                                                                           | Now                                                                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adea:rail-preferences:v1`       | parse → normalize → quarantine unknown shapes                                                                 | unchanged: the richest policy, kept as the reference for lossy normalization                                                                             |
 | `adea:conventional-workspace:v2` | `JSON.parse` in try/catch, **`removeItem` on failure**, and anything that parsed went straight into the store | `readPersisted` + a shape validator; malformed text is quarantined, and a present-but-wrong-typed field rejects the blob instead of corrupting the store |
-| `adea:plugin-catalog-global:v1` | inline parse + shape + TTL check | `readPersisted` with the same TTL rule extracted as one validator |
-| `adea:plugin-catalog-cache:v1` | the same inline parse/validate, duplicated | shares that validator; its read-modify-write now goes through the boundary |
-| `adea:workspace-sidebar-width` | bare `Number(...)` with an `isFinite` guard | unchanged: a numeric key, already tolerant; named here so the boundary is not mistaken for "all storage must be JSON" |
-| URL hash for the settings dialog | router-owned, repaired in #601 | unchanged |
+| `adea:plugin-catalog-global:v1`  | inline parse + shape + TTL check                                                                              | `readPersisted` with the same TTL rule extracted as one validator                                                                                        |
+| `adea:plugin-catalog-cache:v1`   | the same inline parse/validate, duplicated                                                                    | shares that validator; its read-modify-write now goes through the boundary                                                                               |
+| `adea:workspace-sidebar-width`   | bare `Number(...)` with an `isFinite` guard                                                                   | unchanged: a numeric key, already tolerant; named here so the boundary is not mistaken for "all storage must be JSON"                                    |
+| URL hash for the settings dialog | router-owned, repaired in #601                                                                                | unchanged                                                                                                                                                |
 
 The concrete hazard the audit found: `restoreConventionalState` merges its
 argument into the store unvalidated, so before this change a localStorage blob
