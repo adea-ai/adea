@@ -21,6 +21,10 @@ import { SearchAddon } from '@xterm/addon-search'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+// xterm's own structural stylesheet: the pane depends on the `.xterm`,
+// `.xterm-rows`, and `.xterm-viewport` layout rules, so it loads them itself
+// instead of relying on the consumer to bring them out of band (#595).
+import '@xterm/xterm/css/xterm.css'
 
 import type { DevStreamFrame, ShellProfile } from '@adea-ai/types/dev-runtime'
 import {
@@ -129,6 +133,9 @@ const THEME = {
   cursorAccent: '#111111',
   selectionBackground: '#3b4252',
 } as const
+
+/** One encoder for every input path: typing runs per keystroke. */
+const ENCODER = new TextEncoder()
 
 const SEARCH_DECORATIONS = {
   matchBackground: '#3b4252',
@@ -438,6 +445,17 @@ export function TerminalPane(props: TerminalPaneProps) {
     // Captured before xterm's textarea: the pane owns the paste path.
     element.addEventListener('paste', onSurfacePaste, true)
     onCleanup(() => element.removeEventListener('paste', onSurfacePaste, true))
+    // Raw typing (and committed IME composition) rides the transport's bounded
+    // input queue — generation-stamped, queued across a reconnect, and reported
+    // through onInputOverflow instead of dropped. Pane shortcuts were already
+    // claimed by the custom key handler above, so they never reach this seam;
+    // xterm emits data only after a composition commits, which keeps IME input
+    // whole. Without this subscription the surface was a local echo: xterm
+    // rendered every key and the PTY never received a byte (#595).
+    const typedInput = terminal.onData((data) => {
+      transport.write(ENCODER.encode(data))
+    })
+    onCleanup(() => typedInput.dispose())
     transport.start(props.fromSequence)
     const unsubscribe = props.subscribeToObservations?.((observation) =>
       recordObservation(observation, transport.snapshot().nextOutputSeq)
@@ -465,7 +483,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     const result = editorSend(editor())
     if (!result) return
     setEditor(result.state)
-    props.write(new TextEncoder().encode(`${result.payload}\n`))
+    props.write(ENCODER.encode(`${result.payload}\n`))
   }
 
   function closeSearch(): void {

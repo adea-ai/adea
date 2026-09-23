@@ -58,7 +58,12 @@ function scriptedConnect(handlers: ConnectHandlers): StreamSocket {
     },
     bufferedAmount: 0,
     send: (frame: DevStreamFrame) => {
-      if (frame.type === 'input') recordInput(generation, frame.bytes)
+      if (frame.type !== 'input') return
+      recordInput(generation, frame.bytes)
+      // A real PTY echoes what it receives; the scripted sidecar mirrors that
+      // so the round trip is observable for every input seam — the compose
+      // editor's `write` prop and the surface's transport queue alike.
+      if (state.echo) writeOutput(decoder.decode(frame.bytes))
     },
     close: () => {
       open = false

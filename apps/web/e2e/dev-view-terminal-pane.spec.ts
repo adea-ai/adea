@@ -128,6 +128,33 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(pageErrors).toEqual([])
   })
 
+  test('raw typed keys reach the wire as input bytes (#595)', async ({ page }) => {
+    const pane = await openHarness(page)
+    // The pane focuses its surface on mount; clicking states the focus this
+    // assertion depends on instead of inheriting it.
+    await pane.locator('.xterm').click()
+    await page.keyboard.type('echo typed')
+    await expect(pane.locator('.xterm-rows')).toContainText('echo typed')
+    const state = await report(page)
+    // xterm emits per keystroke, so join the recorded chunks rather than
+    // assuming one frame per key.
+    expect((state.inputsByGeneration['1'] ?? []).join('')).toBe('echo typed')
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
+
+  test('the pane loads xterm structural styles itself (#595)', async ({ page }) => {
+    const pane = await openHarness(page)
+    // xterm.css positions the viewport absolutely; with no stylesheet loaded
+    // the class carries no layout rules, so this fails closed.
+    const viewportPosition = await pane
+      .locator('.xterm-viewport')
+      .evaluate((element) => getComputedStyle(element).position)
+    expect(viewportPosition).toBe('absolute')
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
+
   test('search opens, reports live match counts, and steps next/previous', async ({ page }) => {
     const pane = await openHarness(page)
     await page.evaluate(() => {
