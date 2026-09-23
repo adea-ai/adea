@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.46.1](https://github.com/adea-ai/adea/compare/v0.46.0...v0.46.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **a11y:** clear the [#599](https://github.com/adea-ai/adea/issues/599) contrast findings and the [#601](https://github.com/adea-ai/adea/issues/601) selected-tab dialog dismissal ([#604](https://github.com/adea-ai/adea/issues/604)) ([c8a790d](https://github.com/adea-ai/adea/commit/c8a790de8b51ca3916ea660e0c3c0e1261859361))
+* **dev-view:** keep the terminal search ordinal honest while stepping ([#606](https://github.com/adea-ai/adea/issues/606)) ([0ba9399](https://github.com/adea-ai/adea/commit/0ba9399f30af39951b80b6e1c791cd0cff1996d6)), closes [#594](https://github.com/adea-ai/adea/issues/594)
+* **dev-view:** wire terminal typing to the input queue and load xterm's stylesheet ([#605](https://github.com/adea-ai/adea/issues/605)) ([64ea982](https://github.com/adea-ai/adea/commit/64ea982419dcd7b63f8b04d135ca25ea8b91dd78)), closes [#595](https://github.com/adea-ai/adea/issues/595)
+* **terminal:** pace the durable-bridge replay instead of tripping the queue bound ([#608](https://github.com/adea-ai/adea/issues/608)) ([9f25e60](https://github.com/adea-ai/adea/commit/9f25e6077920b67ddbe9787613d4accc19c2f994)), closes [#593](https://github.com/adea-ai/adea/issues/593)
+
 ## [0.46.0](https://github.com/adea-ai/adea/compare/v0.45.1...v0.46.0) (2026-09-23)
 
 
