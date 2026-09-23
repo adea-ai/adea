@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.49.1](https://github.com/adea-ai/adea/compare/v0.49.0...v0.49.1) (2026-09-23)
+
+
+### Documentation
+
+* **m12:** recovery matrix evidence and creator-path hygiene for the release gate ([#635](https://github.com/adea-ai/adea/issues/635)) ([1fd7ad1](https://github.com/adea-ai/adea/commit/1fd7ad1a21d648790c391d5d9e3300b9df5b8313))
+
 ## [0.49.0](https://github.com/adea-ai/adea/compare/v0.48.1...v0.49.0) (2026-09-23)
 
 
