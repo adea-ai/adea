@@ -170,22 +170,23 @@ test.describe('terminal pane (real xterm surface)', () => {
     await expect(search).toBeVisible()
     await search.getByLabel('Search terminal').fill('needle')
     const count = search.locator('.dev-terminal-search-count')
-    await expect(count).toHaveText(/of 3 matches/, { timeout: 15_000 })
+    await expect(count).toHaveText('1 of 3 matches', { timeout: 15_000 })
     const next = search.getByRole('button', { name: 'Next match' })
     const previous = search.getByRole('button', { name: 'Previous match' })
     await expect(next).toBeEnabled()
     await expect(previous).toBeEnabled()
-    // Stepping must stay healthy: repeated Next/Previous clicks keep the live
-    // count rendered and the pane error-free. (The active-match ordinal is
-    // currently not tracked faithfully by the count while decorations are on
-    // — a known #538 finding, filed separately; this lane pins the contract
-    // that must keep passing regardless.)
-    for (let click = 0; click < 3; click += 1) {
-      await next.click()
-      await expect(count).toHaveText(/^\d+ of 3 matches$/)
-      await previous.click()
-      await expect(count).toHaveText(/^\d+ of 3 matches$/)
-    }
+    // Stepping moves the active match AND the reported ordinal (#594):
+    // 1 → 2 → 3 → wraps forward to 1, and wraps back the same way. The addon's
+    // decoration-derived index reports -1 when its bookkeeping misses, which
+    // used to freeze this count at "1 of 3" after every step.
+    await next.click()
+    await expect(count).toHaveText('2 of 3 matches')
+    await next.click()
+    await expect(count).toHaveText('3 of 3 matches')
+    await next.click()
+    await expect(count).toHaveText('1 of 3 matches')
+    await previous.click()
+    await expect(count).toHaveText('3 of 3 matches')
     await search.getByRole('button', { name: 'Close search' }).click()
     await expect(search).toBeHidden()
     // Escape closes too.
