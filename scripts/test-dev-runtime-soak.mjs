@@ -168,7 +168,6 @@ function probeMetricsHistoryBound() {
   }
 }
 
-
 const laneStarted = performance.now()
 let storage = {}
 let probeFailure = null
@@ -236,3 +235,21 @@ if (failure === null && process.env.ADEA_DEV_RUNTIME_SOAK_SKIP_TERMINAL !== '1')
 }
 
 const elapsedMs = Math.round(performance.now() - laneStarted)
+await writeLaneSummary('soak', {
+  command,
+  status: failure || terminalExitCode !== 0 ? 'failed' : 'passed',
+  startedAt,
+  details: {
+    rounds: failure ? failure.round : roundDurationsMs.length,
+    requestedRounds: rounds,
+    durationBudgetMs: durationMs,
+    elapsedMs,
+    exitCode: failure ? failure.exitCode : terminalExitCode,
+    roundDurationsMs,
+    storage,
+    ...(probeFailure ? { storageProbeError: probeFailure } : {}),
+    terminalPhase: terminalSkipped
+      ? 'skipped (ADEA_DEV_RUNTIME_SOAK_SKIP_TERMINAL=1)'
+      : 'ran; see artifacts/dev-runtime/terminal-soak-summary.json',
+  },
+})
