@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "requestId": "00000000-0000-4000-8000-00000000c001",
+  "workspaceId": "00000000-0000-4000-8000-00000000c002",
+  "contractVersion": { "major": 1, "minor": 0 },
+  "resolvedAt": "2026-09-23T00:00:00.000Z",
+  "resolution": {
+    "harness": { "harnessId": "claude-code" },
+    "model": { "modelId": "claude-sonnet-4" },
+    "skills": { "skillVersionIds": ["skill-version-1"] },
+    "capabilities": { "capabilityNames": ["repo.read", "repo.write"] },
+    "runtime": {
+      "runtimeDefinitionId": "00000000-0000-4000-8000-00000000c003",
+      "kind": "local",
+      "transport": "direct-local",
+      "harnessIds": ["claude-code"],
+      "capabilities": ["fs.read", "fs.write", "terminal"]
+    },
+    "sandbox": { "mode": "managed", "effectiveCapabilities": ["fs.read"] },
+    "contextPackage": { "mode": "none" },
+    "delegation": { "fanOut": "none", "promotion": "review-required" }
+  },
+  "trace": {
+    "harness": { "source": "project-default", "value": { "harnessId": "claude-code" } },
+    "model": { "source": "profile-default", "value": { "modelId": "claude-sonnet-4" } },
+    "runtime": {
+      "source": "policy-default",
+      "value": { "runtimeDefinitionId": "00000000-0000-4000-8000-00000000c003" }
+    }
+  },
+  "diagnostics": [],
+  "resolutionDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}
