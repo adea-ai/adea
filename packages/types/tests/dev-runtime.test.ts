@@ -74,7 +74,10 @@ function command(operation: keyof typeof devOperationDefinitions, body: Record<s
 
 describe('Dev Runtime operation registry', () => {
   test('pins every normative operation and transport method', () => {
-    expect(devOperations).toHaveLength(163)
+    // 164 with dev.browser.cookieSources (#610): the registry ratchet moves
+    // only when an operation is deliberately added, and the decoder-key check
+    // below is what keeps the list and the decoders in step.
+    expect(devOperations).toHaveLength(164)
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',
