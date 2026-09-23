@@ -426,7 +426,19 @@ describe('RemoteContentEnvelope v1', () => {
     })
 
     const ciphertextTampered = structuredClone(envelope)
-    ciphertextTampered.ciphertext = `${ciphertextTampered.ciphertext.slice(0, -1)}${ciphertextTampered.ciphertext.endsWith('A') ? 'B' : 'A'}`
+    // Tamper a MIDDLE base64url group, never the final character. The last
+    // character carries the tail's discarded padding bits, so `A → B` there
+    // yields a NON-canonical encoding that strict decoding refuses before any
+    // crypto runs (`invalid_envelope`) rather than letting the AEAD reject it —
+    // and which character lands last depends on the sealed ciphertext, which
+    // draws a fresh ephemeral key on every run. That made this expectation a
+    // per-run coin flip. A middle group is always canonical, so the tamper
+    // stays structurally valid and `decryption_failed` is deterministic.
+    const tamperAt = Math.floor(ciphertextTampered.ciphertext.length / 2)
+    ciphertextTampered.ciphertext = `${ciphertextTampered.ciphertext.slice(
+      0,
+      tamperAt
+    )}${ciphertextTampered.ciphertext[tamperAt] === 'A' ? 'B' : 'A'}${ciphertextTampered.ciphertext.slice(tamperAt + 1)}`
     await expect(
       openRemoteContent({
         envelope: ciphertextTampered,
