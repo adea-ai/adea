@@ -88,6 +88,46 @@ describe('executed updater rollback', () => {
     }
   })
 
+  // #185 acceptance: "Bundled component rollback cannot replace, migrate, or
+  // delete Agent HQ private-content state implicitly." The test above pins
+  // component data dirs; this pins Agent HQ's OWN state — the encrypted
+  // local-content store and the M10 credential vault — because a rollback that
+  // reached either would be silent data loss behind a successful update.
+  test('rollback leaves Agent HQ private-content state and the credential vault untouched', () => {
+    const layout = stagedLayout()
+    try {
+      const contentDir = join(layout.dataDir, 'local-content')
+      const contentStore = join(contentDir, 'agent-hq-content.sqlite')
+      const vaultDir = join(layout.dataDir, 'dev-runtime', 'vault')
+      mkdirSync(contentDir, { recursive: true, mode: 0o700 })
+      mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
+      writeFileSync(contentStore, 'encrypted-content-bytes')
+      writeFileSync(join(vaultDir, 'credentials.sqlite3'), 'vault-bytes')
+      writeFileSync(join(vaultDir, 'credentials.json'), '{"legacy":"vault-json"}')
+      const contentBefore = readFileSync(contentStore, 'utf8')
+      const vaultBefore = readFileSync(join(vaultDir, 'credentials.sqlite3'), 'utf8')
+      const legacyBefore = readFileSync(join(vaultDir, 'credentials.json'), 'utf8')
+
+      const result = executeUpdateRollback({
+        target: layout.failed,
+        quarantineDir: layout.quarantineDir,
+      })
+      expect(result).toMatchObject({ ok: true, target: layout.failed })
+
+      // Byte-identical after a real rollback ran.
+      expect(readFileSync(contentStore, 'utf8')).toBe(contentBefore)
+      expect(readFileSync(join(vaultDir, 'credentials.sqlite3'), 'utf8')).toBe(vaultBefore)
+      expect(readFileSync(join(vaultDir, 'credentials.json'), 'utf8')).toBe(legacyBefore)
+      // Nothing private was swept into quarantine, and the vault's legacy slot
+      // was not "migrated" by the rollback: the rollback addresses the bundle.
+      expect(readdirSync(layout.quarantineDir)).toHaveLength(1)
+      expect(readdirSync(contentDir)).toEqual(['agent-hq-content.sqlite'])
+      expect(readdirSync(vaultDir).toSorted()).toEqual(['credentials.json', 'credentials.sqlite3'])
+    } finally {
+      rmSync(layout.root, { recursive: true, force: true })
+    }
+  })
+
   test('refuses an implicit rollback when no previous install is staged', () => {
     const layout = stagedLayout()
     try {
