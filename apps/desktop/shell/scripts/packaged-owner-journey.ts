@@ -3,16 +3,30 @@
 // This is deliberately a host-side lane: it exercises the production project,
 // worktree, session, and archive authorities against a disposable real Git
 // repository while anchoring the run to the actual Electrobun .app bundle.
-// Browser screenshots/video are not fabricated when the packaged CEF/CDP
-// engine is unavailable (#537); those rows are recorded as blocked evidence.
+// Browser evidence is COMPOSED, not duplicated: the packaged browser-matrix
+// proof drives the real engine (provisioning, admitHop-gated navigation,
+// screenshots with provenance, live screencast frames, crash recovery, the SSRF
+// matrix) on the same packaged build, and this lane reads its artifact as the
+// browser leg's evidence. Re-driving that engine here would be a second
+// implementation of one gate. When that artifact is absent the row is `blocked`
+// for the accurate reason — the proof has not been run — rather than blaming an
+// engine that exists (the stale #537 reference this replaced).
 //
 // Usage:
 //   bun apps/desktop/shell/scripts/packaged-owner-journey.ts \
 //     --app-bundle path/to/Adea-dev.app \
 //     --artifact artifacts/packaged/owner-journey.json
 
-import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -34,6 +48,26 @@ const SCOPE: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
   workspaceId: '00000000-0000-4000-8000-000000000002',
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+}
+
+const BROWSER_MATRIX_ARTIFACT = 'artifacts/packaged/browser-matrix.json'
+
+/** Reads a previously recorded lane artifact, or undefined when it is absent. */
+function readArtifact(path: string):
+  | {
+      engineEra?: string
+      checks?: ReadonlyArray<{ check: string; ok: boolean; detail?: string }>
+    }
+  | undefined {
+  if (!existsSync(path)) return undefined
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as {
+      engineEra?: string
+      checks?: ReadonlyArray<{ check: string; ok: boolean; detail?: string }>
+    }
+  } catch {
+    return undefined
+  }
 }
 
 type JourneyStatus = 'passed' | 'blocked' | 'failed'
@@ -287,18 +321,54 @@ async function main(): Promise<number> {
         detail: `archive=${archived.state}, restore=${restored.state}, records=${projectSessions.archiveRecords().length}`,
       })
 
-      step('browser-cdp', {
-        status: 'blocked',
-        detail:
-          'packaged browser lane is typed-unavailable because no CEF/CDP engine publishes frames',
-        blocker:
-          'adea-ai/adea#537 remains open: live packaged CEF/CDP frames, annotations, element picking, screencast, takeover, and screenshot/video evidence are not available',
-      })
-      step('owner-journey-recording', {
-        status: 'blocked',
-        detail: 'screenshot/video recording is withheld until the packaged browser engine exists',
-        blocker: 'owner-journey screenshot/video acceptance remains open with #537',
-      })
+      // The packaged browser-matrix proof is the browser leg's evidence. It is
+      // required by the packaged lane, so its artifact being absent means the
+      // lane has not been run in this workspace — a reasons gap, not an engine
+      // gap.
+      const browserMatrix = readArtifact(BROWSER_MATRIX_ARTIFACT)
+      if (!browserMatrix) {
+        step('browser-cdp', {
+          status: 'blocked',
+          detail: 'the packaged browser-matrix proof has not been run in this workspace',
+          blocker: `run the packaged lane (bun scripts/test-dev-runtime-packaged.mjs); its browser-matrix proof writes ${BROWSER_MATRIX_ARTIFACT}`,
+        })
+        step('owner-journey-recording', {
+          status: 'blocked',
+          detail: 'screenshot/video evidence comes from the packaged browser-matrix proof',
+          blocker: `absent artifact: ${BROWSER_MATRIX_ARTIFACT}`,
+        })
+      } else {
+        const checks = browserMatrix.checks ?? []
+        const failures = checks.filter((entry) => entry.ok !== true)
+        const visual = checks.filter((entry) => /frame|screenshot/i.test(entry.check))
+        const engineEra = browserMatrix.engineEra ?? 'unknown'
+        const artifactDigest = createHash('sha256')
+          .update(readFileSync(BROWSER_MATRIX_ARTIFACT))
+          .digest('hex')
+        step('browser-cdp', {
+          status: failures.length > 0 ? 'failed' : visual.length > 0 ? 'passed' : 'blocked',
+          detail:
+            `packaged browser-matrix: ${checks.length} checks, ${visual.length} covering frames/screenshots, ` +
+            `${failures.length} failing; engine era ${engineEra}; ` +
+            // The digest makes a substituted or stale artifact visible in this
+            // lane's own record rather than trusting a path.
+            `artifact sha256 ${artifactDigest}`,
+          ...(failures.length > 0
+            ? {
+                blocker: failures
+                  .slice(0, 3)
+                  .map((entry) => entry.check)
+                  .join('; '),
+              }
+            : {}),
+        })
+        step('owner-journey-recording', {
+          status: visual.length > 0 && failures.length === 0 ? 'passed' : 'blocked',
+          detail:
+            'screenshot publication with provenance is recorded by the packaged browser-matrix proof ' +
+            `(${BROWSER_MATRIX_ARTIFACT}); this lane records the composed evidence, not its own capture`,
+        })
+      }
     } catch (error) {
       step('production-authorities', {
         status: 'failed',
