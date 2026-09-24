@@ -724,7 +724,7 @@ export function scanDirectoryRoot(input: {
     if (declaration) {
       collectDeclaredMembers(input.canonicalRoot, rootListing, declaration, state)
     } else {
-      walkForPackages(input.canonicalRoot, rootListing, state, 0)
+      walkForPackages(input.canonicalRoot, rootListing, state, 0, '')
     }
   } catch (error) {
     if (!(error instanceof BudgetStop) && !(error instanceof CancelledStop)) throw error
@@ -873,6 +873,13 @@ function walkForPackages(
   listing: DirListing,
   state: WalkState,
   depth: number,
+  /**
+   * The package directory relative to the scan root. It has to travel with the
+   * recursion: without it every package in a multi-package tree reported
+   * `relativeDir: ''` and `manifestPath: 'package.json'`, so the caller could
+   * not tell two packages apart (or address either of them).
+   */
+  relativeDir: string,
   rootFiles: ReadonlySet<string> = listing.files
 ): void {
   if (state.entries.length >= state.budgets.maxPackages) {
@@ -885,7 +892,7 @@ function walkForPackages(
     state.diagnostics.add('budget_exhausted')
     return
   }
-  const candidate = manifestInfoForDir(root, '', listing.files, state, rootFiles)
+  const candidate = manifestInfoForDir(root, relativeDir, listing.files, state, rootFiles)
   if (candidate) {
     pushCandidate(state, candidate)
     return
@@ -899,7 +906,7 @@ function walkForPackages(
     const childAbsolute = join(root, name)
     charge(state)
     const childListing = listDir(childAbsolute, childRelative, listing.ignoreRules, state)
-    walkForPackages(childAbsolute, childListing, state, depth + 1, rootFiles)
+    walkForPackages(childAbsolute, childListing, state, depth + 1, childRelative, rootFiles)
   }
 }
 
