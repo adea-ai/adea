@@ -11,7 +11,12 @@ async function openAppearance(page: Page) {
   const settings = page.getByRole('panel', { name: 'Settings' })
   const panel = settings.getByRole('region', { name: 'Appearance', exact: true })
   await expect(async () => {
+    // The settings section is read from the hash on load, so the hash has to
+    // arrive with a document load: navigating from the already-loaded
+    // `/?view=chat` to `/#settings/appearance` is a same-document navigation
+    // and would leave the dialog unopened.
     await page.goto('/#settings/appearance')
+    await page.reload()
     await expect(panel).toBeVisible()
   }).toPass({ timeout: 30_000 })
   return panel
