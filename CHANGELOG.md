@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.51.0](https://github.com/adea-ai/adea/compare/v0.50.0...v0.51.0) (2026-09-24)
+
+
+### Features
+
+* **browser:** measure the preview lane for the 30-minute acceptance box ([#637](https://github.com/adea-ai/adea/issues/637)) ([428485e](https://github.com/adea-ai/adea/commit/428485e5b52b057a520a146718cad1c89ee4ff9c))
+
 ## [0.50.0](https://github.com/adea-ai/adea/compare/v0.49.1...v0.50.0) (2026-09-23)
 
 
