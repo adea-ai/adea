@@ -113,7 +113,9 @@ test.describe('appearance', () => {
 
     await accent.getByRole('radio', { name: 'Blue accent' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
-    await expect(accent.getByText('Blue · Controls, glyphs')).toBeVisible()
+    await expect(
+      accent.getByText('Controls, glyphs, selections, code, and activity.')
+    ).toBeVisible()
 
     // The custom picker rejects unparseable input and normalizes valid colors.
     await accent.getByRole('radio', { name: 'Custom accent' }).click()
