@@ -429,6 +429,38 @@ describe('cookie import through the service (#610)', () => {
     }
   }, 120_000)
 
+  test('a plan staged against another generation is refused at commit', async () => {
+    const { root, cleanup } = scratch()
+    try {
+      const source = join(root, 'source-Cookies')
+      sourceStore(source, [{ domain: '.example.com', name: 'session', value: 'imported' }])
+      const target = laneStore(join(root, 'profile'))
+      const service = createCookieImportService()
+      const plan = await service.plan({
+        browserLaneId: 'lane-1',
+        laneGeneration: 1,
+        sourceProfileId: 'chrome:Test',
+        domains: ['example.com'],
+        readSource: readSource(source),
+        targetStore: target,
+      })
+      // The wire commit body carries no generation, so the caller passes the
+      // live one: a lane that has since moved must not accept a plan computed
+      // against the profile it used to have.
+      const failure = await service
+        .commit(plan.id, plan.digest, target, undefined, { laneGeneration: 2 })
+        .then(
+          () => null,
+          (caught: Error & { code?: string }) => caught
+        )
+      expect(failure?.code).toBe('plan_stale')
+      // The refused commit left the profile untouched.
+      expect(await target.list()).toEqual([])
+    } finally {
+      cleanup()
+    }
+  })
+
   test('the excluded family is never read back in, even when the source carries it', async () => {
     const { root, cleanup } = scratch()
     try {

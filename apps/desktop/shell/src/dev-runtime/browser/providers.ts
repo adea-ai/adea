@@ -263,6 +263,24 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
     return lane
   }
 
+  /**
+   * The lane a command is bound to through its resource. Operations whose wire
+   * body carries only a plan and a digest (the plan/commit pairs) address the
+   * lane this way: the resource binding is the authority on which lane the
+   * command may touch, and the body is left to the operation's own contract.
+   */
+  function laneFromResource(command: DevCommand): BrowserLaneRecord {
+    const resource = command.resource
+    if (!resource || resource.kind !== 'browser_lane')
+      throw new DevCommandProviderError(
+        'invalid_state',
+        'the command is not bound to a browser lane resource'
+      )
+    const lane = input.lanes.get(resource.id)
+    assertScopeMatch(command, lane)
+    return lane
+  }
+
   function expectedGeneration(command: DevCommand): number {
     const value = body(command).expectedGeneration
     if (typeof value !== 'number')
@@ -775,16 +793,20 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
       return cookieMutationPlan(command, plan)
     },
     'dev.browser.cookieImportCommit': async (command) => {
-      const lane = laneFor(command)
+      const lane = laneFromResource(command)
       const seam = input.cookieImport
       if (!seam) return unavailableEngine()
-      assertGeneration(lane, expectedGeneration(command))
       seam.assertTargetIdle(lane)
       const req = body(command)
+      // The commit body is exactly the plan id plus its digest — the wire
+      // contract carries no generation here — so freshness is settled against
+      // the generation the plan was staged at, not against a claimed one.
       return seam.service.commit(
         String(req.planId ?? ''),
         String(req.planDigest ?? ''),
-        seam.targetStore(lane)
+        seam.targetStore(lane),
+        undefined,
+        { laneGeneration: lane.generation }
       )
     },
   }

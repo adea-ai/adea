@@ -74,9 +74,11 @@ export type BrowserDeviceRuntimeInput = Readonly<{
     /** Keychain item the target profile's values are encrypted with. */
     keychainService: string
     /**
-     * Lane kinds whose profile is a Chromium cookie store. Defaults to the
-     * external user-context lane (ADR 0006's Chromium-over-CDP lane); the
-     * embedded WebView lanes are not backed by one.
+     * Lane kinds whose profile is a Chromium cookie store. There is no default:
+     * the embedded lanes run the WebView engine (WebKit on macOS), so their
+     * profile is not a Chromium store and must not be written as one. A host
+     * names the kinds once a Chromium-backed lane exists (ADR 0006's external
+     * Chromium-over-CDP lane).
      */
     laneKinds?: readonly LaneKind[]
   }>
@@ -260,11 +262,11 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
               return Promise.resolve(result.cookies)
             },
             targetStore: (lane) => {
-              const kinds = input.cookieImport?.laneKinds ?? ['user_context']
+              const kinds = input.cookieImport?.laneKinds ?? []
               if (!kinds.includes(lane.kind))
                 throw new DevCommandProviderError(
                   'capability_unavailable',
-                  `a ${lane.kind} lane does not keep a Chromium cookie store`,
+                  `a ${lane.kind} lane is not backed by a Chromium cookie store`,
                   true
                 )
               return createChromiumLaneCookieStore({
