@@ -73,6 +73,13 @@ export function WorkspaceSettingsDialog(props: {
   onSignIn: () => void
   onSignOut: () => void
   open: boolean
+  /**
+   * The full appearance editor, injected by the host as an accessor
+   * (dev-view's `AppearancePanel`) so it mounts only while this section is
+   * the active one. Omitted falls back to the simple theme toggle, which is
+   * what a host without the editor can offer.
+   */
+  appearancePanel?: () => JSX.Element
   /** The desktop bridge permission service; omitted (web-only) renders the
    * pane's honest typed-unavailable states. */
   permissionsService?: MacPermissionsPageService
@@ -292,19 +299,28 @@ export function WorkspaceSettingsDialog(props: {
           </Show>
           <Show when={section() === 'appearance'}>
             <>
-              <header>
-                <MonitorCog aria-hidden="true" />
-                <div>
-                  <h3>{settingsSectionLabels.appearance}</h3>
-                  <p>Shared presentation preferences.</p>
-                </div>
-              </header>
-              <SettingsRow
-                title="Color theme"
-                detail="Follow the system or explicitly choose light or dark."
+              <Show
+                when={props.appearancePanel}
+                fallback={
+                  <>
+                    <header>
+                      <MonitorCog aria-hidden="true" />
+                      <div>
+                        <h3>{settingsSectionLabels.appearance}</h3>
+                        <p>Shared presentation preferences.</p>
+                      </div>
+                    </header>
+                    <SettingsRow
+                      title="Color theme"
+                      detail="Follow the system or explicitly choose light or dark."
+                    >
+                      <ThemeToggle />
+                    </SettingsRow>
+                  </>
+                }
               >
-                <ThemeToggle />
-              </SettingsRow>
+                {props.appearancePanel?.()}
+              </Show>
               <SettingsRow
                 title="Workspace soundtrack"
                 detail="Optional local audio; message notifications are configured separately."

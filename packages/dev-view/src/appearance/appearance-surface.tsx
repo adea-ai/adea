@@ -56,8 +56,24 @@ import {
 } from '@adea-ai/ui/components/appearance'
 import { useTheme } from '@adea-ai/ui/components/theme-provider'
 import { cn } from '@adea-ai/ui/lib/utils'
-import { ChevronsUpDown, EyeOff, FolderOpen, PanelsTopLeft, SlidersHorizontal } from 'lucide-solid'
-import { For, untrack, createEffect, createMemo, createSignal, Show, type JSX } from 'solid-js'
+import {
+  ChevronsUpDown,
+  EyeOff,
+  FolderOpen,
+  MonitorCog,
+  PanelsTopLeft,
+  SlidersHorizontal,
+} from 'lucide-solid'
+import {
+  For,
+  Show,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  type JSX,
+  untrack,
+} from 'solid-js'
 
 import { createAppearanceEditor } from './editor'
 import {
@@ -243,7 +259,7 @@ function ThemeDropdown(props: {
   )
 }
 
-export function AppearanceDialog(props: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function AppearancePanel() {
   const appearance = useTheme()
   const editor = createAppearanceEditor()
   const [customAccent, setCustomAccent] = createSignal('')
@@ -251,22 +267,28 @@ export function AppearanceDialog(props: { open: boolean; onOpenChange: (open: bo
   const [libraryOpen, setLibraryOpen] = createSignal(false)
   let committing = false
 
+  /** Discard any unsaved draft and stop previewing it against the app. */
+  const revertDraft = () => {
+    appearance.preview(undefined)
+    editor.revert()
+    setLibraryOpen(false)
+  }
+
   /*
-   * Snapshot the committed preferences on open. The editor reads are
-   * untracked: this effect must depend on the committed preferences (and
-   * `open`) only — otherwise a draft write would re-run it and immediately
-   * reset the draft the user is editing.
+   * The section *is* the open state: snapshot the committed preferences on
+   * mount, and revert an unsaved draft when the user leaves the section
+   * (onCleanup below). The committed read is untracked on purpose — a draft
+   * write must not re-run this and reset the draft the user is editing.
    */
-  createEffect(() => {
-    if (!props.open) return
-    const committed = appearance.preferences()
-    untrack(() => {
-      editor.open(committed)
-      setCustomAccent(editor.draft().accent === 'theme' ? '' : editor.draft().accent)
-      setAccentStatus('')
-      setLibraryOpen(false)
-    })
+  onMount(() => {
+    const committed = untrack(() => appearance.preferences())
+    editor.open(committed)
+    setCustomAccent(committed.accent === 'theme' ? '' : committed.accent)
+    setAccentStatus('')
+    setLibraryOpen(false)
   })
+
+  onCleanup(revertDraft)
 
   const applyDraft = () => appearance.preview(editor.draft())
   const setDraft = (patch: Parameters<typeof editor.set>[0]) => {
@@ -274,17 +296,17 @@ export function AppearanceDialog(props: { open: boolean; onOpenChange: (open: bo
     applyDraft()
   }
 
-  /** Escape and outside dismissal revert: closing without Save never keeps a draft. */
+  /**
+   * The Revert button: leaving an edit unsaved never keeps it. It is the same
+   * path Escape takes, because Escape dismisses the settings dialog and
+   * unmounting this section runs the cleanup above.
+   */
   const requestClose = () => {
     if (committing) {
       committing = false
-      props.onOpenChange(false)
       return
     }
-    appearance.preview(undefined)
-    editor.revert()
-    setLibraryOpen(false)
-    props.onOpenChange(false)
+    revertDraft()
   }
 
   const save = () => {
@@ -299,7 +321,6 @@ export function AppearanceDialog(props: { open: boolean; onOpenChange: (open: bo
       reduceTransparency: committed.reduceTransparency,
     })
     appearance.preview(undefined)
-    props.onOpenChange(false)
   }
 
   const reset = () => {
@@ -378,264 +399,268 @@ export function AppearanceDialog(props: { open: boolean; onOpenChange: (open: bo
    * the host. The draft lives in this component, so returning from the
    * contract view keeps every unsaved edit.
    */
+
+  /** The editor body, shared by the hosts so they can never drift. */
+  const editorSections = (
+    <>
+      <section class="grid gap-2.5" aria-label="Appearance mode">
+        <h3 class="text-sm font-medium">Appearance</h3>
+        <AppearanceRadioGroup
+          ariaLabel="Appearance mode"
+          class="items-start gap-4"
+          optionClass="min-w-0 flex-1"
+          options={modeCards.map((card) => ({
+            value: card.value,
+            label: card.label,
+            content: (selected: boolean) => (
+              <>
+                <span
+                  class={cn(
+                    'block h-37 w-full overflow-hidden rounded-md border bg-card',
+                    selected ? 'border-primary' : 'border-border'
+                  )}
+                >
+                  {miniatureFor(card.value)}
+                </span>
+                <span
+                  class={cn(
+                    'block text-sm',
+                    selected ? 'font-medium text-primary' : 'text-muted-foreground'
+                  )}
+                >
+                  {card.label}
+                </span>
+              </>
+            ),
+          }))}
+          value={editor.draft().mode}
+          onChange={(mode) => setDraft({ mode })}
+        />
+        <p class="text-muted-foreground text-xs">
+          System follows your platform appearance live; Light and Dark pin the choice.
+        </p>
+      </section>
+
+      <div class="overflow-hidden rounded-xl border bg-card">
+        <div class="divide-y">
+          <section aria-label="Light theme">
+            <SettingsRow
+              icon={<SlidersHorizontal />}
+              title="Light theme"
+              meta="Used whenever this appearance is active."
+              control={
+                <ThemeDropdown
+                  ariaLabel="Light theme"
+                  heading="Light themes"
+                  variants={lightThemeVariants}
+                  value={editor.draft().lightThemeId}
+                  onChange={(lightThemeId) => setDraft({ lightThemeId })}
+                />
+              }
+            />
+          </section>
+          <section aria-label="Dark theme">
+            <SettingsRow
+              icon={<SlidersHorizontal />}
+              title="Dark theme"
+              meta="Used whenever this appearance is active."
+              control={
+                <ThemeDropdown
+                  ariaLabel="Dark theme"
+                  heading="Dark themes"
+                  variants={darkThemeVariants}
+                  value={editor.draft().darkThemeId}
+                  onChange={(darkThemeId) => setDraft({ darkThemeId })}
+                />
+              }
+            />
+          </section>
+          <section aria-label="Accent color">
+            <SettingsRow
+              icon={<SlidersHorizontal />}
+              title="Accent color"
+              meta={accentHelperText(editor.draft().accent)}
+              control={
+                <AppearanceRadioGroup
+                  ariaLabel="Accent color"
+                  class="items-end gap-1.5"
+                  optionClass="w-8"
+                  options={accentChoices().map((choice) => ({
+                    value: choice.value,
+                    label: `${choice.label} accent`,
+                    content: (selected: boolean) => (
+                      <>
+                        <span class={accentChipClass(selected)}>
+                          {choice.value === 'theme' ? (
+                            <AccentDefaultSample variant={sampleVariant()} />
+                          ) : choice.value === 'custom' ? (
+                            <Show
+                              when={accentSelection() === 'custom' && customAccent()}
+                              fallback={
+                                <span
+                                  class="text-muted-foreground text-xs leading-none"
+                                  aria-hidden="true"
+                                >
+                                  +
+                                </span>
+                              }
+                            >
+                              <ColorSwatch color={customAccent()} label="Custom accent" />
+                            </Show>
+                          ) : (
+                            <ColorSwatch
+                              color={choice.color!}
+                              label={`${choice.label} accent preview`}
+                            />
+                          )}
+                        </span>
+                        <span
+                          class={cn(
+                            'h-0.5 w-6 rounded-full',
+                            selected ? 'bg-primary' : 'bg-transparent'
+                          )}
+                        />
+                      </>
+                    ),
+                  }))}
+                  value={accentSelection()}
+                  onChange={(value) => {
+                    if (value === 'custom') {
+                      applyCustomAccent(customAccent() || '#2563eb')
+                      return
+                    }
+                    setDraft({ accent: value })
+                  }}
+                />
+              }
+            />
+            <div class="px-5 pb-3.5">
+              <Show
+                when={accentSelection() === 'custom'}
+                fallback={
+                  <p class="text-muted-foreground/65 text-xs" role="status">
+                    {accentStatus() || ACCENT_NORMALIZATION_NOTE}
+                  </p>
+                }
+              >
+                <div class="flex items-center gap-2">
+                  <label class="flex items-center gap-2 text-xs text-muted-foreground">
+                    Custom hex
+                    <Input
+                      type="text"
+                      class="h-7 w-32"
+                      aria-label="Custom accent color as a hex value"
+                      placeholder="#2563eb"
+                      value={customAccent()}
+                      onChange={(event) => applyCustomAccent(event.currentTarget.value.trim())}
+                    />
+                  </label>
+                  <p class="text-muted-foreground/65 min-w-0 flex-1 text-xs" role="status">
+                    {accentStatus() || ACCENT_NORMALIZATION_NOTE}
+                  </p>
+                </div>
+              </Show>
+            </div>
+          </section>
+          <section aria-label="Glass">
+            <SettingsRow
+              icon={<PanelsTopLeft />}
+              title="Glass"
+              meta={surfaceHelperText(editor.draft().surface)}
+              control={
+                <AppearanceRadioGroup
+                  ariaLabel="Glass"
+                  class="gap-1.5"
+                  options={surfaceChoices.map((choice) => ({
+                    value: choice.value,
+                    label: choice.label,
+                    content: (selected: boolean) => (
+                      <span
+                        class={cn(
+                          'flex h-7.5 items-center rounded-md border px-2.5 text-xs',
+                          selected
+                            ? 'border-primary bg-primary/10 font-medium text-primary'
+                            : 'border-border text-muted-foreground hover:bg-accent'
+                        )}
+                      >
+                        {choice.label}
+                      </span>
+                    ),
+                  }))}
+                  value={editor.draft().surface}
+                  onChange={(surface) => setDraft({ surface })}
+                />
+              }
+            />
+          </section>
+          <section aria-label="Reduce transparency">
+            <SettingsRow
+              icon={<EyeOff />}
+              title="Reduce transparency"
+              meta={
+                <span role="status">
+                  <Show
+                    when={reduceTransparencyForced()}
+                    fallback="Keep solid surfaces for readability."
+                  >
+                    Reduced transparency is active: opaque surfaces are forced for readability.
+                  </Show>
+                </span>
+              }
+              control={
+                <Switch
+                  checked={editor.draft().reduceTransparency}
+                  onChange={(reduceTransparency) => setDraft({ reduceTransparency })}
+                  aria-label="Reduce transparency"
+                />
+              }
+            />
+          </section>
+          <section aria-label="Theme library">
+            <SettingsRow
+              icon={<FolderOpen />}
+              title="Theme library"
+              meta="Import or link custom themes."
+              control={
+                <Button type="button" size="sm" onClick={() => setLibraryOpen(true)}>
+                  Add theme
+                </Button>
+              }
+            />
+          </section>
+        </div>
+      </div>
+    </>
+  )
+
   return (
     <Show
       when={libraryOpen()}
       fallback={
-        <Dialog open={props.open} onOpenChange={(open) => !open && requestClose()}>
-          <DialogContent class="max-w-xl" aria-describedby="appearance-description">
-            <DialogHeader>
-              <DialogTitle>Appearance</DialogTitle>
-              <DialogDescription id="appearance-description">
-                Changes preview immediately. Save keeps them; closing without saving restores your
-                previous appearance.
-              </DialogDescription>
-            </DialogHeader>
-            <div class="grid gap-5 overflow-y-auto px-6 py-5">
-              <section class="grid gap-2.5" aria-label="Appearance mode">
-                <h3 class="text-sm font-medium">Appearance</h3>
-                <AppearanceRadioGroup
-                  ariaLabel="Appearance mode"
-                  class="items-start gap-4"
-                  optionClass="min-w-0 flex-1"
-                  options={modeCards.map((card) => ({
-                    value: card.value,
-                    label: card.label,
-                    content: (selected: boolean) => (
-                      <>
-                        <span
-                          class={cn(
-                            'block h-37 w-full overflow-hidden rounded-md border bg-card',
-                            selected ? 'border-primary' : 'border-border'
-                          )}
-                        >
-                          {miniatureFor(card.value)}
-                        </span>
-                        <span
-                          class={cn(
-                            'block text-sm',
-                            selected ? 'font-medium text-primary' : 'text-muted-foreground'
-                          )}
-                        >
-                          {card.label}
-                        </span>
-                      </>
-                    ),
-                  }))}
-                  value={editor.draft().mode}
-                  onChange={(mode) => setDraft({ mode })}
-                />
-                <p class="text-muted-foreground text-xs">
-                  System follows your platform appearance live; Light and Dark pin the choice.
-                </p>
-              </section>
-
-              <div class="overflow-hidden rounded-xl border bg-card">
-                <div class="divide-y">
-                  <section aria-label="Light theme">
-                    <SettingsRow
-                      icon={<SlidersHorizontal />}
-                      title="Light theme"
-                      meta="Used whenever this appearance is active."
-                      control={
-                        <ThemeDropdown
-                          ariaLabel="Light theme"
-                          heading="Light themes"
-                          variants={lightThemeVariants}
-                          value={editor.draft().lightThemeId}
-                          onChange={(lightThemeId) => setDraft({ lightThemeId })}
-                        />
-                      }
-                    />
-                  </section>
-                  <section aria-label="Dark theme">
-                    <SettingsRow
-                      icon={<SlidersHorizontal />}
-                      title="Dark theme"
-                      meta="Used whenever this appearance is active."
-                      control={
-                        <ThemeDropdown
-                          ariaLabel="Dark theme"
-                          heading="Dark themes"
-                          variants={darkThemeVariants}
-                          value={editor.draft().darkThemeId}
-                          onChange={(darkThemeId) => setDraft({ darkThemeId })}
-                        />
-                      }
-                    />
-                  </section>
-                  <section aria-label="Accent color">
-                    <SettingsRow
-                      icon={<SlidersHorizontal />}
-                      title="Accent color"
-                      meta={accentHelperText(editor.draft().accent)}
-                      control={
-                        <AppearanceRadioGroup
-                          ariaLabel="Accent color"
-                          class="items-end gap-1.5"
-                          optionClass="w-8"
-                          options={accentChoices().map((choice) => ({
-                            value: choice.value,
-                            label: `${choice.label} accent`,
-                            content: (selected: boolean) => (
-                              <>
-                                <span class={accentChipClass(selected)}>
-                                  {choice.value === 'theme' ? (
-                                    <AccentDefaultSample variant={sampleVariant()} />
-                                  ) : choice.value === 'custom' ? (
-                                    <Show
-                                      when={accentSelection() === 'custom' && customAccent()}
-                                      fallback={
-                                        <span
-                                          class="text-muted-foreground text-xs leading-none"
-                                          aria-hidden="true"
-                                        >
-                                          +
-                                        </span>
-                                      }
-                                    >
-                                      <ColorSwatch color={customAccent()} label="Custom accent" />
-                                    </Show>
-                                  ) : (
-                                    <ColorSwatch
-                                      color={choice.color!}
-                                      label={`${choice.label} accent preview`}
-                                    />
-                                  )}
-                                </span>
-                                <span
-                                  class={cn(
-                                    'h-0.5 w-6 rounded-full',
-                                    selected ? 'bg-primary' : 'bg-transparent'
-                                  )}
-                                />
-                              </>
-                            ),
-                          }))}
-                          value={accentSelection()}
-                          onChange={(value) => {
-                            if (value === 'custom') {
-                              applyCustomAccent(customAccent() || '#2563eb')
-                              return
-                            }
-                            setDraft({ accent: value })
-                          }}
-                        />
-                      }
-                    />
-                    <div class="px-5 pb-3.5">
-                      <Show
-                        when={accentSelection() === 'custom'}
-                        fallback={
-                          <p class="text-muted-foreground/65 text-xs" role="status">
-                            {accentStatus() || ACCENT_NORMALIZATION_NOTE}
-                          </p>
-                        }
-                      >
-                        <div class="flex items-center gap-2">
-                          <label class="flex items-center gap-2 text-xs text-muted-foreground">
-                            Custom hex
-                            <Input
-                              type="text"
-                              class="h-7 w-32"
-                              aria-label="Custom accent color as a hex value"
-                              placeholder="#2563eb"
-                              value={customAccent()}
-                              onChange={(event) =>
-                                applyCustomAccent(event.currentTarget.value.trim())
-                              }
-                            />
-                          </label>
-                          <p class="text-muted-foreground/65 min-w-0 flex-1 text-xs" role="status">
-                            {accentStatus() || ACCENT_NORMALIZATION_NOTE}
-                          </p>
-                        </div>
-                      </Show>
-                    </div>
-                  </section>
-                  <section aria-label="Glass">
-                    <SettingsRow
-                      icon={<PanelsTopLeft />}
-                      title="Glass"
-                      meta={surfaceHelperText(editor.draft().surface)}
-                      control={
-                        <AppearanceRadioGroup
-                          ariaLabel="Glass"
-                          class="gap-1.5"
-                          options={surfaceChoices.map((choice) => ({
-                            value: choice.value,
-                            label: choice.label,
-                            content: (selected: boolean) => (
-                              <span
-                                class={cn(
-                                  'flex h-7.5 items-center rounded-md border px-2.5 text-xs',
-                                  selected
-                                    ? 'border-primary bg-primary/10 font-medium text-primary'
-                                    : 'border-border text-muted-foreground hover:bg-accent'
-                                )}
-                              >
-                                {choice.label}
-                              </span>
-                            ),
-                          }))}
-                          value={editor.draft().surface}
-                          onChange={(surface) => setDraft({ surface })}
-                        />
-                      }
-                    />
-                  </section>
-                  <section aria-label="Reduce transparency">
-                    <SettingsRow
-                      icon={<EyeOff />}
-                      title="Reduce transparency"
-                      meta={
-                        <span role="status">
-                          <Show
-                            when={reduceTransparencyForced()}
-                            fallback="Keep solid surfaces for readability."
-                          >
-                            Reduced transparency is active: opaque surfaces are forced for
-                            readability.
-                          </Show>
-                        </span>
-                      }
-                      control={
-                        <Switch
-                          checked={editor.draft().reduceTransparency}
-                          onChange={(reduceTransparency) => setDraft({ reduceTransparency })}
-                          aria-label="Reduce transparency"
-                        />
-                      }
-                    />
-                  </section>
-                  <section aria-label="Theme library">
-                    <SettingsRow
-                      icon={<FolderOpen />}
-                      title="Theme library"
-                      meta="Import or link custom themes."
-                      control={
-                        <Button type="button" size="sm" onClick={() => setLibraryOpen(true)}>
-                          Add theme
-                        </Button>
-                      }
-                    />
-                  </section>
-                </div>
-              </div>
+        <section aria-label="Appearance" class="grid gap-5">
+          <header class="flex items-start gap-3">
+            <MonitorCog aria-hidden="true" />
+            <div>
+              <h3 class="text-sm font-medium">Appearance</h3>
+              <p class="text-muted-foreground text-sm">
+                Changes preview immediately. Save keeps them; leaving this section without saving
+                restores your previous appearance.
+              </p>
             </div>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={reset}>
-                Reset
-              </Button>
-              <Button type="button" variant="outline" onClick={requestClose}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={save}>
-                Save
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+          </header>
+          <div class="grid gap-5">{editorSections}</div>
+          <div class="flex items-center justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={reset}>
+              Reset
+            </Button>
+            <Button type="button" variant="outline" onClick={requestClose}>
+              Revert
+            </Button>
+            <Button type="button" onClick={save}>
+              Save
+            </Button>
+          </div>
+        </section>
       }
     >
       <Dialog
