@@ -145,7 +145,11 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(signInButton).toBeVisible()
 
   await settings.getByRole('tab', { name: 'Appearance' }).click()
-  await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeVisible()
+  // The section is the appearance editor now (the simple Theme toggle it
+  // replaced is gone, #425): its mode radiogroup is the control to expect.
+  await expect(
+    settings.getByRole('radiogroup', { name: 'Appearance mode', exact: true })
+  ).toBeVisible()
   const musicButton = settings.getByRole('button', { name: /music/i })
   await expect(musicButton).toBeVisible()
   await settings.getByRole('tab', { name: 'Account & app' }).click()
