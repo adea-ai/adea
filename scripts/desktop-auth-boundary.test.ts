@@ -310,6 +310,10 @@ describe('desktop packaging and single-UI client boundary', () => {
       join(root, 'packages/workspace-ui/src/account-menu.tsx'),
       'utf8'
     )
+    const settings = await readFile(
+      join(root, 'packages/workspace-ui/src/workspace-settings.tsx'),
+      'utf8'
+    )
 
     expect(workspaceMount).toContain('<SoundProvider>')
     expect(workspaceMount).toContain('<ThemeProvider>')
@@ -317,8 +321,12 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(globalRail).toContain('aria-label="Global navigation"')
     expect(globalRail).toContain("'Virtual view'")
     expect(globalRail).toContain("'Chat view'")
-    expect(globalRail).toContain('label="Appearance"')
+    // Appearance is a settings section, not a rail entry (#425): the rail
+    // keeps the App Library, and the appearance editor is injected into the
+    // settings dialog instead.
+    expect(globalRail).not.toContain('label="Appearance"')
     expect(globalRail).toContain('label="App Library"')
+    expect(settings).toContain('appearancePanel')
     expect(accountMenu).toContain('aria-label="User settings"')
     expect(accountMenu).toContain('Updates')
     expect(desktopEntry).toContain('onOpenUpdates: () => props.onUpdatesOpenChange(true)')
