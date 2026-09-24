@@ -5,6 +5,10 @@
 // against the caller's authenticated channel identity. The attach path is
 // exercised end-to-end through a real handshake and a proven command frame.
 import { createHmac } from 'node:crypto'
+import { Database } from 'bun:sqlite'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { describe, expect, test } from 'bun:test'
 
@@ -16,7 +20,15 @@ import {
 } from '../../../packages/types/src/dev-runtime'
 
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
+import { browserLaneProfileDirectory } from '../shell/src/dev-runtime/browser/engine'
+import {
+  createChromiumLaneCookieStore,
+  encryptChromiumValue,
+} from '../shell/src/dev-runtime/browser/lane-cookie-store'
+import { deriveChromiumKey } from '../shell/src/dev-runtime/browser/cookie-sources'
 import { registerBrowserDeviceRuntime } from '../shell/src/dev-runtime/browser/register'
+
+const SECRET = 'registrar-profile-secret'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -368,5 +380,153 @@ describe('production registrar composition', () => {
     expect(retry.ok).toBe(false)
     expect(retry.error?.code).toBe('capability_unavailable')
     expect(runtime.lanes.get(lane.id).state).toBe('ready')
+  })
+
+  test('cookie import composes end to end through the production registrar (#610)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-cookie-registrar-'))
+    const dataDir = join(root, 'data')
+    const home = join(root, 'home')
+    try {
+      // A real source store on the machine the registrar scans: detection finds
+      // the profile, the scripted Keychain decrypts it, and the import lands in
+      // the profile the ENGINE derives for the lane — the path comes from one
+      // shared formula, so this also guards against writing a store the browser
+      // never reads.
+      const sourceDir = join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'Default')
+      mkdirSync(sourceDir, { recursive: true })
+      const source = join(sourceDir, 'Cookies')
+      const database = new Database(source)
+      database.exec(`CREATE TABLE cookies (
+        host_key TEXT, name TEXT, encrypted_value BLOB, value TEXT, path TEXT,
+        expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
+        top_frame_site_key TEXT, has_cross_site_ancestor INTEGER
+      )`)
+      database
+        .prepare(
+          'INSERT INTO cookies VALUES ($host, $name, $value, $plain, $path, $expires, $secure, $httpOnly, $sameSite, $top, $flag)'
+        )
+        .run({
+          $host: '.example.com',
+          $name: 'session',
+          $value: encryptChromiumValue('imported-value', deriveChromiumKey(SECRET), '.example.com'),
+          $plain: '',
+          $path: '/',
+          $expires: 13_400_000_000_000_000,
+          $secure: 1,
+          $httpOnly: 0,
+          $sameSite: 1,
+          $top: '',
+          $flag: 0,
+        })
+      database.close()
+
+      const authority = createChannelAuthority({
+        shellHost: '127.0.0.1',
+        shellOrigin: 'https://127.0.0.1:4789',
+      })
+      const runtime = registerBrowserDeviceRuntime({
+        authority,
+        dataDir,
+        cookieSourceHomeDir: () => home,
+        keychainSecret: () => SECRET,
+        cookieImport: { keychainService: 'Test Safe Storage', laneKinds: ['user_context'] },
+      })
+      const channel = handshakeChannel(authority)
+      const lane = runtime.lanes.create({
+        scope,
+        runtimeSessionId: 'session-cookie-1',
+        kind: 'user_context',
+      })
+
+      const planned = await executeCommand(
+        authority,
+        channel,
+        browserCommand(
+          'dev.browser.cookieImportPlan',
+          {
+            browserLaneId: lane.id,
+            expectedGeneration: lane.generation,
+            sourceProfileId: 'chrome:Default',
+            domains: ['example.com'],
+          },
+          lane.id,
+          lane.generation,
+          '00000000-0000-4000-8000-0000000000b1',
+          'Y29va2llLWltcG9ydC1ub25jZS13aXRoLTEyOC1iaXRzLW9mLWVudHJvcHk'
+        )
+      )
+      // The authority decodes the reply with the operation's own decoder, so a
+      // pass here is the wire MutationPlan itself — value-free by contract.
+      expect(planned.ok).toBe(true)
+      const plan = planned.value as {
+        id: string
+        digest: string
+        factVersions: Record<string, string>
+      }
+      expect(plan.factVersions).toMatchObject({
+        sourceProfileId: 'chrome:Default',
+        domains: 'example.com',
+        stagedWrites: '1',
+      })
+
+      const committed = await executeCommand(
+        authority,
+        channel,
+        browserCommand(
+          'dev.browser.cookieImportCommit',
+          // The wire body is exactly the plan and its digest: the lane travels
+          // in the resource binding, so the frame carries no generation.
+          { planId: plan.id, planDigest: plan.digest },
+          lane.id,
+          lane.generation,
+          '00000000-0000-4000-8000-0000000000b2',
+          'Y29va2llLWNvbW1pdC1ub25jZS13aXRoLTEyOC1iaXRzLW9mLWVudHJvcHk'
+        )
+      )
+      expect(committed.ok, JSON.stringify(committed.error)).toBe(true)
+      expect(committed.value).toMatchObject({
+        browserLaneId: lane.id,
+        imported: 1,
+        rolledBack: false,
+      })
+
+      const listed = await createChromiumLaneCookieStore({
+        profileDirectory: browserLaneProfileDirectory(lane, dataDir),
+        keychainService: 'Test Safe Storage',
+        keychainSecret: () => SECRET,
+      }).list()
+      expect(listed.map((cookie) => [cookie.name, cookie.value])).toEqual([
+        ['session', 'imported-value'],
+      ])
+
+      // A lane kind the host did not name has no Chromium store, so the seam
+      // answers typed-unavailable instead of writing a profile nothing reads.
+      const taskLane = runtime.lanes.create({
+        scope,
+        runtimeSessionId: 'session-cookie-2',
+        kind: 'task_owned',
+      })
+      const refused = await executeCommand(
+        authority,
+        channel,
+        browserCommand(
+          'dev.browser.cookieImportPlan',
+          {
+            browserLaneId: taskLane.id,
+            expectedGeneration: taskLane.generation,
+            sourceProfileId: 'chrome:Default',
+            domains: ['example.com'],
+          },
+          taskLane.id,
+          taskLane.generation,
+          '00000000-0000-4000-8000-0000000000b3',
+          'dGFzay1sYW5lLWNvb2tpZS1ub25jZS13aXRoLTEyOC1iaXRzLW9mLWVudHJvcHk'
+        )
+      )
+      expect(refused.ok).toBe(false)
+      expect(refused.error?.code).toBe('capability_unavailable')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

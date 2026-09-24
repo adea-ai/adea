@@ -320,7 +320,15 @@ export function createCookieImportService(
       planId: string,
       planDigest: string,
       targetStore: LaneCookieStore,
-      cancel?: Readonly<{ cancelled: boolean }>
+      cancel?: Readonly<{ cancelled: boolean }>,
+      /**
+       * The live lane generation, when the caller can observe it. The commit
+       * body carries no generation of its own — the wire contract is the plan
+       * id and its digest — so without this a plan staged against a lane that
+       * has since moved would apply a transaction computed against a profile
+       * the engine has already rewritten.
+       */
+      live?: Readonly<{ laneGeneration: number }>
     ): Promise<CookieImportCommitResult> {
       const record = plans.get(planId)
       if (!record) throw new CookieImportError('plan_stale', 'plan is unknown or expired')
@@ -330,6 +338,13 @@ export function createCookieImportService(
       }
       if (record.plan.digest !== planDigest)
         throw new CookieImportError('plan_stale', 'plan digest does not match staged facts')
+      if (live && live.laneGeneration !== record.plan.laneGeneration) {
+        plans.delete(planId)
+        throw new CookieImportError(
+          'plan_stale',
+          `lane generation moved to ${live.laneGeneration}; preview the import again`
+        )
+      }
       plans.delete(planId)
       const plan = record.plan
 

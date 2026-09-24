@@ -255,18 +255,58 @@ export function decryptChromiumValue(encrypted: Uint8Array, key: Buffer): string
   }
 }
 
-function chromiumSameSite(value: unknown): ImportedCookie['sameSite'] {
+/**
+ * The `cookies.samesite` column is Chromium's own `net::CookieSameSite` enum:
+ * -1 unspecified, 0 no_restriction, 1 lax, 2 strict. A real store never holds
+ * 3, so treating 1 as no_restriction (the shape of the extension API's enum
+ * instead of the column's) silently promotes Lax to None — a cross-site
+ * sendability upgrade — on the majority of rows. Verified against a real
+ * Chrome profile: the column's observed values are exactly -1/0/1/2.
+ */
+export function chromiumSameSiteFromColumn(value: unknown): ImportedCookie['sameSite'] {
   switch (value) {
-    case 1:
+    case 0:
       return 'no_restriction'
-    case 2:
+    case 1:
       return 'lax'
-    case 3:
+    case 2:
       return 'strict'
     default:
       return 'unspecified'
   }
 }
+
+/** The inverse, for writing a value back into the same column. */
+export function chromiumSameSiteToColumn(sameSite: ImportedCookie['sameSite']): number {
+  switch (sameSite) {
+    case 'no_restriction':
+      return 0
+    case 'lax':
+      return 1
+    case 'strict':
+      return 2
+    default:
+      return -1
+  }
+}
+
+/**
+ * The columns of an existing store. A real Chromium-family profile carries
+ * `has_cross_site_ancestor`; older builds and hand-built fixtures use
+ * `is_cross_site`. Reading the schema first keeps one column-name difference
+ * from turning a readable store into a typed `unreadable`.
+ */
+function cookieColumns(database: Database): ReadonlySet<string> {
+  try {
+    const rows = database.query('PRAGMA table_info(cookies)').all() as Array<{ name?: unknown }>
+    return new Set(rows.map((row) => String(row.name ?? '')))
+  } catch {
+    return new Set<string>()
+  }
+}
+
+/** Chromium's epoch: microseconds since 1601-01-01. */
+const CHROMIUM_EPOCH_OFFSET_MS = 11_644_473_600_000
 
 function firefoxSameSite(value: unknown): ImportedCookie['sameSite'] {
   switch (value) {
@@ -287,7 +327,7 @@ function firefoxSameSite(value: unknown): ImportedCookie['sameSite'] {
 function chromiumExpiry(expiresUtc: unknown): string | undefined {
   // Chromium counts microseconds since 1601-01-01; 0 means a session cookie.
   if (typeof expiresUtc !== 'number' || expiresUtc <= 0) return undefined
-  const epochMs = Math.round(expiresUtc / 1000 - 11_644_473_600_000)
+  const epochMs = Math.round(expiresUtc / 1000 - CHROMIUM_EPOCH_OFFSET_MS)
   if (epochMs <= 0) return undefined
   return new Date(epochMs).toISOString()
 }
@@ -424,29 +464,68 @@ function readChromiumSource(
     return { ok: false, code: 'unreadable', message: 'the cookie store could not be opened' }
   }
   try {
+    const columns = cookieColumns(database)
+    // Every column the mapping needs, whether or not this build of the store
+    // has it. A missing optional column resolves to NULL and reads as absent;
+    // a missing REQUIRED one means this is not a Chromium cookie store at all,
+    // which is a format answer, not an I/O failure.
+    const required = ['host_key', 'name', 'path', 'is_secure', 'is_httponly', 'samesite']
+    if (!required.every((column) => columns.has(column))) {
+      return {
+        ok: false,
+        code: 'unsupported_format',
+        message: 'the store is a SQLite database without the Chromium cookie columns',
+        remediation: { action: 'cookieImport.chooseAnotherSource' },
+      }
+    }
+    const selection = [
+      'host_key',
+      'name',
+      'path',
+      'is_secure',
+      'is_httponly',
+      'samesite',
+      'encrypted_value',
+      'value',
+      'expires_utc',
+      'top_frame_site_key',
+      // The partition flag is spelled `has_cross_site_ancestor` in current
+      // Chromium and `is_cross_site` in older builds; either name is read and
+      // a store carrying neither simply has no partition flag.
+      'has_cross_site_ancestor',
+      'is_cross_site',
+    ]
+      .map((column) => (columns.has(column) ? column : `NULL AS ${column}`))
+      .join(', ')
     const rows = database
-      .query(
-        `SELECT host_key, name, encrypted_value, path, expires_utc, is_secure, is_httponly,
-                samesite, top_frame_site_key, is_cross_site
-           FROM cookies LIMIT ?`
-      )
+      .query(`SELECT ${selection} FROM cookies LIMIT ?`)
       .all(maxCookies + 1) as Array<Record<string, unknown>>
 
     const cookies: ImportedCookie[] = []
     let undecryptable = 0
     for (const row of rows) {
-      const value = decryptChromiumValue(
-        (row.encrypted_value as Uint8Array | null) ?? new Uint8Array(),
-        key
-      )
-      if (value === null) {
-        undecryptable += 1
-        continue
+      const encrypted = row.encrypted_value as Uint8Array | null
+      let value: string | null
+      if (encrypted && encrypted.byteLength > 0) {
+        value = decryptChromiumValue(encrypted, key)
+        if (value === null) {
+          undecryptable += 1
+          continue
+        }
+      } else {
+        // A row whose value never went through OS encryption (legacy installs,
+        // a Linux-built store) keeps it in the plaintext column.
+        value = typeof row.value === 'string' ? row.value : ''
       }
+      // A cookie is partitioned only when it carries a partition key's
+      // top-level site: the stored flag alone is 1 on nearly every row of a
+      // real profile (it is the column's migration default) and would mark
+      // ordinary cookies as partitioned.
       const partitionTopLevelSite =
         typeof row.top_frame_site_key === 'string' && row.top_frame_site_key.length > 0
           ? row.top_frame_site_key
           : undefined
+      const hasCrossSiteAncestor = row.has_cross_site_ancestor === 1 || row.is_cross_site === 1
       cookies.push({
         domain: String(row.host_key ?? ''),
         name: String(row.name ?? ''),
@@ -454,14 +533,9 @@ function readChromiumSource(
         path: typeof row.path === 'string' && row.path.length > 0 ? row.path : '/',
         secure: row.is_secure === 1,
         httpOnly: row.is_httponly === 1,
-        sameSite: chromiumSameSite(row.samesite),
-        ...(partitionTopLevelSite || row.is_cross_site === 1
-          ? {
-              partitionKey: {
-                ...(partitionTopLevelSite ? { topLevelSite: partitionTopLevelSite } : {}),
-                hasCrossSiteAncestor: row.is_cross_site === 1,
-              },
-            }
+        sameSite: chromiumSameSiteFromColumn(row.samesite),
+        ...(partitionTopLevelSite
+          ? { partitionKey: { topLevelSite: partitionTopLevelSite, hasCrossSiteAncestor } }
           : {}),
         ...(chromiumExpiry(row.expires_utc) ? { expiresAt: chromiumExpiry(row.expires_utc) } : {}),
       })

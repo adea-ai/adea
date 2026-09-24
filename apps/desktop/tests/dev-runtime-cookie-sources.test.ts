@@ -25,22 +25,46 @@ function scratch(): { home: string; cleanup: () => void } {
   return { home, cleanup: () => rmSync(home, { recursive: true, force: true }) }
 }
 
-/** A Chrome-shaped store with `rows` in it, encrypted the way Chrome 24+ does. */
+type ChromiumFixtureRow = Readonly<{
+  domain: string
+  name: string
+  value: string
+  /** The raw `cookies.samesite` column: -1 unspecified, 0 none, 1 lax, 2 strict. */
+  sameSite?: number
+  /** A partition key's top-level site; absent means an unpartitioned cookie. */
+  topFrameSiteKey?: string
+  /** The store's partition flag; current Chromium defaults it to 1 on every row. */
+  crossSiteAncestor?: number
+  /** Writes the plaintext column instead of an encrypted value. */
+  plaintext?: boolean
+}>
+
+/**
+ * A Chrome-shaped store with `rows` in it, encrypted the way Chrome 24+ does.
+ * `schema` picks the partition-flag column name: current Chromium builds write
+ * `has_cross_site_ancestor`, older ones wrote `is_cross_site`.
+ */
 function chromiumStore(
   path: string,
-  rows: ReadonlyArray<{ domain: string; name: string; value: string }>,
-  options: { secret?: string; prefix?: string } = {}
+  rows: readonly ChromiumFixtureRow[],
+  options: {
+    secret?: string
+    prefix?: string
+    schema?: 'current' | 'legacy'
+    flagDefault?: number
+  } = {}
 ): void {
   const secret = options.secret ?? 'test-secret'
   const key = deriveChromiumKey(secret)
+  const flagColumn = options.schema === 'legacy' ? 'is_cross_site' : 'has_cross_site_ancestor'
   const database = new Database(path)
   database.exec(`CREATE TABLE cookies (
-    host_key TEXT, name TEXT, encrypted_value BLOB, path TEXT, expires_utc INTEGER,
-    is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
-    top_frame_site_key TEXT, is_cross_site INTEGER
+    host_key TEXT, name TEXT, encrypted_value BLOB, value TEXT, path TEXT,
+    expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
+    top_frame_site_key TEXT, ${flagColumn} INTEGER
   )`)
   const insert = database.prepare(
-    'INSERT INTO cookies VALUES ($host, $name, $value, $path, $expires, $secure, $httpOnly, $sameSite, $top, $cross)'
+    `INSERT INTO cookies VALUES ($host, $name, $value, $plain, $path, $expires, $secure, $httpOnly, $sameSite, $top, $flag)`
   )
   for (const row of rows) {
     const cipher = createCipheriv('aes-128-cbc', key, Buffer.alloc(16, ' '))
@@ -57,14 +81,15 @@ function chromiumStore(
     insert.run({
       $host: row.domain,
       $name: row.name,
-      $value: encrypted,
+      $value: row.plaintext ? Buffer.alloc(0) : encrypted,
+      $plain: row.plaintext ? row.value : '',
       $path: '/',
       $expires: 13_400_000_000_000_000,
       $secure: 1,
       $httpOnly: 1,
-      $sameSite: 2,
-      $top: 'https://embed.example',
-      $cross: 1,
+      $sameSite: row.sameSite ?? 1,
+      $top: row.topFrameSiteKey ?? '',
+      $flag: row.crossSiteAncestor ?? options.flagDefault ?? 0,
     })
   }
   database.close()
@@ -193,7 +218,16 @@ describe('cookie source reading (#610)', () => {
     const { home, cleanup } = scratch()
     try {
       const path = join(home, 'Cookies')
-      chromiumStore(path, [{ domain: '.example.com', name: 'session', value: 'decrypted-value' }])
+      chromiumStore(path, [
+        {
+          domain: '.example.com',
+          name: 'session',
+          value: 'decrypted-value',
+          sameSite: 1,
+          topFrameSiteKey: 'https://embed.example',
+          crossSiteAncestor: 1,
+        },
+      ])
       const source = {
         id: 'chrome:Default',
         kind: 'chrome' as const,
@@ -212,12 +246,185 @@ describe('cookie source reading (#610)', () => {
         sameSite: 'lax',
         secure: true,
         httpOnly: true,
-        // top_frame_site_key + is_cross_site travel as the partition key.
+        // top_frame_site_key + the partition flag travel as the partition key.
         partitionKey: {
           topLevelSite: 'https://embed.example',
           hasCrossSiteAncestor: true,
         },
       })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('the samesite column keeps Chromium\u2019s own convention, never the API enum', () => {
+    const { home, cleanup } = scratch()
+    try {
+      const path = join(home, 'Cookies')
+      // The column is net::CookieSameSite: -1 unspecified, 0 no_restriction,
+      // 1 lax, 2 strict. Reading it as the extension API's 0/1/2/3 enum turns
+      // every Lax cookie into None — a cross-site sendability upgrade — which
+      // is why this is pinned against the real column values rather than a
+      // synthetic store's.
+      chromiumStore(path, [
+        { domain: '.a.example', name: 'unset', value: 'v', sameSite: -1 },
+        { domain: '.b.example', name: 'none', value: 'v', sameSite: 0 },
+        { domain: '.c.example', name: 'lax', value: 'v', sameSite: 1 },
+        { domain: '.d.example', name: 'strict', value: 'v', sameSite: 2 },
+      ])
+      const result = readCookieSource(
+        {
+          id: 'chrome:Default',
+          kind: 'chrome' as const,
+          label: 'Chrome',
+          storePath: path,
+          availability: 'available' as const,
+        },
+        { keychainSecret: () => 'test-secret' }
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(
+        Object.fromEntries(result.cookies.map((cookie) => [cookie.name, cookie.sameSite]))
+      ).toEqual({
+        unset: 'unspecified',
+        none: 'no_restriction',
+        lax: 'lax',
+        strict: 'strict',
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('only a stored partition key makes a cookie partitioned', () => {
+    const { home, cleanup } = scratch()
+    try {
+      const path = join(home, 'Cookies')
+      // A real profile sets the flag column to 1 on nearly every row — it is
+      // the column's migration default — so the flag alone cannot mean
+      // "partitioned": the top-level site has to be there.
+      chromiumStore(
+        path,
+        [
+          { domain: '.plain.example', name: 'ordinary', value: 'v', crossSiteAncestor: 1 },
+          {
+            domain: '.part.example',
+            name: 'partitioned',
+            value: 'v',
+            topFrameSiteKey: 'https://top.example',
+            crossSiteAncestor: 1,
+          },
+        ],
+        { flagDefault: 1 }
+      )
+      const result = readCookieSource(
+        {
+          id: 'chrome:Default',
+          kind: 'chrome' as const,
+          label: 'Chrome',
+          storePath: path,
+          availability: 'available' as const,
+        },
+        { keychainSecret: () => 'test-secret' }
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      const ordinary = result.cookies.find((cookie) => cookie.name === 'ordinary')
+      const partitioned = result.cookies.find((cookie) => cookie.name === 'partitioned')
+      expect(ordinary?.partitionKey).toBeUndefined()
+      expect(partitioned?.partitionKey).toEqual({
+        topLevelSite: 'https://top.example',
+        hasCrossSiteAncestor: true,
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('an older store naming the flag is_cross_site still reads', () => {
+    const { home, cleanup } = scratch()
+    try {
+      const path = join(home, 'Cookies')
+      chromiumStore(
+        path,
+        [
+          {
+            domain: '.example.com',
+            name: 'legacy',
+            value: 'v',
+            topFrameSiteKey: 'https://top.example',
+          },
+        ],
+        { schema: 'legacy', flagDefault: 1 }
+      )
+      const result = readCookieSource(
+        {
+          id: 'chromium:Default',
+          kind: 'chromium' as const,
+          label: 'Chromium',
+          storePath: path,
+          availability: 'available' as const,
+        },
+        { keychainSecret: () => 'test-secret' }
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.cookies[0]?.partitionKey).toEqual({
+        topLevelSite: 'https://top.example',
+        hasCrossSiteAncestor: true,
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('a row that was never OS-encrypted reads its plaintext column', () => {
+    const { home, cleanup } = scratch()
+    try {
+      const path = join(home, 'Cookies')
+      chromiumStore(path, [
+        { domain: '.example.com', name: 'plain', value: 'plain-value', plaintext: true },
+      ])
+      const result = readCookieSource(
+        {
+          id: 'chromium:Default',
+          kind: 'chromium' as const,
+          label: 'Chromium',
+          storePath: path,
+          availability: 'available' as const,
+        },
+        { keychainSecret: () => 'test-secret' }
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(result.cookies[0]?.value).toBe('plain-value')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('a SQLite database without the Chromium columns is a format answer, not an I/O failure', () => {
+    const { home, cleanup } = scratch()
+    try {
+      const path = join(home, 'Cookies')
+      const database = new Database(path)
+      database.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)')
+      database.close()
+      const result = readCookieSource(
+        {
+          id: 'chromium:Default',
+          kind: 'chromium' as const,
+          label: 'Chromium',
+          storePath: path,
+          availability: 'available' as const,
+        },
+        { keychainSecret: () => 'test-secret' }
+      )
+      expect(result.ok).toBe(false)
+      if (result.ok) return
+      expect(result.code).toBe('unsupported_format')
+      expect(result.remediation?.action).toBe('cookieImport.chooseAnotherSource')
     } finally {
       cleanup()
     }
