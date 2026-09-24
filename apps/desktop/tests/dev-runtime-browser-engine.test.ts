@@ -78,6 +78,10 @@ class FakeWebView implements BrowserWebView {
     if (method === 'DOM.getBoxModel')
       return { model: { border: [1, 2, 21, 2, 21, 12, 1, 12] } } as T
     if (method === 'DOM.requestNode') return { nodeId: 3 } as T
+    // The text read resolves the node the query already found and calls a
+    // constant function on it (no selector interpolated into code), so the
+    // scripted surface answers the resolve the way the real one does.
+    if (method === 'DOM.resolveNode') return { object: { objectId: 'resolved-node' } } as T
     if (method === 'Page.createIsolatedWorld') return { executionContextId: 42 } as T
     if (method === 'Page.getFrameTree')
       return {
@@ -90,16 +94,21 @@ class FakeWebView implements BrowserWebView {
       if (params?.contextId === 42) return { result: { objectId: 'child-node' } } as T
       return { result: { value: { text: 'Example' } } } as T
     }
-    if (method === 'Runtime.callFunctionOn')
-      return {
-        result: {
-          value: {
-            role: 'button',
-            name: 'Embedded action',
-            bounds: { x: 3, y: 4, width: 50, height: 20 },
+    if (method === 'Runtime.callFunctionOn') {
+      // The inspection text read and the picker's description share this
+      // method, and the picker is the one that measures.
+      if (String(params?.functionDeclaration ?? '').includes('getBoundingClientRect'))
+        return {
+          result: {
+            value: {
+              role: 'button',
+              name: 'Embedded action',
+              bounds: { x: 3, y: 4, width: 50, height: 20 },
+            },
           },
-        },
-      } as T
+        } as T
+      return { result: { value: { text: 'Example' } } } as T
+    }
     return {} as T
   }
 
