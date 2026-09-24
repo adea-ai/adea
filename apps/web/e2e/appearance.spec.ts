@@ -13,8 +13,13 @@ async function openAppearance(page: Page) {
   const settings = page.getByRole('dialog', { name: 'Settings' })
   const panel = settings.getByRole('region', { name: 'Appearance', exact: true })
   await expect(async () => {
-    await page.getByRole('button', { name: 'User settings' }).click()
-    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    // Idempotent on purpose: a test may ask again while the section is already
+    // on screen, and the account menu sits behind the open dialog.
+    if (await panel.isVisible().catch(() => false)) return
+    if (!(await settings.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'User settings' }).click()
+      await page.getByRole('menuitem', { name: 'Settings' }).click()
+    }
     await settings.getByRole('tab', { name: 'Appearance' }).click()
     await expect(panel).toBeVisible()
   }).toPass({ timeout: 30_000 })
