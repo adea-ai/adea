@@ -156,7 +156,11 @@ describe('production registrar composition', () => {
     await runtime.refreshDevices()
     expect(typeof runtime.deviceEngine.probe).toBe('function')
     runtime.lanes.close(lane.id, runtime.lanes.get(lane.id).generation)
-  })
+    // The probe spawns `xcrun simctl` / `adb` for real: on a machine whose
+    // CoreSimulator is cold, a single `simctl list` runs past ten seconds, so
+    // the default budget measures the host's tooling rather than this contract.
+    // CI hosts have no simctl and fail the probe immediately.
+  }, 60_000)
 
   test('associates owned ports with the ready task lane for the same session', async () => {
     const authority = createChannelAuthority({
@@ -525,6 +529,83 @@ describe('production registrar composition', () => {
       )
       expect(refused.ok).toBe(false)
       expect(refused.error?.code).toBe('capability_unavailable')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('the default composition enables cookie import for every lane kind (#610)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-cookie-default-'))
+    const dataDir = join(root, 'data')
+    const home = join(root, 'home')
+    try {
+      const sourceDir = join(home, 'Library', 'Application Support', 'Google', 'Chrome', 'Default')
+      mkdirSync(sourceDir, { recursive: true })
+      const source = join(sourceDir, 'Cookies')
+      const database = new Database(source)
+      database.exec(`CREATE TABLE cookies (
+        host_key TEXT, name TEXT, encrypted_value BLOB, value TEXT, path TEXT,
+        expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER,
+        top_frame_site_key TEXT, has_cross_site_ancestor INTEGER
+      )`)
+      database
+        .prepare(
+          'INSERT INTO cookies VALUES ($host, $name, $value, $plain, $path, $expires, $secure, $httpOnly, $sameSite, $top, $flag)'
+        )
+        .run({
+          $host: '.example.com',
+          $name: 'session',
+          $value: encryptChromiumValue('imported-value', deriveChromiumKey(SECRET), '.example.com'),
+          $plain: '',
+          $path: '/',
+          $expires: 0,
+          $secure: 1,
+          $httpOnly: 0,
+          $sameSite: 2,
+          $top: '',
+          $flag: 0,
+        })
+      database.close()
+
+      const authority = createChannelAuthority({
+        shellHost: '127.0.0.1',
+        shellOrigin: 'https://127.0.0.1:4789',
+      })
+      // No cookieImport block at all: the lane engine is Chromium-backed, so
+      // the seam composes itself and answers for a plain lane.
+      const runtime = registerBrowserDeviceRuntime({
+        authority,
+        dataDir,
+        cookieSourceHomeDir: () => home,
+        keychainSecret: () => SECRET,
+      })
+      const channel = handshakeChannel(authority)
+      const lane = runtime.lanes.create({
+        scope,
+        runtimeSessionId: 'session-cookie-default',
+        kind: 'task_owned',
+      })
+      const planned = await executeCommand(
+        authority,
+        channel,
+        browserCommand(
+          'dev.browser.cookieImportPlan',
+          {
+            browserLaneId: lane.id,
+            expectedGeneration: lane.generation,
+            sourceProfileId: 'chrome:Default',
+            domains: ['example.com'],
+          },
+          lane.id,
+          lane.generation,
+          '00000000-0000-4000-8000-0000000000c1',
+          'ZGVmYXVsdC1jb29raWUtbm9uY2Utd2l0aC0xMjgtYml0cy1vZi1lbnRyb3B5'
+        )
+      )
+      expect(planned.ok, JSON.stringify(planned.error)).toBe(true)
+      expect(
+        (planned.value as { factVersions: Record<string, string> }).factVersions
+      ).toMatchObject({ stagedWrites: '1' })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
