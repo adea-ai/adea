@@ -153,6 +153,10 @@ jobs:
           NODE
 
       - name: Visual regression lane
+        # A baseline refresh is the case where this step is *expected* to fail
+        # first (that is why the refresh was asked for), so the dispatch mode
+        # softens it; the pull_request path keeps failing hard.
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' && inputs['update-snapshots'] }}
         run: |
           set -euo pipefail
           bun run test:e2e:visual
