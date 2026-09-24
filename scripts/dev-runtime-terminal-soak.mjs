@@ -98,6 +98,35 @@ function note(what, detail) {
   console.log(`TERMINAL-SOAK ok ${what}: ${detail}`)
 }
 
+/**
+ * What was happening when an accounting assertion failed.
+ *
+ * The first 24-hour attempt failed three byte/record assertions across 12,541
+ * rounds — one round 2 bytes short, one round ~40 KB long carrying duplicated
+ * producer records — and the summary offered nothing to separate a transport
+ * defect from a subscriber that was resynced, a credit latch that fired, or a
+ * machine too starved to drain its own acknowledgements. Every failure now
+ * carries those facts, so the next occurrence is diagnosable instead of
+ * re-guessed.
+ */
+const eventWindow = { acks: 0, ackMs: [], mainResyncs: 0, notices: 0 }
+function resetEventWindow() {
+  eventWindow.acks = 0
+  eventWindow.ackMs.length = 0
+  eventWindow.mainResyncs = 0
+  eventWindow.notices = 0
+}
+function attribution() {
+  const sorted = eventWindow.ackMs.toSorted((left, right) => left - right)
+  return {
+    acksIssued: eventWindow.acks,
+    ackMaxMs: sorted.length ? sorted[sorted.length - 1] : null,
+    ackP50Ms: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
+    mainResyncs: eventWindow.mainResyncs,
+    resyncNotices: eventWindow.notices,
+  }
+}
+
 // ── sidecar process plumbing ────────────────────────────────────────────────
 const entryPath = new URL(
   '../apps/desktop/shell/src/dev-runtime/terminal/sidecar/entry.ts',
@@ -231,7 +260,13 @@ function flushAck() {
   if (unackedSinceAck === 0) return
   const count = unackedSinceAck
   unackedSinceAck = 0
+  const ackStarted = performance.now()
   const ack = mainClient.acknowledge(terminalId, MAIN, count)
+  eventWindow.acks += 1
+  void ack.then(
+    () => eventWindow.ackMs.push(performance.now() - ackStarted),
+    () => eventWindow.ackMs.push(performance.now() - ackStarted)
+  )
   pendingAcks.add(ack)
   void ack.then(
     () => pendingAcks.delete(ack),
@@ -565,6 +600,7 @@ const roundLedger = []
 
 async function runRound(roundIndex) {
   const roundStart = performance.now()
+  resetEventWindow()
   const bytesAtStart = received.bytes
   const framesAtStart = received.frames
   streamText = ''
@@ -583,11 +619,15 @@ async function runRound(roundIndex) {
   if (records.length !== floodLines) {
     fail(
       'zero lost bytes (record count)',
-      `round ${roundIndex}: parsed ${records.length} records, expected ${floodLines}`
+      `round ${roundIndex}: parsed ${records.length} records, expected ${floodLines}; ` +
+        JSON.stringify(attribution())
     )
   }
   if (new Set(records).size !== records.length) {
-    fail('zero lost bytes (duplication)', `round ${roundIndex}: duplicate producer records`)
+    fail(
+      'zero lost bytes (duplication)',
+      `round ${roundIndex}: duplicate producer records; ${JSON.stringify(attribution())}`
+    )
   }
   const seen = new Set(records)
   let missing = -1
@@ -606,7 +646,8 @@ async function runRound(roundIndex) {
   if (noise < 0 || noise > 128) {
     fail(
       'byte volume envelope',
-      `round ${roundIndex}: ${noise} unaccounted bytes outside the ±128 envelope`
+      `round ${roundIndex}: ${noise} unaccounted bytes outside the ±128 envelope; ` +
+        JSON.stringify(attribution())
     )
   }
   streamText = ''
@@ -752,7 +793,11 @@ try {
   mainClient = await adopt(300_000)
   mainClient.setEvents({
     onDataFrame: (meta, bytes) => trackFrame(meta, bytes),
-    onResync: (notice) => resyncNotices.push(notice),
+    onResync: (notice) => {
+      resyncNotices.push(notice)
+      eventWindow.notices += 1
+      if (notice.subscriberId === MAIN) eventWindow.mainResyncs += 1
+    },
     onExited: () => undefined,
   })
   const samplerDone = sampler(sidecar.pid)
@@ -838,12 +883,19 @@ try {
   // "24-hour" soak that stops after one round reports success. Fail loudly so
   // an acceptance claim is only made when the budget actually bound.
   const laneElapsedMs = Math.round(performance.now() - laneStarted)
-  const budgetHonored = durationMs === 0 || laneElapsedMs >= durationMs
+  // A run that already failed (an integrity assertion, a thrown setup error)
+  // did not stop because the budget was short; reporting a second, misleading
+  // failure on top of the real one is how a 24-hour soak ends up looking like
+  // a round-cap problem.
+  const stoppedForFailures = failures.length > 0
+  const budgetHonored = durationMs === 0 || laneElapsedMs >= durationMs || stoppedForFailures
   if (!budgetHonored) {
     exitCode = 1
     console.error(
-      `TERMINAL-SOAK FAIL: the round cap (${rounds}) ended the run after ${laneElapsedMs}ms, ` +
-        `short of the ${durationMs}ms budget; raise ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS`
+      `TERMINAL-SOAK FAIL: ${roundLedger.length} rounds ended the run after ${laneElapsedMs}ms, ` +
+        `short of the ${durationMs}ms budget` +
+        (roundsRequested ? ` (ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS=${rounds})` : '') +
+        '; raise ADEA_DEV_RUNTIME_TERMINAL_SOAK_ROUNDS or the duration budget'
     )
   } else if (exitCode === 0) {
     console.log(`TERMINAL-SOAK PASS (${verified.length} verified assertions, 0 failures)`)
@@ -884,6 +936,12 @@ try {
         resizeStorms: stormCount,
         attachDetachChurn: churnCount,
         resyncNotices: resyncNotices.length,
+        resyncNoticesBySubscriber: Object.fromEntries(
+          [...new Set(resyncNotices.map((notice) => notice.subscriberId))].map((id) => [
+            id,
+            resyncNotices.filter((notice) => notice.subscriberId === id).length,
+          ])
+        ),
       },
       roundLedger,
       samples,
