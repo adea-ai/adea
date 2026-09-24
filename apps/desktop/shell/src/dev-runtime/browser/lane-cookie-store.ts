@@ -35,6 +35,25 @@ import {
 /** Chromium's epoch: microseconds since 1601-01-01. */
 const CHROMIUM_EPOCH_OFFSET_MS = 11_644_473_600_000
 
+/**
+ * The Keychain item the lane engine's profiles are encrypted with.
+ *
+ * The lane WebView is Chromium-backed — the same build writes the Chromium
+ * profile schema (partitioned cookies included) and speaks CDP — and on macOS
+ * that build names its item from its product name. Verified on the reference
+ * machine: an item with service "Chromium Safe Storage" and account "Chromium"
+ * exists, created at the runtime's first launch (2026-09-12), and a value
+ * written with the key it yields reads back through the same store.
+ */
+export const CHROMIUM_LANE_KEYCHAIN_SERVICE = 'Chromium Safe Storage'
+
+/** Every lane kind the Chromium-backed engine serves, each with its own profile. */
+export const CHROMIUM_LANE_KINDS: readonly ('human_embedded' | 'task_owned' | 'user_context')[] = [
+  'human_embedded',
+  'task_owned',
+  'user_context',
+]
+
 export type LaneCookieStoreErrorCode =
   | 'keychain_denied'
   | 'unreadable'

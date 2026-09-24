@@ -1,0 +1,56 @@
+{
+  "runtime": {
+    "bun": "1.4.0",
+    "platform": "darwin",
+    "argv0": "/Applications/Adea.app/Contents/MacOS/bun"
+  },
+  "sources": [
+    {
+      "id": "chrome:Default",
+      "kind": "chrome",
+      "availability": "available"
+    },
+    {
+      "id": "brave:Default",
+      "kind": "brave",
+      "availability": "available"
+    },
+    {
+      "id": "firefox:6rnfc55n.default-release-1746648740612",
+      "kind": "firefox",
+      "availability": "available"
+    },
+    {
+      "id": "safari:legacy",
+      "kind": "safari",
+      "availability": "unsupported_format"
+    }
+  ],
+  "read": {
+    "sourceId": "chrome:Default",
+    "ok": true,
+    "cookies": 625,
+    "partitioned": 74,
+    "withExpiry": 615,
+    "sameSite": ["lax", "no_restriction", "strict", "unspecified"]
+  },
+  "laneProfiles": [
+    {
+      "profile": "adea-browser-profile-v1-",
+      "read": true,
+      "cookies": 0
+    },
+    {
+      "profile": "adea-browser-profile-v1-",
+      "read": true,
+      "cookies": 0
+    }
+  ],
+  "writeTarget": {
+    "keychainItem": "Chromium Safe Storage",
+    "available": true,
+    "roundTrip": true,
+    "sameSitePreserved": true,
+    "partitionPreserved": true
+  }
+}
