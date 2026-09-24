@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.2](https://github.com/adea-ai/adea/compare/v0.52.1...v0.52.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **soak:** drain each round boundary so a phase tail cannot be charged to the next round ([#648](https://github.com/adea-ai/adea/issues/648)) ([c3a10e2](https://github.com/adea-ai/adea/commit/c3a10e258c9d41cc835a824c3e290449446d7aa0))
+
 ## [0.52.1](https://github.com/adea-ai/adea/compare/v0.52.0...v0.52.1) (2026-09-24)
 
 
