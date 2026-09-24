@@ -28,7 +28,18 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import { registerResourcesRuntime } from '../src/dev-runtime/resources/register'
+import {
+  registerResourcesRuntime,
+  type RegisterResourcesRuntimeInput,
+} from '../src/dev-runtime/resources/register'
+
+/** The shapes the registrar itself declares, so this seeder cannot drift from
+ *  the seams it feeds (the .mjs scale lane gets away without them; a typed
+ *  lane does not). */
+type ResourcesInput = RegisterResourcesRuntimeInput
+type SupervisionRecords = NonNullable<ResourcesInput['supervisionRecords']>
+type SupervisionView = NonNullable<ResourcesInput['supervision']>
+type OwnerBinding = NonNullable<ReturnType<NonNullable<ResourcesInput['resolveOwner']>>>
 import {
   createProcessSampler,
   SAMPLE_MAX_PIDS,
@@ -78,10 +89,17 @@ function stats(values: readonly number[]) {
 
 /** Mirrors the scale lane's seeding: one durable record plus one live
  *  component per process, ten processes to a runtime session. */
-function seedInventory(processes: number, sessions: number) {
+function seedInventory(
+  processes: number,
+  sessions: number
+): {
+  records: ReturnType<SupervisionRecords['list']>
+  components: ReturnType<SupervisionView['snapshot']>['components']
+  resolveOwner: (componentId: string) => OwnerBinding
+} {
   const perSession = processes / sessions
-  const records: Array<Record<string, unknown>> = []
-  const components: Array<Record<string, unknown>> = []
+  const records: Array<ReturnType<SupervisionRecords['list']>[number]> = []
+  const components: Array<ReturnType<SupervisionView['snapshot']>['components'][number]> = []
   for (let index = 0; index < processes; index += 1) {
     const componentId = `comp-${String(index).padStart(4, '0')}`
     const identity = {
@@ -90,7 +108,7 @@ function seedInventory(processes: number, sessions: number) {
       executableIdentity: `/exe/${index}`,
     }
     records.push({
-      kind: 'launched',
+      kind: 'launched' as const,
       at: new Date(1_000).toISOString(),
       componentId,
       generation: 1,
@@ -100,8 +118,8 @@ function seedInventory(processes: number, sessions: number) {
     })
     components.push({
       id: componentId,
-      state: 'running',
-      health: 'healthy',
+      state: 'running' as const,
+      health: 'healthy' as const,
       generation: 1,
       launch: { identity, processGroup: `grp-${index}`, startedAt: new Date(1_000).toISOString() },
       manifest: { version: '1.0.0', digestSha256: 'd'.repeat(64) },
@@ -113,7 +131,7 @@ function seedInventory(processes: number, sessions: number) {
     resolveOwner: (componentId: string) => {
       const index = Number(componentId.slice(5))
       const session = `session-${String(Math.floor(index / perSession)).padStart(3, '0')}`
-      return { ownerKind: 'harness', ownerId: session, runtimeSessionId: session }
+      return { ownerKind: 'harness' as const, ownerId: session, runtimeSessionId: session }
     },
   }
 }
