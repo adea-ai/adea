@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.2](https://github.com/adea-ai/adea/compare/v0.55.1...v0.55.2) (2026-09-24)
+
+
+### Bug Fixes
+
+* **appearance:** accent reset, draft-gated actions, and layout feedback ([#664](https://github.com/adea-ai/adea/issues/664)) ([5fd4358](https://github.com/adea-ai/adea/commit/5fd4358f31c93d0f7abdb3a48a1b50bd95405fd1))
+
 ## [0.55.1](https://github.com/adea-ai/adea/compare/v0.55.0...v0.55.1) (2026-09-24)
 
 
