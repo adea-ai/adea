@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.1](https://github.com/adea-ai/adea/compare/v0.54.0...v0.54.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **browser:** read inspected text without building code (CodeQL alert [#21](https://github.com/adea-ai/adea/issues/21)) ([#655](https://github.com/adea-ai/adea/issues/655)) ([77d55e7](https://github.com/adea-ai/adea/commit/77d55e7412610f9bb70eb7bee4a7710466e8cd9e))
+
 ## [0.54.0](https://github.com/adea-ai/adea/compare/v0.53.0...v0.54.0) (2026-09-24)
 
 
