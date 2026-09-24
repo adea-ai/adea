@@ -135,6 +135,52 @@ describe('registry marketplace catalog', () => {
     ).rejects.toThrow('byte-identical')
   })
 
+  test('accepts a release that also publishes consumer shards and brand marks', async () => {
+    const fixture = await fixtureArtifacts()
+    const catalogId = fixture.catalog.catalogId
+    const extra = {
+      'catalog-index.v1.json': JSON.stringify({ catalogId, products: {}, schemaVersion: 1 }),
+      'shelf-productivity.v1.json': JSON.stringify({ catalogId, products: [], schemaVersion: 1 }),
+      'icon-0123456789abcdef0123456789abcdef.png': 'binary',
+    }
+    const declared: Record<string, string> = {}
+    for (const name of [
+      'catalog.v1.json',
+      'catalog-summary.v1.json',
+      'categories.v1.json',
+      'compatibility.v1.json',
+      'sources.lock.json',
+    ])
+      declared[name] = (JSON.parse(fixture.artifacts['integrity.json']) as { files: Record<string, string> })
+        .files[name]!
+    declared['catalog-index.v1.json'] = await canonicalDigest(extra['catalog-index.v1.json'])
+    declared['shelf-productivity.v1.json'] = await canonicalDigest(extra['shelf-productivity.v1.json'])
+    declared['icon-0123456789abcdef0123456789abcdef.png'] = await canonicalDigest(
+      extra['icon-0123456789abcdef0123456789abcdef.png']
+    )
+    const verified = await verifyRegistryArtifacts({
+      ...fixture.artifacts,
+      ...extra,
+      'integrity.json': JSON.stringify({ assets: [], catalogId, files: declared, schemaVersion: 1 }),
+    })
+    expect(verified.catalog.catalogId).toBe(catalogId)
+  })
+
+  test('rejects a manifest that omits a required artifact', async () => {
+    const fixture = await fixtureArtifacts()
+    const integrity = JSON.parse(fixture.artifacts['integrity.json']) as {
+      files: Record<string, string>
+    }
+    const files = { ...integrity.files }
+    delete files['categories.v1.json']
+    await expect(
+      verifyRegistryArtifacts({
+        ...fixture.artifacts,
+        'integrity.json': JSON.stringify({ catalogId: fixture.catalog.catalogId, files, schemaVersion: 1 }),
+      })
+    ).rejects.toThrow('integrity metadata is invalid')
+  })
+
   test('maps source-qualified plugin IDs and preserves registry release metadata', async () => {
     const fixture = await fixtureArtifacts()
     const [plugin] = mapRegistryCatalog(fixture.catalog, [])
