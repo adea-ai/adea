@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.3](https://github.com/adea-ai/adea/compare/v0.55.2...v0.55.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* **projects:** the scan walker reports each package's own directory ([#669](https://github.com/adea-ai/adea/issues/669)) ([d946e5a](https://github.com/adea-ai/adea/commit/d946e5a245f9d4eea8990d1c9160b788833a77cd))
+
 ## [0.55.2](https://github.com/adea-ai/adea/compare/v0.55.1...v0.55.2) (2026-09-24)
 
 
