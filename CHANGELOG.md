@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.54.2](https://github.com/adea-ai/adea/compare/v0.54.1...v0.54.2) (2026-09-24)
+
+
+### Documentation
+
+* **m12:** correct the certification audit — closed slices carried unticked boxes ([#657](https://github.com/adea-ai/adea/issues/657)) ([06a88f8](https://github.com/adea-ai/adea/commit/06a88f897c799fd3ef0c71b019edddba77a3234a))
+
 ## [0.54.1](https://github.com/adea-ai/adea/compare/v0.54.0...v0.54.1) (2026-09-24)
 
 
