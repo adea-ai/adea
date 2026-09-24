@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.53.0](https://github.com/adea-ai/adea/compare/v0.52.2...v0.53.0) (2026-09-24)
+
+
+### Features
+
+* **m12:** packaged usage long-task proof for [#539](https://github.com/adea-ai/adea/issues/539)'s second thread ([#650](https://github.com/adea-ai/adea/issues/650)) ([6b4c1d7](https://github.com/adea-ai/adea/commit/6b4c1d7eb86bfa4cc9f799786497f3c94ac1eba5))
+
 ## [0.52.2](https://github.com/adea-ai/adea/compare/v0.52.1...v0.52.2) (2026-09-24)
 
 
