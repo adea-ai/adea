@@ -40,10 +40,31 @@ be run on this tree for the certification artifact set, which is scheduled after
 the soak completes. Until then the journey's browser rows report `blocked` for
 the accurate reason (the proof has not been run in this workspace).
 
-### 2. Every upstream M12 acceptance box verified or linked to an accepted follow-up — **met; the audit is below**
+### 2. Every upstream M12 acceptance box verified or linked to an accepted follow-up — **partial; the audit is in progress and the count below was wrong**
 
-The milestone carries 25 issues: 21 closed with evidence, 4 open. The only
-unticked acceptance boxes in the whole milestone are three, all gated on the soak
+**Correction (2026-09-24, same day).** The first version of this section counted
+only the _open_ issues and claimed "three unticked acceptance boxes in the whole
+milestone". That was wrong: several **closed** slices were closed with their
+acceptance boxes left unticked, which is the record gap the owner's completion
+standard exists to catch. The real state, measured box by box:
+
+| Closed slice                           | Unticked on 2026-09-24        | State                                                                                                          |
+| -------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| #29 RuntimeNode identity/pairing       | 11 → **0**                    | audited; every box now carries a named proof                                                                   |
+| #30 harness discovery/inventory        | 7 → **0**                     | audited; every box now carries a named proof                                                                   |
+| #31 managed Pi lifecycle               | 9 → **7 ticked, 2 gap**       | 7 verified; the two remote-control clauses are unbuilt and linked to M11 (#187/#189)                           |
+| #400 harness launch/canonical sessions | 11 → **0**                    | audited; every box now carries a named proof                                                                   |
+| #471 macOS permissions page            | 6 → **5 ticked, 1 partial**   | 5 verified; no Playwright coverage of deep-link/degradation states, and WCAG 2.2 AA is the owner's manual pass |
+| #394, #395, #398, #399, #425           | 7 + 13 + 9 + 11 + 19 = **59** | not yet audited — the next phase's work, by the same method                                                    |
+
+The method is not "tick what looks done": each box gets either a named proof
+(test name, module, artifact, or spec section) that a reader can open, or an
+explicit statement of the gap and the follow-up that accepts it. Where a clause
+is genuinely unbuilt, the box stays unticked — the remote-control pair on #31 is
+the example — because restating a criterion so it ticks is the failure mode this
+package exists to prevent.
+
+The open issues' boxes are, separately, three in number and all gated on the soak
 running today:
 
 | Issue                                               | State  | Unticked boxes                                                                                           |
@@ -113,6 +134,11 @@ Run against `main` @ `79a62b2f`:
 
 ## What remains for full closure
 
+0. **Finish the box-level audit of the five closed slices still carrying
+   unticked acceptance boxes (#394, #395, #398, #399, #425 — 59 boxes)** with the
+   same method as the four already done, or state each remaining gap and its
+   accepted follow-up. Until that is done, box 2 of this gate is partial and the
+   milestone cannot honestly be called verified, whatever its issue states say.
 1. The 24-hour soak's artifact (`budgetHonored: true`, 0 integrity failures) —
    then #426's budgets box and #396's soak row are ticked and both issues close.
 2. The packaged lane run on this tree, for the browser/screenshot artifact set —
