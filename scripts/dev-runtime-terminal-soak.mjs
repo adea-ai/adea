@@ -204,6 +204,7 @@ const received = {
   windowBytes: 0,
   windowLimit: 32 * 1024 * 1024,
 }
+let lastFrameAt = 0
 const resyncNotices = []
 const probeFrames = new Map() // subscriberId → Array<{seq, bytes}>
 // seq → cumulative MAIN-stream bytes at that sequence's end; drives the
@@ -222,6 +223,7 @@ let markerResolve = null
 
 function trackFrame(meta, bytes) {
   if (meta.subscriberId === MAIN) {
+    lastFrameAt = performance.now()
     received.frames += 1
     received.bytes += bytes.byteLength
     received.digest.update(bytes)
@@ -316,6 +318,48 @@ function waitForMarker(marker, timeoutMs) {
       markerResolve = null
       activeMarker = null
       resolve(true)
+    }
+  })
+}
+
+/**
+ * Waits for a round's sentinel, but fails on a *stalled stream* rather than on
+ * a fixed clock. A loaded machine can stretch a round past any fixed timeout
+ * while still making progress — the third 24-hour attempt lost its sentinel to
+ * exactly that, reporting "marker never arrived" when the truth was "this
+ * machine was busy" — whereas a stream that has delivered no bytes for
+ * `stallMs` is a finding whatever the wall clock says. Returns 'marker',
+ * 'stalled', or 'expired'.
+ */
+function waitForMarkerOrStall(marker, stallMs = 90_000, ceilingMs = 900_000) {
+  const waitStartedAt = performance.now()
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (streamText.includes(marker)) {
+        finish('marker')
+        return
+      }
+      const now = performance.now()
+      if (now - lastFrameAt > stallMs) {
+        finish('stalled')
+        return
+      }
+      if (now - waitStartedAt > ceilingMs) {
+        finish('expired')
+        return
+      }
+      timer = setTimeout(tick, 250)
+    }
+    let timer = setTimeout(tick, 250)
+    function finish(outcome) {
+      clearTimeout(timer)
+      activeMarker = null
+      markerResolve = null
+      resolve(outcome)
+    }
+    activeMarker = marker
+    markerResolve = (seen) => {
+      if (seen) finish('marker')
     }
   })
 }
@@ -636,9 +680,13 @@ async function runRound(roundIndex) {
   streamText = ''
   const marker = `SOAKROUND ${roundIndex} END`
   await writeProducer(floodCommand(marker))
-  const done = await waitForMarker(marker, 180_000)
-  if (!done) {
-    fail('producer sentinel', `round ${roundIndex}: marker never arrived`)
+  const done = await waitForMarkerOrStall(marker)
+  if (done !== 'marker') {
+    fail(
+      'producer sentinel',
+      `round ${roundIndex}: ${done === 'stalled' ? 'the stream stopped producing bytes while the sentinel was outstanding' : 'the sentinel did not arrive within the ceiling'}` +
+        `; ${JSON.stringify(attribution())}`
+    )
     return null
   }
   // The byte envelope is only exact if the round's window contains the round's
@@ -893,7 +941,12 @@ try {
   await samplerDone
   await Promise.allSettled(pendingAcks)
 
-  if (received.lastSeq >= 0n) {
+  // A round that timed out leaves its flood still arriving; probing that stream
+  // reports the abandoned round as a probe defect (the ring probe's off-by-one
+  // and the resync-anchor retry were both exactly that in the third attempt).
+  // Probe only a stream whose round loop ended cleanly.
+  if (received.lastSeq >= 0n && failures.length === 0) {
+    await drainQuiescent()
     await ringReplayProbe(mainClient)
     await durableHeadProbe(mainClient)
   }

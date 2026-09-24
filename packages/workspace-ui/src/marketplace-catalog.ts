@@ -157,12 +157,22 @@ export async function verifyRegistryArtifacts(
     'sources.lock.json',
   ] as const
   const integrityFiles = isStringRecord(integrity.files) ? integrity.files : undefined
+  // A release declares every artifact it publishes, which is a superset of the
+  // core set this client verifies: catalog releases also carry consumer shards
+  // (catalog-index, shelf-*, category-*) and mirrored brand marks. Require every
+  // expected artifact to be declared, and every artifact present here to be
+  // declared, so a truncated or substituted manifest still fails.
   if (
     integrity.schemaVersion !== 1 ||
     integrity.catalogId !== catalog.catalogId ||
     integrityFiles === undefined ||
-    Object.keys(integrityFiles).length !== expectedFiles.length ||
-    expectedFiles.some((name) => integrityFiles[name] === undefined)
+    expectedFiles.some((name) => integrityFiles[name] === undefined) ||
+    Object.keys(artifacts).some(
+      (name) =>
+        name !== 'integrity.json' &&
+        name !== 'catalog-latest.v1.json' &&
+        integrityFiles[name] === undefined
+    )
   ) {
     throw new MarketplaceCatalogError(
       'verification-failure',
