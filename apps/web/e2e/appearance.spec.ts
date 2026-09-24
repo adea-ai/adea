@@ -1,22 +1,21 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * The appearance editor lives in the settings panel's Appearance section
- * (the global rail no longer carries its own entry). The deep link is the
- * same one `conventional-workspace.spec.ts` uses for other sections; the
- * editor chunk is code-split, so a cold dev server can outlive the default
- * expect timeout and the open is retried.
+ * The appearance editor lives in the settings dialog's Appearance section (the
+ * global rail no longer carries its own entry, #425). It is reached the way a
+ * user reaches it — account menu, Settings, then the section — rather than by
+ * hash: the section is read from the hash on mount, and the app normalizes the
+ * URL, so a hash navigation from an already-loaded page is not a path the app
+ * promises to honour. The editor chunk is code-split, so a cold dev server can
+ * outlive the default expect timeout and the whole path is retried.
  */
 async function openAppearance(page: Page) {
-  const settings = page.getByRole('panel', { name: 'Settings' })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
   const panel = settings.getByRole('region', { name: 'Appearance', exact: true })
   await expect(async () => {
-    // The settings section is read from the hash on load, so the hash has to
-    // arrive with a document load: navigating from the already-loaded
-    // `/?view=chat` to `/#settings/appearance` is a same-document navigation
-    // and would leave the dialog unopened.
-    await page.goto('/#settings/appearance')
-    await page.reload()
+    await page.getByRole('button', { name: 'User settings' }).click()
+    await page.getByRole('menuitem', { name: 'Settings' }).click()
+    await settings.getByRole('tab', { name: 'Appearance' }).click()
     await expect(panel).toBeVisible()
   }).toPass({ timeout: 30_000 })
   return panel
@@ -144,7 +143,7 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveClass(/dark/)
     await panel.getByRole('button', { name: 'Add theme' }).click()
 
-    const library = page.getByRole('panel', { name: 'Add a theme' })
+    const library = page.getByRole('dialog', { name: 'Add a theme' })
     await expect(library).toBeVisible()
     await expect(library.getByText('declare an explicit license and provenance')).toBeVisible()
     await expect(library.getByText('signed App Library pipeline')).toBeVisible()
@@ -173,7 +172,7 @@ test.describe('appearance', () => {
 
 async function openNavigationTab(page: Page) {
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
-  const library = page.getByRole('panel', { name: 'App Library' })
+  const library = page.getByRole('dialog', { name: 'App Library' })
   // The App Library panel is code-split and fetched on first open. A cold dev
   // server transforms that chunk on demand and may re-run the dependency
   // optimizer mid-import, which can outlive the default expect timeout or
