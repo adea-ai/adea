@@ -137,8 +137,12 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
     await panel.getByRole('radio', { name: 'Opaque' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
+    // Leave the draft on a value that differs from what is committed: Save only
+    // exists while there is something to save.
+    await panel.getByRole('radio', { name: 'Frosted' }).click()
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
     await panel.getByRole('button', { name: 'Save' }).click()
-    await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
+    await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
   })
 
   test('reduced transparency forces the opaque surface state', async ({ page }) => {
