@@ -787,13 +787,28 @@ export function createBunWebViewLaneEngine(
         const ariaIndex = attributes.indexOf('aria-label')
         const role = roleIndex >= 0 ? attributes[roleIndex + 1] : undefined
         const ariaLabel = ariaIndex >= 0 ? attributes[ariaIndex + 1] : undefined
-        const value = await state.view.cdp<{ result?: { value?: { text?: string } } }>(
-          'Runtime.evaluate',
-          {
-            expression: `(() => { const e = document.querySelector(${JSON.stringify(assertSafeSelector(selector))}); return { text: e?.textContent?.trim()?.slice(0,2048) ?? '' } })()`,
-            returnByValue: true,
-          }
+        // The selector reached the DOM as DATA (`DOM.querySelector` above), so
+        // the text read needs no code construction: resolve the node the query
+        // already found and call a constant function on it. The earlier form
+        // interpolated the selector into an expression string; the allow-list
+        // check made that safe, but a remote debugging surface deserves no
+        // second code path that builds code.
+        const resolved = await state.view.cdp<{ object?: { objectId?: string } }>(
+          'DOM.resolveNode',
+          { nodeId: found.nodeId }
         )
+        const objectId = resolved.object?.objectId
+        const value: { result?: { value?: { text?: string } } } = objectId
+          ? await state.view.cdp<{ result?: { value?: { text?: string } } }>(
+              'Runtime.callFunctionOn',
+              {
+                objectId,
+                functionDeclaration:
+                  "function () { return { text: this.textContent?.trim()?.slice(0, 2048) ?? '' } }",
+                returnByValue: true,
+              }
+            )
+          : {}
         return {
           nodeId: String(found.nodeId),
           ...(role ? { role } : {}),
