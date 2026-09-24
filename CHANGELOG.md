@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.0](https://github.com/adea-ai/adea/compare/v0.54.2...v0.55.0) (2026-09-24)
+
+
+### Features
+
+* **appearance:** move the appearance view into settings, drop its rail icon ([#659](https://github.com/adea-ai/adea/issues/659)) ([4aea03e](https://github.com/adea-ai/adea/commit/4aea03eb74b08178247637442abf4b1ea9db2366))
+
 ## [0.54.2](https://github.com/adea-ai/adea/compare/v0.54.1...v0.54.2) (2026-09-24)
 
 
