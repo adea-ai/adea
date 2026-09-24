@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { getTableConfig } from 'drizzle-orm/pg-core'
 
+import * as schemaIndex from '../../src/schema'
+
 import {
   agents,
   artifacts,
@@ -170,5 +172,35 @@ describe('persistence schema', () => {
     expect(config.columns.some((column) => column.name === 'layout_ref')).toBe(true)
     expect(config.columns.some((column) => column.name === 'spatial_ref')).toBe(true)
     expect(config.columns.some((column) => column.name === 'channel_id')).toBe(false)
+  })
+
+  test('carries no filesystem path: the only location-ish columns are opaque references (#87)', () => {
+    // A project is approved on ONE machine, so its canonical path lives in the
+    // shell's own bookmark store and must never enter cloud state — a synced
+    // path is one machine's filesystem leaking into another's workspace. The
+    // allowance below is exhaustive: an Artifact's opaque location (a type plus
+    // a reference, not a path) and an OAuth redirect URI. A fourth appearing
+    // fails this test rather than shipping.
+    const allowed = [
+      'artifacts.location_ref',
+      'artifacts.location_type',
+      'desktop_authorization_codes.redirect_uri',
+    ]
+    const pathish = /(path|dir|directory|absolute|bookmark|mount|volume|location)/i
+    const found: string[] = []
+    for (const value of Object.values(schemaIndex)) {
+      if (!value || typeof value !== 'object') continue
+      let config
+      try {
+        config = getTableConfig(value as never)
+      } catch {
+        continue
+      }
+      if (!config?.name) continue
+      for (const column of config.columns) {
+        if (pathish.test(column.name)) found.push(`${config.name}.${column.name}`)
+      }
+    }
+    expect(found.toSorted()).toEqual(allowed.toSorted())
   })
 })
