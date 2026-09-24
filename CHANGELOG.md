@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.52.0](https://github.com/adea-ai/adea/compare/v0.51.0...v0.52.0) (2026-09-24)
+
+
+### Features
+
+* **browser:** make cookie import real — lane profile store + source reader fixes ([#610](https://github.com/adea-ai/adea/issues/610)) ([#641](https://github.com/adea-ai/adea/issues/641)) ([45765b7](https://github.com/adea-ai/adea/commit/45765b7b56f49f53598d29e1337cce4265979b03))
+
+
+### Tests
+
+* **m10:** pin the ACP history-absence and no-filesystem-path boxes ([#32](https://github.com/adea-ai/adea/issues/32), [#87](https://github.com/adea-ai/adea/issues/87)) ([#639](https://github.com/adea-ai/adea/issues/639)) ([36e021d](https://github.com/adea-ai/adea/commit/36e021dd5172c4d30e005d78282fdab9831b6d34))
+
 ## [0.51.0](https://github.com/adea-ai/adea/compare/v0.50.0...v0.51.0) (2026-09-24)
 
 
