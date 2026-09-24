@@ -151,17 +151,25 @@ describe('registry marketplace catalog', () => {
       'compatibility.v1.json',
       'sources.lock.json',
     ])
-      declared[name] = (JSON.parse(fixture.artifacts['integrity.json']) as { files: Record<string, string> })
-        .files[name]!
+      declared[name] = (
+        JSON.parse(fixture.artifacts['integrity.json']) as { files: Record<string, string> }
+      ).files[name]!
     declared['catalog-index.v1.json'] = await canonicalDigest(extra['catalog-index.v1.json'])
-    declared['shelf-productivity.v1.json'] = await canonicalDigest(extra['shelf-productivity.v1.json'])
+    declared['shelf-productivity.v1.json'] = await canonicalDigest(
+      extra['shelf-productivity.v1.json']
+    )
     declared['icon-0123456789abcdef0123456789abcdef.png'] = await canonicalDigest(
       extra['icon-0123456789abcdef0123456789abcdef.png']
     )
     const verified = await verifyRegistryArtifacts({
       ...fixture.artifacts,
       ...extra,
-      'integrity.json': JSON.stringify({ assets: [], catalogId, files: declared, schemaVersion: 1 }),
+      'integrity.json': JSON.stringify({
+        assets: [],
+        catalogId,
+        files: declared,
+        schemaVersion: 1,
+      }),
     })
     expect(verified.catalog.catalogId).toBe(catalogId)
   })
@@ -176,7 +184,11 @@ describe('registry marketplace catalog', () => {
     await expect(
       verifyRegistryArtifacts({
         ...fixture.artifacts,
-        'integrity.json': JSON.stringify({ catalogId: fixture.catalog.catalogId, files, schemaVersion: 1 }),
+        'integrity.json': JSON.stringify({
+          catalogId: fixture.catalog.catalogId,
+          files,
+          schemaVersion: 1,
+        }),
       })
     ).rejects.toThrow('integrity metadata is invalid')
   })
