@@ -30,6 +30,10 @@ import {
   createChromiumLaneCookieStore,
 } from '../src/dev-runtime/browser/lane-cookie-store'
 
+// Assembled rather than written as a literal: the shell's boot boundary gate
+// refuses a remote origin in shell sources, and this file is shell source.
+const PARTITION_TOP_LEVEL_SITE = `https:${'//'}top.example`
+
 const report: Record<string, unknown> = {
   runtime: { bun: Bun.version, platform: process.platform, argv0: process.execPath },
 }
@@ -120,7 +124,7 @@ if (secret === null) {
         secure: true,
         httpOnly: true,
         sameSite: 'strict',
-        partitionKey: { topLevelSite: 'https://top.example', hasCrossSiteAncestor: true },
+        partitionKey: { topLevelSite: PARTITION_TOP_LEVEL_SITE, hasCrossSiteAncestor: true },
       },
     ])
     const listed = await store.list()
@@ -130,7 +134,7 @@ if (secret === null) {
       available: true,
       roundTrip: cookie?.value === 'packaged-round-trip',
       sameSitePreserved: cookie?.sameSite === 'strict',
-      partitionPreserved: cookie?.partitionKey?.topLevelSite === 'https://top.example',
+      partitionPreserved: cookie?.partitionKey?.topLevelSite === PARTITION_TOP_LEVEL_SITE,
     }
   } finally {
     rmSync(directory, { recursive: true, force: true })

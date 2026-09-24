@@ -19,13 +19,13 @@ anywhere but the temp profile described below.
 
 ## Results
 
-| Step | Result |
-| --- | --- |
-| Runtime | `Bun 1.4.0`, `platform: darwin`, `argv0: /Applications/Adea.app/Contents/MacOS/bun` |
-| Detection | `chrome:Default`, `brave:Default`, a Firefox profile — `available`; `safari:legacy` — `unsupported_format` |
+| Step                                           | Result                                                                                                          |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Runtime                                        | `Bun 1.4.0`, `platform: darwin`, `argv0: /Applications/Adea.app/Contents/MacOS/bun`                             |
+| Detection                                      | `chrome:Default`, `brave:Default`, a Firefox profile — `available`; `safari:legacy` — `unsupported_format`      |
 | Real read (Chrome profile, real Keychain item) | **625 cookies, 74 partitioned, 615 with expiry**, SameSite states `lax / no_restriction / strict / unspecified` |
-| The app's own lane profiles | both `adea-browser-profile-v1-…` profiles read (`0` cookies — no lane has set one yet) |
-| Write target (`Chromium Safe Storage`) | available; round trip `true`; SameSite preserved `true`; partition preserved `true` |
+| The app's own lane profiles                    | both `adea-browser-profile-v1-…` profiles read (`0` cookies — no lane has set one yet)                          |
+| Write target (`Chromium Safe Storage`)         | available; round trip `true`; SameSite preserved `true`; partition preserved `true`                             |
 
 The real-read figures are identical to the same profile read through the repo's
 Bun, and identical to the profile's own SQL counters (`74` rows carry a
