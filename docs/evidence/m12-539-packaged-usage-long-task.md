@@ -8,12 +8,14 @@ held under **sustained** load rather than a burst.
 
 ## The lane
 
-`apps/desktop/shell/scripts/packaged-usage-long-task.ts`, run by the app's own
-bundled Bun:
+`apps/desktop/shell/scripts/packaged-usage-long-task.mjs` — `.mjs` for the same
+reason the scale lane is: tooling that imports the client's reducer must not drag
+`dev-view`'s package imports into the shell's typecheck program — run by the
+app's own bundled Bun:
 
 ```sh
 /Applications/Adea.app/Contents/MacOS/bun \
-  apps/desktop/shell/scripts/packaged-usage-long-task.ts \
+  apps/desktop/shell/scripts/packaged-usage-long-task.mjs \
   --seconds 120 --artifact artifacts/packaged/usage-long-task.json --require-packaged
 ```
 
@@ -36,14 +38,16 @@ pipeline, not this machine's process table.
 | Metrics bounded: no owner above `MAX_POINTS_PER_OWNER`              | 2 observed against the 720 cap |
 | Sustained load does not drift: last bucket's p95 within the ceiling | still within (see below)       |
 
-An earlier 120-pull run taken while the 24-hour soak was running on the same
-machine is retained for contrast: the **UI budgets held** (projection p95
-1.12 ms, summary p95 0.15 ms — ~14× under budget) while the host `pull` p95 rose
-to 114 ms and one bucket's p50 reached 53 ms. That is the honest division of
+That run was taken while the 24-hour soak was running on the same machine, and
+the artifact says so: the **UI budgets held** (projection p95 1.12 ms, summary
+p95 0.15 ms — ~14× under budget) while the host `pull` p95 rose to 114 ms and one
+bucket's p50 reached 53 ms. That is the honest division of
 labour this lane documents: the projection and summary are the UI's work and
 stay flat; the host handler's latency is host work and reflects what else the
-machine is doing. The acceptance artifact is therefore taken on a machine that
-is not running another lane.
+machine is doing. The acceptance figure is therefore re-taken on a machine that is not running
+another lane; a 30-pull smoke under load shows the same effect (projection p95
+14.6 ms, dominated by cold-start samples), which is why the lane reports its
+sample count and buckets rather than a single number.
 
 ## What this lane does not claim
 

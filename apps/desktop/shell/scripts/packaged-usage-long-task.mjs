@@ -28,18 +28,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
-import {
-  registerResourcesRuntime,
-  type RegisterResourcesRuntimeInput,
-} from '../src/dev-runtime/resources/register'
-
-/** The shapes the registrar itself declares, so this seeder cannot drift from
- *  the seams it feeds (the .mjs scale lane gets away without them; a typed
- *  lane does not). */
-type ResourcesInput = RegisterResourcesRuntimeInput
-type SupervisionRecords = NonNullable<ResourcesInput['supervisionRecords']>
-type SupervisionView = NonNullable<ResourcesInput['supervision']>
-type OwnerBinding = NonNullable<ReturnType<NonNullable<ResourcesInput['resolveOwner']>>>
+import { registerResourcesRuntime } from '../src/dev-runtime/resources/register'
 import {
   createProcessSampler,
   SAMPLE_MAX_PIDS,
@@ -59,7 +48,7 @@ const PULL_BUDGET_MS = 16
 const HANG_GUARD_MS = 5_000
 const CLOCK_STEP_MS = 2_000
 
-function argValue(name: string): string | undefined {
+function argValue(name) {
   const index = process.argv.indexOf(name)
   return index >= 0 ? process.argv[index + 1] : undefined
 }
@@ -72,12 +61,12 @@ const requirePackaged = process.argv.includes('--require-packaged')
 const runtime = process.execPath
 const packaged = runtime.includes('.app/Contents/MacOS/')
 
-function percent(sorted: readonly number[], fraction: number): number {
+function percent(sorted, fraction) {
   const index = Math.max(0, Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1))
-  return sorted[index]!
+  return sorted[index]
 }
 
-function stats(values: readonly number[]) {
+function stats(values) {
   const sorted = [...values].toSorted((left, right) => left - right)
   return {
     samples: sorted.length,
@@ -89,17 +78,10 @@ function stats(values: readonly number[]) {
 
 /** Mirrors the scale lane's seeding: one durable record plus one live
  *  component per process, ten processes to a runtime session. */
-function seedInventory(
-  processes: number,
-  sessions: number
-): {
-  records: ReturnType<SupervisionRecords['list']>
-  components: ReturnType<SupervisionView['snapshot']>['components']
-  resolveOwner: (componentId: string) => OwnerBinding
-} {
+function seedInventory(processes, sessions) {
   const perSession = processes / sessions
-  const records: Array<ReturnType<SupervisionRecords['list']>[number]> = []
-  const components: Array<ReturnType<SupervisionView['snapshot']>['components'][number]> = []
+  const records = []
+  const components = []
   for (let index = 0; index < processes; index += 1) {
     const componentId = `comp-${String(index).padStart(4, '0')}`
     const identity = {
@@ -108,7 +90,7 @@ function seedInventory(
       executableIdentity: `/exe/${index}`,
     }
     records.push({
-      kind: 'launched' as const,
+      kind: 'launched',
       at: new Date(1_000).toISOString(),
       componentId,
       generation: 1,
@@ -118,8 +100,8 @@ function seedInventory(
     })
     components.push({
       id: componentId,
-      state: 'running' as const,
-      health: 'healthy' as const,
+      state: 'running',
+      health: 'healthy',
       generation: 1,
       launch: { identity, processGroup: `grp-${index}`, startedAt: new Date(1_000).toISOString() },
       manifest: { version: '1.0.0', digestSha256: 'd'.repeat(64) },
@@ -128,15 +110,15 @@ function seedInventory(
   return {
     records,
     components,
-    resolveOwner: (componentId: string) => {
+    resolveOwner: (componentId) => {
       const index = Number(componentId.slice(5))
       const session = `session-${String(Math.floor(index / perSession)).padStart(3, '0')}`
-      return { ownerKind: 'harness' as const, ownerId: session, runtimeSessionId: session }
+      return { ownerKind: 'harness', ownerId: session, runtimeSessionId: session }
     },
   }
 }
 
-async function main(): Promise<void> {
+async function main() {
   if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 3_600)
     throw new Error('--seconds must be between 1 and 3600')
   if (processCount % sessionCount !== 0)
@@ -148,18 +130,18 @@ async function main(): Promise<void> {
 
   const inventory = seedInventory(processCount, sessionCount)
   const clock = { value: 1_000_000 }
-  const providers: Record<string, (command: unknown) => Promise<unknown>> = {}
+  const providers = {}
   const authority = {
-    registerCommandProvider(operation: string, handler: (command: unknown) => Promise<unknown>) {
+    registerCommandProvider(operation, handler) {
       providers[operation] = handler
     },
   }
   let psCalls = 0
   let maxPidsPerCall = 0
   let minPidsPerCall = Number.POSITIVE_INFINITY
-  const observedPids = new Set<number>()
+  const observedPids = new Set()
   const sampler = createProcessSampler({
-    runPs: async (args: readonly string[]) => {
+    runPs: async (args) => {
       psCalls += 1
       const selected = String(args[3]).split(',').map(Number)
       maxPidsPerCall = Math.max(maxPidsPerCall, selected.length)
@@ -173,7 +155,7 @@ async function main(): Promise<void> {
     },
   })
   const registered = registerResourcesRuntime({
-    authority: authority as never,
+    authority,
     scope: SCOPE,
     supervision: {
       snapshot: () => ({ components: inventory.components }),
@@ -191,10 +173,10 @@ async function main(): Promise<void> {
   // Warm-up: module caches and JIT are not part of a long task's steady state.
   await snapshot({ body: {} })
 
-  const pullMs: number[] = []
-  const projectionMs: number[] = []
-  const summaryMs: number[] = []
-  const buckets: Array<{ bucket: number; pulls: number } & ReturnType<typeof stats>> = []
+  const pullMs = []
+  const projectionMs = []
+  const summaryMs = []
+  const buckets = []
   let lastRows = 0
   // One pull per second for the requested window, floored at 30 so the trend
   // buckets mean something even for a smoke-length invocation.
@@ -204,9 +186,7 @@ async function main(): Promise<void> {
   for (let index = 0; index < pulls; index += 1) {
     clock.value += CLOCK_STEP_MS
     const started = performance.now()
-    const reply = (await snapshot({ body: {} })) as {
-      processes?: readonly Record<string, unknown>[]
-    }
+    const reply = await snapshot({ body: {} })
     const elapsed = performance.now() - started
     if (elapsed > HANG_GUARD_MS)
       throw new Error(`pull ${index} took ${Math.round(elapsed)}ms, past the hang guard`)
@@ -215,7 +195,7 @@ async function main(): Promise<void> {
     const rows = reply.processes ?? []
     lastRows = rows.length
     const projectionStart = performance.now()
-    processRows(rows as never)
+    processRows(rows)
     projectionMs.push(performance.now() - projectionStart)
 
     const points = registered.metrics.list({ runtimeSessionId: 'session-000' })
@@ -234,7 +214,7 @@ async function main(): Promise<void> {
   }
 
   const points = registered.metrics.list()
-  const ownerCounts = new Map<string, number>()
+  const ownerCounts = new Map()
   for (const point of points)
     ownerCounts.set(point.ownerId, (ownerCounts.get(point.ownerId) ?? 0) + 1)
   const maxOwnerPoints = Math.max(0, ...ownerCounts.values())
@@ -242,9 +222,9 @@ async function main(): Promise<void> {
   const pullStats = stats(pullMs)
   const projection = stats(projectionMs)
   const summary = stats(summaryMs)
-  const first = buckets[0]!
-  const last = buckets[buckets.length - 1]!
-  const findings: string[] = []
+  const first = buckets[0]
+  const last = buckets[buckets.length - 1]
+  const findings = []
   if (psCalls !== pulls + 1)
     findings.push(
       `one ps observation per pull expected (${pulls + 1} with warm-up), saw ${psCalls}`
