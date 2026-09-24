@@ -1158,15 +1158,15 @@ test('the settings dialog survives re-selecting its active tab and keeps its dis
   expect(pageErrors).toEqual([])
 })
 
-test('the appearance dialog keeps the ported Zeron composition', async ({ page }) => {
+test('the appearance section keeps the ported Zeron composition', async ({ page }) => {
   await mockWorkspace(page)
-  await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Rooms' })).toBeVisible()
-
-  await page.getByRole('button', { name: 'Appearance' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Appearance' })
-  await expect(dialog).toBeVisible()
+  // The appearance editor is the settings section now (the rail entry is gone,
+  // #425), and the settings deep link is how the lane reaches a section.
+  await page.goto('/#settings/appearance')
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  const panel = page.getByRole('region', { name: 'Appearance', exact: true })
+  await expect(panel).toBeVisible()
   // The three live mode cards: System renders the split light/dark miniature.
-  await expect(dialog.locator('[data-theme-miniature]')).toHaveCount(4)
-  await expect(dialog).toHaveScreenshot('appearance-dialog-light.png', { animations: 'disabled' })
+  await expect(panel.locator('[data-theme-miniature]')).toHaveCount(4)
+  await expect(panel).toHaveScreenshot('appearance-panel-light.png', { animations: 'disabled' })
 })

@@ -14,7 +14,6 @@ import {
   Home,
   Map,
   MessageSquareText,
-  Palette,
   Plug,
   Search,
 } from 'lucide-solid'
@@ -89,9 +88,6 @@ export function GlobalWorkspaceRail(props: {
   onOpenNotifications: () => void
   onOpenAbout: () => void
   onOpenPlugins: () => void
-  onOpenAppearance: () => void
-  /** Fires on hover/focus of the appearance entry — prefetch its dialog chunk. */
-  onAppearanceIntent?: () => void
   onOpenSearch: () => void
   onOpenSettings: () => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
@@ -227,12 +223,6 @@ export function GlobalWorkspaceRail(props: {
         </div>
 
         <div class="global-rail__footer">
-          <RailAction
-            icon={Palette}
-            label="Appearance"
-            onClick={props.onOpenAppearance}
-            onIntent={() => props.onAppearanceIntent?.()}
-          />
           <RailAction
             disabled={!props.activeWorkspace}
             icon={Plug}

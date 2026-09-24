@@ -113,8 +113,8 @@ const PluginsDialog = lazyComponent(
 
 // The appearance surface is a dev-view subpath so opening it never pulls the
 // Dev workspace chunk into Chat/Virtual.
-const AppearanceDialog = lazyComponent(
-  () => import('@adea-ai/dev-view/appearance').then((module) => module.AppearanceDialog),
+const AppearancePanel = lazyComponent(
+  () => import('@adea-ai/dev-view/appearance').then((module) => module.AppearancePanel),
   { ssr: false }
 )
 
@@ -157,10 +157,6 @@ function preloadPanel(panel: 'about' | 'plugins' | 'settings') {
   }
 }
 
-function preloadAppearance() {
-  void import('@adea-ai/dev-view/appearance')
-}
-
 function WorkspaceSettingsOverlay(props: {
   accountAuthenticated: boolean
   accountLabel: string
@@ -178,6 +174,7 @@ function WorkspaceSettingsOverlay(props: {
   return (
     <WorkspaceSettingsDialog
       accountAuthenticated={props.accountAuthenticated}
+      appearancePanel={() => <AppearancePanel />}
       accountLabel={props.accountLabel}
       agents={settledData(agentsQuery) ?? []}
       busy={props.busy}
@@ -260,7 +257,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     defaultRailPreferences,
     { equals: false }
   )
-  const [appearanceOpen, setAppearanceOpen] = createSignal(false)
   const railItems = railItemsForViews()
   createEffect(() => {
     setRailPreferences(
@@ -516,8 +512,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         onOpenNotifications={() => openSettings('input-notifications')}
         onOpenAbout={() => workspaceStore.getState().setGlobalPanel('about')}
         onOpenPlugins={() => workspaceStore.getState().setGlobalPanel('plugins')}
-        onOpenAppearance={() => setAppearanceOpen(true)}
-        onAppearanceIntent={preloadAppearance}
         onOpenSearch={openSearch}
         onOpenSettings={() => openSettings('account')}
         activeWorkspace={props.activeWorkspace}
@@ -629,9 +623,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       {/* Both dialogs mount only when their panel opens: an always-mounted
           lazyComponent fetches its chunk at startup, which silently defeats
           the code split these boundaries exist to create. */}
-      <Show when={appearanceOpen()}>
-        <AppearanceDialog open onOpenChange={setAppearanceOpen} />
-      </Show>
       <Show when={globalPanel() === 'plugins' && props.activeWorkspace}>
         <PluginsDialog
           open

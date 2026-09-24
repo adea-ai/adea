@@ -9,11 +9,9 @@
  * app — no product script reads that media query, and the dialog carries no
  * enter/exit animation classes — so the operability contract it exercises is
  * exactly this reactive one. The hosting pattern mirrored here is the one in
- * apps/web/src/components/workspace-navigation.tsx:
- *   <Show when={appearanceOpen()}>
- *     <AppearanceDialog open onOpenChange={setAppearanceOpen} />
- *   </Show>
- * Each open mounts a fresh dialog instance; closing disposes it.
+ * the settings Appearance section (`AppearancePanel` from
+ * `@adea-ai/dev-view/appearance`): entering the section mounts a fresh
+ * instance, and leaving it disposes the instance and reverts the draft.
  */
 import { describe, expect, test } from 'bun:test'
 import { createEffect, createRoot, createSignal, untrack, type Accessor } from 'solid-js'
