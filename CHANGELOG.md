@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.1](https://github.com/adea-ai/adea/compare/v0.55.0...v0.55.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **soak:** fail on a stalled stream, not on a slow machine; never probe a broken one ([#662](https://github.com/adea-ai/adea/issues/662)) ([dc0cf0a](https://github.com/adea-ai/adea/commit/dc0cf0a0dbfa2f01a09b76757a930168fbe77992))
+
 ## [0.55.0](https://github.com/adea-ai/adea/compare/v0.54.2...v0.55.0) (2026-09-24)
 
 
