@@ -798,7 +798,7 @@ export function createBunWebViewLaneEngine(
           { nodeId: found.nodeId }
         )
         const objectId = resolved.object?.objectId
-        const value = objectId
+        const value: { result?: { value?: { text?: string } } } = objectId
           ? await state.view.cdp<{ result?: { value?: { text?: string } } }>(
               'Runtime.callFunctionOn',
               {
@@ -808,7 +808,7 @@ export function createBunWebViewLaneEngine(
                 returnByValue: true,
               }
             )
-          : undefined
+          : {}
         return {
           nodeId: String(found.nodeId),
           ...(role ? { role } : {}),
