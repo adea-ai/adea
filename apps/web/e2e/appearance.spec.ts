@@ -323,5 +323,5 @@ test('cancel reverts the draft and the OS reduced-motion preference keeps the pa
   const reopened = await openAppearance(page)
   await section(reopened, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await reopened.getByRole('button', { name: 'Cancel' }).click()
+  await reopened.getByRole('button', { name: 'Revert' }).click()
 })
