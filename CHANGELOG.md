@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.52.1](https://github.com/adea-ai/adea/compare/v0.52.0...v0.52.1) (2026-09-24)
+
+
+### Bug Fixes
+
+* **soak:** attribute byte/record failures and stop reporting a phantom round cap ([#645](https://github.com/adea-ai/adea/issues/645)) ([78cb50c](https://github.com/adea-ai/adea/commit/78cb50c1083d74c1d8d850e3da1aa22ca67f7644))
+
 ## [0.52.0](https://github.com/adea-ai/adea/compare/v0.51.0...v0.52.0) (2026-09-24)
 
 
