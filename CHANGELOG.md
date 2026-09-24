@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.54.0](https://github.com/adea-ai/adea/compare/v0.53.0...v0.54.0) (2026-09-24)
+
+
+### Features
+
+* **browser:** ship cookie import enabled, prove the packaged runtime reads a real profile ([#610](https://github.com/adea-ai/adea/issues/610)) ([#644](https://github.com/adea-ai/adea/issues/644)) ([c83809a](https://github.com/adea-ai/adea/commit/c83809ae7df7a803ad1afcb82915c97e75500ad2))
+
+
+### Bug Fixes
+
+* **m12:** compose the owner journey's browser leg from the packaged matrix proof ([#652](https://github.com/adea-ai/adea/issues/652)) ([79a62b2](https://github.com/adea-ai/adea/commit/79a62b2fa53002916be6652573317aaf4d2b64fc))
+
+
+### Documentation
+
+* **m12:** the [#541](https://github.com/adea-ai/adea/issues/541) certification package for the [#426](https://github.com/adea-ai/adea/issues/426) release gate ([#653](https://github.com/adea-ai/adea/issues/653)) ([5453ab2](https://github.com/adea-ai/adea/commit/5453ab20f03b2c68ae166391b62e0cf09589fca4))
+
 ## [0.53.0](https://github.com/adea-ai/adea/compare/v0.52.2...v0.53.0) (2026-09-24)
 
 
