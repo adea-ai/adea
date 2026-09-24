@@ -48,6 +48,7 @@ function fakeDocument() {
       style: {
         colorScheme: '',
         setProperty: (name: string, value: string) => void (style[name] = value),
+        removeProperty: (name: string) => void delete style[name],
       },
       dataset,
       classList: {
@@ -400,6 +401,31 @@ describe('document application', () => {
     expect(style['--primary']).toBe(state.accent.primary)
     expect(style['--ring']).toBe(state.accent.ring)
     expect(style['--background']).toBeUndefined()
+  })
+
+  test('returning to the theme accent removes the override it replaced', () => {
+    // Inline properties beat the stylesheet, so an override that is merely
+    // skipped (rather than removed) keeps painting after the user picks
+    // "Theme default" — the button looked dead after any preset was tried.
+    const environment = {
+      systemAppearance: 'light' as const,
+      osReducedTransparency: false,
+      nativeTranslucency: false,
+    }
+    const { document, style } = fakeDocument()
+    applyAppearanceToDocument(
+      document as unknown as Document,
+      resolveAppearanceState({ ...defaultAppearancePreferences, accent: 'blue' }, environment)
+    )
+    expect(style['--primary']).toBeDefined()
+
+    applyAppearanceToDocument(
+      document as unknown as Document,
+      resolveAppearanceState({ ...defaultAppearancePreferences, accent: 'theme' }, environment)
+    )
+    expect(style['--primary']).toBeUndefined()
+    expect(style['--primary-foreground']).toBeUndefined()
+    expect(style['--ring']).toBeUndefined()
   })
 
   test('reduced transparency forces the opaque surface and is diagnosable', () => {

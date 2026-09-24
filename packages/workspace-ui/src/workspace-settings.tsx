@@ -321,12 +321,6 @@ export function WorkspaceSettingsDialog(props: {
               >
                 {props.appearancePanel?.()}
               </Show>
-              <SettingsRow
-                title="Workspace soundtrack"
-                detail="Optional local audio; message notifications are configured separately."
-              >
-                <MusicToggle />
-              </SettingsRow>
             </>
           </Show>
           <Show when={section() === 'workspace'}>
@@ -423,6 +417,12 @@ export function WorkspaceSettingsDialog(props: {
                   }
                   onBlur={() => void save(preferences())}
                 />
+              </SettingsRow>
+              <SettingsRow
+                title="Workspace soundtrack"
+                detail="Optional local audio. It sits with input and notifications, not appearance."
+              >
+                <MusicToggle />
               </SettingsRow>
               <SettingsRow
                 title="Mention notifications"

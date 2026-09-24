@@ -150,8 +150,10 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(
     settings.getByRole('radiogroup', { name: 'Appearance mode', exact: true })
   ).toBeVisible()
-  const musicButton = settings.getByRole('button', { name: /music/i })
-  await expect(musicButton).toBeVisible()
+  // The soundtrack moved out of Appearance (it is an input/notification
+  // preference): it belongs to the Input & notifications tab now.
+  await settings.getByRole('tab', { name: 'Input & notifications' }).click()
+  await expect(settings.getByRole('button', { name: /music/i })).toBeVisible()
   await settings.getByRole('tab', { name: 'Account & app' }).click()
   await signInButton.click()
   await expect(page).toHaveURL(/\/auth\/sign-in\?returnTo=%2F$/)

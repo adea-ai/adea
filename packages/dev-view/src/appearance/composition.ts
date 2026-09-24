@@ -15,7 +15,6 @@
  */
 import {
   accentPresets,
-  accentPresetById,
   resolveThemeVariant,
   type AppearanceMode,
   type AppearancePreferencesV2,
@@ -50,11 +49,10 @@ export const surfaceChoices: readonly {
  * The accent row's helper copy (donor `accent_helper`): what the current
  * selection recolors, phrased per selection kind.
  */
-export function accentHelperText(accent: string): string {
-  if (accent === 'theme') return 'Theme default · Uses the palette’s intended color.'
-  const preset = accentPresetById(accent)
-  if (preset) return `${preset.label} · Controls, glyphs, selections, code, and activity.`
-  return 'Custom color · Controls, glyphs, selections, code, and activity.'
+export function accentHelperText(_accent: string): string {
+  // One description for every accent: the swatch row above already shows which
+  // one is active, so naming the colour in the copy was a redundant label.
+  return 'Controls, glyphs, selections, code, and activity.'
 }
 
 /** The glass row's helper copy for the active chip (donor `surface_helper`). */

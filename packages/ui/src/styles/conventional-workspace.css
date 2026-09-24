@@ -1983,11 +1983,12 @@
 }
 
 .conventional-settings-dialog {
-  width: min(58rem, calc(100% - 2rem));
-  /* The shared dialog shell caps content at max-w-2xl; the settings dialog
-     needs its full intended width for the two-column layout. */
-  max-width: min(58rem, calc(100% - 2rem));
-  max-height: min(42rem, calc(100svh - 2rem));
+  /* The settings surface packs sections rather than one form, so it opens
+     wider by default (72rem) and taller (52rem); the calc guards keep both
+     responsive on small windows. */
+  width: min(72rem, calc(100% - 2rem));
+  max-width: min(72rem, calc(100% - 2rem));
+  max-height: min(52rem, calc(100svh - 2rem));
 }
 
 .conventional-about-dialog {

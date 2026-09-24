@@ -1034,11 +1034,18 @@ export function applyAppearanceToDocument(
   const setToken = (name: string, value: string) => style.setProperty(name, value)
   setToken('--surface-alpha', SURFACE_BACKGROUND_ALPHA[state.effectiveSurface])
   // `theme` keeps every interactive role CSS-owned; an override touches only
-  // the accent roles, never the surface or text palette.
+  // the accent roles, never the surface or text palette. Returning to
+  // `theme` must also *remove* a previous override's inline properties — they
+  // beat the stylesheet, so leaving them behind made "Theme default" look like
+  // a dead button after any preset or custom accent had been used.
   if (state.accent.overrides) {
     setToken('--primary', state.accent.primary)
     setToken('--primary-foreground', state.accent.onPrimary)
     setToken('--ring', state.accent.ring)
+  } else {
+    style.removeProperty('--primary')
+    style.removeProperty('--primary-foreground')
+    style.removeProperty('--ring')
   }
   for (const [name, value] of Object.entries(flatVariantTokens(state.variant))) {
     setToken(name, value)

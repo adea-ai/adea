@@ -890,3 +890,10 @@
   line-height: 1.5;
   color: var(--dev-muted);
 }
+
+/* The appearance editor's mode cards (settings Appearance section): the donor
+   composes them as small proportional previews, so the box keeps a ratio
+   instead of a fixed height that stretched the preview horizontally. */
+.dev-appearance-miniature {
+  aspect-ratio: 4 / 3;
+}

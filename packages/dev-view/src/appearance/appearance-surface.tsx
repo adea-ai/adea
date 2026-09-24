@@ -60,7 +60,7 @@ import {
   ChevronsUpDown,
   EyeOff,
   FolderOpen,
-  MonitorCog,
+  Palette,
   PanelsTopLeft,
   SlidersHorizontal,
 } from 'lucide-solid'
@@ -187,7 +187,7 @@ function SettingsRow(props: {
   control: JSX.Element
 }) {
   return (
-    <div class="flex items-center gap-3.5 px-5 py-3.5">
+    <div class="flex items-center gap-4 px-6 py-4">
       <span
         class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-foreground/5 text-muted-foreground [&_svg]:size-4"
         aria-hidden="true"
@@ -416,7 +416,7 @@ export function AppearancePanel() {
               <>
                 <span
                   class={cn(
-                    'block h-37 w-full overflow-hidden rounded-md border bg-card',
+                    'dev-appearance-miniature block w-full overflow-hidden rounded-md border bg-card',
                     selected ? 'border-primary' : 'border-border'
                   )}
                 >
@@ -539,7 +539,7 @@ export function AppearancePanel() {
                 when={accentSelection() === 'custom'}
                 fallback={
                   <p class="text-muted-foreground/65 text-xs" role="status">
-                    {accentStatus() || ACCENT_NORMALIZATION_NOTE}
+                    {accentStatus()}
                   </p>
                 }
               >
@@ -637,9 +637,9 @@ export function AppearancePanel() {
     <Show
       when={libraryOpen()}
       fallback={
-        <section aria-label="Appearance" class="grid gap-5">
+        <section aria-label="Appearance" class="grid gap-6">
           <header class="flex items-start gap-3">
-            <MonitorCog aria-hidden="true" />
+            <Palette aria-hidden="true" />
             <div>
               <h3 class="text-sm font-medium">Appearance</h3>
               <p class="text-muted-foreground text-sm">
@@ -648,17 +648,24 @@ export function AppearancePanel() {
               </p>
             </div>
           </header>
-          <div class="grid gap-5">{editorSections}</div>
+          <div class="grid gap-6">{editorSections}</div>
           <div class="flex items-center justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={reset}>
-              Reset
-            </Button>
-            <Button type="button" variant="outline" onClick={requestClose}>
-              Revert
-            </Button>
-            <Button type="button" onClick={save}>
-              Save
-            </Button>
+            {/* Nothing to offer until the draft differs from what is committed:
+                Save and Revert appear with the first edit, Reset only when the
+                draft has drifted from the shipped defaults. */}
+            <Show when={editor.differsFromDefaults()}>
+              <Button type="button" variant="ghost" onClick={reset}>
+                Reset
+              </Button>
+            </Show>
+            <Show when={editor.dirty()}>
+              <Button type="button" variant="outline" onClick={requestClose}>
+                Revert
+              </Button>
+              <Button type="button" onClick={save}>
+                Save
+              </Button>
+            </Show>
           </div>
         </section>
       }

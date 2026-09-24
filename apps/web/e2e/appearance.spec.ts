@@ -66,6 +66,23 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveClass(/dark/)
   })
 
+  test('Light mode applies, saves, and survives a reload against a dark OS', async ({ page }) => {
+    // Reported as "unable to enable light mode": pinned Light must beat the
+    // host's dark appearance, keep doing so through a save, and survive a
+    // reload through the pre-paint script.
+    await page.emulateMedia({ colorScheme: 'dark' })
+    const panel = await openAppearance(page)
+
+    await section(panel, 'Appearance mode').getByRole('radio', { name: 'Light' }).click()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
+
+    await panel.getByRole('button', { name: 'Save' }).click()
+    await page.reload()
+    await expect(page.locator('html')).not.toHaveClass(/dark/)
+    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
+  })
+
   test('the mode cards render live miniatures, with System split light/dark', async ({ page }) => {
     const panel = await openAppearance(page)
     const mode = section(panel, 'Appearance mode')
