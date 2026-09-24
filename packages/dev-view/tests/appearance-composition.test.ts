@@ -43,13 +43,14 @@ describe('appearance composition (ported Zeron appearance page layout)', () => {
     }
   })
 
-  test('the accent helper explains the theme default and the override scope', () => {
-    // Donor copy: the default names the palette's intent; an override names
-    // what it recolors.
-    expect(accentHelperText('theme')).toContain('intended color')
-    expect(accentHelperText('blue')).toMatch(/^Blue · /)
-    expect(accentHelperText('blue')).toContain('selections')
-    expect(accentHelperText('#2563eb')).toContain('Custom color')
+  test('the accent helper describes the scope without naming the colour', () => {
+    // The swatch row shows which accent is active, so the copy that used to
+    // open with the colour's label ("Violet · …", "Custom color · …") is gone:
+    // one sentence covers every selection.
+    const copy = 'Controls, glyphs, selections, code, and activity.'
+    expect(accentHelperText('theme')).toBe(copy)
+    expect(accentHelperText('violet')).toBe(copy)
+    expect(accentHelperText('#2563eb')).toBe(copy)
   })
 
   test('the accent swatch classifier maps theme, presets, and custom hex', () => {

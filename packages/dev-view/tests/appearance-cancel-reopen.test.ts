@@ -35,6 +35,7 @@ function fakeDocument() {
       style: {
         colorScheme: '',
         setProperty: (name: string, value: string) => void (style[name] = value),
+        removeProperty: (name: string) => void delete style[name],
       },
       dataset,
       classList: {
