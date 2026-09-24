@@ -274,6 +274,30 @@ function flushAck() {
   )
 }
 
+/**
+ * Wait until the primary stream has been quiet for `quietMs`, or `timeoutMs`
+ * elapses. A phase's tail can still be in flight when its own marker resolves
+ * (the marker proves ordering, not that the writer is done with the round's
+ * accounting window), and anything that arrives after a round boundary is
+ * charged to the next round: that is exactly a "duplicate producer records /
+ * +N unaccounted bytes" failure with no defect behind it.
+ */
+async function drainQuiescent(quietMs = 1_500, timeoutMs = 60_000) {
+  const deadline = performance.now() + timeoutMs
+  let lastBytes = received.bytes
+  let quietSince = performance.now()
+  while (performance.now() < deadline) {
+    await Bun.sleep(150)
+    if (received.bytes !== lastBytes) {
+      lastBytes = received.bytes
+      quietSince = performance.now()
+      continue
+    }
+    if (performance.now() - quietSince >= quietMs) return true
+  }
+  return false
+}
+
 function waitForMarker(marker, timeoutMs) {
   activeMarker = marker
   return new Promise((resolve) => {
@@ -564,11 +588,11 @@ async function noAckResyncPhase(client, phaseIndex) {
   }
   await writeProducer(floodCommand(marker))
   const done = await waitForMarker(marker, 180_000)
-  await Bun.sleep(300)
   if (!done) {
     fail('slow subscriber flood', 'sentinel never arrived')
     return
   }
+  await drainQuiescent()
   flushAck()
   await Promise.allSettled(pendingAcks)
   const notices = resyncNotices
@@ -584,8 +608,14 @@ async function noAckResyncPhase(client, phaseIndex) {
   const noticesAfter = resyncNotices.length
   const tailMarker = `SOAKSLOW ${phaseIndex} TAIL`
   await writeProducer(floodCommand(tailMarker))
-  await waitForMarker(tailMarker, 180_000)
-  await Bun.sleep(300)
+  const tailSeen = await waitForMarker(tailMarker, 180_000)
+  if (!tailSeen) {
+    // Unchecked, this was invisible: the phase returned while its tail was
+    // still streaming, and the next round reported the tail as thousands of
+    // duplicated producer records plus tens of kilobytes of extra volume.
+    fail('slow subscriber flood (tail)', `phase ${phaseIndex}: tail sentinel never arrived`)
+  }
+  await drainQuiescent()
   const reNotices = resyncNotices
     .slice(noticesAfter)
     .filter((notice) => notice.subscriberId === 'soak-slow')
@@ -611,6 +641,9 @@ async function runRound(roundIndex) {
     fail('producer sentinel', `round ${roundIndex}: marker never arrived`)
     return null
   }
+  // The byte envelope is only exact if the round's window contains the round's
+  // bytes: wait for the writer to go quiet before reading the totals.
+  await drainQuiescent()
   const roundText = streamText
   const records = []
   let match
@@ -646,7 +679,8 @@ async function runRound(roundIndex) {
   if (noise < 0 || noise > 128) {
     fail(
       'byte volume envelope',
-      `round ${roundIndex}: ${noise} unaccounted bytes outside the ±128 envelope; ` +
+      `round ${roundIndex}: ${noise} unaccounted bytes outside the ±128 envelope ` +
+        `(round bytes ${received.bytes - bytesAtStart}, frames ${received.frames - framesAtStart}); ` +
         JSON.stringify(attribution())
     )
   }
