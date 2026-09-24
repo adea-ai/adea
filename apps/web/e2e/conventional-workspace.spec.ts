@@ -1164,7 +1164,7 @@ test('the appearance section keeps the ported Zeron composition', async ({ page 
   // #425), and the settings deep link is how the lane reaches a section.
   await page.goto('/#settings/appearance')
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
-  const panel = page.getByRole('region', { name: 'Appearance' })
+  const panel = page.getByRole('region', { name: 'Appearance', exact: true })
   await expect(panel).toBeVisible()
   // The three live mode cards: System renders the split light/dark miniature.
   await expect(panel.locator('[data-theme-miniature]')).toHaveCount(4)

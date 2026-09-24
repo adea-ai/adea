@@ -9,7 +9,7 @@ import { expect, test, type Page } from '@playwright/test'
  */
 async function openAppearance(page: Page) {
   const settings = page.getByRole('panel', { name: 'Settings' })
-  const panel = settings.getByRole('region', { name: 'Appearance' })
+  const panel = settings.getByRole('region', { name: 'Appearance', exact: true })
   await expect(async () => {
     await page.goto('/#settings/appearance')
     await expect(panel).toBeVisible()
