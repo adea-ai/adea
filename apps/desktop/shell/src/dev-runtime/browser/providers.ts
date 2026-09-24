@@ -850,7 +850,8 @@ function cookieMutationPlan(command: DevCommand, plan: CookieImportPlan): Mutati
   }
 }
 
-export function browserProviderError(error: unknown): DevCommandProviderError {  if (error instanceof DevCommandProviderError) return error
+export function browserProviderError(error: unknown): DevCommandProviderError {
+  if (error instanceof DevCommandProviderError) return error
   if (error instanceof BrowserLaneError)
     return new DevCommandProviderError(
       error.code as DevErrorCode,

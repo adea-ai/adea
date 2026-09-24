@@ -95,7 +95,10 @@ export function encryptChromiumValue(value: string, key: Buffer, hostKey: string
 
 /** Where a profile keeps its cookie database: Chromium's `Default`, or the root. */
 export function laneCookieStorePath(profileDirectory: string): string | undefined {
-  for (const candidate of [join(profileDirectory, 'Default', 'Cookies'), join(profileDirectory, 'Cookies')]) {
+  for (const candidate of [
+    join(profileDirectory, 'Default', 'Cookies'),
+    join(profileDirectory, 'Cookies'),
+  ]) {
     try {
       if (statSync(candidate).isFile()) return candidate
     } catch {
@@ -170,7 +173,9 @@ export function createChromiumLaneCookieStore(
    *  never run (an empty target is the normal first import). */
   function openForWrite(): Database {
     mkdirSync(options.profileDirectory, { recursive: true, mode: 0o700 })
-    const path = laneCookieStorePath(options.profileDirectory) ?? join(options.profileDirectory, 'Default', 'Cookies')
+    const path =
+      laneCookieStorePath(options.profileDirectory) ??
+      join(options.profileDirectory, 'Default', 'Cookies')
     mkdirSync(join(options.profileDirectory, 'Default'), { recursive: true, mode: 0o700 })
     let database: Database
     try {
@@ -350,7 +355,10 @@ export function createChromiumLaneCookieStore(
         }
       } catch (error) {
         if (error instanceof LaneCookieStoreError) throw error
-        throw new LaneCookieStoreError('unreadable', `the lane cookie store could not be written: ${messageOf(error)}`)
+        throw new LaneCookieStoreError(
+          'unreadable',
+          `the lane cookie store could not be written: ${messageOf(error)}`
+        )
       } finally {
         database.close()
       }

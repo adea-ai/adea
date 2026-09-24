@@ -14,8 +14,14 @@ import {
   devOperationDefinitions,
 } from '../../../packages/types/src/dev-runtime'
 
-import { createCookieImportService, type ImportedCookie } from '../shell/src/dev-runtime/browser/cookie-import'
-import { deriveChromiumKey, readCookieSource } from '../shell/src/dev-runtime/browser/cookie-sources'
+import {
+  createCookieImportService,
+  type ImportedCookie,
+} from '../shell/src/dev-runtime/browser/cookie-import'
+import {
+  deriveChromiumKey,
+  readCookieSource,
+} from '../shell/src/dev-runtime/browser/cookie-sources'
 import {
   LaneCookieStoreError,
   createChromiumLaneCookieStore,
@@ -60,24 +66,22 @@ function sourceStore(
   )
   // One transaction for the whole fixture: a row-per-commit fixture spends its
   // time on fsync, and the bounds case writes ten thousand rows.
-  const insertAll = database.transaction(
-    (rowsToWrite: typeof rows) => {
-      for (const row of rowsToWrite)
-        insert.run({
-          $host: row.domain,
-          $name: row.name,
-          $value: encryptChromiumValue(row.value, key, row.domain),
-          $plain: '',
-          $path: '/',
-          $expires: 13_400_000_000_000_000,
-          $secure: 1,
-          $httpOnly: 0,
-          $sameSite: row.sameSite ?? 1,
-          $top: '',
-          $flag: 0,
-        })
-    }
-  )
+  const insertAll = database.transaction((rowsToWrite: typeof rows) => {
+    for (const row of rowsToWrite)
+      insert.run({
+        $host: row.domain,
+        $name: row.name,
+        $value: encryptChromiumValue(row.value, key, row.domain),
+        $plain: '',
+        $path: '/',
+        $expires: 13_400_000_000_000_000,
+        $secure: 1,
+        $httpOnly: 0,
+        $sameSite: row.sameSite ?? 1,
+        $top: '',
+        $flag: 0,
+      })
+  })
   insertAll(rows)
   database.close()
 }
@@ -113,7 +117,9 @@ function rowsIn(profileDirectory: string): Array<Record<string, unknown>> {
   const database = new Database(path, { readonly: true })
   try {
     return database
-      .query('SELECT host_key, name, value, encrypted_value, samesite, top_frame_site_key FROM cookies')
+      .query(
+        'SELECT host_key, name, value, encrypted_value, samesite, top_frame_site_key FROM cookies'
+      )
       .all() as Array<Record<string, unknown>>
   } finally {
     database.close()
@@ -299,7 +305,12 @@ describe('cookie import through the service (#610)', () => {
       expect(plan.stagedRemovals.map((cookie) => cookie.name)).toEqual(['stale'])
 
       const result = await service.commit(plan.id, plan.digest, target)
-      expect(result).toMatchObject({ browserLaneId: 'lane-1', imported: 2, skipped: 1, rolledBack: false })
+      expect(result).toMatchObject({
+        browserLaneId: 'lane-1',
+        imported: 2,
+        skipped: 1,
+        rolledBack: false,
+      })
 
       const after = await target.list()
       const byName = Object.fromEntries(after.map((cookie) => [cookie.name, cookie.value]))
@@ -487,7 +498,13 @@ describe('cookie import through the provider seam (#610)', () => {
         },
       },
     })
-    return { lanes, providers, profileDirectory, domains, cleanup: () => rmSync(profileDirectory, { recursive: true, force: true }) }
+    return {
+      lanes,
+      providers,
+      profileDirectory,
+      domains,
+      cleanup: () => rmSync(profileDirectory, { recursive: true, force: true }),
+    }
   }
 
   function command(

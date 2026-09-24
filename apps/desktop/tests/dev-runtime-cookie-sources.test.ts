@@ -56,8 +56,7 @@ function chromiumStore(
 ): void {
   const secret = options.secret ?? 'test-secret'
   const key = deriveChromiumKey(secret)
-  const flagColumn =
-    options.schema === 'legacy' ? 'is_cross_site' : 'has_cross_site_ancestor'
+  const flagColumn = options.schema === 'legacy' ? 'is_cross_site' : 'has_cross_site_ancestor'
   const database = new Database(path)
   database.exec(`CREATE TABLE cookies (
     host_key TEXT, name TEXT, encrypted_value BLOB, value TEXT, path TEXT,
@@ -349,7 +348,14 @@ describe('cookie source reading (#610)', () => {
       const path = join(home, 'Cookies')
       chromiumStore(
         path,
-        [{ domain: '.example.com', name: 'legacy', value: 'v', topFrameSiteKey: 'https://top.example' }],
+        [
+          {
+            domain: '.example.com',
+            name: 'legacy',
+            value: 'v',
+            topFrameSiteKey: 'https://top.example',
+          },
+        ],
         { schema: 'legacy', flagDefault: 1 }
       )
       const result = readCookieSource(
