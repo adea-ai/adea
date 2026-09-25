@@ -21,6 +21,13 @@ function packageAt(root: string, relativeDir: string, manifest = '{"name":"pkg"}
   return dir
 }
 
+/** Writes one manifest file (and nothing else) into `relativeDir`. */
+function manifestAt(root: string, relativeDir: string, file: string, content: string): void {
+  const dir = relativeDir === '' ? root : join(root, relativeDir)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, file), content)
+}
+
 describe('project scanner walker (#398)', () => {
   test('a nested .gitignore is applied on top of the root one, and a negation is reported', () => {
     const { root, cleanup } = scratch()
@@ -131,6 +138,131 @@ describe('project scanner walker (#398)', () => {
 
       expect(entry?.diagnostics).toContain('manifest_too_large')
       expect(entry?.packageManager).toBe('unknown')
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('project scanner ecosystems (#398)', () => {
+  test('every supported package manager is recognized from its own manifest or lockfile', () => {
+    const { root, cleanup } = scratch()
+    try {
+      const packageJson = '{"name":"app"}'
+      manifestAt(root, 'npm-app', 'package.json', packageJson)
+      manifestAt(root, 'npm-app', 'package-lock.json', '{}')
+      manifestAt(root, 'pnpm-app', 'package.json', packageJson)
+      manifestAt(root, 'pnpm-app', 'pnpm-lock.yaml', 'lockfileVersion: 9\n')
+      manifestAt(root, 'yarn-app', 'package.json', packageJson)
+      manifestAt(root, 'yarn-app', 'yarn.lock', '# yarn lockfile v1\n')
+      manifestAt(root, 'bun-app', 'package.json', packageJson)
+      manifestAt(root, 'bun-app', 'bun.lock', '{\n}\n')
+      manifestAt(root, 'cargo-app', 'Cargo.toml', '[package]\nname = "crate"\n')
+      manifestAt(root, 'poetry-svc', 'pyproject.toml', '[tool.poetry]\nname = "svc"\n')
+      manifestAt(root, 'uv-svc', 'pyproject.toml', '[project]\nname = "svc"\n[tool.uv]\n')
+      manifestAt(root, 'pip-svc', 'pyproject.toml', '[project]\nname = "svc"\n')
+
+      const byDir = new Map(
+        scanDirectoryRoot({ canonicalRoot: root }).entries.map((entry) => [
+          entry.relativeDir,
+          entry,
+        ])
+      )
+
+      expect([...byDir.keys()].toSorted()).toEqual([
+        'bun-app',
+        'cargo-app',
+        'npm-app',
+        'pip-svc',
+        'pnpm-app',
+        'poetry-svc',
+        'uv-svc',
+        'yarn-app',
+      ])
+      expect(byDir.get('npm-app')?.packageManager).toBe('npm')
+      expect(byDir.get('pnpm-app')?.packageManager).toBe('pnpm')
+      expect(byDir.get('yarn-app')?.packageManager).toBe('yarn')
+      expect(byDir.get('bun-app')?.packageManager).toBe('bun')
+      expect(byDir.get('cargo-app')).toMatchObject({
+        languages: ['rust'],
+        packageManager: 'cargo',
+      })
+      expect(byDir.get('poetry-svc')).toMatchObject({
+        languages: ['python'],
+        packageManager: 'poetry',
+      })
+      expect(byDir.get('uv-svc')?.packageManager).toBe('uv')
+      expect(byDir.get('pip-svc')?.packageManager).toBe('pip')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('a mixed monorepo reports every package with its own directory and manager', () => {
+    const { root, cleanup } = scratch()
+    try {
+      manifestAt(root, 'apps/web', 'package.json', '{"name":"web","scripts":{"test":"x"}}')
+      manifestAt(root, 'apps/web', 'pnpm-lock.yaml', 'lockfileVersion: 9\n')
+      manifestAt(root, 'crates/core', 'Cargo.toml', '[package]\nname = "core"\n')
+      manifestAt(root, 'tools/ops', 'pyproject.toml', '[project]\nname = "ops"\n')
+
+      const entries = scanDirectoryRoot({ canonicalRoot: root }).entries
+      const byDir = new Map(entries.map((entry) => [entry.relativeDir, entry]))
+
+      expect(byDir.get('apps/web')).toMatchObject({
+        manifestPath: 'apps/web/package.json',
+        name: 'web',
+        packageManager: 'pnpm',
+        suggestedScripts: ['test'],
+      })
+      expect(byDir.get('crates/core')).toMatchObject({
+        manifestPath: 'crates/core/Cargo.toml',
+        name: 'core',
+        packageManager: 'cargo',
+      })
+      expect(byDir.get('tools/ops')).toMatchObject({
+        manifestPath: 'tools/ops/pyproject.toml',
+        name: 'ops',
+        packageManager: 'pip',
+      })
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('a malformed manifest is reported in place, not dropped and not fatal', () => {
+    const { root, cleanup } = scratch()
+    try {
+      manifestAt(root, 'broken-app', 'package.json', '{ this is not json')
+      manifestAt(root, 'healthy-app', 'package.json', '{"name":"ok"}')
+
+      const result = scanDirectoryRoot({ canonicalRoot: root })
+      const broken = result.entries.find((entry) => entry.relativeDir === 'broken-app')
+
+      // The candidate still appears, named by its directory, with the parse
+      // failure on its own row — one bad manifest cannot hide the rest of a
+      // monorepo or abort the walk.
+      expect(broken).toMatchObject({
+        diagnostics: ['malformed_manifest'],
+        name: 'broken-app',
+        packageManager: 'unknown',
+      })
+      expect(
+        result.entries.find((entry) => entry.relativeDir === 'healthy-app')?.diagnostics
+      ).toEqual([])
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('a Rust workspace root orchestrates members without becoming a candidate itself', () => {
+    const { root, cleanup } = scratch()
+    try {
+      manifestAt(root, '', 'Cargo.toml', '[workspace]\nmembers = ["crates/a"]\n')
+      manifestAt(root, 'crates/a', 'Cargo.toml', '[package]\nname = "a"\n')
+
+      const entries = scanDirectoryRoot({ canonicalRoot: root }).entries
+      expect(entries.map((entry) => entry.relativeDir)).toEqual(['crates/a'])
     } finally {
       cleanup()
     }
