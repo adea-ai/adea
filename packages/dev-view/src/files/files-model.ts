@@ -22,17 +22,137 @@ export type VisibleRow = Readonly<{
 
 /** Merge one paged directory listing into the tree. Listing entries carry
  *  worktree-relative paths; directories sort before files, then by name —
- *  the same order the provider lists in. */
+ *  the same order the provider lists in.
+ *
+ *  The merge is copy-on-write: only the levels a page actually touches are
+ *  copied, and only those levels are re-sorted. Cloning the whole tree per
+ *  page made a second page cost as much as the first, which a listing of any
+ *  size pays hundreds of times over. */
 export function mergeListing(
   nodes: readonly FileTreeNode[],
   entries: readonly FileEntry[]
 ): readonly FileTreeNode[] {
   if (entries.length === 0) return nodes
-  const root: MutableNode[] = nodes.map(cloneNode)
-  for (const item of entries) {
-    insertEntry(root, item)
+  const levels = new Map<string, OpenLevel>()
+  const root: OpenLevel = { nodes: nodes.slice() as MutableNode[], positions: new Map() }
+  root.nodes.forEach((node, at) => root.positions.set(node.relativePath, at))
+  levels.set('', root)
+
+  /** The writable view of a level this merge already owns. */
+  const derivedLevel = (node: MutableNode): OpenLevel => {
+    const opened: OpenLevel = { nodes: node.children, positions: new Map() }
+    opened.nodes.forEach((child, at) => opened.positions.set(child.relativePath, at))
+    node.children = opened.nodes
+    return opened
   }
-  return root
+
+  /** The writable view of one level, copied once per merge. The copy replaces
+   *  the parent's `children` so the caller's tree is never written to. */
+  const openLevel = (
+    parentPath: string,
+    originals: readonly FileTreeNode[],
+    parent: MutableNode
+  ): OpenLevel => {
+    const existing = levels.get(parentPath)
+    if (existing) {
+      parent.children = existing.nodes
+      return existing
+    }
+    const opened: OpenLevel = { nodes: originals.slice() as MutableNode[], positions: new Map() }
+    opened.nodes.forEach((node, at) => opened.positions.set(node.relativePath, at))
+    levels.set(parentPath, opened)
+    parent.children = opened.nodes
+    return opened
+  }
+
+  for (const item of entries) {
+    const segments = item.path.relativePath.split('/')
+    // `originals` is the level as the caller's tree holds it; it is shorter
+    // than the opened level whenever this merge derived nodes of its own, so a
+    // missing original means the node is already ours.
+    let originals: readonly FileTreeNode[] = nodes
+    let open = root
+    let parentPath = ''
+    for (const [position, segment] of segments.entries()) {
+      const pathSoFar = parentPath.length === 0 ? segment : `${parentPath}/${segment}`
+      const isLeaf = position === segments.length - 1
+      const at = open.positions.get(pathSoFar)
+      let childOriginals: readonly FileTreeNode[] | undefined
+
+      if (at === undefined) {
+        const created: MutableNode = {
+          name: segment,
+          relativePath: pathSoFar,
+          // An intermediate segment the listing has not reported yet is a
+          // directory by construction.
+          kind: isLeaf ? item.kind : 'directory',
+          ...(isLeaf ? { identity: item.identity } : {}),
+          children: [],
+        }
+        open.nodes.push(created)
+        open.positions.set(pathSoFar, open.nodes.length - 1)
+        markDirty(open)
+        if (isLeaf) {
+          // A directory the listing reported as a row of its own still has to
+          // be readable as a level once its children arrive.
+          if (created.kind === 'directory') levels.set(pathSoFar, derivedLevel(created))
+          continue
+        }
+        const childLevel = derivedLevel(created)
+        levels.set(pathSoFar, childLevel)
+        open = childLevel
+        parentPath = pathSoFar
+        continue
+      }
+
+      const original = originals[at] as FileTreeNode | undefined
+      let node = open.nodes[at] as MutableNode
+      if (original !== undefined) {
+        if (node === (original as unknown as MutableNode)) {
+          // First touch: copy the node. Its children array is shared until the
+          // level below is opened, and opening a level always copies it.
+          node = {
+            name: node.name,
+            relativePath: node.relativePath,
+            kind: node.kind,
+            ...(node.identity !== undefined ? { identity: node.identity } : {}),
+            children: node.children,
+          }
+          open.nodes[at] = node
+        }
+        childOriginals = original.children
+      }
+
+      if (isLeaf) {
+        if (node.kind !== item.kind) markDirty(open)
+        node.kind = item.kind
+        node.identity = item.identity
+        continue
+      }
+
+      const childLevel =
+        childOriginals === undefined
+          ? (levels.get(pathSoFar) ?? derivedLevel(open.nodes[at] as MutableNode))
+          : openLevel(pathSoFar, childOriginals, open.nodes[at] as MutableNode)
+      levels.set(pathSoFar, childLevel)
+      open = childLevel
+      parentPath = pathSoFar
+      if (childOriginals !== undefined) originals = childOriginals
+    }
+  }
+
+  for (const level of levels.values()) if (level.dirty) sortNodesInPlace(level.nodes)
+  return root.nodes
+}
+
+type OpenLevel = {
+  nodes: MutableNode[]
+  positions: Map<string, number>
+  dirty?: boolean
+}
+
+function markDirty(level: OpenLevel): void {
+  level.dirty = true
 }
 
 type MutableNode = {
@@ -41,44 +161,6 @@ type MutableNode = {
   kind: FileEntry['kind']
   identity?: FileEntry['identity']
   children: MutableNode[]
-}
-
-function cloneNode(node: FileTreeNode): MutableNode {
-  return {
-    name: node.name,
-    relativePath: node.relativePath,
-    kind: node.kind,
-    ...(node.identity !== undefined ? { identity: node.identity } : {}),
-    children: node.children.map(cloneNode),
-  }
-}
-
-function insertEntry(level: MutableNode[], item: FileEntry): void {
-  const segments = item.path.relativePath.split('/')
-  let current = level
-  let pathSoFar = ''
-  for (const [index, segment] of segments.entries()) {
-    pathSoFar = pathSoFar.length === 0 ? segment : `${pathSoFar}/${segment}`
-    const isLeaf = index === segments.length - 1
-    let node = current.find((candidate) => candidate.relativePath === pathSoFar)
-    if (!node) {
-      node = {
-        name: segment,
-        relativePath: pathSoFar,
-        // An intermediate segment the listing has not reported yet is a
-        // directory by construction.
-        kind: isLeaf ? item.kind : 'directory',
-        ...(isLeaf ? { identity: item.identity } : {}),
-        children: [],
-      }
-      current.push(node)
-    } else if (isLeaf) {
-      node.kind = item.kind
-      node.identity = item.identity
-    }
-    if (!isLeaf) current = node.children
-  }
-  sortNodesInPlace(level)
 }
 
 function sortNodesInPlace(level: MutableNode[]): MutableNode[] {
