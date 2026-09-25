@@ -64,7 +64,14 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // conventional-workspace state validator — cost 3,168 bytes across the chunks
 // that use it. The raise is the deliberate decision ADR 0010's first gate asks
 // for (the M15 lane measured it; this gate caught it), not silent growth.
-const CLIENT_JS_BUDGET_BYTES = 1_605_000
+//
+// 2026-09-25 (#646, the cookie-import surface): this gate caught the last
+// 4,999 bytes — 1,605,000 left no runway once the panel and its model landed.
+// The surface gives the #610 capability the only path a person has to it
+// (sources → preview → confirm), costs 5.0KB minified, and lands inside the
+// lazy Dev View chunk: the eager shell is untouched, the chunk count is flat,
+// and check-dev-view-bundle still measures the Dev View chunk on its own.
+const CLIENT_JS_BUDGET_BYTES = 1_612_000
 // Raised from 50 when the #399 stream/hunk residues landed as further
 // intentional lazy chunks: files-pane grew the quick-open dialog (17kB
 // chunk, still lazy), stream-transport rides its own module, and the hunk
