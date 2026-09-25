@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.0](https://github.com/adea-ai/adea/compare/v0.55.8...v0.56.0) (2026-09-25)
+
+
+### Features
+
+* **dev-view:** give the cookie import a surface ([#685](https://github.com/adea-ai/adea/issues/685)) ([cd46b21](https://github.com/adea-ai/adea/commit/cd46b21594449624b39a505a2a20d43cf3c3c9b5))
+
 ## [0.55.8](https://github.com/adea-ai/adea/compare/v0.55.7...v0.55.8) (2026-09-25)
 
 
