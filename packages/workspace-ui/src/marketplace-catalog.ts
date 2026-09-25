@@ -552,6 +552,10 @@ export function catalogFromIndex(indexText: string): RegistryCatalog | undefined
       license: { name: stringValue(product.license) ?? 'Unknown' },
       pluginId: stringValue(product.pluginId) ?? '',
       productGroupingKey: productKey,
+      // The icon fallback chain resolves a brand mark by the plugin's upstream
+      // name, so an index-derived plugin must carry it or those products lose
+      // their icon entirely.
+      upstreamPluginName: stringValue(product.upstreamName) ?? productKey,
       provenance: isObject(product.provenance) ? product.provenance : {},
       securityClassification: isObject(product.securityClassification)
         ? product.securityClassification

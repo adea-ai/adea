@@ -377,6 +377,7 @@ describe('browsing from the published index', () => {
         release,
         securityClassification: { level: 'standard' },
         sourceId: 'openai-official',
+        upstreamName: 'gmail',
       },
     },
     schemaVersion: 1,
@@ -411,6 +412,8 @@ describe('browsing from the published index', () => {
     }) as unknown as typeof fetch)
     expect(fetched).toEqual(['https://cdn.example/catalog-index.json'])
     const [plugin] = mapRegistryCatalog(catalog!, [], new Map())
+    // Identity the icon fallback depends on survives the reshape.
+    expect(catalog!.plugins[0]!.upstreamPluginName).toBe('gmail')
     expect(plugin).toMatchObject({
       id: 'plugin:openai-official:gmail',
       kind: 'connector',
