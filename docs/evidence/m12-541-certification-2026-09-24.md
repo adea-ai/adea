@@ -127,14 +127,14 @@ section stating what each row does not cover.
 
 Run against `main` @ `79a62b2f`:
 
-| Check                                         | Result                                                                                                                                     |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Secret-shaped strings in tracked files        | none (`sk-…`, `ghp_…`, `AKIA…`, `xox…`, private-key headers)                                                                               |
-| Personal/machine paths in tracked files       | none containing `/Users/amf`; the remaining `/Users/<name>/` matches are synthetic test personas (`someone`, `dev`, `example`, `me`, `am`) |
-| Committed build output, artifacts, env files  | 0 tracked (artifacts/ build/ .turbo/ .env)                                                                                                 |
-| Docs boundary (`node scripts/check-docs.mjs`) | exit 0                                                                                                                                     |
-| Formatting (`bunx oxfmt --check .`)           | clean on the full tree                                                                                                                     |
-| Lint (`bunx oxlint`)                          | 0 warnings / 0 errors on every touched tree                                                                                                |
+| Check                                         | Result                                                                                                                                                                                             |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Secret-shaped strings in tracked files        | none (`sk-…`, `ghp_…`, `AKIA…`, `xox…`, private-key headers)                                                                                                                                       |
+| Personal/machine paths in tracked files       | none containing the builder's home directory (`git grep -I "$HOME"` returns nothing); the remaining `/Users/<name>/` matches are synthetic test personas (`someone`, `dev`, `example`, `me`, `am`) |
+| Committed build output, artifacts, env files  | 0 tracked (artifacts/ build/ .turbo/ .env)                                                                                                                                                         |
+| Docs boundary (`node scripts/check-docs.mjs`) | exit 0                                                                                                                                                                                             |
+| Formatting (`bunx oxfmt --check .`)           | clean on the full tree                                                                                                                                                                             |
+| Lint (`bunx oxlint`)                          | 0 warnings / 0 errors on every touched tree                                                                                                                                                        |
 
 ## What remains for full closure
 
