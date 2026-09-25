@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.4](https://github.com/adea-ai/adea/compare/v0.59.3...v0.59.4) (2026-09-25)
+
+
+### Documentation
+
+* **specs:** record why a search read carries no cancel handle ([#706](https://github.com/adea-ai/adea/issues/706)) ([bd76380](https://github.com/adea-ai/adea/commit/bd763805a8d6015e18a80c85bd02df707af0001d))
+
 ## [0.59.3](https://github.com/adea-ai/adea/compare/v0.59.2...v0.59.3) (2026-09-25)
 
 
