@@ -84,7 +84,15 @@
   padding: 0.25rem 0;
 }
 
+/* The window (#677) renders a slice of the flattened rows, so every row must
+ * be exactly this tall: `row-window.ts` carries the same number and a test
+ * asserts the two agree. */
+.dev-files {
+  --dev-files-row-height: 28px;
+}
+
 .dev-files__row {
+  height: var(--dev-files-row-height);
   display: flex;
   min-width: 0;
   align-items: center;
@@ -401,4 +409,11 @@
 .dev-files__search-more {
   padding: 0.2rem 0.5rem;
   color: var(--dev-muted);
+}
+
+/* Window padding (#677): stands in for the rows the window does not render, so
+ * the scrollbar keeps describing the whole list. The height arrives as a
+ * custom property because the value is geometry, not styling. */
+.dev-files__window-pad {
+  height: var(--dev-files-pad, 0);
 }
