@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.6](https://github.com/adea-ai/adea/compare/v0.55.5...v0.55.6) (2026-09-25)
+
+
+### Tests
+
+* **m12:** close the audit gaps found in the M12 slice review ([#678](https://github.com/adea-ai/adea/issues/678)) ([f6951ca](https://github.com/adea-ai/adea/commit/f6951cafec20ad9f22bb1bd17f5e9bb5fc37e69b))
+
 ## [0.55.5](https://github.com/adea-ai/adea/compare/v0.55.4...v0.55.5) (2026-09-25)
 
 
