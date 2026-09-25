@@ -7,6 +7,7 @@ import { contentRefs } from './content-refs'
 import { entityId, timestampColumns } from './conventions'
 import { users } from './identity'
 import { rooms } from './rooms'
+import { runtimeNodes } from './runtime-nodes'
 import { appSchema } from './schema'
 import { workspaces } from './workspaces'
 
@@ -122,5 +123,58 @@ export const taskMutations = appSchema.table(
     check('task_mutations_command_nonempty', sql`length(btrim(${table.commandType})) > 0`),
     index('task_mutations_task_idx').on(table.workspaceId, table.taskId, table.createdAt),
     index('task_mutations_request_idx').on(table.requestId),
+  ]
+)
+
+// ─── Execution location history (#671) ──────────────────────────────────────
+// A task's history has to answer "where did this run, and on which node" after
+// the fact, for the running attempt and for every recorded reroute — which the
+// policy layer already decides (`packages/types/src/execution-location.ts`) but
+// nothing persisted. One row per attempt, because a reroute is a new attempt
+// and overwriting the previous location would lose the change the user needs to
+// see.
+
+export const taskExecutionLocationKind = appSchema.enum('task_execution_location_kind', [
+  'local_device',
+  'remote_host',
+  'agent_hq_cloud',
+])
+
+export const taskExecutionAttemptChange = appSchema.enum('task_execution_attempt_change', [
+  'initial',
+  'sticky_retry',
+  'authorized_reroute',
+])
+
+export const taskExecutionAttempts = appSchema.table(
+  'task_execution_attempts',
+  {
+    id: entityId(),
+    workspaceId: uuid('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'cascade' }),
+    taskId: uuid('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    /** Matches `ExecutionLocationAttempt.attempt`: 1 for the first attempt. */
+    attempt: integer('attempt').notNull(),
+    locationKind: taskExecutionLocationKind('location_kind').notNull(),
+    /** Null exactly when no runtime node ran the attempt: the reserved cloud
+     *  location, and the case the issue calls out — a task whose execution
+     *  never left this device must not claim a node. */
+    runtimeNodeId: uuid('runtime_node_id').references(() => runtimeNodes.id, {
+      onDelete: 'restrict',
+    }),
+    change: taskExecutionAttemptChange('change').default('initial').notNull(),
+    ...timestampColumns(),
+  },
+  (table) => [
+    check('task_execution_attempts_attempt_positive', sql`${table.attempt} > 0`),
+    check(
+      'task_execution_attempts_node_matches_location',
+      sql`(${table.locationKind} = 'agent_hq_cloud' and ${table.runtimeNodeId} is null) or (${table.locationKind} <> 'agent_hq_cloud' and ${table.runtimeNodeId} is not null)`
+    ),
+    unique('task_execution_attempts_task_attempt_unique').on(table.taskId, table.attempt),
+    index('task_execution_attempts_task_idx').on(table.workspaceId, table.taskId, table.attempt),
   ]
 )

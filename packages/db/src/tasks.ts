@@ -11,6 +11,7 @@ import { and, asc, eq, inArray, not } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachTaskContentRef } from './content-refs'
+import { taskExecutionFromAttempts } from './task-execution'
 import type { WorkspaceEventType } from './event-contract'
 import { appendWorkspaceEvent } from './transactions'
 import {
@@ -20,6 +21,7 @@ import {
   messages,
   rooms,
   taskDependencies,
+  taskExecutionAttempts,
   taskMutations,
   tasks,
   workspaceMemberships,
@@ -138,6 +140,34 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
       and(eq(taskDependencies.workspaceId, row.workspaceId), eq(taskDependencies.taskId, row.id))
     )
     .orderBy(asc(taskDependencies.dependsOnTaskId))
+  // Where the work ran, per attempt (#671). Absent until an attempt is
+  // recorded, so a task's history can answer the question after the fact
+  // rather than only while it is selected.
+  const executions = await database
+    .select({
+      attempt: taskExecutionAttempts.attempt,
+      change: taskExecutionAttempts.change,
+      locationKind: taskExecutionAttempts.locationKind,
+      recordedAt: taskExecutionAttempts.createdAt,
+      runtimeNodeId: taskExecutionAttempts.runtimeNodeId,
+    })
+    .from(taskExecutionAttempts)
+    .where(
+      and(
+        eq(taskExecutionAttempts.workspaceId, row.workspaceId),
+        eq(taskExecutionAttempts.taskId, row.id)
+      )
+    )
+    .orderBy(asc(taskExecutionAttempts.attempt))
+  const execution = taskExecutionFromAttempts(
+    executions.map((entry) => ({
+      attempt: entry.attempt,
+      change: entry.change,
+      locationKind: entry.locationKind,
+      recordedAt: entry.recordedAt.toISOString(),
+      ...(entry.runtimeNodeId ? { runtimeNodeId: entry.runtimeNodeId } : {}),
+    }))
+  )
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     artifactRefs: Object.freeze([...row.artifactRefs]),
@@ -155,6 +185,7 @@ async function summarize(database: Database, row: TaskRow): Promise<TaskSummary>
     createdAt: row.createdAt.toISOString(),
     creator: Object.freeze({ kind: 'user' as const, userId: row.creatorUserId }),
     dependencyIds: Object.freeze(dependencies.map(({ id }) => id)),
+    ...(execution ? { execution } : {}),
     id: row.id,
     kind: row.kind,
     lifecycleState: row.lifecycleState,

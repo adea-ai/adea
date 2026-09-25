@@ -1,3 +1,5 @@
+import type { TaskExecutionLocation } from './task-execution'
+
 export * from './desktop-permissions'
 export * from './execution-location'
 
@@ -155,11 +157,22 @@ export type ContentReplicaSummary = Readonly<{
   workspaceId: string
 }>
 
+export {
+  executionAttemptChanges,
+  type ExecutionAttemptChange,
+  type ExecutionAttemptSummary,
+  type TaskExecutionLocation,
+} from './task-execution'
+
 export type TaskSummary = Readonly<{
   agentId?: string
   artifactRefs: readonly string[]
   controlPlaneExecutionRef?: string
   controlPlaneWorkflowRef?: string
+  /** Where the work actually ran, per attempt (#671). Absent until a task has a
+   *  recorded execution, so absence means "has not run" rather than "ran
+   *  nowhere". */
+  execution?: TaskExecutionLocation
   conversation: Readonly<{
     channelId?: string
     messageId?: string
