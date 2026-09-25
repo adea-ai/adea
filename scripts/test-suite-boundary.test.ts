@@ -140,8 +140,8 @@ describe('test suite boundaries', () => {
     expect(workflow).toContain('defaults:')
     expect(workflow).toContain('shell: bash')
     // The Electrobun lane ships macOS ARM64. Windows and Linux stable
-    // packaging has no CI-verified installer story yet (TODO(#370)) and stays
-    // out of the matrix instead of shipping unverified archives.
+    // packaging has no CI-verified installer story yet and stays out of the
+    // matrix instead of shipping unverified archives.
     expect(workflow).toContain('runs-on: macos-14')
     expect(workflow).not.toContain('runner: ubuntu-24.04')
     expect(workflow).not.toContain('runner: windows-latest')
@@ -161,7 +161,11 @@ describe('test suite boundaries', () => {
       "grep -qx 'Adea.app/Contents/Resources/app/dev-runtime-sidecar/entry.js'"
     )
     expect(workflow).toContain('apps/desktop/shell/artifacts/')
-    expect(workflow).toContain('TODO(#370)')
+    // The payload must keep rejecting Electrobun's own unsigned
+    // `*-update.json`; the update channel is the signed `latest.json` this
+    // lane publishes beside the archives, so the gate is the contract rather
+    // than any TODO marker.
+    expect(workflow).toContain('The bundle payload must not carry an updater manifest')
     // A failed shell build fails the lane; no retry-and-continue pattern may
     // soften it back into shipping asset-free releases.
     expect(workflow).not.toContain('continue-on-error')

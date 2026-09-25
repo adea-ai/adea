@@ -3,8 +3,8 @@ name: Release assets
 # The desktop auto-update lane: this job builds the stable bundle, publishes
 # it to the release, and signs `latest.json` (Ed25519, private half in the
 # DESKTOP_UPDATE_SIGNING_KEY secret) so installed shells verify and apply
-# updates in place (apps/desktop/shell/src/updater.ts). Still TODO(#370):
-# Apple code signing and notarization — the build itself stays unsigned.
+# updates in place (apps/desktop/shell/src/updater.ts). Still pending: Apple
+# code signing and notarization — the build itself stays unsigned.
 #
 # This lane builds the Electrobun (Bun + CEF) shell in stable/release mode
 # (`electrobun build --env=stable`, the same flag the hutch template's `build`
@@ -25,9 +25,9 @@ name: Release assets
 # with the generic template icon.
 #
 # Only macOS ARM64 ships today. Windows and Linux `electrobun` stable packaging
-# has no CI-verified installer story yet and is tracked with the signing work in
-# #370; the verify gate below asserts the macOS bundle structure, so those
-# platforms stay out of the lane rather than shipping unverified archives.
+# has no CI-verified installer story yet; the verify gate below asserts the
+# macOS bundle structure, so those platforms stay out of the lane rather than
+# shipping unverified archives.
 #
 # workflow_dispatch can drive the lane without a tag: pass an existing release
 # `tag` to package that release, or leave it empty and set `ref` to build from
@@ -287,7 +287,7 @@ jobs:
           # than after the signed archives are published.
           grep -qx 'Adea.app/Contents/Resources/AppIcon.icns' <<<"$listing"
           if tar --zstd -tf "$payload" | grep -q 'updater\|update\.json'; then
-            echo "The bundle payload must not carry an updater manifest (TODO(#370))." >&2
+            echo "The bundle payload must not carry an updater manifest; the update channel is the signed latest.json." >&2
             exit 1
           fi
           echo "Stable bundle verified: shell binary, bundled CEF framework, branded app icon, packaged client, and the terminal sidecar are present (unsigned)."
