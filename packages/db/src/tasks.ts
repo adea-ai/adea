@@ -1,17 +1,17 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import {
-  taskExecutionFromAttempts,
-  type TaskKind,
-  type TaskLifecycleState,
-  type TaskPriority,
-  type TaskSummary,
-  type UserPrincipalRef,
+import type {
+  TaskKind,
+  TaskLifecycleState,
+  TaskPriority,
+  TaskSummary,
+  UserPrincipalRef,
 } from '@adea-ai/types'
 import { and, asc, eq, inArray, not } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { attachTaskContentRef } from './content-refs'
+import { taskExecutionFromAttempts } from './task-execution'
 import type { WorkspaceEventType } from './event-contract'
 import { appendWorkspaceEvent } from './transactions'
 import {

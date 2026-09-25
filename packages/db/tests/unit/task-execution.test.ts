@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { taskExecutionFromAttempts, type ExecutionAttemptSummary } from '../src/task-execution'
+import { taskExecutionFromAttempts, type ExecutionAttemptSummary } from '../../src/task-execution'
 
 function attempt(overrides: Partial<ExecutionAttemptSummary> = {}): ExecutionAttemptSummary {
   return {

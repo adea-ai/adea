@@ -185,6 +185,11 @@ describe('persistence schema', () => {
       'artifacts.location_ref',
       'artifacts.location_type',
       'desktop_authorization_codes.redirect_uri',
+      // #671: the *kind* of place that ran an attempt — local_device,
+      // remote_host or the reserved cloud location — which is a class of
+      // location and not an address. The node it ran on travels as an opaque
+      // uuid reference in the column beside it.
+      'task_execution_attempts.location_kind',
     ]
     const pathish = /(path|dir|directory|absolute|bookmark|mount|volume|location)/i
     const found: string[] = []

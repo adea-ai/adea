@@ -159,7 +159,6 @@ export type ContentReplicaSummary = Readonly<{
 
 export {
   executionAttemptChanges,
-  taskExecutionFromAttempts,
   type ExecutionAttemptChange,
   type ExecutionAttemptSummary,
   type TaskExecutionLocation,
