@@ -8,7 +8,7 @@ import {
 import { authorizeWorkspace } from '../../../../server/workspace-authorization'
 import { resolveWorkspacePrincipal } from '../../../../server/workspace-principal'
 import {
-  workspaceJsonResponse,
+  workspaceStreamResponse,
   workspaceUnavailableResponse,
 } from '../../../../server/workspace-response'
 import {
@@ -68,7 +68,12 @@ async function post(request: Request) {
       userId: resolution.principal.userId,
       workspaceId,
     })
-    return workspaceJsonResponse(await response.json(), resolution, request, {
+    // The catalog is tens of megabytes. Pass the Control Plane body through
+    // unparsed: reading it into a value and encoding it again holds both copies
+    // in the worker at once, which trips Cloudflare's resource limits
+    // (error 1102) and reaches the client as a failed read of a healthy
+    // request. `workspaceJsonResponse` is for the small payloads below.
+    return workspaceStreamResponse(response, resolution, request, {
       headers: { 'cache-control': 'no-store' },
     })
   } catch (error) {
