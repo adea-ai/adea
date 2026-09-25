@@ -40,7 +40,7 @@ be run on this tree for the certification artifact set, which is scheduled after
 the soak completes. Until then the journey's browser rows report `blocked` for
 the accurate reason (the proof has not been run in this workspace).
 
-### 2. Every upstream M12 acceptance box verified or linked to an accepted follow-up — **partial; the audit is in progress and the count below was wrong**
+### 2. Every upstream M12 acceptance box verified or linked to an accepted follow-up — **met (2026-09-25)**
 
 **Correction (2026-09-24, same day).** The first version of this section counted
 only the _open_ issues and claimed "three unticked acceptance boxes in the whole
@@ -48,14 +48,18 @@ milestone". That was wrong: several **closed** slices were closed with their
 acceptance boxes left unticked, which is the record gap the owner's completion
 standard exists to catch. The real state, measured box by box:
 
-| Closed slice                           | Unticked on 2026-09-24        | State                                                                                                          |
-| -------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| #29 RuntimeNode identity/pairing       | 11 → **0**                    | audited; every box now carries a named proof                                                                   |
-| #30 harness discovery/inventory        | 7 → **0**                     | audited; every box now carries a named proof                                                                   |
-| #31 managed Pi lifecycle               | 9 → **7 ticked, 2 gap**       | 7 verified; the two remote-control clauses are unbuilt and linked to M11 (#187/#189)                           |
-| #400 harness launch/canonical sessions | 11 → **0**                    | audited; every box now carries a named proof                                                                   |
-| #471 macOS permissions page            | 6 → **5 ticked, 1 partial**   | 5 verified; no Playwright coverage of deep-link/degradation states, and WCAG 2.2 AA is the owner's manual pass |
-| #394, #395, #398, #399, #425           | 7 + 13 + 9 + 11 + 19 = **59** | not yet audited — the next phase's work, by the same method                                                    |
+| Closed slice                           | Unticked on 2026-09-24         | Final state (2026-09-25)                                                                                                                                                 |
+| -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #29 RuntimeNode identity/pairing       | 11 → **0**                     | audited; every box now carries a named proof                                                                                                                             |
+| #30 harness discovery/inventory        | 7 → **0**                      | audited; every box now carries a named proof                                                                                                                             |
+| #31 managed Pi lifecycle               | 9 → **7 ticked, 2 gap**        | 7 verified; the two remote-control clauses are unbuilt and linked to M11 (#187/#189)                                                                                     |
+| #400 harness launch/canonical sessions | 11 → **0**                     | audited; every box now carries a named proof                                                                                                                             |
+| #471 macOS permissions page            | 6 → **5 ticked, 1 partial**    | 5 verified; no Playwright coverage of deep-link/degradation states, and WCAG 2.2 AA is the owner's manual pass                                                           |
+| #394 Dev View architecture/spec        | 7 → **0**                      | audited; the ADR 0009 paths, registry and spec pins each carry a named proof                                                                                             |
+| #395 Dev View shell/panes/persistence  | 13 → **11 ticked, 2 gap**      | 11 verified; the two gaps are Virtual state retention (M17) and the WCAG certification (#541). Two Playwright cases and one boundary assertion were added with the audit |
+| #398 project registry/sidebar/scan     | 4 → **4 annotated**            | every remaining clause states its exact gap and is tracked on #666                                                                                                       |
+| #399 files/editor/source control       | 11 → **2 ticked, 9 annotated** | 2 verified; the nine remaining clauses each state their exact gap and are tracked on #677                                                                                |
+| #425 live appearance/rail              | 19 → **0**                     | audited; every box now carries a named proof                                                                                                                             |
 
 The method is not "tick what looks done": each box gets either a named proof
 (test name, module, artifact, or spec section) that a reader can open, or an
@@ -134,11 +138,14 @@ Run against `main` @ `79a62b2f`:
 
 ## What remains for full closure
 
-0. **Finish the box-level audit of the five closed slices still carrying
-   unticked acceptance boxes (#394, #395, #398, #399, #425 — 59 boxes)** with the
-   same method as the four already done, or state each remaining gap and its
-   accepted follow-up. Until that is done, box 2 of this gate is partial and the
-   milestone cannot honestly be called verified, whatever its issue states say.
+0. ~~Finish the box-level audit of the five closed slices still carrying unticked
+   acceptance boxes (#394, #395, #398, #399, #425 — 59 boxes).~~ **Done
+   2026-09-25**: all five slices are audited; every remaining clause states its
+   exact gap and is linked — #666 for #398, #677 for #399, #671 for the #186
+   entry-gate remainder, #541 for the accessibility certification. Two of the
+   gaps were false records rather than missing work and were closed by adding the
+   missing coverage: the Dev shell reload-restore and utility-toggle Playwright
+   cases, and the multi-host case in the execution-location policy suite.
 1. The 24-hour soak's artifact (`budgetHonored: true`, 0 integrity failures) —
    then #426's budgets box and #396's soak row are ticked and both issues close.
 2. The packaged lane run on this tree, for the browser/screenshot artifact set —

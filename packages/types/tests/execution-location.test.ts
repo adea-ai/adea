@@ -71,6 +71,49 @@ describe('execution location policy', () => {
     expect(decision).toMatchObject({ action: 'execute', selectedLocation: requestedLocation })
   })
 
+  test('selects among several self-hosted nodes by identity and never substitutes another host', () => {
+    const nodes = [
+      node('local-1', 'local_device'),
+      node('host-east', 'remote_host'),
+      node('host-west', 'remote_host', 'offline'),
+    ]
+
+    const requestedLocation: ExecutionLocationSelection = {
+      kind: 'remote_host',
+      runtimeNodeId: 'host-east',
+    }
+    expect(decideExecutionLocation(input({ nodes, requestedLocation }))).toMatchObject({
+      action: 'execute',
+      selectedLocation: requestedLocation,
+    })
+
+    // The unavailable host queues: the healthy host beside it is never
+    // substituted for the one the caller chose.
+    expect(
+      decideExecutionLocation(
+        input({
+          nodes,
+          requestedLocation: { kind: 'remote_host', runtimeNodeId: 'host-west' },
+        })
+      )
+    ).toMatchObject({
+      action: 'queue',
+      blocker: 'location_offline',
+      selectedLocation: { kind: 'remote_host', runtimeNodeId: 'host-west' },
+    })
+
+    // Identity is the (kind, id) pair, so a local node's id cannot be selected
+    // as a self-hosted host even when no other node carries it.
+    expect(
+      decideExecutionLocation(
+        input({
+          nodes,
+          requestedLocation: { kind: 'remote_host', runtimeNodeId: 'local-1' },
+        })
+      )
+    ).toMatchObject({ action: 'block', blocker: 'location_missing' })
+  })
+
   test.each([
     ['offline', 'queue', 'location_offline', 'reconnect_location'],
     ['stale', 'queue', 'location_stale', 'refresh_location'],
