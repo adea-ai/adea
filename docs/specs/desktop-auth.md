@@ -21,7 +21,7 @@ the contract to read before touching the desktop flows in
 > the client's in-app cloud calls ride the shell's same-origin `/api` proxy
 > (`apps/desktop/shell/src/cloud-proxy.ts`). Deep-link/URL-scheme registration
 > for the `adea://` auth callback is not yet carried by the shell;
-> release-pipeline registration is tracked in #370.
+> release-pipeline registration is still release-lane work.
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).

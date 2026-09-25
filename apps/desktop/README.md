@@ -78,8 +78,7 @@ verifier through `@adea-ai/auth/desktop`; the shell accepts only the fixed
 desktop authorization endpoint and keeps the pending PKCE attempt in its
 encrypted state directory until it is consumed. Codes and user-session
 credentials are hashed before PostgreSQL storage and never appear in callback
-URLs. URL-scheme registration for the callback is still release-lane work
-(tracked in #370).
+URLs. URL-scheme registration for the callback is still release-lane work.
 
 The MVP is online-first. On restart, the desktop session manager loads a user
 session from the shell state and refreshes it through the broker. The rotating
@@ -100,6 +99,8 @@ do the same by pointing `ADEA_AGENT_SIM_DIST` at a local engine pack before
 `shell:build`. Builds without a pack — including any fork's — render the
 offline fallback and never fetch engine code.
 
-There is no auto-update lane in the shell yet: the update surface reports up to
-date, and release-lane work (including `adea://` URL-scheme registration for the
-auth callback) is tracked in #370.
+The shell does self-update: the version surface checks the signed release feed,
+verifies the archive against its digest and Ed25519 signature, then installs and
+relaunches — see [the updater spec](../../docs/specs/updater.md). Apple signing
+and notarization are still pending, and `adea://` URL-scheme registration for the
+auth callback is not packaged yet.

@@ -8,7 +8,7 @@ page is the contract to read before touching `apps/desktop/shell/src/commands.ts
 > **Implementation note (2026-09-13):** the desktop shell is Electrobun
 > (Bun + CEF); see [ADR 0006](../decisions/0006-browser-lanes-and-desktop-shell.md).
 > The shell downloads, verifies, and installs newer releases in place and
-> relaunches. Apple code signing and notarization are still TODO(#370): the
+> relaunches. Apple code signing and notarization are still pending: the
 > build is unsigned upstream and locally signed with the machine's
 > `adea-local-codesign` identity.
 
@@ -75,7 +75,7 @@ GitHub-API availability check plus a releases-page handoff.
 - `ADEA_UPDATE_SKIP_APPLY=1` stops short of the real bundle swap (tests).
 - macOS builds are signed locally with the stable `adea-local-codesign`
   identity so keychain grants survive rebuilds; release builds remain unsigned
-  upstream until notarization lands (#370).
+  upstream until notarization lands.
 
 ## User-visible policy
 
