@@ -64,7 +64,16 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // conventional-workspace state validator — cost 3,168 bytes across the chunks
 // that use it. The raise is the deliberate decision ADR 0010's first gate asks
 // for (the M15 lane measured it; this gate caught it), not silent growth.
-const CLIENT_JS_BUDGET_BYTES = 1_605_000
+//
+// 2026-09-25 (#686, browse from the published product index): 1_606_072 left no
+// runway, and the index adapter — reshaping the marketplace's deduplicated
+// product index into the catalog the existing mapper consumes, plus the
+// digest-verified loader for it — cost 1_072 bytes. The raise is the deliberate
+// decision this gate exists to force, not silent growth: the same code stops the
+// marketplace parsing a 26 MB catalog on every refresh and reads a 716 KB index
+// instead, verified against the digest integrity.json already states, so the
+// trade is ~1 KB of eager bundle for ~25 MB less network and no catalog parse.
+const CLIENT_JS_BUDGET_BYTES = 1_610_000
 // Raised from 50 when the #399 stream/hunk residues landed as further
 // intentional lazy chunks: files-pane grew the quick-open dialog (17kB
 // chunk, still lazy), stream-transport rides its own module, and the hunk
