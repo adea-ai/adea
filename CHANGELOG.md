@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.8](https://github.com/adea-ai/adea/compare/v0.55.7...v0.55.8) (2026-09-25)
+
+
+### Documentation
+
+* **evidence:** describe the home-path check instead of embedding the path ([#683](https://github.com/adea-ai/adea/issues/683)) ([71b13e4](https://github.com/adea-ai/adea/commit/71b13e4a310efa913665a6f2ffe432c2159b763d))
+
 ## [0.55.7](https://github.com/adea-ai/adea/compare/v0.55.6...v0.55.7) (2026-09-25)
 
 
