@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.2](https://github.com/adea-ai/adea/compare/v0.56.1...v0.56.2) (2026-09-25)
+
+
+### Performance
+
+* **marketplace:** browse from the published product index ([#686](https://github.com/adea-ai/adea/issues/686)) ([976ea7e](https://github.com/adea-ai/adea/commit/976ea7e311fa9e7d269d352f3ae2524e4df0d942))
+
 ## [0.56.1](https://github.com/adea-ai/adea/compare/v0.56.0...v0.56.1) (2026-09-25)
 
 
