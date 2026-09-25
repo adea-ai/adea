@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.0](https://github.com/adea-ai/adea/compare/v0.59.5...v0.60.0) (2026-09-25)
+
+
+### Features
+
+* **db:** persist where a task's execution actually ran ([#710](https://github.com/adea-ai/adea/issues/710)) ([8756813](https://github.com/adea-ai/adea/commit/8756813208302c99e9aae6b55a36c7f2a0f95271))
+
 ## [0.59.5](https://github.com/adea-ai/adea/compare/v0.59.4...v0.59.5) (2026-09-25)
 
 
