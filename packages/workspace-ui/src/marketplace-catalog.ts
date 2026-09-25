@@ -101,6 +101,8 @@ export type VerifiedRegistryCatalog = Readonly<{
   artifacts: RegistryArtifactBundle
   /** Compiled brand marks by product key; empty when the index is absent. */
   brandMarks: ReadonlyMap<string, string>
+  /** Browsing catalog loaded from the published index, when it verified. */
+  browsingCatalog?: RegistryCatalog
   releaseId: string
   state: 'ready' | 'stale'
   installations: readonly {
@@ -415,6 +417,158 @@ export function pluginIconUrl(
   return undefined
 }
 
+/** The index URL the navigation artifact publishes, when it publishes one. */
+export function navigationCatalogIndexUrl(navigationText: string | undefined): string | undefined {
+  if (!navigationText) return undefined
+  try {
+    const parsed: unknown = JSON.parse(navigationText)
+    if (!isObject(parsed)) return undefined
+    const url = parsed.catalogIndexUrl
+    return typeof url === 'string' && url.startsWith('https://') ? url : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** The digest `integrity.json` declares for an artifact, when it declares one. */
+function declaredArtifactDigest(integrityText: string, name: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(integrityText)
+    if (!isObject(parsed) || !isStringRecord(parsed.files)) return undefined
+    return parsed.files[name]
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Loads the browsing catalog the marketplace published, or nothing.
+ *
+ * The index is fetched from the URL the navigation artifact declares and accepted
+ * only when it matches the digest `integrity.json` already states, so browsing
+ * reads a few hundred kilobytes instead of the full catalog without trusting a
+ * second source. Any failure falls back to the catalog, which is why this is
+ * safe to attempt on every refresh.
+ */
+export async function loadBrowsingCatalog(
+  verified: VerifiedRegistryCatalog,
+  fetchImpl: typeof fetch = fetch
+): Promise<RegistryCatalog | undefined> {
+  const url = navigationCatalogIndexUrl(verified.artifacts['categories.v1.json'])
+  if (!url) return undefined
+  const declared = declaredArtifactDigest(
+    verified.artifacts['integrity.json'],
+    'catalog-index.v1.json'
+  )
+  if (!declared) return undefined
+  try {
+    const response = await fetchImpl(url)
+    if (!response.ok) return undefined
+    const text = await response.text()
+    if ((await canonicalDigest(text)) !== declared) return undefined
+    const catalog = catalogFromIndex(text)
+    return catalog && catalog.catalogId === verified.catalog.catalogId ? catalog : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Builds a catalog from the deduplicated product index.
+ *
+ * The index carries one record per product with the release facts an install
+ * needs, plus the publisher and source a card shows. Reshaping it into the
+ * catalog the mapper already consumes means browsing costs the index rather
+ * than the full catalog, and every derived field keeps its existing definition.
+ */
+export function catalogFromIndex(indexText: string): RegistryCatalog | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(indexText)
+  } catch {
+    return undefined
+  }
+  if (!isObject(parsed) || !isObject(parsed.products)) return undefined
+  const catalogId = typeof parsed.catalogId === 'string' ? parsed.catalogId : undefined
+  if (!catalogId) return undefined
+  const plugins: RegistryPlugin[] = []
+  for (const [productKey, value] of Object.entries(parsed.products).toSorted(([a], [b]) =>
+    a.localeCompare(b)
+  )) {
+    if (!isObject(value)) continue
+    const release = isObject(value.release) ? value.release : undefined
+    if (!release || typeof release.releaseId !== 'string') continue
+    const product = value as Record<string, unknown>
+    const provenance = isObject(product.provenance) ? product.provenance : {}
+    const packages =
+      typeof release.packageStatus === 'string' || typeof release.packageDigest === 'string'
+        ? {
+            agentPlugins: {
+              ...(typeof release.packageStatus === 'string'
+                ? { status: release.packageStatus }
+                : {}),
+              ...(typeof release.packageDigest === 'string'
+                ? { packageDigest: release.packageDigest }
+                : {}),
+            },
+          }
+        : {}
+    plugins.push({
+      authors: Array.isArray(product.authors) ? product.authors.filter(isStringValue) : [],
+      availableReleases: [
+        {
+          canonicalContentDigest: stringValue(release.canonicalContentDigest) ?? '',
+          capabilities: Array.isArray(release.capabilities)
+            ? release.capabilities.filter(isObject).map((capability) => ({
+                name: stringValue(capability.name) ?? '',
+                type: stringValue(capability.type) ?? '',
+              }))
+            : [],
+          contentResolution:
+            stringValue(release.contentResolution) === 'metadata-only'
+              ? 'metadata-only'
+              : 'complete',
+          pluginSubdirectory: stringValue(provenance.pluginSubdirectory) ?? '.',
+          releaseId: release.releaseId,
+          releaseMetadata: packages,
+          requiredConnectors: Array.isArray(release.requiredConnectors)
+            ? release.requiredConnectors.filter(isStringValue)
+            : [],
+          requiredCredentials: Array.isArray(release.requiredCredentials)
+            ? release.requiredCredentials.filter(isStringValue)
+            : [],
+          resolvedCommitSha: stringValue(release.sourceRevision) ?? '',
+          resolvedRepositoryUrl: stringValue(provenance.repositoryUrl) ?? '',
+        },
+      ],
+      capabilitySummary: isObject(product.capabilitySummary) ? product.capabilitySummary : {},
+      categories: Array.isArray(product.categories) ? product.categories.filter(isStringValue) : [],
+      currentReleaseId: release.releaseId,
+      description: stringValue(product.description) ?? '',
+      displayName: stringValue(product.displayName) ?? productKey,
+      harnessCompatibility: isObject(product.compatibility) ? product.compatibility : {},
+      icons: [],
+      keywords: Array.isArray(product.keywords) ? product.keywords.filter(isStringValue) : [],
+      license: { name: stringValue(product.license) ?? 'Unknown' },
+      pluginId: stringValue(product.pluginId) ?? '',
+      productGroupingKey: productKey,
+      provenance: isObject(product.provenance) ? product.provenance : {},
+      securityClassification: isObject(product.securityClassification)
+        ? product.securityClassification
+        : {},
+      sourceId: stringValue(product.sourceId) ?? '',
+      ...(typeof product.homepage === 'string' ? { homepage: product.homepage } : {}),
+    } as unknown as RegistryPlugin)
+  }
+  return {
+    catalogId,
+    generatedAt: stringValue(parsed.generatedAt) ?? '',
+    plugins,
+    schemaVersion: 1,
+    sources: [],
+  } as RegistryCatalog
+}
+
 export function mapRegistryCatalog(
   catalog: RegistryCatalog,
   installations: readonly VerifiedRegistryCatalog['installations'][number][],
@@ -710,6 +864,10 @@ function requireObject(value: unknown, name: string): JsonObject {
   if (!isObject(value))
     throw new MarketplaceCatalogError('verification-failure', `${name} must be an object`)
   return value
+}
+
+function isStringValue(value: unknown): value is string {
+  return typeof value === 'string'
 }
 
 function isObject(value: unknown): value is JsonObject {
