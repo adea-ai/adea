@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.5](https://github.com/adea-ai/adea/compare/v0.59.4...v0.59.5) (2026-09-25)
+
+
+### Performance
+
+* **dev-view:** render the file tree as a window, not every visible row ([#708](https://github.com/adea-ai/adea/issues/708)) ([b93f324](https://github.com/adea-ai/adea/commit/b93f3246d3d56c9934eecdb1f688e0405a2dfa47))
+
 ## [0.59.4](https://github.com/adea-ai/adea/compare/v0.59.3...v0.59.4) (2026-09-25)
 
 
