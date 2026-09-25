@@ -77,6 +77,13 @@ function runtime(
     lifecycle?: string
     resolve?: (id: string) => boolean
     protectedRoots?: readonly string[]
+    openPath?: (
+      absolutePath: string,
+      target?: Readonly<{ applicationId?: string; column?: number; line?: number }>
+    ) => Promise<
+      string | { label?: string; position?: { line: number; column: number } } | undefined
+    >
+    openApplications?: () => readonly Readonly<{ id: string; label: string }>[]
   } = {}
 ) {
   const authority = createChannelAuthority({
@@ -87,6 +94,8 @@ function runtime(
     authority,
     scope,
     ...(options.protectedRoots ? { protectedRoots: options.protectedRoots } : {}),
+    ...(options.openPath ? { openPath: options.openPath } : {}),
+    ...(options.openApplications ? { openApplications: options.openApplications } : {}),
     resolveWorktree: (worktreeId) => {
       if (options.resolve && !options.resolve(worktreeId)) return undefined
       if (!roots) return undefined
@@ -224,6 +233,25 @@ function wsPath(relativePath: string): Record<string, unknown> {
     rootIdentity: rootIdentityPinned(),
     relativePath,
   }
+}
+
+/** Pins one file's identity the way every other case in this suite does. */
+async function identityOf(
+  channel: ReturnType<typeof handshakeChannel>,
+  authority: ReturnType<typeof createChannelAuthority>,
+  relativePath: string
+): Promise<FileIdentity> {
+  const stat = await execute(
+    channel,
+    authority,
+    makeCommand(
+      'dev.files.stat',
+      { worktreeId: WORKTREE_ID, path: wsPath(relativePath) },
+      filesResource()
+    )
+  )
+  if (!stat.ok) throw new Error(`stat failed for ${relativePath}`)
+  return stat.value.identity as FileIdentity
 }
 
 function filesResource(expected = generation) {
@@ -991,5 +1019,87 @@ describe('default-deny policy (#622)', () => {
       )
     )
     expect(certificate.ok).toBe(true)
+  })
+
+  test('an external application that is not installed is refused by name', async () => {
+    writeFileSync(join(roots!.root, 'open-refusal.ts'), 'export {}\n')
+    const { authority } = runtime({
+      openApplications: () => [{ id: 'vscode', label: 'Visual Studio Code' }],
+    })
+    const channel = handshakeChannel(authority)
+
+    const refused = await execute(
+      channel,
+      authority,
+      makeCommand(
+        'dev.files.openExternal',
+        {
+          applicationId: 'sublime',
+          expectedIdentity: await identityOf(channel, authority, 'open-refusal.ts'),
+          path: wsPath('open-refusal.ts'),
+          worktreeId: WORKTREE_ID,
+        },
+        filesResource()
+      )
+    )
+
+    expect(refused.ok).toBe(false)
+    if (refused.ok) return
+    expect(refused.error.code).toBe('not_found')
+    // The refusal names what is available instead of opening whatever the
+    // platform happens to pick.
+    expect(refused.error.message).toContain('vscode (Visual Studio Code)')
+  })
+
+  test('the handoff receives the position and the reply reports one only when it landed there', async () => {
+    writeFileSync(join(roots!.root, 'open-target.ts'), 'export const value = 1\n')
+    const seen: Array<
+      Readonly<{ applicationId?: string; column?: number; line?: number }> | undefined
+    > = []
+    let appliedPosition: { line: number; column: number } | undefined = { column: 3, line: 12 }
+    const { authority } = runtime({
+      openApplications: () => [{ id: 'vscode', label: 'Visual Studio Code' }],
+      openPath: async (_absolute, target) => {
+        seen.push(target)
+        return {
+          label: 'Visual Studio Code',
+          ...(appliedPosition !== undefined ? { position: appliedPosition } : {}),
+        }
+      },
+    })
+    const channel = handshakeChannel(authority)
+    const command = async () =>
+      makeCommand(
+        'dev.files.openExternal',
+        {
+          applicationId: 'vscode',
+          column: 3,
+          expectedIdentity: await identityOf(channel, authority, 'open-target.ts'),
+          line: 12,
+          path: wsPath('open-target.ts'),
+          worktreeId: WORKTREE_ID,
+        },
+        filesResource()
+      )
+
+    const opened = await execute(channel, authority, await command())
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) return
+    // The opener was handed the choice and the position, as data — never as
+    // arguments assembled through a shell.
+    expect(seen[0]).toEqual({ applicationId: 'vscode', column: 3, line: 12 })
+    expect(opened.value).toMatchObject({
+      applicationLabel: 'Visual Studio Code',
+      position: { column: 3, line: 12 },
+    })
+
+    // An opener that cannot land at a position reports none, and the reply
+    // stops claiming one: asking is not evidence.
+    appliedPosition = undefined
+    const plain = await execute(channel, authority, await command())
+    expect(plain.ok).toBe(true)
+    if (!plain.ok) return
+    expect(plain.value.position).toBeUndefined()
+    expect(plain.value.applicationLabel).toBe('Visual Studio Code')
   })
 })

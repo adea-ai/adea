@@ -357,7 +357,7 @@
     "dev.files.openExternal": {
       "capabilities": ["dev.files.read"],
       "resource": "workspace_root:required(worktreeId+generation+RootIdentity)",
-      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity }",
+      "body": "{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; applicationId?: string; line?: integer(1..1000000); column?: integer(1..100000) }",
       "reply": "ExternalOpenResult"
     },
     "dev.files.read": {
