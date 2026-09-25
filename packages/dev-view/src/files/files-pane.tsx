@@ -32,6 +32,16 @@ import {
   type ModificationMarker,
 } from './files-model'
 import {
+  CONTENT_SEARCH_LIMIT,
+  contentSearchBody,
+  contentSearchRows,
+  matchLabel,
+  matchSummary,
+  previewSegments,
+  searchQuery,
+  type ContentSearchRow,
+} from './search-model'
+import {
   cacheStatus,
   emptyStatusCache,
   invalidateStatus,
@@ -79,6 +89,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   const [nodes, setNodes] = createSignal<readonly FileTreeNode[]>([])
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set())
   const [filter, setFilter] = createSignal('')
+  // Content search is a separate result set from the listing filter: the
+  // filter narrows what is already loaded, this asks the host's ripgrep.
+  const [contentRows, setContentRows] = createSignal<readonly ContentSearchRow[]>([])
+  const [contentTruncated, setContentTruncated] = createSignal(false)
+  const [contentFailed, setContentFailed] = createSignal<string | undefined>(undefined)
+  const [contentQuery, setContentQuery] = createSignal('')
   // Marker cache: the files pane follows the same watcher-lane honesty
   // contract as the source-control pane (#399 residue) — invalidation and
   // failed refreshes clear the markers (undefined is the honest state, never
@@ -229,6 +245,41 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     setExpanded(new Set<string>())
     setContextVersion((version) => version + 1)
     await refreshMarkers()
+  }
+
+  async function searchContents(value: string): Promise<void> {
+    const wanted = searchQuery(value)
+    const context = worktree()
+    const activeScope = scope()
+    if (wanted === undefined || !context || !activeScope) {
+      setContentRows([])
+      setContentTruncated(false)
+      setContentFailed(undefined)
+      setContentQuery('')
+      return
+    }
+    setContentQuery(wanted)
+    setContentFailed(undefined)
+    try {
+      const page = await executeOperation<{
+        items: readonly Parameters<typeof contentSearchRows>[0][number][]
+        nextCursor?: string
+      }>(
+        props.runtime,
+        activeScope,
+        'dev.files.search',
+        contentSearchBody(context.worktreeId, wanted),
+        { kind: 'workspace_root', id: context.worktreeId, generation: context.generation }
+      )
+      setContentRows(contentSearchRows(page.items))
+      setContentTruncated(page.nextCursor !== undefined)
+    } catch (error) {
+      // A refused search (no ripgrep on the node, a worktree that moved) says
+      // what happened instead of looking like an empty result.
+      setContentRows([])
+      setContentTruncated(false)
+      setContentFailed(describeError(error))
+    }
   }
 
   async function openFile(node: FileTreeNode): Promise<void> {
@@ -629,6 +680,62 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         if (event.key === 'Escape' && quickOpenOpen()) closeQuickOpen()
       }}
     >
+      <Show when={contentQuery().length > 0}>
+        <section class="dev-files__search" aria-label="Content search results">
+          <div class="dev-files__search-head">
+            <span role="status">
+              {contentFailed() ?? matchSummary(contentRows(), contentTruncated())}
+            </span>
+            <button
+              type="button"
+              class="dev-files__search-clear"
+              onClick={() => {
+                setFilter('')
+                void searchContents('')
+              }}
+            >
+              Clear search
+            </button>
+          </div>
+          <For each={contentRows()}>
+            {(row) => (
+              <button
+                type="button"
+                class="dev-files__search-row"
+                title={matchLabel(row)}
+                onClick={() =>
+                  props.onOpenFile?.({
+                    generation: worktree()?.generation ?? 0,
+                    identity: row.identity,
+                    relativePath: row.path.relativePath,
+                    rootIdentity: row.path.rootIdentity,
+                    worktreeId: row.path.worktreeId,
+                  })
+                }
+              >
+                <span class="dev-files__search-path">{matchLabel(row)}</span>
+                <span class="dev-files__search-preview">
+                  <For each={previewSegments(row)}>
+                    {(segment) => (
+                      <span class={cn({ 'dev-files__search-hit': segment.match })}>
+                        {segment.text}
+                      </span>
+                    )}
+                  </For>
+                </span>
+              </button>
+            )}
+          </For>
+          <Show
+            when={contentFailed() === undefined && contentRows().length === CONTENT_SEARCH_LIMIT}
+          >
+            <p class="dev-files__search-more">
+              Only the first {CONTENT_SEARCH_LIMIT} matches are shown; narrow the query to see more.
+            </p>
+          </Show>
+        </section>
+      </Show>
+
       <div class="dev-files__toolbar">
         <input
           type="search"
@@ -637,6 +744,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           aria-label="Filter files"
           value={filter()}
           onInput={(event) => setFilter(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            void searchContents(event.currentTarget.value)
+          }}
         />
         <button
           type="button"

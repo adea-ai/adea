@@ -345,3 +345,60 @@
 .dev-editor__surface .cm-editor.cm-focused {
   outline: none;
 }
+
+/* Content search results (#399 residue): the host-side search had no surface. */
+.dev-files__search {
+  display: flex;
+  max-height: 40%;
+  flex-direction: column;
+  overflow: auto;
+  border-block-end: 1px solid var(--dev-border);
+  font-size: 0.75rem;
+}
+
+.dev-files__search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0.5rem;
+  color: var(--dev-muted);
+}
+
+.dev-files__search-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.2rem 0.5rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.dev-files__search-row:hover,
+.dev-files__search-row:focus-visible {
+  background: color-mix(in srgb, var(--secondary) 55%, transparent);
+}
+
+.dev-files__search-path {
+  color: var(--dev-muted);
+}
+
+.dev-files__search-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.dev-files__search-hit {
+  border-radius: 0.15rem;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.dev-files__search-more {
+  padding: 0.2rem 0.5rem;
+  color: var(--dev-muted);
+}
