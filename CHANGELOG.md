@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.1](https://github.com/adea-ai/adea/compare/v0.59.0...v0.59.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **marketplace:** keep the upstream name on index-derived plugins ([#697](https://github.com/adea-ai/adea/issues/697)) ([2f0c502](https://github.com/adea-ai/adea/commit/2f0c5029ec54ccb608d801b49ab1216a1effe482))
+
 ## [0.59.0](https://github.com/adea-ai/adea/compare/v0.58.0...v0.59.0) (2026-09-25)
 
 
