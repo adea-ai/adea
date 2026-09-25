@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/remote-content",
-  "version": "0.55.7",
+  "version": "0.55.8",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
