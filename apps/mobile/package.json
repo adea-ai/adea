@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/mobile",
-  "version": "0.59.1",
+  "version": "0.59.2",
   "private": true,
   "type": "module",
   "scripts": {
