@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.0](https://github.com/adea-ai/adea/compare/v0.58.0...v0.59.0) (2026-09-25)
+
+
+### Features
+
+* **dev-view:** give the file search a surface ([#699](https://github.com/adea-ai/adea/issues/699)) ([9776f76](https://github.com/adea-ai/adea/commit/9776f76637ea437a9b71c399cf9620ade4f24118))
+
 ## [0.58.0](https://github.com/adea-ai/adea/compare/v0.57.0...v0.58.0) (2026-09-25)
 
 
