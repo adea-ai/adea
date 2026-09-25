@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.4](https://github.com/adea-ai/adea/compare/v0.55.3...v0.55.4) (2026-09-25)
+
+
+### Bug Fixes
+
+* **soak:** a stalled stream means silence, not a busy host, and never a zero clock ([#673](https://github.com/adea-ai/adea/issues/673)) ([dd6424c](https://github.com/adea-ai/adea/commit/dd6424ce08a1de90679e2a25be96a8383bc420da))
+
 ## [0.55.3](https://github.com/adea-ai/adea/compare/v0.55.2...v0.55.3) (2026-09-24)
 
 
