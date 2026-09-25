@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/state",
-  "version": "0.59.2",
+  "version": "0.59.3",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

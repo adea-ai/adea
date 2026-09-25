@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/asset-manifests",
-  "version": "0.59.2",
+  "version": "0.59.3",
   "description": "Shared scene and asset manifest contracts for Adea workspaces.",
   "keywords": [
     "assets",
