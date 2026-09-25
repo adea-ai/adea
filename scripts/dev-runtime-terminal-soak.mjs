@@ -221,6 +221,15 @@ let streamText = ''
 let activeMarker = null
 let markerResolve = null
 
+/**
+ * How long the stream may deliver nothing before the lane calls it stalled.
+ * Generous on purpose: the third attempt's rounds reached a p95 of 43 s and a
+ * maximum of 158 s while still making progress, so a small window reports a
+ * busy host as a dead stream. The finding is a stream that has *stopped*; the
+ * failure message carries the silence it observed either way.
+ */
+const STALL_MS = 240_000
+
 function trackFrame(meta, bytes) {
   if (meta.subscriberId === MAIN) {
     lastFrameAt = performance.now()
@@ -331,7 +340,7 @@ function waitForMarker(marker, timeoutMs) {
  * `stallMs` is a finding whatever the wall clock says. Returns 'marker',
  * 'stalled', or 'expired'.
  */
-function waitForMarkerOrStall(marker, stallMs = 90_000, ceilingMs = 900_000) {
+function waitForMarkerOrStall(marker, stallMs = STALL_MS, ceilingMs = 900_000) {
   const waitStartedAt = performance.now()
   return new Promise((resolve) => {
     const tick = () => {
@@ -340,7 +349,11 @@ function waitForMarkerOrStall(marker, stallMs = 90_000, ceilingMs = 900_000) {
         return
       }
       const now = performance.now()
-      if (now - lastFrameAt > stallMs) {
+      // `lastFrameAt` is 0 until the first frame of the lane arrives, and
+      // `now - 0` is an eternity: an unguarded comparison declared the very
+      // first sentinel stalled the instant it was asked for.
+      const silenceMs = lastFrameAt === 0 ? 0 : Math.round(now - lastFrameAt)
+      if (silenceMs > stallMs) {
         finish('stalled')
         return
       }
@@ -680,12 +693,17 @@ async function runRound(roundIndex) {
   streamText = ''
   const marker = `SOAKROUND ${roundIndex} END`
   await writeProducer(floodCommand(marker))
+  const sentinelStart = performance.now()
   const done = await waitForMarkerOrStall(marker)
   if (done !== 'marker') {
+    const waitedMs = Math.round(performance.now() - sentinelStart)
     fail(
       'producer sentinel',
-      `round ${roundIndex}: ${done === 'stalled' ? 'the stream stopped producing bytes while the sentinel was outstanding' : 'the sentinel did not arrive within the ceiling'}` +
-        `; ${JSON.stringify(attribution())}`
+      `round ${roundIndex}: ${
+        done === 'stalled'
+          ? `the stream delivered no bytes for ${STALL_MS}ms while the sentinel was outstanding`
+          : 'the sentinel did not arrive within the 900000ms ceiling'
+      } (waited ${waitedMs}ms); ${JSON.stringify(attribution())}`
     )
     return null
   }
