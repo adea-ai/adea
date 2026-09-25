@@ -61,8 +61,14 @@
     "dev.browser.cookieImportPlan": {
       "capabilities": ["dev.browser.cookies"],
       "resource": "browser_lane:required",
-      "body": "{ browserLaneId: string; expectedGeneration: integer; sourceProfileId: string; domains: string[]<=128 }",
+      "body": "{ browserLaneId: string; expectedGeneration: integer; sourceProfileId: string; domains: string[]<=128; includeExcluded?: boolean }",
       "reply": "MutationPlan"
+    },
+    "dev.browser.cookieSources": {
+      "capabilities": ["dev.browser.cookies"],
+      "resource": null,
+      "body": "{ cursor?: string; limit?: integer(1..500) }",
+      "reply": "Page<CookieSource>"
     },
     "dev.browser.diagnostics": {
       "capabilities": ["dev.browser.read"],
