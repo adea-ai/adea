@@ -1,27 +1,37 @@
 // The permissions page in the web lane (#667, from the #471 record audit).
 //
 // The unit suite (`apps/desktop/tests/shell-permissions.test.ts`) pins the probe
-// classifications; this drives the *surface*: the deep link lands on the
-// section, every row states a typed status rather than a guess, and asking the
-// lane to do something it cannot do is reported to the user instead of failing
-// silently. TCC itself is not drivable from a browser, so the browser lane is
+// classifications; this drives the *surface*: the section opens, every row
+// states a typed status rather than a guess, and asking the lane to do
+// something it cannot do is reported to the user instead of failing silently. TCC itself is not drivable from a browser, so the browser lane is
 // the truthful-degradation half — which is exactly the half the audit found
 // untested.
 import { expect, test, type Page } from '@playwright/test'
 
 async function openPermissions(page: Page) {
-  await page.goto('/#settings/permissions')
   const settings = page.getByRole('dialog', { name: 'Settings' })
   const pane = settings.getByRole('region', { name: 'macOS permissions' })
   await expect(async () => {
-    // Idempotent: the deep link is read on mount, so the first load is the one
-    // that opens the section.
+    // Idempotent on purpose (a test may ask again while the section is up), and
+    // reached through the UI rather than the hash: the section is read from the
+    // hash on mount, so a hash navigation from an already-loaded page is not a
+    // path the app promises to honour — and re-navigating to the *same* URL
+    // (what a naive retry does) is a no-op, not a reload.
     if (await pane.isVisible().catch(() => false)) return
-    await page.goto('/#settings/permissions')
+    if (!(await settings.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: 'User settings' }).click()
+      await page.getByRole('menuitem', { name: 'Settings' }).click()
+    }
+    await settings.getByRole('tab', { name: 'Permissions' }).click()
     await expect(pane).toBeVisible()
   }).toPass({ timeout: 30_000 })
   return pane
 }
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 20_000 })
+})
 
 test('the permissions section is reachable and states typed statuses, never guesses', async ({
   page,
