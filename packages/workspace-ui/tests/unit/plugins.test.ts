@@ -6,6 +6,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import {
   canonicalDigest,
   canonicalJson,
+  compiledBrandMarks,
   mapRegistryCatalog,
   verifyRegistryArtifacts,
 } from '../../src/marketplace-catalog'
@@ -140,7 +141,6 @@ describe('registry marketplace catalog', () => {
     const catalogId = fixture.catalog.catalogId
     const extra = {
       'catalog-index.v1.json': JSON.stringify({ catalogId, products: {}, schemaVersion: 1 }),
-      'shelf-productivity.v1.json': JSON.stringify({ catalogId, products: [], schemaVersion: 1 }),
       'icon-0123456789abcdef0123456789abcdef.png': 'binary',
     }
     const declared: Record<string, string> = {}
@@ -301,6 +301,47 @@ describe('registry marketplace catalog', () => {
         ...defaultPluginFilter,
       }).map(({ id }) => id)
     ).toEqual(['plugin:openai-official:gmail'])
+  })
+})
+
+describe('compiled brand marks', () => {
+  test('reads the marks the marketplace compiled', () => {
+    const marks = compiledBrandMarks(
+      JSON.stringify({
+        brandMarks: {
+          gmail: 'https://cdn.example/catalog/abc/icon-1.png',
+          notion: 'http://insecure/icon.png',
+        },
+        catalogId: 'catalog:abc',
+        schemaVersion: 1,
+      })
+    )
+    expect(marks.get('gmail')).toBe('https://cdn.example/catalog/abc/icon-1.png')
+    expect(marks.has('notion')).toBe(false)
+    expect(marks.size).toBe(1)
+  })
+
+  test('ignores navigation without usable marks', () => {
+    expect(compiledBrandMarks(undefined).size).toBe(0)
+    expect(compiledBrandMarks('not json').size).toBe(0)
+    expect(compiledBrandMarks(JSON.stringify({ brandMarks: 'nope' })).size).toBe(0)
+    expect(compiledBrandMarks(JSON.stringify({ categories: [] })).size).toBe(0)
+  })
+
+  test('the compiled mark wins over the favicon heuristics', () => {
+    const plugin = {
+      icons: [],
+      homepage: 'https://github.com/openai/plugins',
+      upstreamPluginName: 'gmail',
+    }
+    expect(pluginIconUrl(plugin)).toBeDefined()
+    expect(pluginIconUrl(plugin, 'https://cdn.example/catalog/abc/icon-1.png')).toBe(
+      'https://cdn.example/catalog/abc/icon-1.png'
+    )
+    // A mark the plugin itself declares still outranks a compiled one.
+    expect(
+      pluginIconUrl({ ...plugin, icons: ['https://vendor.example/icon.svg'] }, 'https://cdn/x.png')
+    ).toBe('https://vendor.example/icon.svg')
   })
 })
 
