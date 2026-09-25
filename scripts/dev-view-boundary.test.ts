@@ -102,6 +102,34 @@ describe('Dev View dependency and bundle boundaries', () => {
     expect(read('apps/desktop/shell/src/commands.ts')).not.toContain("'dev.runtime.execute.v1'")
   })
 
+  test('keeps the Dev package off the shell-injected bridge global', () => {
+    // Every capability reaches the Dev package through the platform seam the
+    // app injects (`WorkspacePlatformServices`); reading the shell-injected
+    // global directly would be a privileged bypass, on any code path.
+    const offenders: string[] = []
+    const walk = (relativeDir: string): void => {
+      const absolute = resolve(root, relativeDir)
+      for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+        const child = `${relativeDir}/${entry.name}`
+        if (entry.isDirectory()) walk(child)
+        else if (
+          (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) &&
+          read(child).includes('__adeaDesktop')
+        )
+          offenders.push(child)
+      }
+    }
+    walk('packages/dev-view/src')
+    expect(offenders).toEqual([])
+
+    const platform = read('packages/workspace-ui/src/platform.ts')
+    expect(platform).toContain('WorkspacePlatformServices')
+    expect(platform).toContain('devRuntime')
+    expect(read('apps/web/src/components/workspace-navigation-entry.tsx')).toContain(
+      'WorkspacePlatformServices'
+    )
+  })
+
   test('pins generated decoders to the normative operation registry', () => {
     const generator = read('scripts/generate-dev-runtime-contract.mjs')
     expect(generator).toContain('docs/specs/dev-runtime-operations.json')

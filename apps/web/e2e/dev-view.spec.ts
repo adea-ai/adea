@@ -146,6 +146,75 @@ test('center panes move by keyboard while keeping one primary session', async ({
   await expect(page.getByRole('button', { name: 'New session' })).toBeDisabled()
 })
 
+test('the Dev shell restores the session layout document after a reload', async ({ page }) => {
+  test.slow()
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openDevView(page, '/?view=dev&devE2e=preserved')
+
+  const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
+  await separator.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(separator).toHaveAttribute('aria-valuenow', '55')
+
+  await page.getByRole('button', { name: 'Agents / History' }).click()
+  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  await expect(rightUtilities).toBeVisible()
+
+  // The layout document is written debounced (250 ms); the reload is the
+  // persistence round trip a restart performs, on the same session URL.
+  await expect(page).toHaveURL(/devSession=/)
+  await page.waitForTimeout(600)
+  await page.reload()
+
+  await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(
+    page
+      .getByRole('separator', { name: 'Resize workspace panes' })
+      .and(page.locator('[aria-valuenow="55"]'))
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole('complementary', { name: 'Developer utilities (right)' })
+  ).toBeVisible()
+})
+
+test('each utility toggle reveals its pane and the sidebar fills the workspace height', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openDevView(page, '/?view=dev&devE2e=preserved')
+
+  const leftUtilities = page.getByRole('complementary', { name: 'Developer utilities (left)' })
+  const rightUtilities = page.getByRole('complementary', { name: 'Developer utilities (right)' })
+
+  await expect(leftUtilities.getByRole('heading', { name: 'Files' })).toBeVisible()
+  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await expect(leftUtilities).toBeHidden()
+  await page.getByRole('button', { name: 'Files / SC' }).click()
+  await expect(leftUtilities.getByRole('tab', { name: 'Source control' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Browser / Devices' }).click()
+  await expect(rightUtilities).toBeVisible()
+  await expect(rightUtilities.getByRole('tab', { name: 'Browser' })).toBeVisible()
+  await expect(rightUtilities.getByRole('tab', { name: 'Devices' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Agents / History' }).click()
+  await expect(rightUtilities.getByRole('heading', { name: 'Agents' })).toBeVisible()
+
+  // The contextual sidebar is a sibling of the center panes and owns the full
+  // vertical space of the workspace body rather than its content height.
+  const sidebarBox = await page
+    .getByRole('complementary', { name: 'Projects and sessions' })
+    .boundingBox()
+  const panesBox = await page
+    .getByRole('region', { name: 'Developer workspace panes' })
+    .boundingBox()
+  expect(sidebarBox).not.toBeNull()
+  expect(panesBox).not.toBeNull()
+  expect(Math.abs(sidebarBox!.height - panesBox!.height)).toBeLessThanOrEqual(2)
+})
+
 /**
  * Opens the Dev surface and waits for the lazy workspace chunk to mount. On a
  * cold dev server the chunk transform can outrun default expect timeouts, so
