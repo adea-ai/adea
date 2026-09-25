@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.57.0](https://github.com/adea-ai/adea/compare/v0.56.3...v0.57.0) (2026-09-25)
+
+
+### Features
+
+* **dev-runtime:** let the external-editor handoff land at a position ([#694](https://github.com/adea-ai/adea/issues/694)) ([40259a8](https://github.com/adea-ai/adea/commit/40259a8891d9ed5cf53baf3c8512db9b253c5874))
+
 ## [0.56.3](https://github.com/adea-ai/adea/compare/v0.56.2...v0.56.3) (2026-09-25)
 
 
