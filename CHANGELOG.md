@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.1](https://github.com/adea-ai/adea/compare/v0.56.0...v0.56.1) (2026-09-25)
+
+
+### Tests
+
+* **dev-runtime:** cover the filename and merge edge cases the audit named ([#688](https://github.com/adea-ai/adea/issues/688)) ([4c53ab0](https://github.com/adea-ai/adea/commit/4c53ab0200381808bbac41ca73b1a58e829e3e5c))
+
 ## [0.56.0](https://github.com/adea-ai/adea/compare/v0.55.8...v0.56.0) (2026-09-25)
 
 
