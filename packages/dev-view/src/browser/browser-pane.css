@@ -311,3 +311,19 @@
   inset-block-end: -0.25rem;
   inset-inline-start: -0.25rem;
 }
+
+.dev-browser__cookies {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow: auto;
+  border-block-start: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  font-size: 0.75rem;
+}
+
+.dev-browser__cookies-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.35rem 0.5rem;
+}
