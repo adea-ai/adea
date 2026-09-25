@@ -53,6 +53,7 @@ export { default as CircleUserRound } from 'lucide-solid/icons/circle-user-round
 export { default as ClipboardList } from 'lucide-solid/icons/clipboard-list'
 export { default as Code2 } from 'lucide-solid/icons/code-xml'
 export { default as Columns2 } from 'lucide-solid/icons/columns-2'
+export { default as Cookie } from 'lucide-solid/icons/cookie'
 export { default as Database } from 'lucide-solid/icons/database'
 export { default as DoorOpen } from 'lucide-solid/icons/door-open'
 export { default as Download } from 'lucide-solid/icons/download'
