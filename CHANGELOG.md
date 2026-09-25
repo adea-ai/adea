@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.3](https://github.com/adea-ai/adea/compare/v0.59.2...v0.59.3) (2026-09-25)
+
+
+### Performance
+
+* **marketplace:** stop re-reading the catalog when nothing was published ([#704](https://github.com/adea-ai/adea/issues/704)) ([0fafb70](https://github.com/adea-ai/adea/commit/0fafb70e4699cb85b9bb70c0d9737dc9e020eed3))
+
 ## [0.59.2](https://github.com/adea-ai/adea/compare/v0.59.1...v0.59.2) (2026-09-25)
 
 
