@@ -2669,7 +2669,14 @@ Search uses supervised `rg` with fixed argv flags and authorized cwd. Query is a
 single argv value, not shell text. Defaults: 10,000 matches, 50 MiB scanned
 result budget, 1 MiB emitted result bytes, 30 seconds, 1,000 files with matches;
 return partial/budget reason. Cancellation terminates only the owned `rg`
-process. A fallback obeys equal or stricter limits.
+process; it is not exposed to callers, and that is deliberate. A search read is
+a bounded page — the caps above, plus the caller's own `limit` and cursor — so
+the run a client would want to cancel is already bounded by the budget that
+would motivate cancelling it, while a cancel handle would need the command frame
+to carry an identity the provider can address and to survive the client
+forgetting it. Clients abandon a page by ignoring its reply and issuing the next
+query; the provider finishes at most one bounded run. A fallback obeys equal or
+stricter limits.
 
 ### Shipped provider slice (M12 #399)
 
