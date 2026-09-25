@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.7](https://github.com/adea-ai/adea/compare/v0.55.6...v0.55.7) (2026-09-25)
+
+
+### Bug Fixes
+
+* **specs:** record the cookie-source operation in the normative contract ([#680](https://github.com/adea-ai/adea/issues/680)) ([6888fd6](https://github.com/adea-ai/adea/commit/6888fd692b532d2db69f7002f038d21da1ab9bff))
+
 ## [0.55.6](https://github.com/adea-ai/adea/compare/v0.55.5...v0.55.6) (2026-09-25)
 
 
