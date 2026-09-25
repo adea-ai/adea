@@ -17,6 +17,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Camera,
+  Cookie,
   ExternalLink,
   MousePointerClick,
   PictureInPicture2,
@@ -29,6 +30,7 @@ import './browser-pane.css'
 import type { DevRuntimeService } from '../platform'
 import { resolveAnnotationSubmission, resolveAnnotationShortcut } from './annotation-model'
 import { buildDevCommand } from './command'
+import { CookieImportPanel } from './cookie-import-panel'
 import { isPreviewableRow, mergeServers, type PreviewableServer } from './ports-model'
 import { MiniPreview } from './mini-preview'
 import {
@@ -76,6 +78,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [urlFocused, setUrlFocused] = createSignal(false)
   const [annotating, setAnnotating] = createSignal(false)
   const [miniPreviewOpen, setMiniPreviewOpen] = createSignal(false)
+  const [cookiesOpen, setCookiesOpen] = createSignal(false)
   const [presetId, setPresetId] = createSignal<ResponsivePresetId>('responsive')
   const [orientation, setOrientation] = createSignal<ResponsiveOrientation>('portrait')
   const [zoomScale, setZoomScale] = createSignal(1)
@@ -390,8 +393,21 @@ export function BrowserPane(props: BrowserPaneProps) {
         <button
           type="button"
           class="dev-icon-button"
+          aria-label={cookiesOpen() ? 'Close cookie import' : 'Import cookies'}
+          aria-pressed={cookiesOpen()}
+          disabled={!activeLane()}
+          onClick={() => setCookiesOpen((value) => !value)}
+        >
+          <Cookie aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          class="dev-icon-button"
           aria-label="Close browser pane"
-          onClick={() => setMiniPreviewOpen(false)}
+          onClick={() => {
+            setCookiesOpen(false)
+            setMiniPreviewOpen(false)
+          }}
         >
           <X aria-hidden="true" />
         </button>
@@ -604,6 +620,15 @@ export function BrowserPane(props: BrowserPaneProps) {
             </Show>
           </div>
         </div>
+      </Show>
+
+      <Show when={cookiesOpen() && activeLane()}>
+        <CookieImportPanel
+          laneId={activeLane()!.id}
+          generation={activeLane()!.generation}
+          run={execute}
+          onClose={() => setCookiesOpen(false)}
+        />
       </Show>
 
       <Show when={miniPreviewOpen()}>
