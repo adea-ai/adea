@@ -10,6 +10,7 @@ import {
   MarketplaceCatalogError,
   type VerifiedRegistryCatalog,
   loadBrowsingCatalog,
+  navigationCatalogIndexUrl,
 } from './marketplace-catalog'
 import type {
   WorkspacePlugin,
@@ -80,6 +81,12 @@ type PersistedGlobalCatalog = Readonly<{
   catalogId: string
   cachedAt: number
   plugins: readonly WorkspacePlugin[]
+  /**
+   * The browsing index the release advertised, when it advertised one. Kept so
+   * the next refresh can ask the smallest published artifact whether anything
+   * was published at all instead of re-reading tens of megabytes to find out.
+   */
+  catalogIndexUrl?: string
 }>
 
 function isCatalogSnapshot(entry: unknown): entry is PersistedGlobalCatalog {
@@ -91,6 +98,29 @@ function isCatalogSnapshot(entry: unknown): entry is PersistedGlobalCatalog {
     typeof candidate.cachedAt === 'number' &&
     Date.now() - candidate.cachedAt <= PLUGIN_CACHE_MAX_AGE_MS
   )
+}
+
+/**
+ * The catalog identity the published index reports, when it answers at all.
+ *
+ * A catalog release is immutable and a new one only ever appears under a new
+ * `catalogId`, so the index — a megabyte or so, served CORS-clean from the
+ * repository — is enough to answer "was anything published since this snapshot
+ * was taken?". Nothing here is trusted beyond that comparison: a wrong or
+ * hostile answer can only cause a refresh to be skipped, never bad data to be
+ * rendered, because the snapshot it keeps was verified when it was written.
+ */
+async function probePublishedCatalogId(url: string): Promise<string | undefined> {
+  try {
+    const response = await fetch(url, { headers: { accept: 'application/json' } })
+    if (!response.ok) return undefined
+    const parsed: unknown = JSON.parse(await response.text())
+    if (parsed === null || typeof parsed !== 'object') return undefined
+    const catalogId = (parsed as { catalogId?: unknown }).catalogId
+    return typeof catalogId === 'string' ? catalogId : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function readPersistedGlobalCatalog(): PersistedGlobalCatalog | undefined {
@@ -146,6 +176,23 @@ export function createRegistryPluginsProvider(
       state = 'unavailable'
       throw new MarketplaceCatalogError('unavailable', 'A workspace is required to load plugins')
     }
+    // A verified catalog is already in hand: ask the published index whether
+    // anything was published since, and skip the tens-of-megabytes read when the
+    // answer is no. The read itself cannot return anything new — releases are
+    // immutable per catalogId — so this only removes work, never freshness.
+    if (cache) {
+      const known = readPersistedGlobalCatalog()
+      const indexUrl = known?.catalogIndexUrl
+      if (
+        known !== undefined &&
+        indexUrl !== undefined &&
+        known.catalogId === cache.catalog.catalogId &&
+        (await probePublishedCatalogId(indexUrl)) === cache.catalog.catalogId
+      ) {
+        lastFetchAt = Date.now()
+        return cache
+      }
+    }
     const verified = await loadRegistryArtifacts(apiClient(), workspaceId)
     // Browsing reads the published index when the release provides one, which is
     // a few hundred kilobytes against tens of megabytes. Every failure path falls
@@ -158,6 +205,7 @@ export function createRegistryPluginsProvider(
     cacheWorkspaceId = workspaceId
     lastFetchAt = Date.now()
     state = fresh.state === 'stale' ? 'stale' : 'ready'
+    const catalogIndexUrl = navigationCatalogIndexUrl(fresh.artifacts['categories.v1.json'])
     writePersistedPlugins(workspaceId, {
       catalogId: fresh.catalog.catalogId,
       cachedAt: lastFetchAt,
@@ -166,6 +214,7 @@ export function createRegistryPluginsProvider(
         fresh.installations,
         fresh.brandMarks
       ),
+      ...(catalogIndexUrl === undefined ? {} : { catalogIndexUrl }),
     })
     writePersistedGlobalCatalog({
       catalogId: fresh.catalog.catalogId,
@@ -175,6 +224,7 @@ export function createRegistryPluginsProvider(
         fresh.installations,
         fresh.brandMarks
       ),
+      ...(catalogIndexUrl === undefined ? {} : { catalogIndexUrl }),
     })
     return fresh
   }
@@ -211,7 +261,16 @@ export function createRegistryPluginsProvider(
         return persisted.plugins
       }
     } else if (Date.now() - lastFetchAt > PLUGIN_REFRESH_INTERVAL_MS) {
+      // The cached catalog renders immediately and the refresh it schedules is
+      // the only read this call may cause: falling through to the awaited
+      // refresh below would read the catalog twice on every stale call.
       void refresh().catch(() => undefined)
+      state = cache.state === 'stale' ? 'stale' : 'ready'
+      return mapRegistryCatalog(
+        cache.browsingCatalog ?? cache.catalog,
+        cache.installations,
+        cache.brandMarks
+      )
     }
     state = 'loading'
     try {

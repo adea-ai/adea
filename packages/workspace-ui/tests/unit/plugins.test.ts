@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, setSystemTime, test } from 'bun:test'
 import { pluginBrandIconUrl, pluginIconUrl } from '../../src/marketplace-catalog'
 
 import type { AgentHqApiClient } from '@adea-ai/api-client'
@@ -23,7 +23,7 @@ import {
 } from '../../src/plugins'
 import type { RegistryArtifactBundle, RegistryCatalog } from '../../src/marketplace-catalog'
 
-async function fixtureArtifacts(): Promise<{
+async function fixtureArtifacts(options: { catalogIndexUrl?: string } = {}): Promise<{
   artifacts: RegistryArtifactBundle
   catalog: RegistryCatalog
 }> {
@@ -86,6 +86,7 @@ async function fixtureArtifacts(): Promise<{
     categories: ['productivity'],
     catalogId,
     schemaVersion: 1,
+    ...(options.catalogIndexUrl === undefined ? {} : { catalogIndexUrl: options.catalogIndexUrl }),
   })
   const compatibilityText = JSON.stringify({ catalogId, plugins: [], schemaVersion: 1 })
   const lockText = JSON.stringify({ catalogId, schemaVersion: 1, sources: [] })
@@ -111,6 +112,23 @@ async function fixtureArtifacts(): Promise<{
       'sources.lock.json': lockText,
     },
     catalog,
+  }
+}
+
+function installInMemoryStorage(): { restore: () => void } {
+  const values = new Map<string, string>()
+  const previous = (globalThis as { window?: unknown }).window
+  ;(globalThis as { window?: unknown }).window = {
+    localStorage: {
+      getItem: (key: string) => values.get(key) ?? null,
+      removeItem: (key: string) => void values.delete(key),
+      setItem: (key: string, value: string) => void values.set(key, value),
+    },
+  }
+  return {
+    restore: () => {
+      ;(globalThis as { window?: unknown }).window = previous
+    },
   }
 }
 
@@ -287,6 +305,72 @@ describe('registry marketplace catalog', () => {
     )
     expect(after[0]?.installationStatus).toBe('pending-authorization')
     expect(filterWorkspacePlugins(after, 'yours', '').map(({ id }) => id)).toEqual([])
+  })
+
+  test('skips the full read when the published index reports the identity already held', async () => {
+    // A catalog release is immutable and a new one only appears under a new
+    // catalogId, so the index — a megabyte or so — answers "was anything
+    // published?" without re-reading tens of megabytes every refresh.
+    const indexUrl = 'https://cdn.example/catalog-index.json'
+    const fixture = await fixtureArtifacts({ catalogIndexUrl: indexUrl })
+    const catalogId = fixture.catalog.catalogId
+    const storage = installInMemoryStorage()
+    const previousFetch = globalThis.fetch
+    try {
+      let reads = 0
+      let probes = 0
+      const client = {
+        getMarketplaceCatalog: async () => {
+          reads += 1
+          return {
+            artifacts: fixture.artifacts,
+            catalogId,
+            installations: [],
+            releaseId: catalogId,
+            state: 'ready',
+          }
+        },
+      } as unknown as AgentHqApiClient
+      const provider = createRegistryPluginsProvider({
+        client,
+        getWorkspaceId: () => 'workspace-1',
+        getUserId: () => 'user-1',
+      })
+      await provider.list()
+      expect(reads).toBe(1)
+
+      // Nothing was published: the index still reports the identity in hand.
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input)
+        if (url === indexUrl) probes += 1
+        return new Response(JSON.stringify({ catalogId }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as typeof fetch
+      setSystemTime(new Date(Date.now() + 16 * 60 * 1000))
+      await provider.list()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(probes).toBeGreaterThan(0)
+      expect(reads).toBe(1)
+
+      // Something was published: the full read happens again.
+      globalThis.fetch = (async () => {
+        probes += 1
+        return new Response(JSON.stringify({ catalogId: `catalog:${'9'.repeat(64)}` }), {
+          headers: { 'content-type': 'application/json' },
+        })
+      }) as unknown as typeof fetch
+      setSystemTime(new Date(Date.now() + 32 * 60 * 1000))
+      await provider.list()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      // One read for the changed catalog, and only one: a stale call renders
+      // from the snapshot and lets its single scheduled refresh do the reading.
+      expect(reads).toBe(2)
+    } finally {
+      globalThis.fetch = previousFetch
+      storage.restore()
+      setSystemTime(new Date())
+    }
   })
 
   test('keeps Popular first and retains grouped previews for dynamic catalog categories', async () => {
