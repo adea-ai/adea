@@ -237,6 +237,8 @@ export type ExternalOpenResult = Readonly<{
   accepted: true
   path: WorkspacePath
   applicationLabel?: string
+  /** Present only when the handoff confirmed it opened at the position. */
+  position?: Readonly<{ line: number; column: number }>
 }>
 
 // ─── Local git / diff DTOs (#399) ───────────────────────────────────────────
@@ -2328,11 +2330,17 @@ function namedType(name: string, value: unknown, path: string): unknown {
   }
   if (name === 'ExternalOpenResult') {
     const item = record(value, path)
-    exactKeys(item, ['accepted', 'path'], ['applicationLabel'], path)
+    exactKeys(item, ['accepted', 'path'], ['applicationLabel', 'position'], path)
     if (item.accepted !== true) fail(`${path}.accepted`, 'expected true')
     namedType('WorkspacePath', item.path, `${path}.path`)
     if (item.applicationLabel !== undefined)
       stringValue(item.applicationLabel, `${path}.applicationLabel`, 1, 128)
+    if (item.position !== undefined) {
+      const position = record(item.position, `${path}.position`)
+      exactKeys(position, ['line', 'column'], [], `${path}.position`)
+      integerValue(position.line, `${path}.position.line`, 1)
+      integerValue(position.column, `${path}.position.column`, 1)
+    }
     return value
   }
   if (name === 'GitStatus') {

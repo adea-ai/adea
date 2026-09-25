@@ -380,7 +380,7 @@ export const devOperationDefinitions = {
     stream: null,
   },
   'dev.files.openExternal': {
-    body: '{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity }',
+    body: '{ worktreeId: string; path: WorkspacePath; expectedIdentity: FileIdentity; applicationId?: string; line?: integer(1..1000000); column?: integer(1..100000) }',
     capabilities: ['dev.files.read'],
     reply: 'ExternalOpenResult',
     resource: { kind: 'workspace_root', idField: 'worktreeId' },

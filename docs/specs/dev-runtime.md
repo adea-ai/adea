@@ -2680,7 +2680,13 @@ The desktop shell registers the control-path files/search operations
 plan-commit pairs (`dev.files.renameOverwritePlan`/`Commit`,
 `dev.files.deleteTreePlan`/`Commit`, `dev.files.copyTreePlan`/`Commit`)
 against the worktree service's canonical roots through a narrow
-worktree-resolution seam. The provider re-proves the gate independently of it:
+worktree-resolution seam. `dev.files.openExternal` is the one handoff that
+leaves the runtime: the caller may name an `applicationId` from the
+applications the node reports and a `line`/`column`, an application outside
+that list is refused by name (with the available ones in the message), the
+opener receives the target as data with no shell in the path, and the reply
+carries `position` only when the handoff confirmed it opened there — asking
+for a position is not evidence that the editor landed at one. The provider re-proves the gate independently of it:
 envelope resource kind `workspace_root`, id, and live generation must match a
 registered ready worktree; each `WorkspacePath` must pin that worktree's root
 identity (cross-worktree substitution is `unauthorized_root`); the canonical

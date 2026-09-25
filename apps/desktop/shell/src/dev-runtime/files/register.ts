@@ -84,8 +84,17 @@ export type FilesRegistrarInput = {
    *  keeps them typed-unavailable. */
   gateway?: Pick<ChannelGateway, 'registerStreamHandler'>
   /** External-editor/OS handoff seam (fixed argv, no shell); defaults to the
-   *  macOS `open` handoff and refuses elsewhere. */
-  openPath?: (absolutePath: string) => Promise<string | undefined>
+   *  macOS `open` handoff and refuses elsewhere. The target is advisory: an
+   *  opener that cannot land at a position returns no position and the reply
+   *  says so. */
+  openPath?: (
+    absolutePath: string,
+    target?: Readonly<{ applicationId?: string; column?: number; line?: number }>
+  ) => Promise<string | OpenHandoff | undefined>
+  /** The external applications this runtime node can hand a file to. An
+   *  `applicationId` outside this list is refused by name rather than opened
+   *  with whatever the platform picks. */
+  openApplications?: () => readonly Readonly<{ id: string; label: string }>[]
   /** Agent HQ authority directories (its encrypted content store, the vault,
    *  the dev-runtime state) that no grant may expose — see #622. */
   protectedRoots?: readonly string[]
@@ -1703,12 +1712,35 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
       const absolute = resolveTargetPath(canonicalRoot, relativePath)
       proveContainment(canonicalRoot, absolute)
       assertExpectedIdentity(absolute, body.expectedIdentity as FileIdentity)
+      const applicationId = typeof body.applicationId === 'string' ? body.applicationId : undefined
+      const installed = input.openApplications?.() ?? []
+      if (applicationId !== undefined && !installed.some((entry) => entry.id === applicationId))
+        throw devError(
+          'not_found',
+          installed.length === 0
+            ? `no external application is registered on this runtime node, so ${applicationId} cannot be opened`
+            : `external application ${applicationId} is not installed; available: ${installed
+                .map((entry) => `${entry.id} (${entry.label})`)
+                .join(', ')}`,
+          false
+        )
+      const line = typeof body.line === 'number' ? body.line : undefined
+      const column = typeof body.column === 'number' ? body.column : undefined
       const open = input.openPath ?? defaultOpenPath
-      const applicationLabel = await open(absolute)
+      const handoff = await open(absolute, {
+        ...(applicationId !== undefined ? { applicationId } : {}),
+        ...(line !== undefined ? { line } : {}),
+        ...(column !== undefined ? { column } : {}),
+      })
+      // A position is reported only when the handoff confirmed it; asking for
+      // one is not evidence that the editor landed there.
+      const applied = typeof handoff === 'object' ? handoff : undefined
+      const applicationLabel = typeof handoff === 'string' ? handoff : applied?.label
       const result: ExternalOpenResult = {
         accepted: true,
         path: { worktreeId, rootIdentity: { ...rootIdentity }, relativePath },
         ...(applicationLabel !== undefined ? { applicationLabel } : {}),
+        ...(applied?.position !== undefined ? { position: applied.position } : {}),
       }
       return result
     },
@@ -2028,8 +2060,19 @@ export function registerFilesRuntime(input: FilesRegistrarInput): {
   return { commands: registeredOperations, registeredCommands }
 }
 
-/** macOS handoff: fixed argv `open <path>` — no shell, no interpolation. */
-function defaultOpenPath(absolutePath: string): Promise<string | undefined> {
+/** What an opener reports back: a label at least, and a position only when it
+ *  actually opened there. */
+export type OpenHandoff = Readonly<{
+  label?: string
+  position?: Readonly<{ line: number; column: number }>
+}>
+
+/** macOS handoff: fixed argv `open <path>` — no shell, no interpolation. The
+ *  platform opener cannot address a line, so it reports no position. */
+function defaultOpenPath(
+  absolutePath: string,
+  _target?: Readonly<{ applicationId?: string; column?: number; line?: number }>
+): Promise<string | OpenHandoff | undefined> {
   if (process.platform !== 'darwin')
     return Promise.reject(
       devError('unavailable', 'no external-open handoff is wired for this platform')
