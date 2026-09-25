@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.58.0](https://github.com/adea-ai/adea/compare/v0.57.0...v0.58.0) (2026-09-25)
+
+
+### Features
+
+* **dev-runtime:** give checkpoint refs a retention bound ([#696](https://github.com/adea-ai/adea/issues/696)) ([f76e89c](https://github.com/adea-ai/adea/commit/f76e89caa919a0325db58d2e925b4884a182d2ae))
+
 ## [0.57.0](https://github.com/adea-ai/adea/compare/v0.56.3...v0.57.0) (2026-09-25)
 
 
