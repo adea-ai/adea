@@ -183,6 +183,13 @@
       "when": 1790066852364,
       "tag": "0025_easy_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790368456712,
+      "tag": "0026_famous_archangel",
+      "breakpoints": true
     }
   ]
 }
