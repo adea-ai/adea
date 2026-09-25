@@ -774,6 +774,7 @@ describe('local git provider', () => {
     expect(registered.commands.toSorted()).toEqual(
       [
         'dev.git.checkpoint',
+        'dev.git.checkpointPrune',
         'dev.git.commit',
         'dev.git.diff',
         'dev.git.discardCommit',
@@ -789,8 +790,70 @@ describe('local git provider', () => {
         'dev.git.unstage',
       ].toSorted()
     )
-    expect(registered.registeredCommands).toBe(14)
+    expect(registered.registeredCommands).toBe(15)
   })
+  test('a checkpoint prune keeps the newest snapshots and never touches the branch', async () => {
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+    const headBefore = git(repoPath, ['rev-parse', 'HEAD']).stdout.trim()
+
+    const refCount = () =>
+      git(repoPath, [
+        'for-each-ref',
+        '--format=%(refname)',
+        `refs/adea/checkpoints/${WORKTREE_ID}/`,
+      ])
+        .stdout.split('\n')
+        .filter((line) => line.trim().length > 0).length
+    // Earlier cases in this suite already wrote checkpoints into the shared
+    // repository, so every assertion below is about the delta this case makes.
+    const refsBefore = refCount()
+
+    const ids: string[] = []
+    for (let index = 0; index < 3; index += 1) {
+      writeFileSync(join(repoPath, `checkpoint-${index}.txt`), `snapshot ${index}\n`)
+      const checkpoint = await execute(
+        channel,
+        authority,
+        makeCommand('dev.git.checkpoint', { worktreeId: WORKTREE_ID })
+      )
+      expect(checkpoint.ok).toBe(true)
+      if (checkpoint.ok) ids.push(checkpoint.value.id)
+    }
+    expect(refCount()).toBe(refsBefore + 3)
+    const statusBefore = git(repoPath, ['status', '--porcelain', '--untracked-files=normal']).stdout
+
+    const pruned = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.checkpointPrune', { worktreeId: WORKTREE_ID, keep: 1 })
+    )
+    expect(pruned.ok).toBe(true)
+    if (!pruned.ok) return
+    expect(pruned.value.kept).toHaveLength(1)
+    expect(pruned.value.pruned).toHaveLength(refsBefore + 2)
+    // Everything this case created is accounted for: one snapshot kept, the
+    // other two dropped by name.
+    for (const id of ids.slice(0, 2)) expect(pruned.value.pruned).toContain(id)
+    expect(pruned.value.kept).toContain(ids[2] as string)
+    expect(refCount()).toBe(1)
+
+    // The branch, the index, and the working tree are untouched: a checkpoint
+    // is a snapshot beside the branch, not a commit on it.
+    expect(git(repoPath, ['rev-parse', 'HEAD']).stdout.trim()).toBe(headBefore)
+    expect(git(repoPath, ['status', '--porcelain', '--untracked-files=normal']).stdout).toBe(
+      statusBefore
+    )
+    // The prune is idempotent: keeping one of one removes nothing.
+    const again = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.checkpointPrune', { worktreeId: WORKTREE_ID, keep: 1 })
+    )
+    expect(again.ok).toBe(true)
+    if (again.ok) expect(again.value.pruned).toEqual([])
+  })
+
   // Appended last: the newline fixture stages a file and the merge test leaves
   // the repository mid-conflict, so neither may run before the suites that
   // assert on a settled worktree.

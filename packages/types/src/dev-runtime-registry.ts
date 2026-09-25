@@ -456,6 +456,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'worktree', idField: 'worktreeId' },
     stream: null,
   },
+  'dev.git.checkpointPrune': {
+    body: '{ worktreeId: string; keep: integer(0..100) }',
+    capabilities: ['dev.git.write'],
+    reply: 'CheckpointPruneResult',
+    resource: { kind: 'worktree', idField: 'worktreeId' },
+    stream: null,
+  },
   'dev.git.commit': {
     body: '{ worktreeId: string; message: string(1..10000); expectedIndexSha: sha256; sign?: boolean }',
     capabilities: ['dev.git.write'],

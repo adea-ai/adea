@@ -53,6 +53,11 @@ import {
 const NUL = '\u0000'
 const RECORD = '\u001e'
 const CHECKPOINT_REF_PREFIX = 'refs/adea/checkpoints/'
+/** The checkpoint id a namespaced ref carries. */
+function checkpointIdOfRef(ref: string): string {
+  return ref.slice(ref.lastIndexOf('/') + 1)
+}
+
 const PLAN_TTL_MS = 10 * 60_000
 const STATUS_PAGE_MAX = 500
 const HISTORY_PAGE_MAX = 500
@@ -1156,6 +1161,43 @@ export function registerGitRuntime(input: GitRegistrarInput): {
       )
     },
 
+    // Checkpoint refs live under a worktree's own namespace and nothing ever
+    // removed them, so an abandoned worktree accumulated them forever. The
+    // prune is explicit and bounded: it keeps the newest `keep` snapshots and
+    // reports what it dropped, and it never touches the branch or the index.
+    'dev.git.checkpointPrune': async (command) => {
+      const body = devOperationDecoders['dev.git.checkpointPrune'].request(command.body)
+      const { worktreeId, canonicalRoot } = requireLiveWorktree(command)
+      const keep = Number(body.keep)
+      const listed = await runGitEnv(
+        [
+          'for-each-ref',
+          '--sort=-committerdate',
+          '--format=%(refname)',
+          `${CHECKPOINT_REF_PREFIX}${worktreeId}/`,
+        ],
+        { cwd: canonicalRoot }
+      )
+      if (listed.exitCode !== 0)
+        throw devError('invalid_state', redactCredentials(listed.stderr.trim().slice(0, 512)))
+      const refs = listed.stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+      const kept = refs.slice(0, keep)
+      const pruned = refs.slice(keep)
+      for (const ref of pruned) {
+        const deleted = await runGitEnv(['update-ref', '-d', ref], { cwd: canonicalRoot })
+        if (deleted.exitCode !== 0)
+          throw devError('invalid_state', redactCredentials(deleted.stderr.trim().slice(0, 512)))
+      }
+      return {
+        worktreeId,
+        kept: kept.map(checkpointIdOfRef),
+        pruned: pruned.map(checkpointIdOfRef),
+      }
+    },
+
     'dev.git.commit': async (command) => {
       const body = devOperationDecoders['dev.git.commit'].request(command.body)
       const { worktreeId, canonicalRoot } = requireLiveWorktree(command)
@@ -1450,6 +1492,7 @@ export function registerGitRuntime(input: GitRegistrarInput): {
     },
   }
 
+  /** The checkpoint id a namespaced ref carries. */
   function checkpointRef(worktreeId: string, checkpointId: string): string {
     if (!/^[0-9a-fA-F-]{8,64}$/.test(checkpointId))
       throw devError('checkpoint_corrupt', 'checkpoint id is malformed')
