@@ -22,7 +22,7 @@
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",
-    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts apps/web/e2e/dev-view.spec.ts apps/web/e2e/appearance.spec.ts",
+    "test:e2e": "bun scripts/e2e-setup.mjs && bunx playwright install --with-deps chromium && bunx turbo run build --filter=@adea-ai/web^... && playwright test --config=playwright.config.ts apps/web/e2e/workspace-guest.spec.ts apps/web/e2e/sidebar-resize.spec.ts apps/web/e2e/cursor-check.spec.ts apps/web/e2e/dev-view.spec.ts apps/web/e2e/appearance.spec.ts apps/web/e2e/dev-view-permissions.spec.ts",
     "test:e2e:dev-view-terminal": "bun scripts/e2e-setup.mjs && PLAYWRIGHT_HEADLESS=1 playwright test --config=playwright.config.ts apps/web/e2e/dev-view-terminal.spec.ts",
     "test:e2e:visual": "playwright test --config=playwright.config.ts apps/web/e2e/conventional-workspace.spec.ts",
     "test:e2e:visual:chat": "playwright test --config=playwright.config.ts apps/web/e2e/chat-view-visual.spec.ts",
