@@ -18,7 +18,7 @@ import {
   RefreshCw,
   Search,
 } from 'lucide-solid'
-import { For, Show, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
+import { For, Show, createMemo, createResource, createSignal, onCleanup, type JSX } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'
 import {
@@ -593,10 +593,22 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     setQuickOpenIndex((current) => (current + step + count) % count)
   }
 
-  const rows = () => {
+  // Filtering walks the whole tree and collects every path, so it is memoized
+  // on the query alone: expanding or collapsing a folder then only re-flattens
+  // the visible rows instead of re-walking the tree on every keystroke and
+  // every toggle.
+  const filteredTree = createMemo(() => {
     const query = filter()
-    if (query.length === 0) return visibleRows(nodes(), expanded())
-    return visibleRows(filterTree(nodes(), query), new Set(allRelativePaths(nodes())))
+    if (query.length === 0) return undefined
+    const tree = filterTree(nodes(), query)
+    return { tree, visible: new Set(allRelativePaths(tree)) }
+  })
+
+  const rows = () => {
+    const filtered = filteredTree()
+    return filtered
+      ? visibleRows(filtered.tree, filtered.visible)
+      : visibleRows(nodes(), expanded())
   }
 
   const runtimeReady = () => props.runtime.state().status === 'ready'
