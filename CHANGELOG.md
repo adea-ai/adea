@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.56.3](https://github.com/adea-ai/adea/compare/v0.56.2...v0.56.3) (2026-09-25)
+
+
+### Performance
+
+* **dev-view:** make the listing merge copy-on-write and measure the 100k path ([#692](https://github.com/adea-ai/adea/issues/692)) ([98a1c8b](https://github.com/adea-ai/adea/commit/98a1c8bf0c6538075d2cef1a85190a2f80a5ae56))
+
 ## [0.56.2](https://github.com/adea-ai/adea/compare/v0.56.1...v0.56.2) (2026-09-25)
 
 
