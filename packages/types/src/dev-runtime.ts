@@ -278,6 +278,14 @@ export type DiffHunk = Readonly<{
   lines: ReadonlyArray<{ kind: 'context' | 'add' | 'delete'; text: string }>
 }>
 
+/** The outcome of a checkpoint prune: what survived the retention bound and
+ *  what it removed. Both lists carry checkpoint ids, never refs. */
+export type CheckpointPruneResult = Readonly<{
+  worktreeId: string
+  kept: readonly string[]
+  pruned: readonly string[]
+}>
+
 export type GitFetchResult = Readonly<{
   remoteName: string
   before: Readonly<Record<string, string>>
@@ -2413,6 +2421,17 @@ function namedType(name: string, value: unknown, path: string): unknown {
     })
     return value
   }
+  if (name === 'CheckpointPruneResult') {
+    const item = record(value, path)
+    exactKeys(item, ['worktreeId', 'kept', 'pruned'], [], path)
+    stringValue(item.worktreeId, `${path}.worktreeId`, 1, 128)
+    for (const key of ['kept', 'pruned'] as const) {
+      if (!Array.isArray(item[key])) fail(`${path}.${key}`, 'expected array')
+      for (const [index, id] of item[key].entries())
+        stringValue(id, `${path}.${key}[${index}]`, 1, 128)
+    }
+    return value
+  }
   if (name === 'GitFetchResult') {
     const item = record(value, path)
     exactKeys(item, ['remoteName', 'before', 'after', 'observedAt'], [], path)
@@ -3756,6 +3775,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.git.hunkStagingPlan': (value) => decodeMutationPlan(value),
   'dev.git.hunkStagingCommit': (value) => namedType('GitStatus', value, 'reply.value'),
   'dev.git.checkpoint': (value) => namedType('GitCheckpoint', value, 'reply.value'),
+  'dev.git.checkpointPrune': (value) => namedType('CheckpointPruneResult', value, 'reply.value'),
   'dev.git.restorePlan': (value) => decodeMutationPlan(value),
   'dev.git.restoreCommit': (value) => namedType('GitStatus', value, 'reply.value'),
   // GitHub remote slice (#423): host-neutral DTOs decoded strictly from the

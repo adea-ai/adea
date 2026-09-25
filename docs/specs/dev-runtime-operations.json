@@ -428,6 +428,12 @@
       "body": "{ worktreeId: string; label?: string(0..128); paths?: WorkspacePath[]<=1000 }",
       "reply": "GitCheckpoint"
     },
+    "dev.git.checkpointPrune": {
+      "capabilities": ["dev.git.write"],
+      "resource": "worktree:required",
+      "body": "{ worktreeId: string; keep: integer(0..100) }",
+      "reply": "CheckpointPruneResult"
+    },
     "dev.git.commit": {
       "capabilities": ["dev.git.write"],
       "resource": "worktree:required",

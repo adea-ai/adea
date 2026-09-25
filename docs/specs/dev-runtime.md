@@ -2810,7 +2810,10 @@ diff lines carry a renderer budget and truncate explicitly. Checkpoints are
 commits built through a temporary index (`read-tree`/`add -A`/`write-tree`
 under `GIT_INDEX_FILE`), published as
 `refs/adea/checkpoints/<worktreeId>/<checkpointId>` — the branch and the real
-index are never touched. Restore and discard are plan/commit pairs whose
+index are never touched. Those refs had no lifecycle, so an abandoned worktree
+kept every snapshot it ever took; `dev.git.checkpointPrune` is the explicit
+bound — it keeps the newest `keep` refs for one worktree, deletes the rest,
+and reports both lists by checkpoint id, touching nothing but those refs. Restore and discard are plan/commit pairs whose
 envelope resource is validated against the plan's bound worktree and
 generation before digest evaluation; discard refuses untracked paths as plan
 blockers (explicit deletion stays out of the plan), and restore sources only
