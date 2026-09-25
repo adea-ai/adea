@@ -791,6 +791,79 @@ describe('local git provider', () => {
     )
     expect(registered.registeredCommands).toBe(14)
   })
+  // Appended last: the newline fixture stages a file and the merge test leaves
+  // the repository mid-conflict, so neither may run before the suites that
+  // assert on a settled worktree.
+  test('a filename carrying a newline stays representable through status and stage', async () => {
+    const newlineName = 'two\nlines.txt'
+    writeFileSync(join(repoPath, newlineName), 'newline\n')
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+
+    const status = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.status', { worktreeId: WORKTREE_ID, limit: 500 })
+    )
+    expect(status.ok).toBe(true)
+    if (!status.ok) return
+    // Porcelain is read NUL-delimited, so a newline is a character in the path
+    // rather than a record separator and the name arrives whole.
+    const entry = status.value.entries.find(
+      (candidate) => candidate.path.relativePath === newlineName
+    )
+    expect(entry?.untracked).toBe(true)
+
+    const stage = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.stage', {
+        worktreeId: WORKTREE_ID,
+        paths: [wsPath(newlineName)],
+      })
+    )
+    expect(stage.ok).toBe(true)
+    if (stage.ok) {
+      const staged = stage.value.entries.find(
+        (candidate) => candidate.path.relativePath === newlineName
+      )
+      expect(staged?.staged).toBe('A')
+    }
+    // Git fixtures under a loaded machine: the repository work, not the lane, is what runs slow.
+  }, 30_000)
+
+  test('a real conflicted merge is reported as an unmerged entry, not as a staged edit', async () => {
+    const conflictName = 'conflict.txt'
+    writeFileSync(join(repoPath, conflictName), 'base\n')
+    git(repoPath, ['add', conflictName])
+    git(repoPath, ['commit', '-m', 'chore: conflict base'])
+    git(repoPath, ['checkout', '-b', 'conflict-branch'])
+    writeFileSync(join(repoPath, conflictName), 'branch\n')
+    git(repoPath, ['commit', '-am', 'feat: branch side'])
+    git(repoPath, ['checkout', 'main'])
+    writeFileSync(join(repoPath, conflictName), 'main\n')
+    git(repoPath, ['commit', '-am', 'feat: main side'])
+
+    // --no-ff: the toolchain's global config forbids fast-forward merges, and a
+    // refused fast-forward exits non-zero without ever creating the conflict.
+    const merge = git(repoPath, ['merge', '--no-ff', 'conflict-branch'])
+    expect(merge.code).not.toBe(0)
+
+    const { authority } = runtime()
+    const channel = handshakeChannel(authority)
+    const status = await execute(
+      channel,
+      authority,
+      makeCommand('dev.git.status', { worktreeId: WORKTREE_ID, limit: 500 })
+    )
+    expect(status.ok).toBe(true)
+    if (!status.ok) return
+    const entry = status.value.entries.find(
+      (candidate) => candidate.path.relativePath === conflictName
+    )
+    // Porcelain UU: unmerged in both the index and the worktree.
+    expect(entry).toMatchObject({ staged: 'U', unstaged: 'U', untracked: false })
+  }, 30_000)
 })
 
 void randomUUID
