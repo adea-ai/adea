@@ -29,13 +29,11 @@ function expiredTemporarySessionCookie(): string {
   ].join('; ')
 }
 
-export function workspaceJsonResponse<T>(
-  payload: T,
+function withSessionHeaders(
+  response: Response,
   resolution: WorkspacePrincipalResolution,
-  request: Request,
-  init?: ResponseInit
+  request: Request
 ) {
-  const response = Response.json(payload, init)
   const desktopRequest = trustedDesktopWorkspaceRequest(request, desktopTrustedOrigins())
   if (resolution.createdCredential && resolution.expiresAt && !desktopRequest) {
     response.headers.append(
@@ -46,6 +44,39 @@ export function workspaceJsonResponse<T>(
     response.headers.append('set-cookie', expiredTemporarySessionCookie())
   }
   return withDesktopWorkspaceCors(response, request)
+}
+
+export function workspaceJsonResponse<T>(
+  payload: T,
+  resolution: WorkspacePrincipalResolution,
+  request: Request,
+  init?: ResponseInit
+) {
+  return withSessionHeaders(Response.json(payload, init), resolution, request)
+}
+
+/**
+ * Streams an upstream body through untouched instead of parsing and
+ * re-serializing it in the worker.
+ *
+ * The marketplace catalog is tens of megabytes; reading it into a value and
+ * encoding it again holds both copies at once, which trips Cloudflare's
+ * resource limits and reaches the client as a failed read of an otherwise
+ * healthy request. The body is deliberately not inspected here.
+ */
+export function workspaceStreamResponse(
+  upstream: Response,
+  resolution: WorkspacePrincipalResolution,
+  request: Request,
+  init?: ResponseInit
+) {
+  const headers = new Headers(init?.headers)
+  headers.set('content-type', upstream.headers.get('content-type') ?? 'application/json')
+  return withSessionHeaders(
+    new Response(upstream.body, { status: upstream.status, headers }),
+    resolution,
+    request
+  )
 }
 
 export function workspaceUnavailableResponse(request: Request, status = 404) {
