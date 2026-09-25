@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.59.2](https://github.com/adea-ai/adea/compare/v0.59.1...v0.59.2) (2026-09-25)
+
+
+### Bug Fixes
+
+* **marketplace:** stream the catalog read instead of buffering it in the worker ([#702](https://github.com/adea-ai/adea/issues/702)) ([e0c1ec9](https://github.com/adea-ai/adea/commit/e0c1ec948571bb6708ddf1b6e593f17d5f635d3f))
+
 ## [0.59.1](https://github.com/adea-ai/adea/compare/v0.59.0...v0.59.1) (2026-09-25)
 
 
