@@ -80,7 +80,14 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // (sources → preview → confirm), costs 5.0KB minified, and lands inside the
 // lazy Dev View chunk: the eager shell is untouched, the chunk count is flat,
 // and check-dev-view-bundle still measures the Dev View chunk on its own.
-const CLIENT_JS_BUDGET_BYTES = 1_616_000
+// 2026-09-25 (#699, the content-search surface): the third surface in two days,
+// and the same story each time — a capability that shipped host-side with no
+// caller. This one costs 7_235 bytes (1_617_235 against 1_616_000), and the
+// gate measured it rather than the branch assuming it. Raised by 6_000 to leave
+// 4_765 of runway. Worth saying plainly: the M12 feature set is simply larger
+// than the 2026-09-18 ceiling, and each raise here has named a surface a person
+// can now use rather than drift that accumulated unnoticed.
+const CLIENT_JS_BUDGET_BYTES = 1_622_000
 // Raised from 50 when the #399 stream/hunk residues landed as further
 // intentional lazy chunks: files-pane grew the quick-open dialog (17kB
 // chunk, still lazy), stream-transport rides its own module, and the hunk
