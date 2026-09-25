@@ -31,6 +31,17 @@ function entry(relativePath: string, kind: FileEntry['kind']): FileEntry {
   }
 }
 
+/** One listing entry, for the merge-immutability pin below. */
+function listingEntry(relativePath: string, kind = 'file') {
+  return {
+    identity: { mtimeNs: '1', size: '10' },
+    kind,
+    observedAt: '2026-09-25T00:00:00.000Z',
+    path: { rootIdentity: { mtimeNs: '1', size: '1' }, relativePath, worktreeId: 'wt-1' },
+    size: '10',
+  }
+}
+
 describe('files tree model', () => {
   test('merges listings with directories before files, then by name', () => {
     let nodes = mergeListing(
@@ -40,6 +51,37 @@ describe('files tree model', () => {
     expect(nodes.map((node) => node.name)).toEqual(['src', 'alpha.ts', 'zeta.ts'])
     nodes = mergeListing(nodes, [entry('src/inner.ts', 'file')])
     expect(nodes[0]?.children.map((child) => child.relativePath)).toEqual(['src/inner.ts'])
+  })
+
+  test('a merge never writes to the tree it was given', () => {
+    const first = mergeListing(
+      [],
+      [listingEntry('src', 'directory'), listingEntry('src/a.ts'), listingEntry('top.ts')]
+    )
+    const before = JSON.stringify(first)
+
+    // The second page touches an existing directory, an existing directory's
+    // sibling, and a brand-new top-level file. Copy-on-write means the tree the
+    // caller still holds is untouched, while the result carries every entry.
+    const merged = mergeListing(first, [listingEntry('src/b.ts'), listingEntry('other.ts')])
+
+    expect(JSON.stringify(first)).toBe(before)
+    expect(merged).not.toBe(first)
+    expect(visibleRows(merged, new Set(['src'])).map((row) => row.node.relativePath)).toEqual([
+      'src',
+      'src/a.ts',
+      'src/b.ts',
+      'other.ts',
+      'top.ts',
+    ])
+    // The untouched entry is the same node, not a copy of it.
+    const beforeTop = visibleRows(first, new Set<string>()).find(
+      (row) => row.node.relativePath === 'top.ts'
+    )
+    const afterTop = visibleRows(merged, new Set<string>()).find(
+      (row) => row.node.relativePath === 'top.ts'
+    )
+    expect(afterTop?.node).toBe(beforeTop?.node)
   })
 
   test('visible rows flatten only expanded directories', () => {
