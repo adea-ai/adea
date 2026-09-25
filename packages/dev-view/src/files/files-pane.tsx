@@ -31,6 +31,7 @@ import {
   type FileTreeNode,
   type ModificationMarker,
 } from './files-model'
+import { FILES_ROW_HEIGHT_PX, rowWindow } from './row-window'
 import {
   CONTENT_SEARCH_LIMIT,
   contentSearchBody,
@@ -95,6 +96,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   const [contentTruncated, setContentTruncated] = createSignal(false)
   const [contentFailed, setContentFailed] = createSignal<string | undefined>(undefined)
   const [contentQuery, setContentQuery] = createSignal('')
+  // Windowed rendering (#677): the tree renders a slice of its flattened rows,
+  // so what is on screen decides what exists in the DOM.
+  const [scrollTop, setScrollTop] = createSignal(0)
+  const [viewportHeight, setViewportHeight] = createSignal(0)
+  const [focusedRow, setFocusedRow] = createSignal<number | undefined>(undefined)
+  let treeElement: HTMLDivElement | undefined
   // Marker cache: the files pane follows the same watcher-lane honesty
   // contract as the source-control pane (#399 residue) — invalidation and
   // failed refreshes clear the markers (undefined is the honest state, never
@@ -662,6 +669,25 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
       : visibleRows(nodes(), expanded())
   }
 
+  const rowSlice = createMemo(() =>
+    rowWindow({
+      pinIndex: focusedRow(),
+      rowHeight: FILES_ROW_HEIGHT_PX,
+      scrollTop: scrollTop(),
+      total: rows().length,
+      viewportHeight: viewportHeight(),
+    })
+  )
+  const windowedRows = createMemo(() => rows().slice(rowSlice().start, rowSlice().end))
+
+  /** Measures the scroll container; a pane that has never been measured still
+   *  renders its first window, and this corrects it on the first frame. */
+  function measureTree(): void {
+    if (!treeElement) return
+    setViewportHeight(treeElement.clientHeight)
+    setScrollTop(treeElement.scrollTop)
+  }
+
   const runtimeReady = () => props.runtime.state().status === 'ready'
 
   return (
@@ -881,7 +907,18 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               </p>
             )}
           </Show>
-          <div class="dev-files__tree" role="tree" aria-label="Worktree files">
+          <div
+            ref={(element) => {
+              treeElement = element
+              // The first frame has no measured viewport; this corrects it
+              // before the reader sees an unwindowed list.
+              if (typeof requestAnimationFrame === 'function') requestAnimationFrame(measureTree)
+            }}
+            class="dev-files__tree"
+            role="tree"
+            aria-label="Worktree files"
+            onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+          >
             <Show
               when={filter().length === 0}
               fallback={
@@ -902,11 +939,23 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                 </For>
               }
             >
-              <For each={rows()}>
+              <div
+                class="dev-files__window-pad"
+                style={{ '--dev-files-pad': `${rowSlice().padTop}px` }}
+                aria-hidden="true"
+              />
+              <For each={windowedRows()}>
                 {(row) => (
                   <div
                     class={cn('dev-files__row', { 'dev-files__row--dir': row.hasChildren })}
                     data-depth={Math.min(row.depth, 8)}
+                    onFocus={() =>
+                      setFocusedRow(
+                        rows().findIndex(
+                          (candidate) => candidate.node.relativePath === row.node.relativePath
+                        )
+                      )
+                    }
                   >
                     <Show
                       when={row.hasChildren}
@@ -1024,6 +1073,11 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                   </div>
                 )}
               </For>
+              <div
+                class="dev-files__window-pad"
+                style={{ '--dev-files-pad': `${rowSlice().padBottom}px` }}
+                aria-hidden="true"
+              />
             </Show>
           </div>
         </Show>
