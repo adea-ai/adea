@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.1](https://github.com/adea-ai/adea/compare/v0.60.0...v0.60.1) (2026-09-25)
+
+
+### Documentation
+
+* **desktop:** correct the auto-update lane description ([#712](https://github.com/adea-ai/adea/issues/712)) ([21edecc](https://github.com/adea-ai/adea/commit/21edeccb8e413524947fd63a625658db54992f7c))
+
 ## [0.60.0](https://github.com/adea-ai/adea/compare/v0.59.5...v0.60.0) (2026-09-25)
 
 
