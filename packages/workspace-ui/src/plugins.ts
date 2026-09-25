@@ -153,12 +153,12 @@ export function createRegistryPluginsProvider(
     writePersistedPlugins(workspaceId, {
       catalogId: fresh.catalog.catalogId,
       cachedAt: lastFetchAt,
-      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations),
+      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations, fresh.brandMarks),
     })
     writePersistedGlobalCatalog({
       catalogId: fresh.catalog.catalogId,
       cachedAt: lastFetchAt,
-      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations),
+      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations, fresh.brandMarks),
     })
     return fresh
   }

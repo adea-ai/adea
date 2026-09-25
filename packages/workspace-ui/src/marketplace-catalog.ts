@@ -23,6 +23,30 @@ export type RegistryArtifactBundle = Readonly<{
   'sources.lock.json': string
 }>
 
+/**
+ * The brand mark the catalog compiled for a product, keyed by product key.
+ *
+ * These marks are resolved and mirrored upstream, so a client renders one
+ * instead of looking a favicon up at request time.
+ */
+export function compiledBrandMarks(
+  navigationText: string | undefined
+): ReadonlyMap<string, string> {
+  if (!navigationText) return new Map()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(navigationText)
+  } catch {
+    return new Map()
+  }
+  if (!isObject(parsed) || !isObject(parsed.brandMarks)) return new Map()
+  const marks = new Map<string, string>()
+  for (const [productKey, url] of Object.entries(parsed.brandMarks)) {
+    if (typeof url === 'string' && url.startsWith('https://')) marks.set(productKey, url)
+  }
+  return marks
+}
+
 export type RegistryCatalog = Readonly<{
   schemaVersion: 1
   catalogId: string
@@ -75,6 +99,8 @@ export type RegistryRelease = Readonly<{
 export type VerifiedRegistryCatalog = Readonly<{
   catalog: RegistryCatalog
   artifacts: RegistryArtifactBundle
+  /** Compiled brand marks by product key; empty when the index is absent. */
+  brandMarks: ReadonlyMap<string, string>
   releaseId: string
   state: 'ready' | 'stale'
   installations: readonly {
@@ -221,7 +247,14 @@ export async function verifyRegistryArtifacts(
   }
   // The registry does not add a second mutable release identifier to the catalog
   // body. The catalogId is the immutable release identity for this artifact set.
-  return { catalog, artifacts, releaseId: catalog.catalogId, state: 'ready', installations: [] }
+  return {
+    catalog,
+    artifacts,
+    brandMarks: compiledBrandMarks(artifacts['categories.v1.json']),
+    releaseId: catalog.catalogId,
+    state: 'ready',
+    installations: [],
+  }
 }
 
 export function parseCatalog(value: unknown): RegistryCatalog {
@@ -348,13 +381,21 @@ export function pluginBrandIconUrl(upstreamName: string): string | undefined {
  * homepages), the Simple Icons brand mark, or undefined — the caller falls
  * back to the logo initials.
  */
-export function pluginIconUrl(plugin: {
-  icons: readonly unknown[]
-  homepage?: unknown
-  upstreamPluginName?: unknown
-}): string | undefined {
+export function pluginIconUrl(
+  plugin: {
+    icons: readonly unknown[]
+    homepage?: unknown
+    upstreamPluginName?: unknown
+  },
+  /** Mark compiled and mirrored by the marketplace, when it publishes one. */
+  compiledMarkUrl?: string
+): string | undefined {
   const upstream = plugin.icons.find((icon): icon is string => typeof icon === 'string')
   if (upstream) return upstream
+  // A compiled mark is the vendor's own file or their site's icon, resolved and
+  // mirrored at publication, so it beats resolving one from a brand name or a
+  // third-party favicon service at render time.
+  if (compiledMarkUrl) return compiledMarkUrl
   const upstreamName =
     typeof plugin.upstreamPluginName === 'string' ? plugin.upstreamPluginName : undefined
   if (typeof plugin.homepage === 'string') {
@@ -376,7 +417,9 @@ export function pluginIconUrl(plugin: {
 
 export function mapRegistryCatalog(
   catalog: RegistryCatalog,
-  installations: readonly VerifiedRegistryCatalog['installations'][number][]
+  installations: readonly VerifiedRegistryCatalog['installations'][number][],
+  /** Marks compiled by the marketplace, keyed by product key. */
+  compiledMarks: ReadonlyMap<string, string> = new Map()
 ): readonly WorkspacePlugin[] {
   const states = new Map(installations.map((installation) => [installation.pluginId, installation]))
   return catalog.plugins.map((plugin) => {
@@ -433,7 +476,7 @@ export function mapRegistryCatalog(
       harnessCompatibility: plugin.harnessCompatibility,
       homepage: plugin.homepage,
       iconKey: `registry:${plugin.pluginId}`,
-      iconUrl: pluginIconUrl(plugin),
+      iconUrl: pluginIconUrl(plugin, compiledMarks.get(plugin.productGroupingKey)),
       icons: plugin.icons,
       id: plugin.pluginId,
       installed: installationStatus === 'installed',
