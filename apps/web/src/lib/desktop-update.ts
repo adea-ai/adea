@@ -1,7 +1,7 @@
 // Desktop update surface for the browser app. On desktop the page is served by
 // the Adea shell, which injects `window.__adeaDesktop` before the client boots
 // (see apps/desktop/shell/src/bun/index.ts). The shell's command surface
-// reports up to date until the signed update lane lands (#370).
+// checks the signed release feed and installs verified updates in place.
 import { invoke, isDesktopRuntime } from './desktop-bridge'
 
 export type DesktopUpdatePhase =

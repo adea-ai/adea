@@ -38,12 +38,13 @@ workflow run instead.
 
 Only macOS ARM64 ships today; Windows and Linux desktop packaging has no
 CI-verified installer story yet and stays out of the lane until it does. The
-Electrobun shell is unsigned: signing, notarization, and the auto-update lane
-are not wired yet (tracked in #370). The verify-assets gate therefore rejects a
-release without a complete macOS bundle, and rejects any release that publishes
-an updater manifest — the stable build's own unsigned `*-update.json` included
-— before that work lands. macOS and Windows code-signing remain follow-ups in
-the same issue.
+Electrobun shell is still unsigned, so Apple code signing and notarization
+remain follow-ups. The signed auto-update lane _is_ wired: this lane generates
+`latest.json` and publishes it beside the archives. The verify-assets gate
+therefore rejects a release without a complete macOS bundle, and rejects one
+whose bundle payload carries an updater manifest — the stable build's own
+unsigned `*-update.json` included. That unsigned manifest is not the update
+channel; `latest.json` is.
 
 The mobile shells remain covered by the repository build gate. Android and iOS
 store distribution should be added as a separate release lane once signing,
