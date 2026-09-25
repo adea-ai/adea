@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.55.5](https://github.com/adea-ai/adea/compare/v0.55.4...v0.55.5) (2026-09-25)
+
+
+### Tests
+
+* **permissions:** cover the section's surface in the web lane ([#667](https://github.com/adea-ai/adea/issues/667)) ([#675](https://github.com/adea-ai/adea/issues/675)) ([b30d5e1](https://github.com/adea-ai/adea/commit/b30d5e1364de778e9f594c8cb87c93f13380c833))
+
 ## [0.55.4](https://github.com/adea-ai/adea/compare/v0.55.3...v0.55.4) (2026-09-25)
 
 
