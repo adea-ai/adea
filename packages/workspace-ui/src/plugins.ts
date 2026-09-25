@@ -9,6 +9,7 @@ import {
   mapRegistryCatalog,
   MarketplaceCatalogError,
   type VerifiedRegistryCatalog,
+  loadBrowsingCatalog,
 } from './marketplace-catalog'
 import type {
   WorkspacePlugin,
@@ -145,7 +146,14 @@ export function createRegistryPluginsProvider(
       state = 'unavailable'
       throw new MarketplaceCatalogError('unavailable', 'A workspace is required to load plugins')
     }
-    const fresh = await loadRegistryArtifacts(apiClient(), workspaceId)
+    const verified = await loadRegistryArtifacts(apiClient(), workspaceId)
+    // Browsing reads the published index when the release provides one, which is
+    // a few hundred kilobytes against tens of megabytes. Every failure path falls
+    // back to the catalog, so this cannot break rendering.
+    const fresh: VerifiedRegistryCatalog = {
+      ...verified,
+      browsingCatalog: await loadBrowsingCatalog(verified),
+    }
     cache = fresh
     cacheWorkspaceId = workspaceId
     lastFetchAt = Date.now()
@@ -153,12 +161,20 @@ export function createRegistryPluginsProvider(
     writePersistedPlugins(workspaceId, {
       catalogId: fresh.catalog.catalogId,
       cachedAt: lastFetchAt,
-      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations, fresh.brandMarks),
+      plugins: mapRegistryCatalog(
+        fresh.browsingCatalog ?? fresh.catalog,
+        fresh.installations,
+        fresh.brandMarks
+      ),
     })
     writePersistedGlobalCatalog({
       catalogId: fresh.catalog.catalogId,
       cachedAt: lastFetchAt,
-      plugins: mapRegistryCatalog(fresh.catalog, fresh.installations, fresh.brandMarks),
+      plugins: mapRegistryCatalog(
+        fresh.browsingCatalog ?? fresh.catalog,
+        fresh.installations,
+        fresh.brandMarks
+      ),
     })
     return fresh
   }
@@ -200,7 +216,11 @@ export function createRegistryPluginsProvider(
     state = 'loading'
     try {
       const fresh = await refresh()
-      return mapRegistryCatalog(fresh.catalog, fresh.installations)
+      return mapRegistryCatalog(
+        fresh.browsingCatalog ?? fresh.catalog,
+        fresh.installations,
+        fresh.brandMarks
+      )
     } catch (error) {
       if (error instanceof MarketplaceCatalogError && error.state === 'verification-failure') {
         state = 'verification-failure'

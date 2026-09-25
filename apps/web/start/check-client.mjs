@@ -65,13 +65,22 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // that use it. The raise is the deliberate decision ADR 0010's first gate asks
 // for (the M15 lane measured it; this gate caught it), not silent growth.
 //
+// 2026-09-25 (#686, browsing from the published product index): the index
+// adapter — reshaping the marketplace's deduplicated product index into the
+// catalog the existing mapper consumes, plus the digest-verified loader for it —
+// costs 1_072 bytes, and 1_612_770 against #646's 1_612_000 once both changes are
+// on the same branch, which this gate measured rather than assumed. Raised by
+// 4_000 to leave 3_230 of runway, the same size of margin the entries above
+// keep. The trade is ~1 KB of eager bundle for the marketplace reading a 716 KB
+// index instead of parsing a 26 MB catalog on every refresh, verified against
+// the digest integrity.json already states.
 // 2026-09-25 (#646, the cookie-import surface): this gate caught the last
 // 4,999 bytes — 1,605,000 left no runway once the panel and its model landed.
 // The surface gives the #610 capability the only path a person has to it
 // (sources → preview → confirm), costs 5.0KB minified, and lands inside the
 // lazy Dev View chunk: the eager shell is untouched, the chunk count is flat,
 // and check-dev-view-bundle still measures the Dev View chunk on its own.
-const CLIENT_JS_BUDGET_BYTES = 1_612_000
+const CLIENT_JS_BUDGET_BYTES = 1_616_000
 // Raised from 50 when the #399 stream/hunk residues landed as further
 // intentional lazy chunks: files-pane grew the quick-open dialog (17kB
 // chunk, still lazy), stream-transport rides its own module, and the hunk

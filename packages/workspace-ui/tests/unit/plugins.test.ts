@@ -7,7 +7,9 @@ import {
   canonicalDigest,
   canonicalJson,
   compiledBrandMarks,
+  loadBrowsingCatalog,
   mapRegistryCatalog,
+  navigationCatalogIndexUrl,
   verifyRegistryArtifacts,
 } from '../../src/marketplace-catalog'
 import {
@@ -342,6 +344,100 @@ describe('compiled brand marks', () => {
     expect(
       pluginIconUrl({ ...plugin, icons: ['https://vendor.example/icon.svg'] }, 'https://cdn/x.png')
     ).toBe('https://vendor.example/icon.svg')
+  })
+})
+
+describe('browsing from the published index', () => {
+  const release = {
+    canonicalContentDigest: `sha256:${'b'.repeat(64)}`,
+    capabilities: [{ name: 'Read mail', type: 'connector' }],
+    contentResolution: 'complete',
+    packageStatus: 'portable',
+    releaseId: `release:${'c'.repeat(64)}`,
+    requiredConnectors: ['gmail'],
+    requiredCredentials: ['google.oauth'],
+    sourceRevision: 'a'.repeat(40),
+  }
+  const indexText = JSON.stringify({
+    catalogId: 'catalog:abc',
+    products: {
+      gmail: {
+        authors: ['OpenAI'],
+        categories: ['productivity'],
+        description: 'Search mail.',
+        displayName: 'Gmail',
+        keywords: ['mail'],
+        license: 'Apache-2.0',
+        pluginId: 'plugin:openai-official:gmail',
+        provenance: {
+          pluginSubdirectory: '.',
+          repositoryUrl: 'https://github.com/openai/plugins',
+          resolvedCommitSha: 'a'.repeat(40),
+        },
+        release,
+        securityClassification: { level: 'standard' },
+        sourceId: 'openai-official',
+      },
+    },
+    schemaVersion: 1,
+  })
+  const navigation = JSON.stringify({
+    catalogId: 'catalog:abc',
+    catalogIndexUrl: 'https://cdn.example/catalog-index.json',
+  })
+
+  test('reads the index URL the navigation artifact publishes', () => {
+    expect(navigationCatalogIndexUrl(navigation)).toBe('https://cdn.example/catalog-index.json')
+    expect(navigationCatalogIndexUrl(undefined)).toBeUndefined()
+    expect(navigationCatalogIndexUrl('not json')).toBeUndefined()
+    expect(
+      navigationCatalogIndexUrl(JSON.stringify({ catalogIndexUrl: 'http://insecure' }))
+    ).toBeUndefined()
+  })
+
+  test('maps a browsing card and its install facts from the index', async () => {
+    const digest = await canonicalDigest(indexText)
+    const verified = {
+      artifacts: {
+        'categories.v1.json': navigation,
+        'integrity.json': JSON.stringify({ files: { 'catalog-index.v1.json': digest } }),
+      },
+      catalog: { catalogId: 'catalog:abc' },
+    } as unknown as VerifiedRegistryCatalog
+    const fetched: string[] = []
+    const catalog = await loadBrowsingCatalog(verified, (async (url: string) => {
+      fetched.push(String(url))
+      return new Response(indexText, { status: 200 })
+    }) as unknown as typeof fetch)
+    expect(fetched).toEqual(['https://cdn.example/catalog-index.json'])
+    const [plugin] = mapRegistryCatalog(catalog!, [], new Map())
+    expect(plugin).toMatchObject({
+      id: 'plugin:openai-official:gmail',
+      kind: 'connector',
+      name: 'Gmail',
+      publisher: 'OpenAI',
+      requiredConnectors: ['gmail'],
+      requiredCredentials: ['google.oauth'],
+      sourceRevision: 'a'.repeat(40),
+      agentPluginsStatus: 'portable',
+    })
+  })
+
+  test('refuses an index that does not match the declared digest', async () => {
+    const digest = await canonicalDigest(indexText)
+    const verified = {
+      artifacts: {
+        'categories.v1.json': navigation,
+        'integrity.json': JSON.stringify({ files: { 'catalog-index.v1.json': digest } }),
+      },
+      catalog: { catalogId: 'catalog:abc' },
+    } as unknown as VerifiedRegistryCatalog
+    expect(
+      await loadBrowsingCatalog(
+        verified,
+        (async () => new Response('{"different":true}', { status: 200 })) as unknown as typeof fetch
+      )
+    ).toBeUndefined()
   })
 })
 
