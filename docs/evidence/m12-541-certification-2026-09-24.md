@@ -48,18 +48,18 @@ milestone". That was wrong: several **closed** slices were closed with their
 acceptance boxes left unticked, which is the record gap the owner's completion
 standard exists to catch. The real state, measured box by box:
 
-| Closed slice                           | Unticked on 2026-09-24        | Final state (2026-09-25)                                                                         |
-| -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
-| #29 RuntimeNode identity/pairing       | 11 → **0**                    | audited; every box now carries a named proof                                                      |
-| #30 harness discovery/inventory        | 7 → **0**                     | audited; every box now carries a named proof                                                      |
-| #31 managed Pi lifecycle               | 9 → **7 ticked, 2 gap**       | 7 verified; the two remote-control clauses are unbuilt and linked to M11 (#187/#189)              |
-| #400 harness launch/canonical sessions | 11 → **0**                    | audited; every box now carries a named proof                                                      |
-| #471 macOS permissions page            | 6 → **5 ticked, 1 partial**   | 5 verified; no Playwright coverage of deep-link/degradation states, and WCAG 2.2 AA is the owner's manual pass |
-| #394 Dev View architecture/spec        | 7 → **0**                     | audited; the ADR 0009 paths, registry and spec pins each carry a named proof                      |
-| #395 Dev View shell/panes/persistence  | 13 → **11 ticked, 2 gap**     | 11 verified; the two gaps are Virtual state retention (M17) and the WCAG certification (#541). Two Playwright cases and one boundary assertion were added with the audit |
-| #398 project registry/sidebar/scan     | 4 → **4 annotated**           | every remaining clause states its exact gap and is tracked on #666                                |
-| #399 files/editor/source control       | 11 → **2 ticked, 9 annotated**| 2 verified; the nine remaining clauses each state their exact gap and are tracked on #677         |
-| #425 live appearance/rail              | 19 → **0**                    | audited; every box now carries a named proof                                                      |
+| Closed slice                           | Unticked on 2026-09-24         | Final state (2026-09-25)                                                                                                                                                 |
+| -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #29 RuntimeNode identity/pairing       | 11 → **0**                     | audited; every box now carries a named proof                                                                                                                             |
+| #30 harness discovery/inventory        | 7 → **0**                      | audited; every box now carries a named proof                                                                                                                             |
+| #31 managed Pi lifecycle               | 9 → **7 ticked, 2 gap**        | 7 verified; the two remote-control clauses are unbuilt and linked to M11 (#187/#189)                                                                                     |
+| #400 harness launch/canonical sessions | 11 → **0**                     | audited; every box now carries a named proof                                                                                                                             |
+| #471 macOS permissions page            | 6 → **5 ticked, 1 partial**    | 5 verified; no Playwright coverage of deep-link/degradation states, and WCAG 2.2 AA is the owner's manual pass                                                           |
+| #394 Dev View architecture/spec        | 7 → **0**                      | audited; the ADR 0009 paths, registry and spec pins each carry a named proof                                                                                             |
+| #395 Dev View shell/panes/persistence  | 13 → **11 ticked, 2 gap**      | 11 verified; the two gaps are Virtual state retention (M17) and the WCAG certification (#541). Two Playwright cases and one boundary assertion were added with the audit |
+| #398 project registry/sidebar/scan     | 4 → **4 annotated**            | every remaining clause states its exact gap and is tracked on #666                                                                                                       |
+| #399 files/editor/source control       | 11 → **2 ticked, 9 annotated** | 2 verified; the nine remaining clauses each state their exact gap and are tracked on #677                                                                                |
+| #425 live appearance/rail              | 19 → **0**                     | audited; every box now carries a named proof                                                                                                                             |
 
 The method is not "tick what looks done": each box gets either a named proof
 (test name, module, artifact, or spec section) that a reader can open, or an
