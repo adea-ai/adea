@@ -64,6 +64,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@adea-ai/themes": "0.5.0",
     "@corvu/drawer": "^0.2.4",
     "@kobalte/core": "^0.13.14",
     "class-variance-authority": "^0.7.1",

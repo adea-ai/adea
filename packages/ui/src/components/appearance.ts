@@ -18,6 +18,8 @@
  * `scripts/check-theme-colors.mjs`).
  */
 
+import { canonicalAdeaThemeRegistry } from './canonical-theme-adapter'
+
 /**
  * The versioned client appearance preference (Dev Runtime spec,
  * "Appearance and App Library"). Stored as one JSON document; the legacy
@@ -518,11 +520,11 @@ export function resolveThemeVariant(
 }
 
 /*
- * Built-in registry — Adea's curated M12 set. `adea-light`/`adea-dark` mirror
- * the token declarations in `styles/theme.css` (which stay authoritative for
- * the defaults so first paint never shifts); `slate` is a cool quiet pair and
- * `contrast` an AA-emphasized pair. Terminal/editor/charts ship one curated
- * template per appearance so every variant keeps ANSI/syntax/diff legibility.
+ * Built-in registry — the published package owns the canonical Adea pair.
+ * Slate and contrast remain local compatibility variants until they have
+ * equivalent published records. Their terminal/editor/chart roles use the
+ * established appearance fallback templates so existing preference IDs remain
+ * valid and host-native surface authority stays unchanged.
  */
 
 const lightTerminal: ThemeTerminalPalette = Object.freeze({
@@ -655,48 +657,7 @@ function defineVariant(
 
 /** The `adea-light`/`adea-dark` entries mirror `styles/theme.css`. */
 export const builtinThemeRegistry: readonly ThemeVariant[] = Object.freeze([
-  defineVariant('adea-light', 'adea', 'Adea', 'Adea Light', 'light', {
-    background: '#ffffff',
-    foreground: '#252525',
-    card: '#ffffff',
-    cardForeground: '#252525',
-    popover: '#ffffff',
-    popoverForeground: '#252525',
-    primary: '#343434',
-    primaryForeground: '#fcfcfc',
-    secondary: '#f7f7f7',
-    secondaryForeground: '#343434',
-    muted: '#f7f7f7',
-    mutedForeground: '#6f6f6f',
-    accent: '#f7f7f7',
-    accentForeground: '#343434',
-    destructive: '#c53c2b',
-    success: '#1a7f37',
-    border: '#ebebeb',
-    input: '#ebebeb',
-    ring: '#a3a3a3',
-  }),
-  defineVariant('adea-dark', 'adea', 'Adea', 'Adea Dark', 'dark', {
-    background: '#252525',
-    foreground: '#fcfcfc',
-    card: '#343434',
-    cardForeground: '#fcfcfc',
-    popover: '#343434',
-    popoverForeground: '#fcfcfc',
-    primary: '#ebebeb',
-    primaryForeground: '#343434',
-    secondary: '#444444',
-    secondaryForeground: '#fcfcfc',
-    muted: '#444444',
-    mutedForeground: '#a3a3a3',
-    accent: '#444444',
-    accentForeground: '#fcfcfc',
-    destructive: '#e07060',
-    success: '#3fb950',
-    border: 'rgba(255, 255, 255, 0.16)',
-    input: 'rgba(255, 255, 255, 0.2)',
-    ring: '#7c7c7c',
-  }),
+  ...canonicalAdeaThemeRegistry,
   defineVariant('slate-light', 'slate', 'Slate', 'Slate Light', 'light', {
     background: '#f8fafc',
     foreground: '#0f172a',

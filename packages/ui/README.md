@@ -44,3 +44,9 @@ The rule is a gate with a burn-down, not a rewrite:
 Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
+
+The built-in `adea-light` and `adea-dark` palettes come from the published
+`@adea-ai/themes` catalogue. `src/components/canonical-theme-adapter.ts`
+converts its OKLCH schema and derived terminal, syntax, and chart roles into the
+existing CSS token names. The legacy `slate-*` and `contrast-*` preference IDs
+remain local compatibility variants until matching catalogue records exist.

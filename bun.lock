@@ -198,6 +198,7 @@
       "name": "@adea-ai/ui",
       "version": "0.45.1",
       "dependencies": {
+        "@adea-ai/themes": "0.5.0",
         "@corvu/drawer": "^0.2.4",
         "@kobalte/core": "^0.13.14",
         "class-variance-authority": "^0.7.1",
@@ -270,6 +271,8 @@
     "@adea-ai/spatial-protocol": ["@adea-ai/spatial-protocol@workspace:packages/spatial-protocol"],
 
     "@adea-ai/state": ["@adea-ai/state@workspace:packages/state"],
+
+    "@adea-ai/themes": ["@adea-ai/themes@0.5.0", "", {}, "sha512-n1jtsjoL8jDGhvyqL1rYSMG51I3xOKY0iJgt9zSh1BE1GbjxbcFb4L8RvbShW2axvxWPgTYDGlZo5EYIarEBiw=="],
 
     "@adea-ai/types": ["@adea-ai/types@workspace:packages/types"],
 
