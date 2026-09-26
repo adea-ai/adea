@@ -151,7 +151,7 @@
         "@adea-ai/state": "workspace:*",
         "@adea-ai/themes": "0.5.0",
         "@adea-ai/types": "workspace:*",
-        "@adea-ai/ui": "0.66.0",
+        "@adea-ai/ui": "0.66.1",
         "@codemirror/commands": "^6.8.1",
         "@codemirror/language": "^6.11.0",
         "@codemirror/search": "^6.5.11",
@@ -2027,7 +2027,7 @@
 
     "zod": ["zod@4.3.6", "", {}, "sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg=="],
 
-    "@adea-ai/dev-view/@adea-ai/ui": ["@adea-ai/ui@0.66.0", "", { "dependencies": { "@adea-ai/themes": "^0.5.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "cmdk-solid": "^1.2.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tailwind-merge": "^3.7.0", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-4F46r9UheXGCU2wwhbOX+E1+I7K0CmVqfaNZPpgOAi7POIydY0oh+tQRQWUlam3Jqc9YOtZlaeKTLLWtdbAAXA=="],
+    "@adea-ai/dev-view/@adea-ai/ui": ["@adea-ai/ui@0.66.1", "", { "dependencies": { "@adea-ai/themes": "^0.5.0", "@corvu/calendar": "^0.1.2", "@corvu/drawer": "^0.2.4", "@corvu/otp-field": "^0.1.4", "@corvu/resizable": "^0.2.5", "@fontsource-variable/geist": "^5.3.0", "@fontsource-variable/geist-mono": "^5.3.0", "@fontsource-variable/jetbrains-mono": "^5.3.0", "@fontsource-variable/space-grotesk": "^5.3.0", "@kobalte/core": "^0.13.14", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "cmdk-solid": "^1.2.0", "lucide-solid": "^1.48.0", "solid-motionone": "^1.0.4", "tailwind-merge": "^3.7.0", "tw-animate-css": "^1.4.0" }, "peerDependencies": { "chart.js": "^4.5.1", "embla-carousel": "^8.6.0", "embla-carousel-solid": "^8.6.0", "solid-chartjs": "^1.3.11", "solid-js": "^1.9.0" }, "optionalPeers": ["chart.js", "embla-carousel", "embla-carousel-solid", "solid-chartjs"] }, "sha512-9/urCWB1RR7bbQJxJNrasCw72drXjtUDIg9pcFC82edE712sQsbEUGFkzH7KfqvDXwC11gPoOlV2Te9HxfeOOw=="],
 
     "@babel/core/semver": ["semver@6.3.1", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA=="],
 
