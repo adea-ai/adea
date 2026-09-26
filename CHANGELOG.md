@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.4](https://github.com/adea-ai/adea/compare/v0.61.3...v0.61.4) (2026-09-26)
+
+
+### Documentation
+
+* refresh published UI and migration evidence ([#755](https://github.com/adea-ai/adea/issues/755)) ([35075df](https://github.com/adea-ai/adea/commit/35075df64b91d53d7caa6dfb90cfa872a230612f))
+
 ## [0.61.3](https://github.com/adea-ai/adea/compare/v0.61.2...v0.61.3) (2026-09-26)
 
 
