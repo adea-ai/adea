@@ -38,12 +38,6 @@ function accentGroup(panel: ReturnType<Page['getByRole']>) {
   return editor(panel).getByRole('radiogroup', { name: 'Accent' })
 }
 
-function themeRow(panel: ReturnType<Page['getByRole']>, label: 'Light theme' | 'Dark theme') {
-  return editor(panel)
-    .locator('section')
-    .filter({ has: panel.getByRole('heading', { name: label }) })
-}
-
 test.describe('appearance', () => {
   test.beforeEach(async ({ page }) => {
     // A pinned preference from a previous visit must not leak between

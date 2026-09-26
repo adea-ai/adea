@@ -36,6 +36,7 @@
     "@adea-ai/data": "workspace:*",
     "@adea-ai/db": "workspace:*",
     "@adea-ai/dev-view": "workspace:*",
+    "@adea-ai/ui": "0.63.2",
     "@adea-ai/spatial-protocol": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
