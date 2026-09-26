@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.8](https://github.com/adea-ai/adea/compare/v0.60.7...v0.60.8) (2026-09-26)
+
+
+### Bug Fixes
+
+* **web:** a foreign Origin cannot vouch for itself, and the allowlist gates desktop sessions ([#731](https://github.com/adea-ai/adea/issues/731)) ([87af7eb](https://github.com/adea-ai/adea/commit/87af7eb8e872eaa496f4f9441404501793a5f431))
+
 ## [0.60.7](https://github.com/adea-ai/adea/compare/v0.60.6...v0.60.7) (2026-09-26)
 
 
