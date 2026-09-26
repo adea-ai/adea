@@ -1,5 +1,5 @@
 import type { PaneLeaf, PaneNode, PaneSplit } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import type { JSX } from 'solid-js'
 import { Files, GripVertical, PanelRightOpen, TerminalSquare, X } from 'lucide-solid'
 import { Match, Show, Switch, createSignal } from 'solid-js'

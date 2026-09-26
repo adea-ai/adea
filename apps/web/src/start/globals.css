@@ -1,13 +1,16 @@
 @import 'tailwindcss';
-@import '@adea-ai/ui/base.css';
-@import '@adea-ai/ui/theme.css';
-@import '@adea-ai/ui/auth-shell.css';
-@import '@adea-ai/ui/workspace-shell.css';
-@import '@adea-ai/ui/conventional-workspace.css';
+@import '@adea-ai/app-ui/base.css';
+@import '@adea-ai/app-ui/theme.css';
+@import '@adea-ai/app-ui/auth-shell.css';
+@import '@adea-ai/app-ui/workspace-shell.css';
+@import '@adea-ai/app-ui/conventional-workspace.css';
 
 /* Shared workspace components live outside Vite's automatic scan root. Must
    stay after all @imports — CSS drops imports that follow other rules. */
 @source '../../../../packages/workspace-ui/src';
+/* The published AppearanceEditor is source-mapped so Tailwind emits its
+   nested primitives; app-specific CSS remains owned by @adea-ai/app-ui. */
+@source '../../../../node_modules/@adea-ai/ui/src';
 
 :root {
   --browser-auth-error: #b42318;

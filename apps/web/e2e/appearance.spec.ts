@@ -26,8 +26,22 @@ async function openAppearance(page: Page) {
   return panel
 }
 
-function section(panel: ReturnType<Page['getByRole']>, label: string) {
-  return panel.locator(`section[aria-label="${label}"]`)
+function editor(panel: ReturnType<Page['getByRole']>) {
+  return panel.locator('[data-appearance-editor]')
+}
+
+function modeGroup(panel: ReturnType<Page['getByRole']>) {
+  return editor(panel).getByRole('radiogroup', { name: 'Appearance mode' })
+}
+
+function accentGroup(panel: ReturnType<Page['getByRole']>) {
+  return editor(panel).getByRole('radiogroup', { name: 'Accent' })
+}
+
+function themeRow(panel: ReturnType<Page['getByRole']>, label: 'Light theme' | 'Dark theme') {
+  return editor(panel)
+    .locator('section')
+    .filter({ has: panel.getByRole('heading', { name: label }) })
 }
 
 test.describe('appearance', () => {
@@ -49,13 +63,13 @@ test.describe('appearance', () => {
   test('mode and theme changes preview live and Save persists them', async ({ page }) => {
     const panel = await openAppearance(page)
 
-    await section(panel, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+    await modeGroup(panel).getByText('Dark', { exact: true }).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
 
-    await section(panel, 'Dark theme').getByRole('button', { name: 'Dark theme' }).click()
-    await page.getByRole('menuitemradio', { name: 'Slate Dark' }).click()
+    await editor(panel).getByText('Adea Dark', { exact: true }).click()
+    await page.getByRole('option', { name: 'Slate Dark' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
-    await expect(section(panel, 'Dark theme').getByText('Slate Dark')).toBeVisible()
+    await expect(editor(panel).getByRole('button', { name: 'Dark theme Slate Dark' })).toBeVisible()
 
     await panel.getByRole('button', { name: 'Save' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
@@ -73,7 +87,7 @@ test.describe('appearance', () => {
     await page.emulateMedia({ colorScheme: 'dark' })
     const panel = await openAppearance(page)
 
-    await section(panel, 'Appearance mode').getByRole('radio', { name: 'Light' }).click()
+    await modeGroup(panel).getByText('Light', { exact: true }).click()
     await expect(page.locator('html')).not.toHaveClass(/dark/)
     await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
 
@@ -85,11 +99,11 @@ test.describe('appearance', () => {
 
   test('the mode cards render live miniatures, with System split light/dark', async ({ page }) => {
     const panel = await openAppearance(page)
-    const mode = section(panel, 'Appearance mode')
+    const mode = modeGroup(panel)
 
     // System's card holds the split (two miniatures); Light and Dark hold one.
     await expect(mode.locator('[data-theme-miniature]')).toHaveCount(4)
-    await mode.getByRole('radio', { name: 'Light' }).click()
+    await mode.getByText('Light', { exact: true }).click()
     await expect(page.locator('html')).not.toHaveClass(/dark/)
     await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', 'light')
   })
@@ -98,7 +112,7 @@ test.describe('appearance', () => {
     page,
   }) => {
     const panel = await openAppearance(page)
-    await section(panel, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+    await modeGroup(panel).getByText('Dark', { exact: true }).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
 
     await page.keyboard.press('Escape')
@@ -109,37 +123,38 @@ test.describe('appearance', () => {
 
   test('accent presets and the custom hex picker preview live and normalize', async ({ page }) => {
     const panel = await openAppearance(page)
-    const accent = section(panel, 'Accent color')
+    const accent = accentGroup(panel)
 
-    await accent.getByRole('radio', { name: 'Blue accent' }).click()
+    await accent.getByRole('radio', { name: 'Blue' }).press('Space')
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
     await expect(
-      accent.getByText('Controls, glyphs, selections, code, and activity.')
+      editor(panel).getByText('Blue · Controls, glyphs, selections, code, and activity.')
     ).toBeVisible()
 
     // The custom picker rejects unparseable input and normalizes valid colors.
-    await accent.getByRole('radio', { name: 'Custom accent' }).click()
-    const hex = accent.getByRole('textbox', { name: 'Custom accent color as a hex value' })
+    await accent.getByRole('radio', { name: 'Custom' }).press('Space')
+    const hex = editor(panel).getByRole('textbox', { name: 'Custom accent' })
     await hex.fill('not-a-color')
     await hex.blur()
-    await expect(accent.getByText('“not-a-color” is not a hex color')).toBeVisible()
+    await expect(hex).toHaveValue('not-a-color')
+    await expect(editor(panel).getByText('“not-a-color” is not a hex color such as #2563eb.')).toBeVisible()
 
     await hex.fill('#2563eb')
     await hex.blur()
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom')
-    await accent.getByRole('radio', { name: 'Theme default accent' }).click()
+    await accent.getByRole('radio', { name: 'Theme default' }).press('Space')
     await expect(page.locator('html')).toHaveAttribute('data-accent', 'theme')
   })
 
   test('the glass control switches the resolved surface', async ({ page }) => {
     const panel = await openAppearance(page)
-    await panel.getByRole('radio', { name: 'Frosted' }).click()
+    await panel.getByText('Frosted', { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
-    await panel.getByRole('radio', { name: 'Opaque' }).click()
+    await panel.getByText('Opaque', { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'opaque')
     // Leave the draft on a value that differs from what is committed: Save only
     // exists while there is something to save.
-    await panel.getByRole('radio', { name: 'Frosted' }).click()
+    await panel.getByText('Frosted', { exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
     await panel.getByRole('button', { name: 'Save' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-surface', 'frosted')
@@ -147,17 +162,17 @@ test.describe('appearance', () => {
 
   test('reduced transparency forces the opaque surface state', async ({ page }) => {
     const panel = await openAppearance(page)
-    await panel.getByRole('switch', { name: 'Reduce transparency' }).click()
+    await panel.getByRole('switch', { name: 'Reduce transparency' }).press('Space')
     await expect(page.locator('html')).toHaveAttribute('data-reduce-transparency', 'true')
-    await expect(panel.getByText('Reduced transparency is active')).toBeVisible()
+    await expect(panel.getByText('Prefer solid surfaces, including during live preview.')).toBeVisible()
     await panel.getByRole('button', { name: 'Save' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-reduce-transparency', 'true')
   })
 
   test('appearance is keyboard-operable with radiogroup arrow keys', async ({ page }) => {
     const panel = await openAppearance(page)
-    const mode = section(panel, 'Appearance mode')
-    await mode.getByRole('radio', { name: 'System' }).click()
+    const mode = modeGroup(panel)
+    await mode.getByText('System', { exact: true }).click()
     await page.keyboard.press('ArrowRight')
     await expect(mode.getByRole('radio', { name: 'Light' })).toBeChecked()
     await page.keyboard.press('ArrowRight')
@@ -167,11 +182,11 @@ test.describe('appearance', () => {
   test('the theme library row opens behind the declared-license contract', async ({ page }) => {
     const panel = await openAppearance(page)
     // An unsaved draft must survive the contract view round-trip.
-    await section(panel, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+    await modeGroup(panel).getByText('Dark', { exact: true }).click()
     await expect(page.locator('html')).toHaveClass(/dark/)
-    await panel.getByRole('button', { name: 'Add theme' }).click()
+    await panel.getByRole('button', { name: 'Manage themes' }).click()
 
-    const library = page.getByRole('dialog', { name: 'Add a theme' })
+    const library = page.getByRole('dialog', { name: 'Manage themes' })
     await expect(library).toBeVisible()
     await expect(library.getByText('declare an explicit license and provenance')).toBeVisible()
     await expect(library.getByText('signed App Library pipeline')).toBeVisible()
@@ -181,9 +196,7 @@ test.describe('appearance', () => {
     // The appearance panel returns with the draft intact and still uncommitted.
     await expect(panel).toBeVisible()
     await expect(page.locator('html')).toHaveClass(/dark/)
-    await expect(
-      section(panel, 'Appearance mode').getByRole('radio', { name: 'Dark' })
-    ).toBeChecked()
+    await expect(modeGroup(panel).getByRole('radio', { name: 'Dark' })).toBeChecked()
     expect(await page.evaluate(() => window.localStorage.getItem('appearance'))).toBeNull()
   })
 
@@ -309,7 +322,7 @@ test('a corrupt stored appearance quarantines into the recovery envelope and sur
 
   // Saving valid preferences must not destroy the quarantined original.
   const panel = await openAppearance(page)
-  await section(panel, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await modeGroup(panel).getByText('Dark', { exact: true }).click()
   await panel.getByRole('button', { name: 'Save' }).click()
   const kept = await page.evaluate(() => window.localStorage.getItem('appearance.recovery'))
   expect(JSON.parse(kept!).raw).toBe('{"version":2,"mode":"da')
@@ -334,9 +347,9 @@ test('cancel reverts the draft and the OS reduced-motion preference keeps the pa
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const panel = await openAppearance(page)
 
-  await section(panel, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await modeGroup(panel).getByText('Dark', { exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await panel.getByRole('button', { name: 'Revert' }).click()
+  await panel.getByRole('button', { name: 'Cancel' }).click()
   // Reverting discards the draft; the section stays where it is.
   await expect(panel).toBeVisible()
   // Leaving the draft unsaved restores the pre-open appearance.
@@ -344,7 +357,7 @@ test('cancel reverts the draft and the OS reduced-motion preference keeps the pa
 
   // Re-open under reduced motion: live previews still apply.
   const reopened = await openAppearance(page)
-  await section(reopened, 'Appearance mode').getByRole('radio', { name: 'Dark' }).click()
+  await modeGroup(reopened).getByText('Dark', { exact: true }).click()
   await expect(page.locator('html')).toHaveClass(/dark/)
-  await reopened.getByRole('button', { name: 'Revert' }).click()
+  await reopened.getByRole('button', { name: 'Cancel' }).click()
 })

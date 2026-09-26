@@ -19,10 +19,10 @@ import type {
   DevReply,
   DevStreamFrame,
 } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
+import '@adea-ai/app-ui/dev-view.css'
 // #424: the resources sheet rides the resources pane's scoped hooks.
 import './resources/resources-pane.css'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   Columns2,
   Files,

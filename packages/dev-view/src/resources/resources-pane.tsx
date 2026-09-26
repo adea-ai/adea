@@ -16,7 +16,7 @@ import type {
   ResourceSnapshot,
   UsageRecord,
 } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
+import '@adea-ai/app-ui/dev-view.css'
 import { RefreshCw, X } from 'lucide-solid'
 import { For, Show, createResource, createSignal } from 'solid-js'
 

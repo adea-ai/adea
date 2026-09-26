@@ -8,7 +8,7 @@
  * tree controls, typed fixtures, Adea authority boundaries, and accessible
  * group/project reordering (pointer drag plus Alt+Arrow keyboard moves).
  */
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ChevronDown, ChevronRight, Search } from 'lucide-solid'
 import { For, Show, type JSX } from 'solid-js'
 

@@ -3684,6 +3684,14 @@ editor, and chart roles; the preference IDs and pre-paint document authority
 remain Adea-owned. Compatibility variants without catalogue records stay
 bundled locally until their role mappings are reviewed.
 
+The appearance surface uses the controlled `AppearanceEditor` from the published
+`@adea-ai/ui` package. Its host remains responsible for the V2 draft snapshot,
+live preview, persistence, cancellation, native transparency capability, custom
+accent validation, and the verified App Library contract. The app-local package
+is temporarily named `@adea-ai/app-ui` so the published package can be consumed
+without a second package alias; app-specific shell styles and legacy compatibility
+variants remain there until the broader package migration is reviewed.
+
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
 quarantined — byte-for-byte, with a reason and capture time — into a separate

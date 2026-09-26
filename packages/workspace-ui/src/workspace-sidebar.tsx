@@ -20,14 +20,14 @@ import {
   X,
 } from 'lucide-solid'
 import { createMemo, createSignal, For, lazy, onMount, Show, type JSX } from 'solid-js'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { Button } from '@adea-ai/app-ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@adea-ai/ui/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
+} from '@adea-ai/app-ui/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/app-ui/components/ui/tooltip'
 
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'

@@ -209,8 +209,9 @@ If a check cannot run, state the exact reason. A skipped check is not a passing 
 `bun run lint` (per-package `oxlint` through turbo) enforces it. Fix every
 shadcn finding the same way you fix a type error.
 
-- Design-system components come from `@adea-ai/ui/components` and
-  `@adea-ai/workspace-ui`. On those components, `class` may set layout only
+- Design-system components come from `@adea-ai/app-ui/components` for Adea's
+  app-local adapters and `@adea-ai/ui/components` for the published shared
+  package, alongside `@adea-ai/workspace-ui`. On those components, `class` may set layout only
   (margin, width, positioning). Appearance changes must come from the
   component's own variants or `size` props — do not pass padding, color,
   typography, or shape classes.

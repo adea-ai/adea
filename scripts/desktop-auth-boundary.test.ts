@@ -279,7 +279,7 @@ describe('desktop packaging and single-UI client boundary', () => {
 
     // One dialog: the desktop update surface is the flag-guarded adapter on the
     // same component the web app renders.
-    expect(webVersion).toContain('@adea-ai/ui/components/version-dialog')
+    expect(webVersion).toContain('@adea-ai/app-ui/components/version-dialog')
     expect(webVersion).toContain('isDesktopRuntime')
     expect(navigation).toContain('<VersionDialog')
     expect(sharedVersion).toContain('What changed in this release')
@@ -365,7 +365,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     const webStyles = await readFile(join(root, 'apps/web/src/start/globals.css'), 'utf8')
     const sharedStyles = await readFile(join(root, 'packages/ui/src/styles/auth-shell.css'), 'utf8')
 
-    expect(webStyles).toContain("@import '@adea-ai/ui/auth-shell.css'")
+    expect(webStyles).toContain("@import '@adea-ai/app-ui/auth-shell.css'")
     expect(desktop).toContain('class="auth-shell"')
     expect(web).toContain('class="auth-shell"')
     expect(sharedStyles).toContain('.auth-panel')

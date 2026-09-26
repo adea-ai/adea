@@ -7,7 +7,7 @@
  * without a live generation offers no cancel control.
  */
 import type { DevError, HarnessRun, RuntimeSession } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
+import '@adea-ai/app-ui/dev-view.css'
 import { Square } from 'lucide-solid'
 import { For, Show, createResource, createSignal } from 'solid-js'
 

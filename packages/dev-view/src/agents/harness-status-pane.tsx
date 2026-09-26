@@ -6,7 +6,7 @@
  * transport offers jump-to-terminal instead of implying structured events.
  */
 import type { HarnessRunState } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { For, Show, type JSX } from 'solid-js'
 
 import {

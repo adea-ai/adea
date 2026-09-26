@@ -7,7 +7,7 @@
  * hands a WorkspacePath + identity to the central editor surface.
  */
 import type { FileEntry, Scope } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   ChevronDown,
   ChevronRight,

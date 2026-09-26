@@ -1,5 +1,5 @@
 import { Show } from 'solid-js'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { Button } from '@adea-ai/app-ui/components/ui/button'
 
 export function VirtualUnavailable(props: { sceneLabel?: string; onOpenChat?: () => void }) {
   return (
