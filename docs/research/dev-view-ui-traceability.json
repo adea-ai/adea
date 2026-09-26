@@ -10352,6 +10352,28 @@
       "status": "normal trusted publisher passed archive, compiled/Solid core consumer, packed appearance interactions and native SSR, then npm propagation confirmation; npm version and integrity independently queried",
       "registryIntegrity": "sha512-m5FfuINDAaPtGT15JARS0ErY/+MzBaDNWqWOYRLHe030hWFOw+KmAHwlYY1DxOPid6LIO+kEQZ7RxwA/Qu2pTQ==",
       "limits": "This records publisher checks and independent registry metadata, not an independent re-download of the 0.63.2 tarball or real application adoption. Manual OS IME/assistive-technology and packaged application acceptance remain separate gates."
+    },
+    "candidateRefresh": {
+      "main": "554ca38384194972e280ca4de599843c52cd7ae1",
+      "layout": {
+        "pullRequest": "https://github.com/adea-ai/ui/pull/23",
+        "checkedSourceHead": "32c8e4ce6fa4a2649044509466c24ed5a4d470d4",
+        "refreshedHead": "adfeac5bcbf4cec98ef0fdb542fb07018dd5f390",
+        "validation": "format/lint/types/registry passed; layout tests27 passed79 assertions"
+      },
+      "composedInput": {
+        "pullRequest": "https://github.com/adea-ai/ui/pull/25",
+        "checkedSourceHead": "fe00e3b8b7726a6a06e9590b48f160069bfb747f",
+        "refreshedHead": "3c61967bf1e4e9e9bfdd43746730b13d259c6fdc",
+        "validation": "format/lint/types/registry passed;76 Chromium/WebKit cases passed including native SSR"
+      },
+      "pasteModel": {
+        "pullRequest": "https://github.com/adea-ai/ui/pull/26",
+        "checkedSourceHead": "762001650c0e9551d63cc00881a00c7973f7ece5",
+        "refreshedHead": "bee80a482cf25dbf51a5b4532544e7e26d18e013",
+        "validation": "format/lint/types/registry and19 tests61 assertions passed; independent merge-resolution review passed"
+      },
+      "limits": "The refresh from dd058d2 to554ca38 changes only the workflow draft guard and README; actionlint and diff checks passed after each merge. Product-source tests were not repeated for this CI-only refresh. Full relevant packed checks and fresh CI remain merge gates; older candidate records are historical evidence."
     }
   }
 }

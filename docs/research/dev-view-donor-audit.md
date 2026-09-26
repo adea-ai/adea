@@ -704,7 +704,7 @@ archive, compiled/Solid core consumer, packed appearance interaction and native
 SSR checks, and confirmed npm propagation. An independent `npm view` query
 confirmed version 0.63.2 and its registry integrity. This checkpoint does not
 claim an independent re-download of that version or real application adoption.
-All current main validation and Design System Gates runs are green.
+Validation and Design System Gates runs on `dd058d2` are green.
 
 Pending layout, composed-input and paste-model branches now contain that main
 commit. Their fresh format, lint, types and registry checks pass. The pure paste
@@ -718,3 +718,8 @@ The native repeated-composition-end browser test covers same-turn events and
 recovery. It does not distinguish a stale timer from a refreshed window when
 both ends have the same timestamp; timer-refresh test precision remains a
 separate follow-up. Manual operating-system IME acceptance is still pending.
+
+The subsequent CI-only main `554ca38384194972e280ca4de599843c52cd7ae1`
+refresh is recorded with exact candidate and checked-source SHAs in the
+traceability JSON. It preserves those tested product sources; actionlint and
+diff checks pass on the merged workflow.
