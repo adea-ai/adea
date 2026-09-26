@@ -663,3 +663,35 @@ a11y and eight panes at 320/1440px. This completes the selected renderer's
 installed-artifact checkpoint, not the full shell, native editor/hydration/manual
 AT, required root-peer compatibility or real production consumer gate. Adea and
 Cortana migration, release, superseded-system deletion and re-audit remain pending.
+
+### Published core and appearance continuation
+
+The earlier root-peer failures above describe retained pilot commits. They are
+superseded for the published core by
+[UI 0.63.0](https://github.com/adea-ai/ui/pull/27), released from
+[`b00d46f8`](https://github.com/adea-ai/ui/commit/b00d46f8c75561de00f6d44d7e736108a47e5b59).
+The normal [publish run](https://github.com/adea-ai/ui/actions/runs/36260720031)
+passed archive, packed consumer, appearance interaction/SSR and post-publish
+checks. An independent npm download matched the registry integrity and gitHead.
+The archive's `dist/LICENSE` and `dist/NOTICE` match the source files byte for
+byte, including the accepted appearance translation's full Zeron MIT notice.
+
+A clean installed consumer built public-root `AppearanceEditor` under both
+compiled and Solid export conditions with Chart/Carousel peer engines absent,
+without externalizing those engines. The conditions resolve to `dist/index.js`
+and `src/index.ts`, respectively. This establishes the published core import
+and selected appearance distribution contract; it does not release the pending
+composer, busy, conversation or binary renderer changes, establish real product
+adoption, or replace manual accessibility and packaged product acceptance.
+
+[UI PR #28](https://github.com/adea-ai/ui/pull/28) scopes Storybook prop metadata
+to local components and removes the duplicate gallery build from generic CI.
+Measured Workshop build time fell from 8m51s to 41s and complete gate time from
+18m29s to 10m50s. All four browser shards and Registry passed; theme, interaction,
+accessibility and attribution coverage remained enabled. These are measured
+runs, not a timing guarantee. [UI PR #29](https://github.com/adea-ai/ui/pull/29)
+subsequently repaired release automation to queue an audited squash merge rather
+than waiting in a runner, and restored the review-policy check on head updates.
+Its subsequent normal release run completed while the generated version PR's
+required checks were still pending. Version PR #30 publication is not claimed
+by this checkpoint.
