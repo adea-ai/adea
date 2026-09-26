@@ -1307,7 +1307,14 @@ gap, conflict, or stale generation never acknowledges the rejected frame.
 The Chat surface closes its transcript stream when the selected session or
 generation changes or the view unmounts. A late stream-open response must close
 its own handle without installing a poller or replacing the newer session's
-transcript; session-local answer and composer draft state reset on selection.
+transcript; session-local answer state resets on selection. Composer drafts are
+owned by the current authenticated scope's desktop Chat host: a Chat remount
+and a new generation under the same `runtimeSessionId` reuse that draft, while
+a workspace, account, or runtime-node change replaces the host. An async send
+may clear a draft only when its session, generation, and host draft revision
+still match; late success from an old composer is ignored, and a failed send
+leaves the draft intact. The explicit host callback and the Chat model fallback
+use the same session, generation, and revision fence.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
@@ -3671,6 +3678,11 @@ OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
+The bundled `adea-light` and `adea-dark` records are sourced from the published
+`@adea-ai/themes` catalogue and adapted into this manifest's CSS, terminal,
+editor, and chart roles; the preference IDs and pre-paint document authority
+remain Adea-owned. Compatibility variants without catalogue records stay
+bundled locally until their role mappings are reviewed.
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is

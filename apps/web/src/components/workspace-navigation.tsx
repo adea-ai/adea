@@ -45,17 +45,16 @@ const DevWorkspace = lazyComponent(
           const unavailable =
             entryProps.runtime ??
             createUnavailableDevRuntimeService({ reason: 'channel_unauthenticated' })
-          const runtime =
-            entryProps.fixture && !entryProps.runtime
-              ? {
-                  ...unavailable,
-                  preferenceScope: () => ({
-                    accountId: '00000000-0000-4000-8000-000000000001',
-                    workspaceId: '00000000-0000-4000-8000-000000000002',
-                    runtimeNodeId: '00000000-0000-4000-8000-000000000003',
-                  }),
-                }
-              : unavailable
+          const runtime = entryProps.fixture
+            ? {
+                ...unavailable,
+                preferenceScope: () => ({
+                  accountId: '00000000-0000-4000-8000-000000000001',
+                  workspaceId: '00000000-0000-4000-8000-000000000002',
+                  runtimeNodeId: '00000000-0000-4000-8000-000000000003',
+                }),
+              }
+            : unavailable
           return (
             <DevWorkspaceEntry
               groups={entryProps.fixture ? devViewFixtureGroups : undefined}
@@ -81,10 +80,14 @@ const ConventionalWorkspace = lazyComponent(
 // lazy and the mount is `import.meta.env.DEV`-gated, so production bundles
 // never contain the fixture route.
 const ChatVisualFixture = lazyComponent(
-  () =>
-    import('@adea-ai/dev-view/chat/visual-fixture').then(
-      ({ ChatVisualFixture: Fixture }) => Fixture
-    ),
+  () => {
+    if (import.meta.env.DEV) {
+      return import('@adea-ai/dev-view/chat/visual-fixture').then(
+        ({ ChatVisualFixture: Fixture }) => Fixture
+      )
+    }
+    return Promise.resolve(() => <WorkspaceEntryLoading />)
+  },
   { loading: () => <WorkspaceEntryLoading /> }
 )
 

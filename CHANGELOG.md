@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.61.1](https://github.com/adea-ai/adea/compare/v0.61.0...v0.61.1) (2026-09-26)
+
+
+### Documentation
+
+* **marketplace:** point the consumer contract at the publication branch ([#749](https://github.com/adea-ai/adea/issues/749)) ([a6a7852](https://github.com/adea-ai/adea/commit/a6a78524863ec3a8d8a9056b8088510cde20874a))
+
+## [0.61.0](https://github.com/adea-ai/adea/compare/v0.60.12...v0.61.0) (2026-09-26)
+
+
+### Features
+
+* **ui:** source built-in palettes from themes package ([#746](https://github.com/adea-ai/adea/issues/746)) ([99aba92](https://github.com/adea-ai/adea/commit/99aba92bc695a2fe7fcc85c6774dfc13a881e981))
+
 ## [0.60.12](https://github.com/adea-ai/adea/compare/v0.60.11...v0.60.12) (2026-09-26)
 
 

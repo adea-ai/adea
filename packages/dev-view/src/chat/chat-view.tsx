@@ -2,20 +2,23 @@ import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
 import { createTranscriptAccumulator, transcriptWindow } from './model'
-import { ChatComposer, type ChatInputAuthority } from './chat-composer'
+import { ChatComposer, type ChatDraftChange, type ChatInputAuthority } from './chat-composer'
 import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
 import { statusLabel } from './presentation'
 import './chat.css'
 
 export type ChatViewProps = Readonly<{
   conversation: ChatConversation
-  model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'>
+  model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
+    Partial<Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent'>>
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
   onSend?: (text: string) => void | Promise<void>
   onSteer?: (text: string) => void | Promise<void>
   onStop?: () => void | Promise<void>
+  onDraftChange?: ChatDraftChange
+  draftRevision?: number
   onResolveApproval?: ChatTranscriptProps['onResolveApproval']
   onResolveQuestion?: ChatTranscriptProps['onResolveQuestion']
   onJumpToTerminal?: () => void
@@ -146,6 +149,19 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     if (props.model) await props.model.cancel(props.conversation.runtimeSessionId)
   }
 
+  const changeDraft: ChatDraftChange | undefined =
+    props.onDraftChange ??
+    (props.model?.setDraftIfCurrent
+      ? (draft, identity, expectedRevision) => {
+          props.model?.setDraftIfCurrent?.(
+            identity.runtimeSessionId,
+            identity.generation,
+            draft,
+            expectedRevision
+          )
+        }
+      : undefined)
+
   return (
     <section class="dev-chat" aria-label={`Conversation ${props.conversation.title}`}>
       <header class="dev-chat__header">
@@ -196,6 +212,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               onSend={send}
               onSteer={props.onSteer}
               onStop={stop}
+              onDraftChange={changeDraft}
+              draftRevision={
+                props.draftRevision ??
+                props.model?.draftRevision?.(props.conversation.runtimeSessionId)
+              }
             />
           </>
         )}

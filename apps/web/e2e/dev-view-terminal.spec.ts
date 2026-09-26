@@ -37,7 +37,7 @@ test('terminal attach renders authenticated shell state and remains keyboard acc
   await page.keyboard.press('ControlOrMeta+f')
   const search = terminal.getByRole('search', { name: 'Search terminal' })
   await expect(search).toBeVisible()
-  await search.getByRole('textbox', { name: 'Search terminal' }).fill('fixture')
+  await search.getByRole('searchbox', { name: 'Search terminal' }).fill('fixture')
   await expect(search.locator('.dev-terminal-search-count')).toContainText(/match/)
   await search.getByRole('button', { name: 'Close search' }).click()
   await expect(search).toBeHidden()
@@ -64,6 +64,12 @@ test('terminal reconnects after a bounded transport flap and survives a split', 
     'open'
   )
   await expect(terminals.nth(1).locator('.dev-terminal-surface')).toBeVisible()
+  // `open` is set as soon as the socket exists. The initial fixture bytes prove
+  // this pane accepted its own sequence-0 stream instead of dropping output
+  // after another pane consumed the shared fixture counter.
+  await expect(terminals.nth(1).getByLabel('Terminal output')).toContainText(
+    'fixture terminal connected'
+  )
 
   const snapshot = await page
     .getByRole('region', { name: 'Developer workspace panes' })

@@ -3,6 +3,8 @@ export * from './composer'
 export {
   ChatComposer,
   chatComposerDisabledReason,
+  type ChatDraftChange,
+  type ChatDraftIdentity,
   type ChatComposerProps,
   type ChatInputAuthority,
 } from './chat-composer'

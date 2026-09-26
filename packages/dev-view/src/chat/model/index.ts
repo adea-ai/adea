@@ -266,6 +266,13 @@ export type ChatConversationModel = Readonly<{
   remember(session: RuntimeSession, events?: readonly RuntimeEvent[]): ChatConversation
   project(): ChatConversationProjection
   setDraft(runtimeSessionId: string, draft: string): ChatConversation
+  draftRevision(runtimeSessionId: string): number
+  setDraftIfCurrent(
+    runtimeSessionId: string,
+    generation: number,
+    draft: string,
+    expectedRevision?: number
+  ): ChatConversation | undefined
   switchTo(runtimeSessionId: string): ChatConversation
   resume(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
   cancel(runtimeSessionId: string, harnessRunId?: string): Promise<ChatConversation>
@@ -296,6 +303,7 @@ export function createChatConversationModel(
   const sessions = new Map<string, RuntimeSession>()
   const events = new Map<string, RuntimeEvent[]>()
   const drafts = new Map<string, string>()
+  const draftRevisions = new Map<string, number>()
   const groups: Group[] = []
   const projects: Project[] = []
   type CreateRequest = {
@@ -714,6 +722,30 @@ export function createChatConversationModel(
     }
   }
 
+  const setDraft = (runtimeSessionId: string, draft: string): ChatConversation => {
+    requireConversation(runtimeSessionId)
+    drafts.set(runtimeSessionId, draft)
+    draftRevisions.set(runtimeSessionId, (draftRevisions.get(runtimeSessionId) ?? 0) + 1)
+    return requireConversation(runtimeSessionId)
+  }
+  const draftRevision = (runtimeSessionId: string): number =>
+    draftRevisions.get(runtimeSessionId) ?? 0
+  const setDraftIfCurrent = (
+    runtimeSessionId: string,
+    generation: number,
+    draft: string,
+    expectedRevision?: number
+  ): ChatConversation | undefined => {
+    const current = registry().conversations.find(
+      (conversation) =>
+        conversation.runtimeSessionId === runtimeSessionId && conversation.generation === generation
+    )
+    if (!current) return undefined
+    const revision = draftRevision(runtimeSessionId)
+    if (expectedRevision !== undefined && expectedRevision !== revision) return undefined
+    return setDraft(runtimeSessionId, draft)
+  }
+
   return {
     create,
     attach,
@@ -738,6 +770,7 @@ export function createChatConversationModel(
           sessions.delete(id)
           events.delete(id)
           drafts.delete(id)
+          draftRevisions.delete(id)
           if (selectedRuntimeSessionId === id) selectedRuntimeSessionId = undefined
         }
       }
@@ -752,11 +785,9 @@ export function createChatConversationModel(
     },
     remember,
     project: registry,
-    setDraft(runtimeSessionId, draft) {
-      requireConversation(runtimeSessionId)
-      drafts.set(runtimeSessionId, draft)
-      return requireConversation(runtimeSessionId)
-    },
+    setDraft,
+    draftRevision,
+    setDraftIfCurrent,
     switchTo(runtimeSessionId) {
       const conversation = requireConversation(runtimeSessionId)
       selectedRuntimeSessionId = runtimeSessionId

@@ -4,13 +4,17 @@ Adea uses the plugin registry maintained in
 [`adea-ai/plugins`](https://github.com/adea-ai/plugins). Discovery is
 server-side through Control Plane:
 
-- Registry latest artifact:
-  `https://github.com/adea-ai/plugins/releases/latest/download/catalog-latest.v1.json`
-- Registry latest integrity manifest:
-  `https://github.com/adea-ai/plugins/releases/latest/download/integrity.json`
-- Immutable release URL:
-  `https://github.com/adea-ai/plugins/releases/download/catalog/<catalogId-suffix>/catalog.v1.json`
-- Immutable tag: `catalog/<catalogId-suffix>` for `catalog:<64 lowercase hex>`.
+- Registry latest pointer:
+  `https://raw.githubusercontent.com/adea-ai/plugins/catalog-assets/catalog-latest.v1.json`
+- Immutable snapshot URL:
+  `https://raw.githubusercontent.com/adea-ai/plugins/catalog-assets/catalogs/<catalogId-suffix>/catalog.v1.json`
+- Immutable directory: `catalogs/<catalogId-suffix>` for `catalog:<64 lowercase hex>`.
+
+The snapshot path is derived from the catalog's own digest, so a pinned URL is
+immutable by construction: a build that produced different bytes has a different
+`catalogId` and cannot write over an existing path. The pointer is the only
+mutable path, and it is byte-identical to the `catalog.v1.json` of the snapshot
+it names.
 
 Adea does not request those GitHub URLs from a browser or desktop client.
 The same-origin `/api/marketplace/catalog` route calls the authenticated

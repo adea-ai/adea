@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/web",
-  "version": "0.60.12",
+  "version": "0.61.1",
   "private": true,
   "type": "module",
   "scripts": {
