@@ -512,7 +512,13 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     const context = worktree()
     const activeScope = scope()
     if (!context || !activeScope || !node.identity) return
-    if (pendingTree()?.planId !== node.relativePath) {
+    // Compare on `summary` — the path this plan was armed for — NOT on
+    // `planId`. The provider mints `plan.id` as a UUID, so `planId` can never
+    // equal a relative path, the guard was never satisfied on the second click,
+    // and `commitPendingTree()` was unreachable: every Delete re-planned and no
+    // directory was ever removed, while the button still relabelled to
+    // "Confirm". The copy arm below already compared `summary` correctly.
+    if (pendingTree()?.summary !== node.relativePath) {
       try {
         const plan = await executeOperation<MutationPlanSummary>(
           props.runtime,
