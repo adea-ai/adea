@@ -5,11 +5,33 @@ const contractVersion = { major: 2, minor: 0 } as const
 // spelling; a mismatch makes the Control Plane reject marketplace calls.
 const servicePrincipalId = 'svc_agent-hq'
 
+/**
+ * Inbound correlation for a Control Plane hop. A caller that already has a
+ * request/trace id (the web lane's own edge, another proxy, a retry) keeps
+ * it, so one incident correlates across every hop instead of starting a new
+ * chain at this boundary. Anything malformed or unbounded is discarded and a
+ * fresh id minted — a propagated value is never trusted, only carried.
+ */
+export type InboundCorrelation = Readonly<{ requestId?: string; traceId?: string }>
+
+const CORRELATION_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/u
+
+export function inboundCorrelation(request: Request | undefined): InboundCorrelation {
+  if (!request) return {}
+  const requestId = request.headers.get('x-request-id')?.trim()
+  const traceId = request.headers.get('x-correlation-id')?.trim()
+  return {
+    ...(requestId && CORRELATION_PATTERN.test(requestId) ? { requestId } : {}),
+    ...(traceId && CORRELATION_PATTERN.test(traceId) ? { traceId } : {}),
+  }
+}
+
 export async function proxyMarketplaceCatalog(
-  input: Readonly<{ workspaceId: string; userId: string }>
+  input: Readonly<{ workspaceId: string; userId: string }>,
+  inbound: InboundCorrelation = {}
 ): Promise<Response> {
-  const requestId = identifier('req')
-  const traceId = identifier('trc')
+  const requestId = inbound.requestId ?? identifier('req')
+  const traceId = inbound.traceId ?? identifier('trc')
   return proxyControlPlane(
     '/v1/marketplace/catalog',
     {
@@ -36,10 +58,11 @@ export async function proxyMarketplaceInstallPlan(
     instanceId: string
     requestedHarness: string
     workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
-  }>
+  }>,
+  inbound: InboundCorrelation = {}
 ): Promise<Response> {
-  const requestId = identifier('req')
-  const traceId = identifier('trc')
+  const requestId = inbound.requestId ?? identifier('req')
+  const traceId = inbound.traceId ?? identifier('trc')
   const commandId = identifier('cmd')
   const idempotencyKey = `marketplace-plan:${sha256(canonicalJson(input))}`
   return proxyControlPlane(
@@ -70,10 +93,11 @@ export async function proxyMarketplaceInstall(
     requestedHarness: string
     installationInstanceId?: string
     workspaceIdentity: Readonly<{ userId: string; workspaceId: string }>
-  }>
+  }>,
+  inbound: InboundCorrelation = {}
 ): Promise<Response> {
-  const requestId = identifier('req')
-  const traceId = identifier('trc')
+  const requestId = inbound.requestId ?? identifier('req')
+  const traceId = inbound.traceId ?? identifier('trc')
   const commandId = identifier('cmd')
   const payload = { ...input }
   return proxyControlPlane(
@@ -144,12 +168,15 @@ async function proxyControlPlane(
     }
     // Large reads (the marketplace catalog is tens of megabytes) stream
     // through unparsed: buffering + re-serializing them in the worker
-    // exceeds Cloudflare's resource limits.
+    // exceeds Cloudflare's resource limits. The request id rides back on the
+    // response either way, so a caller can correlate its retry with the hop
+    // that is already in flight.
     if (options.streamThrough) {
       return new Response(response.body, {
         headers: {
           'content-type': response.headers.get('content-type') ?? 'application/json',
           'cache-control': 'no-store',
+          'x-request-id': requestId,
         },
       })
     }

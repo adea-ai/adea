@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 
-import { proxyMarketplaceCatalog, proxyMarketplaceInstall } from '../src/server/marketplace-proxy'
+import {
+  inboundCorrelation,
+  proxyMarketplaceCatalog,
+  proxyMarketplaceInstall,
+} from '../src/server/marketplace-proxy'
 
 const environmentKeys = [
   'CONTROL_PLANE_ORIGIN',
@@ -52,6 +56,66 @@ describe('marketplace Control Plane proxy', () => {
     expect(requests[1]?.correlation).toMatchObject({
       traceId: expect.stringMatching(/^trc_[0-9A-HJKMNP-TV-Z]{26}$/u),
     })
+  })
+
+  test('carries an inbound request/trace id across the Control Plane hop', async () => {
+    // One incident has to correlate across every hop. When the caller already
+    // has ids, the hop reuses them instead of starting a new chain at the
+    // proxy boundary — and a malformed or unbounded value is discarded
+    // rather than forwarded, so a propagated id is never trusted, only carried.
+    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
+    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
+    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    const sent: Array<{ body: Record<string, unknown>; headers: HeadersInit | undefined }> = []
+    globalThis.fetch = async (_input, init) => {
+      sent.push({
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        headers: init?.headers,
+      })
+      return Response.json({ data: { ok: true } })
+    }
+
+    const inbound = inboundCorrelation(
+      new Request('https://app.example/api/marketplace/catalog', {
+        headers: { 'x-request-id': 'edge-req-42', 'x-correlation-id': 'edge-trace-7' },
+      })
+    )
+    await proxyMarketplaceCatalog({ userId: 'user-1', workspaceId: 'workspace-1' }, inbound)
+
+    expect(sent[0]?.body.requestId).toBe('edge-req-42')
+    expect(sent[0]?.body.correlation).toMatchObject({ traceId: 'edge-trace-7' })
+    const headers = new Headers(sent[0]?.headers)
+    expect(headers.get('x-request-id')).toBe('edge-req-42')
+
+    // Absent, malformed, or unbounded inbound ids never reach the Control Plane.
+    for (const bad of [
+      {},
+      { 'x-request-id': 'has spaces' },
+      { 'x-request-id': 'x'.repeat(200) },
+      { 'x-request-id': 'a'.repeat(200) },
+    ]) {
+      const request = new Request('https://app.example/api/marketplace/catalog', { headers: bad })
+      await proxyMarketplaceCatalog(
+        { userId: 'user-1', workspaceId: 'workspace-1' },
+        inboundCorrelation(request)
+      )
+    }
+    for (const hop of sent.slice(1))
+      expect(hop.body.requestId).toMatch(/^req_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  })
+
+  test('returns the request id on the streaming catalog response', async () => {
+    process.env.CONTROL_PLANE_ORIGIN = 'https://control-plane.example'
+    process.env.CONTROL_PLANE_SERVICE_TOKEN = 'test-token'
+    process.env.CONTROL_PLANE_SCOPE_WORKSPACE_ID = 'wsp_01JABCDEF0123456789ABCDEFG'
+    globalThis.fetch = async () =>
+      new Response('{"data":[]}', { headers: { 'content-type': 'application/json' } })
+
+    const response = await proxyMarketplaceCatalog(
+      { userId: 'user-1', workspaceId: 'workspace-1' },
+      { requestId: 'edge-req-99' }
+    )
+    expect(response.headers.get('x-request-id')).toBe('edge-req-99')
   })
 
   test('streams large catalog responses through without parsing', async () => {
