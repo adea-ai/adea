@@ -1,6 +1,7 @@
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import { createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
+import type { ChatDraftChange } from './chat-composer'
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
 import './visual-fixture.css'
 
@@ -108,8 +109,13 @@ type PendingSend = Readonly<{
 function draftModel(
   getConversation: () => ChatConversation,
   pending: Set<PendingSend>,
-  deferred: boolean
-): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  deferred: boolean,
+  getDraftRevision: () => number,
+  setCanonicalDraft: (draft: string) => void
+): Pick<
+  ChatConversationModel,
+  'openTranscript' | 'send' | 'cancel' | 'draftRevision' | 'setDraftIfCurrent'
+> {
   return {
     openTranscript: async () => {
       throw new Error('visual draft fixture does not attach a transcript')
@@ -121,6 +127,18 @@ function draftModel(
       })
     },
     cancel: async () => getConversation(),
+    draftRevision: () => getDraftRevision(),
+    setDraftIfCurrent: (runtimeSessionId, generation, nextDraft, expectedRevision) => {
+      const current = getConversation()
+      if (
+        current.runtimeSessionId !== runtimeSessionId ||
+        current.generation !== generation ||
+        (expectedRevision !== undefined && expectedRevision !== getDraftRevision())
+      )
+        return undefined
+      setCanonicalDraft(nextDraft)
+      return current
+    },
   }
 }
 
@@ -224,6 +242,7 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const [generation, setGeneration] = createSignal(3)
   const [mountKey, setMountKey] = createSignal(0)
   const deferred = new URLSearchParams(window.location.search).has('chatDraftTest')
+  const fallbackDraftModel = new URLSearchParams(window.location.search).has('chatDraftFallback')
   const pending: Set<PendingSend> = new Set()
   let activeConversation: ChatConversation
 
@@ -237,7 +256,10 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
 
   onMount(() => {
     const remount = () => setMountKey((key) => key + 1)
-    const nextGeneration = () => setGeneration((value) => value + 1)
+    const nextGeneration = () => {
+      setGeneration((value) => value + 1)
+      setMountKey((key) => key + 1)
+    }
     const resolveSend = () => resolvePending()
     const rejectSend = () => resolvePending(new Error('visual send failed'))
     window.addEventListener('chat-visual:remount', remount)
@@ -254,7 +276,26 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
     })
   })
 
-  const currentModel = model ?? draftModel(() => activeConversation, pending, deferred)
+  const currentModel =
+    model ??
+    draftModel(
+      () => activeConversation,
+      pending,
+      deferred,
+      () => draftRevision(),
+      (nextDraft) => {
+        setDraft(nextDraft)
+        setDraftRevision((revision) => revision + 1)
+      }
+    )
+  const onDraftChange: ChatDraftChange | undefined = fallbackDraftModel
+    ? undefined
+    : (next, identity, expectedRevision) => {
+        if (identity.runtimeSessionId !== sessionId || identity.generation !== generation()) return
+        if (expectedRevision !== undefined && expectedRevision !== draftRevision()) return
+        setDraft(next)
+        setDraftRevision((revision) => revision + 1)
+      }
   return (
     <main
       class="dev-chat-visual-fixture"
@@ -275,17 +316,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 connected={state !== 'reconnect'}
                 awaitingApproval={state === 'attention'}
                 autoAttach={state === 'reconnect' || state === 'streaming'}
-                draftRevision={draftRevision()}
-                onDraftChange={(next, identity, expectedRevision) => {
-                  if (
-                    identity.runtimeSessionId !== sessionId ||
-                    identity.generation !== generation()
-                  )
-                    return
-                  if (expectedRevision !== undefined && expectedRevision !== draftRevision()) return
-                  setDraft(next)
-                  setDraftRevision((revision) => revision + 1)
-                }}
+                draftRevision={fallbackDraftModel ? undefined : draftRevision()}
+                onDraftChange={onDraftChange}
                 onResolveApproval={() => undefined}
                 onResolveQuestion={() => undefined}
               />

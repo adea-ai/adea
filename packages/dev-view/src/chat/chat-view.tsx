@@ -10,7 +10,7 @@ import './chat.css'
 export type ChatViewProps = Readonly<{
   conversation: ChatConversation
   model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
-    Partial<Pick<ChatConversationModel, 'setDraft'>>
+    Partial<Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent'>>
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -151,9 +151,14 @@ export function ChatView(props: ChatViewProps): JSX.Element {
 
   const changeDraft: ChatDraftChange | undefined =
     props.onDraftChange ??
-    (props.model?.setDraft
-      ? (draft, identity) => {
-          props.model?.setDraft?.(identity.runtimeSessionId, draft)
+    (props.model?.setDraftIfCurrent
+      ? (draft, identity, expectedRevision) => {
+          props.model?.setDraftIfCurrent?.(
+            identity.runtimeSessionId,
+            identity.generation,
+            draft,
+            expectedRevision
+          )
         }
       : undefined)
 
@@ -208,7 +213,10 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               onSteer={props.onSteer}
               onStop={stop}
               onDraftChange={changeDraft}
-              draftRevision={props.draftRevision}
+              draftRevision={
+                props.draftRevision ??
+                props.model?.draftRevision?.(props.conversation.runtimeSessionId)
+              }
             />
           </>
         )}

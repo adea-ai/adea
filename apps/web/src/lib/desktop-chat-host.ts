@@ -19,7 +19,7 @@ export type DesktopChatModelHost = Readonly<{
   ): ChatConversation | undefined
 }>
 
-type DesktopChatLifecycleFence = Readonly<{
+export type DesktopChatLifecycleFence = Readonly<{
   begin(): number
   current(): number
   invalidate(): void
@@ -45,6 +45,23 @@ export function createDesktopChatLifecycleFence(): DesktopChatLifecycleFence {
   }
 }
 
+export function attachFirstRunConversationIfCurrent(
+  input: Readonly<{
+    created: Pick<ChatConversation, 'runtimeSessionId'>
+    currentModel: () => ChatConversationModel | undefined
+    lifecycle: DesktopChatLifecycleFence
+    model: ChatConversationModel
+    onAttached: (conversation: ChatConversation) => void
+    request: number
+  }>
+): void {
+  if (!input.lifecycle.isCurrent(input.request)) return
+  void input.model.attach(input.created.runtimeSessionId).then((next) => {
+    if (!input.lifecycle.isCurrent(input.request) || input.currentModel() !== input.model) return
+    input.onAttached(next)
+  })
+}
+
 function scopeKey(scope: Scope): string {
   return `${scope.accountId}\u0000${scope.workspaceId}\u0000${scope.runtimeNodeId}`
 }
@@ -57,13 +74,11 @@ function scopeKey(scope: Scope): string {
 export function createDesktopChatModelHost(runtime: DevRuntimeService): DesktopChatModelHost {
   let activeKey: string | undefined
   let model: ChatConversationModel | undefined
-  const revisions = new Map<string, number>()
 
   const activate = (scope: Scope): ChatConversationModel => {
     const key = scopeKey(scope)
     if (model && activeKey === key) return model
     activeKey = key
-    revisions.clear()
     model = createChatConversationModel(runtime, scope)
     return model
   }
@@ -74,23 +89,16 @@ export function createDesktopChatModelHost(runtime: DevRuntimeService): DesktopC
     },
     draftRevision(scope, runtimeSessionId) {
       if (activeKey !== scopeKey(scope)) return 0
-      return revisions.get(runtimeSessionId) ?? 0
+      return model?.draftRevision(runtimeSessionId) ?? 0
     },
     setDraft(scope, identity, draft, expectedRevision) {
       if (!model || activeKey !== scopeKey(scope)) return undefined
-      const current = model
-        .project()
-        .conversations.find(
-          (conversation) =>
-            conversation.runtimeSessionId === identity.runtimeSessionId &&
-            conversation.generation === identity.generation
-        )
-      if (!current) return undefined
-      const revision = revisions.get(identity.runtimeSessionId) ?? 0
-      if (expectedRevision !== undefined && expectedRevision !== revision) return undefined
-      const next = model.setDraft(identity.runtimeSessionId, draft)
-      revisions.set(identity.runtimeSessionId, revision + 1)
-      return next
+      return model.setDraftIfCurrent(
+        identity.runtimeSessionId,
+        identity.generation,
+        draft,
+        expectedRevision
+      )
     },
   }
 }

@@ -90,16 +90,22 @@ describe('desktop chat host', () => {
     ).toBe('unfinished draft')
     expect(host.draftRevision(SCOPE, conversation.runtimeSessionId)).toBe(1)
 
+    // A direct canonical model writer advances the same revision authority.
+    expect(model.setDraft(conversation.runtimeSessionId, 'direct canonical draft')?.draft).toBe(
+      'direct canonical draft'
+    )
+    expect(host.draftRevision(SCOPE, conversation.runtimeSessionId)).toBe(2)
+
     // A deferred send from the old composer cannot overwrite a newer draft.
     expect(
       host.setDraft(
         SCOPE,
         { runtimeSessionId: conversation.runtimeSessionId, generation: conversation.generation },
         'late clear',
-        0
+        1
       )
     ).toBeUndefined()
-    expect(model.project().conversations[0]?.draft).toBe('unfinished draft')
+    expect(model.project().conversations[0]?.draft).toBe('direct canonical draft')
     expect(
       host.setDraft(
         SCOPE,

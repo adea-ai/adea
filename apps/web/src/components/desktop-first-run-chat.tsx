@@ -7,6 +7,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 
 import {
+  attachFirstRunConversationIfCurrent,
   createDesktopChatLifecycleFence,
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
@@ -102,38 +103,40 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
 
   return (
     <Show when={ready()} fallback={props.fallback}>
-      {(state) => (
-        <Show
-          when={conversation()}
-          fallback={
-            <FirstRunOnboarding
-              facts={state().facts}
-              port={state().port}
-              onAction={async (kind) => {
-                if (kind === 'sign_in') return props.onSignIn()
-                if (kind === 'add_project' || kind === 'set_up_agent') props.onOpenDev()
-                if (kind === 'retry_access' || kind === 'update_app') {
-                  const request = lifecycle.begin()
-                  setReady(undefined)
-                  setConversation(undefined)
-                  const next = await load()
-                  if (lifecycle.isCurrent(request) && next) setReady(next)
-                }
-              }}
-              onConversation={(created) => {
-                const request = lifecycle.current()
-                const model = state().model
-                void model.attach(created.runtimeSessionId).then((next) => {
-                  if (!lifecycle.isCurrent(request) || ready()?.model !== model) return
-                  setConversation(next)
-                })
-              }}
-            />
-          }
-        >
-          {(active) => {
-            const request = lifecycle.current()
-            return (
+      {(state) => {
+        const request = lifecycle.current()
+        return (
+          <Show
+            when={conversation()}
+            fallback={
+              <FirstRunOnboarding
+                facts={state().facts}
+                port={state().port}
+                onAction={async (kind) => {
+                  if (kind === 'sign_in') return props.onSignIn()
+                  if (kind === 'add_project' || kind === 'set_up_agent') props.onOpenDev()
+                  if (kind === 'retry_access' || kind === 'update_app') {
+                    const nextRequest = lifecycle.begin()
+                    setReady(undefined)
+                    setConversation(undefined)
+                    const next = await load()
+                    if (lifecycle.isCurrent(nextRequest) && next) setReady(next)
+                  }
+                }}
+                onConversation={(created) => {
+                  attachFirstRunConversationIfCurrent({
+                    created,
+                    currentModel: () => ready()?.model,
+                    lifecycle,
+                    model: state().model,
+                    onAttached: setConversation,
+                    request,
+                  })
+                }}
+              />
+            }
+          >
+            {(active) => (
               <ChatView
                 conversation={active()}
                 model={state().model}
@@ -152,10 +155,10 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                   if (next) setConversation(next)
                 }}
               />
-            )
-          }}
-        </Show>
-      )}
+            )}
+          </Show>
+        )
+      }}
     </Show>
   )
 }

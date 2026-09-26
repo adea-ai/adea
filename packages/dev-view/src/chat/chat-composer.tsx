@@ -133,6 +133,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     event.preventDefault()
     const text = draft().trim()
     if (disabled() || text.length === 0) return
+    const submittedIdentity: ChatDraftIdentity = {
+      runtimeSessionId: props.conversation.runtimeSessionId,
+      generation: props.conversation.generation,
+    }
     const submittedDraftRevision = props.draftRevision ?? 0
     const submittedLocalDraftRevision = localDraftRevision
     setSending(true)
@@ -140,18 +144,13 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       if (submitMode === 'steer') await props.onSteer?.(text)
       else await props.onSend?.(text)
       if (
+        props.conversation.runtimeSessionId === submittedIdentity.runtimeSessionId &&
+        props.conversation.generation === submittedIdentity.generation &&
         localDraftRevision === submittedLocalDraftRevision &&
         (props.draftRevision ?? 0) === submittedDraftRevision
       ) {
         setDraft('')
-        props.onDraftChange?.(
-          '',
-          {
-            runtimeSessionId: props.conversation.runtimeSessionId,
-            generation: props.conversation.generation,
-          },
-          submittedDraftRevision
-        )
+        props.onDraftChange?.('', submittedIdentity, submittedDraftRevision)
       }
     } catch (error) {
       setResolutionStatus(error instanceof Error ? error.message : 'Message could not be sent.')

@@ -71,6 +71,7 @@ import type { DevRuntimeService, DevWorkspaceProjection } from './platform'
 import type { TerminalStreamSocket } from './terminal/transport'
 import type { ShellObservation } from './terminal/blocks'
 import { resolveDevSelection, type DevSelection, type DevSelectionReason } from './selection'
+import { FixtureTerminalPane } from './terminal/fixture-terminal-pane'
 import {
   archiveShelfError,
   archiveShelfReady,
@@ -332,11 +333,6 @@ const SourceControlPane = lazy(() =>
 const CodeEditor = lazy(() =>
   import('./editor/code-editor').then((module) => ({ default: module.CodeEditor }))
 )
-const FixtureTerminalPane = lazy(() =>
-  import('./terminal/fixture-terminal-pane').then((module) => ({
-    default: module.FixtureTerminalPane,
-  }))
-)
 /*
  * #398 follow-up: the sidebar repository registry panel rides its own lazy
  * chunk exactly like the utility panes — the client budget the bundle check
@@ -420,7 +416,6 @@ function createFixtureTerminalObservations() {
 
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
-  const fixtureTerminalConnect = createFixtureTerminalConnect()
   const fixtureTerminalObservations = createFixtureTerminalObservations()
   let storageController: ReturnType<typeof createLayoutStorageController> | undefined
   // #399: the file the central editor leaf shows. Open files are session-local
@@ -1308,15 +1303,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             unavailable={runtimeState().status === 'unavailable'}
             renderTerminalLeaf={() =>
               fixtureMode() ? (
-                <Suspense fallback={<p class="dev-pane-state__line">Attaching terminal…</p>}>
-                  <FixtureTerminalPane
-                    connect={fixtureTerminalConnect}
-                    fromSequence="0"
-                    subscribeToObservations={fixtureTerminalObservations}
-                    write={() => true}
-                    worktreeLabel="Example project"
-                  />
-                </Suspense>
+                <FixtureTerminalPane
+                  connect={createFixtureTerminalConnect()}
+                  fromSequence="0"
+                  subscribeToObservations={fixtureTerminalObservations}
+                  write={() => true}
+                  worktreeLabel="Example project"
+                />
               ) : undefined
             }
             renderEditorLeaf={() => {

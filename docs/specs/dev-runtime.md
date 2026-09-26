@@ -1313,7 +1313,8 @@ and a new generation under the same `runtimeSessionId` reuse that draft, while
 a workspace, account, or runtime-node change replaces the host. An async send
 may clear a draft only when its session, generation, and host draft revision
 still match; late success from an old composer is ignored, and a failed send
-leaves the draft intact.
+leaves the draft intact. The explicit host callback and the Chat model fallback
+use the same session, generation, and revision fence.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
