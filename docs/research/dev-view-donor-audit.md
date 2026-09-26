@@ -695,3 +695,31 @@ than waiting in a runner, and restored the review-policy check on head updates.
 Its subsequent normal release run completed while the generated version PR's
 required checks were still pending. Version PR #30 publication is not claimed
 by this checkpoint.
+
+### Current release and main refresh
+
+The normal [UI 0.63.2 publisher](https://github.com/adea-ai/ui/actions/runs/36263741845)
+completed successfully from `dd058d2011c70afdcf0ae54f8296307fdda85918`. It retained
+archive, compiled/Solid core consumer, packed appearance interaction and native
+SSR checks, and confirmed npm propagation. An independent `npm view` query
+confirmed version 0.63.2 and its registry integrity. This checkpoint does not
+claim an independent re-download of that version or real application adoption.
+Validation and Design System Gates runs on `dd058d2` are green.
+
+Pending layout, composed-input and paste-model branches now contain that main
+commit. Their fresh format, lint, types and registry checks pass. The pure paste
+model at `762001650c0e9551d63cc00881a00c7973f7ece5` also passes 19 tests with
+61 assertions; independent review found its source, tests, public exports and
+attribution preserved and both packed composition gates retained. Full relevant
+packed/browser qualification and current CI remain merge gates. This is not
+completion of the rich paste editor, host restoration or production migration.
+
+The native repeated-composition-end browser test covers same-turn events and
+recovery. It does not distinguish a stale timer from a refreshed window when
+both ends have the same timestamp; timer-refresh test precision remains a
+separate follow-up. Manual operating-system IME acceptance is still pending.
+
+The subsequent CI-only main `554ca38384194972e280ca4de599843c52cd7ae1`
+refresh is recorded with exact candidate and checked-source SHAs in the
+traceability JSON. It preserves those tested product sources; actionlint and
+diff checks pass on the merged workflow.
