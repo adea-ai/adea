@@ -303,16 +303,15 @@ export function ConversationSurface(props: {
 
   const messagesWithDividers = createMemo(() => {
     const list = rootMessages()
-    return list.map((message, index) => {
-      const previousMessage = list[index - 1]
-      return {
-        message,
-        showDayDivider: Boolean(
-          previousMessage &&
-          formatMessageDay(previousMessage.createdAt) !== formatMessageDay(message.createdAt)
-        ),
-      }
-    })
+    // Format each message's day exactly once. The previous shape called
+    // `formatMessageDay` twice per message to test a single adjacency
+    // condition — 2n Intl.DateTimeFormat.format calls per memo run, and
+    // re-running the whole memo for one appended message redid all of them.
+    const days = list.map((message) => formatMessageDay(message.createdAt))
+    return list.map((message, index) => ({
+      message,
+      showDayDivider: index > 0 && days[index - 1] !== days[index],
+    }))
   })
   // Keyed by message id so a refetched page updates rows in place instead of
   // remounting the whole transcript on every new object identity.

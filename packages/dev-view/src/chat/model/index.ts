@@ -89,10 +89,32 @@ function mergeSessionEvents(
   const merged = [...existing]
   for (const event of incoming) {
     if (event.runtimeSessionId !== runtimeSessionId) continue
-    if (merged.some((entry) => eventIdentity(entry) === eventIdentity(event))) continue
+    // The incoming identity is invariant across the scan; the previous
+    // predicate rebuilt it for every retained event on every frame.
+    const id = eventIdentity(event)
+    let alreadyPresent = false
+    for (const entry of merged)
+      if (eventIdentity(entry) === id) {
+        alreadyPresent = true
+        break
+      }
+    if (alreadyPresent) continue
     merged.push(event)
   }
+  // Streamed events arrive in ascending sequence, so the common case is already
+  // ordered and within the retention window: skip the sort entirely. A Set of
+  // identities was tried here for batch appends and measured WORSE in the
+  // dominant single-append-per-frame shape (0.237ms vs 0.160ms at 1000 events),
+  // because rebuilding the Set costs more than the one scan it replaces.
+  if (merged.length <= CHAT_EVENT_RETENTION_LIMIT && isOrdered(compareEvents, merged)) return merged
   return merged.toSorted(compareEvents).slice(-CHAT_EVENT_RETENTION_LIMIT)
+}
+
+/** True when `values` is already in ascending order under `compare`. */
+function isOrdered(compare: (a: RuntimeEvent, b: RuntimeEvent) => number, values: RuntimeEvent[]) {
+  for (let index = 1; index < values.length; index += 1)
+    if (compare(values[index - 1]!, values[index]!) > 0) return false
+  return true
 }
 
 function payloadText(event: RuntimeEvent): string | undefined {
@@ -115,14 +137,24 @@ export function deriveConversationTitle(
   session: RuntimeSession,
   events: readonly RuntimeEvent[]
 ): string {
-  const firstPrompt = [...events]
-    .filter(
-      (event) => event.runtimeSessionId === session.id && event.generation <= session.generation
-    )
-    .toSorted(compareEvents)
-    .map(payloadText)
-    .find((text): text is string => text !== undefined)
-  if (firstPrompt) return Array.from(firstPrompt).slice(0, 80).join('').trim()
+  // Linear minimum rather than a full sort: the answer is the FIRST prompt in
+  // sequence order, so sorting the whole window to read element zero was
+  // O(n log n) for an O(n) question. The minimum is taken over events that
+  // actually carry prompt text, matching the original `map(payloadText).find()`
+  // — taking the minimum over all events would drop an earlier non-prompt
+  // event's contribution to the search.
+  let firstText: string | undefined
+  let first: RuntimeEvent | undefined
+  for (const event of events) {
+    if (event.runtimeSessionId !== session.id || event.generation > session.generation) continue
+    const text = payloadText(event)
+    if (text === undefined) continue
+    if (first === undefined || compareEvents(event, first) < 0) {
+      first = event
+      firstText = text
+    }
+  }
+  if (firstText) return Array.from(firstText).slice(0, 80).join('').trim()
   return session.displayName?.trim() || 'New conversation'
 }
 
@@ -131,12 +163,13 @@ export function deriveConversationStatus(
   session: RuntimeSession,
   events: readonly RuntimeEvent[]
 ): ChatConversationStatus {
-  const latest = [...events]
-    .filter(
-      (event) => event.runtimeSessionId === session.id && event.generation === session.generation
-    )
-    .toSorted(compareEvents)
-    .at(-1)
+  // Same shape: a linear maximum instead of sorting the window to read the
+  // last element.
+  let latest: RuntimeEvent | undefined
+  for (const event of events) {
+    if (event.runtimeSessionId !== session.id || event.generation !== session.generation) continue
+    if (latest === undefined || compareEvents(event, latest) > 0) latest = event
+  }
   return (latest ? lifecycleByEvent[latest.kind] : undefined) ?? session.lifecycle
 }
 
@@ -201,15 +234,21 @@ export function projectChatConversations(
       },
     })
   }
+  // One pass to bucket conversations by project, instead of re-filtering the
+  // whole conversation list inside the project map (O(projects x conversations)).
+  const conversationIdsByProject = new Map<string, string[]>()
+  for (const conversation of conversations) {
+    const bucket = conversationIdsByProject.get(conversation.projectId)
+    if (bucket) bucket.push(conversation.runtimeSessionId)
+    else conversationIdsByProject.set(conversation.projectId, [conversation.runtimeSessionId])
+  }
   const projects = input.projects
     .filter((project) => scopeMatches(project.scope, input.scope))
     .map<ChatProjectProjection>((project) => ({
       id: project.id,
       name: project.name,
       groupIds: groupsForProject(project, input.groups),
-      conversationIds: conversations
-        .filter((conversation) => conversation.projectId === project.id)
-        .map((conversation) => conversation.runtimeSessionId),
+      conversationIds: conversationIdsByProject.get(project.id) ?? [],
     }))
   return { scope: input.scope, groups, projects, conversations }
 }

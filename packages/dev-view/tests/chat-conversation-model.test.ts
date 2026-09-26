@@ -10,6 +10,8 @@ import {
 import type { DevRuntimeService, DevStreamTransportSocket } from '../src/platform'
 import {
   createChatConversationModel,
+  deriveConversationStatus,
+  deriveConversationTitle,
   projectChatConversations,
   type ChatUserInput,
 } from '../src/chat/model'
@@ -1119,3 +1121,149 @@ function fakeService(execute: DevRuntimeService['execute']): DevRuntimeService {
 }
 
 void (null as unknown as DevStreamTransportSocket)
+
+// The title and status derivations are exported and previously had no direct
+// test at all. Both were rewritten from a full sort to a linear scan, so this
+// pins the cases a naive rewrite gets wrong: an earlier event that carries no
+// prompt text must not shadow the first event that does, and status must come
+// from the current generation only.
+describe('conversation derivations from canonical events', () => {
+  const subject = {
+    displayName: 'Aurora',
+    generation: 2,
+    id: '00000000-0000-4000-8000-0000000000aa',
+    lifecycle: 'idle',
+  } as unknown as RuntimeSession
+
+  function derived(overrides: Partial<RuntimeEvent>): RuntimeEvent {
+    return event({
+      eventId: 'e',
+      runtimeSessionId: subject.id,
+      sourceEventId: 's',
+      ...overrides,
+    })
+  }
+
+  test('the title is the first prompt that actually carries text', () => {
+    // seq 1 is a non-prompt event, so a scan that takes the minimum over ALL
+    // events and then reads its text would miss the prompt at seq 2.
+    const title = deriveConversationTitle(subject, [
+      derived({ eventId: 'a', sourceEventId: 'a', seq: '1', kind: 'session.starting' }),
+      derived({
+        eventId: 'b',
+        sourceEventId: 'b',
+        seq: '2',
+        kind: 'turn.user_input',
+        payload: { text: 'first real prompt' },
+      }),
+      derived({
+        eventId: 'c',
+        sourceEventId: 'c',
+        seq: '3',
+        kind: 'turn.user_input',
+        payload: { text: 'later prompt' },
+      }),
+    ])
+    expect(title).toBe('first real prompt')
+  })
+
+  test('the title ignores other sessions and later generations, and falls back truthfully', () => {
+    const other = derived({
+      eventId: 'o',
+      sourceEventId: 'o',
+      runtimeSessionId: '00000000-0000-4000-8000-0000000000bb',
+      seq: '0',
+      kind: 'turn.user_input',
+      payload: { text: 'someone else' },
+    })
+    const future = derived({
+      eventId: 'f',
+      sourceEventId: 'f',
+      generation: 3,
+      seq: '1',
+      kind: 'turn.user_input',
+      payload: { text: 'from the future' },
+    })
+    expect(deriveConversationTitle(subject, [other, future])).toBe('Aurora')
+    expect(
+      deriveConversationTitle({ ...subject, displayName: undefined } as RuntimeSession, [
+        other,
+        future,
+      ])
+    ).toBe('New conversation')
+  })
+
+  test('the title picks the earliest across generations, not the newest generation alone', () => {
+    const title = deriveConversationTitle(subject, [
+      derived({
+        eventId: 'g1',
+        sourceEventId: 'g1',
+        generation: 1,
+        seq: '9',
+        kind: 'turn.user_input',
+        payload: { text: 'from generation one' },
+      }),
+      derived({
+        eventId: 'g2',
+        sourceEventId: 'g2',
+        generation: 2,
+        seq: '1',
+        kind: 'turn.user_input',
+        payload: { text: 'from generation two' },
+      }),
+    ])
+    expect(title).toBe('from generation one')
+  })
+
+  test('status reads the latest event of the CURRENT generation only', () => {
+    const status = deriveConversationStatus(subject, [
+      derived({
+        eventId: 'a',
+        sourceEventId: 'a',
+        generation: 1,
+        seq: '1',
+        kind: 'session.completed',
+      }),
+      derived({
+        eventId: 'b',
+        sourceEventId: 'b',
+        generation: 2,
+        seq: '1',
+        kind: 'session.ready',
+      }),
+      // A future generation must not decide the current status.
+      derived({
+        eventId: 'c',
+        sourceEventId: 'c',
+        generation: 3,
+        seq: '9',
+        kind: 'session.completed',
+      }),
+    ])
+    expect(status).toBe('ready')
+  })
+
+  test('out-of-order windows still derive the same first prompt and latest status', () => {
+    // Arrival order is not sequence order; the derivations must order by
+    // sequence, not by position in the array.
+    const events = [
+      derived({
+        eventId: 'b',
+        sourceEventId: 'b',
+        generation: 2,
+        seq: '5',
+        kind: 'session.completed',
+      }),
+      derived({
+        eventId: 'a',
+        sourceEventId: 'a',
+        generation: 2,
+        seq: '2',
+        kind: 'turn.user_input',
+        payload: { text: 'earlier prompt' },
+      }),
+    ]
+    expect(deriveConversationTitle(subject, events)).toBe('earlier prompt')
+    expect(deriveConversationStatus(subject, events)).toBe('completed')
+  })
+})

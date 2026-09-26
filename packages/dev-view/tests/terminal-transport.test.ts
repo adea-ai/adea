@@ -6,7 +6,11 @@
 import { describe, expect, test } from 'bun:test'
 
 import type { DevStreamFrame } from '@adea-ai/types/dev-runtime'
-import { createTerminalTransport, type TerminalStreamSocket } from '../src/terminal/transport'
+import {
+  createTerminalTransport,
+  DEFAULT_TRANSPORT_LIMITS,
+  type TerminalStreamSocket,
+} from '../src/terminal/transport'
 
 type FakeServer = {
   frames: DevStreamFrame[]
@@ -16,7 +20,7 @@ type FakeServer = {
   bufferedAmount: number
 }
 
-function makeHarness() {
+function makeHarness(limitOverrides: Partial<typeof DEFAULT_TRANSPORT_LIMITS> = {}) {
   let server: FakeServer | null = null
   const sockets: FakeServer[] = []
   const output: Array<{ sequence: string; text: string }> = []
@@ -92,6 +96,7 @@ function makeHarness() {
       reconnectMaxMs: 8,
       heartbeatIntervalMs: 20,
       heartbeatUnhealthyAfterMs: 60,
+      ...limitOverrides,
     },
   })
 
@@ -184,6 +189,39 @@ describe('terminal transport', () => {
     harness.server!.bufferedAmount = 0
     await Bun.sleep(10)
     expect(harness.server!.frames.filter((frame) => frame.type === 'input').length).toBe(2)
+    harness.transport.dispose()
+  })
+
+  // The drain poll used to run at a flat 100Hz for as long as any input was
+  // queued, which is ~50 wake-ups per keystroke burst against a full window
+  // while nothing was draining. Two properties are pinned here: a `data` frame
+  // (which returns credit) wakes the drain immediately, and a poll that makes
+  // no progress backs off instead of retrying at the fast rate forever.
+  test('a credit frame wakes queued input immediately and a stalled drain backs off', async () => {
+    // A generous heartbeat budget so the observation window below cannot be cut
+    // short by the harness's own 60ms timeout (which would silently hand the
+    // test a brand-new fake socket with no frames).
+    const harness = makeHarness({ heartbeatUnhealthyAfterMs: 60_000 })
+    harness.transport.start('0')
+    await Bun.sleep(5)
+    harness.transport.write(new TextEncoder().encode('a'))
+    // Socket is full, so this one queues.
+    harness.server!.bufferedAmount = 2 * 1024 * 1024
+    expect(harness.transport.write(new TextEncoder().encode('b'))).toBe(true)
+    expect(harness.server!.frames.filter((frame) => frame.type === 'input')).toHaveLength(1)
+
+    // While the buffer stays full the poll retries with a growing interval
+    // rather than at a flat 10ms, and still sends nothing.
+    await Bun.sleep(120)
+    expect(harness.server!.frames.filter((frame) => frame.type === 'input')).toHaveLength(1)
+
+    // A credit-returning data frame frees the window, and the queued byte goes
+    // out on that frame's turn — no waiting for the fallback poll.
+    harness.server!.bufferedAmount = 0
+    harness.server!.deliver({ type: 'data', sequence: '0', bytes: new Uint8Array([7]) })
+    // `deliver` hops a microtask, so let the frame land.
+    await Bun.sleep(5)
+    expect(harness.server!.frames.filter((frame) => frame.type === 'input')).toHaveLength(2)
     harness.transport.dispose()
   })
 
