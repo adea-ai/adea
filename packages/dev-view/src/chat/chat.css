@@ -142,19 +142,6 @@
   font-size: 0.75rem;
 }
 
-.dev-chat__question input {
-  width: 100%;
-  border: 1px solid var(--dev-border, var(--border));
-  border-radius: 0.45rem;
-  color: inherit;
-  background: var(--background);
-}
-
-.dev-chat__question input {
-  min-height: 2rem;
-  padding: 0.4rem 0.55rem;
-}
-
 .dev-chat__composer {
   display: grid;
   gap: 0.5rem;

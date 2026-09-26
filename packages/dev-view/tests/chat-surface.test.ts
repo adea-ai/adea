@@ -5,7 +5,7 @@ import { chatComposerDisabledReason } from '../src/chat/composer-availability'
 import {
   CHAT_RESPONSE_UNAVAILABLE_REASON,
   chatTranscriptActionDisabledReason,
-} from '../src/chat/chat-transcript'
+} from '../src/chat/transcript-availability'
 import { projectTranscriptEvents } from '../src/chat/presentation'
 
 function event(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
