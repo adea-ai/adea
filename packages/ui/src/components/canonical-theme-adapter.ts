@@ -1,13 +1,11 @@
-import {
-  chartSeries,
-  getTheme,
-  oklchToHex,
-  parseColor,
-  shadcnVariables,
-  syntaxRoles,
-  toXtermTheme,
-  type AdeaTheme,
-} from '@adea-ai/themes'
+import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
+import adeaLightTheme from '@adea-ai/themes/themes/adea-light'
+import { shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
+import { toShikiTheme } from '@adea-ai/themes/adapters/shiki'
+import { themeCssVariables } from '@adea-ai/themes/adapters/css'
+import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
+import { oklchToHex, parseColor, repairContrast } from '@adea-ai/themes/oklch'
+import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/themes/schema'
 
 import type {
   ThemeChartRoles,
@@ -44,6 +42,51 @@ const SHADCN_COLOR_TOKENS = [
   'ring',
 ] as const
 
+const CANONICAL_ADEA_THEMES: Readonly<Record<CanonicalAdeaThemeId, AdeaThemeRecord>> = {
+  'adea-light': adeaLightTheme,
+  'adea-dark': adeaDarkTheme,
+}
+
+const EDITOR_ROLES = [
+  'keyword',
+  'string',
+  'number',
+  'comment',
+  'function',
+  'variable',
+  'type',
+  'tag',
+  'attribute',
+  'operator',
+  'heading',
+  'link',
+  'diffAdd',
+  'diffDelete',
+  'diffHunk',
+  'searchMatch',
+] as const
+
+type EditorRole = (typeof EDITOR_ROLES)[number]
+
+const SHIKI_SCOPE_BY_ROLE: Readonly<Record<EditorRole, string>> = {
+  keyword: 'keyword',
+  string: 'string',
+  number: 'constant.numeric',
+  comment: 'comment',
+  function: 'entity.name.function',
+  variable: 'variable',
+  type: 'entity.name.type',
+  tag: 'entity.name.tag',
+  attribute: 'entity.other.attribute-name',
+  operator: 'keyword.operator',
+  heading: 'markup.heading',
+  link: 'markup.underline.link',
+  diffAdd: 'markup.inserted',
+  diffDelete: 'markup.deleted',
+  diffHunk: 'meta.diff.range',
+  searchMatch: 'markup.highlight',
+}
+
 function asHex(value: string, role: string): string {
   const parsed = parseColor(value)
   if (!parsed) throw new Error(`canonical Adea theme role ${role} is not a colour: ${value}`)
@@ -63,14 +106,31 @@ function canonicalShadcnTokens(theme: AdeaTheme): Record<string, string> {
 }
 
 function canonicalSyntaxHex(theme: AdeaTheme): Record<string, string> {
-  // Adea's existing registry validator treats comments as readable editor text
-  // (4.5:1). The package's default syntax floor is intentionally softer (2:1),
-  // so use its public repair option rather than reimplementing contrast math.
+  const shiki = toShikiTheme(theme)
+  const background = parseColor(shiki.colors['editor.background']!)
+  if (!background) throw new Error(`canonical ${theme.id} has no editor background`)
+
   return Object.fromEntries(
-    Object.entries(syntaxRoles(theme, { commentFloor: 4.5 })).map(([role, value]) => [
-      role,
-      asHex(value, `editor.${role}`),
-    ])
+    EDITOR_ROLES.map((role) => {
+      const scope = SHIKI_SCOPE_BY_ROLE[role]
+      const setting = shiki.settings.find((candidate) => {
+        const scopes = typeof candidate.scope === 'string' ? [candidate.scope] : candidate.scope
+        return scopes?.includes(scope)
+      })
+      const foreground = setting?.settings.foreground
+      const parsed = foreground ? parseColor(foreground) : undefined
+      if (!parsed) throw new Error(`canonical ${theme.id} is missing editor.${role}`)
+
+      // The published Shiki adapter supplies the role mapping and hex conversion;
+      // Adea's editor contract additionally requires every foreground to clear
+      // the text floor. Use the package's public OKLCH repair instead of local
+      // contrast math, including for the dim ANSI white used by variables/operators.
+      const repaired = repairContrast(parsed, background, 4.5)
+      if (!repaired.satisfied) {
+        throw new Error(`canonical ${theme.id} cannot repair editor.${role} contrast`)
+      }
+      return [role, oklchToHex(repaired.color)]
+    })
   )
 }
 
@@ -83,8 +143,7 @@ function canonicalSyntaxHex(theme: AdeaTheme): Record<string, string> {
  * document authority.
  */
 export function canonicalThemeCssTokens(id: CanonicalAdeaThemeId): Record<string, string> {
-  const theme = getTheme(id)
-  if (!theme) throw new Error(`canonical Adea theme ${id} is not published`)
+  const theme = CANONICAL_ADEA_THEMES[id]
 
   const tokens = canonicalShadcnTokens(theme)
   const terminal = toXtermTheme(theme)
@@ -135,30 +194,16 @@ export function canonicalThemeCssTokens(id: CanonicalAdeaThemeId): Record<string
   })
 
   const syntax = canonicalSyntaxHex(theme)
-  for (const role of [
-    'keyword',
-    'string',
-    'number',
-    'comment',
-    'function',
-    'variable',
-    'type',
-    'tag',
-    'attribute',
-    'operator',
-    'heading',
-    'link',
-    'diffAdd',
-    'diffDelete',
-    'diffHunk',
-    'searchMatch',
-  ] as const) {
+  for (const role of EDITOR_ROLES) {
     tokens[`--editor-${role.replaceAll(/[A-Z]/g, (value) => `-${value.toLowerCase()}`)}`] =
       syntax[role]
   }
-  chartSeries(theme).forEach((value, index) => {
-    tokens[`--chart-${index + 1}`] = asHex(value, `chart${index + 1}`)
-  })
+  const cssVariables = themeCssVariables(theme)
+  for (let index = 1; index <= 6; index += 1) {
+    const value = cssVariables[`--adea-chart-${index}`]
+    if (!value) throw new Error(`canonical ${theme.id} is missing chart${index}`)
+    tokens[`--chart-${index}`] = asHex(value, `chart${index}`)
+  }
   return Object.freeze(tokens)
 }
 
@@ -239,7 +284,12 @@ function canonicalEditor(theme: AdeaTheme): ThemeEditorRoles {
 }
 
 function canonicalCharts(theme: AdeaTheme): ThemeChartRoles {
-  const values = chartSeries(theme).map((value, index) => asHex(value, `chart${index + 1}`))
+  const cssVariables = themeCssVariables(theme)
+  const values = Array.from({ length: 6 }, (_, index) => {
+    const value = cssVariables[`--adea-chart-${index + 1}`]
+    if (!value) throw new Error(`canonical ${theme.id} is missing chart${index + 1}`)
+    return asHex(value, `chart${index + 1}`)
+  })
   return {
     chart1: values[0]!,
     chart2: values[1]!,
@@ -252,8 +302,7 @@ function canonicalCharts(theme: AdeaTheme): ThemeChartRoles {
 
 /** Convert one published record into Adea's established runtime variant shape. */
 export function canonicalThemeVariant(id: CanonicalAdeaThemeId): ThemeVariant {
-  const theme = getTheme(id)
-  if (!theme) throw new Error(`canonical Adea theme ${id} is not published`)
+  const theme = CANONICAL_ADEA_THEMES[id]
   return Object.freeze({
     id: theme.id,
     familyId: theme.family,

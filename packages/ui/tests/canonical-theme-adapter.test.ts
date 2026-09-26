@@ -1,14 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
+import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
+import adeaLightTheme from '@adea-ai/themes/themes/adea-light'
+import { themeCssVariables } from '@adea-ai/themes/adapters/css'
+import { toShikiTheme } from '@adea-ai/themes/adapters/shiki'
+import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
 import {
-  chartSeries,
-  getTheme,
-  oklchToHex,
+  contrastRatio as canonicalContrastRatio,
   parseColor,
-  shadcnVariables,
-  syntaxRoles,
-  toXtermTheme,
-} from '@adea-ai/themes'
+  oklchToHex,
+} from '@adea-ai/themes/oklch'
+import { shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
 
 import { builtinThemeRegistry, validateThemeRegistry } from '../src/components/appearance'
 import {
@@ -17,6 +19,11 @@ import {
   canonicalThemeCssTokens,
   canonicalThemeVariant,
 } from '../src/components/canonical-theme-adapter'
+
+const canonicalThemes = {
+  'adea-light': adeaLightTheme,
+  'adea-dark': adeaDarkTheme,
+} as const
 
 function hex(value: string): string {
   const parsed = parseColor(value)
@@ -51,12 +58,11 @@ describe('published Adea theme adapter', () => {
 
   test('maps every published role through the package adapters', () => {
     for (const id of CANONICAL_ADEA_THEME_IDS) {
-      const theme = getTheme(id)!
+      const theme = canonicalThemes[id]
       const variant = canonicalThemeVariant(id)
       const shadcn = shadcnVariables(theme)
       const terminal = toXtermTheme(theme)
-      const syntax = syntaxRoles(theme, { commentFloor: 4.5 })
-      const charts = chartSeries(theme)
+      const cssVariables = themeCssVariables(theme)
 
       expect(variant.colors.background).toBe(hex(shadcn['--background']!))
       expect(variant.colors.primary).toBe(hex(shadcn['--primary']!))
@@ -83,9 +89,23 @@ describe('published Adea theme adapter', () => {
         terminal.brightCyan,
         terminal.brightWhite,
       ])
-      expect(variant.editor.comment).toBe(hex(syntax.comment))
-      expect(variant.editor.diffAdd).toBe(hex(syntax.diffAdd))
-      expect(Object.values(variant.charts)).toEqual(charts.map(hex))
+      expect(Object.values(variant.charts)).toEqual(
+        Array.from({ length: 6 }, (_, index) => hex(cssVariables[`--adea-chart-${index + 1}`]!))
+      )
+
+      const editorBackground = parseColor(variant.colors.background)
+      expect(editorBackground).toBeDefined()
+      for (const [role, value] of Object.entries(variant.editor)) {
+        const foreground = parseColor(value)
+        expect(foreground, `${id} ${role} parses`).toBeDefined()
+        expect(
+          canonicalContrastRatio(foreground!, editorBackground!),
+          `${id} editor.${role} contrast`
+        ).toBeGreaterThanOrEqual(4.5)
+      }
+
+      const shiki = toShikiTheme(theme)
+      expect(shiki.colors['editor.background']).toBe(variant.colors.background)
     }
   })
 
