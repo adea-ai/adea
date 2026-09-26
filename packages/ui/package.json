@@ -61,6 +61,7 @@
     "test": "bun test tests",
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
+    "themes:generate": "bun scripts/generate-canonical-theme-data.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

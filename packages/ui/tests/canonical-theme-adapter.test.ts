@@ -2,13 +2,14 @@ import { describe, expect, test } from 'bun:test'
 
 import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
 import adeaLightTheme from '@adea-ai/themes/themes/adea-light'
-import { themeCssVariables } from '@adea-ai/themes/adapters/css'
+import { syntaxRolesHex } from '@adea-ai/themes'
 import { toShikiTheme } from '@adea-ai/themes/adapters/shiki'
 import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
 import {
   contrastRatio as canonicalContrastRatio,
   parseColor,
   oklchToHex,
+  repairContrast,
 } from '@adea-ai/themes/oklch'
 import { shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
 
@@ -16,9 +17,15 @@ import { builtinThemeRegistry, validateThemeRegistry } from '../src/components/a
 import {
   CANONICAL_ADEA_THEME_IDS,
   canonicalAdeaThemeRegistry,
-  canonicalThemeCssTokens,
   canonicalThemeVariant,
 } from '../src/components/canonical-theme-adapter'
+import { canonicalThemeCssTokens } from '../src/components/canonical-theme-css-data'
+import {
+  CANONICAL_THEME_COLORS,
+  CANONICAL_THEME_DATA,
+  CANONICAL_THEME_PACKAGE,
+  CANONICAL_THEME_VERSION,
+} from '../src/components/canonical-theme-data'
 
 const canonicalThemes = {
   'adea-light': adeaLightTheme,
@@ -44,6 +51,26 @@ function cssBlock(css: string, selector: string): Record<string, string> {
 }
 
 describe('published Adea theme adapter', () => {
+  test('records the generated package provenance', () => {
+    expect(CANONICAL_THEME_PACKAGE).toBe('@adea-ai/themes')
+    expect(CANONICAL_THEME_VERSION).toBe('0.5.0')
+  })
+
+  test('keeps generated records compact and limited to the published pair', () => {
+    expect(Object.keys(CANONICAL_THEME_DATA)).toEqual(['adea-light', 'adea-dark'])
+    expect(CANONICAL_THEME_COLORS.length).toBeGreaterThan(0)
+    for (const record of Object.values(CANONICAL_THEME_DATA)) {
+      expect(record[0]).toHaveLength(2)
+      expect(record[1]).toHaveLength(19)
+      expect(record[2]).toHaveLength(18)
+      expect(record[3]).toHaveLength(16)
+      for (const index of record.slice(1).flat()) {
+        expect(index).toBeGreaterThanOrEqual(0)
+        expect(index).toBeLessThan(CANONICAL_THEME_COLORS.length)
+      }
+    }
+  })
+
   test('keeps the published pair in the existing registry shape', () => {
     expect(canonicalAdeaThemeRegistry.map((variant) => variant.id)).toEqual(
       CANONICAL_ADEA_THEME_IDS
@@ -62,12 +89,33 @@ describe('published Adea theme adapter', () => {
       const variant = canonicalThemeVariant(id)
       const shadcn = shadcnVariables(theme)
       const terminal = toXtermTheme(theme)
-      const cssVariables = themeCssVariables(theme)
 
-      expect(variant.colors.background).toBe(hex(shadcn['--background']!))
-      expect(variant.colors.primary).toBe(hex(shadcn['--primary']!))
-      expect(variant.colors.accent).toBe(hex(shadcn['--accent']!))
-      expect(variant.colors.destructive).toBe(hex(shadcn['--destructive']!))
+      const shadcnNames = {
+        background: '--background',
+        foreground: '--foreground',
+        card: '--card',
+        cardForeground: '--card-foreground',
+        popover: '--popover',
+        popoverForeground: '--popover-foreground',
+        primary: '--primary',
+        primaryForeground: '--primary-foreground',
+        secondary: '--secondary',
+        secondaryForeground: '--secondary-foreground',
+        muted: '--muted',
+        mutedForeground: '--muted-foreground',
+        accent: '--accent',
+        accentForeground: '--accent-foreground',
+        destructive: '--destructive',
+        success: '--success',
+        border: '--border',
+        input: '--input',
+        ring: '--ring',
+      } as const
+      for (const [role, cssName] of Object.entries(shadcnNames)) {
+        expect(variant.colors[role as keyof typeof variant.colors], `${id} ${role}`).toBe(
+          hex(shadcn[cssName]!)
+        )
+      }
       expect(variant.terminal.background).toBe(terminal.background)
       expect(variant.terminal.cursor).toBe(terminal.cursor)
       expect(variant.terminal.selection).toBe(terminal.selectionBackground)
@@ -90,11 +138,14 @@ describe('published Adea theme adapter', () => {
         terminal.brightWhite,
       ])
       expect(Object.values(variant.charts)).toEqual(
-        Array.from({ length: 6 }, (_, index) => hex(cssVariables[`--adea-chart-${index + 1}`]!))
+        ['blue', 'magenta', 'cyan', 'green', 'yellow', 'red'].map((role) =>
+          hex(theme.ansi[role as keyof typeof theme.ansi])
+        )
       )
 
       const editorBackground = parseColor(variant.colors.background)
       expect(editorBackground).toBeDefined()
+      const syntax = syntaxRolesHex(theme)
       for (const [role, value] of Object.entries(variant.editor)) {
         const foreground = parseColor(value)
         expect(foreground, `${id} ${role} parses`).toBeDefined()
@@ -102,6 +153,10 @@ describe('published Adea theme adapter', () => {
           canonicalContrastRatio(foreground!, editorBackground!),
           `${id} editor.${role} contrast`
         ).toBeGreaterThanOrEqual(4.5)
+        const published = parseColor(syntax[role as keyof typeof syntax])
+        expect(published).toBeDefined()
+        const repaired = repairContrast(published!, editorBackground!, 4.5)
+        expect(value, `${id} editor.${role} canonical repair`).toBe(oklchToHex(repaired.color))
       }
 
       const shiki = toShikiTheme(theme)
