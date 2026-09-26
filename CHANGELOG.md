@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.3](https://github.com/adea-ai/adea/compare/v0.61.2...v0.61.3) (2026-09-26)
+
+
+### Documentation
+
+* refresh donor audit release evidence ([#752](https://github.com/adea-ai/adea/issues/752)) ([957c5f3](https://github.com/adea-ai/adea/commit/957c5f38a6dbfc9253be23a918536ad686fe6a96))
+
 ## [0.61.2](https://github.com/adea-ai/adea/compare/v0.61.1...v0.61.2) (2026-09-26)
 
 
