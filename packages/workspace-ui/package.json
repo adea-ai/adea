@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/workspace-ui",
-  "version": "0.60.4",
+  "version": "0.60.5",
   "private": true,
   "type": "module",
   "sideEffects": false,
