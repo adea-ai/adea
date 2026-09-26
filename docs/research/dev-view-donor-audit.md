@@ -514,3 +514,49 @@ heavy peers, unrelated theme/layout/workshop JS and fonts. Busy gzip JS measures
 CSS bytes under the unchanged 26 KiB/42 KiB caps. Required external Tailwind
 sources are scanned explicitly. This extends isolated packed evidence only;
 the known required root-import failure and application acceptance remain open.
+
+### Selected composed-input checkpoint
+
+The full pinned Kiro `ChatInput.tsx` (4,998 lines) and its nearest collapse test
+(426 lines) have now been read. The earlier partial-parent review notes are
+historical; feature-specific comparisons and full product composition remain
+open. [UI issue #21](https://github.com/adea-ai/ui/issues/21) tracks the shared
+composition. Its selected input pilot is published at
+[commit `c898bfa`](https://github.com/adea-ai/ui/commit/c898bfa47579396f0931f1b19012a4d550039645)
+on the retained integration branch, dependent on the original UI #16/#18/#19/#20
+merge paths.
+
+`ChatComposer` preserves the knowledge/follow-up/adjacent-band order, approval
+and notices, staged content, input/action groups and context shelf. Controlled
+reading collapse unmounts the input and shelf while retaining the host draft and
+caret. Instance-scoped focus replaces global lookup/broadcast; local delivery
+feedback is fenced by the host reset key. Existing IME and busy controls compose
+without a second runtime authority. Per-action payload eligibility preserves the
+donor distinction: reference-only drafts may send or queue, but cannot steer.
+Kobalte supplies menus; native CSS sizing preserves multiline growth, overflow
+cap and width response on the two verified engines. Legacy fallback is not claimed.
+
+The final source run passes 54 checks in Chromium/WebKit, including 32 themed,
+density and width checks with axe/overflow/screenshots, clean native Node SSR,
+collapse/focus/draft/caret, scoped composers, failure recovery, busy/alternate/IME,
+reference-only action eligibility, connectivity/approval and older-scope feedback.
+Narrow and wide screenshots were inspected. The actual npm tarball passes 96
+check groups across both engines and both compiled/Solid exports: 28 conversation,
+24 busy and 44 composed groups. The latter additionally prove pending read-only
+input and spinner animation with explicitly scanned external CSS sources.
+
+Composed gzip JS measures 53,345/53,437 bytes, with 33,201 raw CSS bytes, against
+its own 54 KiB/42 KiB caps. Existing conversation and busy budgets remain unchanged.
+Each fixture retains one Solid runtime and one JS chunk, packed LICENSE and all
+four selected Kiro NOTICE sections, and independent unrelated-module/font exclusions.
+The final source changes pass types/lint/format/registry checks. Broad verification
+passes its earlier gates (141 UI tests/15,714 assertions, five workshop tests,
+coverage, builds and tree budgets), then **fails** the same six required optional
+Chart peer root-import cases. That gate remains required and unresolved.
+
+This checkpoint does not establish full Chat, paste-token editing, sent-prompt
+undo/history, manual resize, mapped upload/skill/voice/optimizer/stop/resume
+contributions, canonical runtime restoration, manual accessibility, application
+migration, release or packaged acceptance. No application implementation or old
+system is removed. Adea migration remains first, followed by Cortana only after
+the shared scope and each replacement consumer meet their acceptance gates.

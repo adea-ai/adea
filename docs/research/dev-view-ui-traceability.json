@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "ecbda22d6baa204dcca57f9e9a41cc1782d5b950f64ff8baad23e0715bcfbeb4",
+  "manifestDigest": "31e3717a4282fd2ce1d7ac7b6b8beafa25dcb9a8f75349d017b9cff747f26ff8",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -9592,7 +9592,7 @@
       "donor": "kirocrew",
       "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
       "sourceUnits": ["website/src/hooks/useImeGuard.ts", "website/src/components/ChatInput.tsx"],
-      "sourceReview": "Guard read in full; ChatInput Enter binding and hook use reviewed. Full ChatInput and the whole Chat surface remain pending.",
+      "sourceReview": "Guard and nearest tests read in full; initial review covered ChatInput Enter binding and hook use. The later parentSourceReview records the completed 4998-line parent review; full product Chat remains pending.",
       "referenceTests": [
         "website/src/test/SideChat.imeEnter.test.tsx",
         "website/src/hooks/useImeGuard.documentLatch.test.tsx"
@@ -9661,6 +9661,15 @@
         "artifactChecks": "Actual npm tarball installed without optional heavy peers; exported conversation subpath, correct unmixed conditions, one Solid runtime, no unrelated charts/carousel/editor/xterm/highlighter/story/layout/theme JS or font assets. Packed Apache LICENSE and both KiroCrew NOTICE sections retained.",
         "broaderValidation": "bun run verify failed at the required packed root-import gate: six cases fail on missing optional chart peers. Earlier format/lint/types, 141 UI tests/15696 assertions, five workshop tests, coverage/theme/registry, UI/Storybook builds, tree budgets and pack structural checks passed. This pilot does not replace or waive the failing gate.",
         "limits": "Disposable Vite browser consumer at 768px, not actual Adea/Cortana production pipelines, native SSR, manual OS IME/assistive technology, full donor Chat composition, canonical restoration, release readiness or packaged application acceptance."
+      },
+      "parentSourceReview": {
+        "path": "website/src/components/ChatInput.tsx",
+        "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+        "lines": 4998,
+        "status": "read_in_full",
+        "nearestAdditionalTest": "website/src/test/ChatInput.collapse.test.tsx",
+        "testLines": 426,
+        "limits": "Import and related unit reviews remain feature-specific; reading the full parent does not establish ported composition or application acceptance."
       }
     },
     {
@@ -9768,6 +9777,15 @@
         "artifactChecks": "Actual npm tarball installed without optional heavy peers; exported conversation subpath, correct unmixed conditions, one Solid runtime, no unrelated charts/carousel/editor/xterm/highlighter/story/layout/theme JS or font assets. Packed Apache LICENSE and both KiroCrew NOTICE sections retained.",
         "broaderValidation": "bun run verify failed at the required packed root-import gate: six cases fail on missing optional chart peers. Earlier format/lint/types, 141 UI tests/15696 assertions, five workshop tests, coverage/theme/registry, UI/Storybook builds, tree budgets and pack structural checks passed. This pilot does not replace or waive the failing gate.",
         "limits": "Disposable Vite browser consumer at 768px, not actual Adea/Cortana production pipelines, native SSR, manual OS IME/assistive technology, full donor Chat composition, canonical restoration, release readiness or packaged application acceptance."
+      },
+      "parentSourceReview": {
+        "path": "website/src/components/ChatInput.tsx",
+        "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+        "lines": 4998,
+        "status": "read_in_full",
+        "nearestAdditionalTest": "website/src/test/ChatInput.collapse.test.tsx",
+        "testLines": 426,
+        "limits": "Import and related unit reviews remain feature-specific; reading the full parent does not establish ported composition or application acceptance."
       }
     },
     {
@@ -9780,7 +9798,7 @@
         "website/src/components/BusySendButton.tsx",
         "website/src/hooks/useMenuKeyboard.ts"
       ],
-      "sourceReview": "Both selected units and nearest tests read in full; ChatInput bindings at 1505-1537 and 4476-4549 reviewed. Full 4998-line ChatInput and full Chat composition remain pending.",
+      "sourceReview": "Both selected units and nearest tests read in full; ChatInput bindings at 1505-1537 and 4476-4549 reviewed. The later parentSourceReview records the completed 4998-line parent review; full product Chat remains pending.",
       "referenceTests": [
         "website/src/test/BusySendButton.menuKeyboard.test.tsx",
         "website/src/test/BusySendButton.slotScope.test.tsx"
@@ -9840,7 +9858,123 @@
         "artifactChecks": "Actual tarball, exported subpath and both unmixed conditions, packed LICENSE/all three selected Kiro NOTICE sections, one Solid runtime and one JS chunk per fixture. Unrelated conversation components excluded from each fixture alongside charts/carousel/editor/terminal/highlighter/layout/theme JS/font/workshop modules; required external Tailwind sources scanned explicitly.",
         "additionalChecks": "Package typecheck, script zero-warning lint, Oxfmt and diff checks passed. Broad UI20 source verify passed separately; known six-case required packed root-import compatibility failure from the prior integration remains unresolved and is not waived.",
         "limits": "Disposable browser fixture at 768px, not actual Adea/Cortana production pipelines, native SSR, manual AT, runtime queue delivery, full Chat composition, canonical restoration, release or packaged application acceptance."
+      },
+      "parentSourceReview": {
+        "path": "website/src/components/ChatInput.tsx",
+        "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+        "lines": 4998,
+        "status": "read_in_full",
+        "nearestAdditionalTest": "website/src/test/ChatInput.collapse.test.tsx",
+        "testLines": 426,
+        "limits": "Import and related unit reviews remain feature-specific; reading the full parent does not establish ported composition or application acceptance."
       }
+    },
+    {
+      "id": "532-composed-chat-input",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/532",
+      "proposal": "https://github.com/adea-ai/ui/issues/21",
+      "scope": "Selected composer hierarchy, controlled collapse/focus and delivery presentation; not full Chat, runtime services or either application adoption.",
+      "donor": "kirocrew",
+      "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+      "sourceUnits": ["website/src/components/ChatInput.tsx"],
+      "sourceReview": "All 4998 parent lines and all 426 lines of the nearest collapse test read; feature-specific imports and remaining composer operations still require their owning comparisons.",
+      "referenceTests": ["website/src/test/ChatInput.collapse.test.tsx"],
+      "destination": "adea-ai/ui packages/ui/src/components/conversation/chat-composer.tsx",
+      "transformation": "Solid controlled draft, per-action non-text payload eligibility, hierarchy slots, unmounted reading collapse, caret/scoped focus port, generation-fenced local delivery feedback, composed IME and busy actions. Kobalte replaces manual menus; native CSS field sizing is verified on both engines. No global preference/lookup/broadcast, runtime authority, upload/voice/optimizer/approval policy or canonical session store copied.",
+      "license": "Apache-2.0; source copyright plus fourth selected Kiro NOTICE section retained.",
+      "implementation": {
+        "repository": "adea-ai/ui",
+        "branch": "test/packed-conversation-pilot",
+        "commit": "c898bfa47579396f0931f1b19012a4d550039645",
+        "commitUrl": "https://github.com/adea-ai/ui/commit/c898bfa47579396f0931f1b19012a4d550039645",
+        "status": "unshipped_integration_pilot",
+        "dependencies": "UI16/18/19/20 original PRs remain canonical merge paths; no duplicate PR created."
+      },
+      "readiness": {
+        "sourceReviewed": "full_parent_and_nearest_collapse_test",
+        "reusePermitted": "apache_license_notice_retained",
+        "behaviorPorted": "selected_input_composition",
+        "libraryReady": "source_and_subpath_pilot_passed_required_root_gate_fails",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedApplicationEvidence": "pending"
+      },
+      "verification": {
+        "regression": "Two reference-only payload checks failed before per-action eligibility; both pass after implementation. Later incorrect Queue label in the test was corrected independently.",
+        "componentCommand": "bun run --cwd apps/storybook test:components tests/component-chat-composer.spec.ts",
+        "componentResult": "exit_0_54_checks",
+        "componentCoverage": "Both Chromium/WebKit: draft/caret/focus collapse, input/shelf unmount, two composer scope, failed delivery/recovery, hierarchy, busy/alternate/IME, connectivity/approval, older-scope callback fencing, native content sizing; 32 light/dark/density/width axe/overflow/screenshots and clean native Node SSR in both project runs. Narrow/wide screenshots inspected.",
+        "broadCommand": "mise exec node@24.18.0 -- bun run verify",
+        "broadResult": "exit_1_known_six_required_optional_chart_peer_root_cases",
+        "broadEarlierGates": "Format/lint/types, 141 UI tests/15714 assertions, five workshop tests/35 assertions, coverage/theme/registry, UI/Storybook builds, tree budgets and structural packing passed. Final per-action changes separately pass root types/lint, package types, script lint, format and registry validation.",
+        "limits": "No manual OS IME/assistive technology, legacy CSS fallback, native application package or production consumer claim."
+      },
+      "packedIntegrationPilot": {
+        "command": "bun run check:packed-conversation",
+        "result": "exit_0_96_groups",
+        "conditions": ["compiled", "solid"],
+        "engines": ["chromium", "webkit"],
+        "checks": "28 conversation, 24 busy and 44 composed groups. Composition covers collapse/draft/shelf/focus, recovery, controlled/alternate busy, reference-only queue/steer refusal, native IME, external Tailwind and pending spinner animation/read-only delivery.",
+        "measurements": {
+          "conversation": {
+            "compiled": {
+              "js": 68660,
+              "gzip": 23918,
+              "css": 40846,
+              "chunks": 1
+            },
+            "solid": {
+              "js": 68692,
+              "gzip": 23981,
+              "css": 40846,
+              "chunks": 1
+            }
+          },
+          "busy": {
+            "compiled": {
+              "js": 151507,
+              "gzip": 50308,
+              "css": 31057,
+              "chunks": 1
+            },
+            "solid": {
+              "js": 151629,
+              "gzip": 50429,
+              "css": 31057,
+              "chunks": 1
+            }
+          },
+          "composed": {
+            "compiled": {
+              "js": 160806,
+              "gzip": 53345,
+              "css": 33201,
+              "chunks": 1
+            },
+            "solid": {
+              "js": 160953,
+              "gzip": 53437,
+              "css": 33201,
+              "chunks": 1
+            }
+          }
+        },
+        "budgets": {
+          "conversationGzipJsBytes": 26624,
+          "busyGzipJsBytes": 51200,
+          "composedGzipJsBytes": 55296,
+          "rawCssBytes": 43008
+        },
+        "artifactChecks": "Actual npm tarball in clean consumer without optional heavy peers, one Solid runtime and one JS chunk per fixture, correct unmixed exports, LICENSE and four Kiro NOTICE sections, explicit external Tailwind sources including spinner, unrelated-unit/runtime/theme/font/workshop exclusions.",
+        "limits": "Disposable fixture, not actual Adea/Cortana production pipelines, full donor Chat, canonical restoration, release or application acceptance; required root gate is not waived."
+      },
+      "remainingComposerFeatures": [
+        "paste-token editor",
+        "sent-prompt undo/history",
+        "manual resize",
+        "mapped upload/skill/voice/optimizer contributions",
+        "stop/resume presentation and app-owned services"
+      ]
     }
   ]
 }
