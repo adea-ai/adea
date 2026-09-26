@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.7](https://github.com/adea-ai/adea/compare/v0.60.6...v0.60.7) (2026-09-26)
+
+
+### Performance
+
+* **db:** bound and batch the task list, and index the pending predicate ([#729](https://github.com/adea-ai/adea/issues/729)) ([e8fe2e7](https://github.com/adea-ai/adea/commit/e8fe2e72dc4bb0b3b37d48793049eb938b91deba))
+
 ## [0.60.6](https://github.com/adea-ai/adea/compare/v0.60.5...v0.60.6) (2026-09-26)
 
 
