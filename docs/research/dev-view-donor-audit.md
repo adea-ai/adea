@@ -284,10 +284,13 @@ conflicts, mapped source/test paths, current destination existence, ownership,
 and separate readiness dimensions. A pinned checkout or a closed issue does not
 mark source review, consumer adoption, or packaged acceptance complete.
 
-The initial recovery contains 271 issue/PR records: Adea M12/M13 and Cortana's
-relevant milestone seeds, plus one-hop linked local records and their comments.
-Recursive amendment review, PR diffs, and current production chains remain
-explicitly pending. Historical manual waivers are retained as waivers.
+Reference recovery now contains 414 issue/PR records: Adea M12/M13 and Cortana's
+relevant milestone seeds, plus recognized recursive body/conversation references
+and paginated comments. The initial 271 records expanded by 143, with no unresolved
+recognized in-repository reference in this snapshot. Retrieval does not establish
+semantic approval or implementation scope: shorthand/ranges, external compatibility
+sources, PR review threads/diffs, acceptance evidence and current production chains
+still need review. Historical manual waivers are retained as waivers.
 
 | Workflow                     | Preserve or investigate                                                       | Remaining evidence                                                                                   |
 | ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -391,3 +394,12 @@ Before implementation merges:
    | `packages/dev-view/src/terminal/blocks.ts` (bounded publication concept) | Buzz `desktop/src-tauri/src/terminal_transport.rs:64-178,257-380` | `eed74bde2f4797714335ac10c56c0b0244c1def4` | Copyright 2026 Block, Inc.; Apache-2.0 | Concept translation of the one-in-flight/at-most-one-pending bounded publication state machine and stale-subscription fencing | Credit and viewport fencing apply to Adea's chunk replay flow control on the host; credit is never treated as authentication, ownership, or replay authority; block UI is an independent implementation of external OSC 133/7 semantics | `apps/desktop/tests/terminal-manager.test.ts`; `packages/dev-view/tests/terminal-renderer-editor.test.ts` in issue #396 | Buzz section |
    | `apps/desktop/shell/src/dev-runtime/projects/scan.ts` | KiroCrew `src/kiro_crew/project_scan.py:1-31,1465-1662` (prune-first walker, workspace-manifest detection, ignore semantics, budget/cancellation behavior) with the donor's member/properties/fixture test ideas | `283e136c0f902e965a535a7c9548c57c7504fed0` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE` | Bounded TypeScript translation of the prune-first discovery semantics; the 1,662-line Python file is deliberately not translated wholesale | Replaced Python/tree-sitter seams with `node:fs` `Dirent` walkers that never follow symlinks; declared-workspace parsing for npm/pnpm/Yarn/Bun/Cargo/uv manifests via bounded line/JSON readers (no new YAML/TOML dependencies); budget exhaustion and cancellation return partial successful pages with diagnostics; scanning never executes install/bootstrap commands | `apps/desktop/tests/project-scan.test.ts` in issue #398 | KiroCrew section |
    | `packages/dev-view/src/sidebar/scan-preview-model.ts`; `packages/dev-view/src/sidebar/add-project-panel.tsx` (add/scan composition); `sidebar/dev-sidebar-shell.tsx` (add-project slot) | KiroCrew `website/src/pages/ChatSidebar.tsx` (sidebar add/search flow); Orca `src/renderer/src/components/sidebar/AddRepoDialog.tsx` (confirm-before-add preview rows with source/duplicate/authorization state) | KiroCrew `283e136c0f902e965a535a7c9548c57c7504fed0`; Orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE`; Copyright (c) 2026 Lovecast Inc.; MIT | Composition translation of the add surface: recent authorized roots, scan previews with package-manager and duplicate state, and confirm-before-import rows | Replaced React dialog seams with a Solid disclosure panel issuing only `dev.project.bookmarks`/`dev.project.scan`/`dev.group.list`/`dev.group.create`/`dev.project.import` commands; previews require confirmation and never execute install/bootstrap; the register's bookmark-binding check remains the authoritative duplicate refusal | `packages/dev-view/tests/scan-preview-model.test.ts`; `apps/desktop/tests/project-registry.test.ts` in issue #398 | KiroCrew and Orca sections |
+
+The selected #532 composer IME contract is translated from KiroCrew in
+[UI PR #18](https://github.com/adea-ai/ui/pull/18). Native candidate Enter retains
+its default action; a post-composition commit cannot send the draft; overlapping
+timers and abandoned compositions recover. Nine built component cases passed in
+both Chromium and WebKit. The source/NOTICE retain the Apache attribution. This
+selected guard does not establish a full donor composer port, production Chat
+adoption, packed distribution certification or manual operating-system IME
+acceptance; those dimensions remain pending in the traceability inventory.

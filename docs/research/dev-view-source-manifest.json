@@ -787,6 +787,21 @@
       "units": [],
       "validatesSlices": [395, 396, 397, 398, 399, 400, 422, 423, 424, 425],
       "instruction": "Do not copy new donor production code here; port any remaining applicable test fixtures from every validated slice and run the complete packaged release matrix."
+    },
+    "532-chat-composition": {
+      "issue": 532,
+      "destinations": ["packages/dev-view/src/chat/**"],
+      "units": [
+        {
+          "donor": "kirocrew",
+          "source": ["website/src/hooks/useImeGuard.ts", "website/src/components/ChatInput.tsx"],
+          "tests": [
+            "website/src/test/SideChat.imeEnter.test.tsx",
+            "website/src/hooks/useImeGuard.documentLatch.test.tsx"
+          ],
+          "action": "The #532-approved KiroCrew composer/goal flow includes IME input ownership. Preserve the native latch and textarea composition/commit/blur recovery contract when hardening shared MessageComposer. Translate native/browser-signal, post-composition-window, back-to-back and abandoned-composition test behavior. React synthetic event propagation and document focus-trap tracking are excluded from this textarea-scoped port; maintained Kobalte primitives still own overlays. This selected-unit handoff does not certify the full Chat composition or its production mount."
+        }
+      ]
     }
   },
   "dependencyPolicy": "Manifests are review inputs, not dependency grants. Classify every selected unit import as standard, local-translated, existing Adea dependency, or proposed dependency. Do not add a donor package/runtime transitively; any proposed dependency requires exact version, license, distribution impact, security review, and same-change lockfile evidence.",
