@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "456adb217762afbd8da65d5d5c9d04d8e8a8b24e5b1a4a5e110caa7b093260d0",
+  "manifestDigest": "f76668f4b2f017f88ca457da60832787913b9a05dff74a0b1eb003cb87277d91",
   "coverage": {
     "retrieval": "All-state paginated repository issue/PR listings; selected milestone seeds and their comments; one-hop linked local issue/PR IDs and comments",
     "adeaMilestones": [20, 23],
@@ -6570,6 +6570,35 @@
           "noticePath": "NOTICE",
           "dependencyReview": "pending_per_unit",
           "mappedAdaptation": "Translate category rail, search, installed/discover, and detail composition to Solid over Adea verified catalog/install plans."
+        },
+        {
+          "donor": "zeron",
+          "revision": "30a9a9537c5ec96226c87f4bf349b6f77c5dfb59",
+          "sourceUnits": [
+            {
+              "path": "crates/ui/src/settings/appearance.rs",
+              "matchedFiles": 1,
+              "review": "selected_composition_and_preview_units_compared_to_existing_adea_port"
+            },
+            {
+              "path": "crates/ui/src/settings/widgets.rs",
+              "matchedFiles": 1,
+              "review": "selected_composition_and_preview_units_compared_to_existing_adea_port"
+            }
+          ],
+          "nearestTests": [
+            {
+              "path": "crates/ui/src/settings/appearance.rs",
+              "matchedFiles": 1,
+              "review": "mode_and_appearance_lanes_and_helper_copy_translated; fonts_explicitly_excluded"
+            }
+          ],
+          "reusePolicy": "translate_rust_models_and_interactions",
+          "license": "MIT",
+          "licenseDigest": "e776600f641baae3fd37387829b40fe2d7c12d01785dc8b846658b7cbb0342e3",
+          "noticePath": null,
+          "dependencyReview": "no_GPUI_or_new_runtime_dependency; canonical_themes_types_only; existing_Solid_Kobalte_Lucide",
+          "mappedAdaptation": "Preserve the already accepted Adea appearance composition while extracting controlled Solid presentation to the standalone adea-ai/ui appearance-editor composite: split System miniatures, independent Light/Dark rows, palette bands, accent and surface helper copy. Translate the embedded three-mode, both-appearance and helper-copy tests; font controls/tests remain excluded by #425 amendments. Palette authority remains in themes, and preferences/preview/persistence/native effects remain in application adapters. No GPUI dependency is introduced."
         }
       ],
       "currentImplementation": [
@@ -6624,7 +6653,38 @@
       },
       "acceptanceCriterion": "Live miniature mode previews; separate compact Light/Dark rows; default/preset/custom accents; amended glass choices; Save/Cancel/Reset/dismiss/fallback; category/search/installed/discover/detail App Library.",
       "ownerObservation": "Preview appearance over the visible app; do not require route switching to judge changes.",
-      "reconciliationPlan": "Keep palette authority in themes; preferences/capabilities/catalogue execution application-owned. Font/size not adopted on this app surface."
+      "reconciliationPlan": "Keep palette authority in themes; preferences/capabilities/catalogue execution application-owned. Font/size not adopted on this app surface.",
+      "sharedAppearanceExtraction": {
+        "repository": "adea-ai/ui",
+        "branch": "feat/donor-appearance-composition",
+        "destination": "packages/ui/src/components/composites/appearance-editor",
+        "retained": [
+          "System split miniature",
+          "three mode cards",
+          "independent light/dark theme rows",
+          "palette bands",
+          "accent and surface helper copy",
+          "live controlled draft",
+          "Save/Cancel/Reset",
+          "capability availability"
+        ],
+        "divergences": [
+          "Kobalte keyboard/focus/menu primitives replace manual GPUI and app radio handling",
+          "accent row stacks for legible narrow-popup helper text",
+          "accepted custom accent and reduced transparency amendments",
+          "font controls remain excluded"
+        ],
+        "authority": "Application adapters own stored preference versions, normalization, live token/native preview, persistence, recovery and cleanup. Themes supplies palette data/schema; UI consumes types and host previews.",
+        "componentEvidence": "13 checks passed: native Node SSR plus headless Chromium keyboard/menu/snapshot/validation/pending/mobile/axe checks; UI verify, final types/lint/format/registry and doctor passed.",
+        "productionChain": "not_migrated",
+        "packedConsumer": "pending_UI_export_contract_resolution",
+        "packagedAcceptance": "not_run",
+        "distributionNotice": "adea-ai/ui NOTICE section Appearance editor translated from Zeron; full MIT headers preserved in translated source",
+        "pullRequest": "https://github.com/adea-ai/ui/pull/17",
+        "commit": "ec3cfbd",
+        "libraryBuild": "passed",
+        "composedStories": "five built stories; complete workshop browser CI pending"
+      }
     },
     {
       "id": "471-permissions-onboarding",
@@ -7047,7 +7107,7 @@
   "nextActions": [
     "Resolve optional-heavy-feature root export compatibility before advancing UI PR #16.",
     "Complete recursive amendment/PR evidence review and per-unit source/test/license/dependency comparisons.",
-    "Extract the existing mapped appearance composition, preserving live preview, draft recovery, and provenance while injecting application persistence/capabilities.",
+    "Finish standalone appearance distribution and host adapter verification; then migrate the accepted appearance surface without removing the old system before replacement consumers pass.",
     "Validate the shared scope in packed, composed-story, accessibility, SSR/browser, and performance fixtures before application migration.",
     "Migrate Adea by coherent verified slices, then Cortana; delete only superseded systems whose replacements are proved."
   ]

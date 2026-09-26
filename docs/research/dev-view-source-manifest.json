@@ -696,6 +696,12 @@
             "website/src/test/appstoreCategories.test.ts"
           ],
           "action": "Translate category rail, search, installed/discover, and detail composition to Solid over Adea verified catalog/install plans."
+        },
+        {
+          "donor": "zeron",
+          "source": ["crates/ui/src/settings/appearance.rs", "crates/ui/src/settings/widgets.rs"],
+          "tests": ["crates/ui/src/settings/appearance.rs"],
+          "action": "Preserve the already accepted Adea appearance composition while extracting controlled Solid presentation to the standalone adea-ai/ui appearance-editor composite: split System miniatures, independent Light/Dark rows, palette bands, accent and surface helper copy. Translate the embedded three-mode, both-appearance and helper-copy tests; font controls/tests remain excluded by #425 amendments. Palette authority remains in themes, and preferences/preview/persistence/native effects remain in application adapters. No GPUI dependency is introduced."
         }
       ]
     },

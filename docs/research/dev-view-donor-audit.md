@@ -308,6 +308,27 @@ packing also exposed missing folder entry points, omitted license/NOTICE, leaked
 test declarations, and root imports requiring absent optional chart/carousel
 peers. These findings are tracked separately from donor adoption.
 
+### Standalone appearance extraction checkpoint
+
+[UI PR #17](https://github.com/adea-ai/ui/pull/17) extracts the existing accepted
+Zeron appearance composition into controlled Solid presentation. Its full MIT
+headers and standalone UI NOTICE preserve revision
+`30a9a9537c5ec96226c87f4bf349b6f77c5dfb59`,
+`crates/ui/src/settings/appearance.rs`, and `crates/ui/src/settings/widgets.rs`.
+These units were already identified in the accepted provenance ledger; the
+source manifest now makes their presentation/test handoff explicit separately
+from the still-pending theme model and App Library units.
+
+Thirteen component checks passed, including native Node server rendering,
+headless browser keyboard/menu/snapshot/custom-accent/pending-save behavior and
+responsive axe checks. Five composed stories build. This is component evidence:
+Adea/Cortana migration, preference/native adapters, packed component consumption,
+complete workshop browser CI, manual AT and packaged acceptance remain pending.
+[UI PR #16](https://github.com/adea-ai/ui/pull/16) remains the export/NOTICE
+prerequisite and retains its unresolved root optional-peer compatibility gate.
+The combined #425 workflow remains in progress; no old appearance system is
+removed by the extraction.
+
 ### Adapted files
 
 Every implementation PR that uses donor material must add a row here and the
