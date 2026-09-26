@@ -746,9 +746,12 @@ the published controlled appearance editor and shared Input/Button/Switch
 components directly, removes duplicate local implementations and barrel
 exports, and retains application-owned persistence and native effects. At
 `b5d70bf4`, its production output is 1,658,226 raw client JS bytes against the
-unchanged 1,623,000-byte cap: 35,226 over. Conventional visual fixtures passed
-15 cases; named appearance hooks in `4af56ce7` receive separate review and
-validation. No size cap was increased, and these fixtures do not prove packaged
+unchanged 1,623,000-byte cap: 35,226 over. The earlier conventional visual run passed
+15 cases in headed mode. The mandatory headless run at `4af56ce7` passed nine
+behavior cases with six Darwin snapshot mismatches; their classification is
+pending, and the headed run is not current acceptance evidence. Independent
+review also found missing open-state trigger highlighting, which requires a
+sanctioned state hook and toggle regression. No size cap was increased, and these fixtures do not prove packaged
 native acceptance or the complete migration.
 
 The rich paste editor is still an implementation continuation. Its initial
@@ -758,3 +761,9 @@ a separate optional atomic entry over one private shared composer shell, with
 the original plain API/fixture and caps preserved. Both complete atomic
 behavior and actual incremental cost must be measured; no new feature budget
 or production acceptance is claimed here.
+
+The layout PR subsequently merged as `6781a5e` after its current-head checks.
+The composed-input branch integrates that canonical layout while retaining
+byte-identical qualified composer source, tests and packed driver, and both
+packed gate families. Its fresh required CI and normal package publication
+remain pending; this does not establish an Adea layout mount.

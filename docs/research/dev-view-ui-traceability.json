@@ -10363,13 +10363,16 @@
         "pullRequest": "https://github.com/adea-ai/ui/pull/23",
         "checkedSourceHead": "f08d73b219e5088e23d26fa0a73b8490f02f3623",
         "refreshedHead": "e8e97f23c11103dfbad4572f8c5a807eb43172fc",
-        "validation": "Fresh format/lint/types/build/registry; 76 actual tarball compiled/Solid Chromium/WebKit checks and native Node SSR. Gzip32113/32198 within32768, CSS33658 within34816; MAX review clean. Host presentation regressions fail before and pass after; production integration remains pending."
+        "validation": "Fresh format/lint/types/build/registry; 76 actual tarball compiled/Solid Chromium/WebKit checks and native Node SSR. Gzip32113/32198 within32768, CSS33658 within34816; MAX review clean. Host presentation regressions fail before and pass after; production integration remains pending.",
+        "mergeCommit": "6781a5e435297bd29be0fa16eb24430598c67f0a",
+        "status": "Merged after current-head required checks; normal versioned release containing the layout remains pending."
       },
       "composedInput": {
         "pullRequest": "https://github.com/adea-ai/ui/pull/25",
         "checkedSourceHead": "21e2351de74589535d8d718d806d417414b50287",
-        "refreshedHead": "9130024e4f1357d0e01f9f9c58fd96c450b837e0",
-        "validation": "Prior full verify and fresh post-busy-action core/conversation packed checks:100 compiled/Solid Chromium/WebKit groups and native Node SSR; gzip53344/53435 within55296, CSS42366 within43008; MAX review clean. Production integration remains pending."
+        "refreshedHead": "a7b528e1715de6c294736bc25bf5bd66c5f2a7d4",
+        "validation": "Prior full verify and fresh post-busy-action core/conversation packed checks:100 compiled/Solid Chromium/WebKit groups and native Node SSR; gzip53344/53435 within55296, CSS42366 within43008; MAX review clean. Production integration remains pending.",
+        "currentMainIntegration": "Canonical layout main6781a5e integrated; composer source, interaction tests and packed driver byte-identical to qualified source. Fresh format/lint/types/build/registry79/actionlint passed; required current-head CI remains pending."
       },
       "pasteModel": {
         "pullRequest": "https://github.com/adea-ai/ui/pull/26",
@@ -10390,8 +10393,9 @@
       "reviewedPrimitiveRemovalHead": "b5d70bf41b8410e211ce74f4de74fbf3b001c8b4",
       "appearanceHookHead": "4af56ce7517eb285f0864a644ad301b35b9bc112",
       "status": "Draft. Published controlled appearance editor and direct Input/Button/Switch consumers replace duplicate local primitives; application preferences, authority and native effects remain local. Independent review and unchanged production size gate remain required.",
-      "evidence": "Actual appearance journey14tests and conventional visual journey15tests passed in isolated fixtures. At b5d70bf4 production JS1658226 exceeds1623000 by35226; no cap was raised. Hook-only follow-up qualification is separate.",
-      "limits": "This does not establish whole-app shared design-system removal, packaged native behavior, Cortana migration or full donor acceptance."
+      "evidence": "Historical appearance journey14tests and headed conventional visual15tests passed in isolated fixtures. Mandatory headless conventional visual run at4af56ce7 passed9behavior cases and reported6Darwin snapshot mismatches; classification pending and headed run is not current visual acceptance. At4af56ce7 production JS1658243 exceeds1623000 by35243; no cap raised.",
+      "limits": "This does not establish whole-app shared design-system removal, packaged native behavior, Cortana migration or full donor acceptance.",
+      "reviewFollowUp": "Independent MAX review found account/version dialog triggers lost aria-expanded highlight after adopting published Button. Sanctioned state hook and actual toggle regression remain required."
     }
   }
 }
