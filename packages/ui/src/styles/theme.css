@@ -56,6 +56,11 @@
   border-radius: 999px;
 }
 
+.workspace-trigger-expanded:is([aria-expanded='true'], [data-expanded='true']) {
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+
 :root {
   --radius: 0.75rem;
   --background: #e3e9f4;

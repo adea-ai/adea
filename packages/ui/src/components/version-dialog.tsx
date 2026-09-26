@@ -187,6 +187,7 @@ export function VersionDialog(props: {
           as={Button}
           variant="ghost"
           size="sm"
+          class="workspace-trigger-expanded"
           aria-label="Open version and updates dialog"
           aria-haspopup="dialog"
           onClick={() => setOpen(true)}
