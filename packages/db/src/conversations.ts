@@ -647,25 +647,64 @@ export async function setChannelParticipants(
   })
 }
 
+/** Single-message convenience wrapper; page reads use the batched read instead. */
 async function messageSummary(database: Database, row: MessageRow): Promise<MessageSummary> {
+  const reads = await readMessageChildReads(database, row.workspaceId, [row.id])
+  return messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
+}
+
+type MessageChildReads = Readonly<{
+  mentions: readonly (typeof messageMentions.$inferSelect)[]
+  artifactIds: readonly string[]
+}>
+
+/**
+ * Mention and artifact-reference reads for a whole page, in two queries.
+ * `listMessagesForUser` was 2 queries per message; the page is capped at 100,
+ * so a full page cost ~204 round trips.
+ */
+async function readMessageChildReads(
+  database: Database,
+  workspaceId: string,
+  messageIds: readonly string[]
+): Promise<Map<string, MessageChildReads>> {
+  const byMessage = new Map<
+    string,
+    { mentions: (typeof messageMentions.$inferSelect)[]; artifactIds: string[] }
+  >()
+  if (messageIds.length === 0) return byMessage
+  for (const id of messageIds) byMessage.set(id, { mentions: [], artifactIds: [] })
   const [mentionRows, artifactRows] = await Promise.all([
     database
       .select()
       .from(messageMentions)
       .where(
-        and(eq(messageMentions.workspaceId, row.workspaceId), eq(messageMentions.messageId, row.id))
+        and(
+          eq(messageMentions.workspaceId, workspaceId),
+          inArray(messageMentions.messageId, [...messageIds])
+        )
       ),
     database
-      .select({ id: messageArtifactReferences.artifactId })
+      .select({
+        artifactId: messageArtifactReferences.artifactId,
+        messageId: messageArtifactReferences.messageId,
+      })
       .from(messageArtifactReferences)
       .where(
         and(
-          eq(messageArtifactReferences.workspaceId, row.workspaceId),
-          eq(messageArtifactReferences.messageId, row.id)
+          eq(messageArtifactReferences.workspaceId, workspaceId),
+          inArray(messageArtifactReferences.messageId, [...messageIds])
         )
       )
       .orderBy(asc(messageArtifactReferences.artifactId)),
   ])
+  for (const row of mentionRows) byMessage.get(row.messageId)?.mentions.push(row)
+  for (const row of artifactRows) byMessage.get(row.messageId)?.artifactIds.push(row.artifactId)
+  return byMessage
+}
+
+function messageSummaryFrom(row: MessageRow, reads: MessageChildReads): MessageSummary {
+  const { mentions: mentionRows, artifactIds } = reads
   const mentions = mentionRows
     .map((mention): ConversationParticipantRef =>
       mention.principalKind === 'user'
@@ -678,7 +717,7 @@ async function messageSummary(database: Database, row: MessageRow): Promise<Mess
   else if (row.senderKind === 'agent') sender = { agentId: row.senderAgentId!, kind: 'agent' }
   else sender = { kind: 'system', systemId: row.senderSystemId! }
   return Object.freeze({
-    artifactIds: Object.freeze(artifactRows.map(({ id }) => id)),
+    artifactIds: Object.freeze([...artifactIds]),
     ...(!row.deletedAt && row.bodyContentRefId ? { bodyContentRefId: row.bodyContentRefId } : {}),
     ...(!row.deletedAt && row.bodyText ? { bodyText: row.bodyText } : {}),
     channelId: row.channelId,
@@ -893,9 +932,17 @@ export async function listMessagesForUser(
     .limit(limit + 1)
   const hasMore = rows.length > limit
   const page = rows.slice(0, limit)
-  const summaries = await Promise.all(page.map((row) => messageSummary(database, row)))
+  const reads = await readMessageChildReads(
+    database,
+    workspaceId,
+    page.map((row) => row.id)
+  )
   return Object.freeze({
-    messages: Object.freeze(summaries),
+    messages: Object.freeze(
+      page.map((row) =>
+        messageSummaryFrom(row, reads.get(row.id) ?? { mentions: [], artifactIds: [] })
+      )
+    ),
     ...(hasMore && page.length ? { nextAfterSequence: page.at(-1)!.sequence } : {}),
   })
 }

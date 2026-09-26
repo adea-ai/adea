@@ -489,20 +489,14 @@ export async function revokeRuntimeNode(
   })
 }
 
-/** One node, or a refusal. Revoked nodes are readable but not usable. */
-export async function readRuntimeNode(
-  database: AgentHqDatabase | AgentHqTransaction,
-  workspaceId: string,
-  runtimeNodeId: string
-): Promise<RuntimeNodeView> {
-  const node = await requireNode(database, workspaceId, runtimeNodeId)
-  const keys = await database
-    .select()
-    .from(runtimeNodeKeys)
-    .where(eq(runtimeNodeKeys.runtimeNodeId, node.id))
-    .orderBy(asc(runtimeNodeKeys.role), desc(runtimeNodeKeys.keyVersion))
+type RuntimeNodeKeyRow = typeof runtimeNodeKeys.$inferSelect
 
-  const now = Date.now()
+/** Health and the wire shape, from a node row plus its keys. */
+function runtimeNodeView(
+  node: typeof runtimeNodes.$inferSelect,
+  keys: readonly RuntimeNodeKeyRow[],
+  now: number
+): RuntimeNodeView {
   const lastProof = node.lastProofAt?.getTime() ?? 0
   const health =
     node.pairingState === 'revoked'
@@ -539,16 +533,49 @@ export async function readRuntimeNode(
   }
 }
 
+/** One node, or a refusal. Revoked nodes are readable but not usable. */
+export async function readRuntimeNode(
+  database: AgentHqDatabase | AgentHqTransaction,
+  workspaceId: string,
+  runtimeNodeId: string
+): Promise<RuntimeNodeView> {
+  const node = await requireNode(database, workspaceId, runtimeNodeId)
+  const keys = await database
+    .select()
+    .from(runtimeNodeKeys)
+    .where(eq(runtimeNodeKeys.runtimeNodeId, node.id))
+    .orderBy(asc(runtimeNodeKeys.role), desc(runtimeNodeKeys.keyVersion))
+  return runtimeNodeView(node, keys, Date.now())
+}
+
 export async function listRuntimeNodesForUser(
   database: AgentHqDatabase,
   workspaceId: string
 ): Promise<RuntimeNodeView[]> {
+  // Two queries for the whole list. This used to select only ids and then
+  // re-read each node and its keys, so it cost 2N+1 round trips to assemble a
+  // list the caller already had every row for.
   const rows = await database
-    .select({ id: runtimeNodes.id })
+    .select()
     .from(runtimeNodes)
     .where(eq(runtimeNodes.workspaceId, workspaceId))
     .orderBy(asc(runtimeNodes.pairedAt))
-  return Promise.all(rows.map((row) => readRuntimeNode(database, workspaceId, row.id)))
+  if (rows.length === 0) return []
+  const keys = await database
+    .select()
+    .from(runtimeNodeKeys)
+    .where(
+      inArray(
+        runtimeNodeKeys.runtimeNodeId,
+        rows.map((row) => row.id)
+      )
+    )
+    .orderBy(asc(runtimeNodeKeys.role), desc(runtimeNodeKeys.keyVersion))
+  const keysByNode = new Map<string, RuntimeNodeKeyRow[]>()
+  for (const row of rows) keysByNode.set(row.id, [])
+  for (const key of keys) keysByNode.get(key.runtimeNodeId)?.push(key)
+  const now = Date.now()
+  return rows.map((row) => runtimeNodeView(row, keysByNode.get(row.id) ?? [], now))
 }
 
 /**
