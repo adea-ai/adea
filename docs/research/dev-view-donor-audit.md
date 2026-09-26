@@ -733,7 +733,7 @@ independent npm query returned the version and registry integrity. This release
 includes the reviewed busy-action composition from [UI #20](https://github.com/adea-ai/ui/pull/20).
 
 The traceability JSON records exact source-qualified and metadata-refreshed heads
-for pending layout, composed input and pure paste model PRs. The layout tarball
+for the merged layout and pending composed-input and pure paste-model PRs. The layout tarball
 passed 76 compiled/Solid browser checks plus native SSR; composed input passed
 100 groups plus native SSR. Their unchanged JS/CSS limits and module exclusions
 remain enforced. The pure model direct entry checks all 15 runtime exports and
