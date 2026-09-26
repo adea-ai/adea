@@ -1,7 +1,7 @@
 import { Monitor, Moon, Sun } from 'lucide-solid'
 import { For } from 'solid-js'
 
-import { Button } from '#components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { cn } from '#lib/utils'
 import { useTheme, type Theme } from './theme-provider'
 

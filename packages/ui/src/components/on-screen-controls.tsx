@@ -1,7 +1,7 @@
 import { ZoomIn, ZoomOut } from 'lucide-solid'
 import { onCleanup, Show, type JSX } from 'solid-js'
 
-import { Button } from '#components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { cn } from '#lib/utils'
 
 type ControlButtonProps = {

@@ -10,7 +10,7 @@ import {
 import { createEffect, createMemo, createSignal, onMount, Show } from 'solid-js'
 
 import { formatReleaseDate, plainTextFromMarkdown } from '#lib/version-notes'
-import { Button, buttonVariants } from '#components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Dialog,
   DialogClose,
@@ -184,7 +184,9 @@ export function VersionDialog(props: {
     <Dialog open={open()} onOpenChange={setOpen}>
       <Show when={props.open === undefined}>
         <DialogTrigger
-          class={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          as={Button}
+          variant="ghost"
+          size="sm"
           aria-label="Open version and updates dialog"
           aria-haspopup="dialog"
           onClick={() => setOpen(true)}
@@ -358,7 +360,7 @@ export function VersionDialog(props: {
               </Button>
             )}
           </Show>
-          <DialogClose class={buttonVariants({ variant: 'outline', size: 'sm' })}>
+          <DialogClose as={Button} variant="outline" size="sm">
             Close
           </DialogClose>
         </DialogFooter>

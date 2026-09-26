@@ -12,7 +12,7 @@ import {
   type AppearancePreferencesV2,
 } from '@adea-ai/app-ui/components/appearance'
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
-import { Button } from '@adea-ai/app-ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Dialog,
   DialogContent,
