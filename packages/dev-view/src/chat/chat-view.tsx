@@ -23,6 +23,11 @@ export type ChatViewProps = Readonly<{
   onResolveQuestion?: ChatTranscriptProps['onResolveQuestion']
   onJumpToTerminal?: () => void
   autoAttach?: boolean
+  readingPosition?: ChatTranscriptProps['readingPosition']
+  onReadingPositionChange?: (
+    identity: Readonly<{ runtimeSessionId: string; generation: number }>,
+    position: NonNullable<ChatTranscriptProps['readingPosition']>
+  ) => void
 }>
 
 type StreamState = 'idle' | 'connecting' | 'connected' | 'disconnected'
@@ -193,33 +198,43 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         </div>
       </Show>
       <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
-        {() => (
-          <>
-            <ChatTranscript
-              events={transcript().events}
-              projection={props.conversation.projection}
-              transcript={transcript()}
-              onResolveApproval={props.onResolveApproval}
-              onResolveQuestion={props.onResolveQuestion}
-              onJumpToTerminal={props.onJumpToTerminal}
-            />
-            <ChatComposer
-              conversation={props.conversation}
-              authority={props.authority}
-              connected={connected()}
-              awaitingApproval={props.awaitingApproval}
-              busy={props.conversation.status === 'active'}
-              onSend={props.onSend || props.model ? send : undefined}
-              onSteer={props.onSteer}
-              onStop={props.onStop || props.model ? stop : undefined}
-              onDraftChange={changeDraft}
-              draftRevision={
-                props.draftRevision ??
-                props.model?.draftRevision?.(props.conversation.runtimeSessionId)
-              }
-            />
-          </>
-        )}
+        {() => {
+          const readingIdentity = {
+            runtimeSessionId: props.conversation.runtimeSessionId,
+            generation: props.conversation.generation,
+          }
+          return (
+            <>
+              <ChatTranscript
+                events={transcript().events}
+                projection={props.conversation.projection}
+                transcript={transcript()}
+                onResolveApproval={props.onResolveApproval}
+                onResolveQuestion={props.onResolveQuestion}
+                onJumpToTerminal={props.onJumpToTerminal}
+                readingPosition={props.readingPosition}
+                onReadingPositionChange={(position) =>
+                  props.onReadingPositionChange?.(readingIdentity, position)
+                }
+              />
+              <ChatComposer
+                conversation={props.conversation}
+                authority={props.authority}
+                connected={connected()}
+                awaitingApproval={props.awaitingApproval}
+                busy={props.conversation.status === 'active'}
+                onSend={props.onSend || props.model ? send : undefined}
+                onSteer={props.onSteer}
+                onStop={props.onStop || props.model ? stop : undefined}
+                onDraftChange={changeDraft}
+                draftRevision={
+                  props.draftRevision ??
+                  props.model?.draftRevision?.(props.conversation.runtimeSessionId)
+                }
+              />
+            </>
+          )
+        }}
       </For>
     </section>
   )

@@ -357,3 +357,21 @@ test('does not offer a steer action without an authorized host operation', async
   await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeDisabled()
   await expect(page.getByText('Steer is unavailable on this host.', { exact: true })).toBeVisible()
 })
+
+test('restores an earlier reading position when the canonical Chat surface remounts', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 420 })
+  await openDraftChatFixture(page)
+  const transcript = page.getByLabel('Conversation transcript')
+  await expect
+    .poll(() => transcript.evaluate((node) => node.scrollHeight - node.clientHeight))
+    .toBeGreaterThan(100)
+  await transcript.evaluate((node) => {
+    node.scrollTop = 90
+    node.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(90)
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:remount')))
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(90)
+})

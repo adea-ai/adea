@@ -137,6 +137,11 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
               <ChatView
                 conversation={active()}
                 model={state().model}
+                readingPosition={props.modelHost.readingPosition(state().scope, active())}
+                onReadingPositionChange={(identity, position) => {
+                  if (!lifecycle.isCurrent(request)) return
+                  props.modelHost.setReadingPosition(state().scope, identity, position)
+                }}
                 draftRevision={props.modelHost.draftRevision(
                   state().scope,
                   active().runtimeSessionId

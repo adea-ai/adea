@@ -1332,6 +1332,8 @@ session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
 snapshot records the scroll offset and whether the reader was following live
 output; it does not create another transcript or session authority.
+The mounted transcript restores that snapshot and reports scrolling and cleanup
+through the host callback, carrying the immutable mounted session identity.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged

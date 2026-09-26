@@ -1,4 +1,4 @@
-import { Index, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { Index, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
@@ -14,6 +14,8 @@ export type ChatTranscriptProps = Readonly<{
   ) => void | Promise<void>
   onResolveQuestion?: (event: RuntimeEvent, answer: string) => void | Promise<void>
   onJumpToTerminal?: () => void
+  readingPosition?: Readonly<{ top: number; following: boolean }>
+  onReadingPositionChange?: (position: Readonly<{ top: number; following: boolean }>) => void
 }>
 
 export const CHAT_RESPONSE_UNAVAILABLE_REASON =
@@ -58,11 +60,35 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       props.projection ? { projection: props.projection } : undefined
     )
   )
+  let scroller: HTMLElement | undefined
+  const saveReadingPosition = () => {
+    if (!scroller) return
+    props.onReadingPositionChange?.({
+      top: scroller.scrollTop,
+      following: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 80,
+    })
+  }
+  onMount(() => {
+    const previous = props.readingPosition
+    if (!scroller || !previous) return
+    scroller.scrollTop = previous.following
+      ? Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+      : previous.top
+  })
+  onCleanup(saveReadingPosition)
   const availability = () => props.transcript?.availability
   const retention = () => props.transcript?.retention
 
   return (
-    <section class="dev-chat__stream" aria-label="Conversation transcript" aria-live="polite">
+    <section
+      ref={(element) => {
+        scroller = element
+      }}
+      class="dev-chat__stream"
+      aria-label="Conversation transcript"
+      aria-live="polite"
+      onScroll={saveReadingPosition}
+    >
       <Show when={availability()?.status === 'resync_required'}>
         <div class="dev-chat__notice" role="alert">
           <p>Transcript gap detected. Reconnect to recover the missing runtime events.</p>
