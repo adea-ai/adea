@@ -26,6 +26,7 @@ import {
 } from '../lib/desktop-workspace-session'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import { DesktopFirstRunChat } from './desktop-first-run-chat'
+import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import type { WorkspaceShellProps } from './workspace-shell'
 
 type AppStatus =
@@ -283,6 +284,7 @@ function DesktopWorkspace(props: {
   // Invariant services are built once: rebuilding the object per evaluation
   // would also rebuild the dev runtime service on every busy/version update.
   const devRuntime = createDesktopDevRuntimeService()
+  const chatModelHost = createDesktopChatModelHost(devRuntime)
   const services = (): WorkspacePlatformServices => ({
     account: {
       authenticated: signedIn(),
@@ -323,6 +325,7 @@ function DesktopWorkspace(props: {
             window.dispatchEvent(new PopStateEvent('popstate'))
           }}
           runtime={devRuntime}
+          modelHost={chatModelHost}
           onSignIn={props.onBeginSignIn}
           temporary={!signedIn()}
           workspaceId={props.activeWorkspace.id}

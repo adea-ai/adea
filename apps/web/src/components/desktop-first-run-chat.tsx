@@ -1,16 +1,16 @@
-import {
-  ChatView,
-  createChatConversationModel,
-  createFirstRunRuntimePort,
-  FirstRunOnboarding,
-} from '@adea-ai/dev-view/chat'
-import type { ChatConversation, FirstRunFacts } from '@adea-ai/dev-view/chat'
+import { ChatView, createFirstRunRuntimePort, FirstRunOnboarding } from '@adea-ai/dev-view/chat'
+import type { ChatConversation, ChatConversationModel, FirstRunFacts } from '@adea-ai/dev-view/chat'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import { buildDevCommand } from '@adea-ai/dev-view/browser'
 import type { Scope } from '@adea-ai/types/dev-runtime'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import { createEffect, createSignal, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 
+import {
+  createDesktopChatLifecycleFence,
+  createFirstRunConversationHandler,
+  type DesktopChatModelHost,
+} from '../lib/desktop-chat-host'
 import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/desktop-first-run-chat'
 
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
@@ -21,14 +21,16 @@ export type DesktopFirstRunChatProps = Readonly<{
   onOpenDev(): void
   onSignIn(): void | Promise<void>
   runtime: DevRuntimeService
+  modelHost: DesktopChatModelHost
   temporary: boolean
   workspaceId: string
 }>
 
 type ReadyState = Readonly<{
   facts: FirstRunFacts
-  model: ReturnType<typeof createChatConversationModel>
+  model: ChatConversationModel
   port: ReturnType<typeof createFirstRunRuntimePort>
+  scope: Scope
 }>
 
 /**
@@ -39,17 +41,23 @@ type ReadyState = Readonly<{
 export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Element {
   const [ready, setReady] = createSignal<ReadyState>()
   const [conversation, setConversation] = createSignal<ChatConversation>()
+  const lifecycle = createDesktopChatLifecycleFence()
 
   createEffect(() => {
-    let disposed = false
+    // These reads make auth/workspace changes start a fresh scoped load even
+    // when the parent keeps the Chat entry mounted across a route switch.
+    void props.client
+    void props.modelHost
+    void props.runtime
+    void props.temporary
+    void props.workspaceId
     setReady(undefined)
     setConversation(undefined)
+    const request = lifecycle.begin()
     void load().then((next) => {
-      if (!disposed && next) setReady(next)
+      if (lifecycle.isCurrent(request) && next) setReady(next)
     })
-    return () => {
-      disposed = true
-    }
+    onCleanup(lifecycle.invalidate)
   })
 
   async function load(): Promise<ReadyState | undefined> {
@@ -57,7 +65,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     const scope = props.runtime.preferenceScope?.()
     if (!scope || props.runtime.state().status !== 'ready') return undefined
     try {
-      const model = createChatConversationModel(props.runtime, scope)
+      const model = props.modelHost.get(scope)
       const port = createFirstRunRuntimePort(props.runtime, scope, model)
       const [projection, worktreePage, workspace, managedPi] = await Promise.all([
         props.runtime.projection?.(scope),
@@ -84,6 +92,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
         facts: resolution.facts,
         model,
         port: boundPort,
+        scope,
       }
     } catch {
       // A missing or refused authority must not become a synthetic onboarding
@@ -94,30 +103,59 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
 
   return (
     <Show when={ready()} fallback={props.fallback}>
-      {(state) => (
-        <Show
-          when={conversation()}
-          fallback={
-            <FirstRunOnboarding
-              facts={state().facts}
-              port={state().port}
-              onAction={async (kind) => {
-                if (kind === 'sign_in') return props.onSignIn()
-                if (kind === 'add_project' || kind === 'set_up_agent') props.onOpenDev()
-                if (kind === 'retry_access' || kind === 'update_app') {
-                  const next = await load()
-                  if (next) setReady(next)
-                }
-              }}
-              onConversation={(created) => {
-                void state().model.attach(created.runtimeSessionId).then(setConversation)
-              }}
-            />
-          }
-        >
-          {(active) => <ChatView conversation={active()} model={state().model} />}
-        </Show>
-      )}
+      {(state) => {
+        const request = lifecycle.current()
+        return (
+          <Show
+            when={conversation()}
+            fallback={
+              <FirstRunOnboarding
+                facts={state().facts}
+                port={state().port}
+                onAction={async (kind) => {
+                  if (kind === 'sign_in') return props.onSignIn()
+                  if (kind === 'add_project' || kind === 'set_up_agent') props.onOpenDev()
+                  if (kind === 'retry_access' || kind === 'update_app') {
+                    const nextRequest = lifecycle.begin()
+                    setReady(undefined)
+                    setConversation(undefined)
+                    const next = await load()
+                    if (lifecycle.isCurrent(nextRequest) && next) setReady(next)
+                  }
+                }}
+                onConversation={createFirstRunConversationHandler({
+                  currentModel: () => ready()?.model,
+                  getModel: () => state().model,
+                  lifecycle,
+                  onAttached: setConversation,
+                  request,
+                })}
+              />
+            }
+          >
+            {(active) => (
+              <ChatView
+                conversation={active()}
+                model={state().model}
+                draftRevision={props.modelHost.draftRevision(
+                  state().scope,
+                  active().runtimeSessionId
+                )}
+                onDraftChange={(draft, identity, expectedRevision) => {
+                  if (!lifecycle.isCurrent(request)) return
+                  const next = props.modelHost.setDraft(
+                    state().scope,
+                    identity,
+                    draft,
+                    expectedRevision
+                  )
+                  if (next) setConversation(next)
+                }}
+              />
+            )}
+          </Show>
+        )
+      }}
     </Show>
   )
 }

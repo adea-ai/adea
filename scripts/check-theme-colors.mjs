@@ -36,6 +36,9 @@ export const TOKEN_FILES = [
   // The built-in theme manifest: its color strings are the theme data itself,
   // applied as CSS custom properties by the appearance provider.
   'packages/ui/src/components/appearance.ts',
+  // Generated canonical theme CSS data: these literals are the published
+  // palette serialized for tests and build-time token application.
+  'packages/ui/src/components/canonical-theme-css-data.ts',
 ]
 
 /**
