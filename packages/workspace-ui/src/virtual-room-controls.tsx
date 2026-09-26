@@ -18,7 +18,6 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
   const persistenceReady = useWorkspacePersistence()
   const bootstrap = useWorkspaceBootstrapQuery(client())
   const selectedWorkspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
-  const selectedRoomId = useWorkspaceState((state) => state.selectedRoomId)
   const selectedChannelId = useWorkspaceState((state) => state.selectedChannelId)
   const bootstrapData = () => settledData(bootstrap)
   const activeWorkspace = () =>
@@ -36,12 +35,21 @@ export function VirtualRoomControls(props: { client?: AgentHqApiClient; openChat
     workspaceStore.getState().setSelectedWorkspaceId(data.activeWorkspace.id)
   })
 
+  // Follow the same rule as `use-workspace-controller`: a selection that is
+  // already valid is left alone, and only a missing or stale one is defaulted.
+  //
+  // This used to require the selected ROOM and the selected channel to agree,
+  // which a direct-Agent conversation never satisfies — it has no room, so
+  // `selectedRoomId()` is null, the guard failed, and mounting the Virtual view
+  // forced room[0] and its channel into the store. Returning to Chat then
+  // showed a different conversation, and `setSelectedChannelId` nulls
+  // `threadRootMessageId`, so the open thread was closed too.
   createEffect(() => {
     if (!navigation().rooms.length) return
-    const selectedChannel = settledData(channels)?.find(({ id }) => id === selectedChannelId())
-    const selectedRoom = navigation().rooms.find(({ room }) => room.id === selectedRoomId())
-    if (selectedRoom && selectedChannel?.roomId === selectedRoom.room.id) return
-    const firstRoom = selectedRoom ?? navigation().rooms[0]!
+    const currentChannelId = selectedChannelId()
+    if (currentChannelId && settledData(channels)?.some(({ id }) => id === currentChannelId)) return
+    const firstRoom = navigation().rooms.find(({ selectionChannelId }) => selectionChannelId)
+    if (!firstRoom) return
     workspaceStore.getState().setSelectedRoomId(firstRoom.room.id)
     workspaceStore.getState().setSelectedChannelId(firstRoom.selectionChannelId ?? null)
   })

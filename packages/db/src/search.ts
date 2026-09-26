@@ -3,6 +3,7 @@ import { and, asc, eq, ilike, inArray, isNotNull, isNull, or } from 'drizzle-orm
 
 import type { AgentHqDatabase } from './connection'
 import { listAccessibleChannelIds } from './read-state'
+import { searchPageWindow } from './search-paging'
 import { agents, artifacts, channels, messages, rooms, tasks } from './schema'
 
 function pattern(query: string) {
@@ -35,16 +36,18 @@ export async function searchWorkspaceForUser(
 ): Promise<WorkspaceSearchPage> {
   const normalized = query.trim()
   if (normalized.length < 2 || normalized.length > 120) throw new Error('Search query invalid')
-  const limit = Math.min(Math.max(options.limit ?? 30, 1), 50)
   const offset = Math.max(options.offset ?? 0, 0)
-  if (!Number.isSafeInteger(offset) || offset > 5_000) throw new Error('Search query invalid')
+  // One call derives the clamped limit, the candidate scan, and the next
+  // cursor together, so they cannot drift apart again.
+  const window = searchPageWindow({ limit: options.limit, offset, resultCount: 0 })
+  const limit = window.limit
+  const candidateLimit = window.candidateLimit
   const allowed = await listAccessibleChannelIds(database, workspaceId, principal)
   const allowedChannelIds = allowed.map(({ id }) => id)
   if (options.channelId && !allowedChannelIds.includes(options.channelId))
     throw new Error('Search unavailable')
   const scopedChannelIds = options.channelId ? [options.channelId] : allowedChannelIds
   const like = pattern(normalized)
-  const candidateLimit = Math.min(offset + limit + 1, 5_051)
 
   const [roomRows, channelRows, agentRows, taskRows, artifactRows, messageRows, privateRows] =
     await Promise.all([
@@ -224,8 +227,10 @@ export async function searchWorkspaceForUser(
     })),
   ].toSorted(compare)
   const page = results.slice(offset, offset + limit)
+  const hasMore =
+    searchPageWindow({ limit, offset, resultCount: results.length }).nextOffset !== undefined
   return Object.freeze({
-    ...(offset + limit < results.length ? { nextOffset: offset + limit } : {}),
+    ...(hasMore ? { nextOffset: offset + limit } : {}),
     privateResultsUnavailable: privateRows.length > 0,
     results: Object.freeze(page),
   })

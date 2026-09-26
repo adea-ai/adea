@@ -1,8 +1,4 @@
-import type {
-  AgentHqApiClient,
-  ApiMarketplaceCatalogResponse,
-  ApiMarketplaceInstallResponse,
-} from '@adea-ai/api-client'
+import type { AgentHqApiClient, ApiMarketplaceInstallResponse } from '@adea-ai/api-client'
 
 import type {
   WorkspacePlugin,
@@ -705,12 +701,6 @@ export function installationResponseState(
   response: ApiMarketplaceInstallResponse
 ): WorkspacePluginInstallationStatus {
   return response.state
-}
-
-export function registryResponseArtifacts(
-  response: ApiMarketplaceCatalogResponse
-): RegistryArtifactBundle {
-  return response.artifacts
 }
 
 function parsePlugin(value: unknown, index: number): RegistryPlugin {

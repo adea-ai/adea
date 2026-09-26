@@ -79,7 +79,6 @@ type PendingTreePlan = {
   planId: string
   digest: string
   commitOperation: 'dev.files.deleteTreeCommit' | 'dev.files.copyTreeCommit'
-  items: number
   summary: string
 }
 
@@ -111,6 +110,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
   >(emptyStatusCache(0))
   const markers = (): ReadonlyMap<string, ModificationMarker> => markerCache().value ?? new Map()
   const [notice, setNotice] = createSignal<string | undefined>()
+  const [statusTruncated, setStatusTruncated] = createSignal(false)
   const [confirmDelete, setConfirmDelete] = createSignal<string | undefined>()
   const [creating, setCreating] = createSignal(false)
   const [newName, setNewName] = createSignal('')
@@ -213,10 +213,16 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
         props.runtime,
         activeScope,
         'dev.git.status',
-        { worktreeId: context.worktreeId, limit: 500 },
+        { worktreeId: context.worktreeId, limit: GIT_STATUS_LIMIT },
         { kind: 'worktree', id: context.worktreeId, generation: context.generation }
       )
       setMarkerCache(cacheStatus(markerMap(status.entries), context.generation))
+      // `dev.git.status` has no cursor and the provider slices at `limit`, so
+      // a worktree with more changed paths than that is silently partial: the
+      // pane listed a subset and the tree dropped modification badges past it
+      // with nothing said. Content search already states this, so say it here
+      // too rather than presenting a partial set as the whole one.
+      setStatusTruncated(status.entries.length >= GIT_STATUS_LIMIT)
     } catch {
       // Read-only pane, honest cache: a failed read publishes nothing — the
       // markers clear (a miss is a miss), never stale badges labeled fresh.
@@ -539,7 +545,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           planId: plan.id,
           digest: plan.digest,
           commitOperation: 'dev.files.deleteTreeCommit',
-          items: plan.steps.length,
           summary: node.relativePath,
         })
         setNotice(`Delete ${node.relativePath}: ${plan.steps.length} items. Confirm to delete.`)
@@ -585,7 +590,6 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
           planId: plan.id,
           digest: plan.digest,
           commitOperation: 'dev.files.copyTreeCommit',
-          items: plan.steps.length,
           summary: `${node.relativePath} → ${destination}`,
         })
         setNotice(
@@ -904,6 +908,12 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
               </p>
             )}
           </Show>
+          <Show when={statusTruncated()}>
+            <p class="dev-terminal-muted" role="status">
+              Showing the first {GIT_STATUS_LIMIT} changed paths. This worktree has more, and
+              modification markers past that are not shown.
+            </p>
+          </Show>
           <div
             ref={(element) => {
               treeElement = element
@@ -1082,6 +1092,9 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     </section>
   )
 }
+
+/** Matches the provider's page cap for `dev.git.status`. */
+export const GIT_STATUS_LIMIT = 500
 
 function flattenPaths(nodes: readonly FileTreeNode[]): readonly string[] {
   const paths: string[] = []
