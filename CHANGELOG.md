@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.3](https://github.com/adea-ai/adea/compare/v0.60.2...v0.60.3) (2026-09-26)
+
+
+### Performance
+
+* **db:** make mark-all-read a fixed number of round trips ([#721](https://github.com/adea-ai/adea/issues/721)) ([35f83f1](https://github.com/adea-ai/adea/commit/35f83f103f7c313a85947b01897184f6707133ca))
+
 ## [0.60.2](https://github.com/adea-ai/adea/compare/v0.60.1...v0.60.2) (2026-09-26)
 
 
