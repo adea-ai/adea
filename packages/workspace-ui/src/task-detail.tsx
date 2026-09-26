@@ -29,7 +29,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
-import { Separator } from '@adea-ai/app-ui/components/ui/separator'
+import { Separator } from '@adea-ai/ui/components/ui/separator'
 
 import type { PrivateContentResolver } from './platform'
 import { keyedRows } from './keyed-rows'
