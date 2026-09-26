@@ -21,10 +21,12 @@ const EDITOR_KEYS =
     ' '
   )
 
+function palette(values: readonly number[]) {
+  return values.map((index) => '#' + CANONICAL_THEME_COLORS.slice(index * 6, index * 6 + 6))
+}
+
 function makeVariant(record: CanonicalThemeRecord, id: CanonicalAdeaThemeId): ThemeVariant {
   const [metadata, colorValues, terminalValues, editorValues] = record
-  const palette = (values: readonly number[]) =>
-    values.map((index) => '#' + CANONICAL_THEME_COLORS.slice(index * 6, index * 6 + 6))
   const colorsValues = palette(colorValues)
   const terminalColorValues = palette(terminalValues)
   const editorColorValues = palette(editorValues)
