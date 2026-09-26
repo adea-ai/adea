@@ -67,11 +67,11 @@ through the entitlement-gated engine remote.
 
 Adea consumes the authoritative registry through the same-origin server
 proxy. The proxy calls Control Plane; browser and desktop clients never fetch
-GitHub release assets or upstream plugin content directly. The registry's stable
-latest artifact is
-[`catalog-latest.v1.json`](https://github.com/adea-ai/plugins/releases/latest/download/catalog-latest.v1.json),
-and each verified catalog is pinned by its `catalogId` and immutable release
-tag.
+the publication branch or upstream plugin content directly. The registry's
+stable latest pointer is
+[`catalog-latest.v1.json`](https://raw.githubusercontent.com/adea-ai/plugins/catalog-assets/catalog-latest.v1.json),
+and each verified catalog is pinned by its `catalogId`, which is also its
+immutable snapshot path.
 
 The shared marketplace provider verifies the catalog schema, canonical catalog
 digest, `integrity.json`, and byte-identical latest pointer before mapping the
