@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.12](https://github.com/adea-ai/adea/compare/v0.60.11...v0.60.12) (2026-09-26)
+
+
+### Bug Fixes
+
+* publish lists can't drift, plugin search stops rebuilding text, tree rows expose structure ([#743](https://github.com/adea-ai/adea/issues/743)) ([c668249](https://github.com/adea-ai/adea/commit/c668249bb0d2d59265e23abd62185ebba48eeb81))
+
 ## [0.60.11](https://github.com/adea-ai/adea/compare/v0.60.10...v0.60.11) (2026-09-26)
 
 
