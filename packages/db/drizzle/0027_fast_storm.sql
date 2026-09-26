@@ -1,0 +1,2 @@
+DROP INDEX "app"."workspace_event_dispatches_pending_idx";--> statement-breakpoint
+CREATE INDEX "workspace_event_dispatches_pending_idx" ON "app"."workspace_event_dispatches" USING btree ("workspace_id","workspace_sequence") WHERE "app"."workspace_event_dispatches"."notified_at" is null;

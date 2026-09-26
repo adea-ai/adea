@@ -118,7 +118,16 @@ export const workspaceEventDispatches = appSchema.table(
   },
   (table) => [
     uniqueIndex('workspace_event_dispatches_event_uidx').on(table.eventId),
-    index('workspace_event_dispatches_pending_idx').on(table.workspaceId, table.workspaceSequence),
+    // Partial, because both queries that use it filter `notified_at is null`
+    // (`pendingEventDispatches` and `markEventDispatchesNotified`). As a full
+    // index it could not serve its own predicate: the scan is ordered by
+    // workspace_sequence and the pending rows are the NEWEST, so Postgres had
+    // to walk the workspace's entire dispatch history — one row per event,
+    // retained until event retention prunes it — heap-checking each row before
+    // reaching them. A partial index holds only the pending rows.
+    index('workspace_event_dispatches_pending_idx')
+      .on(table.workspaceId, table.workspaceSequence)
+      .where(sql`${table.notifiedAt} is null`),
     check('workspace_event_dispatches_attempts_nonnegative', sql`${table.attempts} >= 0`),
   ]
 )
