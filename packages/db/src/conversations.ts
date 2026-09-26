@@ -48,6 +48,22 @@ function hashPayload(value: unknown) {
     .digest('hex')
 }
 
+/**
+ * Canonical key for a structurally-identical value. `JSON.stringify` alone is
+ * key-ORDER dependent, so two equal mentions written `{ kind, userId }` and
+ * `{ userId, kind }` produced different strings: the participant/mention
+ * de-duplication below would keep both, and the sorts would order them by
+ * spelling rather than by value. `stableValue` sorts keys first, so equal
+ * values always produce one key.
+ */
+function stableKey(value: unknown): string {
+  return JSON.stringify(stableValue(value))
+}
+
+function compareByStableKey(left: unknown, right: unknown): number {
+  return stableKey(left).localeCompare(stableKey(right))
+}
+
 async function requireMembership(
   database: Database,
   workspaceId: string,
@@ -137,7 +153,7 @@ async function channelSummary(database: Database, row: ChannelRow): Promise<Chan
         ? { kind: 'user', userId: participant.userId! }
         : { agentId: participant.agentId!, kind: 'agent' }
     )
-    .toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    .toSorted(compareByStableKey)
   return Object.freeze({
     ...(row.agentId ? { agentId: row.agentId } : {}),
     createdAt: row.createdAt.toISOString(),
@@ -593,7 +609,7 @@ export async function setChannelParticipants(
     const channel = await requireChannel(transaction, workspaceId, channelId)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
     if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
-    const unique = new Map(participants.map((entry) => [JSON.stringify(entry), entry])).values()
+    const unique = new Map(participants.map((entry) => [stableKey(entry), entry])).values()
     const normalized = [...unique]
     for (const participant of normalized)
       await validateParticipant(transaction, workspaceId, participant)
@@ -656,7 +672,7 @@ async function messageSummary(database: Database, row: MessageRow): Promise<Mess
         ? { kind: 'user', userId: mention.userId! }
         : { agentId: mention.agentId!, kind: 'agent' }
     )
-    .toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    .toSorted(compareByStableKey)
   let sender: MessageSenderRef
   if (row.senderKind === 'user') sender = { kind: 'user', userId: row.senderUserId! }
   else if (row.senderKind === 'agent') sender = { agentId: row.senderAgentId!, kind: 'agent' }
@@ -741,8 +757,8 @@ export async function createMessage(
       if (availableArtifacts.length !== artifactIds.length) throw new Error('Artifact unavailable')
     }
     const mentions = [
-      ...new Map((input.mentions ?? []).map((entry) => [JSON.stringify(entry), entry])).values(),
-    ].toSorted((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+      ...new Map((input.mentions ?? []).map((entry) => [stableKey(entry), entry])).values(),
+    ].toSorted(compareByStableKey)
     for (const mention of mentions) await validateParticipant(transaction, workspaceId, mention)
     let reply: MessageRow | undefined
     if (input.replyToMessageId) {

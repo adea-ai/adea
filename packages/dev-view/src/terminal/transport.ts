@@ -92,16 +92,34 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
     }
   }
 
+  // Fallback poll for the one case no inbound frame reports: the LOCAL socket's
+  // outbound buffer draining. Credit returned by a `data` frame is signalled
+  // directly (see `handleFrame`), so this only covers pure buffer drain.
+  //
+  // It used to fire at a flat 100Hz for as long as any input was queued, which
+  // is ~50 wake-ups per keystroke burst against a full window while nothing was
+  // happening. It now backs off when a tick makes no progress and resets the
+  // moment anything drains, so sustained backpressure costs ~10Hz instead. The
+  // ceiling bounds the extra latency in the fully-stalled case; a frame arrival
+  // or a real drain always wakes it immediately, so the common path is unchanged.
   const DRAIN_POLL_MS = 10
+  const DRAIN_POLL_MAX_MS = 100
+  let drainBackoffMs = DRAIN_POLL_MS
 
-  /** bb's drain poll: queued input retries while credit is withheld. */
+  /** Queued input retries while credit is withheld. */
   function scheduleDrain(): void {
     if (drainTimer !== null || pendingInputs.length === 0) return
     drainTimer = setTimeout(() => {
       drainTimer = null
+      const before = pendingInputs.length
       flushInputs()
+      // Progress resets the backoff; a stalled tick doubles it up to the cap.
+      drainBackoffMs =
+        pendingInputs.length < before
+          ? DRAIN_POLL_MS
+          : Math.min(drainBackoffMs * 2, DRAIN_POLL_MAX_MS)
       scheduleDrain()
-    }, DRAIN_POLL_MS)
+    }, drainBackoffMs)
   }
 
   function handleFrame(frame: DevStreamFrame): void {
@@ -123,6 +141,17 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
           throughSequence: frame.sequence,
           availableCreditBytes: frame.bytes.byteLength,
         })
+        // This frame returned credit, so any queued input may be sendable now.
+        // Waking here rather than waiting for the fallback poll keeps the
+        // common case at the same latency the flat 10Hz poll gave.
+        if (pendingInputs.length > 0) {
+          drainBackoffMs = DRAIN_POLL_MS
+          if (drainTimer !== null) {
+            clearTimeout(drainTimer)
+            drainTimer = null
+          }
+          flushInputs()
+        }
         return
       }
       case 'resync':
@@ -148,6 +177,9 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
     const dead = socket
     socket = null
     clearTimers()
+    // A fresh socket starts with a fresh buffer, so the stalled-case backoff
+    // must not carry across a reconnect.
+    drainBackoffMs = DRAIN_POLL_MS
     void dead
     if (disposed || terminalEnded || !started || suspended) {
       setState('closed')
