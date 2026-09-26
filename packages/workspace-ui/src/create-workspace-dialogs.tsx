@@ -1,7 +1,7 @@
 import type { WorkspaceSceneId } from '@adea-ai/types'
 import { Button } from '@adea-ai/app-ui/components/ui/button'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@adea-ai/app-ui/components/ui/field'
-import { Input } from '@adea-ai/app-ui/components/ui/input'
+import { Input } from '@adea-ai/ui/components/ui/input'
 import { createSignal, For, Show } from 'solid-js'
 
 import { ModalDialog } from './modal-dialog'
