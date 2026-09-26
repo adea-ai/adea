@@ -1203,7 +1203,15 @@ privileged command. The center layout is a strict binary tree with a hard M12
 cap of 8 leaves and depth 8; split/duplicate refuses with `limit_exceeded`
 when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the
-last leaf restores one terminal placeholder. Utility slots are independent:
+last leaf restores one terminal placeholder. The center model and stable ID-keyed
+renderer are consumed from the published `@adea-ai/ui` split-layout entries.
+Adea injects terminal/editor leaf payloads, the final terminal placeholder,
+scoped preference decoding/storage, keyboard move commands, and 5% resize
+snapping. Shared UI owns constrained separators, internal pane drag payloads,
+owner cleanup, and close focus return. Splitting, moving, or resizing surviving
+leaves must preserve their terminal/editor DOM owners and local interaction
+state; none of these visual transitions grants runtime authority.
+Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,
 and full-width state are local preferences only. A persisted focus target must

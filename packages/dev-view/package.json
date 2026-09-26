@@ -135,9 +135,11 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@adea-ai/state": "workspace:*",
-    "@adea-ai/types": "workspace:*",
     "@adea-ai/app-ui": "workspace:*",
+    "@adea-ai/state": "workspace:*",
+    "@adea-ai/themes": "0.5.0",
+    "@adea-ai/types": "workspace:*",
+    "@adea-ai/ui": "0.65.0",
     "@codemirror/commands": "^6.8.1",
     "@codemirror/language": "^6.11.0",
     "@codemirror/search": "^6.5.11",
@@ -150,9 +152,7 @@
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
     "lucide-solid": "^1.45.0",
-    "solid-js": "^1.9.15",
-    "@adea-ai/themes": "0.5.0",
-    "@adea-ai/ui": "0.63.2"
+    "solid-js": "^1.9.15"
   },
   "devDependencies": {
     "vite": "^8.0.14",

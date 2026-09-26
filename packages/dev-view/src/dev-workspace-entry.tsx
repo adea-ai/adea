@@ -18,6 +18,7 @@ import type {
   DevUtilityPreference,
   DevReply,
   DevStreamFrame,
+  PaneLeaf,
 } from '@adea-ai/types/dev-runtime'
 import '@adea-ai/app-ui/dev-view.css'
 // #424: the resources sheet rides the resources pane's scoped hooks.
@@ -247,7 +248,7 @@ const defaultUtilityPreferences = (): DevUtilityPreference[] =>
   }))
 
 const initialLayout = () =>
-  createLayoutState({
+  createLayoutState<PaneLeaf>({
     kind: 'split',
     id: 'dev-root',
     direction: 'row',
@@ -995,7 +996,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     storageController = controller
     const loaded = controller.load()
     if (loaded.state === 'ready') {
-      const restored = normalizeLayout(createLayoutState(loaded.value.center))
+      const restored = normalizeLayout(createLayoutState<PaneLeaf>(loaded.value.center))
       setLayout({
         ...restored,
         focusedLeafId: loaded.value.focusTargetId ?? restored.focusedLeafId,
