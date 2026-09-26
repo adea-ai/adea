@@ -34,6 +34,10 @@ describe.skipIf(!connectionUrl)('desktop auth persistence', () => {
     const code = {
       codeChallenge: 'challenge',
       codeDigest: crypto.randomUUID(),
+      // Proves the provider email survives the round trip, which is what makes
+      // the account allowlist checkable when a desktop session is RESOLVED
+      // rather than only when it is issued.
+      email: 'person.one@example.test',
       expiresAt: now + 60_000,
       nonce: 'nonce',
       providerExpiresAt: now + 3_600_000,
@@ -47,6 +51,7 @@ describe.skipIf(!connectionUrl)('desktop auth persistence', () => {
 
     const session = {
       credentialDigest: crypto.randomUUID(),
+      email: 'person.one@example.test',
       expiresAt: now + 900_000,
       providerExpiresAt: now - 1_000,
       providerSessionId: 'provider-session',
