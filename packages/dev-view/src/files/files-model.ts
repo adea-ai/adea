@@ -187,7 +187,13 @@ export function visibleRows(
     const hasChildren = node.kind === 'directory'
     rows.push({ node, depth, hasChildren })
     if (hasChildren && expanded.has(node.relativePath)) {
-      rows.push(...visibleRows(node.children, expanded, depth + 1))
+      // Append in place rather than spreading: a directory's whole flattened
+      // subtree is passed as one call argument, and a large enough directory
+      // overflows the engine's argument limit. Measured on this runtime the
+      // spread form survives ~500k arguments and throws a RangeError by ~1M, so
+      // this removes a distant but real ceiling rather than a routine one.
+      const children = visibleRows(node.children, expanded, depth + 1)
+      for (const child of children) rows.push(child)
     }
   }
   return rows

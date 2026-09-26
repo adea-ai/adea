@@ -287,7 +287,11 @@ export function createRegistryPluginsProvider(
       }
       if (cache) {
         state = 'stale'
-        return mapRegistryCatalog(cache.catalog, cache.installations)
+        // Carry the persisted brand marks, as `refresh()` does. Omitting them
+        // here meant a plugin that had its mirrored vendor icon on a fresh read
+        // lost it as soon as the cache served a read, silently falling back to
+        // a third-party favicon service.
+        return mapRegistryCatalog(cache.catalog, cache.installations, cache.brandMarks)
       }
       state = error instanceof MarketplaceCatalogError ? error.state : 'unavailable'
       throw error
@@ -410,7 +414,9 @@ export function createRegistryPluginsProvider(
         },
       ],
     }
-    const mapped = mapRegistryCatalog(cache.catalog, cache.installations)
+    // Same omission as the stale-cache read: a post-install refresh dropped the
+    // brand marks it had just been displaying.
+    const mapped = mapRegistryCatalog(cache.catalog, cache.installations, cache.brandMarks)
     return mapped.map((candidate) =>
       candidate.id === pluginId && installationPlan ? { ...candidate, installationPlan } : candidate
     )

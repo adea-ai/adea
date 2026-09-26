@@ -1087,7 +1087,12 @@ function flattenPaths(nodes: readonly FileTreeNode[]): readonly string[] {
   const paths: string[] = []
   for (const node of nodes) {
     if (node.kind === 'file') paths.push(node.relativePath)
-    paths.push(...flattenPaths(node.children))
+    // Append in place rather than `paths.push(...recurse())`, which passes a
+    // child's whole result as one call argument. Measured on this runtime the
+    // spread form survives ~500k arguments and throws a RangeError by ~1M, so
+    // this removes a distant ceiling rather than a routine one.
+    const children = flattenPaths(node.children)
+    for (const child of children) paths.push(child)
   }
   return paths
 }

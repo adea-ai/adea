@@ -358,13 +358,19 @@ function toProjection(
   projectsReply: { items: readonly Record<string, unknown>[] },
   sessionsReply: { items: readonly Record<string, unknown>[] }
 ): DevWorkspaceProjection {
-  const sessionsByProject = new Map<
-    string,
-    DevWorkspaceProjection['groups'][number]['projects'][number]['sessions']
-  >()
+  type ProjectSessions = DevWorkspaceProjection['groups'][number]['projects'][number]['sessions']
+  // Mutable element type: the buckets are filled in place below.
+  const sessionsByProject = new Map<string, ProjectSessions[number][]>()
   for (const raw of sessionsReply.items) {
     const projectId = typeof raw.projectId === 'string' ? raw.projectId : ''
-    const sessions = [...(sessionsByProject.get(projectId) ?? [])]
+    // Mutate the bucket in place. Re-spreading it per session copied the
+    // whole array once per row, so a project with n sessions cost O(n^2) on
+    // every projection load.
+    let sessions = sessionsByProject.get(projectId)
+    if (!sessions) {
+      sessions = []
+      sessionsByProject.set(projectId, sessions)
+    }
     sessions.push({
       id: String(raw.id),
       title: typeof raw.displayName === 'string' ? raw.displayName : String(raw.id),
