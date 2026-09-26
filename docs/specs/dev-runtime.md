@@ -1327,6 +1327,11 @@ Send, Steer and Stop are available only when the host supplies their authorized
 operation (or the model supplies send/cancel). Missing handlers cannot clear a
 draft or report delivery; unsupported Steer remains disabled with a visible
 reason. Authority, connectivity and approval gates apply to Stop as well.
+Desktop Chat retains a bounded presentation-only reading-position snapshot per
+session and generation in the active authenticated model host. Scope replacement
+clears these snapshots and rejects late writes from the previous scope. A
+snapshot records the scroll offset and whether the reader was following live
+output; it does not create another transcript or session authority.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
