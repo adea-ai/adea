@@ -633,3 +633,33 @@ passes types/library build/format/lint/registry, 25 model/geometry cases with
 actual tarball pure-model attribution and both conditions pass. The renderer
 package itself and the required root compatibility gate remain separately
 pending; this internal integration branch does not duplicate the source PR.
+
+### Actual installed binary renderer continuation
+
+The retained UI integration at
+[`827e597`](https://github.com/adea-ai/ui/commit/827e597885a9b018a0087d72903ab1515ed2a671)
+passes `bun run check:packed-layout-renderer`: 52 headless checks across compiled
+and Solid browser exports, Chromium/WebKit, plus the required installed Solid
+source SSR pipeline executed in native Node. The same 26 source cases are reused
+through the harness at
+[`8bfa671`](https://github.com/adea-ai/ui/commit/8bfa67137eea97eb2d09d203092c33afab5099b0);
+default source mode independently passes 26 checks after refactoring. Compiled
+browser output is not presented as server-renderable.
+
+Actual tarball installation disables lifecycle scripts, retains required Solid
+peers and omits optional peers. The check retains Apache LICENSE/full donor MIT
+NOTICE, external Solid/Corvu imports, unmixed UI browser conditions, a single
+Solid runtime and one JS chunk. Explicit external Tailwind/theme/base CSS pays
+for the renderer and Button. Charts, carousel, terminal/editor/highlighter,
+conversation/theme engine and font assets are excluded from the retained graph.
+Compiled/source output measures 30,370/30,383 gzip JS bytes with a 32 KiB cap, and
+32,705 raw CSS bytes with a 34 KiB cap. The caps tightened after the initial
+measurement; exclusions and runtime assertions remain independent gates.
+
+The component fixtures verify owner/DOM/value/caret/focus retention, constrained
+pointer/keyboard resize, labelled physical separator orientation, visible region
+references, close/disposal/external focus, CSP geometry, light/dark automated
+a11y and eight panes at 320/1440px. This completes the selected renderer's
+installed-artifact checkpoint, not the full shell, native editor/hydration/manual
+AT, required root-peer compatibility or real production consumer gate. Adea and
+Cortana migration, release, superseded-system deletion and re-audit remain pending.

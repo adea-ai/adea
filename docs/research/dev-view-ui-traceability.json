@@ -10091,7 +10091,7 @@
         "sourceReviewed": "selected_geometry_and_existing_Adea_renderer_full",
         "reusePermitted": "MIT_copyright_and_full_notice_retained",
         "behaviorPorted": "selected_stable_leaf_renderer",
-        "libraryReady": "source_foundation_verified_full_shell_and_packed_renderer_pending",
+        "libraryReady": "selected_renderer_source_and_packed_verified_full_shell_root_and_release_gates_pending",
         "consumerMounted": "pending",
         "functionalEndToEnd": "pending",
         "packagedApplicationEvidence": "pending"
@@ -10120,7 +10120,6 @@
       "remaining": [
         "User-facing move menu/drag intents",
         "Full accepted donor shell composition and interaction acceptance",
-        "Actual packed-renderer validation and isolated budgets",
         "Dependency-ordered package/version gates",
         "Manual assistive technology evidence where required",
         "Adea then Cortana production migration and old-system deletion"
@@ -10131,6 +10130,36 @@
         "branch": "test/packed-conversation-pilot",
         "checks": "Types/library build/format/lint/registry, 25 model/geometry cases with 69 assertions and 26 headless Chromium/WebKit interaction/visual/native SSR cases passed. Actual tarball direct model attribution and both conditions passed; model stays 2455 gzip bytes under 3072 cap.",
         "limits": "Integration source fixtures and pure-model tarball only; packed renderer and required root compatibility remain pending. No duplicate renderer PR or consumer adoption claim."
+      },
+      "packedRendererPilot": {
+        "repository": "adea-ai/ui",
+        "commit": "827e597885a9b018a0087d72903ab1515ed2a671",
+        "sharedSourceHarnessCommit": "8bfa67137eea97eb2d09d203092c33afab5099b0",
+        "command": "bun run check:packed-layout-renderer",
+        "script": "packages/ui/scripts/check-packed-layout-renderer.ts",
+        "result": "exit_0_52_checks",
+        "install": "Actual npm tarball in a disposable consumer; lifecycle scripts disabled, required Solid peer retained, optional peers omitted; chart.js/solid-chartjs/embla packages absent from the consumer root.",
+        "browserConditions": ["compiled", "solid"],
+        "browserEngines": ["chromium", "webkit"],
+        "serverCondition": "Installed Solid source compiled through the required SSR pipeline, executed in native Node; compiled browser output is not treated as server code.",
+        "checks": "Reuses all 26 source cases for each browser condition: editor owner/DOM/value/caret/focus retention, pointer/keyboard constraints, physical ARIA orientation and region references, close and separate-instance focus, disposal, CSP geometry, light/dark automated a11y, native Node SSR and eight-pane visuals at 320/1440. Assert unmixed browser exports, external Solid/Corvu imports, one Solid runtime/one JS chunk, Apache LICENSE/full donor MIT NOTICE, external explicit-source CSS, no chart/carousel/terminal/editor/highlighter/conversation/theme-engine or font assets.",
+        "measurements": {
+          "compiled": {
+            "rawJsBytes": 94154,
+            "gzipJsBytes": 30370
+          },
+          "solid": {
+            "rawJsBytes": 93661,
+            "gzipJsBytes": 30383
+          },
+          "rawCssBytes": 32705,
+          "gzipJsBudget": 32768,
+          "rawCssBudget": 34816,
+          "solidRuntimes": 1,
+          "jsChunks": 1
+        },
+        "sourceVerification": "Shared harness default source mode separately passes 26 checks, changed-file format/lint and workshop types. Renderer implementation unchanged from the fully verified 4f5e2a2 snapshot; full source validation is not relabelled as a new packed/root or application proof.",
+        "limits": "Vite IIFE component fixture, not the real Adea/Cortana production routes/build outputs, hydration/native terminal/editor/device or manual AT proof. Full donor shell/move UI, root optional-peer compatibility, dependency-ordered releases and actual app migrations remain pending."
       }
     }
   ]
