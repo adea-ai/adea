@@ -159,13 +159,13 @@
             "apps/app/src/lib/split-layout/computePaneRects.test.ts",
             "apps/app/src/views/thread-detail/splitPaneCommands.test.ts"
           ],
-          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout. Shared UI issue #22 extracts the already-adapted Adea layout/operations.ts model rather than recopying a second tree; preserve payload-generic visual identities and inject the final-pane placeholder. Scoped persistence and unknown-version recovery remain application-owned. The model checkpoint does not establish the accessible shell renderer."
+          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout. Shared UI issue #22 extracts the already-adapted Adea layout/operations.ts model rather than recopying a second tree; preserve payload-generic visual identities and inject the final-pane placeholder. Scoped persistence and unknown-version recovery remain application-owned. The model checkpoint does not establish the accessible shell renderer. The issue-backed renderer foundation uses stable ID-keyed opaque leaf owners; maintained Corvu separators receive host resize/focus/close callbacks. Scoped persistence, host runtime services, user-facing move controls and full shell/product adoption stay separate."
         },
         {
           "donor": "muxy",
           "source": ["Muxy/Models/Workspace/SplitNode.swift"],
           "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
-          "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations."
+          "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations. Translate the reviewed areaFrames fractional geometry to a Map keyed by opaque identity, retaining row/column offsets and exact node references while applying accepted 0.1–0.9 ratio repair. Native UI is not copied. Keep leaf DOM separate from changing branch-controller ancestry; prove owner/value/caret/focus retention in Chromium and WebKit."
         }
       ]
     },

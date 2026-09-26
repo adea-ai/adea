@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "31d5d366c0157f2ddf9ad5237697b19524bb0ac3b0a096cf0c0e5d42d014f18e",
+  "manifestDigest": "9a17379b79ab4dde033b9d92c218f77d8e0e9d1557b247c0aae464ac901688ed",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -10053,6 +10053,77 @@
         "composed shell stories and interaction/a11y/SSR tests",
         "dependency-ordered package/version gates",
         "Adea then Cortana migration"
+      ]
+    },
+    {
+      "id": "395-binary-layout-renderer",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/395",
+      "proposal": "https://github.com/adea-ai/ui/issues/22",
+      "scope": "Selected renderer foundation on the existing accepted binary model; full shell, move UI, scoped persistence and production consumers remain pending.",
+      "donors": [
+        {
+          "id": "muxy",
+          "revision": "5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6",
+          "source": ["Muxy/Models/Workspace/SplitNode.swift"],
+          "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
+          "review": "336/394 lines read in full previously; selected areaFrames fractions, nested offsets and node references translated. Native TabArea/TerminalTab projection and UI excluded."
+        }
+      ],
+      "adaptedSource": {
+        "repository": "adea-ai/adea",
+        "readRevision": "fd3fcdc6903230f45a0b04bbf812dc4d0fcf16cd",
+        "source": "packages/dev-view/src/layout/layout-view.tsx",
+        "review": "313 lines read in full; pane-header/body and close/focus seams expressed through opaque host callbacks. Application drag services/private runtime types/global focus queries/manual document resize listeners excluded."
+      },
+      "destination": [
+        "adea-ai/ui packages/ui/src/components/layout/split-layout/geometry.ts",
+        "adea-ai/ui packages/ui/src/components/layout/split-layout/split-layout.tsx"
+      ],
+      "transformation": "Translate Muxy fractional geometry to an opaque-ID Map, retaining node objects and accepted 0.1–0.9 repair. Keep ID-keyed leaf regions separate from changing branch controllers, use accessor-aware opaque payload rendering, maintained Corvu pointer/keyboard constraints and physical separator orientation. Scoped synchronous focus capture before DOM moves, next-frame restoration respecting newer focus, disposal cancellation and host-selected close focus. Host retains persistence, runtime/session identity and command authority.",
+      "license": "Muxy MIT source copyright and full permission retained in NOTICE and geometry header; renderer uses existing Solid/Corvu/Kobalte library dependencies. No donor runtime dependency added.",
+      "implementation": {
+        "repository": "adea-ai/ui",
+        "pullRequest": "https://github.com/adea-ai/ui/pull/23",
+        "commit": "4f5e2a2087c343ad994012775811567e883862f9",
+        "status": "draft"
+      },
+      "readiness": {
+        "sourceReviewed": "selected_geometry_and_existing_Adea_renderer_full",
+        "reusePermitted": "MIT_copyright_and_full_notice_retained",
+        "behaviorPorted": "selected_stable_leaf_renderer",
+        "libraryReady": "source_foundation_verified_full_shell_and_packed_renderer_pending",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedApplicationEvidence": "pending"
+      },
+      "verification": {
+        "regression": "Missing renderer baseline failed; WebKit focus loss after a cross-parent move failed before synchronous pre-render capture replaced late render-effect capture. Both engines now retain the same owner/DOM/value/caret/focus.",
+        "geometry": "6 unit cases/12 assertions cover sole leaf, rows, columns, nested offsets, ratio repair and opaque prototype-like IDs.",
+        "broadCommand": "bun run verify",
+        "broadResult": "exit_0",
+        "broadScope": "117 UI tests/3269 assertions, five workshop tests/35 assertions, format/lint/types/coverage/theme/registry, library/Storybook builds and existing tree budgets. Main-based gate does not include or waive the UI16 integrated packed-root failure.",
+        "browserCommand": "bun run test:layout",
+        "browserResult": "26_pass_headless_Chromium_and_WebKit",
+        "browserScope": "Editor owner/DOM/value/caret/focus retention, controlled pointer/keyboard resizing, physical ARIA orientation and visible region references, close focus, external-instance focus, disposal, light/dark automated accessibility, CSP style-attribute prohibition geometry, clean native Node SSR, eight panes at 320/1440px in light/dark. Three composed stories.",
+        "limits": "Source component fixtures only; no OS/native editor/iframe or manual AT claim, no production app mount or migration/release evidence."
+      },
+      "packedModelContinuation": {
+        "sourceCommand": "mise exec node@24.18.0 -- bun run check:packed-layout",
+        "sourceResult": "exit_0_pure_model_only",
+        "integrationCommit": "39dfc05",
+        "integrationResult": "explicit_model_subpath_and_mandatory_packed_Apache_LICENSE_full_MIT_NOTICE_passed_native_Node_and_Solid_source",
+        "gzipJsBytes": 2455,
+        "runtimeImports": 0,
+        "gzipJsBudget": 3072,
+        "limits": "Renderer distribution/budgets not yet proved. UI16 root compatibility and UI20 square-control alias prerequisites remain; no optional-peer decision inferred."
+      },
+      "remaining": [
+        "User-facing move menu/drag intents",
+        "Full accepted donor shell composition and interaction acceptance",
+        "Actual packed-renderer validation and isolated budgets",
+        "Dependency-ordered package/version gates",
+        "Manual assistive technology evidence where required",
+        "Adea then Cortana production migration and old-system deletion"
       ]
     }
   ]

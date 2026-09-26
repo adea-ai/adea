@@ -589,3 +589,39 @@ The maintained accessible renderer, stable mounted content during structural
 changes, composed shell stories/interactions, package/version gates and actual
 Adea-then-Cortana consumers remain pending. No old application layout or scoped
 preference system is removed, and no full shell readiness is claimed.
+
+### Binary renderer foundation continuation
+
+[UI PR #23](https://github.com/adea-ai/ui/pull/23) now includes
+[commit `4f5e2a2`](https://github.com/adea-ai/ui/commit/4f5e2a2087c343ad994012775811567e883862f9).
+Muxy's reviewed `areaFrames` geometry is translated to opaque-ID fractional
+frames using the accepted ratio bounds. Leaf owners and DOM stay separate from
+changing binary branch-controller ancestry. The renderer uses maintained Corvu
+separators and generic host callbacks for resize, focus and close; it adds no
+second tree, runtime commands, scoped persistence or native authority. MIT
+attribution is retained.
+
+The original missing-component baseline failed. WebKit then exposed a focus
+loss on structural movement; synchronous pre-render capture fixes it without
+relaxing owner/DOM/value/caret/focus assertions. Twenty-six headless checks pass
+in Chromium/WebKit, including pointer/keyboard constraints, physical ARIA
+orientation, visible-region references, close focus, separate-instance focus,
+disposal, light/dark automated accessibility, CSP geometry, native Node SSR and
+eight-pane visuals at 320/1440px. Six geometry cases/12 assertions pass. Three
+stories cover two panes, nested directions and the eight-pane limit.
+
+Full source verification passes formatting, lint, types, 117 UI tests/3,269
+assertions, five workshop tests/35 assertions, coverage/theme/registry, both
+builds and existing tree budgets. An initially slow workshop build was stopped
+for diagnosis; a trace found 2,254 dependency JSX documentation extractions,
+not a demonstrated recursive-layout failure. The final complete build passes
+with component API documentation and all checks retained.
+
+The source pure-model tarball remains 2,455 gzip bytes under its unchanged
+3 KiB cap, with no runtime imports. In the UI16/18/19/20 integration branch,
+`39dfc05` corrects the model subpath while preserving component-directory exports
+and verifies packed Apache LICENSE and full MIT NOTICE in both model conditions.
+This does not prove packed renderer behavior or waive the required root-peer
+compatibility gate. User-facing move controls, full shell composition, renderer
+distribution/budgets, package/version gates, manual AT and real Adea-then-Cortana
+adoption remain pending. No application layout or preference system is deleted.
