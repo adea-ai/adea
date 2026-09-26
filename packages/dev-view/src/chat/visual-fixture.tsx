@@ -1,4 +1,5 @@
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
+import { createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
 import './visual-fixture.css'
@@ -65,7 +66,9 @@ const attentionEvents: readonly RuntimeEvent[] = [
 
 function conversation(
   state: ChatVisualFixtureState,
-  events: readonly RuntimeEvent[]
+  events: readonly RuntimeEvent[],
+  draft = state === 'attention' ? 'I can clarify the target environment.' : '',
+  generation = 3
 ): ChatConversation {
   return {
     runtimeSessionId: sessionId,
@@ -83,17 +86,41 @@ function conversation(
     status: state === 'reconnect' ? 'disconnected' : 'active',
     archived: false,
     projection: 'structured',
-    generation: 3,
+    generation,
     version: 4,
     activeHarnessRunId: '00000000-0000-4000-8000-000000000009',
-    draft: state === 'attention' ? 'I can clarify the target environment.' : '',
-    events,
+    draft,
+    events: events.map((item) => ({ ...item, generation })),
     retention: {
       maxEvents: 1_000,
       oldestSequence: events[0]?.seq ?? '0',
       newestSequence: events.at(-1)?.seq ?? '0',
       complete: true,
     },
+  }
+}
+
+type PendingSend = Readonly<{
+  resolve: () => void
+  reject: (error: Error) => void
+}>
+
+function draftModel(
+  getConversation: () => ChatConversation,
+  pending: Set<PendingSend>,
+  deferred: boolean
+): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async () => {
+      throw new Error('visual draft fixture does not attach a transcript')
+    },
+    send: async () => {
+      if (!deferred) return
+      await new Promise<void>((resolve, reject) => {
+        pending.add({ resolve, reject })
+      })
+    },
+    cancel: async () => getConversation(),
   }
 }
 
@@ -190,19 +217,81 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const events = state === 'attention' ? attentionEvents : transcriptEvents
   const model =
     state === 'reconnect' ? reconnectModel() : state === 'streaming' ? streamingModel() : undefined
+  const [draft, setDraft] = createSignal(
+    state === 'attention' ? 'I can clarify the target environment.' : ''
+  )
+  const [draftRevision, setDraftRevision] = createSignal(0)
+  const [generation, setGeneration] = createSignal(3)
+  const [mountKey, setMountKey] = createSignal(0)
+  const deferred = new URLSearchParams(window.location.search).has('chatDraftTest')
+  const pending: Set<PendingSend> = new Set()
+  let activeConversation: ChatConversation
+
+  const resolvePending = (error?: Error) => {
+    const next = pending.values().next().value as PendingSend | undefined
+    if (!next) return
+    pending.delete(next)
+    if (error) next.reject(error)
+    else next.resolve()
+  }
+
+  onMount(() => {
+    const remount = () => setMountKey((key) => key + 1)
+    const nextGeneration = () => setGeneration((value) => value + 1)
+    const resolveSend = () => resolvePending()
+    const rejectSend = () => resolvePending(new Error('visual send failed'))
+    window.addEventListener('chat-visual:remount', remount)
+    window.addEventListener('chat-visual:next-generation', nextGeneration)
+    window.addEventListener('chat-visual:resolve-send', resolveSend)
+    window.addEventListener('chat-visual:reject-send', rejectSend)
+    onCleanup(() => {
+      window.removeEventListener('chat-visual:remount', remount)
+      window.removeEventListener('chat-visual:next-generation', nextGeneration)
+      window.removeEventListener('chat-visual:resolve-send', resolveSend)
+      window.removeEventListener('chat-visual:reject-send', rejectSend)
+      for (const send of pending) send.reject(new Error('visual fixture unmounted'))
+      pending.clear()
+    })
+  })
+
+  const currentModel = model ?? draftModel(() => activeConversation, pending, deferred)
   return (
-    <main class="dev-chat-visual-fixture" data-chat-visual-state={state}>
+    <main
+      class="dev-chat-visual-fixture"
+      data-chat-visual-state={state}
+      data-chat-session-id={sessionId}
+      data-chat-generation={generation()}
+      data-chat-draft={draft()}
+    >
       <div class="dev-chat-visual-fixture__stage">
-        <ChatView
-          conversation={conversation(state, events)}
-          {...(model ? { model } : {})}
-          authority="chat"
-          connected={state !== 'reconnect'}
-          awaitingApproval={state === 'attention'}
-          autoAttach={state === 'reconnect' || state === 'streaming'}
-          onResolveApproval={() => undefined}
-          onResolveQuestion={() => undefined}
-        />
+        <For each={[mountKey()]}>
+          {() => {
+            activeConversation = conversation(state, events, draft(), generation())
+            return (
+              <ChatView
+                conversation={activeConversation}
+                model={currentModel}
+                authority="chat"
+                connected={state !== 'reconnect'}
+                awaitingApproval={state === 'attention'}
+                autoAttach={state === 'reconnect' || state === 'streaming'}
+                draftRevision={draftRevision()}
+                onDraftChange={(next, identity, expectedRevision) => {
+                  if (
+                    identity.runtimeSessionId !== sessionId ||
+                    identity.generation !== generation()
+                  )
+                    return
+                  if (expectedRevision !== undefined && expectedRevision !== draftRevision()) return
+                  setDraft(next)
+                  setDraftRevision((revision) => revision + 1)
+                }}
+                onResolveApproval={() => undefined}
+                onResolveQuestion={() => undefined}
+              />
+            )
+          }}
+        </For>
       </div>
     </main>
   )

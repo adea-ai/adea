@@ -1307,7 +1307,13 @@ gap, conflict, or stale generation never acknowledges the rejected frame.
 The Chat surface closes its transcript stream when the selected session or
 generation changes or the view unmounts. A late stream-open response must close
 its own handle without installing a poller or replacing the newer session's
-transcript; session-local answer and composer draft state reset on selection.
+transcript; session-local answer state resets on selection. Composer drafts are
+owned by the current authenticated scope's desktop Chat host: a Chat remount
+and a new generation under the same `runtimeSessionId` reuse that draft, while
+a workspace, account, or runtime-node change replaces the host. An async send
+may clear a draft only when its session, generation, and host draft revision
+still match; late success from an old composer is ignored, and a failed send
+leaves the draft intact.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged

@@ -55,6 +55,15 @@ async function openChatFixture(page: Page, state: string) {
   await expect(page.locator('section.dev-chat')).toBeVisible()
 }
 
+async function openDraftChatFixture(page: Page) {
+  await mockBootstrap(page)
+  await page.goto('/?view=chat&chatE2e=visual&chatState=conversation&chatDraftTest=1')
+  await expect(page.locator('[data-chat-visual-state="conversation"]')).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(page.locator('section.dev-chat')).toBeVisible()
+}
+
 test('renders the canonical conversation surface: transcript rows, live status, and a working composer', async ({
   page,
 }) => {
@@ -127,6 +136,51 @@ test('keeps earlier transcript rows mounted while a streamed event appends', asy
   await expect(rows).toHaveCount(7, { timeout: 10_000 })
   await expect(page.getByText('Streaming continues to append rows.')).toBeVisible()
   await expect(rows.first()).toContainText('Review the deployment plan')
+
+  expect(errors).toEqual([])
+})
+
+test('persists typed drafts through remount and generation changes while fencing late sends', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openDraftChatFixture(page)
+
+  const composer = page.getByRole('textbox', { name: 'Message runtime' })
+  await composer.fill('first draft')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+
+  // Unmount the sending composer, type a newer draft in its replacement, then
+  // complete the old request. The late success must not clear the new draft.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:remount')))
+  await expect(composer).toBeVisible()
+  await composer.fill('newer draft survives')
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:resolve-send')))
+  await expect(composer).toHaveValue('newer draft survives')
+  await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
+    'data-chat-draft',
+    'newer draft survives'
+  )
+
+  // A failed deferred send preserves the canonical draft and reports the
+  // failure without an unhandled page error.
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:reject-send')))
+  await expect(page.getByRole('alert')).toContainText('visual send failed')
+  await expect(composer).toHaveValue('newer draft survives')
+  await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
+    'data-chat-draft',
+    'newer draft survives'
+  )
+
+  // Resuming creates a new generation under the same canonical session; the
+  // scoped host draft remains available to the newly keyed composer.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:next-generation')))
+  await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
+    'data-chat-generation',
+    '4'
+  )
+  await expect(composer).toHaveValue('newer draft survives')
 
   expect(errors).toEqual([])
 })
