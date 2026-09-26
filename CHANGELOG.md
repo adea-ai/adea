@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.4](https://github.com/adea-ai/adea/compare/v0.60.3...v0.60.4) (2026-09-26)
+
+
+### Performance
+
+* drain the remaining audit findings (polls, quadratic scans, false-pass test) ([#723](https://github.com/adea-ai/adea/issues/723)) ([10a9e99](https://github.com/adea-ai/adea/commit/10a9e99ea19b707af001c01377696b6eca76f292))
+
 ## [0.60.3](https://github.com/adea-ai/adea/compare/v0.60.2...v0.60.3) (2026-09-26)
 
 
