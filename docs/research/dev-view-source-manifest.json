@@ -843,6 +843,21 @@
             "website/src/test/ChatInput.paste.test.tsx"
           ],
           "action": "Translate the complete reusable paste-token model into adea-ai/ui packages/ui/src/components/conversation/paste-tokens.ts: block shape, thresholds, deterministic token formatting/ranges, sequence allocation/remapping, pruning, expansion and re-collapse. Retain pure trailing-blank-line policy from composerPastePolicy. Read the full selected files and nearest tests; separate localStorage recovery/side tables and backend-message reconciliation from pure transformations, inject any required identity rather than importing app state. Browser clipboard/File interpretation, upload transport, textarea atomic editing, undo/history, mirror/preview/chips and host submit-block/persistence integration remain separately mapped continuation work; this model does not certify rich editing, full Chat, release or production adoption. Preserve pinned Apache-2.0 attribution and use Bun tests without donor React/Lexical/runtime dependencies."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/components/ChatInput.tsx",
+            "website/src/components/PasteHighlightLayer.tsx",
+            "website/src/components/PasteHoverLayer.tsx",
+            "website/src/components/PastePreviewTooltip.tsx"
+          ],
+          "tests": [
+            "website/src/test/ChatInputCoverage.test.tsx",
+            "website/src/test/ChatInput.paste.test.tsx",
+            "website/src/test/PasteHoverLayer.test.tsx"
+          ],
+          "action": "Continue the separately mapped pure model with an opt-in controlled paste-token textarea in adea-ai/ui ChatComposer. Translate synchronous plain-text paste thresholds/placement/raw-paste handling, token-safe atomic delete/navigation/selection/prune/expansion, expanded copy/cut, mirrored token highlighting and accessible hover/caret/touch preview. Preserve IME ownership and native caret/selection, and capture text plus referenced block metadata together for submission. Read the complete pinned ChatInput parent and all selected presentation/test files before editing; use the text-focused tests rather than upload/optimizer cases. Applications own canonical paired draft/history restoration, block identity allocation, transport/expansion/storage, async/system clipboard permissions and file/image upload services. Keep plain composers unchanged when the controlled token contract is absent, and use Solid plus existing maintained primitives/tokens without React/Lexical/Framer Motion. This handoff does not certify full Chat, host persistence, released artifacts or production adoption."
         }
       ]
     }

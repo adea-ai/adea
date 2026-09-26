@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "2d0ddf527ceed3ef1371f17e4600cda75c9382589278238d56b467e26b2c780a",
+  "manifestDigest": "ed473e297aa23392e45386801f3b2f46ba46d99ed70304857d345954ea8e440a",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -10290,6 +10290,43 @@
         "status": "draft; bounded independent review pending",
         "validation": "159 UI tests; format, lint, types, registry, package archive and fresh packed public-subpath headless import passed. Full verify and packed conversation suite not yet run."
       }
+    },
+    {
+      "id": "532-paste-token-editor",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/532",
+      "proposal": "https://github.com/adea-ai/ui/issues/21",
+      "scope": "Selected controlled textarea token interactions and accessible presentation; canonical host history, upload/clipboard permissions, transport and persistence remain application-owned.",
+      "donor": "kirocrew",
+      "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+      "sourceUnits": [
+        "website/src/components/ChatInput.tsx",
+        "website/src/components/PasteHighlightLayer.tsx",
+        "website/src/components/PasteHoverLayer.tsx",
+        "website/src/components/PastePreviewTooltip.tsx"
+      ],
+      "referenceTests": [
+        "website/src/test/ChatInputCoverage.test.tsx",
+        "website/src/test/ChatInput.paste.test.tsx",
+        "website/src/test/PasteHoverLayer.test.tsx"
+      ],
+      "destination": "adea-ai/ui:packages/ui/src/components/conversation/chat-composer.tsx and selected private token-editor presentation helpers",
+      "sourceReview": "Bounded independent continuation review inspected the pinned selected source/tests and identified atomic editing, selection, clipboard expansion and accessible preview seams; implementing worker must read complete selected files/tests before translating.",
+      "license": "Apache-2.0; preserve Amazon copyright and extend the selected composer/paste NOTICE entry",
+      "readiness": {
+        "sourceReviewed": "continuation_boundary_reviewed",
+        "reusePermitted": "Apache-2.0_with_attribution",
+        "behaviorPorted": "pending",
+        "libraryReady": "pending",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedApplicationEvidence": "pending"
+      },
+      "exclusions": [
+        "React/Lexical/ReactDOM/Framer Motion runtimes",
+        "File/image upload transport and optimizer services",
+        "Async clipboard permissions and localStorage/message reconciliation",
+        "Canonical history/persistence and production acceptance"
+      ]
     }
   ],
   "packageReleaseContinuation": {
