@@ -403,3 +403,20 @@ both Chromium and WebKit. The source/NOTICE retain the Apache attribution. This
 selected guard does not establish a full donor composer port, production Chat
 adoption, packed distribution certification or manual operating-system IME
 acceptance; those dimensions remain pending in the traceability inventory.
+
+The #532 plain-transcript follow contract is translated from KiroCrew's
+`useChatScrollFollow.ts` and `FollowController.ts` in
+[UI PR #19](https://github.com/adea-ai/ui/pull/19). Content/viewport observation,
+user-versus-self scroll, directional re-engagement, scroll-event races and
+content/viewport clamp distinctions replace the generic mutation-only surface.
+An action-only jump label replaces the unsupported pixel-distance message
+count; keyboard jumping restores focus to the transcript. Apache attribution,
+exact original/destination paths and intentional virtualizer exclusions remain
+in source, NOTICE, the manifest and the selected-unit inventory.
+
+The local library suite, 49 translated core tests and 32 browser/source-SSR checks
+passed. The latter cover Chromium/WebKit, light/dark and four accepted widths.
+These checks do not establish packed distribution, canonical session/durable
+scroll restoration, full Chat composition or either application's production
+adoption. The disabled plain-follow mode is fully inert; re-enabling explicitly
+re-arms at the bottom rather than automatically restoring a parked history view.

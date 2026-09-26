@@ -800,6 +800,19 @@
             "website/src/hooks/useImeGuard.documentLatch.test.tsx"
           ],
           "action": "The #532-approved KiroCrew composer/goal flow includes IME input ownership. Preserve the native latch and textarea composition/commit/blur recovery contract when hardening shared MessageComposer. Translate native/browser-signal, post-composition-window, back-to-back and abandoned-composition test behavior. React synthetic event propagation and document focus-trap tracking are excluded from this textarea-scoped port; maintained Kobalte primitives still own overlays. This selected-unit handoff does not certify the full Chat composition or its production mount."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/app-sdk/useChatScrollFollow.ts",
+            "website/src/hooks/virtualizer/FollowController.ts",
+            "website/src/app-sdk/ChatScrollChrome.tsx"
+          ],
+          "tests": [
+            "website/src/test/useChatScrollFollow.test.tsx",
+            "website/src/test/FollowController.test.ts"
+          ],
+          "action": "Translate the full plain-scroller follow lifecycle and its pure decision core into shared ConversationSurface: content/viewport ResizeObserver, user-vs-self scroll, synchronous scroll-up race guard, directional re-engagement, content shrink and viewport clamp distinctions, instant pins and cleanup. Keep virtual row measurement/anchor persistence outside the plain scroller; applications own canonical identity and scroll restoration. Preserve the existing configurable visibility threshold; use an action label rather than estimating unread messages from pixel distance. No virtualizer, React runtime or session store is copied."
         }
       ]
     }

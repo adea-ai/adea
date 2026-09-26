@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "ce3451e7fe6ab7a4b888336e2c618b09b65c439bba7c9d43fb44f459683295c4",
+  "manifestDigest": "8d3b5eb045f5f1cf05490c5fb60aa982242bc6de64927c5a08d863a9acd43e1e",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -9620,6 +9620,49 @@
         "repository": "adea-ai/ui",
         "pullRequest": "https://github.com/adea-ai/ui/pull/18",
         "commit": "c7ec1b01085ec047114c2d91329ddfa48e010b4e",
+        "status": "draft"
+      }
+    },
+    {
+      "id": "532-plain-transcript-follow",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/532",
+      "scope": "Plain-scroller follow and keyboard jump only; full Chat composition, virtualized row measurement, canonical session/draft/scroll restoration and application integration remain separately pending.",
+      "donor": "kirocrew",
+      "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+      "sourceUnits": [
+        "website/src/app-sdk/useChatScrollFollow.ts",
+        "website/src/hooks/virtualizer/FollowController.ts",
+        "website/src/app-sdk/ChatScrollChrome.tsx"
+      ],
+      "sourceReview": "Plain hook and scroll chrome read in full; all used pure decision units and nearest tests reviewed.",
+      "referenceTests": [
+        "website/src/test/useChatScrollFollow.test.tsx",
+        "website/src/test/FollowController.test.ts"
+      ],
+      "destination": "adea-ai/ui packages/ui/src/components/conversation/{scroll-follow-core.ts,scroll-follow.ts,conversation-surface.tsx}",
+      "transformation": "Pure follow decisions and full plain-scroller lifecycle retained. Solid effects replace React refs/effects; content and viewport ResizeObserver handles streamed text, earlier rows, collapse and pane resize. Instant pins retain self-scroll attribution. Existing 80px jump visibility threshold remains separate from follow intent. Pixel-distance unread count removed; explicit jump returns focus to the transcript.",
+      "exclusions": "Virtual row measurement, anchor settling and persisted restoration stay outside the plain-scroller controller. No React/virtualizer/session engine, font, asset or new dependency. The disabled follow mode is fully inert; re-enabling is an explicit re-arm, not a completed application restoration path.",
+      "license": "Apache-2.0; Amazon source copyright and NOTICE retained.",
+      "readiness": {
+        "sourceReviewed": "selected_plain_scroller_and_test_contracts",
+        "reusePermitted": "apache_2_license_and_notice_retained",
+        "behaviorPorted": "local_implementation",
+        "libraryReady": "local_verify_passed_packed_certification_pending",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedEvidence": "pending"
+      },
+      "verification": {
+        "regression": "Three initial cases failed in each browser before the fix (six failures): native text-node streaming, small upward reader scroll and action-only jump label. A further keyboard test failed when the jump control disappeared without returning focus.",
+        "core": "49 translated Bun tests/12505 assertions passed; deterministic bounded grids replace fast-check without adding dependencies.",
+        "componentChecks": "32 passed: 30 Chromium/WebKit interaction/visual checks plus two native Node source-SSR runs. Light/dark at 320/768/1024/1440px have no overflow or serious/critical axe findings; keyboard jump focus, actual content/viewport resize, disabled initial mount and repeated observer teardown verified.",
+        "limits": "Source/built fixtures are not packed distribution certification or current application/native acceptance. Full workshop browser CI, manual assistive technology and canonical session/scroll restoration remain pending.",
+        "libraryChecks": "mise exec node@24.18.0 -- bun run verify passed: format, zero-warning lint, types, 141 UI tests/15695 assertions, five workshop tests, coverage, theme/registry checks, library/workshop builds and unchanged tree-shaking budgets."
+      },
+      "implementation": {
+        "repository": "adea-ai/ui",
+        "pullRequest": "https://github.com/adea-ai/ui/pull/19",
+        "commit": "9f60e3c761907b2f592e00236b901c39a076a68f",
         "status": "draft"
       }
     }
