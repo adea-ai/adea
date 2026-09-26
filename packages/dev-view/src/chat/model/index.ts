@@ -238,6 +238,13 @@ export type ChatConversationModel = Readonly<{
     options?: { fromSequence?: string; source?: RuntimeEvent['source'] }
   ): Promise<{
     state: () => TranscriptAccumulator
+    /**
+     * Registers a listener invoked on every accepted frame (and once on
+     * close). Subscribing replaces polling: a surface that only re-reads
+     * `state` on a timer wakes the UI thread forever while idle and still
+     * renders up to one tick stale.
+     */
+    subscribe: (listener: (state: TranscriptAccumulator) => void) => () => void
     close: () => void
   }>
 }>
@@ -598,6 +605,10 @@ export function createChatConversationModel(
     })
     let socket: DevStreamTransportSocket | undefined
     const pendingAcks: DevStreamFrame[] = []
+    const listeners = new Set<(state: TranscriptAccumulator) => void>()
+    const publish = () => {
+      for (const listener of listeners) listener(transcript)
+    }
     socket = transport.connect(grant as never, {
       onFrame: (frame) => {
         const source = eventSourceForStream({ source: streamOptions.source })
@@ -643,11 +654,22 @@ export function createChatConversationModel(
             else pendingAcks.push(ack)
           }
         }
+        publish()
       },
-      onClose: (_code, _reason) => undefined,
+      onClose: (_code, _reason) => publish(),
     })
     for (const ack of pendingAcks) if (socket.open) socket.send(ack)
-    return { state: () => transcript, close: () => socket.close(1000, 'chat detached') }
+    return {
+      state: () => transcript,
+      subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      close: () => {
+        listeners.clear()
+        socket.close(1000, 'chat detached')
+      },
+    }
   }
 
   return {

@@ -46,11 +46,7 @@ import {
   type ComputerUseRuntimeInput,
 } from '../shell/src/dev-runtime/computeruse/register'
 import type { ChannelAuthority, ChannelIdentity } from '../shell/src/dev-runtime/channel/authority'
-import {
-  createOwnerApprovalVerifier,
-  type OwnerApproval,
-  type OwnerApprovalVerifier,
-} from '../shell/src/dev-runtime/authority'
+import { createOwnerApprovalVerifier, type OwnerApproval } from '../shell/src/dev-runtime/authority'
 import { COMPUTER_USE_CONSENT_ACTION } from '../shell/src/dev-runtime/computeruse/consent-gate'
 import type { MacPermissionService } from '../shell/src/desktop-permissions'
 

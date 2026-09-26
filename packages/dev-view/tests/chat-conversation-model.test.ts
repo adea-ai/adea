@@ -893,6 +893,93 @@ describe('ChatConversationModel', () => {
       { type: 'ack', throughSequence: '0', availableCreditBytes: bytes[0]!.byteLength },
     ])
   })
+
+  // The transcript surface re-renders from a subscription, not a timer. A
+  // poller would wake the UI thread for the whole time the surface was open,
+  // including while nothing streamed, and would still render up to a tick
+  // stale; a subscriber is told when a frame is accepted and stops when the
+  // handle closes.
+  test('subscribers are notified per accepted frame and released on close', async () => {
+    const current = session()
+    let handlers:
+      | {
+          onFrame: (frame: { type: string; sequence?: string; bytes?: Uint8Array }) => void
+          onClose: (code: string, reason: string) => void
+        }
+      | undefined
+    let closed = false
+    const service: DevRuntimeService = {
+      ...fakeService(async (command) => {
+        const hierarchy = hierarchyReply(command.operation)
+        if (hierarchy) return hierarchy
+        if (command.operation === 'dev.session.list')
+          return ok(command.operation, { items: [current], observedAt: '2026-09-22T10:00:00Z' })
+        if (command.operation === 'dev.session.events')
+          return ok(command.operation, {
+            schemaVersion: 1,
+            grantId: 'grant-1',
+            protocol: 'runtime-events-v1',
+            channelId: 'channel-1',
+            scope: SCOPE,
+            resource: { kind: 'runtime_session', id: current.id, generation: 1 },
+            direction: 'read',
+            fromSequence: '0',
+            expiresAt: '2026-09-22T10:01:00Z',
+            maxFrameBytes: 1_024,
+          })
+        throw new Error(`unexpected ${command.operation}`)
+      }),
+      streams: () => ({
+        connect: (_grant, next) => {
+          handlers = next as never
+          next.onFrame({
+            type: 'opened',
+            protocol: 'runtime-events-v1',
+            generation: 1,
+            nextSequence: '0',
+          })
+          return {
+            open: true,
+            send: () => undefined,
+            close: () => {
+              closed = true
+            },
+          }
+        },
+      }),
+    }
+    const model = createChatConversationModel(service, SCOPE)
+    await model.attach(current.id)
+    const transcript = await model.openTranscript(current.id)
+    const seen: number[] = []
+    const unsubscribe = transcript.subscribe((state) => seen.push(state.events.length))
+
+    handlers!.onFrame({
+      type: 'data',
+      sequence: '0',
+      bytes: encodeCbor(event({ seq: '0', eventId: 'event-0', sourceEventId: 'source-0' })),
+    })
+    handlers!.onFrame({
+      type: 'data',
+      sequence: '1',
+      bytes: encodeCbor(event({ seq: '1', eventId: 'event-1', sourceEventId: 'source-1' })),
+    })
+    expect(seen).toEqual([1, 2])
+
+    // Unsubscribing stops delivery; closing the handle releases the rest and
+    // tells the socket to close exactly once.
+    unsubscribe()
+    handlers!.onFrame({
+      type: 'data',
+      sequence: '2',
+      bytes: encodeCbor(event({ seq: '2', eventId: 'event-2', sourceEventId: 'source-2' })),
+    })
+    expect(seen).toEqual([1, 2])
+    expect(transcript.state().events).toHaveLength(3)
+
+    transcript.close()
+    expect(closed).toBe(true)
+  })
 })
 
 describe('runtime-events-v1 transcript projection', () => {

@@ -163,6 +163,6 @@ describe('Dev View dependency and bundle boundaries', () => {
     }
     // Keeps the allowlist from silently growing: a new absent operation has to
     // come with its own spec paragraph.
-    expect(absent.sort()).toEqual(['dev.project.clone', 'dev.worktree.cleanupJobs'])
+    expect(absent.toSorted()).toEqual(['dev.project.clone', 'dev.worktree.cleanupJobs'])
   })
 })

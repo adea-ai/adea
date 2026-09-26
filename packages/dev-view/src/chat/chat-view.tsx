@@ -81,9 +81,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         handle.close()
         return
       }
-      const poll = window.setInterval(() => {
+      // Push, not poll: the transcript re-renders when a frame is accepted
+      // rather than on a 10Hz timer that ran for the whole time the surface
+      // was open, whether or not anything was streaming.
+      const unsubscribe = handle.subscribe((next) => {
         if (currentAttachment !== attachment) return
-        const next = handle.state()
         setTranscript(next)
         if (
           next.availability.status === 'stale_generation' ||
@@ -92,9 +94,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           detach()
           setStreamState('disconnected')
         }
-      }, 100)
+      })
       closeStream = () => {
-        window.clearInterval(poll)
+        unsubscribe()
         handle.close()
       }
       setTranscript(handle.state())
