@@ -64,6 +64,12 @@ test('terminal reconnects after a bounded transport flap and survives a split', 
     'open'
   )
   await expect(terminals.nth(1).locator('.dev-terminal-surface')).toBeVisible()
+  // `open` is set as soon as the socket exists. The initial fixture bytes prove
+  // this pane accepted its own sequence-0 stream instead of dropping output
+  // after another pane consumed the shared fixture counter.
+  await expect(terminals.nth(1).getByLabel('Terminal output')).toContainText(
+    'fixture terminal connected'
+  )
 
   const snapshot = await page
     .getByRole('region', { name: 'Developer workspace panes' })

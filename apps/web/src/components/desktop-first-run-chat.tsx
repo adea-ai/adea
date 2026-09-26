@@ -105,6 +105,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     <Show when={ready()} fallback={props.fallback}>
       {(state) => {
         const request = lifecycle.current()
+        const boundModel = state().model
         return (
           <Show
             when={conversation()}
@@ -128,7 +129,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                     created,
                     currentModel: () => ready()?.model,
                     lifecycle,
-                    model: state().model,
+                    model: boundModel,
                     onAttached: setConversation,
                     request,
                   })
