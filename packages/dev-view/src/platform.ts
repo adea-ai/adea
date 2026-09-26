@@ -36,6 +36,14 @@ export type DevWorkspaceProjection = Readonly<{
         id: string
         title: string
         /**
+         * The session's own worktree. Panes resolve their worktree from this
+         * rather than taking the first ready one on the node, which showed and
+         * committed against the wrong worktree whenever a node had more than
+         * one. `RuntimeSession.worktreeId` is required upstream, so this is
+         * required too.
+         */
+        worktreeId: string
+        /**
          * The canonical RuntimeSession lifecycle from the register (#398).
          * States beyond the historical three render with a neutral status
          * dot and their own accessible name instead of being coerced into

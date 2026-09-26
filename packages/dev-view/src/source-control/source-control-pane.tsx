@@ -53,6 +53,13 @@ import '../files/files-pane.css'
 export type SourceControlPaneProps = Readonly<{
   runtime: DevRuntimeService
   runtimeSessionId?: string
+  /**
+   * The selected session's worktree, honoured over "the first ready worktree
+   * on the node" so commits and staging land in the worktree the session
+   * belongs to. `runtimeSessionId` above identifies the session; this is the
+   * worktree it resolved to.
+   */
+  worktreeId?: string
 }>
 
 type StatusEntry = GitStatus['entries'][number]
@@ -114,7 +121,11 @@ export function SourceControlPane(props: SourceControlPaneProps): JSX.Element {
     const activeScope = scope()
     if (!activeScope || props.runtime.state().status !== 'ready') return
     wirePushInvalidation(activeScope)
-    const context = await resolveWorktreeContext(props.runtime, activeScope).catch(() => undefined)
+    const context = await resolveWorktreeContext(
+      props.runtime,
+      activeScope,
+      props.worktreeId
+    ).catch(() => undefined)
     setWorktree(context)
     if (context) {
       // A re-resolved context whose generation moved is a re-fence: the old

@@ -374,6 +374,9 @@ function toProjection(
     sessions.push({
       id: String(raw.id),
       title: typeof raw.displayName === 'string' ? raw.displayName : String(raw.id),
+      // Required on `RuntimeSession` upstream; the Files and Source Control
+      // panes resolve their worktree from this.
+      worktreeId: typeof raw.worktreeId === 'string' ? raw.worktreeId : '',
       // Carry the canonical lifecycle through. This used to collapse
       // `preparing | disconnected | completed | failed | cancelled` into
       // `ready`, so a session whose run had FAILED rendered with the green

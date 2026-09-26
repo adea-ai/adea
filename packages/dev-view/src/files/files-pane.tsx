@@ -54,6 +54,12 @@ import './files-pane.css'
 
 export type FilesPaneProps = Readonly<{
   runtime: DevRuntimeService
+  /**
+   * The selected session's worktree. Resolved in preference to "the first
+   * ready worktree on the node", which showed and acted on the wrong worktree
+   * whenever a node had more than one.
+   */
+  worktreeId?: string
   /** Raised when the user opens a file; the central editor leaf consumes it. */
   onOpenFile?: (file: {
     worktreeId: string
@@ -155,7 +161,7 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     if (!activeScope || props.runtime.state().status !== 'ready') return
     wirePushInvalidation(activeScope)
     try {
-      const context = await resolveWorktreeContext(props.runtime, activeScope)
+      const context = await resolveWorktreeContext(props.runtime, activeScope, props.worktreeId)
       setWorktree(context)
       if (context) {
         // A re-resolved context whose generation moved is a re-fence: old

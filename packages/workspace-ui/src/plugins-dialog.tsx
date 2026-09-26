@@ -244,6 +244,16 @@ function PluginBrowserGroup(props: {
   )
 }
 
+/** The install refusal, in the user's terms, without leaking provider detail. */
+function describeInstallFailure(error: unknown): string {
+  const code = (error as { error?: { code?: string } } | null)?.error?.code
+  if (code === 'verification-failure')
+    return 'The catalog could not be verified, so this install was refused.'
+  if (code === 'stale_catalog' || code === 'stale_version')
+    return 'The catalog changed while you were looking. Reopen Plugins and try again.'
+  return 'The install could not be started.'
+}
+
 function PluginListState(props: {
   catalogState: 'stale' | 'unavailable' | 'verification-failure'
   status: 'error' | 'loading'
@@ -572,7 +582,11 @@ export function PluginsDialog(props: {
   const [filterOpen, setFilterOpen] = createSignal(false)
   const [query, setQuery] = createSignal('')
   const [selectedId, setSelectedId] = createSignal<string | null>(null)
-  const [status, setStatus] = createSignal<'error' | 'idle' | 'loading' | 'saving'>('idle')
+  const [status, setStatus] = createSignal<'idle' | 'loading' | 'saving'>('idle')
+  // Whether the CATALOG itself failed to load — the one case that replaces the
+  // list. An install refusal keeps the list and reports separately.
+  const [catalogFailed, setCatalogFailed] = createSignal(false)
+  const [installError, setInstallError] = createSignal<string | undefined>()
   const [catalogState, setCatalogState] = createSignal<
     'idle' | 'loading' | 'ready' | 'stale' | 'verification-failure' | 'unavailable'
   >('idle')
@@ -626,11 +640,13 @@ export function PluginsDialog(props: {
       .catch(() => {
         if (!active) return
         setCatalogState(provider?.getState?.() ?? 'unavailable')
-        setStatus('error')
+        setCatalogFailed(true)
+        setStatus('idle')
       })
     if (!provider) {
       setCatalogState('unavailable')
-      setStatus('error')
+      setCatalogFailed(true)
+      setStatus('idle')
     }
     onCleanup(() => {
       active = false
@@ -645,14 +661,20 @@ export function PluginsDialog(props: {
   }
   const update = async (plugin: WorkspacePlugin) => {
     if (!props.provider || status() === 'saving') return
+    setInstallError(undefined)
     setStatus('saving')
     try {
       setPlugins(await props.provider.requestInstall(plugin.id))
       setStatus('idle')
       setCatalogState(props.provider.getState?.() ?? 'ready')
-    } catch {
-      setCatalogState(props.provider.getState?.() ?? 'unavailable')
-      setStatus('error')
+    } catch (error) {
+      // An install rejection — a stale snapshot, a policy refusal, an unknown
+      // release — is NOT a catalog failure. Setting `status` to 'error' routed
+      // the whole browser into `PluginListState`, which destroyed a list that
+      // had loaded fine and told the user the catalog was unavailable. Report
+      // the install failure and keep the catalog on screen.
+      setInstallError(describeInstallFailure(error))
+      setStatus('idle')
     }
   }
 
@@ -693,6 +715,13 @@ export function PluginsDialog(props: {
               }
             >
               <div class="plugins-browser__body">
+                <Show when={installError()}>
+                  {(message) => (
+                    <p class="plugins-browser__install-error" role="alert">
+                      {message()}
+                    </p>
+                  )}
+                </Show>
                 <div class="plugins-browser__bar">
                   <PluginFilterMenu
                     filter={activeFilter()}
@@ -720,17 +749,21 @@ export function PluginsDialog(props: {
                 </div>
                 <TabsContent value={tab()} class="plugins-browser__list">
                   <Show
-                    when={status() !== 'loading' && status() !== 'error'}
+                    when={status() !== 'loading' && !catalogFailed()}
                     fallback={
                       <PluginListState
                         catalogState={
-                          catalogState() === 'verification-failure'
-                            ? 'verification-failure'
+                          catalogFailed()
+                            ? catalogState() === 'verification-failure'
+                              ? 'verification-failure'
+                              : catalogState() === 'stale'
+                                ? 'stale'
+                                : 'unavailable'
                             : catalogState() === 'stale'
                               ? 'stale'
                               : 'unavailable'
                         }
-                        status={status() === 'error' ? 'error' : 'loading'}
+                        status={catalogFailed() ? 'error' : 'loading'}
                       />
                     }
                   >

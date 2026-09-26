@@ -30,10 +30,18 @@ type WorktreeListItem = {
 
 type Page<T> = { items: readonly T[] }
 
-/** Resolve the first ready, non-archived worktree on this runtime node. */
+/**
+ * Resolve the worktree a pane should act on.
+ *
+ * `preferredWorktreeId` is the selected session's own worktree. It is honoured
+ * first: the previous shape always took the FIRST ready worktree on the node,
+ * so with two or more ready worktrees the Files and Source Control panes
+ * showed one worktree's tree while staging and committing against another.
+ */
 export async function resolveWorktreeContext(
   runtime: DevRuntimeService,
-  scope: Scope
+  scope: Scope,
+  preferredWorktreeId?: string
 ): Promise<WorktreeContext | undefined> {
   const reply = await runtime.execute(
     buildDevCommand({
@@ -44,7 +52,13 @@ export async function resolveWorktreeContext(
   )
   if (!reply.ok) return undefined
   const page = reply.value as Page<WorktreeListItem>
-  const ready = (page.items ?? []).find((item) => item.lifecycle === 'ready' && !item.archived)
+  const items = page.items ?? []
+  const ready =
+    (preferredWorktreeId
+      ? items.find(
+          (item) => item.id === preferredWorktreeId && item.lifecycle === 'ready' && !item.archived
+        )
+      : undefined) ?? items.find((item) => item.lifecycle === 'ready' && !item.archived)
   if (!ready) return undefined
   return {
     worktreeId: ready.id,
