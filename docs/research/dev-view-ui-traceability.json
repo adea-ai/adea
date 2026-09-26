@@ -12,19 +12,8 @@
   "manifestDigest": "9a17379b79ab4dde033b9d92c218f77d8e0e9d1557b247c0aae464ac901688ed",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
-    "adeaMilestones": [
-      20,
-      23
-    ],
-    "cortanaMilestones": [
-      1,
-      4,
-      6,
-      9,
-      11,
-      17,
-      19
-    ],
+    "adeaMilestones": [20, 23],
+    "cortanaMilestones": [1, 4, 6, 9, 11, 17, 19],
     "limits": [
       "Recursive body/conversation reference recovery is complete for recognized qualified/shorthand/range links in the inspected snapshot; semantic approval, PR review threads, external compatibility sources and evidence files are not yet fully reviewed.",
       "Local shorthand issue references may include cross-repository IDs and need semantic review.",
@@ -9517,18 +9506,7 @@
   "additionalProductWorkflows": [
     {
       "repository": "adea-ai/adea",
-      "issues": [
-        481,
-        531,
-        532,
-        533,
-        534,
-        535,
-        536,
-        715,
-        716,
-        717
-      ],
+      "issues": [481, 531, 532, 533, 534, 535, 536, 715, 716, 717],
       "requirement": "Canonical RuntimeSession Chat composition, composer, approvals, mode/first-run, returning users, history/search and background notifications; preserve workspace/team-channel behavior separately.",
       "currentSourceReview": "pending",
       "sharedApiReview": "pending",
@@ -9537,18 +9515,7 @@
     },
     {
       "repository": "adea-ai/cortana",
-      "issues": [
-        113,
-        114,
-        115,
-        134,
-        2067,
-        2079,
-        2080,
-        2081,
-        2082,
-        2083
-      ],
+      "issues": [113, 114, 115, 134, 2067, 2079, 2080, 2081, 2082, 2083],
       "requirement": "Knowledge workspace/source tree/results/previews/citations/backlinks, supporting/opposing evidence and memory review; preserve canonical evidence versus derived output.",
       "currentSourceReview": "pending",
       "sharedApiReview": "pending",
@@ -9557,21 +9524,7 @@
     },
     {
       "repository": "adea-ai/cortana",
-      "issues": [
-        2095,
-        2160,
-        2161,
-        2162,
-        2163,
-        2164,
-        2165,
-        2166,
-        2167,
-        2168,
-        2365,
-        2381,
-        2388
-      ],
+      "issues": [2095, 2160, 2161, 2162, 2163, 2164, 2165, 2166, 2167, 2168, 2365, 2381, 2388],
       "requirement": "Shared Solid controls, tokens, shell and settings; migrate actual consumers and remove proved redundant controls; preserve recorded manual waivers.",
       "currentSourceReview": "pending",
       "sharedApiReview": "pending",
@@ -9580,10 +9533,7 @@
     },
     {
       "repository": "adea-ai/cortana",
-      "issues": [
-        2096,
-        2097
-      ],
+      "issues": [2096, 2097],
       "requirement": "Operational progress, restart/update/recovery, approval/plan/cancel/retry and scale evidence; graph stays independently loaded.",
       "currentSourceReview": "pending",
       "sharedApiReview": "pending",
@@ -9592,9 +9542,7 @@
     },
     {
       "repository": "adea-ai/adea",
-      "issues": [
-        478
-      ],
+      "issues": [478],
       "requirement": "Shared UI does not activate the deferred Cortana App Library/runtime integration.",
       "currentSourceReview": "pending",
       "sharedApiReview": "pending",
@@ -9603,9 +9551,7 @@
     },
     {
       "repository": "adea-ai/cortana",
-      "issues": [
-        2336
-      ],
+      "issues": [2336],
       "requirement": "Deferred integration retains product-owned memory, ingestion, ACL, scheduling and service authority.",
       "currentSourceReview": "pending",
       "sharedApiReview": "pending",
@@ -9645,10 +9591,7 @@
       "scope": "Selected textarea Enter/IME contract only; full composer, Chat composition and consumer adoption remain pending.",
       "donor": "kirocrew",
       "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
-      "sourceUnits": [
-        "website/src/hooks/useImeGuard.ts",
-        "website/src/components/ChatInput.tsx"
-      ],
+      "sourceUnits": ["website/src/hooks/useImeGuard.ts", "website/src/components/ChatInput.tsx"],
       "sourceReview": "Guard and nearest tests read in full; initial review covered ChatInput Enter binding and hook use. The later parentSourceReview records the completed 4998-line parent review; full product Chat remains pending.",
       "referenceTests": [
         "website/src/test/SideChat.imeEnter.test.tsx",
@@ -9688,14 +9631,8 @@
         "dependencies": "Isolated integration of UI PR16 packing fixes plus PR18 IME and PR19 transcript follow; experimental branch, not a duplicate merge path.",
         "command": "mise exec node@24.18.0 -- bun run check:packed-conversation",
         "result": "exit_0_28_check_groups",
-        "conditions": [
-          "compiled",
-          "solid"
-        ],
-        "engines": [
-          "chromium",
-          "webkit"
-        ],
+        "conditions": ["compiled", "solid"],
+        "engines": ["chromium", "webkit"],
         "checks": [
           "failed draft retention",
           "recovered send",
@@ -9810,14 +9747,8 @@
         "dependencies": "Isolated integration of UI PR16 packing fixes plus PR18 IME and PR19 transcript follow; experimental branch, not a duplicate merge path.",
         "command": "mise exec node@24.18.0 -- bun run check:packed-conversation",
         "result": "exit_0_28_check_groups",
-        "conditions": [
-          "compiled",
-          "solid"
-        ],
-        "engines": [
-          "chromium",
-          "webkit"
-        ],
+        "conditions": ["compiled", "solid"],
+        "engines": ["chromium", "webkit"],
         "checks": [
           "failed draft retention",
           "recovered send",
@@ -9905,14 +9836,8 @@
         "dependencies": "Isolated UI16/18/19/20 integration branch; original PRs remain merge paths.",
         "command": "mise exec node@24.18.0 -- bun run check:packed-conversation",
         "result": "exit_0_52_check_groups",
-        "engines": [
-          "chromium",
-          "webkit"
-        ],
-        "conditions": [
-          "compiled",
-          "solid"
-        ],
+        "engines": ["chromium", "webkit"],
+        "conditions": ["compiled", "solid"],
         "checks": "24 busy groups: disabled fire/live picker, scoped Tab cycle, controlled selection/focus, action-only execution, unavailable recovery and square-control styling; 28 original conversation groups still pass.",
         "measurements": {
           "busy": {
@@ -9951,13 +9876,9 @@
       "scope": "Selected composer hierarchy, controlled collapse/focus and delivery presentation; not full Chat, runtime services or either application adoption.",
       "donor": "kirocrew",
       "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
-      "sourceUnits": [
-        "website/src/components/ChatInput.tsx"
-      ],
+      "sourceUnits": ["website/src/components/ChatInput.tsx"],
       "sourceReview": "All 4998 parent lines and all 426 lines of the nearest collapse test read; feature-specific imports and remaining composer operations still require their owning comparisons.",
-      "referenceTests": [
-        "website/src/test/ChatInput.collapse.test.tsx"
-      ],
+      "referenceTests": ["website/src/test/ChatInput.collapse.test.tsx"],
       "destination": "adea-ai/ui packages/ui/src/components/conversation/chat-composer.tsx",
       "transformation": "Solid controlled draft, per-action non-text payload eligibility, hierarchy slots, unmounted reading collapse, caret/scoped focus port, generation-fenced local delivery feedback, composed IME and busy actions. Kobalte replaces manual menus; native CSS field sizing is verified on both engines. No global preference/lookup/broadcast, runtime authority, upload/voice/optimizer/approval policy or canonical session store copied.",
       "license": "Apache-2.0; source copyright plus fourth selected Kiro NOTICE section retained.",
@@ -9973,7 +9894,7 @@
         "sourceReviewed": "full_parent_and_nearest_collapse_test",
         "reusePermitted": "apache_license_notice_retained",
         "behaviorPorted": "selected_input_composition",
-        "libraryReady": "source_and_subpath_pilot_passed_required_root_gate_fails",
+        "libraryReady": "release_candidate_source_and_actual_tarball_verified_dependencies_and_release_pending",
         "consumerMounted": "pending",
         "functionalEndToEnd": "pending",
         "packagedApplicationEvidence": "pending"
@@ -9991,14 +9912,8 @@
       "packedIntegrationPilot": {
         "command": "bun run check:packed-conversation",
         "result": "exit_0_96_groups",
-        "conditions": [
-          "compiled",
-          "solid"
-        ],
-        "engines": [
-          "chromium",
-          "webkit"
-        ],
+        "conditions": ["compiled", "solid"],
+        "engines": ["chromium", "webkit"],
         "checks": "28 conversation, 24 busy and 44 composed groups. Composition covers collapse/draft/shelf/focus, recovery, controlled/alternate busy, reference-only queue/steer refusal, native IME, external Tailwind and pending spinner animation/read-only delivery.",
         "measurements": {
           "conversation": {
@@ -10059,7 +9974,41 @@
         "manual resize",
         "mapped upload/skill/voice/optimizer contributions",
         "stop/resume presentation and app-owned services"
-      ]
+      ],
+      "releaseCandidate": {
+        "repository": "adea-ai/ui",
+        "pullRequest": "https://github.com/adea-ai/ui/pull/25",
+        "branch": "feat/donor-composed-input",
+        "commit": "5750401d9516d3a84e22dd2a486d3aa64a224b54",
+        "status": "draft; UI18/19/20 dependency integration pending; UI16 merged",
+        "regressions": "Explicit false vetoes typed text per action; unavailable alternate action no longer advertises its shortcut. Both regressions observed red before correction.",
+        "source": "56 checks passed in Chromium/WebKit, including native Node SSR fixtures; manual/native IME and AT remain separate.",
+        "broadCommand": "bun run verify",
+        "broadResult": "exit_0",
+        "broadScope": "Formatting, lint, types, unit/coverage, theme, registry, library/workshop builds, tree-shaking, structural packing, required core packed consumers and packed conversation gate.",
+        "packedBrowserCheckGroups": 100,
+        "server": "Installed Solid source compiled to an unmixed SSR bundle and executed under native Node; expanded input/context and collapsed draft preview passed.",
+        "measurements": {
+          "conversation": {
+            "compiledGzipJsBytes": 23918,
+            "solidGzipJsBytes": 23981,
+            "rawCssBytes": 37060
+          },
+          "busy": {
+            "compiledGzipJsBytes": 50308,
+            "solidGzipJsBytes": 50429,
+            "rawCssBytes": 40644
+          },
+          "composed": {
+            "compiledGzipJsBytes": 53344,
+            "solidGzipJsBytes": 53435,
+            "rawCssBytes": 42366
+          }
+        },
+        "distribution": "Actual tarball, four optional engines absent, compiled/Solid conditions unmixed, one Solid runtime/chunk per browser fixture, Apache LICENSE/four Kiro NOTICE sections and unrelated-engine/font exclusions; exact used source files plus variants/overlay explicitly discovered by Tailwind.",
+        "budgets": "Existing 26/50/54 KiB gzip JS and 42 KiB raw CSS caps unchanged. Incomplete earlier CSS fixture measurements above are retained as historical pilot evidence, superseded by this complete scan.",
+        "limits": "Package contract only; production adoption, hydration, full donor Chat and manual/native evidence remain pending."
+      }
     },
     {
       "id": "395-binary-layout-model",
@@ -10074,20 +10023,14 @@
             "apps/app/src/lib/split-layout/types.ts",
             "apps/app/src/lib/split-layout/ops.ts"
           ],
-          "tests": [
-            "apps/app/src/lib/split-layout/ops.test.ts"
-          ],
+          "tests": ["apps/app/src/lib/split-layout/ops.test.ts"],
           "review": "42/509/284 lines read in full; n-ary/global/domain representations excluded per #395."
         },
         {
           "id": "muxy",
           "revision": "5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6",
-          "source": [
-            "Muxy/Models/Workspace/SplitNode.swift"
-          ],
-          "tests": [
-            "Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"
-          ],
+          "source": ["Muxy/Models/Workspace/SplitNode.swift"],
+          "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
           "review": "336/394 lines read in full; native TabArea/TerminalTab/project/visible-tab projection excluded; geometry/rendering acceptance separately pending."
         }
       ],
@@ -10155,12 +10098,8 @@
         {
           "id": "muxy",
           "revision": "5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6",
-          "source": [
-            "Muxy/Models/Workspace/SplitNode.swift"
-          ],
-          "tests": [
-            "Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"
-          ],
+          "source": ["Muxy/Models/Workspace/SplitNode.swift"],
+          "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
           "review": "336/394 lines read in full previously; selected areaFrames fractions, nested offsets and node references translated. Native TabArea/TerminalTab projection and UI excluded."
         }
       ],
@@ -10233,14 +10172,8 @@
         "script": "packages/ui/scripts/check-packed-layout-renderer.ts",
         "result": "exit_0_52_checks",
         "install": "Actual npm tarball in a disposable consumer; lifecycle scripts disabled, required Solid peer retained, optional peers omitted; chart.js/solid-chartjs/embla packages absent from the consumer root.",
-        "browserConditions": [
-          "compiled",
-          "solid"
-        ],
-        "browserEngines": [
-          "chromium",
-          "webkit"
-        ],
+        "browserConditions": ["compiled", "solid"],
+        "browserEngines": ["chromium", "webkit"],
         "serverCondition": "Installed Solid source compiled through the required SSR pipeline, executed in native Node; compiled browser output is not treated as server code.",
         "checks": "Reuses all 26 source cases for each browser condition: editor owner/DOM/value/caret/focus retention, pointer/keyboard constraints, physical ARIA orientation and region references, close and separate-instance focus, disposal, CSP geometry, light/dark automated a11y, native Node SSR and eight-pane visuals at 320/1440. Assert unmixed browser exports, external Solid/Corvu imports, one Solid runtime/one JS chunk, Apache LICENSE/full donor MIT NOTICE, external explicit-source CSS, no chart/carousel/terminal/editor/highlighter/conversation/theme-engine or font assets.",
         "measurements": {
@@ -10277,19 +10210,13 @@
         "sourceBrowser": {
           "command": "bun run test:layout",
           "result": "exit_0_36_checks",
-          "engines": [
-            "chromium",
-            "webkit"
-          ],
+          "engines": ["chromium", "webkit"],
           "scope": "All retained renderer checks plus actual header pointer movement, rejected cross-instance/plaintext drops, injected keyboard action, cancelled and removed-source stale drag cleanup. Final compact header/toolbar examples refreshed and 320/1440 light/dark captures reviewed."
         },
         "packed": {
           "command": "bun run check:packed-layout-renderer",
           "result": "exit_0_72_checks",
-          "browserConditions": [
-            "compiled",
-            "solid"
-          ],
+          "browserConditions": ["compiled", "solid"],
           "serverCondition": "Installed Solid source SSR compiled and executed in native Node",
           "measurements": {
             "compiled": {
@@ -10312,5 +10239,20 @@
         "limits": "Component IIFE fixture and required source SSR, not production mounts/builds, hydration, native editors/terminals/devices or manual AT. Full accepted shell, current product keyboard/persistence adapters and app migrations remain pending."
       }
     }
-  ]
+  ],
+  "packageReleaseContinuation": {
+    "themes": {
+      "version": "0.5.0",
+      "release": "https://github.com/adea-ai/themes/releases/tag/v0.5.0",
+      "status": "published; consumer integration remains pending"
+    },
+    "uiRootContract": {
+      "pullRequest": "https://github.com/adea-ai/ui/pull/16",
+      "reviewedHead": "ed55c01921623942e3e50372d808e4253ee6999d",
+      "mergeCommit": "cae276d3736a326a1645f061e335e1a84c60f604",
+      "mergedAt": "2026-09-26T16:01:39Z",
+      "status": "merged after current required checks; optional Chart/Carousel isolated to subpaths; UI release and production adoption remain pending"
+    },
+    "limits": "Merging package work does not establish full donor fidelity, production mounts, application end-to-end, manual/native acceptance or old-system deletion."
+  }
 }
