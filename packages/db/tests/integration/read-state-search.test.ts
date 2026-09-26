@@ -309,4 +309,125 @@ describe.skipIf(!connectionUrl)('read state and workspace search', () => {
       await connection.db.delete(users).where(eq(users.id, principal.userId))
     }
   })
+  // The batched mark-all-read path writes many channels and many threads in a
+  // handful of statements. The case above only ever has one channel and one
+  // thread, so it cannot catch a multi-row upsert that silently writes only the
+  // first row, or a frontier that is skipped for every channel but the last.
+  test('marks every channel and thread read across a multi-row batch', async () => {
+    const owner = await createTemporaryUserSession(connection.db, {
+      credentialDigest: `batch-owner-${crypto.randomUUID()}`,
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `batch-${crypto.randomUUID()}`,
+      name: 'Batch HQ',
+      owner: owner.principal,
+    })
+
+    const channelIds: string[] = []
+    const rootIds: string[] = []
+    for (let index = 0; index < 4; index += 1) {
+      const channel = await createGroupChannel(connection.db, workspace.id, owner.principal, {
+        idempotencyKey: `batch-ch-${index}-${crypto.randomUUID()}`,
+        title: `Batch ${index}`,
+      })
+      channelIds.push(channel.id)
+      // Two threads per channel, each with a distinct latest reply sequence, so
+      // a wrong per-thread frontier is visible rather than coincidentally right.
+      for (let thread = 0; thread < 2; thread += 1) {
+        const root = await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+          bodyText: `root ${index}/${thread}`,
+          idempotencyKey: `batch-root-${index}-${thread}-${crypto.randomUUID()}`,
+          sender: owner.principal,
+        })
+        rootIds.push(root.id)
+        await createMessage(connection.db, workspace.id, channel.id, owner.principal, {
+          bodyText: `reply ${index}/${thread}`,
+          idempotencyKey: `batch-reply-${index}-${thread}-${crypto.randomUUID()}`,
+          replyToMessageId: root.id,
+          sender: owner.principal,
+          threadRootMessageId: root.id,
+        })
+      }
+    }
+
+    const before = await listReadStateForUser(connection.db, workspace.id, owner.principal)
+    expect(before.every((row) => row.unread)).toBe(true)
+    expect(before.reduce((total, row) => total + row.threadUnreadCount, 0)).toBe(8)
+
+    const after = await markAllChannelsRead(connection.db, workspace.id, owner.principal)
+
+    // Every channel in the batch advanced, not just the first or the last.
+    for (const channelId of channelIds) {
+      const row = after.find((entry) => entry.channelId === channelId)
+      expect(row, `channel ${channelId} missing from the mark-all-read result`).toBeDefined()
+      expect(row?.unread).toBe(false)
+      expect(row?.threadUnreadCount).toBe(0)
+      expect(row?.manuallyUnread).toBe(false)
+      // One frontier row per channel, and one per thread inside each channel.
+      expect(row?.latestTopLevelSequence).toBeGreaterThan(0)
+      expect(row?.threads).toHaveLength(2)
+      for (const thread of row?.threads ?? []) expect(thread.unreadCount).toBe(0)
+    }
+    expect(after).toHaveLength(channelIds.length)
+
+    // The persisted rows match what was returned, for every channel and thread.
+    const persistedChannels = await connection.db
+      .select()
+      .from(channelReadStates)
+      .where(eq(channelReadStates.workspaceId, workspace.id))
+    expect(persistedChannels).toHaveLength(channelIds.length)
+    expect(persistedChannels.every((row) => row.manuallyUnread === false)).toBe(true)
+    const persistedThreads = await connection.db
+      .select()
+      .from(threadReadStates)
+      .where(eq(threadReadStates.workspaceId, workspace.id))
+    expect(persistedThreads).toHaveLength(rootIds.length)
+    expect(persistedThreads.every((row) => row.manuallyUnread === false)).toBe(true)
+    for (const thread of persistedThreads) expect(thread.lastReadSequence).toBeGreaterThan(0)
+
+    // Idempotent: a second call is a no-op that still reports everything read.
+    const retried = await markAllChannelsRead(connection.db, workspace.id, owner.principal)
+    expect(retried.every((row) => !row.unread)).toBe(true)
+    expect(
+      await connection.db
+        .select()
+        .from(threadReadStates)
+        .where(eq(threadReadStates.workspaceId, workspace.id))
+    ).toHaveLength(rootIds.length)
+
+    // A previously rewound frontier is repaired forward, never backward.
+    const [victim] = await connection.db
+      .select()
+      .from(threadReadStates)
+      .where(eq(threadReadStates.workspaceId, workspace.id))
+      .limit(1)
+    await connection.db
+      .update(threadReadStates)
+      .set({ lastReadSequence: 1, manuallyUnread: true })
+      .where(eq(threadReadStates.threadRootMessageId, victim!.threadRootMessageId))
+    const repaired = await markAllChannelsRead(connection.db, workspace.id, owner.principal)
+    expect(repaired.every((row) => !row.unread)).toBe(true)
+
+    await connection.db
+      .delete(threadReadStates)
+      .where(eq(threadReadStates.workspaceId, workspace.id))
+    await connection.db
+      .delete(channelReadStates)
+      .where(eq(channelReadStates.workspaceId, workspace.id))
+    await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
+    await connection.db
+      .delete(channelParticipants)
+      .where(eq(channelParticipants.workspaceId, workspace.id))
+    await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))
+    await connection.db.delete(workspaceEvents).where(eq(workspaceEvents.workspaceId, workspace.id))
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(eq(workspaceMemberships.workspaceId, workspace.id))
+    await connection.db.delete(workspaces).where(eq(workspaces.id, workspace.id))
+    await connection.db
+      .delete(temporaryUserSessions)
+      .where(eq(temporaryUserSessions.userId, owner.principal.userId))
+    await connection.db.delete(users).where(eq(users.id, owner.principal.userId))
+  })
 })

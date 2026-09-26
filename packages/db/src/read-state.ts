@@ -3,7 +3,7 @@ import type {
   ThreadReadStateSummary,
   UserPrincipalRef,
 } from '@adea-ai/types'
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { appendWorkspaceEvent } from './transactions'
@@ -121,24 +121,35 @@ export async function listReadStateForUser(
   ])
   const channelStateById = new Map(channelStates.map((state) => [state.channelId, state]))
   const threadStateByRoot = new Map(threadStates.map((state) => [state.threadRootMessageId, state]))
+  // Group the message window by channel once, up front. Filtering the full
+  // window inside the per-channel map below was O(channels x messages), and
+  // `rows.at(-1)` / `topLevel.filter` re-walked each channel's slice again for
+  // every read — all invisible at fixture sizes, quadratic on a real workspace.
+  const messagesByChannel = new Map<string, typeof messageRows>()
+  for (const message of messageRows) {
+    const bucket = messagesByChannel.get(message.channelId)
+    if (bucket) bucket.push(message)
+    else messagesByChannel.set(message.channelId, [message])
+  }
 
   return Object.freeze(
     channelIds.map((channelId) => {
       const channelState = channelStateById.get(channelId)
-      const channelMessages = messageRows.filter((message) => message.channelId === channelId)
+      const channelMessages = messagesByChannel.get(channelId) ?? []
       const topLevel = channelMessages.filter((message) => !message.threadRootMessageId)
       const lastReadSequence = channelState?.lastReadSequence ?? 0
       const latestTopLevelSequence = topLevel.at(-1)?.sequence ?? 0
       const topLevelUnreadCount = topLevel.filter(
         ({ sequence }) => sequence > lastReadSequence
       ).length
-      const repliesByRoot = new Map<string, typeof channelMessages>()
+      const repliesByRoot = new Map<string, (typeof channelMessages)[number][]>()
       for (const message of channelMessages) {
         if (!message.threadRootMessageId) continue
-        repliesByRoot.set(message.threadRootMessageId, [
-          ...(repliesByRoot.get(message.threadRootMessageId) ?? []),
-          message,
-        ])
+        const bucket = repliesByRoot.get(message.threadRootMessageId)
+        // Push, never rebuild: `[...existing, message]` copied the whole
+        // bucket per reply, so a thread with R replies cost O(R^2).
+        if (bucket) bucket.push(message)
+        else repliesByRoot.set(message.threadRootMessageId, [message])
       }
       const threads: ThreadReadStateSummary[] = [...repliesByRoot.entries()]
         .map(([threadRootMessageId, replies]) => {
@@ -388,82 +399,148 @@ export async function markAllChannelsRead(
   principal: UserPrincipalRef
 ) {
   await database.transaction(async (transaction) => {
-    let changed = false
     const allowed = await listAccessibleChannelIds(transaction, workspaceId, principal)
-    for (const { id: channelId } of allowed) {
-      const latest = await latestSequence(transaction, workspaceId, channelId)
-      changed =
-        (await writeChannelState(transaction, workspaceId, channelId, principal.userId, {
-          lastReadSequence: latest,
-          manuallyUnread: false,
-        })) || changed
-      const roots = await transaction
-        .selectDistinct({ threadRootMessageId: messages.threadRootMessageId })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.workspaceId, workspaceId),
-            eq(messages.channelId, channelId),
-            isNull(messages.deletedAt)
-          )
-        )
-      for (const { threadRootMessageId } of roots) {
-        if (!threadRootMessageId) continue
-        const latestThread = await latestSequence(
-          transaction,
-          workspaceId,
-          channelId,
-          threadRootMessageId
-        )
-        const [existing] = await transaction
+    const channelIds = allowed.map(({ id }) => id)
+    if (!channelIds.length) {
+      return listReadStateForUser(database, workspaceId, principal)
+    }
+
+    // Batched by construction. This used to issue four round trips per channel
+    // and three per thread inside one transaction, so a workspace with 30
+    // channels and 300 threads cost roughly a thousand sequential queries —
+    // invisible on a local socket, seconds over a remote database. Everything
+    // below is a fixed number of statements regardless of workspace size.
+    const messageScope = and(
+      eq(messages.workspaceId, workspaceId),
+      inArray(messages.channelId, channelIds),
+      isNull(messages.deletedAt)
+    )
+    const [channelFrontiers, threadFrontiers, existingChannels, existingThreads] =
+      await Promise.all([
+        transaction
+          .select({
+            channelId: messages.channelId,
+            latest: sql<number>`max(${messages.sequence})`,
+          })
+          .from(messages)
+          .where(and(messageScope, isNull(messages.threadRootMessageId)))
+          .groupBy(messages.channelId),
+        transaction
+          .select({
+            channelId: messages.channelId,
+            threadRootMessageId: messages.threadRootMessageId,
+            latest: sql<number>`max(${messages.sequence})`,
+          })
+          .from(messages)
+          .where(and(messageScope, isNotNull(messages.threadRootMessageId)))
+          .groupBy(messages.channelId, messages.threadRootMessageId),
+        transaction
+          .select()
+          .from(channelReadStates)
+          .where(
+            and(
+              eq(channelReadStates.workspaceId, workspaceId),
+              eq(channelReadStates.userId, principal.userId),
+              inArray(channelReadStates.channelId, channelIds)
+            )
+          ),
+        transaction
           .select()
           .from(threadReadStates)
           .where(
             and(
               eq(threadReadStates.workspaceId, workspaceId),
               eq(threadReadStates.userId, principal.userId),
-              eq(threadReadStates.threadRootMessageId, threadRootMessageId)
+              inArray(threadReadStates.channelId, channelIds)
             )
-          )
-          .limit(1)
-        // Mark-all-read must also respect monotonicity when repairing a
-        // previously rewound frontier.
-        const targetThreadSequence = Math.max(existing?.lastReadSequence ?? 0, latestThread)
-        if (
-          existing?.lastReadSequence === targetThreadSequence &&
-          existing.manuallyUnread === false
-        )
-          continue
-        changed = true
-        const now = new Date()
-        await transaction
-          .insert(threadReadStates)
-          .values({
-            channelId,
-            lastReadSequence: targetThreadSequence,
+          ),
+      ])
+
+    const existingChannelById = new Map(existingChannels.map((row) => [row.channelId, row]))
+    const existingThreadByRoot = new Map(
+      existingThreads.map((row) => [row.threadRootMessageId, row])
+    )
+    const now = new Date()
+    const channelWrites: (typeof channelReadStates.$inferInsert)[] = []
+    const threadWrites: (typeof threadReadStates.$inferInsert)[] = []
+
+    for (const channelId of channelIds) {
+      const latest = channelFrontiers.find((row) => row.channelId === channelId)?.latest ?? 0
+      const existing = existingChannelById.get(channelId)
+      // Watermarks are monotonic: a previously rewound frontier is repaired
+      // forward, never backward.
+      const lastReadSequence = Math.max(existing?.lastReadSequence ?? 0, latest)
+      if (existing?.lastReadSequence === lastReadSequence && existing.manuallyUnread === false)
+        continue
+      channelWrites.push({
+        channelId,
+        lastReadSequence,
+        manuallyUnread: false,
+        readAt: now,
+        userId: principal.userId,
+        workspaceId,
+      })
+    }
+
+    for (const row of threadFrontiers) {
+      if (!row.threadRootMessageId) continue
+      const existing = existingThreadByRoot.get(row.threadRootMessageId)
+      // Mark-all-read must also respect monotonicity when repairing a
+      // previously rewound frontier.
+      const targetThreadSequence = Math.max(existing?.lastReadSequence ?? 0, row.latest ?? 0)
+      if (existing?.lastReadSequence === targetThreadSequence && existing.manuallyUnread === false)
+        continue
+      threadWrites.push({
+        channelId: row.channelId,
+        lastReadSequence: targetThreadSequence,
+        manuallyUnread: false,
+        readAt: now,
+        threadRootMessageId: row.threadRootMessageId,
+        userId: principal.userId,
+        workspaceId,
+      })
+    }
+
+    if (channelWrites.length > 0) {
+      await transaction
+        .insert(channelReadStates)
+        .values(channelWrites)
+        .onConflictDoUpdate({
+          target: [
+            channelReadStates.workspaceId,
+            channelReadStates.userId,
+            channelReadStates.channelId,
+          ],
+          set: {
+            lastReadSequence: sql`excluded.last_read_sequence`,
             manuallyUnread: false,
             readAt: now,
-            threadRootMessageId,
-            userId: principal.userId,
-            workspaceId,
-          })
-          .onConflictDoUpdate({
-            target: [
-              threadReadStates.workspaceId,
-              threadReadStates.userId,
-              threadReadStates.threadRootMessageId,
-            ],
-            set: {
-              lastReadSequence: targetThreadSequence,
-              manuallyUnread: false,
-              readAt: now,
-              updatedAt: now,
-              version: (existing?.version ?? 0) + 1,
-            },
-          })
-      }
+            updatedAt: now,
+            version: sql`${channelReadStates.version} + 1`,
+          },
+        })
     }
-    if (changed)
+    if (threadWrites.length > 0) {
+      await transaction
+        .insert(threadReadStates)
+        .values(threadWrites)
+        .onConflictDoUpdate({
+          target: [
+            threadReadStates.workspaceId,
+            threadReadStates.userId,
+            threadReadStates.threadRootMessageId,
+          ],
+          set: {
+            lastReadSequence: sql`excluded.last_read_sequence`,
+            manuallyUnread: false,
+            readAt: now,
+            updatedAt: now,
+            version: sql`${threadReadStates.version} + 1`,
+          },
+        })
+    }
+
+    if (channelWrites.length > 0 || threadWrites.length > 0)
       await appendWorkspaceEvent(transaction, {
         eventType: 'workspace.read_all',
         payload: { actorUserId: principal.userId },

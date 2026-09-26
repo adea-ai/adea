@@ -78,11 +78,20 @@ try {
   run('node', ['scripts/database-health.mjs'], environment)
   run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], environment)
   // Remote Neon branches serve 50-150ms roundtrips (vs sub-millisecond local
-  // Postgres) and integration tests issue dozens of queries per case with
-  // parallel transactions sharing one pool. The 5s bun default assumes
-  // localhost and kills healthy-but-slow remote runs, cascading into pool
-  // exhaustion. 30s still fails genuinely hung code fast enough for CI.
-  run('bun', ['test', '--timeout', '30000', ...integrationDirectories], environment)
+  // Postgres) and the heavier integration cases issue hundreds of queries in
+  // sequence. Measured: `read-state-search.test.ts` issues ~270 sequential
+  // round-trips for a single test, so at the documented 50-150ms range that
+  // one test legitimately needs 13.5s-40.6s. A single 30s ceiling therefore
+  // failed the upper half of the very range this comment documents.
+  //
+  // So the ceiling follows the target: sub-millisecond loopback keeps the
+  // fast signal that catches hung code, while an explicitly supplied remote
+  // target gets a ceiling sized to its own latency. Both still terminate.
+  const remoteTarget = usesExplicitDatabase
+  const timeoutMs = remoteTarget
+    ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
+    : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
+  run('bun', ['test', '--timeout', String(timeoutMs), ...integrationDirectories], environment)
 } finally {
   if (startedLocalPostgres) {
     run('docker', ['compose', 'stop', 'postgres'], process.env)
