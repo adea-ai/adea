@@ -37,7 +37,7 @@ test('terminal attach renders authenticated shell state and remains keyboard acc
   await page.keyboard.press('ControlOrMeta+f')
   const search = terminal.getByRole('search', { name: 'Search terminal' })
   await expect(search).toBeVisible()
-  await search.getByRole('textbox', { name: 'Search terminal' }).fill('fixture')
+  await search.getByRole('searchbox', { name: 'Search terminal' }).fill('fixture')
   await expect(search.locator('.dev-terminal-search-count')).toContainText(/match/)
   await search.getByRole('button', { name: 'Close search' }).click()
   await expect(search).toBeHidden()
