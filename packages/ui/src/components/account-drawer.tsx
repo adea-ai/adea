@@ -37,7 +37,7 @@ export function AccountDrawer(props: AccountDrawerProps) {
       as={Button}
       variant="outline"
       size="sm"
-      class="workspace-account-trigger"
+      class="workspace-account-trigger workspace-trigger-expanded"
       aria-label={`Open user menu for ${accountLabel()}`}
       aria-haspopup="dialog"
     >
