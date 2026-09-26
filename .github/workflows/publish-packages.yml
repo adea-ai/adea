@@ -1,10 +1,19 @@
 name: Publish shared packages
 
-# Publishes the moat-free shared packages (@adea-ai/ui, @adea-ai/asset-manifests,
-# @adea-ai/audio, @adea-ai/spatial-protocol) to the public npm registry on every
-# main push that touches them (plus manual dispatch). The private agent-sim
-# repo consumes these by version, so no registry auth is needed anywhere — not
-# locally, not in CI.
+# Publishes the moat-free shared packages (@adea-ai/asset-manifests, @adea-ai/audio,
+# @adea-ai/spatial-protocol) to the public npm registry on every main push that touches
+# them (plus manual dispatch). The private agent-sim repo consumes these by version, so no
+# registry auth is needed anywhere — not locally, not in CI.
+#
+# `@adea-ai/ui` used to be on this list. It is not any more: that name now belongs to the
+# `adea-ai/ui` design system, which publishes it from its own repository, and the npm trusted
+# publisher for it has been moved off this repo. Leaving `packages/ui` in the list or in the
+# `paths` filter below would make this workflow fire on every release of the app-local kit —
+# and since the publisher only skips a version when `latest` already matches, a release here
+# would move `latest` back onto the older component kit. The removal is therefore in both
+# places: `PUBLISH_PACKAGES` in scripts/publish-packages.mjs, and this filter. Dropping only
+# one leaves the workflow running for nothing; dropping only the other leaves it able to
+# republish the name.
 #
 # Prerequisites (one-time, dashboard):
 #   1. Create the `adea` org on npmjs.com.
@@ -16,7 +25,6 @@ on:
   push:
     branches: [main]
     paths:
-      - 'packages/ui/**'
       - 'packages/asset-manifests/**'
       - 'packages/audio/**'
       - 'packages/spatial-protocol/**'

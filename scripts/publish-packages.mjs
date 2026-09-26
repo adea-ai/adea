@@ -4,13 +4,32 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-// Publishes the moat-free shared packages (@adea-ai/ui, @adea-ai/asset-manifests,
+// Publishes the moat-free shared packages (@adea-ai/asset-manifests,
 // @adea-ai/audio, @adea-ai/spatial-protocol) to the public npm registry so the
 // private agent-sim repo — and, later, the public adea repo — consume them
 // without any registry auth. These packages have zero @adea-ai/* transitive
 // deps beyond each other and contain no engine, simulation, or binary-asset
 // code; that is what makes public publishing safe. Never add an engine
 // package to PUBLISH_PACKAGES.
+//
+// ## `@adea-ai/ui` is no longer published from here
+//
+// The name now belongs to `adea-ai/ui`, the shared design system, which publishes
+// it from its own repository. Two publishers on one package name is not a slower
+// release, it is a lost one: this script skips a version only when the registry's
+// `latest` tag already equals the local version, so once the design system
+// published 0.61.0 the next release here (0.60.4) would see `latest (0.61.0) !==
+// 0.60.4`, publish, and move `latest` back onto this app's older component kit.
+// Nothing would fail — the install would just quietly be the wrong package, for
+// anyone not pinning a range.
+//
+// Versions already published from here (through 0.60.3) stay published. npm does
+// not allow unpublishing past 72 hours, so they remain as the historical record
+// and as a fallback for anything pinned to them.
+//
+// The npm trusted publisher for `@adea-ai/ui` has also been moved off this
+// repository, so this workflow could no longer publish the package by OIDC even
+// if the list above still named it.
 //
 // The npm `adea` org must exist and NPM_TOKEN must be an automation token
 // with publish rights on it. Versions come from each package.json
@@ -19,12 +38,7 @@ import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
-const PUBLISH_PACKAGES = [
-  'packages/asset-manifests',
-  'packages/audio',
-  'packages/ui',
-  'packages/spatial-protocol',
-]
+const PUBLISH_PACKAGES = ['packages/asset-manifests', 'packages/audio', 'packages/spatial-protocol']
 
 function sh(args, cwd, extraEnv) {
   const result = spawnSync(args[0], args.slice(1), {
