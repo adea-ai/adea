@@ -512,7 +512,11 @@ export async function markAllChannelsRead(
             channelReadStates.channelId,
           ],
           set: {
-            lastReadSequence: sql`excluded.last_read_sequence`,
+            // GREATEST keeps the watermark monotonic inside the statement. The
+            // in-memory max is computed from a read taken before this upsert,
+            // so a concurrent writer could otherwise rewind the frontier
+            // between the two — exactly what the watermark is there to prevent.
+            lastReadSequence: sql`GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`,
             manuallyUnread: false,
             readAt: now,
             updatedAt: now,
@@ -531,7 +535,7 @@ export async function markAllChannelsRead(
             threadReadStates.threadRootMessageId,
           ],
           set: {
-            lastReadSequence: sql`excluded.last_read_sequence`,
+            lastReadSequence: sql`GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`,
             manuallyUnread: false,
             readAt: now,
             updatedAt: now,
