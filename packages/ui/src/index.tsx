@@ -1,10 +1,7 @@
-export { Button, buttonVariants } from './components/ui/button'
-export { Switch } from './components/ui/switch'
 export { Toggle } from './components/ui/toggle'
 export { ToggleGroup, ToggleGroupItem } from './components/ui/toggle-group'
 export { RadioGroup, RadioGroupItem } from './components/ui/radio-group'
 export { ThemeToggle } from './components/theme-toggle'
-export { ColorSwatch, ThemeSwatch } from './components/theme-swatch'
 export {
   ThemeProvider,
   ThemeScript,

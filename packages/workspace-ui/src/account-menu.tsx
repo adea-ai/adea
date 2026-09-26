@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from '@adea-ai/ui/components/ui/dropdown-menu'
+} from '@adea-ai/app-ui/components/ui/dropdown-menu'
 
 import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
 

@@ -1057,7 +1057,29 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
 
   await settings.getByRole('tab', { name: 'Input & notifications' }).click()
   await expect(settings.getByRole('button', { name: 'Check microphone' })).toBeDisabled()
-  await settings.getByRole('switch', { name: 'Mention notifications' }).uncheck()
+  const mentionSwitch = settings.getByRole('switch', { name: 'Mention notifications' })
+  const mentionSwitchControl = mentionSwitch.locator('xpath=following-sibling::*[1]')
+  await mentionSwitchControl.click()
+  await expect(mentionSwitch).not.toBeChecked()
+  await mentionSwitch.press('Space')
+  await expect(mentionSwitch).toBeChecked()
+  await mentionSwitch.press('Space')
+  await expect(mentionSwitch).not.toBeChecked()
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const raw = localStorage.getItem('adea:workspace-preferences:v1')
+        return raw ? JSON.parse(raw).notifyMentions : undefined
+      })
+    )
+    .toBe(false)
+  await page.reload()
+  const reloadedSettings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(reloadedSettings).toBeVisible()
+  await expect(
+    reloadedSettings.getByRole('switch', { name: 'Mention notifications' })
+  ).not.toBeChecked()
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await expect(page).toHaveScreenshot('workspace-settings-light.png', { animations: 'disabled' })
   await page.evaluate(() => {
     localStorage.setItem('theme', 'dark')

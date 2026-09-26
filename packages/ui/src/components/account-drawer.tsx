@@ -2,7 +2,7 @@ import { UserRound } from 'lucide-solid'
 import { createEffect, createSignal, Show, type JSX } from 'solid-js'
 import { Portal } from 'solid-js/web'
 
-import { buttonVariants } from '#components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Drawer,
   DrawerClose,
@@ -34,7 +34,10 @@ export function AccountDrawer(props: AccountDrawerProps) {
 
   const trigger = (
     <DrawerTrigger
-      class={buttonVariants({ variant: 'outline', size: 'sm', class: 'workspace-account-trigger' })}
+      as={Button}
+      variant="outline"
+      size="sm"
+      class="workspace-account-trigger workspace-trigger-expanded"
       aria-label={`Open user menu for ${accountLabel()}`}
       aria-haspopup="dialog"
     >
@@ -97,10 +100,9 @@ export function AccountDrawer(props: AccountDrawerProps) {
               </p>
             </div>
             <DrawerClose
-              class={buttonVariants({
-                variant: props.authenticated ? 'outline' : 'default',
-                class: 'shrink-0',
-              })}
+              as={Button}
+              variant={props.authenticated ? 'outline' : 'default'}
+              class="shrink-0"
               disabled={props.busy}
               onClick={props.authenticated ? props.onSignOut : props.onSignIn}
             >

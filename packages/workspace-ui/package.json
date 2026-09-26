@@ -127,7 +127,8 @@
     "@adea-ai/spatial-protocol": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "workspace:*",
+    "@adea-ai/app-ui": "workspace:*",
+    "@adea-ai/ui": "0.63.2",
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15"
   },

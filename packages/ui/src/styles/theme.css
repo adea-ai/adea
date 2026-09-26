@@ -34,6 +34,33 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* These named hooks keep scene-specific appearance on top of the shared
+   Button API. The controls are dark glass regardless of the active theme,
+   while the theme options retain their circular affordance. */
+.workspace-on-screen-controls-zoom-button {
+  border-width: 1px;
+  border-color: color-mix(in oklab, var(--scrim-edge) 25%, transparent);
+  background-color: color-mix(in oklab, var(--scrim) 65%, transparent);
+  color: var(--scrim-foreground);
+  box-shadow:
+    0 10px 15px -3px color-mix(in srgb, var(--scrim) 10%, transparent),
+    0 4px 6px -4px color-mix(in srgb, var(--scrim) 10%, transparent);
+  backdrop-filter: blur(0.5rem);
+}
+
+.workspace-on-screen-controls-zoom-button:hover {
+  background-color: color-mix(in oklab, var(--scrim) 80%, transparent);
+}
+
+.workspace-theme-toggle-option {
+  border-radius: 999px;
+}
+
+.workspace-trigger-expanded:is([aria-expanded='true'], [data-expanded='true']) {
+  background-color: var(--muted);
+  color: var(--foreground);
+}
+
 :root {
   --radius: 0.75rem;
   --background: #e3e9f4;
@@ -201,27 +228,6 @@
   :root {
     --surface-alpha: 1;
   }
-}
-
-/* Appearance picker swatches (see components/theme-swatch.tsx). The dot
-   color itself is runtime token data applied by the component. */
-.theme-swatch {
-  display: inline-flex;
-  gap: 0.25rem;
-}
-.theme-swatch__dot {
-  display: inline-block;
-  width: 0.875rem;
-  height: 0.875rem;
-  border-radius: calc(infinity * 1px);
-  border: 1px solid var(--border);
-}
-
-/* Appearance preview painters (see components/theme-preview.tsx). The
-   previewed variant's own border color is runtime token data, passed
-   through this hook's custom property instead of the live theme border. */
-.theme-preview-border {
-  border-color: var(--preview-border, var(--border));
 }
 
 @layer base {

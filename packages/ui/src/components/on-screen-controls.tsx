@@ -1,7 +1,7 @@
 import { ZoomIn, ZoomOut } from 'lucide-solid'
 import { onCleanup, Show, type JSX } from 'solid-js'
 
-import { Button } from '#components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { cn } from '#lib/utils'
 
 type ControlButtonProps = {
@@ -120,7 +120,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               size="icon-lg"
               aria-label="Zoom out"
               title="Zoom out"
-              class="border border-scrim-edge/25 bg-scrim/65 text-scrim-foreground shadow-lg backdrop-blur-sm hover:bg-scrim/80"
+              class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomOut?.()}
             >
               <ZoomOut aria-hidden="true" />
@@ -131,7 +131,7 @@ export function OnScreenControls(props: OnScreenControlsProps) {
               size="icon-lg"
               aria-label="Zoom in"
               title="Zoom in"
-              class="border border-scrim-edge/25 bg-scrim/65 text-scrim-foreground shadow-lg backdrop-blur-sm hover:bg-scrim/80"
+              class="workspace-on-screen-controls-zoom-button"
               onClick={() => props.onZoomIn?.()}
             >
               <ZoomIn aria-hidden="true" />

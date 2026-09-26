@@ -1,5 +1,5 @@
 import { For, Show } from 'solid-js'
-import { Badge } from '@adea-ai/ui/components/ui/badge'
+import { Badge } from '@adea-ai/app-ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 
 import { capabilitySnapshotAge, presentCapability } from './capability-status'

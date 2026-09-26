@@ -1,6 +1,6 @@
 import { SoundProvider } from '@adea-ai/audio'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
-import { ThemeProvider } from '@adea-ai/ui/components/theme-provider'
+import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { hqSceneFromSearchParams } from '@adea-ai/app-core'
 import {
   configurableCharacterId,

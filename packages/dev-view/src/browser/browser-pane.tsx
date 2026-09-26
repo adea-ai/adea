@@ -17,8 +17,8 @@ import type {
   PortRecord,
   ProfilePolicy,
 } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
-import { cn } from '@adea-ai/ui/lib/utils'
+import '@adea-ai/app-ui/dev-view.css'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import {
   ArrowLeft,
   ArrowRight,

@@ -5,8 +5,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@adea-ai/ui/components/ui/dialog'
-import { cn } from '@adea-ai/ui/lib/utils'
+} from '@adea-ai/app-ui/components/ui/dialog'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 
 /**
  * Marks everything outside the dialog `inert` for as long as it is mounted, and

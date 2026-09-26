@@ -6,7 +6,7 @@
  * edits) or explicit Overwrite, never a silent clobber.
  */
 import type { FileEntry, FileIdentity } from '@adea-ai/types/dev-runtime'
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import { RefreshCw, Save } from 'lucide-solid'
 import { Show, onCleanup, onMount, createSignal, type JSX } from 'solid-js'
 
