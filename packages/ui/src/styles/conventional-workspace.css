@@ -2109,6 +2109,13 @@
   font-size: 0.75rem;
   text-align: right;
 }
+/* An install refusal keeps the catalog on screen, so it reads as a notice on
+   the list rather than as the list's own state. */
+.plugins-browser__install-error {
+  color: var(--cw-danger);
+  font-size: 0.75rem;
+  margin-block-end: 0.5rem;
+}
 .plugins-filter {
   width: 12rem;
 }

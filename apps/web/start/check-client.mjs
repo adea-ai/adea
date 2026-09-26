@@ -87,7 +87,19 @@ if (!count) throw new Error('No built client JavaScript found; run start:build f
 // 4_765 of runway. Worth saying plainly: the M12 feature set is simply larger
 // than the 2026-09-18 ceiling, and each raise here has named a surface a person
 // can now use rather than drift that accumulated unnoticed.
-const CLIENT_JS_BUDGET_BYTES = 1_622_000
+//
+// 2026-09-26 (the worktree-binding fix): the session's worktree id is now
+// carried from `RuntimeSession` through the projection and into the Files and
+// Source Control panes, so a node with more than one ready worktree can no
+// longer display one worktree's tree while staging and committing against
+// another. The binding memo and the install-refusal copy in the plugin dialog
+// cost 118 bytes, which left 1_621_965 against this ceiling — 35 bytes of
+// runway. Thirty-five bytes is not a margin, it is a coin flip: the gate
+// measures built output, and a build is not byte-identical across machines.
+// Raised by 1,000 to restore roughly the margin the entries above keep. The
+// trade is ~118 bytes of bundle for commits landing in the worktree the user is
+// looking at, which is the cheaper error of the two.
+const CLIENT_JS_BUDGET_BYTES = 1_623_000
 // Raised from 50 when the #399 stream/hunk residues landed as further
 // intentional lazy chunks: files-pane grew the quick-open dialog (17kB
 // chunk, still lazy), stream-transport rides its own module, and the hunk

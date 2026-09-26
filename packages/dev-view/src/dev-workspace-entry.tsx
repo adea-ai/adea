@@ -584,6 +584,20 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     const result = selection()
     return result.status === 'empty' ? '' : result.runtimeSessionId
   }
+
+  // The selected session's own worktree. Files and Source Control resolve
+  // their worktree from this rather than taking the first ready one on the
+  // node, which staged and committed against a different worktree than the one
+  // being displayed whenever a node had more than one.
+  const selectedSessionWorktreeId = createMemo(() => {
+    const sessionId = selectedSession()
+    if (!sessionId) return undefined
+    for (const group of projection()?.groups ?? [])
+      for (const project of group.projects)
+        for (const session of project.sessions)
+          if (session.id === sessionId) return session.worktreeId || undefined
+    return undefined
+  })
   const recoveryMessage = () => recoveryNotice()
 
   createEffect(() => {
@@ -1266,6 +1280,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             visiblePane={visiblePaneOf('left')}
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
+            sessionWorktreeId={selectedSessionWorktreeId()}
             capabilityOf={capabilityOf}
             onShow={showPane}
             onCollapse={() => collapseSide('left')}
@@ -1364,6 +1379,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
             visiblePane={visiblePaneOf('right')}
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
+            sessionWorktreeId={selectedSessionWorktreeId()}
             capabilityOf={capabilityOf}
             onShow={showPane}
             onOpenFile={openFileInEditorLeaf}
@@ -1485,6 +1501,12 @@ function UtilitySlot(props: {
   visiblePane: DevUtilityPreference | undefined
   runtime: DevRuntimeService
   runtimeSessionId: string | undefined
+  /**
+   * The selected session's own worktree, so the Files and Source Control
+   * panes act on the worktree the session belongs to rather than the first
+   * ready one on the node.
+   */
+  sessionWorktreeId: string | undefined
   capabilityOf(pane: DevUtilityPane): { granted: boolean; reason?: string } | undefined
   onShow(pane: DevUtilityPane): void
   onOpenFile(file: {
@@ -1601,7 +1623,11 @@ function UtilitySlot(props: {
     }
     if (pane === 'files') {
       return runtimeReady() ? (
-        <FilesPane runtime={props.runtime} onOpenFile={props.onOpenFile} />
+        <FilesPane
+          runtime={props.runtime}
+          worktreeId={props.sessionWorktreeId}
+          onOpenFile={props.onOpenFile}
+        />
       ) : (
         <PaneProviderState
           title="Files"
@@ -1612,7 +1638,11 @@ function UtilitySlot(props: {
     }
     if (pane === 'source_control') {
       return runtimeReady() ? (
-        <SourceControlPane runtime={props.runtime} runtimeSessionId={props.runtimeSessionId} />
+        <SourceControlPane
+          runtime={props.runtime}
+          runtimeSessionId={props.runtimeSessionId}
+          worktreeId={props.sessionWorktreeId}
+        />
       ) : (
         <PaneProviderState
           title="Source Control"
