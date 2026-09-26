@@ -723,3 +723,47 @@ The subsequent CI-only main `554ca38384194972e280ca4de599843c52cd7ae1`
 refresh is recorded with exact candidate and checked-source SHAs in the
 traceability JSON. It preserves those tested product sources; actionlint and
 diff checks pass on the merged workflow.
+
+### Published 0.64.0 and consumer migration checkpoint
+
+The normal [UI 0.64.0 publisher](https://github.com/adea-ai/ui/actions/runs/36269336009)
+completed its archive, packed consumers, appearance interactions, native SSR,
+trusted publication and npm propagation confirmation from `ba7aae2`. An
+independent npm query returned the version and registry integrity. This release
+includes the reviewed busy-action composition from [UI #20](https://github.com/adea-ai/ui/pull/20).
+
+The traceability JSON records exact source-qualified and metadata-refreshed heads
+for the merged layout and pending composed-input and pure paste-model PRs. The layout tarball
+passed 76 compiled/Solid browser checks plus native SSR; composed input passed
+100 groups plus native SSR. Their unchanged JS/CSS limits and module exclusions
+remain enforced. The pure model direct entry checks all 15 runtime exports and
+strict ES2022 types without DOM ambient types or runtime dependencies. These
+checks certify those library boundaries, not real product mounts. Current-head
+CI and canonical dependency merges remain separate gates.
+
+[Adea #754](https://github.com/adea-ai/adea/pull/754) remains draft. It consumes
+the published controlled appearance editor and shared Input/Button/Switch
+components directly, removes duplicate local implementations and barrel
+exports, and retains application-owned persistence and native effects. At
+`b5d70bf4`, its production output is 1,658,226 raw client JS bytes against the
+unchanged 1,623,000-byte cap: 35,226 over. The earlier conventional visual run passed
+15 cases in headed mode. The mandatory headless run at `4af56ce7` passed nine
+behavior cases with six Darwin snapshot mismatches; their classification is
+pending, and the headed run is not current acceptance evidence. Independent
+review also found missing open-state trigger highlighting, which requires a
+sanctioned state hook and toggle regression. No size cap was increased, and these fixtures do not prove packaged
+native acceptance or the complete migration.
+
+The rich paste editor is still an implementation continuation. Its initial
+combined plain/atomic pilot retained optional editor and Tooltip code in plain
+consumers and exceeded the plain composer budget. The selected correction is
+a separate optional atomic entry over one private shared composer shell, with
+the original plain API/fixture and caps preserved. Both complete atomic
+behavior and actual incremental cost must be measured; no new feature budget
+or production acceptance is claimed here.
+
+The layout PR subsequently merged as `6781a5e` after its current-head checks.
+The composed-input branch integrates that canonical layout while retaining
+byte-identical qualified composer source, tests and packed driver, and both
+packed gate families. Its fresh required CI and normal package publication
+remain pending; this does not establish an Adea layout mount.
