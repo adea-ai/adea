@@ -10237,6 +10237,17 @@
         },
         "integrationValidation": "Types/library build, format/lint/registry and 27 model/geometry/drop cases with 79 assertions passed. Actual pure model remains 9140 raw/2455 gzip bytes, zero imports, under unchanged 3072 cap.",
         "limits": "Component IIFE fixture and required source SSR, not production mounts/builds, hydration, native editors/terminals/devices or manual AT. Full accepted shell, current product keyboard/persistence adapters and app migrations remain pending."
+      },
+      "paneReleaseCandidate": {
+        "pullRequest": "https://github.com/adea-ai/ui/pull/23",
+        "head": "dbca9f7",
+        "status": "draft; full packed gate blocked by UI #20 square-control token prerequisite",
+        "compiledGzipJsBytes": 31797,
+        "rawCssBytes": 33632,
+        "gzipJsBudget": 32768,
+        "rawCssBudget": 34816,
+        "cssDiscovery": "Exact host/renderer source and complete installed public buttonVariants ghost/icon-xs classes; unrelated variants excluded; real square geometry and keyboard focus assertions retained",
+        "validation": "Format, lint, types and registry pass. Current packed compiled test detects actual 7px close control versus expected 21px; all 72 current checks have not passed. Earlier partial CSS records are historical evidence."
       }
     },
     {
@@ -10260,7 +10271,7 @@
       "readiness": {
         "sourceReviewed": "extraction_boundary_reviewed",
         "reusePermitted": "Apache-2.0_with_attribution",
-        "behaviorPorted": "pending",
+        "behaviorPorted": "pure_model_candidate_pending_independent_review",
         "libraryReady": "pending",
         "consumerMounted": "pending",
         "functionalEndToEnd": "pending",
@@ -10272,7 +10283,13 @@
         "Clipboard/file transport and upload authority",
         "Textarea interaction/undo/history/mirror/preview/chip compositions until separately mapped",
         "Full Chat and production acceptance"
-      ]
+      ],
+      "candidate": {
+        "pullRequest": "https://github.com/adea-ai/ui/pull/26",
+        "head": "df98f075afc800936b28ea651478995377cf5e0a",
+        "status": "draft; bounded independent review pending",
+        "validation": "159 UI tests; format, lint, types, registry, package archive and fresh packed public-subpath headless import passed. Full verify and packed conversation suite not yet run."
+      }
     }
   ],
   "packageReleaseContinuation": {
@@ -10286,8 +10303,17 @@
       "reviewedHead": "ed55c01921623942e3e50372d808e4253ee6999d",
       "mergeCommit": "cae276d3736a326a1645f061e335e1a84c60f604",
       "mergedAt": "2026-09-26T16:01:39Z",
-      "status": "merged after current required checks; optional Chart/Carousel isolated to subpaths; UI release and production adoption remain pending"
+      "status": "merged and published in UI 0.62.0; optional Chart/Carousel isolated to subpaths; production adoption remains pending"
     },
-    "limits": "Merging package work does not establish full donor fidelity, production mounts, application end-to-end, manual/native acceptance or old-system deletion."
+    "limits": "Merging package work does not establish full donor fidelity, production mounts, application end-to-end, manual/native acceptance or old-system deletion.",
+    "uiPublication": {
+      "version": "0.62.0",
+      "release": "https://github.com/adea-ai/ui/releases/tag/v0.62.0",
+      "releasePullRequest": "https://github.com/adea-ai/ui/pull/24",
+      "mergeCommit": "b9b399c60cb31b234f14a93189db041d92b99368",
+      "publishRun": "https://github.com/adea-ai/ui/actions/runs/36256319901",
+      "status": "npm latest and actual registry tarball integrity, attribution and compiled/Solid core builds verified; optional engines absent",
+      "limits": "Immutable-release check skipped because its repository opt-in is unset. Custom minimal SSR probe does not establish consumer native SSR or application acceptance."
+    }
   }
 }
