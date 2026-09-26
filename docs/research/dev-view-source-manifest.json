@@ -858,6 +858,24 @@
             "website/src/test/PasteHoverLayer.test.tsx"
           ],
           "action": "Continue the separately mapped pure model with an opt-in controlled paste-token textarea in adea-ai/ui ChatComposer. Translate synchronous plain-text paste thresholds/placement/raw-paste handling, token-safe atomic delete/navigation/selection/prune/expansion, expanded copy/cut, mirrored token highlighting and accessible hover/caret/touch preview. Preserve IME ownership and native caret/selection, and capture text plus referenced block metadata together for submission. Read the complete pinned ChatInput parent and all selected presentation/test files before editing; use the text-focused tests rather than upload/optimizer cases. Applications own canonical paired draft/history restoration, block identity allocation, transport/expansion/storage, async/system clipboard permissions and file/image upload services. Keep plain composers unchanged when the controlled token contract is absent, and use Solid plus existing maintained primitives/tokens without React/Lexical/Framer Motion. This handoff does not certify full Chat, host persistence, released artifacts or production adoption."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/app-sdk/ChatMessageList.tsx",
+            "website/src/app-sdk/messageRenderers.tsx",
+            "website/src/pages/chat/TurnBlock.tsx",
+            "website/src/pages/chat/CollapsibleToolGroup.tsx",
+            "website/src/pages/chat/groupDisplayItems.ts"
+          ],
+          "tests": [
+            "website/src/test/ChatMessageList.test.tsx",
+            "website/src/test/TurnBlock.disclosurePin.test.tsx",
+            "website/src/test/TurnBlock.disclosureDurable.test.tsx",
+            "website/src/test/TurnBlock.rowMemo.test.tsx",
+            "website/src/test/CollapsibleToolGroup.purposePreview.test.tsx"
+          ],
+          "action": "Restore the selected donor transcript composition rather than replacing flat rows with a generic bubble alone. Translate ordered turn/tool disclosure, stable settled-row identity, explicit disclosure pins and host-controlled restoration, bounded purpose/output detail and truthful tool state. Read the full selected units and nearest tests before implementation; record differences between the embed grouping and dashboard grouping. Preserve always-visible approval/question/error/result and interactive payload paths. Count distinct calls only when the host provides canonical call identity; do not count request/completion rows as two calls or infer completed delivery from an idle session. Applications own bounded redacted runtime projection, generation/event identity, permission resolution promises, file/clipboard authority and durable disclosure. React/Redux/Framer Motion, Kiro protocol parsing, router/store and privileged services are excluded from shared UI. Default donor tool folds unmount noninteractive tool rows; interim/collapseAll retains hidden prose, and interactive payloads are excluded from folding. Any intentional mounted-content refinement needs explicit tests. Generic MessageRow is not evidence that this composition is implemented. This handoff remains pending implementation, packed checks and actual consumer acceptance."
         }
       ]
     }

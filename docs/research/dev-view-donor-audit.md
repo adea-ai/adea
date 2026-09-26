@@ -815,3 +815,24 @@ expands a utility full-width, switches Chat/Dev, restores it, and verifies the
 saved 55-percent separator remains. These checks exercise actual application
 components with the explicit development runtime fixture; they do not certify
 a native sidecar, packaged runtime or production credentials.
+
+### Transcript composition continuation
+
+The pinned KiroCrew `ChatMessageList`, `messageRenderers`, `TurnBlock` and
+`CollapsibleToolGroup` source review identifies a remaining #532 composition
+gap: the current Adea transcript renders flat bounded rows, and shared
+`MessageRow` alone does not implement donor turn/tool disclosure. Its generic
+user delivery presentation also cannot prove a runtime event was delivered.
+The source manifest and selected-unit inventory now record the exact handoff,
+nearest grouping, disclosure-pin, durable disclosure and row-memo tests.
+
+Retain the donor's distinction between its embed and dashboard grouping. A
+user disclosure choice survives incidental idle frames; durable disclosure
+belongs to the host. Tool counts describe distinct calls, not both request and
+completion rows. Pending approvals, errors, deliverables and interactive
+payloads cannot disappear behind a tool fold. Default tool-only folds unmount
+noninteractive tool rows, while interim/collapseAll retains hidden prose; this
+is an explicit lifecycle distinction, not a blanket mounted-content guarantee.
+Runtime identities, redaction, completion evidence, response promises and
+privileged callbacks remain app-owned. This is a source handoff; implementation,
+packed contracts and actual product acceptance remain pending.

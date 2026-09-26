@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "ed473e297aa23392e45386801f3b2f46ba46d99ed70304857d345954ea8e440a",
+  "manifestDigest": "62c32c5fb247a8eb6bf8bd74d0291d909f30d29e0e87cd866ff4add53c833bcc",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -10355,6 +10355,46 @@
         "reason": "The first combined pilot retained opt-in editor and Kobalte Tooltip code in ordinary composer consumers; static optional props did not prove unused-code elimination.",
         "limits": "No existing JS/CSS cap is raised. Complete atomic behavior, compiled/Solid/browser/SSR distribution and incremental production cost remain unqualified."
       }
+    },
+    {
+      "id": "532-transcript-composition",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/532",
+      "donor": "kirocrew",
+      "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+      "scope": "Donor turn/tool composition and detail disclosure; shared follow adoption and its consumer acceptance are tracked separately.",
+      "sourceUnits": [
+        "website/src/app-sdk/ChatMessageList.tsx",
+        "website/src/app-sdk/messageRenderers.tsx",
+        "website/src/pages/chat/TurnBlock.tsx",
+        "website/src/pages/chat/CollapsibleToolGroup.tsx",
+        "website/src/pages/chat/groupDisplayItems.ts"
+      ],
+      "sourceReview": "Full ChatMessageList, messageRenderers, TurnBlock and CollapsibleToolGroup read; groupDisplayItems grouping and stable-reconciliation boundary inspected. Nearest embed grouping, durable/pinned disclosure and row-memo tests read. Remaining dependency/helper tests require review before copying their algorithms.",
+      "currentImplementation": "Adea packages/dev-view/src/chat/chat-transcript.tsx retains flat bounded projected rows. Shared UI MessageRow has no turn/tool composition and a user-delivery claim that must not be substituted for runtime evidence. No adapted turn/tool equivalent found in the inspected shared source.",
+      "destination": "adea-ai/ui host-neutral conversation composition; Adea canonical runtime projection and service callbacks stay application-owned.",
+      "license": "Apache-2.0; preserve Amazon copyright, exact selected source attribution and NOTICE before porting.",
+      "readiness": {
+        "sourceReviewed": "selected_composition_and_nearest_invariants; helper_review_pending",
+        "reusePermitted": "Apache-2.0_with_attribution",
+        "behaviorPorted": "pending",
+        "libraryReady": "pending",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedApplicationEvidence": "pending"
+      },
+      "requiredBehavior": [
+        "Explicit disclosure choice survives incidental running/idle frames and host remount.",
+        "Streaming does not remount settled visible transcript rows.",
+        "Approval/question/errors, final results and live interactive payloads remain reachable.",
+        "Distinct tool count and busy/completed state come from host evidence.",
+        "Bounded output detail remains fully reachable; failed clipboard or permission actions do not claim success."
+      ],
+      "exclusions": [
+        "Application runtime/protocol, authorization, router/store and persistence authority",
+        "React/Redux/Framer Motion and privileged clipboard/file services",
+        "Unsupported Trust/batch response controls without actual host operations",
+        "Full Chat acceptance from generic MessageRow resemblance"
+      ]
     }
   ],
   "packageReleaseContinuation": {
