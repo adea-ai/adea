@@ -1,8 +1,8 @@
 import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
-import { WorkspaceLogo } from '@adea-ai/ui/components/workspace-logo'
-import { ThemeToggle } from '@adea-ai/ui/components/theme-toggle'
-import { Switch } from '@adea-ai/ui/components/ui/switch'
+import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
+import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
+import { Switch } from '@adea-ai/app-ui/components/ui/switch'
 import {
   Bell,
   Bot,

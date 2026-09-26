@@ -2,7 +2,7 @@ import type { AgentSummary, ArtifactSummary, ConversationParticipantRef } from '
 import { AtSign, LoaderCircle, Mic, MicOff, Paperclip, Send, X } from 'lucide-solid'
 import { createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
 
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/app-ui/components/ui/tooltip'
 import type { TranscriptionProvider, TranscriptionSession, TranscriptionState } from './platform'
 import { keyedRows } from './keyed-rows'
 import { mergeTranscription } from './transcription'

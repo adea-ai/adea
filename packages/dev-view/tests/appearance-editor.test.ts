@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   defaultAppearancePreferences,
   type AppearancePreferencesV2,
-} from '@adea-ai/ui/components/appearance'
+} from '@adea-ai/app-ui/components/appearance'
 import { createAppearanceEditor } from '../src/appearance/editor'
 
 const committed: AppearancePreferencesV2 = {

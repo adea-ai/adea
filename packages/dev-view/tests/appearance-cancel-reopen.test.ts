@@ -21,7 +21,7 @@ import {
   defaultAppearancePreferences,
   resolveAppearanceState,
   type AppearancePreferencesV2,
-} from '@adea-ai/ui/components/appearance'
+} from '@adea-ai/app-ui/components/appearance'
 import { createAppearanceEditor, type AppearanceEditor } from '../src/appearance/editor'
 
 type StyleRecord = Record<string, string>

@@ -24,7 +24,7 @@
  * the panel renders that typed state instead of dead controls. This module
  * rides its own lazy chunk (client budget), so it stays dependency-light.
  */
-import { cn } from '@adea-ai/ui/lib/utils'
+import { cn } from '@adea-ai/app-ui/lib/utils'
 import type {
   CredentialRef,
   DevCommand,

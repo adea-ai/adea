@@ -6,7 +6,7 @@
  * state, and empty runs render idle.
  */
 import type { HarnessPreference, HarnessRun, ManagedPiStatus } from '@adea-ai/types/dev-runtime'
-import '@adea-ai/ui/dev-view.css'
+import '@adea-ai/app-ui/dev-view.css'
 import { Show, createResource } from 'solid-js'
 
 import type { DevRuntimeService } from '../platform'

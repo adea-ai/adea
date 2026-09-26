@@ -1,12 +1,12 @@
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { Button } from '@adea-ai/ui/components/ui/button'
-import { Separator } from '@adea-ai/ui/components/ui/separator'
+import { Button } from '@adea-ai/app-ui/components/ui/button'
+import { Separator } from '@adea-ai/app-ui/components/ui/separator'
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@adea-ai/ui/components/ui/tooltip'
+} from '@adea-ai/app-ui/components/ui/tooltip'
 import {
   Bell,
   BriefcaseBusiness,

@@ -1,11 +1,19 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "jsPlugins": ["@shadcn/lint"],
+  "jsPlugins": [
+    "@shadcn/lint"
+  ],
   "settings": {
     "shadcn": {
-      "ui": ["@adea-ai/ui/components", "@adea-ai/workspace-ui"],
-      "componentImports": ["^#components/"],
-      "note": "Design-system rules: use variants and theme tokens from packages/ui. See packages/ui/src/styles/theme.css for colors."
+      "ui": [
+        "@adea-ai/app-ui/components",
+        "@adea-ai/ui/components",
+        "@adea-ai/workspace-ui"
+      ],
+      "componentImports": [
+        "^#components/"
+      ],
+      "note": "Design-system rules cover both @adea-ai/app-ui (Adea legacy adapters) and @adea-ai/ui (published shared components). See packages/ui/src/styles/theme.css for colors."
     }
   },
   "categories": {
@@ -56,7 +64,7 @@
               "next-themes",
               "lucide-react"
             ],
-            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/ui components (@kobalte/core and @corvu primitives) and lucide-solid."
+            "message": "This is a Solid codebase \u2014 React libraries will not run. Use @adea-ai/app-ui components (@kobalte/core and @corvu primitives) and lucide-solid."
           }
         ]
       }
@@ -104,7 +112,9 @@
   },
   "overrides": [
     {
-      "files": ["packages/ui/src/components/**"],
+      "files": [
+        "packages/ui/src/components/**"
+      ],
       "rules": {
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",

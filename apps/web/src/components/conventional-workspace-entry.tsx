@@ -1,4 +1,4 @@
-import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
+import { TooltipProvider } from '@adea-ai/app-ui/components/ui/tooltip'
 import {
   ConventionalWorkspaceShell,
   type WorkspaceDeepLink,

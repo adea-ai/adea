@@ -203,27 +203,6 @@
   }
 }
 
-/* Appearance picker swatches (see components/theme-swatch.tsx). The dot
-   color itself is runtime token data applied by the component. */
-.theme-swatch {
-  display: inline-flex;
-  gap: 0.25rem;
-}
-.theme-swatch__dot {
-  display: inline-block;
-  width: 0.875rem;
-  height: 0.875rem;
-  border-radius: calc(infinity * 1px);
-  border: 1px solid var(--border);
-}
-
-/* Appearance preview painters (see components/theme-preview.tsx). The
-   previewed variant's own border color is runtime token data, passed
-   through this hook's custom property instead of the live theme border. */
-.theme-preview-border {
-  border-color: var(--preview-border, var(--border));
-}
-
 @layer base {
   *,
   *::before,
