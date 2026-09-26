@@ -16,7 +16,7 @@ import {
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
-import { Button } from '@adea-ai/app-ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/app-ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { keyedRows } from './keyed-rows'

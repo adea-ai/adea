@@ -10,7 +10,7 @@
 @source '../../../../packages/workspace-ui/src';
 /* The published AppearanceEditor is source-mapped so Tailwind emits its
    nested primitives; app-specific CSS remains owned by @adea-ai/app-ui. */
-@source '../../../../node_modules/@adea-ai/ui/src';
+@source '../../../../packages/workspace-ui/node_modules/@adea-ai/ui/src';
 
 :root {
   --browser-auth-error: #b42318;

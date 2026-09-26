@@ -1,5 +1,5 @@
 import { Badge } from '@adea-ai/app-ui/components/ui/badge'
-import { Button } from '@adea-ai/app-ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,

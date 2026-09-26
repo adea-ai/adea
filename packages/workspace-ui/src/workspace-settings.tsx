@@ -2,7 +2,7 @@ import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
-import { Switch } from '@adea-ai/app-ui/components/ui/switch'
+import { Switch } from '@adea-ai/ui/components/ui/switch'
 import {
   Bell,
   Bot,
@@ -432,6 +432,7 @@ export function WorkspaceSettingsDialog(props: {
                   checked={preferences().notifyMentions}
                   onChange={() => toggle('notifyMentions')}
                   aria-label="Mention notifications"
+                  children={false}
                 />
               </SettingsRow>
               <SettingsRow
@@ -442,6 +443,7 @@ export function WorkspaceSettingsDialog(props: {
                   checked={preferences().notifyTasks}
                   onChange={() => toggle('notifyTasks')}
                   aria-label="Task notifications"
+                  children={false}
                 />
               </SettingsRow>
               <p class="conventional-settings-note">
@@ -479,6 +481,7 @@ export function WorkspaceSettingsDialog(props: {
                   checked={preferences().privateNotificationPreviews}
                   onChange={() => toggle('privateNotificationPreviews')}
                   aria-label="Private notification previews"
+                  children={false}
                 />
               </SettingsRow>
               <p class="conventional-settings-note">

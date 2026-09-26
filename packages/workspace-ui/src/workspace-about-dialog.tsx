@@ -1,4 +1,4 @@
-import { Button } from '@adea-ai/app-ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ExternalLink } from 'lucide-solid'
 import { createEffect, createSignal, onCleanup } from 'solid-js'
