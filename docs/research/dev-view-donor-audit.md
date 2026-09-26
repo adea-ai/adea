@@ -625,3 +625,11 @@ This does not prove packed renderer behavior or waive the required root-peer
 compatibility gate. User-facing move controls, full shell composition, renderer
 distribution/budgets, package/version gates, manual AT and real Adea-then-Cortana
 adoption remain pending. No application layout or preference system is deleted.
+
+The retained integration source at
+[`18d2b1e`](https://github.com/adea-ai/ui/commit/18d2b1ecef82790546beeda0f7a1f732b6088869)
+passes types/library build/format/lint/registry, 25 model/geometry cases with
+69 assertions and the same 26 source browser/visual/native SSR checks. Its
+actual tarball pure-model attribution and both conditions pass. The renderer
+package itself and the required root compatibility gate remain separately
+pending; this internal integration branch does not duplicate the source PR.

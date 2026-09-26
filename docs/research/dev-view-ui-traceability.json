@@ -10110,7 +10110,7 @@
       "packedModelContinuation": {
         "sourceCommand": "mise exec node@24.18.0 -- bun run check:packed-layout",
         "sourceResult": "exit_0_pure_model_only",
-        "integrationCommit": "39dfc05",
+        "integrationCommit": "39dfc052c27d4d211e3bcfef055f37d8cfceeb64",
         "integrationResult": "explicit_model_subpath_and_mandatory_packed_Apache_LICENSE_full_MIT_NOTICE_passed_native_Node_and_Solid_source",
         "gzipJsBytes": 2455,
         "runtimeImports": 0,
@@ -10124,7 +10124,14 @@
         "Dependency-ordered package/version gates",
         "Manual assistive technology evidence where required",
         "Adea then Cortana production migration and old-system deletion"
-      ]
+      ],
+      "integrationSourceVerification": {
+        "repository": "adea-ai/ui",
+        "commit": "18d2b1ecef82790546beeda0f7a1f732b6088869",
+        "branch": "test/packed-conversation-pilot",
+        "checks": "Types/library build/format/lint/registry, 25 model/geometry cases with 69 assertions and 26 headless Chromium/WebKit interaction/visual/native SSR cases passed. Actual tarball direct model attribution and both conditions passed; model stays 2455 gzip bytes under 3072 cap.",
+        "limits": "Integration source fixtures and pure-model tarball only; packed renderer and required root compatibility remain pending. No duplicate renderer PR or consumer adoption claim."
+      }
     }
   ]
 }
