@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.10](https://github.com/adea-ai/adea/compare/v0.60.9...v0.60.10) (2026-09-26)
+
+
+### Bug Fixes
+
+* search paging dead-end, task-draft bleed, selection clobber, silent git-status truncation ([#739](https://github.com/adea-ai/adea/issues/739)) ([1a2f181](https://github.com/adea-ai/adea/commit/1a2f18107a85d5fa34be21ced4e6512c5b7855e1))
+
 ## [0.60.9](https://github.com/adea-ai/adea/compare/v0.60.8...v0.60.9) (2026-09-26)
 
 
