@@ -132,33 +132,87 @@ async function requireActiveAgent(database: Database, workspaceId: string, agent
   if (!agent) throw new Error('Agent unavailable')
 }
 
+/** The two child reads a task summary needs, fetched together. */
+type TaskSummaryReads = Readonly<{
+  dependencies: readonly { id: string }[]
+  executions: readonly {
+    attempt: number
+    change: (typeof taskExecutionAttempts.$inferSelect)['change']
+    locationKind: (typeof taskExecutionAttempts.$inferSelect)['locationKind']
+    recordedAt: Date
+    runtimeNodeId: string | null
+  }[]
+}>
+
+/** Single-task convenience wrapper; lists use the batched read instead. */
 async function summarize(database: Database, row: TaskRow): Promise<TaskSummary> {
-  const dependencies = await database
-    .select({ id: taskDependencies.dependsOnTaskId })
-    .from(taskDependencies)
-    .where(
-      and(eq(taskDependencies.workspaceId, row.workspaceId), eq(taskDependencies.taskId, row.id))
-    )
-    .orderBy(asc(taskDependencies.dependsOnTaskId))
-  // Where the work ran, per attempt (#671). Absent until an attempt is
-  // recorded, so a task's history can answer the question after the fact
-  // rather than only while it is selected.
-  const executions = await database
-    .select({
-      attempt: taskExecutionAttempts.attempt,
-      change: taskExecutionAttempts.change,
-      locationKind: taskExecutionAttempts.locationKind,
-      recordedAt: taskExecutionAttempts.createdAt,
-      runtimeNodeId: taskExecutionAttempts.runtimeNodeId,
-    })
-    .from(taskExecutionAttempts)
-    .where(
-      and(
-        eq(taskExecutionAttempts.workspaceId, row.workspaceId),
-        eq(taskExecutionAttempts.taskId, row.id)
+  const reads = await readTaskSummaryReads(database, row.workspaceId, [row.id])
+  return summarizeRow(row, reads.get(row.id) ?? { dependencies: [], executions: [] })
+}
+
+async function readTaskSummaryReads(
+  database: Database,
+  workspaceId: string,
+  taskIds: readonly string[]
+): Promise<Map<string, TaskSummaryReads>> {
+  const byTask = new Map<
+    string,
+    {
+      dependencies: { id: string }[]
+      executions: TaskSummaryReads['executions'][number][]
+    }
+  >()
+  if (taskIds.length === 0) return byTask
+  for (const taskId of taskIds) byTask.set(taskId, { dependencies: [], executions: [] as never[] })
+  // Two queries for the whole page, not two per task. `listTasksForUser` runs
+  // on the workspace read endpoint, so the old shape cost 2N+2 round trips and
+  // scaled with the workspace's task count.
+  const [dependencyRows, attemptRows] = await Promise.all([
+    database
+      .select({ id: taskDependencies.dependsOnTaskId, taskId: taskDependencies.taskId })
+      .from(taskDependencies)
+      .where(
+        and(
+          eq(taskDependencies.workspaceId, workspaceId),
+          inArray(taskDependencies.taskId, [...taskIds])
+        )
       )
-    )
-    .orderBy(asc(taskExecutionAttempts.attempt))
+      .orderBy(asc(taskDependencies.dependsOnTaskId)),
+    // Where the work ran, per attempt (#671). Absent until an attempt is
+    // recorded, so a task's history can answer the question after the fact
+    // rather than only while it is selected.
+    database
+      .select({
+        attempt: taskExecutionAttempts.attempt,
+        change: taskExecutionAttempts.change,
+        locationKind: taskExecutionAttempts.locationKind,
+        recordedAt: taskExecutionAttempts.createdAt,
+        runtimeNodeId: taskExecutionAttempts.runtimeNodeId,
+        taskId: taskExecutionAttempts.taskId,
+      })
+      .from(taskExecutionAttempts)
+      .where(
+        and(
+          eq(taskExecutionAttempts.workspaceId, workspaceId),
+          inArray(taskExecutionAttempts.taskId, [...taskIds])
+        )
+      )
+      .orderBy(asc(taskExecutionAttempts.attempt)),
+  ])
+  for (const row of dependencyRows) byTask.get(row.taskId)?.dependencies.push(row)
+  for (const row of attemptRows)
+    byTask.get(row.taskId)?.executions.push({
+      attempt: row.attempt,
+      change: row.change,
+      locationKind: row.locationKind,
+      recordedAt: row.recordedAt,
+      runtimeNodeId: row.runtimeNodeId,
+    })
+  return byTask
+}
+
+function summarizeRow(row: TaskRow, reads: TaskSummaryReads): TaskSummary {
+  const { dependencies, executions } = reads
   const execution = taskExecutionFromAttempts(
     executions.map((entry) => ({
       attempt: entry.attempt,
@@ -393,13 +447,20 @@ export async function createTask(
   })
 }
 
+/** Default page for a task list read, matching the other list surfaces. */
+export const TASK_LIST_MAX = 200
+
 export async function listTasksForUser(
   database: AgentHqDatabase,
   workspaceId: string,
   principal: UserPrincipalRef,
-  options: Readonly<{ includeArchived?: boolean }> = {}
+  options: Readonly<{ includeArchived?: boolean; limit?: number }> = {}
 ): Promise<TaskSummary[]> {
   await requireMembership(database, workspaceId, principal)
+  // Bounded, like `search` and `listMessagesForUser`. This read is reachable
+  // from the workspace bootstrap endpoint, so an unbounded scan of every task
+  // in a workspace was both a round-trip problem and a resource one.
+  const limit = Math.min(Math.max(options.limit ?? TASK_LIST_MAX, 1), TASK_LIST_MAX)
   const rows = await database
     .select()
     .from(tasks)
@@ -410,7 +471,15 @@ export async function listTasksForUser(
       )
     )
     .orderBy(asc(tasks.createdAt), asc(tasks.id))
-  return Promise.all(rows.map((row) => summarize(database, row)))
+    .limit(limit)
+  const reads = await readTaskSummaryReads(
+    database,
+    workspaceId,
+    rows.map((row) => row.id)
+  )
+  return rows.map((row) =>
+    summarizeRow(row, reads.get(row.id) ?? { dependencies: [], executions: [] })
+  )
 }
 
 export async function getTaskForUser(
