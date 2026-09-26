@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "31e3717a4282fd2ce1d7ac7b6b8beafa25dcb9a8f75349d017b9cff747f26ff8",
+  "manifestDigest": "31d5d366c0157f2ddf9ad5237697b19524bb0ac3b0a096cf0c0e5d42d014f18e",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -9974,6 +9974,85 @@
         "manual resize",
         "mapped upload/skill/voice/optimizer contributions",
         "stop/resume presentation and app-owned services"
+      ]
+    },
+    {
+      "id": "395-binary-layout-model",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/395",
+      "proposal": "https://github.com/adea-ai/ui/issues/22",
+      "scope": "Existing accepted strict-binary operations extracted; full shell/rendering, scoped persistence and consumer migration remain pending.",
+      "donors": [
+        {
+          "id": "bb",
+          "revision": "52a9256373d4d36f9b60e9e2a7f333464091a2ac",
+          "source": [
+            "apps/app/src/lib/split-layout/types.ts",
+            "apps/app/src/lib/split-layout/ops.ts"
+          ],
+          "tests": ["apps/app/src/lib/split-layout/ops.test.ts"],
+          "review": "42/509/284 lines read in full; n-ary/global/domain representations excluded per #395."
+        },
+        {
+          "id": "muxy",
+          "revision": "5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6",
+          "source": ["Muxy/Models/Workspace/SplitNode.swift"],
+          "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
+          "review": "336/394 lines read in full; native TabArea/TerminalTab/project/visible-tab projection excluded; geometry/rendering acceptance separately pending."
+        }
+      ],
+      "adaptedSource": {
+        "repository": "adea-ai/adea",
+        "commit": "0322ab09ff5e9775bfddc0bf2d81e1df436dbef7",
+        "source": "packages/dev-view/src/layout/operations.ts",
+        "tests": "packages/dev-view/tests/layout.test.ts",
+        "review": "257 source/243 test lines read in full; reuse existing attributed implementation."
+      },
+      "destination": "adea-ai/ui packages/ui/src/components/layout/split-layout/model.ts",
+      "transformation": "Private Adea types replaced by payload-generic readonly leaves; final-pane placeholder injected. Preserve strict binary reading order, exact identities, move at cap, resize/normalize, parent collapse, focus/close/undo and undo invalidation. Constructor validates identities, binary structure and accepted bounds; no app/session/persistence/host services imported.",
+      "license": "Existing MIT source copyrights for Michael Yong and Muxy retained with full MIT permission in NOTICE; copied Adea test behavior covered by Apache-2.0 repository license.",
+      "implementation": {
+        "repository": "adea-ai/ui",
+        "pullRequest": "https://github.com/adea-ai/ui/pull/23",
+        "commit": "8c21febc763ba5b692e1ca779d619f113845600b",
+        "status": "draft"
+      },
+      "readiness": {
+        "sourceReviewed": "selected_operations_and_nearest_tests_full",
+        "reusePermitted": "source_copyright_and_MIT_notice_retained",
+        "behaviorPorted": "selected_existing_binary_model",
+        "libraryReady": "pure_model_verified_full_shell_and_distribution_gates_pending",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedApplicationEvidence": "pending"
+      },
+      "verification": {
+        "regression": "Three constructor checks failed on duplicate identities, empty identities and an oversized initial tree before hardening.",
+        "core": "19 tests/57 assertions passed, including original 12 adapted tests and opaque payload/placeholder ownership, move at eight leaves, no-op/undo retention and new identity collisions.",
+        "broadCommand": "mise exec node@24.18.0 -- bun run verify",
+        "broadResult": "exit_0",
+        "broadScope": "Current main-based branch: format/lint/types, 111 UI tests/3246 assertions, five workshop tests/35 assertions, coverage/theme/registry, library/Storybook builds and existing tree budgets. Does not include or waive the separate UI16 integration packed-root failure.",
+        "doctor": "passed_existing_hooks_warning",
+        "limits": "Model only; no new visual component/story, browser interaction, OS/manual AT, app adoption, native package or release claim."
+      },
+      "packedModelPilot": {
+        "command": "mise exec node@24.18.0 -- bun run check:packed-layout",
+        "script": "packages/ui/scripts/check-packed-layout.mjs",
+        "result": "exit_0_native_node_and_solid_source",
+        "checks": "Actual tarball installed in disposable consumer with peers omitted/scripts disabled; direct exported model subpath split/move/close/undo and exact opaque leaf identity. Assert compiled dist and Solid src paths remain unmixed; no runtime imports.",
+        "measurements": {
+          "jsBytes": 9140,
+          "gzipJsBytes": 2455,
+          "runtimeImports": 0,
+          "gzipJsBudget": 3072
+        },
+        "limits": "Direct pure-model file subpath only. UI16 folder exports, package attribution and root compatibility remain required; no framework-rendering or production consumer evidence."
+      },
+      "remaining": [
+        "maintained accessible renderer",
+        "stable mounted content during split/move/resize",
+        "composed shell stories and interaction/a11y/SSR tests",
+        "dependency-ordered package/version gates",
+        "Adea then Cortana migration"
       ]
     }
   ]

@@ -159,13 +159,13 @@
             "apps/app/src/lib/split-layout/computePaneRects.test.ts",
             "apps/app/src/views/thread-detail/splitPaneCommands.test.ts"
           ],
-          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout."
+          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout. Shared UI issue #22 extracts the already-adapted Adea layout/operations.ts model rather than recopying a second tree; preserve payload-generic visual identities and inject the final-pane placeholder. Scoped persistence and unknown-version recovery remain application-owned. The model checkpoint does not establish the accessible shell renderer."
         },
         {
           "donor": "muxy",
           "source": ["Muxy/Models/Workspace/SplitNode.swift"],
           "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
-          "action": "Translate invariants and all applicable test cases to TypeScript."
+          "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations."
         }
       ]
     },

@@ -560,3 +560,32 @@ contributions, canonical runtime restoration, manual accessibility, application
 migration, release or packaged acceptance. No application implementation or old
 system is removed. Adea migration remains first, followed by Cortana only after
 the shared scope and each replacement consumer meet their acceptance gates.
+
+### Binary layout model extraction checkpoint
+
+[UI PR #23](https://github.com/adea-ai/ui/pull/23), at
+[commit `8c21feb`](https://github.com/adea-ai/ui/commit/8c21febc763ba5b692e1ca779d619f113845600b),
+extracts the existing attributed #395 bb/Muxy adaptation instead of inventing
+another tree. Selected bb types/operations/tests, Muxy SplitNode/tests and the
+existing Adea operations/tests were read in full. The shared model retains
+strict binary reading order, exact leaf identity, move at cap, resize/normalize,
+parent collapse, focus, close/undo and undo invalidation. Private Adea types
+become payload-generic leaves; the host supplies the final-pane placeholder.
+Application scope, persistence, runtime/session and native process effects stay
+outside this model. MIT source copyrights and full permission are retained.
+
+Three invalid-construction regressions failed before validation was added.
+Nineteen model cases/57 assertions pass. The main-based branch's full verification
+passes formatting, lint, types, 111 UI tests/3,246 assertions, five workshop tests,
+coverage/theme/registry, builds and existing tree budgets. Its real tarball,
+installed with peers omitted and scripts disabled, passes native Node and Solid
+source split/move/close/undo identity checks with unmixed entries and zero runtime
+imports. The model measures 2,455 gzip bytes under a 3 KiB cap. This direct model
+subpath proof does not waive UI #16's packing/attribution corrections or the
+separate required root compatibility gate.
+
+This draft is a model foundation under [UI issue #22](https://github.com/adea-ai/ui/issues/22).
+The maintained accessible renderer, stable mounted content during structural
+changes, composed shell stories/interactions, package/version gates and actual
+Adea-then-Cortana consumers remain pending. No old application layout or scoped
+preference system is removed, and no full shell readiness is claimed.
