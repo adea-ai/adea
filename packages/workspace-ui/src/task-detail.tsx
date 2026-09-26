@@ -28,7 +28,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@adea-ai/app-ui/components/ui/dropdown-menu'
+} from '@adea-ai/ui/components/ui/dropdown-menu'
 import { Separator } from '@adea-ai/app-ui/components/ui/separator'
 
 import type { PrivateContentResolver } from './platform'
@@ -273,7 +273,7 @@ export function TaskDetail(props: Props) {
                   <span>{kind() === 'bug' ? 'Bug' : kind() === 'chore' ? 'Chore' : 'Feature'}</span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent placement="bottom-start" hideArrow>
                   <For each={kindOptions}>
                     {(option) => (
                       <DropdownMenuItem onSelect={() => setKind(option.value)}>
@@ -311,7 +311,7 @@ export function TaskDetail(props: Props) {
                   </span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent placement="bottom-start" hideArrow>
                   <For each={priorityOptions}>
                     {(option) => (
                       <DropdownMenuItem onSelect={() => setPriority(option.value)}>
@@ -340,7 +340,7 @@ export function TaskDetail(props: Props) {
                   <span>{selectedRoom()?.name ?? 'No Room'}</span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent placement="bottom-start" hideArrow>
                   <DropdownMenuItem onSelect={() => setRoomId(null)}>No Room</DropdownMenuItem>
                   <For each={roomRows()}>
                     {(entry) => (
@@ -371,7 +371,7 @@ export function TaskDetail(props: Props) {
                   </span>
                   <ChevronDown aria-hidden="true" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="bottom">
+                <DropdownMenuContent placement="bottom-start" hideArrow>
                   <DropdownMenuItem onSelect={() => setAgentId(null)}>Unassigned</DropdownMenuItem>
                   <For each={agentRows()}>
                     {(entry) => (

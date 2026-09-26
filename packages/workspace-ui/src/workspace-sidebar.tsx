@@ -26,7 +26,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@adea-ai/app-ui/components/ui/dropdown-menu'
+} from '@adea-ai/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 
 import { keyedRows } from './keyed-rows'
@@ -121,7 +121,7 @@ function ConversationChannelRow(props: {
           >
             <EllipsisVertical aria-hidden="true" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" side="bottom">
+          <DropdownMenuContent placement="bottom-end" hideArrow>
             <DropdownMenuItem onSelect={() => props.onRename(props.channel)}>
               Rename
             </DropdownMenuItem>
@@ -453,7 +453,7 @@ export function WorkspaceSidebar(props: Props) {
                               >
                                 <EllipsisVertical aria-hidden="true" />
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" side="bottom">
+                              <DropdownMenuContent placement="bottom-end" hideArrow>
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     setActionError(null)

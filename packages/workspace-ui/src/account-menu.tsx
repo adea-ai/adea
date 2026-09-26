@@ -20,7 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from '@adea-ai/app-ui/components/ui/dropdown-menu'
+} from '@adea-ai/ui/components/ui/dropdown-menu'
 
 import { accountMenuItemsForPlatform, accountSessionItem } from './account-menu-model'
 
@@ -63,7 +63,12 @@ export function AccountMenu(props: AccountMenuProps) {
       >
         <UserRound aria-hidden="true" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent class="global-account-menu" side="top" align="start" sideOffset={0}>
+      <DropdownMenuContent
+        class="global-account-menu"
+        placement="top-start"
+        gutter={0}
+        hideArrow
+      >
         <DropdownMenuGroup>
           <For each={visibleMenuItems()}>
             {(item) => {
