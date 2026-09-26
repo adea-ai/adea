@@ -64,9 +64,12 @@ describe('published Adea theme adapter', () => {
       expect(record[1]).toHaveLength(19)
       expect(record[2]).toHaveLength(18)
       expect(record[3]).toHaveLength(16)
-      for (const index of record.slice(1).flat()) {
-        expect(index).toBeGreaterThanOrEqual(0)
-        expect(index).toBeLessThan(CANONICAL_THEME_COLORS.length)
+      for (const encoded of record.slice(1)) {
+        for (const value of encoded) {
+          const index = value.charCodeAt(0) - 48
+          expect(index).toBeGreaterThanOrEqual(0)
+          expect(index * 6 + 6).toBeLessThanOrEqual(CANONICAL_THEME_COLORS.length)
+        }
       }
     }
   })
@@ -81,6 +84,26 @@ describe('published Adea theme adapter', () => {
       (issue) => issue.severity === 'error'
     )
     expect(errors).toEqual([])
+  })
+
+  test('freezes the canonical registry and every nested role map', () => {
+    expect(Object.isFrozen(canonicalAdeaThemeRegistry)).toBe(true)
+    for (const variant of canonicalAdeaThemeRegistry) {
+      expect(Object.isFrozen(variant)).toBe(true)
+      expect(Object.isFrozen(variant.colors)).toBe(true)
+      expect(Object.isFrozen(variant.terminal)).toBe(true)
+      expect(Object.isFrozen(variant.terminal.ansi)).toBe(true)
+      expect(Object.isFrozen(variant.editor)).toBe(true)
+      expect(Object.isFrozen(variant.charts)).toBe(true)
+
+      const colors = variant.colors as Record<string, string>
+      expect(() => {
+        colors.background = '#000000'
+      }).toThrow()
+    }
+
+    const registry = canonicalAdeaThemeRegistry as unknown as ThemeVariant[]
+    expect(() => registry.push(canonicalThemeVariant('adea-light'))).toThrow()
   })
 
   test('maps every published role through the package adapters', () => {

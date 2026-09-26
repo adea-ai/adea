@@ -7,6 +7,7 @@ import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
 
 const OUTPUT = new URL('../src/components/canonical-theme-data.ts', import.meta.url)
 const CSS_OUTPUT = new URL('../src/components/canonical-theme-css-data.ts', import.meta.url)
+const CHECK_ONLY = Bun.argv.includes('--check')
 const EDITOR_ROLES = [
   'keyword',
   'string',
@@ -193,10 +194,47 @@ const compactVariants = Object.fromEntries(
     ],
   ])
 )
+const encodedVariants = Object.fromEntries(
+  Object.entries(compactVariants).map(([id, record]) => [
+    id,
+    [
+      record[0],
+      ...record
+        .slice(1)
+        .map((values) => String.fromCharCode(...(values as number[]).map((index) => index + 48))),
+    ],
+  ])
+)
 const cssTokens = Object.fromEntries(
   Object.entries(records).map(([id, record]) => [id, record.cssTokens])
 )
-const source = `/** Generated from the isolated @adea-ai/themes 0.5.0 records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '0.5.0' as const\nexport const CANONICAL_THEME_COLORS = ${JSON.stringify(colors.join(''))} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(compactVariants, null, 2)} as const\n`
+const source = `/** Generated from the isolated @adea-ai/themes 0.5.0 records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '0.5.0' as const\nexport const CANONICAL_THEME_COLORS = ${JSON.stringify(colors.join(''))} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(encodedVariants, null, 2)} as const\n`
 const cssSource = `/** Generated from the isolated @adea-ai/themes 0.5.0 records. */\nexport const CANONICAL_THEME_CSS_DATA = ${JSON.stringify(cssTokens, null, 2)} as const satisfies Record<string, Readonly<Record<string, string>>>\n\nexport function canonicalThemeCssTokens(id: keyof typeof CANONICAL_THEME_CSS_DATA): Record<string, string> {\n  return Object.freeze({ ...CANONICAL_THEME_CSS_DATA[id] })\n}\n`
-await Bun.write(OUTPUT, source)
-await Bun.write(CSS_OUTPUT, cssSource)
+
+function formatGenerated(generatedSource: string, output: URL): string {
+  const result = Bun.spawnSync({
+    cmd: ['bunx', 'oxfmt', '--stdin-filepath', output.pathname],
+    stdin: Buffer.from(generatedSource),
+  })
+  if (result.exitCode !== 0) {
+    throw new Error(`could not format generated ${output.pathname}`)
+  }
+  return result.stdout.toString()
+}
+
+const formattedSource = formatGenerated(source, OUTPUT)
+const formattedCssSource = formatGenerated(cssSource, CSS_OUTPUT)
+
+async function writeOrCheck(output: URL, generatedSource: string, name: string): Promise<void> {
+  if (CHECK_ONLY) {
+    const existing = await Bun.file(output).text()
+    if (existing !== generatedSource) {
+      throw new Error(`${name} is stale; run bun run themes:generate`)
+    }
+    return
+  }
+  await Bun.write(output, generatedSource)
+}
+
+await writeOrCheck(OUTPUT, formattedSource, 'canonical-theme-data.ts')
+await writeOrCheck(CSS_OUTPUT, formattedCssSource, 'canonical-theme-css-data.ts')
