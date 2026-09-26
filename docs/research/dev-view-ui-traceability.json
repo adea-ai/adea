@@ -9,7 +9,7 @@
     "cortana": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629"
   },
   "manifest": "dev-view-source-manifest.json",
-  "manifestDigest": "9a17379b79ab4dde033b9d92c218f77d8e0e9d1557b247c0aae464ac901688ed",
+  "manifestDigest": "2d0ddf527ceed3ef1371f17e4600cda75c9382589278238d56b467e26b2c780a",
   "coverage": {
     "retrieval": "All-state paginated issue/PR listings, refreshed by updated-since deltas; selected milestones and recursive linked issue/PR bodies plus paginated issue conversation comments through closure",
     "adeaMilestones": [20, 23],
@@ -10238,6 +10238,41 @@
         "integrationValidation": "Types/library build, format/lint/registry and 27 model/geometry/drop cases with 79 assertions passed. Actual pure model remains 9140 raw/2455 gzip bytes, zero imports, under unchanged 3072 cap.",
         "limits": "Component IIFE fixture and required source SSR, not production mounts/builds, hydration, native editors/terminals/devices or manual AT. Full accepted shell, current product keyboard/persistence adapters and app migrations remain pending."
       }
+    },
+    {
+      "id": "532-paste-token-model",
+      "requirementSource": "https://github.com/adea-ai/adea/issues/532",
+      "proposal": "https://github.com/adea-ai/ui/issues/21",
+      "scope": "Selected pure token transformations and text-paste policy; rich editing, previews, history/undo, host integration and production adoption remain pending.",
+      "donor": "kirocrew",
+      "revision": "283e136c0f902e965a535a7c9548c57c7504fed0",
+      "sourceUnits": [
+        "website/src/utils/pasteTokens.ts",
+        "website/src/components/composerPastePolicy.ts"
+      ],
+      "referenceTests": [
+        "website/src/test/pasteTokens.test.ts",
+        "website/src/test/ChatInput.paste.test.tsx"
+      ],
+      "destination": "adea-ai/ui:packages/ui/src/components/conversation/paste-tokens.ts",
+      "sourceReview": "Bounded read-only extraction review completed; implementing worker must read full selected source/tests before translation.",
+      "license": "Apache-2.0; preserve Amazon copyright and full donor attribution",
+      "readiness": {
+        "sourceReviewed": "extraction_boundary_reviewed",
+        "reusePermitted": "Apache-2.0_with_attribution",
+        "behaviorPorted": "pending",
+        "libraryReady": "pending",
+        "consumerMounted": "pending",
+        "functionalEndToEnd": "pending",
+        "packagedApplicationEvidence": "pending"
+      },
+      "exclusions": [
+        "Donor localStorage side tables/recovery and backend-message reconciliation",
+        "React/Lexical/ReactDOM/Framer Motion runtimes",
+        "Clipboard/file transport and upload authority",
+        "Textarea interaction/undo/history/mirror/preview/chip compositions until separately mapped",
+        "Full Chat and production acceptance"
+      ]
     }
   ],
   "packageReleaseContinuation": {

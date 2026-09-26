@@ -165,7 +165,7 @@
           "donor": "muxy",
           "source": ["Muxy/Models/Workspace/SplitNode.swift"],
           "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
-          "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations. Translate the reviewed areaFrames fractional geometry to a Map keyed by opaque identity, retaining row/column offsets and exact node references while applying accepted 0.1–0.9 ratio repair. Native UI is not copied. Keep leaf DOM separate from changing branch-controller ancestry; prove owner/value/caret/focus retention in Chromium and WebKit."
+          "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations. Translate the reviewed areaFrames fractional geometry to a Map keyed by opaque identity, retaining row/column offsets and exact node references while applying accepted 0.1\u20130.9 ratio repair. Native UI is not copied. Keep leaf DOM separate from changing branch-controller ancestry; prove owner/value/caret/focus retention in Chromium and WebKit."
         }
       ]
     },
@@ -763,7 +763,7 @@
             "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ScreenCapturePermissionPreflightSafetyTests.swift",
             "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ComputerSnapshotCachePolicyTests.swift"
           ],
-          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule — capture refuses closed when the recording grant cannot be proven — becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
+          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule \u2014 capture refuses closed when the recording grant cannot be proven \u2014 becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
         },
         {
           "donor": "orca",
@@ -831,6 +831,18 @@
           "source": ["website/src/components/ChatInput.tsx"],
           "tests": ["website/src/test/ChatInput.collapse.test.tsx"],
           "action": "Translate the reviewed composer visual hierarchy and controlled reading-collapse/focus seams into shared ChatComposer: knowledge/follow-ups, adjacent band, approval and notices, staged content, input/action groups and a context shelf. Preserve labeled restoration, unmounted collapsed input/shelf, host-owned draft and scoped typing intent. Kobalte replaces manual menus. Persisted preferences, global broadcasts/shortcuts, approval policy, voice capture, upload transport, optimizer, paste authority and runtime session state remain app-owned; existing selected IME and busy units compose without reimplementation. This selected composition is not full Chat product or canonical runtime adoption. Preserve per-action non-text payload eligibility: reference-only drafts may send/queue but cannot steer. Native field sizing preserves growth/cap/width behavior on the verified engines; legacy fallback and the remaining rich composer features are separately pending."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/utils/pasteTokens.ts",
+            "website/src/components/composerPastePolicy.ts"
+          ],
+          "tests": [
+            "website/src/test/pasteTokens.test.ts",
+            "website/src/test/ChatInput.paste.test.tsx"
+          ],
+          "action": "Translate the complete reusable paste-token model into adea-ai/ui packages/ui/src/components/conversation/paste-tokens.ts: block shape, thresholds, deterministic token formatting/ranges, sequence allocation/remapping, pruning, expansion and re-collapse. Retain pure trailing-blank-line policy from composerPastePolicy. Read the full selected files and nearest tests; separate localStorage recovery/side tables and backend-message reconciliation from pure transformations, inject any required identity rather than importing app state. Browser clipboard/File interpretation, upload transport, textarea atomic editing, undo/history, mirror/preview/chips and host submit-block/persistence integration remain separately mapped continuation work; this model does not certify rich editing, full Chat, release or production adoption. Preserve pinned Apache-2.0 attribution and use Bun tests without donor React/Lexical/runtime dependencies."
         }
       ]
     }
