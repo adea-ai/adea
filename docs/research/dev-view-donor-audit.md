@@ -501,3 +501,16 @@ This is selected source-component evidence, not packed consumer, full Chat
 composition, manual accessibility, production adoption or runtime queue proof.
 The separate packed root-export compatibility gate remains open. No application
 implementation or old system is removed by this extraction.
+
+The selected busy control also passes an actual tarball pilot at
+[commit `dc06e92`](https://github.com/adea-ai/ui/commit/dc06e923b47557d09e826952d6af3f7ddca4e6fd).
+Compiled and Solid source exports pass six busy check groups in each Chromium
+and WebKit (24), alongside the previous conversation's 28. Packed license and
+all three selected Kiro NOTICE sections are retained. Both fixtures have one
+Solid runtime and one JS chunk, excluding each other's unrelated components,
+heavy peers, unrelated theme/layout/workshop JS and fonts. Busy gzip JS measures
+50,308/50,470 bytes (compiled/Solid) against its own 50 KiB budget; its raw CSS is
+31,057 bytes. Conversation gzip JS remains 23,918/23,987 bytes with 40,272 raw
+CSS bytes under the unchanged 26 KiB/42 KiB caps. Required external Tailwind
+sources are scanned explicitly. This extends isolated packed evidence only;
+the known required root-import failure and application acceptance remain open.

@@ -9809,7 +9809,38 @@
         "commit": "983f13b4cfa0c4f31d4b6c63504fe488b72e7fab",
         "status": "draft"
       },
-      "transformation": "Controlled mode/onModeChange/onFire; independent disabled fire and selection ports; visible unsupported modes with host reasons. Kobalte owns arrows/Home/End/selection/Escape/focus. Native menu-scoped Tab handler translates enabled-row wrapping without document listeners. Force-reset runtime escape hatch excluded."
+      "transformation": "Controlled mode/onModeChange/onFire; independent disabled fire and selection ports; visible unsupported modes with host reasons. Kobalte owns arrows/Home/End/selection/Escape/focus. Native menu-scoped Tab handler translates enabled-row wrapping without document listeners. Force-reset runtime escape hatch excluded.",
+      "packedIntegrationPilot": {
+        "repository": "adea-ai/ui",
+        "branch": "test/packed-conversation-pilot",
+        "commit": "dc06e923b47557d09e826952d6af3f7ddca4e6fd",
+        "commitUrl": "https://github.com/adea-ai/ui/commit/dc06e923b47557d09e826952d6af3f7ddca4e6fd",
+        "dependencies": "Isolated UI16/18/19/20 integration branch; original PRs remain merge paths.",
+        "command": "mise exec node@24.18.0 -- bun run check:packed-conversation",
+        "result": "exit_0_52_check_groups",
+        "engines": ["chromium", "webkit"],
+        "conditions": ["compiled", "solid"],
+        "checks": "24 busy groups: disabled fire/live picker, scoped Tab cycle, controlled selection/focus, action-only execution, unavailable recovery and square-control styling; 28 original conversation groups still pass.",
+        "measurements": {
+          "busy": {
+            "compiledGzipJsBytes": 50308,
+            "solidGzipJsBytes": 50470,
+            "rawCssBytes": 31057,
+            "gzipJsBudget": 51200,
+            "rawCssBudget": 43008
+          },
+          "conversation": {
+            "compiledGzipJsBytes": 23918,
+            "solidGzipJsBytes": 23987,
+            "rawCssBytes": 40272,
+            "gzipJsBudget": 26624,
+            "rawCssBudget": 43008
+          }
+        },
+        "artifactChecks": "Actual tarball, exported subpath and both unmixed conditions, packed LICENSE/all three selected Kiro NOTICE sections, one Solid runtime and one JS chunk per fixture. Unrelated conversation components excluded from each fixture alongside charts/carousel/editor/terminal/highlighter/layout/theme JS/font/workshop modules; required external Tailwind sources scanned explicitly.",
+        "additionalChecks": "Package typecheck, script zero-warning lint, Oxfmt and diff checks passed. Broad UI20 source verify passed separately; known six-case required packed root-import compatibility failure from the prior integration remains unresolved and is not waived.",
+        "limits": "Disposable browser fixture at 768px, not actual Adea/Cortana production pipelines, native SSR, manual AT, runtime queue delivery, full Chat composition, canonical restoration, release or packaged application acceptance."
+      }
     }
   ]
 }
