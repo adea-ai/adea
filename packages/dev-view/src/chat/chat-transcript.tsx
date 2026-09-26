@@ -1,4 +1,4 @@
-import { Index, Show, createSignal, type JSX } from 'solid-js'
+import { Index, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
@@ -48,11 +48,16 @@ function runtimeEventText(item: ChatTranscriptItem): string {
 
 export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   const [answers, setAnswers] = createSignal<Record<string, string>>({})
-  const items = () =>
+  // Memoized, not a plain accessor: the projection walks the whole retained
+  // window (up to CHAT_EVENT_RETENTION_LIMIT events) and both the empty-state
+  // check below and the list read it, so an unmemoized accessor projected the
+  // same window twice on every reactive re-evaluation.
+  const items = createMemo(() =>
     projectTranscriptEvents(
       props.events,
       props.projection ? { projection: props.projection } : undefined
     )
+  )
   const availability = () => props.transcript?.availability
   const retention = () => props.transcript?.retention
 

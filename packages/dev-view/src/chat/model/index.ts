@@ -629,8 +629,11 @@ export function createChatConversationModel(
         }
         transcript = acceptRuntimeStreamFrame(transcript, frame, source)
         if (frame.type === 'data' && decodedEvent) {
+          // The decoded identity is invariant across the window, so build it
+          // once instead of once per retained event on every streamed frame.
+          const decodedIdentity = eventIdentity(decodedEvent)
           const accepted = transcript.events.some(
-            (event) => eventIdentity(event) === eventIdentity(decodedEvent!)
+            (event) => eventIdentity(event) === decodedIdentity
           )
           if (accepted)
             events.set(
