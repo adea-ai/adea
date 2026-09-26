@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.6](https://github.com/adea-ai/adea/compare/v0.60.5...v0.60.6) (2026-09-26)
+
+
+### Bug Fixes
+
+* **events:** resume the SSE stream with the signed cursor, not the sequence ([#727](https://github.com/adea-ai/adea/issues/727)) ([398db8b](https://github.com/adea-ai/adea/commit/398db8be591a7bc4c6879b8486a5e99449e02f8b))
+
 ## [0.60.5](https://github.com/adea-ai/adea/compare/v0.60.4...v0.60.5) (2026-09-26)
 
 
