@@ -17,7 +17,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from '@adea-ai/app-ui/components/ui/empty'
-import { Input } from '@adea-ai/app-ui/components/ui/input'
+import { Input } from '@adea-ai/ui/components/ui/input'
 import { Skeleton } from '@adea-ai/app-ui/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/app-ui/components/ui/tabs'
 import {
