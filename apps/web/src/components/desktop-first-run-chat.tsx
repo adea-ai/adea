@@ -7,8 +7,8 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { createEffect, createSignal, onCleanup, Show, type JSX } from 'solid-js'
 
 import {
-  attachFirstRunConversationIfCurrent,
   createDesktopChatLifecycleFence,
+  createFirstRunConversationHandler,
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
 import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/desktop-first-run-chat'
@@ -105,7 +105,6 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     <Show when={ready()} fallback={props.fallback}>
       {(state) => {
         const request = lifecycle.current()
-        const boundModel = state().model
         return (
           <Show
             when={conversation()}
@@ -124,16 +123,13 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                     if (lifecycle.isCurrent(nextRequest) && next) setReady(next)
                   }
                 }}
-                onConversation={(created) => {
-                  attachFirstRunConversationIfCurrent({
-                    created,
-                    currentModel: () => ready()?.model,
-                    lifecycle,
-                    model: boundModel,
-                    onAttached: setConversation,
-                    request,
-                  })
-                }}
+                onConversation={createFirstRunConversationHandler({
+                  currentModel: () => ready()?.model,
+                  getModel: () => state().model,
+                  lifecycle,
+                  onAttached: setConversation,
+                  request,
+                })}
               />
             }
           >

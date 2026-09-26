@@ -62,6 +62,33 @@ export function attachFirstRunConversationIfCurrent(
   })
 }
 
+/**
+ * Binds onboarding creation to the model rendered by the current Solid scope.
+ * The model accessor is evaluated while that scope is live; the returned
+ * callback only carries the immutable model into deferred work.
+ */
+export function createFirstRunConversationHandler(
+  input: Readonly<{
+    getModel: () => ChatConversationModel
+    currentModel: () => ChatConversationModel | undefined
+    lifecycle: DesktopChatLifecycleFence
+    onAttached: (conversation: ChatConversation) => void
+    request: number
+  }>
+): (created: Pick<ChatConversation, 'runtimeSessionId'>) => void {
+  const model = input.getModel()
+  return (created) => {
+    attachFirstRunConversationIfCurrent({
+      created,
+      currentModel: input.currentModel,
+      lifecycle: input.lifecycle,
+      model,
+      onAttached: input.onAttached,
+      request: input.request,
+    })
+  }
+}
+
 function scopeKey(scope: Scope): string {
   return `${scope.accountId}\u0000${scope.workspaceId}\u0000${scope.runtimeNodeId}`
 }

@@ -9,8 +9,8 @@ import {
 import type { ChatConversation, ChatConversationModel } from '@adea-ai/dev-view/chat/model'
 
 import {
-  attachFirstRunConversationIfCurrent,
   createDesktopChatLifecycleFence,
+  createFirstRunConversationHandler,
 } from '../../src/lib/desktop-chat-host'
 
 const facts: FirstRunFacts = {
@@ -72,7 +72,13 @@ function mount() {
             }
           }
           const request = lifecycle.current()
-          const boundModel = state().model
+          const handleConversation = createFirstRunConversationHandler({
+            currentModel: () => ready()?.model,
+            getModel: () => state().model,
+            lifecycle,
+            onAttached: () => undefined,
+            request,
+          })
           return (
             <FirstRunOnboarding
               facts={state().facts}
@@ -80,14 +86,7 @@ function mount() {
               onAction={() => undefined}
               onConversation={(created) => {
                 conversationCallbacks += 1
-                attachFirstRunConversationIfCurrent({
-                  created,
-                  currentModel: () => ready()?.model,
-                  lifecycle,
-                  model: boundModel,
-                  onAttached: () => undefined,
-                  request,
-                })
+                handleConversation(created)
               }}
             />
           )
