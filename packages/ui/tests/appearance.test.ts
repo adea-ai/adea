@@ -368,6 +368,40 @@ describe('document application', () => {
     expect(style['--surface-alpha']).toBe('1')
   })
 
+  // Every other test in this file builds a FRESH `fakeDocument()`, so the
+  // suite was structurally incapable of catching a stale-inline-property
+  // regression: the bug only appears when the SAME document is themed twice.
+  test('switching a non-default variant back to the default clears its tokens', () => {
+    const custom = resolveAppearanceState(
+      { ...defaultAppearancePreferences, darkThemeId: 'slate-dark' },
+      { systemAppearance: 'dark', osReducedTransparency: false, nativeTranslucency: false }
+    )
+    const back = resolveAppearanceState(defaultAppearancePreferences, {
+      systemAppearance: 'dark',
+      osReducedTransparency: false,
+      nativeTranslucency: false,
+    })
+
+    const { document, style, dataset } = fakeDocument()
+    applyAppearanceToDocument(document as unknown as Document, custom)
+    // The custom variant really did write tokens inline.
+    expect(dataset.theme).toBe('slate-dark')
+    expect(style['--background']).toBeDefined()
+    const writtenWhileCustom = Object.keys(style).length
+    expect(writtenWhileCustom).toBeGreaterThan(0)
+
+    // Same document, back to the default variant.
+    applyAppearanceToDocument(document as unknown as Document, back)
+    expect(dataset.theme).toBe('adea-dark')
+    // No token from the previous variant may survive: the stylesheet owns them
+    // again, and leaving them inline silently repaints the whole app.
+    for (const name of Object.keys(style)) {
+      if (name.startsWith('--') && !name.startsWith('--surface-alpha')) {
+        expect(style[name], `stale inline token ${name} survived the revert`).toBeUndefined()
+      }
+    }
+  })
+
   test('a non-default variant applies its palette and role tokens', () => {
     const preferences = { ...defaultAppearancePreferences, darkThemeId: 'slate-dark' }
     const state = resolveAppearanceState(preferences, {

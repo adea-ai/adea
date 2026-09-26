@@ -46,4 +46,24 @@ describe('conversation API client', () => {
       'https://test/api/v1/workspaces/w/channels/c/messages?afterSequence=42&limit=25&threadRootMessageId=m'
     )
   })
+
+  // The route answers 400 for a limit outside 1-100. The client used to forward
+  // whatever it was given, so an out-of-range value was a guaranteed rejection
+  // rather than a well-defined request. Clamped, not forwarded.
+  test('clamps an out-of-range message limit to the bound the route accepts', async () => {
+    let request: Request | undefined
+    const client = new AgentHqApiClient({
+      baseUrl: '/api',
+      fetchImpl: async (input, init) => {
+        request = new Request(`https://test${input}`, init)
+        return Response.json({ messages: [] })
+      },
+    })
+    await client.listMessages('w', 'c', { limit: 5_000 })
+    expect(new URL(request!.url).searchParams.get('limit')).toBe('100')
+    await client.listMessages('w', 'c', { limit: 0 })
+    expect(new URL(request!.url).searchParams.get('limit')).toBe('1')
+    await client.listMessages('w', 'c', { limit: Number.NaN })
+    expect(new URL(request!.url).searchParams.get('limit')).toBe('50')
+  })
 })

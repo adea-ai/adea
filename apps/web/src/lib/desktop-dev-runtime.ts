@@ -25,6 +25,36 @@ type BridgeLike = {
 /** The shell event the git status-invalidation pushes ride (published by the
  *  composition's watcher lane; delivered over the gateway's authenticated
  *  SSE stream through the bridge's signed listen path). */
+
+/**
+ * The canonical `RuntimeSession.lifecycle` the projection may carry, plus the
+ * projection-only `archived`. Kept as a runtime guard because the register can
+ * add a lifecycle before this client learns it: an unknown value falls back to
+ * `ready` rather than being passed through and rejected by the type.
+ */
+const CANONICAL_SESSION_STATES = new Set([
+  'preparing',
+  'ready',
+  'active',
+  'disconnected',
+  'completed',
+  'failed',
+  'cancelled',
+])
+
+function canonicalSessionState(lifecycle: unknown) {
+  return typeof lifecycle === 'string' && CANONICAL_SESSION_STATES.has(lifecycle)
+    ? (lifecycle as
+        | 'preparing'
+        | 'ready'
+        | 'active'
+        | 'disconnected'
+        | 'completed'
+        | 'failed'
+        | 'cancelled')
+    : 'ready'
+}
+
 export const GIT_STATUS_INVALIDATED_EVENT = 'git.statusInvalidated'
 
 /** The capability that gates `dev.git.status` — and with it the push
@@ -338,7 +368,14 @@ function toProjection(
     sessions.push({
       id: String(raw.id),
       title: typeof raw.displayName === 'string' ? raw.displayName : String(raw.id),
-      state: raw.archived === true ? 'archived' : raw.lifecycle === 'active' ? 'active' : 'ready',
+      // Carry the canonical lifecycle through. This used to collapse
+      // `preparing | disconnected | completed | failed | cancelled` into
+      // `ready`, so a session whose run had FAILED rendered with the green
+      // ready dot and was announced to a screen reader as "ready" — the
+      // projection type explicitly promises those states are "not coerced
+      // into active/ready". `ready` is now only the fallback for a lifecycle
+      // this build does not recognise.
+      state: raw.archived === true ? 'archived' : canonicalSessionState(raw.lifecycle),
     })
     sessionsByProject.set(projectId, sessions)
   }
@@ -360,6 +397,14 @@ function toProjection(
     groups: groupsReply.items.map((raw) => ({
       id: String(raw.id),
       name: String(raw.name ?? raw.id),
+      // The register carries a group `version` and increments it on every
+      // reorder; `dev-workspace-entry` needs it as the expected version for
+      // `dev.group.reorder`. Dropping it here made `reorderVersionOf` always
+      // undefined, so a reorder returned "nothing was changed on the runtime"
+      // AFTER the sidebar had already been reordered locally — leaving the
+      // surface permanently out of step with the runtime, with no reload to
+      // correct it.
+      ...(typeof raw.version === 'number' ? { version: raw.version } : {}),
       projects: (Array.isArray(raw.projectIds) ? raw.projectIds : [])
         .map((id) => projectsById.get(String(id)))
         .filter((project): project is NonNullable<typeof project> => project !== undefined),

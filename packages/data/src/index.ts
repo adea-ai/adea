@@ -809,21 +809,43 @@ export function useMessageListQuery(
   client: AgentHqApiClient,
   workspaceId?: MaybeAccessor<string | undefined>,
   channelId?: MaybeAccessor<string | undefined>,
-  options: Readonly<{ afterSequence?: number; limit?: number; threadRootMessageId?: string }> = {},
+  options: Readonly<{
+    afterSequence?: MaybeAccessor<number | undefined>
+    limit?: number
+    threadRootMessageId?: string
+  }> = {},
   queryConfig: Readonly<{
     /** Ephemeral page shown while the fetch is in flight — not written to cache. */
     placeholderData?: () => Awaited<ReturnType<AgentHqApiClient['listMessages']>> | undefined
   }> = {}
 ) {
-  return useQuery(() => ({
-    ...messageQueryOptions.list(
-      client,
-      resolveAccessor(workspaceId),
-      resolveAccessor(channelId),
-      options
-    ),
-    ...(queryConfig.placeholderData ? { placeholderData: queryConfig.placeholderData } : {}),
-  }))
+  // `afterSequence` is resolved HERE, inside the reactive query scope, so a
+  // paging cursor participates in the query key. It used to be read once while
+  // building a plain options object at component setup, so the key never
+  // changed and "Load newer messages" could not refetch anything.
+  return useQuery(() => {
+    const afterSequence = resolveAccessor(options.afterSequence)
+    const page: Readonly<{
+      afterSequence?: number
+      limit?: number
+      threadRootMessageId?: string
+    }> = {
+      ...(afterSequence !== undefined ? { afterSequence } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.threadRootMessageId !== undefined
+        ? { threadRootMessageId: options.threadRootMessageId }
+        : {}),
+    }
+    return {
+      ...messageQueryOptions.list(
+        client,
+        resolveAccessor(workspaceId),
+        resolveAccessor(channelId),
+        page
+      ),
+      ...(queryConfig.placeholderData ? { placeholderData: queryConfig.placeholderData } : {}),
+    }
+  })
 }
 /**
  * Warms the message-page cache for a channel on intent (hover/focus), so the

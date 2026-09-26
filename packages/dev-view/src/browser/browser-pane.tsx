@@ -10,7 +10,13 @@
  * imports, and unavailable capability renders as typed states. See NOTICE
  * and docs/research/dev-view-donor-audit.md.
  */
-import type { BrowserLane, BrowserTarget, DevError, PortRecord } from '@adea-ai/types/dev-runtime'
+import type {
+  BrowserLane,
+  BrowserTarget,
+  DevError,
+  PortRecord,
+  ProfilePolicy,
+} from '@adea-ai/types/dev-runtime'
 import '@adea-ai/ui/dev-view.css'
 import { cn } from '@adea-ai/ui/lib/utils'
 import {
@@ -114,9 +120,14 @@ export function BrowserPane(props: BrowserPaneProps) {
 
   const [targets, { refetch: refetchTargets }] = createResource(activeLane, async (lane) => {
     if (!lane) return { items: [] as BrowserTarget[] }
+    // The contract for `dev.browser.targets` is
+    // `{ browserLaneId; cursor?; limit? }` with the generation carried by the
+    // RESOURCE binding. Sending `expectedGeneration` in the body made the
+    // strict decoder reject it as an unknown key, so every Targets fetch was
+    // refused and the browser pane's primary read never worked.
     return execute<TargetsPage>(
       'dev.browser.targets',
-      { browserLaneId: lane.id, expectedGeneration: lane.generation },
+      { browserLaneId: lane.id },
       { kind: 'browser_lane', id: lane.id, generation: lane.generation }
     )
   })
@@ -189,13 +200,34 @@ export function BrowserPane(props: BrowserPaneProps) {
       .catch((reply) => setError(commandError(reply)))
   }
 
-  function createLane(kind: BrowserLane['kind']): void {
+  async function createLane(kind: BrowserLane['kind']): Promise<void> {
     const session = props.runtimeSessionId
     if (!session) {
       setError({ code: 'invalid_state', retryable: false, message: 'no active runtime session' })
       return
     }
-    execute<BrowserLane>('dev.browser.laneCreate', { runtimeSessionId: session, kind })
+    // `profilePolicyId` is REQUIRED by the contract. Omitting it made the
+    // strict decoder refuse every lane creation, so `activeLane()` stayed
+    // undefined and Take over / Screenshot / Cookies / mini-preview were
+    // permanently disabled.
+    const policies = await execute<{ items: readonly ProfilePolicy[] }>(
+      'dev.browser.profilePolicies',
+      {}
+    )
+    const policy = policies.items[0]
+    if (!policy) {
+      setError({
+        code: 'capability_unavailable',
+        retryable: false,
+        message: 'no browser profile policy is available on this host',
+      })
+      return
+    }
+    execute<BrowserLane>('dev.browser.laneCreate', {
+      profilePolicyId: policy.id,
+      runtimeSessionId: session,
+      kind,
+    })
       .then((lane) => {
         setError(undefined)
         setActiveLaneId(lane.id)

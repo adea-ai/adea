@@ -484,6 +484,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     nextUrl.searchParams.set('roomDesigner', enabled ? '1' : '0')
     if (enabled) nextUrl.searchParams.set('view', 'virtual')
     window.history.replaceState(null, '', nextUrl)
+    // `replaceState` emits no event, so the router never re-read the search
+    // params. The reconcile effect then calls `navigate({ search: { ...currentSearch(), scene } })`
+    // from the router's STALE search — which has no `roomDesigner` key — so it
+    // re-serialised the query string and deleted `roomDesigner=1` from the
+    // address bar while `roomDesignerEnabled()` stayed true. The designer stayed
+    // mounted at a URL that no longer opened it, and a reload or a shared link
+    // lost it. The sibling `replaceState` in `desktop-workspace-entry.tsx`
+    // dispatches the same synthetic event; this now does too.
+    window.dispatchEvent(new PopStateEvent('popstate'))
     if (enabled && view() !== 'virtual') void setViewParam('virtual')
   }
   const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {

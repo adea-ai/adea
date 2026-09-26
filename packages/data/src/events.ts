@@ -205,16 +205,30 @@ export function createWorkspaceEventSubscription(
   let attempt = 0
   let appliedSequence = readCursor()
   let serverRetryMs: number | null = null
+  let inFlight = false
 
   function readCursor(): number {
-    const stored = storage?.getItem(cursorKey)
+    // Reads are as failure-tolerant as the writes below: a `Storage` that
+    // throws on `getItem` (storage disabled by policy, a revoked quota) used to
+    // throw during construction, taking the whole subscription with it.
+    let stored: string | null = null
+    try {
+      stored = storage?.getItem(cursorKey) ?? null
+    } catch {
+      stored = null
+    }
     const parsed = stored ? Number(stored) : 0
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0
   }
 
   /** The signed token to present on reconnect, or '' when none was ever sent. */
   function readCursorToken(): string {
-    const stored = storage?.getItem(cursorTokenKey)
+    let stored: string | null = null
+    try {
+      stored = storage?.getItem(cursorTokenKey) ?? null
+    } catch {
+      stored = null
+    }
     // A cursor is a `base64url(payload).base64url(signature)` pair. Reject
     // anything else rather than presenting a value the route must refuse.
     return stored && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(stored) ? stored : ''
@@ -302,6 +316,12 @@ export function createWorkspaceEventSubscription(
   }): void {
     if (frame.retryMs !== null) serverRetryMs = frame.retryMs
     if (frame.event === 'resync_required') {
+      // The server mints a FRESH signed cursor on the resync frame precisely so
+      // the client can resume from the new position. Dropping it meant the
+      // client re-presented the very token the server had just rejected, so an
+      // expired or out-of-window cursor produced a resync on every reconnect,
+      // forever — the exact failure the cursor fix was meant to end.
+      if (frame.id) persistCursorToken(frame.id)
       resync('server')
       return
     }
@@ -383,7 +403,16 @@ export function createWorkspaceEventSubscription(
 
   async function run(): Promise<void> {
     if (stopped) return
-    await connect()
+    // One stream at a time. `reconnect()` aborts the in-flight run, whose
+    // `finally` would otherwise schedule a second reconnect on top of the new
+    // one — two live subscriptions, both receiving events.
+    if (inFlight) return
+    inFlight = true
+    try {
+      await connect()
+    } finally {
+      inFlight = false
+    }
     scheduleReconnect()
   }
 

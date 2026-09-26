@@ -143,7 +143,11 @@ export function ConversationSurface(props: {
     () => props.workspaceId,
     () => props.channel?.id,
     {
-      ...(cursor() !== undefined ? { afterSequence: cursor() } : {}),
+      // An ACCESSOR, not a value: the query resolves it inside its reactive
+      // scope so the cursor reaches the query key. Passing the value read here
+      // captured it once at setup, so "Load newer messages" mutated a signal
+      // nothing observed and no refetch ever happened.
+      afterSequence: () => cursor(),
       limit: 100,
     },
     {

@@ -1047,9 +1047,39 @@ export function applyAppearanceToDocument(
     style.removeProperty('--primary-foreground')
     style.removeProperty('--ring')
   }
-  for (const [name, value] of Object.entries(flatVariantTokens(state.variant))) {
-    setToken(name, value)
+  // A variant's tokens are written as INLINE custom properties, which beat the
+  // stylesheet. `flatVariantTokens` returns `{}` for a default variant, so
+  // switching from a custom variant back to the default wrote nothing AND
+  // removed nothing — the previous palette (surface, 16 terminal ANSI slots,
+  // editor roles, chart colours) stayed inline while `dataset.theme` claimed
+  // the default. The accent branch above already handles this for the three
+  // accent roles; the same removal is needed here for every variant token.
+  const nextTokens = flatVariantTokens(state.variant)
+  for (const [name, value] of Object.entries(nextTokens)) setToken(name, value)
+  for (const name of allVariantTokenNames()) {
+    // The three accent roles are owned by the branch above, which already
+    // sets them when an override is active and removes them when it is not.
+    // They also appear as variant colours, so removing them here would strip
+    // an accent override the caller had just applied.
+    if (ACCENT_OWNED_TOKENS.has(name)) continue
+    if (!(name in nextTokens)) style.removeProperty(name)
   }
+}
+
+/** Token names the accent branch above owns, not the variant loop. */
+const ACCENT_OWNED_TOKENS: ReadonlySet<string> = new Set([
+  '--primary',
+  '--primary-foreground',
+  '--ring',
+])
+
+/** Every custom property name any registered variant can write. */
+let allVariantTokenNameCache: ReadonlySet<string> | undefined
+function allVariantTokenNames(): ReadonlySet<string> {
+  allVariantTokenNameCache ??= new Set(
+    builtinThemeRegistry.flatMap((variant) => Object.keys(flatVariantTokens(variant)))
+  )
+  return allVariantTokenNameCache
 }
 
 /**

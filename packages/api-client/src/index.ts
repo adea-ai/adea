@@ -338,6 +338,18 @@ export type ApiClientOptions = {
   getTemporaryCredential?: () => string | undefined
 }
 
+/**
+ * The server validates paging bounds and answers 400 outside them
+ * (`search`: limit 1-50, offset 0-5000; `messages`: limit 1-100). Clamping here
+ * turns a footgun into a well-defined request instead of a guaranteed
+ * rejection, and keeps the two sides from drifting apart silently.
+ */
+function boundedInt(value: number | undefined, min: number, max: number, fallback: number) {
+  if (value === undefined) return fallback
+  if (!Number.isFinite(value)) return fallback
+  return Math.min(Math.max(Math.trunc(value), min), max)
+}
+
 export class ApiClientError extends Error {
   readonly status: number
   readonly code?: string
@@ -692,8 +704,9 @@ export class AgentHqApiClient {
   ): Promise<WorkspaceSearchPage> {
     const parameters = new URLSearchParams({ q: query })
     if (options.channelId) parameters.set('channelId', options.channelId)
-    if (options.limit !== undefined) parameters.set('limit', String(options.limit))
-    if (options.offset !== undefined) parameters.set('offset', String(options.offset))
+    // Clamped to the bounds the route accepts, rather than forwarded and 400'd.
+    parameters.set('limit', String(boundedInt(options.limit, 1, 50, 30)))
+    parameters.set('offset', String(boundedInt(options.offset, 0, 5_000, 0)))
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/search?${parameters.toString()}`,
       options.signal ? { signal: options.signal } : {}
@@ -908,7 +921,7 @@ export class AgentHqApiClient {
     const query = new URLSearchParams()
     if (options.afterSequence !== undefined)
       query.set('afterSequence', String(options.afterSequence))
-    if (options.limit !== undefined) query.set('limit', String(options.limit))
+    query.set('limit', String(boundedInt(options.limit, 1, 100, 50)))
     if (options.threadRootMessageId) query.set('threadRootMessageId', options.threadRootMessageId)
     const suffix = query.size ? `?${query}` : ''
     return this.request(
