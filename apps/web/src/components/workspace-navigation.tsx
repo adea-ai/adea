@@ -80,10 +80,14 @@ const ConventionalWorkspace = lazyComponent(
 // lazy and the mount is `import.meta.env.DEV`-gated, so production bundles
 // never contain the fixture route.
 const ChatVisualFixture = lazyComponent(
-  () =>
-    import('@adea-ai/dev-view/chat/visual-fixture').then(
-      ({ ChatVisualFixture: Fixture }) => Fixture
-    ),
+  () => {
+    if (import.meta.env.DEV) {
+      return import('@adea-ai/dev-view/chat/visual-fixture').then(
+        ({ ChatVisualFixture: Fixture }) => Fixture
+      )
+    }
+    return Promise.resolve(() => <WorkspaceEntryLoading />)
+  },
   { loading: () => <WorkspaceEntryLoading /> }
 )
 
