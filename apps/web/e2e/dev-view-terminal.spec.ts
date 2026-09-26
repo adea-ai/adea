@@ -17,7 +17,7 @@ test('terminal attach renders authenticated shell state and remains keyboard acc
   page,
 }) => {
   const terminal = await openFixtureTerminal(page)
-  const pane = terminal.locator('..')
+  const pane = page.getByRole('region', { name: 'terminal pane' }).first()
 
   await expect(terminal.locator('.dev-terminal-pane-status')).toHaveAttribute('data-state', 'open')
   await expect(terminal.locator('.dev-terminal-pane-integration')).toHaveAttribute(
