@@ -9747,6 +9747,18 @@
           ],
           "validation": "Actual headless mounted Chat regression reproduced unsupported Steer before fix and passed after. Four browser cases pass: streaming row identity, deferred-send remount/generation, model fallback draft fence, earlier scroll offset restoration. Host/docs tests8/41, package build and web/dev-view types/lint pass; lint reports existing shadcn visibly-hidden contract notice.",
           "limits": "Development fixture behind actual ChatView, not native transport/package acceptance or published shared ConversationSurface adoption. Full Dev/Chat focus and streamed follow restoration must be rechecked after shared port."
+        },
+        "sharedComposerAdoption": {
+          "commits": ["6d4936e3", "2f7e82af", "0c8f2383"],
+          "publishedPackage": "@adea-ai/ui@0.66.0",
+          "status": "Mounted application fixture verified; production release and shared transcript migration pending",
+          "changes": [
+            "ChatComposer delegates form, textarea, input ownership and send assembly to published shared composition",
+            "Host retains canonical draft revision/generation fencing, authorized Stop/Steer and runtime controls",
+            "Removed superseded local textarea/action styling; development icon shim follows nearest installed published source closure"
+          ],
+          "validation": "PLAYWRIGHT_HEADLESS=1 PERF_BASE_URL=<isolated-origin> bun x playwright test apps/web/e2e/chat-view.spec.ts:9 passed, including send, streaming row identity, draft remount/generation, fallback fence, approval/question, resync, repeated Dev/Chat, unavailable Steer and reading offset restoration. Dev-view type/lint tests14/61 pass; shim2/2 pass.",
+          "limits": "Served development fixture through actual ChatView; native transport, packaged app and shared ConversationSurface restoration/follow remain separate acceptance gates."
         }
       },
       "packedIntegrationPilot": {

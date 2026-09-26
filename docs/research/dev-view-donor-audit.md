@@ -786,3 +786,20 @@ retains the existing `visually-hidden` contract notice. These local results are
 preparation for shared Chat adoption; they do not prove published composer or
 ConversationSurface mounts, full Dev/Chat follow/focus restoration, native
 transport, or packaged acceptance.
+
+### Published runtime composer adoption
+
+Application commit `6d4936e3` mounts `ChatComposer` from the normal published
+`@adea-ai/ui@0.66.0` conversation entry. The application retains canonical
+draft revision/generation fences, runtime context, authorization and delivery
+errors; the shared component owns the form, textarea and send composition.
+The superseded local input/action styling is removed. Commits `2f7e82af` and
+`0c8f2383` extend the development icon shim to the nearest installed published
+source closure, including conversation icons; the boundary test passes.
+
+All nine served headless Chat journeys pass: sending, streaming row identity,
+typed draft remount/generation fences, model fallback, approval/question state,
+resync, repeated Dev/Chat switching, unsupported Steer and reading-offset
+restoration. These tests exercise the actual application ChatView behind its
+development fixture. Native transport, packaged acceptance, and shared
+ConversationSurface restoration/follow remain separate pending gates.
