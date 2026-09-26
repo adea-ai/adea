@@ -34,6 +34,28 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* These named hooks keep scene-specific appearance on top of the shared
+   Button API. The controls are dark glass regardless of the active theme,
+   while the theme options retain their circular affordance. */
+.workspace-on-screen-controls-zoom-button {
+  border-width: 1px;
+  border-color: color-mix(in oklab, var(--scrim-edge) 25%, transparent);
+  background-color: color-mix(in oklab, var(--scrim) 65%, transparent);
+  color: var(--scrim-foreground);
+  box-shadow:
+    0 10px 15px -3px color-mix(in srgb, var(--scrim) 10%, transparent),
+    0 4px 6px -4px color-mix(in srgb, var(--scrim) 10%, transparent);
+  backdrop-filter: blur(0.5rem);
+}
+
+.workspace-on-screen-controls-zoom-button:hover {
+  background-color: color-mix(in oklab, var(--scrim) 80%, transparent);
+}
+
+.workspace-theme-toggle-option {
+  border-radius: 999px;
+}
+
 :root {
   --radius: 0.75rem;
   --background: #e3e9f4;
