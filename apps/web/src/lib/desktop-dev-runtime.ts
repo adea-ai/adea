@@ -32,7 +32,7 @@ type BridgeLike = {
  * add a lifecycle before this client learns it: an unknown value falls back to
  * `ready` rather than being passed through and rejected by the type.
  */
-const CANONICAL_SESSION_STATES = new Set([
+export const CANONICAL_SESSION_STATES: ReadonlySet<string> = new Set([
   'preparing',
   'ready',
   'active',
@@ -42,7 +42,7 @@ const CANONICAL_SESSION_STATES = new Set([
   'cancelled',
 ])
 
-function canonicalSessionState(lifecycle: unknown) {
+export function canonicalSessionState(lifecycle: unknown) {
   return typeof lifecycle === 'string' && CANONICAL_SESSION_STATES.has(lifecycle)
     ? (lifecycle as
         | 'preparing'

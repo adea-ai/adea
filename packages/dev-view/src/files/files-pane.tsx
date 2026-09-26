@@ -22,7 +22,6 @@ import { For, Show, createMemo, createResource, createSignal, onCleanup, type JS
 
 import type { DevRuntimeService } from '../platform'
 import {
-  filterTree,
   fuzzyQuickOpen,
   markerBadge,
   markerMap,
@@ -657,23 +656,15 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
     setQuickOpenIndex((current) => (current + step + count) % count)
   }
 
-  // Filtering walks the whole tree and collects every path, so it is memoized
-  // on the query alone: expanding or collapsing a folder then only re-flattens
-  // the visible rows instead of re-walking the tree on every keystroke and
-  // every toggle.
-  const filteredTree = createMemo(() => {
-    const query = filter()
-    if (query.length === 0) return undefined
-    const tree = filterTree(nodes(), query)
-    return { tree, visible: new Set(allRelativePaths(tree)) }
-  })
-
-  const rows = () => {
-    const filtered = filteredTree()
-    return filtered
-      ? visibleRows(filtered.tree, filtered.visible)
-      : visibleRows(nodes(), expanded())
-  }
+  // The filter is a QUICK-OPEN jump, not a tree filter: the `<Show>` below
+  // renders `fuzzyQuickOpen(loadedPaths(), filter())` whenever a query is typed,
+  // so the tree rows are not on screen at all in that state. This used to also
+  // build a filtered tree and a Set of every path in it on each keystroke —
+  // an O(n) clone plus an O(n) set over the whole workspace, for a result that
+  // was never rendered. With a query active the row list is only read for
+  // `rowSlice().total`, which nothing displays while the list is hidden, so it
+  // is measured from the unfiltered tree.
+  const rows = createMemo(() => visibleRows(nodes(), expanded()))
 
   const rowSlice = createMemo(() =>
     rowWindow({
@@ -1097,17 +1088,6 @@ function flattenPaths(nodes: readonly FileTreeNode[]): readonly string[] {
   for (const node of nodes) {
     if (node.kind === 'file') paths.push(node.relativePath)
     paths.push(...flattenPaths(node.children))
-  }
-  return paths
-}
-
-function allRelativePaths(nodes: readonly FileTreeNode[]): readonly string[] {
-  const paths: string[] = []
-  for (const node of nodes) {
-    if (node.kind === 'directory') {
-      paths.push(node.relativePath)
-      paths.push(...allRelativePaths(node.children))
-    }
   }
   return paths
 }
