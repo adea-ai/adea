@@ -1,36 +1,9 @@
-import { Code2, MessageSquareText, PanelsTopLeft } from 'lucide-solid'
-import { ToggleGroup, ToggleGroupItem } from '@adea-ai/ui/components/ui/toggle-group'
-
+/**
+ * The workspace surfaces the rail can switch between.
+ *
+ * The toggle component that used to live here is gone: `GlobalWorkspaceRail`
+ * replaced it, and nothing in the monorepo imported it. Unlike `@adea-ai/ui`,
+ * `workspace-ui` is not a published package, so an unimported export here is
+ * dead code rather than library surface. The type stays — the rail consumes it.
+ */
 export type WorkspaceView = 'chat' | 'dev' | 'virtual'
-
-export function WorkspaceViewToggle(props: {
-  onChange: (view: WorkspaceView) => void
-  value: WorkspaceView
-}) {
-  return (
-    <ToggleGroup
-      aria-label="Workspace view"
-      spacing={0}
-      size="sm"
-      variant="outline"
-      value={[props.value]}
-      onChange={(nextValue) => {
-        const nextView = nextValue[0] as WorkspaceView | undefined
-        if (nextView) props.onChange(nextView)
-      }}
-    >
-      <ToggleGroupItem aria-label="Chat view" value="chat">
-        <MessageSquareText data-icon="inline-start" aria-hidden="true" />
-        Chat
-      </ToggleGroupItem>
-      <ToggleGroupItem aria-label="Virtual view" value="virtual">
-        <PanelsTopLeft data-icon="inline-start" aria-hidden="true" />
-        Virtual
-      </ToggleGroupItem>
-      <ToggleGroupItem aria-label="Dev view" value="dev">
-        <Code2 data-icon="inline-start" aria-hidden="true" />
-        Dev
-      </ToggleGroupItem>
-    </ToggleGroup>
-  )
-}

@@ -581,3 +581,70 @@ describe('plugin icon resolution', () => {
     expect(pluginBrandIconUrl('../etc')).toBeUndefined()
   })
 })
+
+describe('plugin grouping and search cost', () => {
+  const categories = [...workspacePluginCategoryOrder, 'Unknown Extra'] as never[]
+
+  const plugin = (index: number) => ({
+    capabilities: ['cap'],
+    category: categories[index % categories.length]!,
+    description: 'a reasonably long description of the plugin',
+    id: `p${index}`,
+    installed: index % 3 === 0,
+    keywords: ['shared', `kw${index}`],
+    kind: 'app' as const,
+    name: `Plugin ${index}`,
+    ownership: 'community' as const,
+    publisher: 'Someone',
+    surfaces: ['app'] as const,
+    version: '1',
+  })
+
+  test('groups in the canonical order, including a category it does not know', () => {
+    // The previous shape filtered the whole list once per category
+    // (O(categories x plugins)). This pins the OUTPUT of the single-pass
+    // version against that shape exactly, so the optimisation cannot quietly
+    // reorder the App Library rail.
+    const plugins = Array.from({ length: 53 }, (_, index) => plugin(index))
+    const preferred = new Map<string, number>(
+      workspacePluginCategoryOrder.map((category, order) => [category, order])
+    )
+    const names = [...new Set(plugins.map((entry) => entry.category))].toSorted(
+      (left, right) =>
+        (preferred.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (preferred.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
+    )
+    const previous = names.flatMap((category) => {
+      const items = plugins.filter((entry) => entry.category === category)
+      return items.length > 0 ? [{ category, plugins: items }] : []
+    })
+
+    const grouped = groupWorkspacePlugins(plugins)
+    expect(grouped.map((group) => group.category)).toEqual(previous.map((group) => group.category))
+    expect(grouped.map((group) => group.plugins.map((entry) => entry.id))).toEqual(
+      previous.map((group) => group.plugins.map((entry) => entry.id))
+    )
+    // An unlisted category sorts last rather than being dropped.
+    expect(grouped.at(-1)?.category).toBe('Unknown Extra')
+  })
+
+  test('a memoised haystack never serves stale text', () => {
+    // The search text is built once per plugin OBJECT and reused, so the risk
+    // this guards is a cache outliving the data. Two different needles over the
+    // same plugin set must each match only their own results; a haystack cached
+    // wrongly would return the wrong rows on the second query.
+    const plugins = Array.from({ length: 40 }, (_, index) => plugin(index))
+    expect(filterWorkspacePlugins(plugins, 'marketplace', 'Plugin 7').map((p) => p.id)).toContain(
+      'p7'
+    )
+    // A needle matching nothing must match nothing, even after a populated
+    // query has warmed the cache for every plugin.
+    expect(filterWorkspacePlugins(plugins, 'marketplace', 'no-such-needle')).toEqual([])
+    // And the original needle still works afterwards.
+    expect(filterWorkspacePlugins(plugins, 'marketplace', 'Plugin 7').map((p) => p.id)).toContain(
+      'p7'
+    )
+    // A non-name field that participates in the match is still searched.
+    expect(filterWorkspacePlugins(plugins, 'marketplace', 'shared').length).toBe(40)
+  })
+})

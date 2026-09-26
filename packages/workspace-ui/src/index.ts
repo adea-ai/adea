@@ -1,6 +1,6 @@
 export { ConventionalWorkspaceShell } from './conventional-workspace-shell'
 export { SidebarToggleButton } from './sidebar-toggle-button'
-export { WorkspaceViewToggle, type WorkspaceView } from './workspace-view-toggle'
+export type { WorkspaceView } from './workspace-view-toggle'
 export { VirtualRoomControls } from './virtual-room-controls'
 export {
   isDesktopRuntime,

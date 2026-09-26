@@ -431,6 +431,30 @@ export function createRegistryPluginsProvider(
 
 const isAppSurface = (plugin: WorkspacePlugin): boolean => plugin.surfaces.includes('app')
 
+/**
+ * The lowercase text a plugin is matched against, computed once per plugin
+ * object.
+ *
+ * `filterWorkspacePlugins` runs on every keystroke of the App Library search, and
+ * the previous shape built a nine-field template string and lowercased it for
+ * every plugin on every call. The catalog is hundreds to thousands of plugins,
+ * so that was the dominant cost of typing a query. Keyed by identity, so a
+ * plugin whose text never changes is stringified once for the session.
+ */
+const searchHaystacks = new WeakMap<WorkspacePlugin, string>()
+
+function searchHaystack(plugin: WorkspacePlugin): string {
+  const cached = searchHaystacks.get(plugin)
+  if (cached !== undefined) return cached
+  const haystack = `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.kind} ${
+    plugin.category
+  } ${plugin.capabilities.join(' ')} ${plugin.surfaces.join(' ')} ${
+    plugin.keywords?.join(' ') ?? ''
+  }`.toLocaleLowerCase()
+  searchHaystacks.set(plugin, haystack)
+  return haystack
+}
+
 export function filterWorkspacePlugins(
   plugins: readonly WorkspacePlugin[],
   tab: 'marketplace' | 'yours',
@@ -446,12 +470,7 @@ export function filterWorkspacePlugins(
         (filter.type === 'connectors' && plugin.kind === 'connector') ||
         (filter.type === 'skills' && plugin.kind === 'skill')) &&
       (filter.ownership === 'all' || plugin.ownership === filter.ownership) &&
-      (needle.length === 0 ||
-        `${plugin.name} ${plugin.description} ${plugin.publisher} ${plugin.kind} ${plugin.category} ${plugin.capabilities.join(
-          ' '
-        )} ${plugin.surfaces.join(' ')} ${plugin.keywords?.join(' ') ?? ''}`
-          .toLocaleLowerCase()
-          .includes(needle))
+      (needle.length === 0 || searchHaystack(plugin).includes(needle))
   )
 }
 
@@ -473,15 +492,22 @@ export function groupWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
   const preferred = new Map<string, number>(
     workspacePluginCategoryOrder.map((category, index) => [category, index])
   )
-  const names = [...new Set(plugins.map((plugin) => plugin.category))].toSorted(
-    (left, right) =>
-      (preferred.get(left) ?? Number.MAX_SAFE_INTEGER) -
-        (preferred.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
-  )
-  return names.flatMap((category) => {
-    const items = plugins.filter((plugin) => plugin.category === category)
-    return items.length > 0 ? [{ category, plugins: items }] : []
-  })
+  // One pass into buckets, rather than a `filter` per category: the previous
+  // shape was O(categories x plugins) and this runs for the App Library rail's
+  // counts on every catalog change.
+  const buckets = new Map<string, WorkspacePlugin[]>()
+  for (const plugin of plugins) {
+    const bucket = buckets.get(plugin.category)
+    if (bucket) bucket.push(plugin)
+    else buckets.set(plugin.category, [plugin])
+  }
+  return [...buckets.keys()]
+    .toSorted(
+      (left, right) =>
+        (preferred.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (preferred.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
+    )
+    .map((category) => ({ category, plugins: buckets.get(category)! }))
 }
 
 export function getPopularWorkspacePlugins(plugins: readonly WorkspacePlugin[]) {
