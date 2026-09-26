@@ -763,7 +763,7 @@
             "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ScreenCapturePermissionPreflightSafetyTests.swift",
             "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ComputerSnapshotCachePolicyTests.swift"
           ],
-          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule — capture refuses closed when the recording grant cannot be proven — becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
+          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule \u2014 capture refuses closed when the recording grant cannot be proven \u2014 becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
         },
         {
           "donor": "orca",
@@ -813,6 +813,18 @@
             "website/src/test/FollowController.test.ts"
           ],
           "action": "Translate the full plain-scroller follow lifecycle and its pure decision core into shared ConversationSurface: content/viewport ResizeObserver, user-vs-self scroll, synchronous scroll-up race guard, directional re-engagement, content shrink and viewport clamp distinctions, instant pins and cleanup. Keep virtual row measurement/anchor persistence outside the plain scroller; applications own canonical identity and scroll restoration. Preserve the existing configurable visibility threshold; use an action label rather than estimating unread messages from pixel distance. No virtualizer, React runtime or session store is copied."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/components/BusySendButton.tsx",
+            "website/src/hooks/useMenuKeyboard.ts"
+          ],
+          "tests": [
+            "website/src/test/BusySendButton.menuKeyboard.test.tsx",
+            "website/src/test/BusySendButton.slotScope.test.tsx"
+          ],
+          "action": "Translate the complete split send action and described steer/queue mode picker into shared presentation. Preserve independently available mode choice, controlled selected mode, action-only fire, selected treatment and capability-gated alternate-action hint. React/manual portal/outside listeners/keyboard navigation are replaced with maintained Kobalte menu behavior; Kobalte Tab prevention lacks enabled-row cycling, so the mapped hook's Tab cycle is translated as a menu-scoped handler with no document listener. Donor localStorage migration/broadcast/session-slot ownership stays app-owned and is not copied. Unsupported action modes are visibly disabled with injected reasons. No runtime commands, queue store or host authority is added; donor force-reset timer is excluded pending runtime authorization review. Full ChatInput and product Chat composition remain pending."
         }
       ]
     }

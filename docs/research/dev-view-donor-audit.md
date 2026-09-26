@@ -475,3 +475,29 @@ UI/Storybook builds, tree budgets and structural packing checks pass. The root
 compatibility decision remains pending; the subpath pilot neither replaces that
 gate nor establishes release readiness. Original fix PRs remain the merge paths;
 the integration branch is retained for reviewable experiment evidence.
+
+### Selected busy-action extraction checkpoint
+
+[UI PR #20](https://github.com/adea-ai/ui/pull/20) translates KiroCrew's complete
+`BusySendButton.tsx` and the enabled-row Tab cycle from `useMenuKeyboard.ts` at
+revision `283e136c0f902e965a535a7c9548c57c7504fed0`. Both units and their nearest
+tests were read in full; source copyright and Apache NOTICE are retained.
+The controlled Steer/Queue picker remains available before typing while firing
+is disabled, never fires on mode selection, and displays unsupported modes with
+host-provided reasons. Kobalte owns maintained menu navigation and focus; the
+scoped native Tab cycle preserves the donor behavior without document listeners.
+Persistence, runtime authority, localization and force reset remain app-owned.
+
+Visual inspection exposed square controls resolving `size-control-*` through
+spacing tokens. Six Tailwind `--size-control-*` aliases now resolve existing
+height tokens. Height utilities already worked; token values, padding and root
+typography remain unchanged. Eight corrected geometry cases failed before this
+fix. All 36 Chromium/WebKit cases now pass, covering keyboard/capability behavior,
+light/dark at 320/768/1024/1440px, overflow/axe and six sizes in both densities.
+`mise exec node@24.18.0 -- bun run verify` passes format, lint, types, unit/coverage,
+theme/registry, builds and tree budgets at the PR commit.
+
+This is selected source-component evidence, not packed consumer, full Chat
+composition, manual accessibility, production adoption or runtime queue proof.
+The separate packed root-export compatibility gate remains open. No application
+implementation or old system is removed by this extraction.
