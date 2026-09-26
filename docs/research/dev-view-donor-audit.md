@@ -803,3 +803,15 @@ resync, repeated Dev/Chat switching, unsupported Steer and reading-offset
 restoration. These tests exercise the actual application ChatView behind its
 development fixture. Native transport, packaged acceptance, and shared
 ConversationSurface restoration/follow remain separate pending gates.
+
+### Published split-layout application verification
+
+Application commit `62e2ead1` consumes normal npm `@adea-ai/ui@0.66.1`,
+including the hidden-controller ratio guard from UI PR #39. Five served
+headless Dev journeys pass: terminal attach/search accessibility, reconnect
+with original terminal DOM/search/output surviving a split, keyboard pane move,
+session-layout reload, and the rail/utility/focus round trip. The latter
+expands a utility full-width, switches Chat/Dev, restores it, and verifies the
+saved 55-percent separator remains. These checks exercise actual application
+components with the explicit development runtime fixture; they do not certify
+a native sidecar, packaged runtime or production credentials.
