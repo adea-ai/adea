@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.9](https://github.com/adea-ai/adea/compare/v0.60.8...v0.60.9) (2026-09-26)
+
+
+### Tests
+
+* mechanise the pane/registry boundary, and drop the dead per-keystroke walk ([#736](https://github.com/adea-ai/adea/issues/736)) ([5a382b7](https://github.com/adea-ai/adea/commit/5a382b769b2846e9f21f312af60287f13f0d71bc))
+
 ## [0.60.8](https://github.com/adea-ai/adea/compare/v0.60.7...v0.60.8) (2026-09-26)
 
 

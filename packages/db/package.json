@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/db",
-  "version": "0.60.8",
+  "version": "0.60.9",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
