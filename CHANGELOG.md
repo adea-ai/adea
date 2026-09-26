@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.11](https://github.com/adea-ai/adea/compare/v0.60.10...v0.60.11) (2026-09-26)
+
+
+### Bug Fixes
+
+* **dev-view:** bind Files and Source Control to the session's worktree; keep the catalog on an install failure ([#741](https://github.com/adea-ai/adea/issues/741)) ([54b003b](https://github.com/adea-ai/adea/commit/54b003b94c073edd2d5db0045b1abe0d644318a0))
+
 ## [0.60.10](https://github.com/adea-ai/adea/compare/v0.60.9...v0.60.10) (2026-09-26)
 
 
