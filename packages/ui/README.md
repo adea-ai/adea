@@ -44,3 +44,14 @@ The rule is a gate with a burn-down, not a rewrite:
 Why it is worth a gate: with it, restyling is a token swap and dark mode is a
 second set of declarations. Without it, every hardcoded value is a small rewrite
 that nobody schedules.
+
+The built-in `adea-light` and `adea-dark` palettes come from the published
+`@adea-ai/themes` catalogue. The build-time
+`scripts/generate-canonical-theme-data.ts` command converts its OKLCH schema and
+derived terminal, syntax, and chart roles into generated records. The runtime
+`src/components/canonical-theme-adapter.ts` consumes those records with the
+existing CSS token names and no-flash authority. Run
+`bun run --cwd packages/ui themes:generate` after changing the published source;
+`bun run --cwd packages/ui themes:check` verifies the committed generated files
+are current. The legacy `slate-*` and `contrast-*` preference IDs remain local
+compatibility variants until matching catalogue records exist.

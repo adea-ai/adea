@@ -52,6 +52,7 @@ describe('theme color contract', () => {
 
   test('every baseline entry states why and names a real file', async () => {
     expect(BASELINE.length).toBeGreaterThan(0)
+    expect(TOKEN_FILES).toContain('packages/ui/src/components/canonical-theme-css-data.ts')
     for (const entry of BASELINE) {
       expect(entry.literals).toBeGreaterThan(0)
       expect(entry.reason.length).toBeGreaterThan(20)

@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto'
 // helpers/visual.ts for the race this closes.
 import { expect, test, type Page } from './helpers/visual'
 
+import { canonicalThemeCssTokens } from '../../../packages/ui/src/components/canonical-theme-css-data'
 import { verifyRegistryArtifacts } from '../../../packages/workspace-ui/src/marketplace-catalog'
 
 const timestamp = '2026-08-30T12:00:00.000Z'
@@ -657,7 +658,7 @@ test('centers creation dialogs in the viewport', async ({ page }) => {
   }
 })
 
-test('uses the neutral shadcn semantic theme by default', async ({ page }) => {
+test('uses the published Adea Light semantic theme by default', async ({ page }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/')
   const tokens = await page.evaluate(() => {
@@ -667,8 +668,9 @@ test('uses the neutral shadcn semantic theme by default', async ({ page }) => {
       primary: styles.getPropertyValue('--primary').trim(),
     }
   })
-  expect(tokens.background).toMatch(/^oklch\((?:1|100%) 0 0\)$/)
-  expect(tokens.primary).toMatch(/^oklch\((?:0\.205|20\.5%) 0 0\)$/)
+  const canonical = canonicalThemeCssTokens('adea-light')
+  expect(tokens.background).toBe(canonical['--background'])
+  expect(tokens.primary).toBe(canonical['--primary'])
 })
 
 test('loads chat before secure-context-only authentication APIs are requested', async ({

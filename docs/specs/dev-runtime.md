@@ -3671,6 +3671,11 @@ OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
+The bundled `adea-light` and `adea-dark` records are sourced from the published
+`@adea-ai/themes` catalogue and adapted into this manifest's CSS, terminal,
+editor, and chart roles; the preference IDs and pre-paint document authority
+remain Adea-owned. Compatibility variants without catalogue records stay
+bundled locally until their role mappings are reviewed.
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
