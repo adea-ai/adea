@@ -152,7 +152,7 @@
     "lucide-solid": "^1.45.0",
     "solid-js": "^1.9.15",
     "@adea-ai/themes": "0.5.0",
-    "@adea-ai/ui": "0.63.2"
+    "@adea-ai/ui": "0.65.0"
   },
   "devDependencies": {
     "vite": "^8.0.14",
