@@ -111,16 +111,23 @@ const publishedEntries = localFiles.flatMap((file) => {
 })
 const publishedSourceFiles = new Set<string>()
 const publishedImportedNames = new Set<string>()
-const pendingPublishedFiles = publishedEntries
-  .map(({ specifier, publishedSourceRoot }) => ({
-    file: resolveSourceFile(
-      specifier === '@adea-ai/ui'
-        ? join(publishedSourceRoot, 'index')
-        : join(publishedSourceRoot, specifier.slice('@adea-ai/ui/'.length))
-    ),
-    publishedSourceRoot,
-  }))
-  .filter((entry): entry is { file: string; publishedSourceRoot: string } => Boolean(entry.file))
+const resolvedPublishedEntries = publishedEntries.map(({ specifier, publishedSourceRoot }) => ({
+  specifier,
+  publishedSourceRoot,
+  file: resolveSourceFile(
+    specifier === '@adea-ai/ui'
+      ? join(publishedSourceRoot, 'index')
+      : join(publishedSourceRoot, specifier.slice('@adea-ai/ui/'.length))
+  ),
+}))
+const unresolvedPublishedEntries = resolvedPublishedEntries.filter(
+  (entry): entry is { specifier: string; publishedSourceRoot: string; file: undefined } =>
+    !entry.file
+)
+const pendingPublishedFiles = resolvedPublishedEntries.filter(
+  (entry): entry is { specifier: string; publishedSourceRoot: string; file: string } =>
+    Boolean(entry.file)
+)
 
 while (pendingPublishedFiles.length > 0) {
   const entry = pendingPublishedFiles.pop()
@@ -162,6 +169,17 @@ for (const [, name, file] of shimSource.matchAll(
 }
 
 describe('lucide-solid dev shim', () => {
+  test('resolves every imported published UI entry', () => {
+    expect(
+      unresolvedPublishedEntries.length > 0
+        ? `Unable to resolve published UI source entries: ${unresolvedPublishedEntries
+            .map(({ specifier }) => specifier)
+            .toSorted()
+            .join(', ')}. Check the installed @adea-ai/ui package entry or its public export.`
+        : ''
+    ).toBe('')
+  })
+
   test('covers every icon name imported from local and published UI source closures', () => {
     const missing = [...new Set([...importedNames, ...publishedImportedNames])]
       .filter((name) => !shimExports.has(name))
