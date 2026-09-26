@@ -10309,7 +10309,7 @@
         "website/src/test/ChatInput.paste.test.tsx",
         "website/src/test/PasteHoverLayer.test.tsx"
       ],
-      "destination": "adea-ai/ui:packages/ui/src/components/conversation/chat-composer.tsx and selected private token-editor presentation helpers",
+      "destination": "adea-ai/ui: optional components/conversation/atomic entry and private shared composer shell/token editor; implementation and packed acceptance pending",
       "sourceReview": "Bounded independent continuation review inspected the pinned selected source/tests and identified atomic editing, selection, clipboard expansion and accessible preview seams; implementing worker must read complete selected files/tests before translating.",
       "license": "Apache-2.0; preserve Amazon copyright and extend the selected composer/paste NOTICE entry",
       "readiness": {
@@ -10326,7 +10326,12 @@
         "File/image upload transport and optimizer services",
         "Async clipboard permissions and localStorage/message reconciliation",
         "Canonical history/persistence and production acceptance"
-      ]
+      ],
+      "distributionContinuation": {
+        "decision": "Keep ordinary ChatComposer public API and packed fixture unchanged; a separate optional AtomicChatComposer direct entry uses the same private composition shell without an arbitrary public renderer override.",
+        "reason": "The first combined pilot retained opt-in editor and Kobalte Tooltip code in ordinary composer consumers; static optional props did not prove unused-code elimination.",
+        "limits": "No existing JS/CSS cap is raised. Complete atomic behavior, compiled/Solid/browser/SSR distribution and incremental production cost remain unqualified."
+      }
     }
   ],
   "packageReleaseContinuation": {
@@ -10344,36 +10349,49 @@
     },
     "limits": "Merging package work does not establish full donor fidelity, production mounts, application end-to-end, manual/native acceptance or old-system deletion.",
     "uiPublication": {
-      "version": "0.63.2",
-      "release": "https://github.com/adea-ai/ui/releases/tag/v0.63.2",
-      "releasePullRequest": "https://github.com/adea-ai/ui/pull/32",
-      "mergeCommit": "dd058d2011c70afdcf0ae54f8296307fdda85918",
-      "publishRun": "https://github.com/adea-ai/ui/actions/runs/36263741845",
-      "status": "normal trusted publisher passed archive, compiled/Solid core consumer, packed appearance interactions and native SSR, then npm propagation confirmation; npm version and integrity independently queried",
-      "registryIntegrity": "sha512-m5FfuINDAaPtGT15JARS0ErY/+MzBaDNWqWOYRLHe030hWFOw+KmAHwlYY1DxOPid6LIO+kEQZ7RxwA/Qu2pTQ==",
-      "limits": "This records publisher checks and independent registry metadata, not an independent re-download of the 0.63.2 tarball or real application adoption. Manual OS IME/assistive-technology and packaged application acceptance remain separate gates."
+      "version": "0.64.0",
+      "release": "https://github.com/adea-ai/ui/releases/tag/v0.64.0",
+      "releasePullRequest": "https://github.com/adea-ai/ui/pull/36",
+      "mergeCommit": "ba7aae2a4236b1b6ecf9b5bcd158d57bc92e31bc",
+      "publishRun": "https://github.com/adea-ai/ui/actions/runs/36269336009",
+      "status": "Normal trusted publisher and consumer-availability confirmation completed successfully; independent npm version/integrity query returned 0.64.0. This is publication evidence, not application migration acceptance.",
+      "registryIntegrity": "sha512-bHxKEXcF/NL/HPDUZPWh/x3D/RU9v/EHp4AsiuioIa4xIdhzrOj3KfkbFK6bltbQEz1RWDZpO6Xz9SarBLuC5Q=="
     },
     "candidateRefresh": {
-      "main": "554ca38384194972e280ca4de599843c52cd7ae1",
+      "main": "ba7aae2a4236b1b6ecf9b5bcd158d57bc92e31bc",
       "layout": {
         "pullRequest": "https://github.com/adea-ai/ui/pull/23",
-        "checkedSourceHead": "32c8e4ce6fa4a2649044509466c24ed5a4d470d4",
-        "refreshedHead": "adfeac5bcbf4cec98ef0fdb542fb07018dd5f390",
-        "validation": "format/lint/types/registry passed; layout tests27 passed79 assertions"
+        "checkedSourceHead": "f08d73b219e5088e23d26fa0a73b8490f02f3623",
+        "refreshedHead": "e8e97f23c11103dfbad4572f8c5a807eb43172fc",
+        "validation": "Fresh format/lint/types/build/registry; 76 actual tarball compiled/Solid Chromium/WebKit checks and native Node SSR. Gzip32113/32198 within32768, CSS33658 within34816; MAX review clean. Host presentation regressions fail before and pass after; production integration remains pending."
       },
       "composedInput": {
         "pullRequest": "https://github.com/adea-ai/ui/pull/25",
-        "checkedSourceHead": "fe00e3b8b7726a6a06e9590b48f160069bfb747f",
-        "refreshedHead": "3c61967bf1e4e9e9bfdd43746730b13d259c6fdc",
-        "validation": "format/lint/types/registry passed;76 Chromium/WebKit cases passed including native SSR"
+        "checkedSourceHead": "21e2351de74589535d8d718d806d417414b50287",
+        "refreshedHead": "9130024e4f1357d0e01f9f9c58fd96c450b837e0",
+        "validation": "Prior full verify and fresh post-busy-action core/conversation packed checks:100 compiled/Solid Chromium/WebKit groups and native Node SSR; gzip53344/53435 within55296, CSS42366 within43008; MAX review clean. Production integration remains pending."
       },
       "pasteModel": {
         "pullRequest": "https://github.com/adea-ai/ui/pull/26",
-        "checkedSourceHead": "762001650c0e9551d63cc00881a00c7973f7ece5",
-        "refreshedHead": "bee80a482cf25dbf51a5b4532544e7e26d18e013",
-        "validation": "format/lint/types/registry and19 tests61 assertions passed; independent merge-resolution review passed"
+        "checkedSourceHead": "e3caf5bbfdec01da2f0bf094cca05ad28c860be1",
+        "refreshedHead": "d34a0bdad33438ea647735ee787645bca700a685",
+        "validation": "Fresh format/lint/types/build/registry and19 tests61assertions; actual packed direct entry validates all15runtime exports and strict ES2022 types under native Node and Solid source conditions, zero runtime imports,2680gzip within3072; MAX review clean. Draft pending composed-input canonical dependency."
       },
-      "limits": "The refresh from dd058d2 to554ca38 changes only the workflow draft guard and README; actionlint and diff checks passed after each merge. Product-source tests were not repeated for this CI-only refresh. Full relevant packed checks and fresh CI remain merge gates; older candidate records are historical evidence."
+      "limits": "These heads contain canonical busy-action main and the subsequent four-file release metadata refresh. Fresh current-head CI is still required before merge. Exact earlier records are historical; no product adoption or manual/native acceptance is inferred."
+    },
+    "busyAction": {
+      "pullRequest": "https://github.com/adea-ai/ui/pull/20",
+      "mergeCommit": "af800dad1979ff8c2b2159af31c80d97e09b0ec4",
+      "mergedAt": "2026-09-26T20:10:20Z",
+      "status": "Merged and included in 0.64.0; host action authority and production adoption remain separately owned."
+    },
+    "adeaAdoption": {
+      "pullRequest": "https://github.com/adea-ai/adea/pull/754",
+      "reviewedPrimitiveRemovalHead": "b5d70bf41b8410e211ce74f4de74fbf3b001c8b4",
+      "appearanceHookHead": "4af56ce7517eb285f0864a644ad301b35b9bc112",
+      "status": "Draft. Published controlled appearance editor and direct Input/Button/Switch consumers replace duplicate local primitives; application preferences, authority and native effects remain local. Independent review and unchanged production size gate remain required.",
+      "evidence": "Actual appearance journey14tests and conventional visual journey15tests passed in isolated fixtures. At b5d70bf4 production JS1658226 exceeds1623000 by35226; no cap was raised. Hook-only follow-up qualification is separate.",
+      "limits": "This does not establish whole-app shared design-system removal, packaged native behavior, Cortana migration or full donor acceptance."
     }
   }
 }
