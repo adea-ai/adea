@@ -65,6 +65,35 @@ describe('chat surface presentation', () => {
     expect(rows.some((row) => row.id === 'credential-1')).toBe(false)
   })
 
+  test('bounds rendered text to whole code points and strips control characters', () => {
+    // The projector stops walking once it has `limit` surviving code points
+    // rather than materializing the whole bounded window, so the truncation
+    // boundary and the control-character filter are both pinned here: a
+    // truncated multi-byte character must not become a replacement glyph, and
+    // a label cut mid-string must still drop C0/DEL characters before it.
+    const rows = projectTranscriptEvents([
+      event({ kind: 'turn.assistant_delta', payload: { text: 'a\u0000b\u0007c\u001bd\u007fe' } }),
+      event({
+        eventId: 'label-1',
+        kind: 'approval.requested',
+        payload: { name: `deploy${'x'.repeat(400)}` },
+      }),
+      event({
+        eventId: 'astral-1',
+        kind: 'turn.assistant_delta',
+        payload: { text: '😀'.repeat(4_096) },
+      }),
+    ])
+
+    expect(rows[0]?.text).toBe('abcde')
+    expect(rows[1]?.label.startsWith('deploy')).toBe(true)
+    expect(rows[1]?.label).toHaveLength(160)
+    // Astral characters count as one code point each, so 4096 survive the
+    // text bound and no lone surrogate is emitted.
+    expect(rows[2]?.text).toBe('😀'.repeat(4_096))
+    expect([...(rows[2]?.text ?? '')]).toHaveLength(4_096)
+  })
+
   test('adds an explicit terminal fallback projection label', () => {
     const rows = projectTranscriptEvents([], { projection: 'terminal_fallback' } as Pick<
       RuntimeSession,

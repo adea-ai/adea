@@ -27,13 +27,21 @@ function redact(value: string, limit: number): string {
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{1,512}/gi, 'Bearer [secret redacted]')
     .replace(/\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,512}/gi, '[secret redacted]')
     .replace(/(?:\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^\s`"']{1,512}/g, '[private path]')
-  return Array.from(redacted)
-    .filter((character) => {
-      const code = character.codePointAt(0) ?? 0
-      return code >= 0x20 && code !== 0x7f
-    })
-    .slice(0, limit)
-    .join('')
+  // Only `limit` surviving code points are kept, so stop walking once they
+  // are collected. Materializing the whole 16KiB window into an array to then
+  // slice 160 or 4096 entries off it was the single largest per-event cost in
+  // this projector. Redaction still runs over the full bounded window first:
+  // truncating before it would leave a secret straddling the cut half-visible.
+  let kept = ''
+  let count = 0
+  for (const character of redacted) {
+    const code = character.codePointAt(0) ?? 0
+    if (code < 0x20 || code === 0x7f) continue
+    kept += character
+    count += 1
+    if (count >= limit) break
+  }
+  return kept
 }
 
 function textFromPayload(event: RuntimeEvent): string | undefined {
@@ -104,13 +112,14 @@ export function projectTranscriptEvents(
     if (!role) continue
     const text = textFromPayload(event)
     const label = labelFromPayload(event)
+    const state = stateFor(event.kind)
     rows.push({
       id: event.eventId,
       role,
       kind: event.kind,
       label,
       ...(text !== undefined ? { text } : {}),
-      ...(stateFor(event.kind) !== undefined ? { state: stateFor(event.kind) } : {}),
+      ...(state !== undefined ? { state } : {}),
       event,
     })
   }

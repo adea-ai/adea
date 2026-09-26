@@ -167,7 +167,13 @@ describe('create worktree from an updated base', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+    // This case seeds a clone, pushes from a second clone, and fetches with
+    // `updateBase` — several real git subprocesses. `bun test` runs every file
+    // on one shared thread, so under the file's other git work it exceeds
+    // bun's 5s default and was reported as a red that never reproduced in
+    // isolation (1.8s alone). A generous explicit timeout keeps the signal
+    // honest without weakening the default for the rest of the suite.
+  }, 30_000)
 
   test('a failing remote fetch fails typed and creates nothing', async () => {
     const dir = scratch('adea-service-badremote-')

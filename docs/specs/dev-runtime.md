@@ -3382,7 +3382,16 @@ facts it owns — the provider trusts no engine, harness, or caller claim:
    owner confirmation, mirroring the owner-approval verifier's fail-closed
    semantics), scope/lane/generation-bound, single-use, and expires within
    60 seconds; a consumed, expired, wrong-scope, wrong-generation, or
-   forged record refuses;
+   forged record refuses. The consent request carries only the owner
+   approval's `reference` — never the scope, action, or validity window —
+   and the gate resolves that reference inside the `authorize computer-use
+input` action and scope against the shared durable owner-approval ledger.
+   A reference no owner prompt ever issued has no issuance record to consume
+   and refuses, so a caller — including any authenticated channel holding
+   `dev.computeruse.control` — cannot mint input authority for itself. The
+   permission state is settled first, so a denied host returns its Settings
+   remediation rather than an approval-shaped refusal, and a request that
+   could never be granted does not burn the owner's confirmation;
 6. the permission state behind the record is still fresh: input requires the
    accessibility probe to report `granted`, and the gate re-probes through the
    permissions service when its snapshot is older than the record's window. A
@@ -4745,8 +4754,23 @@ can distinguish intentional spec evolution from drift:
   down). `dev.browser.attach`/`input`/`screenshot` and
   `dev.device.attach`/`input`/`screenshot` replies are typed
   `capability_unavailable` at the provider layer until the channel-identity
-  grant-minting seam and the #400 agent-event attachment land; agent-event
-  attachment remains explicitly unavailable for #422 closure.
+  grant-minting seam and the #400 agent-event attachment land; agent-event attachment remains explicitly unavailable for #422 closure.
+
+- **2026-09-26 — contracted operations with no host adapter, recorded.**
+  `dev.project.clone` and `dev.worktree.cleanupJobs` are declared in the
+  normative registry but no shell provider registers them, so the registrar
+  answers both with typed `capability_unavailable` ("no host adapter is
+  available for this operation") and their declared reply types — `Project`
+  and `Page<CleanupJobRecord>` — never arrive. This is recorded rather than
+  left implicit because the JSON↔generated-types check cannot see it: both
+  operations are now pinned by name in
+  `scripts/dev-view-boundary.test.ts`, which fails if a THIRD operation
+  becomes unimplemented, and requires each unimplemented operation to be
+  documented here as typed-unavailable. `dev.project.clone` stays refused
+  until the project registry admits clone-URL, GitHub-as-source, and
+  folder-only source kinds (#666); `dev.worktree.cleanupJobs` stays refused
+  until the trash sweeper's persisted continuation backlog
+  (`worktrees/trash.ts`) is exposed as a paged read.
 
 - **2026-09-16 — contract completeness audit fixes.** Added the missing
   operations the M12 issue bodies already require: `dev.group.*`

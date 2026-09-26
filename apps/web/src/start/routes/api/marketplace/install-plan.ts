@@ -12,6 +12,7 @@ import {
   workspaceJsonResponse,
 } from '../../../../server/workspace-response'
 import {
+  inboundCorrelation,
   MarketplaceProxyError,
   proxyMarketplaceInstallPlan,
 } from '../../../../server/marketplace-proxy'
@@ -93,10 +94,13 @@ async function post(request: Request) {
   )
   if (!authorization.allowed) return workspaceUnavailableResponse(request, 403)
   try {
-    const response = await proxyMarketplaceInstallPlan({
-      ...body,
-      workspaceIdentity: { ...body.workspaceIdentity, userId: resolution.principal.userId },
-    })
+    const response = await proxyMarketplaceInstallPlan(
+      {
+        ...body,
+        workspaceIdentity: { ...body.workspaceIdentity, userId: resolution.principal.userId },
+      },
+      inboundCorrelation(request)
+    )
     return workspaceJsonResponse(await response.json(), resolution, request, {
       headers: { 'cache-control': 'no-store' },
     })

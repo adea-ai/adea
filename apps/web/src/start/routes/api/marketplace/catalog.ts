@@ -12,6 +12,7 @@ import {
   workspaceUnavailableResponse,
 } from '../../../../server/workspace-response'
 import {
+  inboundCorrelation,
   MarketplaceProxyError,
   proxyMarketplaceCatalog,
 } from '../../../../server/marketplace-proxy'
@@ -64,10 +65,13 @@ async function post(request: Request) {
   )
   if (!authorization.allowed) return workspaceUnavailableResponse(request, 403)
   try {
-    const response = await proxyMarketplaceCatalog({
-      userId: resolution.principal.userId,
-      workspaceId,
-    })
+    const response = await proxyMarketplaceCatalog(
+      {
+        userId: resolution.principal.userId,
+        workspaceId,
+      },
+      inboundCorrelation(request)
+    )
     // The catalog is tens of megabytes. Pass the Control Plane body through
     // unparsed: reading it into a value and encoding it again holds both copies
     // in the worker at once, which trips Cloudflare's resource limits

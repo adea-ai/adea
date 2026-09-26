@@ -130,7 +130,11 @@ describe('vault key store adapter (injected runner)', () => {
       const store = createSystemVaultKeyStore({ runSecurity: runner })
       const vault = createCredentialVault({
         dataDir,
-        approvalVerifier: { recordIssuance: () => undefined, consume: () => undefined },
+        approvalVerifier: {
+          recordIssuance: () => undefined,
+          consume: () => undefined,
+          consumeByReference: () => undefined,
+        },
         credentialStore: store,
       })
       // A resolve of an absent reference touches the keychain path without
@@ -173,7 +177,11 @@ describe('vault key store adapter (injected runner)', () => {
         expect(() =>
           createCredentialVault({
             dataDir,
-            approvalVerifier: { recordIssuance: () => undefined, consume: () => undefined },
+            approvalVerifier: {
+              recordIssuance: () => undefined,
+              consume: () => undefined,
+              consumeByReference: () => undefined,
+            },
             credentialStore: store,
           })
         ).toThrow()

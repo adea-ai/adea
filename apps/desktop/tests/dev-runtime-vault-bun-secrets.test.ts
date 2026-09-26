@@ -98,7 +98,11 @@ describe('Bun.secrets vault key-store migration', () => {
         secrets: native,
         runtimeVersion: '1.4.0',
       })
-      const approvalVerifier = { recordIssuance: () => undefined, consume: () => undefined }
+      const approvalVerifier = {
+        recordIssuance: () => undefined,
+        consume: () => undefined,
+        consumeByReference: () => undefined,
+      }
       const scope = {
         accountId: '00000000-0000-4000-8000-000000000001',
         workspaceId: '00000000-0000-4000-8000-000000000002',

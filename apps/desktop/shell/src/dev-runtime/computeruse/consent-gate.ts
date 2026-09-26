@@ -7,6 +7,15 @@
 //    confirmation plus a FRESH #471 permission snapshot whose accessibility
 //    row is granted; a denied row routes to the Settings deep link, an
 //    unprobeable one refuses with the exact missing piece;
+// 1a. the owner confirmation is CONSUMED from the shared `OwnerApprovalVerifier`
+//    (the same durable, scope-bound, single-use authority the root-bookmark and
+//    vault authorities use), not accepted as a caller-supplied string. The wire
+//    carries only the approval's `reference`; the scope, action and validity
+//    window live host-side in the issuance ledger, so a client that invents a
+//    confirmation id has nothing to consume and is refused `permission_denied`.
+//    This is the human-presence leg of the consent flow: without it any
+//    authenticated channel holding `dev.computeruse.control` could mint input
+//    authority for itself.
 // 2. records are scope/lane/generation-bound, single-use, and expire within
 //    CONSENT_TTL_MS of issuance (spec: attach/input tokens ≤60 seconds);
 // 3. `verifyFresh` re-probes the permission state at most once per freshness
@@ -21,6 +30,7 @@ import { randomUUID } from 'node:crypto'
 import type { ComputerUseConsent, Scope } from '../../../../../../packages/types/src/dev-runtime'
 import type { MacPermissionService } from '../../desktop-permissions'
 import type { ComputerUseCapabilityService } from './capability'
+import { requireApproval, type OwnerApproval, type OwnerApprovalVerifier } from '../authority'
 
 /** Consent records live at most 60 seconds (spec: attach/input token cap). */
 export const CONSENT_TTL_MS = 60_000
@@ -87,14 +97,26 @@ export type ComputerUseConsentGate = Readonly<{
   rejections(): readonly Readonly<{ code: string; count: number }>[]
 }>
 
+/** The action string the owner confirmation is issued and consumed under. */
+export const COMPUTER_USE_CONSENT_ACTION = 'authorize computer-use input'
+
 export function createConsentGate(input: {
   permissions: MacPermissionService
   capabilities: ComputerUseCapabilityService
+  /**
+   * Required. A missing verifier fails construction, so the shell can never
+   * boot into a state where computer-use consent is structural only.
+   */
+  approvalVerifier: OwnerApprovalVerifier
   now?: () => number
   nowIso?: () => string
   ttlMs?: number
   freshnessMs?: number
 }): ComputerUseConsentGate {
+  if (!input.approvalVerifier) {
+    throw new Error('the computer-use consent gate requires an owner approval verifier')
+  }
+  const approvalVerifier = input.approvalVerifier
   const now = input.now ?? (() => Date.now())
   const nowIso = input.nowIso ?? (() => new Date().toISOString())
   const ttlMs = input.ttlMs ?? CONSENT_TTL_MS
@@ -112,7 +134,9 @@ export function createConsentGate(input: {
   return {
     async issue({ scope, lane, confirmationId }) {
       // The confirmation is an owner action on a specific lane: it is never
-      // optional and never inferred (fail-closed approval semantics).
+      // optional and never inferred (fail-closed approval semantics). Only the
+      // reference crosses the wire, so whether an owner prompt really issued
+      // it is answered by the host-side ledger below, never by the caller.
       if (typeof confirmationId !== 'string' || confirmationId.length === 0)
         throw refuse('permission_denied', 'consent requires an owner confirmation')
       const capabilities = await input.capabilities.report({ force: true })
@@ -152,6 +176,24 @@ export function createConsentGate(input: {
       }
       if (inputRow.state !== 'available')
         throw refuse('capability_unavailable', 'the input capability did not prove available')
+
+      // Host permission state is settled first so a denied host still returns
+      // its Settings remediation rather than an approval-shaped refusal, then
+      // the owner approval is consumed. Consuming last means a request that
+      // could never be granted does not burn the owner's confirmation.
+      const approval: OwnerApproval = { method: 'owner_dialog', reference: confirmationId }
+      try {
+        requireApproval(approval, COMPUTER_USE_CONSENT_ACTION)
+        approvalVerifier.consumeByReference(confirmationId, scope, COMPUTER_USE_CONSENT_ACTION)
+      } catch {
+        // The verifier's own reasons (unissued, already consumed, wrong scope,
+        // expired window) are deliberately not surfaced: they would tell a
+        // probing channel which references are real.
+        throw refuse(
+          'permission_denied',
+          'consent requires a fresh owner confirmation for this lane; no recorded owner approval backs this request'
+        )
+      }
 
       const createdAt = nowIso()
       const snapshot = await input.permissions.snapshot({ force: true })

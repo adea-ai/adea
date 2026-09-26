@@ -121,6 +121,7 @@ function reconnectModel(): Pick<ChatConversationModel, 'openTranscript' | 'send'
       }
       return {
         state: () => state,
+        subscribe: () => () => undefined,
         close: () => undefined,
       }
     },
@@ -161,10 +162,22 @@ function streamingModel(): Pick<ChatConversationModel, 'openTranscript' | 'send'
           retention: { ...state.retention, newestSequence: next.seq },
         }
       }
-      window.addEventListener('chat-visual:append', append)
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      const onAppend = () => {
+        append()
+        for (const listener of listeners) listener(state)
+      }
+      window.addEventListener('chat-visual:append', onAppend)
       return {
         state: () => state,
-        close: () => window.removeEventListener('chat-visual:append', append),
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        close: () => {
+          listeners.clear()
+          window.removeEventListener('chat-visual:append', onAppend)
+        },
       }
     },
     send: async () => undefined,
