@@ -6952,15 +6952,17 @@
       "base": "fad952164b3672023524c9be4aa35e6867ec04f4",
       "finding": "Native ESM import resolution, missing shadcn export, and lack of isolated palette entry points",
       "proof": "https://github.com/adea-ai/themes/pull/6",
-      "status": "locally_verified_draft_pr",
-      "consumerAdoption": "pending"
+      "status": "local_verify_and_ci_passed_review_pending",
+      "consumerAdoption": "pending",
+      "proofCommit": "25b0ced"
     },
     {
       "repository": "ui",
       "base": "fa664eea8385a304a839d4058d34b603576a3690",
       "finding": "Missing folder component exports, missing packaged license/NOTICE, leaked test declarations, and root exports requiring absent optional chart/carousel peers",
-      "status": "fixes_and_packed_consumer_verification_in_progress",
-      "consumerAdoption": "pending"
+      "status": "draft_pr_packed_root_import_gate_failing_compatibility_decision_pending",
+      "consumerAdoption": "pending",
+      "proof": "https://github.com/adea-ai/ui/pull/16"
     }
   ],
   "ownerNote": {
@@ -7023,5 +7025,30 @@
       "productionChainReview": "pending",
       "consumerEvidence": "pending"
     }
+  ],
+  "baselines": [
+    {
+      "repository": "adea-ai/adea",
+      "commit": "25feb216",
+      "result": "production_web_build_and_lazy_dev_view_bundle_gate_passed",
+      "devViewLazyChunkBytes": 73438,
+      "packagedAcceptance": "not_run"
+    },
+    {
+      "repository": "adea-ai/cortana",
+      "commit": "bf61957e1a20d1aafe36a4a70e75ec4e14b52629",
+      "result": "production_web_build_and_current_bundle_budgets_passed",
+      "initialJavaScriptBytes": 424808,
+      "allJavaScriptBytes": 752955,
+      "cssBytes": 200210,
+      "packagedAcceptance": "not_run"
+    }
+  ],
+  "nextActions": [
+    "Resolve optional-heavy-feature root export compatibility before advancing UI PR #16.",
+    "Complete recursive amendment/PR evidence review and per-unit source/test/license/dependency comparisons.",
+    "Extract the existing mapped appearance composition, preserving live preview, draft recovery, and provenance while injecting application persistence/capabilities.",
+    "Validate the shared scope in packed, composed-story, accessibility, SSR/browser, and performance fixtures before application migration.",
+    "Migrate Adea by coherent verified slices, then Cortana; delete only superseded systems whose replacements are proved."
   ]
 }
