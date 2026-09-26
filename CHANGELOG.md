@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.5](https://github.com/adea-ai/adea/compare/v0.60.4...v0.60.5) (2026-09-26)
+
+
+### Bug Fixes
+
+* **publish:** stop publishing @adea-ai/ui from this repository ([#724](https://github.com/adea-ai/adea/issues/724)) ([d40ea14](https://github.com/adea-ai/adea/commit/d40ea148afd9fc8d30bc8d463e998f71bc41690d))
+
 ## [0.60.4](https://github.com/adea-ai/adea/compare/v0.60.3...v0.60.4) (2026-09-26)
 
 
