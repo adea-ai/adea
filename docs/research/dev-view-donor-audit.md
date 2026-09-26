@@ -420,3 +420,31 @@ These checks do not establish packed distribution, canonical session/durable
 scroll restoration, full Chat composition or either application's production
 adoption. The disabled plain-follow mode is fully inert; re-enabling explicitly
 re-arms at the bottom rather than automatically restoring a parked history view.
+
+### Chat consumer continuity review
+
+Source review at Adea commit `78a952d527cb7b7c8c8ac307da95721ddf64a8e9`
+identified additional #532 migration gates. `ChatTranscript` owns a local CSS
+overflow scroller; it does not mount the standalone conversation surface or bind
+a scroll-restoration port. `ChatView` remounts the transcript and composer under
+its canonical session/generation key. Its model port exposes transcript reads,
+send and cancel, while `ChatComposer` edits a local draft signal initialized
+from the conversation without writing that draft back to the model.
+
+The repeated Dev/Chat switching test in
+`packages/dev-view/tests/chat-conversation-model.test.ts` seeds `model.setDraft`
+directly and compares retained event IDs/sequences and the model draft. It does
+not type into a rendered composer, remount `ChatView`, inspect `scrollTop`, or
+verify focus. Its scrollback assertion concerns retained events, not the rendered
+viewport. Preserve that useful authority proof and add the missing rendered
+continuity proof during migration; do not relabel it as end-to-end acceptance.
+
+The shared follow controller's explicit re-arm is not a restoration protocol.
+Migration must preserve an unsent typed draft, earlier-content reading position
+and follow intent across repeated view switches, while retaining authenticated
+scope, generation-fenced stream cleanup/resync and truthful unavailable response
+controls. Returning-user production entry and packaged acceptance remain separate
+gates. These are source observations, not a fresh production-route reproduction
+or permission to create a second runtime authority. The corresponding selected
+unit in the traceability inventory records the exact inspected paths and pending
+proofs.

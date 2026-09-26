@@ -9664,6 +9664,30 @@
         "pullRequest": "https://github.com/adea-ai/ui/pull/19",
         "commit": "9f60e3c761907b2f592e00236b901c39a076a68f",
         "status": "draft"
+      },
+      "consumerReview": {
+        "repository": "adea-ai/adea",
+        "inspectedCommit": "78a952d527cb7b7c8c8ac307da95721ddf64a8e9",
+        "status": "source_review_only_rendered_regressions_and_integration_pending",
+        "paths": [
+          "packages/dev-view/src/chat/chat-view.tsx",
+          "packages/dev-view/src/chat/chat-transcript.tsx",
+          "packages/dev-view/src/chat/chat-composer.tsx",
+          "packages/dev-view/src/chat/chat.css",
+          "packages/dev-view/tests/chat-conversation-model.test.ts"
+        ],
+        "findings": [
+          "ChatTranscript renders its own CSS overflow scroller and does not mount the standalone ConversationSurface or bind a scroll position/restoration port.",
+          "ChatView remounts transcript and composer under the runtimeSessionId:generation key; its model port includes openTranscript/send/cancel, not setDraft. ChatComposer initializes a local draft signal from the conversation and edits that local signal without writing the model draft.",
+          "The repeated Dev/Chat switch model test seeds model.setDraft directly and compares event IDs/sequences and the model draft. It does not type into a rendered composer, unmount/remount ChatView, inspect scrollTop or verify focus.",
+          "These source observations identify required migration regression cases. They do not establish a fresh production-route reproduction, a packaged failure or approval to replace canonical runtime authority."
+        ],
+        "requiredMigrationProof": [
+          "Type an unsent draft through the production composer, switch Dev/Chat repeatedly and recover the same draft under the authenticated canonical session scope.",
+          "Read earlier transcript content, switch away/back and restore the rendered position and follow intent without a re-arm jumping to bottom.",
+          "Preserve generation-fenced stream cleanup/resync and visible unavailable approval/question controls while mounting the shared composition.",
+          "Verify returning-user production entry, keyboard focus, retained event window changes and private-state release on scope revocation."
+        ]
       }
     }
   ]
