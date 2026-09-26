@@ -1323,6 +1323,10 @@ may clear a draft only when its session, generation, and host draft revision
 still match; late success from an old composer is ignored, and a failed send
 leaves the draft intact. The explicit host callback and the Chat model fallback
 use the same session, generation, and revision fence.
+Send, Steer and Stop are available only when the host supplies their authorized
+operation (or the model supplies send/cancel). Missing handlers cannot clear a
+draft or report delivery; unsupported Steer remains disabled with a visible
+reason. Authority, connectivity and approval gates apply to Stop as well.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged

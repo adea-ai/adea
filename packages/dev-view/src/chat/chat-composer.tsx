@@ -84,6 +84,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       awaitingApproval: props.awaitingApproval ?? false,
     })
   const disabled = () => disabledReason() !== undefined || sending()
+  const steerUnavailable = () => typeof props.onSteer !== 'function'
+  const stopUnavailable = () => typeof props.onStop !== 'function'
   const selectMode = (next: ComposerMode) => {
     setMode(next)
     setResolutionStatus(undefined)
@@ -132,7 +134,8 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const submit = async (submitMode: 'send' | 'steer', event: Event) => {
     event.preventDefault()
     const text = draft().trim()
-    if (disabled() || text.length === 0) return
+    const deliver = submitMode === 'steer' ? props.onSteer : props.onSend
+    if (disabled() || text.length === 0 || !deliver) return
     const submittedIdentity: ChatDraftIdentity = {
       runtimeSessionId: props.conversation.runtimeSessionId,
       generation: props.conversation.generation,
@@ -141,8 +144,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     const submittedLocalDraftRevision = localDraftRevision
     setSending(true)
     try {
-      if (submitMode === 'steer') await props.onSteer?.(text)
-      else await props.onSend?.(text)
+      await deliver(text)
       if (
         props.conversation.runtimeSessionId === submittedIdentity.runtimeSessionId &&
         props.conversation.generation === submittedIdentity.generation &&
@@ -278,19 +280,31 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           </button>
         </Show>
         <Show when={props.busy}>
-          <button type="button" class="dev-button" onClick={() => props.onStop?.()}>
+          <button
+            type="button"
+            class="dev-button"
+            disabled={disabled() || stopUnavailable()}
+            onClick={() => props.onStop?.()}
+          >
             Stop
           </button>
           <button
             type="button"
             class="dev-button"
-            disabled={disabled()}
+            disabled={disabled() || steerUnavailable()}
             onClick={(event) => void submit('steer', event)}
           >
             Steer
           </button>
         </Show>
-        <button type="submit" class="dev-button" disabled={disabled()}>
+        <Show when={props.busy && steerUnavailable()}>
+          <p role="status">Steer is unavailable on this host.</p>
+        </Show>
+        <button
+          type="submit"
+          class="dev-button"
+          disabled={disabled() || typeof props.onSend !== 'function'}
+        >
           {sending() ? 'Sending…' : 'Send'}
         </button>
       </div>

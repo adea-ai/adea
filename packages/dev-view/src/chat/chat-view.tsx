@@ -209,9 +209,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               connected={connected()}
               awaitingApproval={props.awaitingApproval}
               busy={props.conversation.status === 'active'}
-              onSend={send}
+              onSend={props.onSend || props.model ? send : undefined}
               onSteer={props.onSteer}
-              onStop={stop}
+              onStop={props.onStop || props.model ? stop : undefined}
               onDraftChange={changeDraft}
               draftRevision={
                 props.draftRevision ??

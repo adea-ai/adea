@@ -107,7 +107,7 @@ test('renders the canonical conversation surface: transcript rows, live status, 
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(composer).toHaveValue('')
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeDisabled()
 
   expect(errors).toEqual([])
 })
@@ -350,4 +350,10 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
   }
 
   expect(errors).toEqual([])
+})
+
+test('does not offer a steer action without an authorized host operation', async ({ page }) => {
+  await openChatFixture(page, 'conversation')
+  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeDisabled()
+  await expect(page.getByText('Steer is unavailable on this host.', { exact: true })).toBeVisible()
 })
