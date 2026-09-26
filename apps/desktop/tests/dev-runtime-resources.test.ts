@@ -1000,6 +1000,9 @@ describe('cleanup policies', () => {
       consume: () => {
         consumed += 1
       },
+      consumeByReference: () => {
+        consumed += 1
+      },
     }
     const { authority } = boot({
       approvalVerifier,

@@ -393,6 +393,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   // real fixed-argv host tooling; tests inject a scripted engine.
   const computerUse = registerComputerUseRuntime({
     authority: input.authority,
+    approvalVerifier: input.approvalVerifier,
     ...(input.gateway ? { gateway: input.gateway } : {}),
     ...(input.macPermissions ? { macPermissions: input.macPermissions } : {}),
     ...(input.computerUseEngine ? { engine: input.computerUseEngine } : {}),

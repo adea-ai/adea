@@ -68,6 +68,15 @@ export type OwnerApprovalVerifier = Readonly<{
    */
   recordIssuance(approval: OwnerApproval, scope: DevScope, action: string): void
   consume(approval: OwnerApproval, scope: DevScope, action: string): void
+  /**
+   * Consumes an approval the caller holds only a reference for. The wire
+   * carries `reference` and nothing else — never the scope, action or validity
+   * window — so the stored issuance IS the evidence: this resolves the
+   * reference inside `action` and `scope`, and fails closed on an unissued,
+   * already-consumed, out-of-scope, or expired record. Same single-use and
+   * scope rules as `consume`.
+   */
+  consumeByReference(reference: string, scope: DevScope, action: string): void
 }>
 
 type IssuedApproval = Readonly<{
@@ -177,6 +186,41 @@ export function createOwnerApprovalVerifier(options: {
       store.save(
         all.map((entry) =>
           entry.reference === approval.reference && entry.action === action
+            ? { ...entry, consumedAt: now().toISOString() }
+            : entry
+        )
+      )
+    },
+    consumeByReference(reference, scope, action) {
+      if (typeof reference !== 'string' || reference.length < 1 || reference.length > 256)
+        throw new DevAuthorityError('unauthorized', 'approval reference is malformed')
+      const all = [...store.load().records]
+      const underReference = all.filter((entry) => entry.reference === reference)
+      const issued = underReference.find((entry) => entry.action === action)
+      if (!issued)
+        throw new DevAuthorityError(
+          'unauthorized',
+          'approval evidence was never issued by an owner prompt'
+        )
+      // Single-use across every action, exactly as `consume` enforces.
+      if (underReference.some((entry) => entry.consumedAt !== undefined))
+        throw new DevAuthorityError('unauthorized', 'approval evidence has already been consumed')
+      if (
+        issued.accountId !== scope.accountId ||
+        issued.workspaceId !== scope.workspaceId ||
+        issued.runtimeNodeId !== scope.runtimeNodeId
+      )
+        throw new DevAuthorityError('unauthorized', 'approval evidence belongs to another scope')
+      const at = now().getTime()
+      if (
+        !Number.isFinite(Date.parse(issued.expiresAt)) ||
+        Date.parse(issued.expiresAt) <= at ||
+        Date.parse(issued.issuedAt) > at + 30_000
+      )
+        throw new DevAuthorityError('unauthorized', 'approval evidence is expired')
+      store.save(
+        all.map((entry) =>
+          entry.reference === reference && entry.action === action
             ? { ...entry, consumedAt: now().toISOString() }
             : entry
         )

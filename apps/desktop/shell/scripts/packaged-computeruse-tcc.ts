@@ -36,7 +36,8 @@
 // recorded verbatim and the evidence document states exactly that.
 //
 // Usage: bun apps/desktop/shell/scripts/packaged-computeruse-tcc.ts [--app-bundle <path>] [--artifact <path>]
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname } from 'node:path'
 import { join } from 'node:path'
 import { createHmac, randomUUID } from 'node:crypto'
@@ -58,7 +59,11 @@ import {
   type HostCommandRunner,
 } from '../src/desktop-permissions'
 import { registerComputerUseRuntime } from '../src/dev-runtime/computeruse/register'
-import { PERMISSION_FRESHNESS_MS } from '../src/dev-runtime/computeruse/consent-gate'
+import { createOwnerApprovalVerifier, type OwnerApproval } from '../src/dev-runtime/authority'
+import {
+  COMPUTER_USE_CONSENT_ACTION,
+  PERMISSION_FRESHNESS_MS,
+} from '../src/dev-runtime/computeruse/consent-gate'
 import type {
   ComputerUseEngine,
   ComputerUseInputEvent,
@@ -353,8 +358,14 @@ async function main(): Promise<number> {
   }
   const secret = Buffer.from(handshakeReply.clientSecret, 'base64url')
   const engine = recordingEngine()
+  // The consent gate consumes a real owner approval, so the packaged lane
+  // records an issuance for the owner confirmation it presents — the same
+  // durable, scope-bound, single-use authority the shell composes.
+  const approvalStore = mkdtempSync(join(tmpdir(), 'adea-packaged-computeruse-approvals-'))
+  const approvalVerifier = createOwnerApprovalVerifier({ dataDir: approvalStore })
   const runtime = registerComputerUseRuntime({
     authority,
+    approvalVerifier,
     scope: SCOPE,
     macPermissions: proofService,
     engine,
@@ -365,6 +376,19 @@ async function main(): Promise<number> {
     'the production computer-use registrar registered its dev.computeruse.* commands',
     `${runtime.registeredCommandCount} commands`
   )
+
+  /** Records a fresh, single-use owner approval and returns its reference. */
+  function ownerConfirmation(): string {
+    const approval: OwnerApproval = {
+      method: 'owner_dialog',
+      reference: `packaged-owner-confirmation-${randomUUID()}`,
+      scope: SCOPE,
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }
+    approvalVerifier.recordIssuance(approval, SCOPE, COMPUTER_USE_CONSENT_ACTION)
+    return approval.reference
+  }
 
   function execute(
     operation: keyof typeof devOperationDefinitions,
@@ -499,7 +523,7 @@ async function main(): Promise<number> {
       {
         computerUseLaneId: lane.id,
         expectedGeneration: generation,
-        confirmationId: 'packaged-owner-confirmation',
+        confirmationId: ownerConfirmation(),
       },
       { kind: 'computeruse_lane', id: lane.id, generation }
     )
@@ -618,6 +642,7 @@ async function main(): Promise<number> {
     })
     const deniedRuntime = registerComputerUseRuntime({
       authority: { registerCommandProvider() {}, registerStreamProvider() {} } as never,
+      approvalVerifier,
       scope: SCOPE,
       macPermissions: deniedService,
       engine,
@@ -631,7 +656,7 @@ async function main(): Promise<number> {
       await deniedRuntime.gate.issue({
         scope: SCOPE,
         lane: { id: deniedLane.id, runtimeSessionId: deniedLane.runtimeSessionId, generation: 1 },
-        confirmationId: 'packaged-owner-confirmation',
+        confirmationId: ownerConfirmation(),
       })
     } catch (error) {
       denialObject = error as {
@@ -713,6 +738,7 @@ async function main(): Promise<number> {
     let deniedNow = false
     const flipRuntime = registerComputerUseRuntime({
       authority: { registerCommandProvider() {}, registerStreamProvider() {} } as never,
+      approvalVerifier,
       scope: SCOPE,
       macPermissions: createMacPermissionService({
         run: async () => (deniedNow ? ASSISTIVE_DENIED_OUTCOME : GRANTED_OUTCOME),
@@ -724,7 +750,7 @@ async function main(): Promise<number> {
     const consent = await flipRuntime.gate.issue({
       scope: SCOPE,
       lane: { id: flipLane.id, runtimeSessionId: flipLane.runtimeSessionId, generation: 1 },
-      confirmationId: 'packaged-owner-confirmation',
+      confirmationId: ownerConfirmation(),
     })
     flipRuntime.gate.consume({
       consentId: consent.consentId,

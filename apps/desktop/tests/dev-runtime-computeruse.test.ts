@@ -6,6 +6,9 @@
 // ScreenCapturePermissionPreflightSafety / ComputerSnapshotCachePolicy (MIT,
 // revision 403b62a8d8fa6e896a93acc4c15405be0f0b7dc7).
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   encodeCbor,
@@ -43,6 +46,12 @@ import {
   type ComputerUseRuntimeInput,
 } from '../shell/src/dev-runtime/computeruse/register'
 import type { ChannelAuthority, ChannelIdentity } from '../shell/src/dev-runtime/channel/authority'
+import {
+  createOwnerApprovalVerifier,
+  type OwnerApproval,
+  type OwnerApprovalVerifier,
+} from '../shell/src/dev-runtime/authority'
+import { COMPUTER_USE_CONSENT_ACTION } from '../shell/src/dev-runtime/computeruse/consent-gate'
 import type { MacPermissionService } from '../shell/src/desktop-permissions'
 
 const scope = {
@@ -55,6 +64,34 @@ const identity = {
   channelId: 'channel-1',
   clientCredentialId: 'credential-1',
 } as const satisfies ChannelIdentity
+
+// The consent gate consumes its human-presence proof from the same durable
+// owner-approval authority the root-bookmark and vault authorities use, so
+// these tests drive the real verifier rather than a permissive stub: an
+// unissued reference must refuse, and each approval is single-use. The
+// verifier's ledger is durable, so each run gets its own store directory.
+const verifier = createOwnerApprovalVerifier({
+  dataDir: join(mkdtempSync(join(tmpdir(), 'adea-computeruse-approvals-')), 'data'),
+})
+/** A second real verifier whose issuance ledger is empty: nothing a caller
+ *  says is approval. A permissive stub would hide the very defect under test. */
+const emptyLedgerVerifier = createOwnerApprovalVerifier({
+  dataDir: join(mkdtempSync(join(tmpdir(), 'adea-computeruse-empty-')), 'data'),
+})
+let approvalSequence = 0
+
+/** Records one fresh, scope-bound owner approval and returns its reference. */
+function ownerConfirms(action = COMPUTER_USE_CONSENT_ACTION): string {
+  const approval: OwnerApproval = {
+    method: 'owner_dialog',
+    reference: `owner-confirms-${++approvalSequence}`,
+    scope,
+    issuedAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+  verifier.recordIssuance(approval, scope, action)
+  return approval.reference
+}
 
 function snapshotWith(
   accessibility: 'granted' | 'denied' | 'not_determined' | 'unavailable',
@@ -196,7 +233,8 @@ function harness(overrides: Partial<ComputerUseRuntimeInput> = {}) {
   }
   const runtime = registerComputerUseRuntime({
     authority,
-    ...(Object.keys(overrides).length > 0 ? (overrides as ComputerUseRuntimeInput) : {}),
+    approvalVerifier: verifier,
+    ...(Object.keys(overrides).length > 0 ? { ...overrides, approvalVerifier: verifier } : {}),
     macPermissions: permissions,
     // The scripted snapshots describe a macOS host; pin the platform class so
     // the input-tool default matches on every lane (see gateFor).
@@ -400,6 +438,7 @@ function gateFor(permissions: MacPermissionService, clock: { now: number } = { n
   return createConsentGate({
     permissions,
     capabilities,
+    approvalVerifier: verifier,
     now: () => clock.now,
     nowIso: () => new Date(clock.now).toISOString(),
   })
@@ -417,13 +456,56 @@ describe('computer-use consent gate', () => {
     ).rejects.toThrow(/owner confirmation/)
   }, 2000)
 
+  // The human-presence leg of consent. A reference the caller invents is not
+  // an owner approval: only an issuance recorded by the host's owner prompt
+  // can be consumed, so an authenticated channel holding
+  // `dev.computeruse.control` cannot mint input authority for itself.
+  test('a caller-invented confirmation is not owner approval', async () => {
+    const capabilities = createComputerUseCapabilityService({
+      platform: 'darwin',
+      permissions: scriptedPermissions(snapshotWith('granted')),
+    })
+    const gate = createConsentGate({
+      permissions: scriptedPermissions(snapshotWith('granted')),
+      capabilities,
+      approvalVerifier: emptyLedgerVerifier,
+    })
+    const error = await gate
+      .issue({
+        scope,
+        lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
+        confirmationId: 'consent-lane-1-1',
+      })
+      .catch((cause: unknown) => cause as ComputerUseGateError)
+    expect(error).toBeInstanceOf(ComputerUseGateError)
+    expect(error.code).toBe('permission_denied')
+  }, 2000)
+
+  test('an owner approval is single-use and bound to its action', async () => {
+    const gate = gateFor(scriptedPermissions(snapshotWith('granted')))
+    const lane = { id: 'lane', runtimeSessionId: sessionId, generation: 1 }
+    const reference = ownerConfirms('authorize a root bookmark')
+    // Issued for a different action: the computer-use consent action must not
+    // accept it, even though the reference is real and unconsumed.
+    await expect(gate.issue({ scope, lane, confirmationId: reference })).rejects.toThrow(
+      /owner confirmation/
+    )
+    const usable = ownerConfirms()
+    const first = await gate.issue({ scope, lane, confirmationId: usable })
+    expect(first.consentId).toBeString()
+    // Replaying the same approval to mint a second consent record refuses.
+    await expect(gate.issue({ scope, lane, confirmationId: usable })).rejects.toThrow(
+      /owner confirmation/
+    )
+  }, 2000)
+
   test('denied accessibility refuses with the Settings remediation', async () => {
     const gate = gateFor(scriptedPermissions(snapshotWith('denied')))
     const error = await gate
       .issue({
         scope,
         lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
-        confirmationId: 'confirm',
+        confirmationId: ownerConfirms(),
       })
       .catch((cause: unknown) => cause as ComputerUseGateError)
     expect(error).toBeInstanceOf(ComputerUseGateError)
@@ -440,7 +522,7 @@ describe('computer-use consent gate', () => {
       .issue({
         scope,
         lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
-        confirmationId: 'confirm',
+        confirmationId: ownerConfirms(),
       })
       .catch((cause: unknown) => cause as ComputerUseGateError)
     expect(error.remediation?.action).toBe('request_permission')
@@ -452,7 +534,7 @@ describe('computer-use consent gate', () => {
       .issue({
         scope,
         lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
-        confirmationId: 'confirm',
+        confirmationId: ownerConfirms(),
       })
       .catch((cause: unknown) => cause as ComputerUseGateError)
     expect(error.code).toBe('capability_unavailable')
@@ -464,7 +546,7 @@ describe('computer-use consent gate', () => {
     const consent = await gate.issue({
       scope,
       lane: { id: 'lane-1', runtimeSessionId: sessionId, generation: 4 },
-      confirmationId: 'confirm',
+      confirmationId: ownerConfirms(),
     })
     expect(consent.generation).toBe(5)
     expect(consent.expiresAt > consent.createdAt).toBe(true)
@@ -477,7 +559,7 @@ describe('computer-use consent gate', () => {
     const foreign = await gate.issue({
       scope,
       lane: { id: 'lane-2', runtimeSessionId: sessionId, generation: 1 },
-      confirmationId: 'confirm',
+      confirmationId: ownerConfirms(),
     })
     expect(() =>
       gate.consume({
@@ -505,7 +587,7 @@ describe('computer-use consent gate', () => {
     const consent = await gate.issue({
       scope,
       lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
-      confirmationId: 'confirm',
+      confirmationId: ownerConfirms(),
     })
     gate.consume({ consentId: consent.consentId, scope, laneId: 'lane', generation: 2 })
     clock.now += 100_000 // freshness window elapsed
@@ -520,7 +602,7 @@ describe('computer-use consent gate', () => {
     const consent = await gate.issue({
       scope,
       lane: { id: 'lane', runtimeSessionId: sessionId, generation: 1 },
-      confirmationId: 'confirm',
+      confirmationId: ownerConfirms(),
     })
     gate.revokeForLane('lane')
     expect(() =>
@@ -701,7 +783,7 @@ describe('dev.computeruse.* providers', () => {
     const consent = (await providers.providers['dev.computeruse.consent']?.(
       commandFor(
         'dev.computeruse.consent',
-        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: ownerConfirms() },
         { kind: 'computeruse_lane', id: lane.id, generation: 1 }
       )
     )) as { consentId: string }
@@ -764,7 +846,7 @@ describe('dev.computeruse.* providers', () => {
     const error = await providers.providers['dev.computeruse.consent']?.(
       commandFor(
         'dev.computeruse.consent',
-        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: ownerConfirms() },
         { kind: 'computeruse_lane', id: lane.id, generation: 1 }
       )
     ).catch((cause: unknown) => cause)
@@ -778,7 +860,7 @@ describe('dev.computeruse.* providers', () => {
     const consent = (await providers.providers['dev.computeruse.consent']?.(
       commandFor(
         'dev.computeruse.consent',
-        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: ownerConfirms() },
         { kind: 'computeruse_lane', id: lane.id, generation: 1 }
       )
     )) as { consentId: string }
@@ -867,7 +949,7 @@ describe('dev.computeruse.* providers', () => {
     const consent = (await providers.providers['dev.computeruse.consent']?.(
       commandFor(
         'dev.computeruse.consent',
-        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: ownerConfirms() },
         { kind: 'computeruse_lane', id: lane.id, generation: 1 }
       )
     )) as { consentId: string }
@@ -902,7 +984,7 @@ describe('dev.computeruse.* providers', () => {
     const consent = (await providers.providers['dev.computeruse.consent']?.(
       commandFor(
         'dev.computeruse.consent',
-        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+        { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: ownerConfirms() },
         { kind: 'computeruse_lane', id: lane.id, generation: 1 }
       )
     )) as { consentId: string }
@@ -959,6 +1041,7 @@ function timingHarness() {
   const gate = createConsentGate({
     permissions,
     capabilities,
+    approvalVerifier: verifier,
     now: () => clock.now,
     nowIso: () => new Date(clock.now).toISOString(),
   })
@@ -995,7 +1078,7 @@ async function activateLiveLane(
   const consent = (await h.providers.providers['dev.computeruse.consent']?.(
     commandFor(
       'dev.computeruse.consent',
-      { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: 'owner-says-ok' },
+      { computerUseLaneId: lane.id, expectedGeneration: 1, confirmationId: ownerConfirms() },
       { kind: 'computeruse_lane', id: lane.id, generation: 1 }
     )
   )) as { consentId: string }
@@ -1213,7 +1296,7 @@ describe('takeover UX (suspend instantly, Escape releases, re-consent gates agen
     const fresh = (await h.providers.providers['dev.computeruse.consent']?.(
       commandFor(
         'dev.computeruse.consent',
-        { computerUseLaneId: laneId, expectedGeneration: 4, confirmationId: 'owner-again' },
+        { computerUseLaneId: laneId, expectedGeneration: 4, confirmationId: ownerConfirms() },
         { kind: 'computeruse_lane', id: laneId, generation: 4 }
       )
     )) as { consentId: string }

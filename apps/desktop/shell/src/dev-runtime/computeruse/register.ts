@@ -29,6 +29,7 @@ import {
 } from '../../desktop-permissions'
 import type { ChannelAuthority, ChannelIdentity } from '../channel/authority'
 import type { ChannelGateway } from '../channel/server'
+import type { OwnerApprovalVerifier } from '../authority'
 import { createComputerUseCapabilityService } from './capability'
 import { createConsentGate } from './consent-gate'
 import { createHostComputerUseEngine, type ComputerUseEngine } from './engine'
@@ -44,6 +45,12 @@ export type ComputerUseRuntimeInput = Readonly<{
   gateway?: ChannelGateway
   /** Runtime-node scope projection for the local shell (single node). */
   scope?: { accountId: string; workspaceId: string; runtimeNodeId: string }
+  /**
+   * Required. The durable owner-approval authority the consent gate consumes
+   * its human-presence proof from; without it `dev.computeruse.consent` could
+   * only trust a caller-supplied string.
+   */
+  approvalVerifier: OwnerApprovalVerifier
   /** Overrides the #471 permission service (tests inject scripted probes). */
   macPermissions?: MacPermissionService
   /** Overrides the host input engine (tests inject scripted engines). */
@@ -67,7 +74,11 @@ export function registerComputerUseRuntime(input: ComputerUseRuntimeInput) {
     permissions: macPermissions,
     platform: input.platform,
   })
-  const gate = createConsentGate({ permissions: macPermissions, capabilities })
+  const gate = createConsentGate({
+    permissions: macPermissions,
+    capabilities,
+    approvalVerifier: input.approvalVerifier,
+  })
   // The default engine runs the #471 fixed-argv host command runner (bounded
   // deadline); tests inject a scripted engine instead, so CI never performs
   // real input.
