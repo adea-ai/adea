@@ -1327,6 +1327,11 @@ Send, Steer and Stop are available only when the host supplies their authorized
 operation (or the model supplies send/cancel). Missing handlers cannot clear a
 draft or report delivery; unsupported Steer remains disabled with a visible
 reason. Authority, connectivity and approval gates apply to Stop as well.
+The runtime composer mounts the published `@adea-ai/ui` ChatComposer. Adea owns
+its canonical draft changes and async delivery fence; shared UI owns the input,
+IME handling, pending presentation and action-row composition. Agent/profile,
+Auto/Customize pins, resolved location and authorized Stop/Steer/launch controls
+are host slots. This host has no queue operation, so it does not advertise one.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A

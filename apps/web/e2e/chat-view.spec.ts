@@ -104,7 +104,7 @@ test('renders the canonical conversation surface: transcript rows, live status, 
     'Input is sent with the current runtime generation.'
   )
   await composer.fill('Watch the staging rollout while I review.')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await expect(composer).toHaveValue('')
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeDisabled()
@@ -150,7 +150,7 @@ test('persists typed drafts through remount and generation changes while fencing
 
   const composer = page.getByRole('textbox', { name: 'Message runtime' })
   await composer.fill('first draft')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
 
   // Unmount the sending composer, type a newer draft in its replacement, then
   // complete the old request. The late success must not clear the new draft.
@@ -166,7 +166,7 @@ test('persists typed drafts through remount and generation changes while fencing
 
   // A generation replacement also fences an old success even when no newer
   // input event races it: the new composer still owns the canonical draft.
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:next-generation')))
   await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
     'data-chat-generation',
@@ -181,7 +181,7 @@ test('persists typed drafts through remount and generation changes while fencing
 
   // A failed deferred send preserves the canonical draft and reports the
   // failure without an unhandled page error.
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:reject-send')))
   await expect(page.getByRole('alert')).toContainText('visual send failed')
   await expect(composer).toHaveValue('newer draft survives')
@@ -200,7 +200,7 @@ test('fences late sends when ChatView writes through the model fallback', async 
 
   const composer = page.getByRole('textbox', { name: 'Message runtime' })
   await composer.fill('old generation draft')
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
 
   // Replace the conversation generation while the old send is pending. The
   // fallback model must reject the old identity even before revision checking.
@@ -213,7 +213,7 @@ test('fences late sends when ChatView writes through the model fallback', async 
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:resolve-send')))
   await expect(composer).toHaveValue('new generation draft')
 
-  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await page.getByRole('button', { name: 'Send message', exact: true }).click()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:reject-send')))
   await expect(page.getByRole('alert')).toContainText('visual send failed')
   await expect(composer).toHaveValue('new generation draft')

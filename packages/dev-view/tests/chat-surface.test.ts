@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
-import { chatComposerDisabledReason } from '../src/chat/chat-composer'
+import { chatComposerDisabledReason } from '../src/chat/composer-availability'
 import {
   CHAT_RESPONSE_UNAVAILABLE_REASON,
   chatTranscriptActionDisabledReason,
