@@ -448,3 +448,30 @@ gates. These are source observations, not a fresh production-route reproduction
 or permission to create a second runtime authority. The corresponding selected
 unit in the traceability inventory records the exact inspected paths and pending
 proofs.
+
+### Packed conversation integration pilot
+
+An isolated UI integration branch combines the packing correction from PR #16
+with the selected IME and transcript fixes from PR #18/#19. At
+[commit `66950df`](https://github.com/adea-ai/ui/commit/66950dfb9197e061e49e286315a6ac3f3df3e7eb),
+`bun run check:packed-conversation` installs the actual npm tarball into a clean
+consumer without optional heavy peers and imports the documented conversation
+subpath. Both compiled and Solid source exports pass seven check groups in each
+of Chromium and WebKit (28 groups): failed-draft retention, recovered send,
+native IME defaults, the post-composition latch, reader intent during streamed
+text, jump focus and external Tailwind utility delivery. Packed Apache LICENSE
+and both KiroCrew NOTICE sections are checked too.
+
+The composition retains one Solid runtime and one JS chunk: 23,880/23,936 gzip JS
+bytes (compiled/Solid), with 40,203 raw CSS bytes. Fixture budgets are 26 KiB gzip
+JS and 42 KiB raw CSS, alongside independent unrelated-module/font exclusions.
+This is a browser consumer fixture, not either application's production pipeline,
+native SSR, manual OS IME acceptance, canonical restoration or full Chat adoption.
+
+The integrated `bun run verify` **fails** its required packed root-import gate:
+six cases cannot resolve the optional chart peer. Earlier format/lint/types,
+141 UI tests/15,696 assertions, five workshop tests, coverage/theme/registry,
+UI/Storybook builds, tree budgets and structural packing checks pass. The root
+compatibility decision remains pending; the subpath pilot neither replaces that
+gate nor establishes release readiness. Original fix PRs remain the merge paths;
+the integration branch is retained for reviewable experiment evidence.

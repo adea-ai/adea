@@ -9621,6 +9621,46 @@
         "pullRequest": "https://github.com/adea-ai/ui/pull/18",
         "commit": "c7ec1b01085ec047114c2d91329ddfa48e010b4e",
         "status": "draft"
+      },
+      "packedIntegrationPilot": {
+        "repository": "adea-ai/ui",
+        "branch": "test/packed-conversation-pilot",
+        "commit": "66950dfb9197e061e49e286315a6ac3f3df3e7eb",
+        "commitUrl": "https://github.com/adea-ai/ui/commit/66950dfb9197e061e49e286315a6ac3f3df3e7eb",
+        "script": "packages/ui/scripts/check-packed-conversation.ts",
+        "dependencies": "Isolated integration of UI PR16 packing fixes plus PR18 IME and PR19 transcript follow; experimental branch, not a duplicate merge path.",
+        "command": "mise exec node@24.18.0 -- bun run check:packed-conversation",
+        "result": "exit_0_28_check_groups",
+        "conditions": ["compiled", "solid"],
+        "engines": ["chromium", "webkit"],
+        "checks": [
+          "failed draft retention",
+          "recovered send",
+          "native IME candidate default",
+          "post-composition Enter latch",
+          "reader intent on streamed text",
+          "jump focus",
+          "external Tailwind utility delivery"
+        ],
+        "measurements": {
+          "compiled": {
+            "jsBytes": 68660,
+            "gzipJsBytes": 23880
+          },
+          "solid": {
+            "jsBytes": 68692,
+            "gzipJsBytes": 23936
+          },
+          "rawCssBytes": 40203,
+          "jsChunks": 1
+        },
+        "budgets": {
+          "gzipJsBytes": 26624,
+          "rawCssBytes": 43008
+        },
+        "artifactChecks": "Actual npm tarball installed without optional heavy peers; exported conversation subpath, correct unmixed conditions, one Solid runtime, no unrelated charts/carousel/editor/xterm/highlighter/story/layout/theme JS or font assets. Packed Apache LICENSE and both KiroCrew NOTICE sections retained.",
+        "broaderValidation": "bun run verify failed at the required packed root-import gate: six cases fail on missing optional chart peers. Earlier format/lint/types, 141 UI tests/15696 assertions, five workshop tests, coverage/theme/registry, UI/Storybook builds, tree budgets and pack structural checks passed. This pilot does not replace or waive the failing gate.",
+        "limits": "Disposable Vite browser consumer at 768px, not actual Adea/Cortana production pipelines, native SSR, manual OS IME/assistive technology, full donor Chat composition, canonical restoration, release readiness or packaged application acceptance."
       }
     },
     {
@@ -9688,6 +9728,46 @@
           "Preserve generation-fenced stream cleanup/resync and visible unavailable approval/question controls while mounting the shared composition.",
           "Verify returning-user production entry, keyboard focus, retained event window changes and private-state release on scope revocation."
         ]
+      },
+      "packedIntegrationPilot": {
+        "repository": "adea-ai/ui",
+        "branch": "test/packed-conversation-pilot",
+        "commit": "66950dfb9197e061e49e286315a6ac3f3df3e7eb",
+        "commitUrl": "https://github.com/adea-ai/ui/commit/66950dfb9197e061e49e286315a6ac3f3df3e7eb",
+        "script": "packages/ui/scripts/check-packed-conversation.ts",
+        "dependencies": "Isolated integration of UI PR16 packing fixes plus PR18 IME and PR19 transcript follow; experimental branch, not a duplicate merge path.",
+        "command": "mise exec node@24.18.0 -- bun run check:packed-conversation",
+        "result": "exit_0_28_check_groups",
+        "conditions": ["compiled", "solid"],
+        "engines": ["chromium", "webkit"],
+        "checks": [
+          "failed draft retention",
+          "recovered send",
+          "native IME candidate default",
+          "post-composition Enter latch",
+          "reader intent on streamed text",
+          "jump focus",
+          "external Tailwind utility delivery"
+        ],
+        "measurements": {
+          "compiled": {
+            "jsBytes": 68660,
+            "gzipJsBytes": 23880
+          },
+          "solid": {
+            "jsBytes": 68692,
+            "gzipJsBytes": 23936
+          },
+          "rawCssBytes": 40203,
+          "jsChunks": 1
+        },
+        "budgets": {
+          "gzipJsBytes": 26624,
+          "rawCssBytes": 43008
+        },
+        "artifactChecks": "Actual npm tarball installed without optional heavy peers; exported conversation subpath, correct unmixed conditions, one Solid runtime, no unrelated charts/carousel/editor/xterm/highlighter/story/layout/theme JS or font assets. Packed Apache LICENSE and both KiroCrew NOTICE sections retained.",
+        "broaderValidation": "bun run verify failed at the required packed root-import gate: six cases fail on missing optional chart peers. Earlier format/lint/types, 141 UI tests/15696 assertions, five workshop tests, coverage/theme/registry, UI/Storybook builds, tree budgets and pack structural checks passed. This pilot does not replace or waive the failing gate.",
+        "limits": "Disposable Vite browser consumer at 768px, not actual Adea/Cortana production pipelines, native SSR, manual OS IME/assistive technology, full donor Chat composition, canonical restoration, release readiness or packaged application acceptance."
       }
     }
   ]
