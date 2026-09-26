@@ -274,26 +274,87 @@ bypass literal scans.
 
 ## File-level provenance ledger
 
+### Shared UI reconciliation inventory
+
+[The traceability inventory](dev-view-ui-traceability.json) extends this ledger
+and the pinned source manifest for the donor-first shared UI migration. It is an
+in-progress inventory, not a replacement architecture or a completion certificate.
+It records inspection bases, issue/PR coverage and retrieval limits, accepted
+conflicts, mapped source/test paths, current destination existence, ownership,
+and separate readiness dimensions. A pinned checkout or a closed issue does not
+mark source review, consumer adoption, or packaged acceptance complete.
+
+Reference recovery now contains 414 issue/PR records: Adea M12/M13 and Cortana's
+relevant milestone seeds, plus recognized recursive body/conversation references
+and paginated comments. The initial 271 records expanded by 143, with no unresolved
+recognized in-repository reference in this snapshot. Retrieval does not establish
+semantic approval or implementation scope: shorthand/ranges, external compatibility
+sources, PR review threads/diffs, acceptance evidence and current production chains
+still need review. Historical manual waivers are retained as waivers.
+
+| Workflow                     | Preserve or investigate                                                       | Remaining evidence                                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Shell/layout                 | Existing mapped KiroCrew hierarchy and bb/Muxy binary operations              | Compare pinned units/tests; extract generic presentation; actual responsive/keyboard consumer paths  |
+| Projects/worktrees           | Existing registry, launch and safe cleanup authority                          | Shared hierarchy/actions with real launch, blockers, retry and result                                |
+| Appearance/App Library       | #425's amended live composition and existing verified catalogue               | Shared presentation, preference/capability ports, visual and recovery journeys                       |
+| Chat/history                 | One canonical RuntimeSession; distinct team-channel domain                    | Returning-user entry, mounted search, real notification publication and full journey                 |
+| Files/editor/diff            | Existing Terax adaptation and fixes; persistent tree                          | #677 keyboard behavior and current performance/worker/cancellation evidence                          |
+| Browser/devices              | Existing pinned models and native engine contracts                            | #718/#735 mounted handlers, service effects, usable screenshot/annotation results                    |
+| Resources/permissions        | Existing probes, scoped authority and safe summaries                          | Source-level provenance review; actual status/action/recovery evidence                               |
+| Cortana knowledge/operations | Accepted knowledge workflow, evidence distinctions and operational boundaries | Reusable extraction, current shared-control adoption, packed consumers and independent graph loading |
+| Package contracts            | Separate UI/theme authority; optional heavy features                          | Packed condition/export checks, notice delivery, lazy assets and production entry graphs             |
+
+The themes package's native ESM and isolated-palette findings are addressed in
+[themes PR #6](https://github.com/adea-ai/themes/pull/6), with local packed
+consumer checks. Application adoption and release evidence remain pending. UI
+packing also exposed missing folder entry points, omitted license/NOTICE, leaked
+test declarations, and root imports requiring absent optional chart/carousel
+peers. These findings are tracked separately from donor adoption.
+
+### Standalone appearance extraction checkpoint
+
+[UI PR #17](https://github.com/adea-ai/ui/pull/17) extracts the existing accepted
+Zeron appearance composition into controlled Solid presentation. Its full MIT
+headers and standalone UI NOTICE preserve revision
+`30a9a9537c5ec96226c87f4bf349b6f77c5dfb59`,
+`crates/ui/src/settings/appearance.rs`, and `crates/ui/src/settings/widgets.rs`.
+These units were already identified in the accepted provenance ledger; the
+source manifest now makes their presentation/test handoff explicit separately
+from the still-pending theme model and App Library units.
+
+Thirteen component checks passed, including native Node server rendering,
+headless browser keyboard/menu/snapshot/custom-accent/pending-save behavior and
+responsive axe checks. Five composed stories build. This is component evidence:
+Adea/Cortana migration, preference/native adapters, packed component consumption,
+complete workshop browser CI, manual AT and packaged acceptance remain pending.
+[UI PR #16](https://github.com/adea-ai/ui/pull/16) remains the export/NOTICE
+prerequisite and retains its unresolved root optional-peer compatibility gate.
+The combined #425 workflow remains in progress; no old appearance system is
+removed by the extraction.
+
+### Adapted files
+
 Every implementation PR that uses donor material must add a row here and the
 matching Adea `NOTICE` entry in the same commit.
 
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `packages/dev-view/src/dev-workspace-entry.tsx`; `packages/dev-view/src/sidebar/dev-sidebar-shell.tsx`; `packages/dev-view/src/sidebar/archive-shelf.tsx` | KiroCrew `website/src/pages/ChatSidebar.tsx`; `website/src/pages/chat/SidePanel.tsx`; `website/src/hooks/panelTabRegistry.ts` | `283e136c0f902e965a535a7c9548c57c7504fed0` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE` | Substantial Solid translation of shell decomposition and hierarchy interactions | Replaced React/Electron seams, dependencies, styling, data ownership, and actions with Solid, semantic controls, typed unavailable runtime service, and Adea-responsive composition | Dev route/build/type checks and packaged UI validation in issue #395 | KiroCrew section |
-| `packages/dev-view/src/layout/operations.ts` | bb `apps/app/src/lib/split-layout/ops.ts`; Muxy `Muxy/Models/Workspace/SplitNode.swift` | bb `52a9256373d4d36f9b60e9e2a7f333464091a2ac`; Muxy `5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6` | Copyright (c) 2026 Michael Yong, MIT; Copyright (c) 2026 Muxy, MIT | Substantial TypeScript/Swift-to-TypeScript translation of strict binary traversal, split, removal, promotion, ordering, and ratio semantics | Immutable Adea node model; deterministic IDs supplied by caller; 8-leaf/depth limits; focus, move, finite-ratio clamp, last-pane placeholder, and undo | `packages/dev-view/tests/layout.test.ts` in issue #395 | bb and Muxy sections |
-| `packages/dev-view/src/layout/persistence.ts` | bb `apps/app/src/lib/split-layout/persistence.ts` | `52a9256373d4d36f9b60e9e2a7f333464091a2ac` | Copyright (c) 2026 Michael Yong; MIT | Substantial persistence-state translation | Replaced global/Zod persistence with exact authority-scoped versioned records, strict binary validation, private-field exclusion, and unread corrupt/future retention | `packages/dev-view/tests/persistence.test.ts` in issue #395 | bb section |
-| `packages/ui/src/components/appearance.ts` | Zeron `crates/theme/src/lib.rs` | `30a9a9537c5ec96226c87f4bf349b6f77c5dfb59` | Copyright (c) 2026 Wing; MIT | Substantial TypeScript translation of the color math, accent role derivation, independent light/dark selection, surface resolution, registry fallback, and validation rules | Replaced Rust/serde models with TypeScript records; added custom accent validation, the translucent capability gate, the user reduced-transparency policy Zeron lacks, CSS token projection, and the pre-paint no-flash script | `packages/ui/tests/appearance.test.ts` in issue #425 | Zeron section |
-| `packages/workspace-ui/src/plugins-dialog.tsx` (App Library composition) | KiroCrew `website/src/pages/apps/DiscoverPage.tsx`; `website/src/components/appstore/CategoryRail.tsx` | `283e136c0f902e965a535a7c9548c57c7504fed0` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE` | Composition translation of category counts, search, discover/installed states, and detail affordances | Replaced React and Kiro registry seams with Solid over Adea's verified catalog and install plans; added the Navigation tab, bundled-first-party activation gating, and app surface metadata | `packages/workspace-ui/tests/unit/app-library.test.ts`; `apps/web/e2e/appearance.spec.ts` in issue #425 | KiroCrew section |
-| `apps/desktop/shell/src/dev-runtime/discovery/probe.ts` | Zeron `crates/harness/src/lib.rs`; `crates/harness/src/claude/mod.rs`; `crates/harness/src/acp/mod.rs` | `30a9a9537c5ec96226c87f4bf349b6f77c5dfb59` | Copyright (c) 2026 Wing; MIT | Substantial Rust-to-TypeScript translation of the executable resolution order (override → PATH → known HOME-relative and absolute locations → node-version-manager bins) and existence-only install probing | Added injectable fs/env probes for deterministic tests, a fixed-argv bounded version probe (10 s, 1 MiB) that never emits output into diagnostics, dangling-symlink refusal, and EACCES-aware classification; the login-shell PATH snapshot stays an explicit integration hook | `apps/desktop/tests/dev-runtime-discovery.test.ts` in M10 issue #30 | Zeron section |
-| `apps/desktop/shell/src/dev-runtime/discovery/families.ts` | Orca `src/shared/tui-agent.ts` | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright (c) 2026 Lovecast Inc.; MIT | Translation of the closed supported-agent registry shape into a per-family detection/probe/eligibility spec table | Replaced the flat string union with typed family specs carrying executables, protocol, version argv, existence-only auth markers, declared/required capabilities, session operations, and limitations; managed Pi and ACP families stay with M10 #31/#32 | `apps/desktop/tests/dev-runtime-discovery.test.ts` in M10 issue #30 | Orca section |
-| `packages/dev-view/src/browser/mini-preview-layout.ts`; `packages/dev-view/tests/browser-models.test.ts` (geometry cases) | t3code `apps/web/src/components/preview/previewMiniPlayerLayout.ts`; `apps/web/src/components/preview/previewMiniPlayerLayout.test.ts` | `77bca8b2d76a1f42552e5eee7d277fcb1160347a` | Copyright (c) 2026 T3 Tools Inc.; MIT | Verbatim transcription of the pure floating-player geometry (fit, clamp, obstacle sliding, resize lead-axis) and its test cases | Replaced donor viewport/device type seams with Adea Dev Runtime types and removed the fitted-viewport helper dependency; Adea z-index layering note | `packages/dev-view/tests/browser-models.test.ts` in issue #422 | t3code section |
-| `packages/dev-view/src/browser/ports-model.ts` | t3code `apps/web/src/components/preview/useDiscoveredLocalServers.ts` and its test | `77bca8b2d76a1f42552e5eee7d277fcb1160347a` | Copyright (c) 2026 T3 Tools Inc.; MIT | Substantial translation of `mergeServers`, `canonicalKey`, and configured-URL parsing plus its test cases | Replaced the React hook with a pure merge; added Adea ownership/health gating so only proven Adea-owned listening loopback services are previewable | `packages/dev-view/tests/browser-models.test.ts` in issue #422 | t3code section |
-| `packages/dev-view/src/browser/annotation-model.ts` | t3code `apps/desktop/src/preview/AnnotationKeyboard.ts`; `apps/desktop/src/preview/PickedElementPayload.ts` and their tests | `77bca8b2d76a1f42552e5eee7d277fcb1160347a` | Copyright (c) 2026 T3 Tools Inc.; MIT | Verbatim transcription of the submission resolver and payload validators plus their test cases | Added the tool-shortcut resolver (v/r/d/e, Escape cancel) from the donor PickPreload overlay interaction model | `packages/dev-view/tests/browser-models.test.ts` in issue #422 | t3code section |
-| `apps/desktop/shell/src/dev-runtime/browser/port-inventory.ts` | t3code `apps/server/src/preview/PortScanner.ts` (lsof field parsing, local-host tokens, bounded HTML probe structure) | `77bca8b2d76a1f42552e5eee7d277fcb1160347a` | Copyright (c) 2026 T3 Tools Inc.; MIT | Translation of `parseLsofOutput`, `parsePortFromLsofName`, `LSOF_LOCAL_HOST_TOKENS`, and the scan/probe skeleton | Dropped the common-port fallback, LAN-visible hosts, and Effect host; added Adea-owned launch-metadata ownership, stale-port retention, and previewability proof | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422 | t3code section |
-| `apps/desktop/shell/src/dev-runtime/browser/lane-registry.ts` (profile identity derivation) | orca `src/main/browser/browser-route-identity.ts` | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright (c) 2026 Lovecast Inc.; MIT | Translation of the domain-separated, versioned identity digest structure | Digest components replaced with Adea `(account, workspace, node, session, kind)` so lane kinds and scopes can never collide; generation fencing and deny-by-default policies are Adea additions | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422 | orca section |
-| `apps/desktop/shell/src/dev-runtime/browser/screencast.ts` | orca `src/main/browser/browser-screencast-frame-pacer.ts`; Buzz `desktop/src-tauri/src/terminal_transport.rs` (bounded newest-frame publication only) | orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`; Buzz `eed74bde2f4797714335ac10c56c0b0244c1def4` | Copyright (c) 2026 Lovecast Inc.; MIT; Copyright (c) 2026 Block, Inc.; Apache-2.0 | Translation of the newest-throttled-frame pacer, backpressure retry, and one-in-flight credit idea | Replaced Electron debugger and CDP acks with a credit-gated publisher seam; added lane generation/viewport-sequence input fencing and the spec's 240 inputs/s, 15/30 FPS, 8 MiB limits | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422 | orca and Buzz sections |
-| `apps/desktop/shell/src/dev-runtime/browser/cookie-import.ts` (policy and scope) | orca `src/main/browser/browser-cookie-import-policy.ts`; `browser-cookie-import-clear-atomicity.test.ts`; `browser-cookie-import-scope.test.ts` | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright (c) 2026 Lovecast Inc.; MIT | Translation of domain normalization, registrable-family scoping, the google.com non-transplantable exclusion, and the frozen-plan rollback semantics with the donors' test cases | Replaced the `psl` dependency with an explicit multi-label suffix table; replaced partial-success continuation with a digest-bound plan/commit transaction that rolls the whole import back on failure or cancel; values never enter digests, results, or logs | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422 | orca section |
-| `apps/desktop/shell/src/dev-runtime/devices/inventory.ts`; `apps/desktop/shell/src/dev-runtime/devices/device-sessions.ts`; `apps/desktop/tests/dev-runtime-devices.test.ts` | orca `src/main/emulator/simctl-simulator-devices.ts`; `src/main/emulator/android/android-device-inventory.ts` + `adb-devices` parsing; `android-input-mapping` argv tables; `emulator-session-registry.ts` managed-session rules; the backends' tests | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright (c) 2026 Lovecast Inc.; MIT | Translation of the simctl/adb/AVD parsers, merged-inventory shape, pixel clamping and keycode tables, fixed argv templates, and the managed/unmanaged stop rules with the donors' test cases | Replaced serve-sim/Electron/scrcpy helper seams with capability-gated typed unavailability; start binds to verified inventory IDs + generations and stop rechecks the Adea launch identity before any signal | `apps/desktop/tests/dev-runtime-devices.test.ts` in issue #422 | orca section |
-| `packages/dev-view/src/appearance/editor.ts`; `packages/dev-view/src/appearance/appearance-dialog.tsx`; `packages/dev-view/src/appearance/composition.ts`; `packages/ui/src/components/theme-preview.tsx` | Zeron `crates/ui/src/appearance.rs`; `crates/ui/src/settings/appearance.rs`; `crates/ui/src/settings/widgets.rs` | `30a9a9537c5ec96226c87f4bf349b6f77c5dfb59` | Copyright (c) 2026 Wing; MIT | Substantial translation of the appearance state, unchanged-value setter semantics, live palette re-resolution, and the visual composition: mode mini-preview cards with the split light/dark miniature, card rows with compact palette-preview theme dropdowns, the accent swatch row over helper copy, the segmented glass control, and the theme-library row behind the declared-license contract | Replaced GPUI globals with a Solid provider plus a snapshot draft editor; added the explicit save/revert/Reset contract, the validated custom accent picker, and reduced-transparency status; the donor ThemeDefault glass pole is carried by Adea's translucent slot, and theme import is contract-gated rather than executed | `packages/dev-view/tests/appearance-editor.test.ts`; `packages/dev-view/tests/appearance-composition.test.ts`; `apps/web/e2e/appearance.spec.ts` in issue #425 | Zeron section |
+| Destination                                                                                                                                                                                               | Donor source                                                                                                                                                                                                                                          | Pinned revision                                                                                  | License/NOTICE                                                                    | Retained behavior                                                                                                                                                                                                                                                                                                                                                                                   | Adaptation boundary                                                                                                                                                                                                                                                                                                            | Evidence                                                                                                                                                       | NOTICE section         |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `packages/dev-view/src/dev-workspace-entry.tsx`; `packages/dev-view/src/sidebar/dev-sidebar-shell.tsx`; `packages/dev-view/src/sidebar/archive-shelf.tsx`                                                 | KiroCrew `website/src/pages/ChatSidebar.tsx`; `website/src/pages/chat/SidePanel.tsx`; `website/src/hooks/panelTabRegistry.ts`                                                                                                                         | `283e136c0f902e965a535a7c9548c57c7504fed0`                                                       | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE`       | Substantial Solid translation of shell decomposition and hierarchy interactions                                                                                                                                                                                                                                                                                                                     | Replaced React/Electron seams, dependencies, styling, data ownership, and actions with Solid, semantic controls, typed unavailable runtime service, and Adea-responsive composition                                                                                                                                            | Dev route/build/type checks and packaged UI validation in issue #395                                                                                           | KiroCrew section       |
+| `packages/dev-view/src/layout/operations.ts`                                                                                                                                                              | bb `apps/app/src/lib/split-layout/ops.ts`; Muxy `Muxy/Models/Workspace/SplitNode.swift`                                                                                                                                                               | bb `52a9256373d4d36f9b60e9e2a7f333464091a2ac`; Muxy `5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6`   | Copyright (c) 2026 Michael Yong, MIT; Copyright (c) 2026 Muxy, MIT                | Substantial TypeScript/Swift-to-TypeScript translation of strict binary traversal, split, removal, promotion, ordering, and ratio semantics                                                                                                                                                                                                                                                         | Immutable Adea node model; deterministic IDs supplied by caller; 8-leaf/depth limits; focus, move, finite-ratio clamp, last-pane placeholder, and undo                                                                                                                                                                         | `packages/dev-view/tests/layout.test.ts` in issue #395                                                                                                         | bb and Muxy sections   |
+| `packages/dev-view/src/layout/persistence.ts`                                                                                                                                                             | bb `apps/app/src/lib/split-layout/persistence.ts`                                                                                                                                                                                                     | `52a9256373d4d36f9b60e9e2a7f333464091a2ac`                                                       | Copyright (c) 2026 Michael Yong; MIT                                              | Substantial persistence-state translation                                                                                                                                                                                                                                                                                                                                                           | Replaced global/Zod persistence with exact authority-scoped versioned records, strict binary validation, private-field exclusion, and unread corrupt/future retention                                                                                                                                                          | `packages/dev-view/tests/persistence.test.ts` in issue #395                                                                                                    | bb section             |
+| `packages/ui/src/components/appearance.ts`                                                                                                                                                                | Zeron `crates/theme/src/lib.rs`                                                                                                                                                                                                                       | `30a9a9537c5ec96226c87f4bf349b6f77c5dfb59`                                                       | Copyright (c) 2026 Wing; MIT                                                      | Substantial TypeScript translation of the color math, accent role derivation, independent light/dark selection, surface resolution, registry fallback, and validation rules                                                                                                                                                                                                                         | Replaced Rust/serde models with TypeScript records; added custom accent validation, the translucent capability gate, the user reduced-transparency policy Zeron lacks, CSS token projection, and the pre-paint no-flash script                                                                                                 | `packages/ui/tests/appearance.test.ts` in issue #425                                                                                                           | Zeron section          |
+| `packages/workspace-ui/src/plugins-dialog.tsx` (App Library composition)                                                                                                                                  | KiroCrew `website/src/pages/apps/DiscoverPage.tsx`; `website/src/components/appstore/CategoryRail.tsx`                                                                                                                                                | `283e136c0f902e965a535a7c9548c57c7504fed0`                                                       | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE`       | Composition translation of category counts, search, discover/installed states, and detail affordances                                                                                                                                                                                                                                                                                               | Replaced React and Kiro registry seams with Solid over Adea's verified catalog and install plans; added the Navigation tab, bundled-first-party activation gating, and app surface metadata                                                                                                                                    | `packages/workspace-ui/tests/unit/app-library.test.ts`; `apps/web/e2e/appearance.spec.ts` in issue #425                                                        | KiroCrew section       |
+| `apps/desktop/shell/src/dev-runtime/discovery/probe.ts`                                                                                                                                                   | Zeron `crates/harness/src/lib.rs`; `crates/harness/src/claude/mod.rs`; `crates/harness/src/acp/mod.rs`                                                                                                                                                | `30a9a9537c5ec96226c87f4bf349b6f77c5dfb59`                                                       | Copyright (c) 2026 Wing; MIT                                                      | Substantial Rust-to-TypeScript translation of the executable resolution order (override → PATH → known HOME-relative and absolute locations → node-version-manager bins) and existence-only install probing                                                                                                                                                                                         | Added injectable fs/env probes for deterministic tests, a fixed-argv bounded version probe (10 s, 1 MiB) that never emits output into diagnostics, dangling-symlink refusal, and EACCES-aware classification; the login-shell PATH snapshot stays an explicit integration hook                                                 | `apps/desktop/tests/dev-runtime-discovery.test.ts` in M10 issue #30                                                                                            | Zeron section          |
+| `apps/desktop/shell/src/dev-runtime/discovery/families.ts`                                                                                                                                                | Orca `src/shared/tui-agent.ts`                                                                                                                                                                                                                        | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`                                                       | Copyright (c) 2026 Lovecast Inc.; MIT                                             | Translation of the closed supported-agent registry shape into a per-family detection/probe/eligibility spec table                                                                                                                                                                                                                                                                                   | Replaced the flat string union with typed family specs carrying executables, protocol, version argv, existence-only auth markers, declared/required capabilities, session operations, and limitations; managed Pi and ACP families stay with M10 #31/#32                                                                       | `apps/desktop/tests/dev-runtime-discovery.test.ts` in M10 issue #30                                                                                            | Orca section           |
+| `packages/dev-view/src/browser/mini-preview-layout.ts`; `packages/dev-view/tests/browser-models.test.ts` (geometry cases)                                                                                 | t3code `apps/web/src/components/preview/previewMiniPlayerLayout.ts`; `apps/web/src/components/preview/previewMiniPlayerLayout.test.ts`                                                                                                                | `77bca8b2d76a1f42552e5eee7d277fcb1160347a`                                                       | Copyright (c) 2026 T3 Tools Inc.; MIT                                             | Verbatim transcription of the pure floating-player geometry (fit, clamp, obstacle sliding, resize lead-axis) and its test cases                                                                                                                                                                                                                                                                     | Replaced donor viewport/device type seams with Adea Dev Runtime types and removed the fitted-viewport helper dependency; Adea z-index layering note                                                                                                                                                                            | `packages/dev-view/tests/browser-models.test.ts` in issue #422                                                                                                 | t3code section         |
+| `packages/dev-view/src/browser/ports-model.ts`                                                                                                                                                            | t3code `apps/web/src/components/preview/useDiscoveredLocalServers.ts` and its test                                                                                                                                                                    | `77bca8b2d76a1f42552e5eee7d277fcb1160347a`                                                       | Copyright (c) 2026 T3 Tools Inc.; MIT                                             | Substantial translation of `mergeServers`, `canonicalKey`, and configured-URL parsing plus its test cases                                                                                                                                                                                                                                                                                           | Replaced the React hook with a pure merge; added Adea ownership/health gating so only proven Adea-owned listening loopback services are previewable                                                                                                                                                                            | `packages/dev-view/tests/browser-models.test.ts` in issue #422                                                                                                 | t3code section         |
+| `packages/dev-view/src/browser/annotation-model.ts`                                                                                                                                                       | t3code `apps/desktop/src/preview/AnnotationKeyboard.ts`; `apps/desktop/src/preview/PickedElementPayload.ts` and their tests                                                                                                                           | `77bca8b2d76a1f42552e5eee7d277fcb1160347a`                                                       | Copyright (c) 2026 T3 Tools Inc.; MIT                                             | Verbatim transcription of the submission resolver and payload validators plus their test cases                                                                                                                                                                                                                                                                                                      | Added the tool-shortcut resolver (v/r/d/e, Escape cancel) from the donor PickPreload overlay interaction model                                                                                                                                                                                                                 | `packages/dev-view/tests/browser-models.test.ts` in issue #422                                                                                                 | t3code section         |
+| `apps/desktop/shell/src/dev-runtime/browser/port-inventory.ts`                                                                                                                                            | t3code `apps/server/src/preview/PortScanner.ts` (lsof field parsing, local-host tokens, bounded HTML probe structure)                                                                                                                                 | `77bca8b2d76a1f42552e5eee7d277fcb1160347a`                                                       | Copyright (c) 2026 T3 Tools Inc.; MIT                                             | Translation of `parseLsofOutput`, `parsePortFromLsofName`, `LSOF_LOCAL_HOST_TOKENS`, and the scan/probe skeleton                                                                                                                                                                                                                                                                                    | Dropped the common-port fallback, LAN-visible hosts, and Effect host; added Adea-owned launch-metadata ownership, stale-port retention, and previewability proof                                                                                                                                                               | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422                                                                                                 | t3code section         |
+| `apps/desktop/shell/src/dev-runtime/browser/lane-registry.ts` (profile identity derivation)                                                                                                               | orca `src/main/browser/browser-route-identity.ts`                                                                                                                                                                                                     | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`                                                       | Copyright (c) 2026 Lovecast Inc.; MIT                                             | Translation of the domain-separated, versioned identity digest structure                                                                                                                                                                                                                                                                                                                            | Digest components replaced with Adea `(account, workspace, node, session, kind)` so lane kinds and scopes can never collide; generation fencing and deny-by-default policies are Adea additions                                                                                                                                | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422                                                                                                 | orca section           |
+| `apps/desktop/shell/src/dev-runtime/browser/screencast.ts`                                                                                                                                                | orca `src/main/browser/browser-screencast-frame-pacer.ts`; Buzz `desktop/src-tauri/src/terminal_transport.rs` (bounded newest-frame publication only)                                                                                                 | orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`; Buzz `eed74bde2f4797714335ac10c56c0b0244c1def4` | Copyright (c) 2026 Lovecast Inc.; MIT; Copyright (c) 2026 Block, Inc.; Apache-2.0 | Translation of the newest-throttled-frame pacer, backpressure retry, and one-in-flight credit idea                                                                                                                                                                                                                                                                                                  | Replaced Electron debugger and CDP acks with a credit-gated publisher seam; added lane generation/viewport-sequence input fencing and the spec's 240 inputs/s, 15/30 FPS, 8 MiB limits                                                                                                                                         | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422                                                                                                 | orca and Buzz sections |
+| `apps/desktop/shell/src/dev-runtime/browser/cookie-import.ts` (policy and scope)                                                                                                                          | orca `src/main/browser/browser-cookie-import-policy.ts`; `browser-cookie-import-clear-atomicity.test.ts`; `browser-cookie-import-scope.test.ts`                                                                                                       | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`                                                       | Copyright (c) 2026 Lovecast Inc.; MIT                                             | Translation of domain normalization, registrable-family scoping, the google.com non-transplantable exclusion, and the frozen-plan rollback semantics with the donors' test cases                                                                                                                                                                                                                    | Replaced the `psl` dependency with an explicit multi-label suffix table; replaced partial-success continuation with a digest-bound plan/commit transaction that rolls the whole import back on failure or cancel; values never enter digests, results, or logs                                                                 | `apps/desktop/tests/dev-runtime-browser.test.ts` in issue #422                                                                                                 | orca section           |
+| `apps/desktop/shell/src/dev-runtime/devices/inventory.ts`; `apps/desktop/shell/src/dev-runtime/devices/device-sessions.ts`; `apps/desktop/tests/dev-runtime-devices.test.ts`                              | orca `src/main/emulator/simctl-simulator-devices.ts`; `src/main/emulator/android/android-device-inventory.ts` + `adb-devices` parsing; `android-input-mapping` argv tables; `emulator-session-registry.ts` managed-session rules; the backends' tests | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`                                                       | Copyright (c) 2026 Lovecast Inc.; MIT                                             | Translation of the simctl/adb/AVD parsers, merged-inventory shape, pixel clamping and keycode tables, fixed argv templates, and the managed/unmanaged stop rules with the donors' test cases                                                                                                                                                                                                        | Replaced serve-sim/Electron/scrcpy helper seams with capability-gated typed unavailability; start binds to verified inventory IDs + generations and stop rechecks the Adea launch identity before any signal                                                                                                                   | `apps/desktop/tests/dev-runtime-devices.test.ts` in issue #422                                                                                                 | orca section           |
+| `packages/dev-view/src/appearance/editor.ts`; `packages/dev-view/src/appearance/appearance-dialog.tsx`; `packages/dev-view/src/appearance/composition.ts`; `packages/ui/src/components/theme-preview.tsx` | Zeron `crates/ui/src/appearance.rs`; `crates/ui/src/settings/appearance.rs`; `crates/ui/src/settings/widgets.rs`                                                                                                                                      | `30a9a9537c5ec96226c87f4bf349b6f77c5dfb59`                                                       | Copyright (c) 2026 Wing; MIT                                                      | Substantial translation of the appearance state, unchanged-value setter semantics, live palette re-resolution, and the visual composition: mode mini-preview cards with the split light/dark miniature, card rows with compact palette-preview theme dropdowns, the accent swatch row over helper copy, the segmented glass control, and the theme-library row behind the declared-license contract | Replaced GPUI globals with a Solid provider plus a snapshot draft editor; added the explicit save/revert/Reset contract, the validated custom accent picker, and reduced-transparency status; the donor ThemeDefault glass pole is carried by Adea's translucent slot, and theme import is contract-gated rather than executed | `packages/dev-view/tests/appearance-editor.test.ts`; `packages/dev-view/tests/appearance-composition.test.ts`; `apps/web/e2e/appearance.spec.ts` in issue #425 | Zeron section          |
 
 | `apps/desktop/shell/src/dev-runtime/worktrees/service.ts` | Orca `src/main/runtime/orca-runtime-create-managed-worktree.ts`; Muxy `Muxy/Services/Project/WorktreeStore.swift` (staged create→store→refresh semantics only) | Orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7`; Muxy `5c5be8697c57a2fe70cda97fdbaf7c912e2e31b6` | Copyright (c) 2026 Lovecast Inc., MIT; Copyright (c) 2026 Muxy, MIT | Substantial translation of the create coordinator and staged lifecycle sequencing | Replaced Electron IPC/agent-trust/startup seams with the M10 bookmark authority, cross-process per-repo mutation lock, idempotency ledger, durable pre-side-effect records, leases, retired names, include-copy and approved-argv bootstrap stages; folder repos register without a filesystem create | `apps/desktop/tests/worktree-service.test.ts`; `worktree-bootstrap-leases-templates.test.ts` in issue #397 | Orca and Muxy sections |
 | `apps/desktop/shell/src/dev-runtime/worktrees/trash.ts` | Orca `src/main/worktree-trash.ts` | `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright (c) 2026 Lovecast Inc.; MIT | Substantial translation of rename-to-trash, restore, and startup sweep | Fail-closed replaces in-place delete fallback; entry provenance records + identity reproof before delete; persisted sweep backlog/cursor with requeue of not-yet-proven entries; owner-only trash root | `apps/desktop/tests/worktree-trash-sweep.test.ts` in issue #397 | Orca section |
@@ -333,3 +394,304 @@ Before implementation merges:
    | `packages/dev-view/src/terminal/blocks.ts` (bounded publication concept) | Buzz `desktop/src-tauri/src/terminal_transport.rs:64-178,257-380` | `eed74bde2f4797714335ac10c56c0b0244c1def4` | Copyright 2026 Block, Inc.; Apache-2.0 | Concept translation of the one-in-flight/at-most-one-pending bounded publication state machine and stale-subscription fencing | Credit and viewport fencing apply to Adea's chunk replay flow control on the host; credit is never treated as authentication, ownership, or replay authority; block UI is an independent implementation of external OSC 133/7 semantics | `apps/desktop/tests/terminal-manager.test.ts`; `packages/dev-view/tests/terminal-renderer-editor.test.ts` in issue #396 | Buzz section |
    | `apps/desktop/shell/src/dev-runtime/projects/scan.ts` | KiroCrew `src/kiro_crew/project_scan.py:1-31,1465-1662` (prune-first walker, workspace-manifest detection, ignore semantics, budget/cancellation behavior) with the donor's member/properties/fixture test ideas | `283e136c0f902e965a535a7c9548c57c7504fed0` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE` | Bounded TypeScript translation of the prune-first discovery semantics; the 1,662-line Python file is deliberately not translated wholesale | Replaced Python/tree-sitter seams with `node:fs` `Dirent` walkers that never follow symlinks; declared-workspace parsing for npm/pnpm/Yarn/Bun/Cargo/uv manifests via bounded line/JSON readers (no new YAML/TOML dependencies); budget exhaustion and cancellation return partial successful pages with diagnostics; scanning never executes install/bootstrap commands | `apps/desktop/tests/project-scan.test.ts` in issue #398 | KiroCrew section |
    | `packages/dev-view/src/sidebar/scan-preview-model.ts`; `packages/dev-view/src/sidebar/add-project-panel.tsx` (add/scan composition); `sidebar/dev-sidebar-shell.tsx` (add-project slot) | KiroCrew `website/src/pages/ChatSidebar.tsx` (sidebar add/search flow); Orca `src/renderer/src/components/sidebar/AddRepoDialog.tsx` (confirm-before-add preview rows with source/duplicate/authorization state) | KiroCrew `283e136c0f902e965a535a7c9548c57c7504fed0`; Orca `403b62a8d8fa6e896a93acc4c15405be0f0b7dc7` | Copyright Amazon.com, Inc. or its affiliates; Apache-2.0 and donor `NOTICE`; Copyright (c) 2026 Lovecast Inc.; MIT | Composition translation of the add surface: recent authorized roots, scan previews with package-manager and duplicate state, and confirm-before-import rows | Replaced React dialog seams with a Solid disclosure panel issuing only `dev.project.bookmarks`/`dev.project.scan`/`dev.group.list`/`dev.group.create`/`dev.project.import` commands; previews require confirmation and never execute install/bootstrap; the register's bookmark-binding check remains the authoritative duplicate refusal | `packages/dev-view/tests/scan-preview-model.test.ts`; `apps/desktop/tests/project-registry.test.ts` in issue #398 | KiroCrew and Orca sections |
+
+The selected #532 composer IME contract is translated from KiroCrew in
+[UI PR #18](https://github.com/adea-ai/ui/pull/18). Native candidate Enter retains
+its default action; a post-composition commit cannot send the draft; overlapping
+timers and abandoned compositions recover. Nine built component cases passed in
+both Chromium and WebKit. The source/NOTICE retain the Apache attribution. This
+selected guard does not establish a full donor composer port, production Chat
+adoption, packed distribution certification or manual operating-system IME
+acceptance; those dimensions remain pending in the traceability inventory.
+
+The #532 plain-transcript follow contract is translated from KiroCrew's
+`useChatScrollFollow.ts` and `FollowController.ts` in
+[UI PR #19](https://github.com/adea-ai/ui/pull/19). Content/viewport observation,
+user-versus-self scroll, directional re-engagement, scroll-event races and
+content/viewport clamp distinctions replace the generic mutation-only surface.
+An action-only jump label replaces the unsupported pixel-distance message
+count; keyboard jumping restores focus to the transcript. Apache attribution,
+exact original/destination paths and intentional virtualizer exclusions remain
+in source, NOTICE, the manifest and the selected-unit inventory.
+
+The local library suite, 49 translated core tests and 32 browser/source-SSR checks
+passed. The latter cover Chromium/WebKit, light/dark and four accepted widths.
+These checks do not establish packed distribution, canonical session/durable
+scroll restoration, full Chat composition or either application's production
+adoption. The disabled plain-follow mode is fully inert; re-enabling explicitly
+re-arms at the bottom rather than automatically restoring a parked history view.
+
+### Chat consumer continuity review
+
+Source review at Adea commit `78a952d527cb7b7c8c8ac307da95721ddf64a8e9`
+identified additional #532 migration gates. `ChatTranscript` owns a local CSS
+overflow scroller; it does not mount the standalone conversation surface or bind
+a scroll-restoration port. `ChatView` remounts the transcript and composer under
+its canonical session/generation key. Its model port exposes transcript reads,
+send and cancel, while `ChatComposer` edits a local draft signal initialized
+from the conversation without writing that draft back to the model.
+
+The repeated Dev/Chat switching test in
+`packages/dev-view/tests/chat-conversation-model.test.ts` seeds `model.setDraft`
+directly and compares retained event IDs/sequences and the model draft. It does
+not type into a rendered composer, remount `ChatView`, inspect `scrollTop`, or
+verify focus. Its scrollback assertion concerns retained events, not the rendered
+viewport. Preserve that useful authority proof and add the missing rendered
+continuity proof during migration; do not relabel it as end-to-end acceptance.
+
+The shared follow controller's explicit re-arm is not a restoration protocol.
+Migration must preserve an unsent typed draft, earlier-content reading position
+and follow intent across repeated view switches, while retaining authenticated
+scope, generation-fenced stream cleanup/resync and truthful unavailable response
+controls. Returning-user production entry and packaged acceptance remain separate
+gates. These are source observations, not a fresh production-route reproduction
+or permission to create a second runtime authority. The corresponding selected
+unit in the traceability inventory records the exact inspected paths and pending
+proofs.
+
+### Packed conversation integration pilot
+
+An isolated UI integration branch combines the packing correction from PR #16
+with the selected IME and transcript fixes from PR #18/#19. At
+[commit `66950df`](https://github.com/adea-ai/ui/commit/66950dfb9197e061e49e286315a6ac3f3df3e7eb),
+`bun run check:packed-conversation` installs the actual npm tarball into a clean
+consumer without optional heavy peers and imports the documented conversation
+subpath. Both compiled and Solid source exports pass seven check groups in each
+of Chromium and WebKit (28 groups): failed-draft retention, recovered send,
+native IME defaults, the post-composition latch, reader intent during streamed
+text, jump focus and external Tailwind utility delivery. Packed Apache LICENSE
+and both KiroCrew NOTICE sections are checked too.
+
+The composition retains one Solid runtime and one JS chunk: 23,880/23,936 gzip JS
+bytes (compiled/Solid), with 40,203 raw CSS bytes. Fixture budgets are 26 KiB gzip
+JS and 42 KiB raw CSS, alongside independent unrelated-module/font exclusions.
+This is a browser consumer fixture, not either application's production pipeline,
+native SSR, manual OS IME acceptance, canonical restoration or full Chat adoption.
+
+The integrated `bun run verify` **fails** its required packed root-import gate:
+six cases cannot resolve the optional chart peer. Earlier format/lint/types,
+141 UI tests/15,696 assertions, five workshop tests, coverage/theme/registry,
+UI/Storybook builds, tree budgets and structural packing checks pass. The root
+compatibility decision remains pending; the subpath pilot neither replaces that
+gate nor establishes release readiness. Original fix PRs remain the merge paths;
+the integration branch is retained for reviewable experiment evidence.
+
+### Selected busy-action extraction checkpoint
+
+[UI PR #20](https://github.com/adea-ai/ui/pull/20) translates KiroCrew's complete
+`BusySendButton.tsx` and the enabled-row Tab cycle from `useMenuKeyboard.ts` at
+revision `283e136c0f902e965a535a7c9548c57c7504fed0`. Both units and their nearest
+tests were read in full; source copyright and Apache NOTICE are retained.
+The controlled Steer/Queue picker remains available before typing while firing
+is disabled, never fires on mode selection, and displays unsupported modes with
+host-provided reasons. Kobalte owns maintained menu navigation and focus; the
+scoped native Tab cycle preserves the donor behavior without document listeners.
+Persistence, runtime authority, localization and force reset remain app-owned.
+
+Visual inspection exposed square controls resolving `size-control-*` through
+spacing tokens. Six Tailwind `--size-control-*` aliases now resolve existing
+height tokens. Height utilities already worked; token values, padding and root
+typography remain unchanged. Eight corrected geometry cases failed before this
+fix. All 36 Chromium/WebKit cases now pass, covering keyboard/capability behavior,
+light/dark at 320/768/1024/1440px, overflow/axe and six sizes in both densities.
+`mise exec node@24.18.0 -- bun run verify` passes format, lint, types, unit/coverage,
+theme/registry, builds and tree budgets at the PR commit.
+
+This is selected source-component evidence, not packed consumer, full Chat
+composition, manual accessibility, production adoption or runtime queue proof.
+The separate packed root-export compatibility gate remains open. No application
+implementation or old system is removed by this extraction.
+
+The selected busy control also passes an actual tarball pilot at
+[commit `dc06e92`](https://github.com/adea-ai/ui/commit/dc06e923b47557d09e826952d6af3f7ddca4e6fd).
+Compiled and Solid source exports pass six busy check groups in each Chromium
+and WebKit (24), alongside the previous conversation's 28. Packed license and
+all three selected Kiro NOTICE sections are retained. Both fixtures have one
+Solid runtime and one JS chunk, excluding each other's unrelated components,
+heavy peers, unrelated theme/layout/workshop JS and fonts. Busy gzip JS measures
+50,308/50,470 bytes (compiled/Solid) against its own 50 KiB budget; its raw CSS is
+31,057 bytes. Conversation gzip JS remains 23,918/23,987 bytes with 40,272 raw
+CSS bytes under the unchanged 26 KiB/42 KiB caps. Required external Tailwind
+sources are scanned explicitly. This extends isolated packed evidence only;
+the known required root-import failure and application acceptance remain open.
+
+### Selected composed-input checkpoint
+
+The full pinned Kiro `ChatInput.tsx` (4,998 lines) and its nearest collapse test
+(426 lines) have now been read. The earlier partial-parent review notes are
+historical; feature-specific comparisons and full product composition remain
+open. [UI issue #21](https://github.com/adea-ai/ui/issues/21) tracks the shared
+composition. Its selected input pilot is published at
+[commit `c898bfa`](https://github.com/adea-ai/ui/commit/c898bfa47579396f0931f1b19012a4d550039645)
+on the retained integration branch, dependent on the original UI #16/#18/#19/#20
+merge paths.
+
+`ChatComposer` preserves the knowledge/follow-up/adjacent-band order, approval
+and notices, staged content, input/action groups and context shelf. Controlled
+reading collapse unmounts the input and shelf while retaining the host draft and
+caret. Instance-scoped focus replaces global lookup/broadcast; local delivery
+feedback is fenced by the host reset key. Existing IME and busy controls compose
+without a second runtime authority. Per-action payload eligibility preserves the
+donor distinction: reference-only drafts may send or queue, but cannot steer.
+Kobalte supplies menus; native CSS sizing preserves multiline growth, overflow
+cap and width response on the two verified engines. Legacy fallback is not claimed.
+
+The final source run passes 54 checks in Chromium/WebKit, including 32 themed,
+density and width checks with axe/overflow/screenshots, clean native Node SSR,
+collapse/focus/draft/caret, scoped composers, failure recovery, busy/alternate/IME,
+reference-only action eligibility, connectivity/approval and older-scope feedback.
+Narrow and wide screenshots were inspected. The actual npm tarball passes 96
+check groups across both engines and both compiled/Solid exports: 28 conversation,
+24 busy and 44 composed groups. The latter additionally prove pending read-only
+input and spinner animation with explicitly scanned external CSS sources.
+
+Composed gzip JS measures 53,345/53,437 bytes, with 33,201 raw CSS bytes, against
+its own 54 KiB/42 KiB caps. Existing conversation and busy budgets remain unchanged.
+Each fixture retains one Solid runtime and one JS chunk, packed LICENSE and all
+four selected Kiro NOTICE sections, and independent unrelated-module/font exclusions.
+The final source changes pass types/lint/format/registry checks. Broad verification
+passes its earlier gates (141 UI tests/15,714 assertions, five workshop tests,
+coverage, builds and tree budgets), then **fails** the same six required optional
+Chart peer root-import cases. That gate remains required and unresolved.
+
+This checkpoint does not establish full Chat, paste-token editing, sent-prompt
+undo/history, manual resize, mapped upload/skill/voice/optimizer/stop/resume
+contributions, canonical runtime restoration, manual accessibility, application
+migration, release or packaged acceptance. No application implementation or old
+system is removed. Adea migration remains first, followed by Cortana only after
+the shared scope and each replacement consumer meet their acceptance gates.
+
+### Binary layout model extraction checkpoint
+
+[UI PR #23](https://github.com/adea-ai/ui/pull/23), at
+[commit `8c21feb`](https://github.com/adea-ai/ui/commit/8c21febc763ba5b692e1ca779d619f113845600b),
+extracts the existing attributed #395 bb/Muxy adaptation instead of inventing
+another tree. Selected bb types/operations/tests, Muxy SplitNode/tests and the
+existing Adea operations/tests were read in full. The shared model retains
+strict binary reading order, exact leaf identity, move at cap, resize/normalize,
+parent collapse, focus, close/undo and undo invalidation. Private Adea types
+become payload-generic leaves; the host supplies the final-pane placeholder.
+Application scope, persistence, runtime/session and native process effects stay
+outside this model. MIT source copyrights and full permission are retained.
+
+Three invalid-construction regressions failed before validation was added.
+Nineteen model cases/57 assertions pass. The main-based branch's full verification
+passes formatting, lint, types, 111 UI tests/3,246 assertions, five workshop tests,
+coverage/theme/registry, builds and existing tree budgets. Its real tarball,
+installed with peers omitted and scripts disabled, passes native Node and Solid
+source split/move/close/undo identity checks with unmixed entries and zero runtime
+imports. The model measures 2,455 gzip bytes under a 3 KiB cap. This direct model
+subpath proof does not waive UI #16's packing/attribution corrections or the
+separate required root compatibility gate.
+
+This draft is a model foundation under [UI issue #22](https://github.com/adea-ai/ui/issues/22).
+The maintained accessible renderer, stable mounted content during structural
+changes, composed shell stories/interactions, package/version gates and actual
+Adea-then-Cortana consumers remain pending. No old application layout or scoped
+preference system is removed, and no full shell readiness is claimed.
+
+### Binary renderer foundation continuation
+
+[UI PR #23](https://github.com/adea-ai/ui/pull/23) now includes
+[commit `4f5e2a2`](https://github.com/adea-ai/ui/commit/4f5e2a2087c343ad994012775811567e883862f9).
+Muxy's reviewed `areaFrames` geometry is translated to opaque-ID fractional
+frames using the accepted ratio bounds. Leaf owners and DOM stay separate from
+changing binary branch-controller ancestry. The renderer uses maintained Corvu
+separators and generic host callbacks for resize, focus and close; it adds no
+second tree, runtime commands, scoped persistence or native authority. MIT
+attribution is retained.
+
+The original missing-component baseline failed. WebKit then exposed a focus
+loss on structural movement; synchronous pre-render capture fixes it without
+relaxing owner/DOM/value/caret/focus assertions. Twenty-six headless checks pass
+in Chromium/WebKit, including pointer/keyboard constraints, physical ARIA
+orientation, visible-region references, close focus, separate-instance focus,
+disposal, light/dark automated accessibility, CSP geometry, native Node SSR and
+eight-pane visuals at 320/1440px. Six geometry cases/12 assertions pass. Three
+stories cover two panes, nested directions and the eight-pane limit.
+
+Full source verification passes formatting, lint, types, 117 UI tests/3,269
+assertions, five workshop tests/35 assertions, coverage/theme/registry, both
+builds and existing tree budgets. An initially slow workshop build was stopped
+for diagnosis; a trace found 2,254 dependency JSX documentation extractions,
+not a demonstrated recursive-layout failure. The final complete build passes
+with component API documentation and all checks retained.
+
+The source pure-model tarball remains 2,455 gzip bytes under its unchanged
+3 KiB cap, with no runtime imports. In the UI16/18/19/20 integration branch,
+`39dfc05` corrects the model subpath while preserving component-directory exports
+and verifies packed Apache LICENSE and full MIT NOTICE in both model conditions.
+This does not prove packed renderer behavior or waive the required root-peer
+compatibility gate. User-facing move controls, full shell composition, renderer
+distribution/budgets, package/version gates, manual AT and real Adea-then-Cortana
+adoption remain pending. No application layout or preference system is deleted.
+
+The retained integration source at
+[`18d2b1e`](https://github.com/adea-ai/ui/commit/18d2b1ecef82790546beeda0f7a1f732b6088869)
+passes types/library build/format/lint/registry, 25 model/geometry cases with
+69 assertions and the same 26 source browser/visual/native SSR checks. Its
+actual tarball pure-model attribution and both conditions pass. The renderer
+package itself and the required root compatibility gate remain separately
+pending; this internal integration branch does not duplicate the source PR.
+
+### Actual installed binary renderer continuation
+
+The retained UI integration at
+[`827e597`](https://github.com/adea-ai/ui/commit/827e597885a9b018a0087d72903ab1515ed2a671)
+passes `bun run check:packed-layout-renderer`: 52 headless checks across compiled
+and Solid browser exports, Chromium/WebKit, plus the required installed Solid
+source SSR pipeline executed in native Node. The same 26 source cases are reused
+through the harness at
+[`8bfa671`](https://github.com/adea-ai/ui/commit/8bfa67137eea97eb2d09d203092c33afab5099b0);
+default source mode independently passes 26 checks after refactoring. Compiled
+browser output is not presented as server-renderable.
+
+Actual tarball installation disables lifecycle scripts, retains required Solid
+peers and omits optional peers. The check retains Apache LICENSE/full donor MIT
+NOTICE, external Solid/Corvu imports, unmixed UI browser conditions, a single
+Solid runtime and one JS chunk. Explicit external Tailwind/theme/base CSS pays
+for the renderer and Button. Charts, carousel, terminal/editor/highlighter,
+conversation/theme engine and font assets are excluded from the retained graph.
+Compiled/source output measures 30,370/30,383 gzip JS bytes with a 32 KiB cap, and
+32,705 raw CSS bytes with a 34 KiB cap. The caps tightened after the initial
+measurement; exclusions and runtime assertions remain independent gates.
+
+The component fixtures verify owner/DOM/value/caret/focus retention, constrained
+pointer/keyboard resize, labelled physical separator orientation, visible region
+references, close/disposal/external focus, CSP geometry, light/dark automated
+a11y and eight panes at 320/1440px. This completes the selected renderer's
+installed-artifact checkpoint, not the full shell, native editor/hydration/manual
+AT, required root-peer compatibility or real production consumer gate. Adea and
+Cortana migration, release, superseded-system deletion and re-audit remain pending.
+
+### Published core and appearance continuation
+
+The earlier root-peer failures above describe retained pilot commits. They are
+superseded for the published core by
+[UI 0.63.0](https://github.com/adea-ai/ui/pull/27), released from
+[`b00d46f8`](https://github.com/adea-ai/ui/commit/b00d46f8c75561de00f6d44d7e736108a47e5b59).
+The normal [publish run](https://github.com/adea-ai/ui/actions/runs/36260720031)
+passed archive, packed consumer, appearance interaction/SSR and post-publish
+checks. An independent npm download matched the registry integrity and gitHead.
+The archive's `dist/LICENSE` and `dist/NOTICE` match the source files byte for
+byte, including the accepted appearance translation's full Zeron MIT notice.
+
+A clean installed consumer built public-root `AppearanceEditor` under both
+compiled and Solid export conditions with Chart/Carousel peer engines absent,
+without externalizing those engines. The conditions resolve to `dist/index.js`
+and `src/index.ts`, respectively. This establishes the published core import
+and selected appearance distribution contract; it does not release the pending
+composer, busy, conversation or binary renderer changes, establish real product
+adoption, or replace manual accessibility and packaged product acceptance.
+
+[UI PR #28](https://github.com/adea-ai/ui/pull/28) scopes Storybook prop metadata
+to local components and removes the duplicate gallery build from generic CI.
+Measured Workshop build time fell from 8m51s to 41s and complete gate time from
+18m29s to 10m50s. All four browser shards and Registry passed; theme, interaction,
+accessibility and attribution coverage remained enabled. These are measured
+runs, not a timing guarantee. [UI PR #29](https://github.com/adea-ai/ui/pull/29)
+subsequently repaired release automation to queue an audited squash merge rather
+than waiting in a runner, and restored the review-policy check on head updates.
+Its subsequent normal release run completed while the generated version PR's
+required checks were still pending. Version PR #30 publication is not claimed
+by this checkpoint.

@@ -159,13 +159,13 @@
             "apps/app/src/lib/split-layout/computePaneRects.test.ts",
             "apps/app/src/views/thread-detail/splitPaneCommands.test.ts"
           ],
-          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout."
+          "action": "Copy pure operations, then narrow n-ary/global representation to Adea strict binary scoped layout. Shared UI issue #22 extracts the already-adapted Adea layout/operations.ts model rather than recopying a second tree; preserve payload-generic visual identities and inject the final-pane placeholder. Scoped persistence and unknown-version recovery remain application-owned. The model checkpoint does not establish the accessible shell renderer. The issue-backed renderer foundation uses stable ID-keyed opaque leaf owners; maintained Corvu separators receive host resize/focus/close callbacks. Scoped persistence, host runtime services, user-facing move controls and full shell/product adoption stay separate."
         },
         {
           "donor": "muxy",
           "source": ["Muxy/Models/Workspace/SplitNode.swift"],
           "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
-          "action": "Translate invariants and all applicable test cases to TypeScript."
+          "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations. Translate the reviewed areaFrames fractional geometry to a Map keyed by opaque identity, retaining row/column offsets and exact node references while applying accepted 0.1\u20130.9 ratio repair. Native UI is not copied. Keep leaf DOM separate from changing branch-controller ancestry; prove owner/value/caret/focus retention in Chromium and WebKit."
         }
       ]
     },
@@ -696,6 +696,12 @@
             "website/src/test/appstoreCategories.test.ts"
           ],
           "action": "Translate category rail, search, installed/discover, and detail composition to Solid over Adea verified catalog/install plans."
+        },
+        {
+          "donor": "zeron",
+          "source": ["crates/ui/src/settings/appearance.rs", "crates/ui/src/settings/widgets.rs"],
+          "tests": ["crates/ui/src/settings/appearance.rs"],
+          "action": "Preserve the already accepted Adea appearance composition while extracting controlled Solid presentation to the standalone adea-ai/ui appearance-editor composite: split System miniatures, independent Light/Dark rows, palette bands, accent and surface helper copy. Translate the embedded three-mode, both-appearance and helper-copy tests; font controls/tests remain excluded by #425 amendments. Palette authority remains in themes, and preferences/preview/persistence/native effects remain in application adapters. No GPUI dependency is introduced."
         }
       ]
     },
@@ -757,7 +763,7 @@
             "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ScreenCapturePermissionPreflightSafetyTests.swift",
             "native/computer-use-macos/Tests/OrcaComputerUseMacOSCoreTests/ComputerSnapshotCachePolicyTests.swift"
           ],
-          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule — capture refuses closed when the recording grant cannot be proven — becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
+          "action": "Translate the permission preflight structure (no capture/input begins unless a probe proves its TCC service), the trust-settling deadline semantics, and the snapshot cache policy (a cached permission answer is never presented as fresh; bounded newest-snapshot retention) into the computer-use lane's authority gate: consent records re-check #471 probe freshness inside their window, frames follow the bounded newest-frame cache policy, and ScreenCapturePermissionPreflightSafety's rule \u2014 capture refuses closed when the recording grant cannot be proven \u2014 becomes typed capability_unavailable while the native helper stays deferred. Scripted runners replay the outcome matrices; no real capture or input runs in CI."
         },
         {
           "donor": "orca",
@@ -781,6 +787,79 @@
       "units": [],
       "validatesSlices": [395, 396, 397, 398, 399, 400, 422, 423, 424, 425],
       "instruction": "Do not copy new donor production code here; port any remaining applicable test fixtures from every validated slice and run the complete packaged release matrix."
+    },
+    "532-chat-composition": {
+      "issue": 532,
+      "destinations": ["packages/dev-view/src/chat/**"],
+      "units": [
+        {
+          "donor": "kirocrew",
+          "source": ["website/src/hooks/useImeGuard.ts", "website/src/components/ChatInput.tsx"],
+          "tests": [
+            "website/src/test/SideChat.imeEnter.test.tsx",
+            "website/src/hooks/useImeGuard.documentLatch.test.tsx"
+          ],
+          "action": "The #532-approved KiroCrew composer/goal flow includes IME input ownership. Preserve the native latch and textarea composition/commit/blur recovery contract when hardening shared MessageComposer. Translate native/browser-signal, post-composition-window, back-to-back and abandoned-composition test behavior. React synthetic event propagation and document focus-trap tracking are excluded from this textarea-scoped port; maintained Kobalte primitives still own overlays. This selected-unit handoff does not certify the full Chat composition or its production mount."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/app-sdk/useChatScrollFollow.ts",
+            "website/src/hooks/virtualizer/FollowController.ts",
+            "website/src/app-sdk/ChatScrollChrome.tsx"
+          ],
+          "tests": [
+            "website/src/test/useChatScrollFollow.test.tsx",
+            "website/src/test/FollowController.test.ts"
+          ],
+          "action": "Translate the full plain-scroller follow lifecycle and its pure decision core into shared ConversationSurface: content/viewport ResizeObserver, user-vs-self scroll, synchronous scroll-up race guard, directional re-engagement, content shrink and viewport clamp distinctions, instant pins and cleanup. Keep virtual row measurement/anchor persistence outside the plain scroller; applications own canonical identity and scroll restoration. Preserve the existing configurable visibility threshold; use an action label rather than estimating unread messages from pixel distance. No virtualizer, React runtime or session store is copied."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/components/BusySendButton.tsx",
+            "website/src/hooks/useMenuKeyboard.ts"
+          ],
+          "tests": [
+            "website/src/test/BusySendButton.menuKeyboard.test.tsx",
+            "website/src/test/BusySendButton.slotScope.test.tsx"
+          ],
+          "action": "Translate the complete split send action and described steer/queue mode picker into shared presentation. Preserve independently available mode choice, controlled selected mode, action-only fire, selected treatment and capability-gated alternate-action hint. React/manual portal/outside listeners/keyboard navigation are replaced with maintained Kobalte menu behavior; Kobalte Tab prevention lacks enabled-row cycling, so the mapped hook's Tab cycle is translated as a menu-scoped handler with no document listener. Donor localStorage migration/broadcast/session-slot ownership stays app-owned and is not copied. Unsupported action modes are visibly disabled with injected reasons. No runtime commands, queue store or host authority is added; donor force-reset timer is excluded pending runtime authorization review. The full ChatInput parent has now been read; product Chat composition and application adoption remain pending."
+        },
+        {
+          "donor": "kirocrew",
+          "source": ["website/src/components/ChatInput.tsx"],
+          "tests": ["website/src/test/ChatInput.collapse.test.tsx"],
+          "action": "Translate the reviewed composer visual hierarchy and controlled reading-collapse/focus seams into shared ChatComposer: knowledge/follow-ups, adjacent band, approval and notices, staged content, input/action groups and a context shelf. Preserve labeled restoration, unmounted collapsed input/shelf, host-owned draft and scoped typing intent. Kobalte replaces manual menus. Persisted preferences, global broadcasts/shortcuts, approval policy, voice capture, upload transport, optimizer, paste authority and runtime session state remain app-owned; existing selected IME and busy units compose without reimplementation. This selected composition is not full Chat product or canonical runtime adoption. Preserve per-action non-text payload eligibility: reference-only drafts may send/queue but cannot steer. Native field sizing preserves growth/cap/width behavior on the verified engines; legacy fallback and the remaining rich composer features are separately pending."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/utils/pasteTokens.ts",
+            "website/src/components/composerPastePolicy.ts"
+          ],
+          "tests": [
+            "website/src/test/pasteTokens.test.ts",
+            "website/src/test/ChatInput.paste.test.tsx"
+          ],
+          "action": "Translate the complete reusable paste-token model into adea-ai/ui packages/ui/src/components/conversation/paste-tokens.ts: block shape, thresholds, deterministic token formatting/ranges, sequence allocation/remapping, pruning, expansion and re-collapse. Retain pure trailing-blank-line policy from composerPastePolicy. Read the full selected files and nearest tests; separate localStorage recovery/side tables and backend-message reconciliation from pure transformations, inject any required identity rather than importing app state. Browser clipboard/File interpretation, upload transport, textarea atomic editing, undo/history, mirror/preview/chips and host submit-block/persistence integration remain separately mapped continuation work; this model does not certify rich editing, full Chat, release or production adoption. Preserve pinned Apache-2.0 attribution and use Bun tests without donor React/Lexical/runtime dependencies."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/components/ChatInput.tsx",
+            "website/src/components/PasteHighlightLayer.tsx",
+            "website/src/components/PasteHoverLayer.tsx",
+            "website/src/components/PastePreviewTooltip.tsx"
+          ],
+          "tests": [
+            "website/src/test/ChatInputCoverage.test.tsx",
+            "website/src/test/ChatInput.paste.test.tsx",
+            "website/src/test/PasteHoverLayer.test.tsx"
+          ],
+          "action": "Continue the separately mapped pure model with an opt-in controlled paste-token textarea in adea-ai/ui ChatComposer. Translate synchronous plain-text paste thresholds/placement/raw-paste handling, token-safe atomic delete/navigation/selection/prune/expansion, expanded copy/cut, mirrored token highlighting and accessible hover/caret/touch preview. Preserve IME ownership and native caret/selection, and capture text plus referenced block metadata together for submission. Read the complete pinned ChatInput parent and all selected presentation/test files before editing; use the text-focused tests rather than upload/optimizer cases. Applications own canonical paired draft/history restoration, block identity allocation, transport/expansion/storage, async/system clipboard permissions and file/image upload services. Keep plain composers unchanged when the controlled token contract is absent, and use Solid plus existing maintained primitives/tokens without React/Lexical/Framer Motion. This handoff does not certify full Chat, host persistence, released artifacts or production adoption."
+        }
+      ]
     }
   },
   "dependencyPolicy": "Manifests are review inputs, not dependency grants. Classify every selected unit import as standard, local-translated, existing Adea dependency, or proposed dependency. Do not add a donor package/runtime transitively; any proposed dependency requires exact version, license, distribution impact, security review, and same-change lockfile evidence.",
