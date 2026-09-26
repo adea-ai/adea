@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.2](https://github.com/adea-ai/adea/compare/v0.61.1...v0.61.2) (2026-09-26)
+
+
+### Documentation
+
+* extend donor ledger with shared UI traceability ([#745](https://github.com/adea-ai/adea/issues/745)) ([c501204](https://github.com/adea-ai/adea/commit/c501204ef84d39985d760bec5bb98897fd6d8afd))
+
 ## [0.61.1](https://github.com/adea-ai/adea/compare/v0.61.0...v0.61.1) (2026-09-26)
 
 
