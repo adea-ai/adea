@@ -9736,7 +9736,18 @@
           "Read earlier transcript content, switch away/back and restore the rendered position and follow intent without a re-arm jumping to bottom.",
           "Preserve generation-fenced stream cleanup/resync and visible unavailable approval/question controls while mounting the shared composition.",
           "Verify returning-user production entry, keyboard focus, retained event window changes and private-state release on scope revocation."
-        ]
+        ],
+        "continuityIncrement": {
+          "commits": ["2482cf02", "36dcf842", "1b8a7643"],
+          "status": "Local application branch; shared composer and transcript adoption remain pending",
+          "changes": [
+            "Missing send/steer/stop handlers refuse actions; canonical draft revision/generation fences remain",
+            "Desktop model host retains at most100 reading snapshots per active authenticated scope, keyed by session and generation, cleared on scope replacement",
+            "Production DesktopFirstRunChat wires immutable mounted identity and host reading callbacks; current local transcript restores snapshot and reports scrolling/cleanup"
+          ],
+          "validation": "Actual headless mounted Chat regression reproduced unsupported Steer before fix and passed after. Four browser cases pass: streaming row identity, deferred-send remount/generation, model fallback draft fence, earlier scroll offset restoration. Host/docs tests8/41, package build and web/dev-view types/lint pass; lint reports existing shadcn visibly-hidden contract notice.",
+          "limits": "Development fixture behind actual ChatView, not native transport/package acceptance or published shared ConversationSurface adoption. Full Dev/Chat focus and streamed follow restoration must be rechecked after shared port."
+        }
       },
       "packedIntegrationPilot": {
         "repository": "adea-ai/ui",

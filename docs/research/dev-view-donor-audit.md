@@ -767,3 +767,22 @@ The composed-input branch integrates that canonical layout while retaining
 byte-identical qualified composer source, tests and packed driver, and both
 packed gate families. Its fresh required CI and normal package publication
 remain pending; this does not establish an Adea layout mount.
+
+### Runtime Chat continuity increment
+
+Local application commits `2482cf02`, `36dcf842`, and `1b8a7643` address the
+migration prerequisites above. Unsupported send/steer/stop callbacks cannot clear
+a draft or report delivery. The authenticated desktop model host retains at most
+100 presentation-only reading snapshots keyed by session and generation; scope
+replacement clears them and rejects old-scope writes. The production Chat entry
+passes that host state to the mounted transcript through an immutable identity.
+
+A headless test reproduced enabled Steer without an authorized handler before
+the fix. The corrected path and four mounted Chat regressions pass: streaming
+row identity, deferred-send remount/generation fences, model fallback draft
+fences, and earlier scroll-offset restoration. Host/docs tests (8 tests, 41
+assertions), package build, and web/dev-view types/lint pass. The lint output
+retains the existing `visually-hidden` contract notice. These local results are
+preparation for shared Chat adoption; they do not prove published composer or
+ConversationSurface mounts, full Dev/Chat follow/focus restoration, native
+transport, or packaged acceptance.
