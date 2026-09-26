@@ -5,7 +5,7 @@
  * reproduce the file it loaded instead of normalizing to a majority style.
  * Also derives the compare-and-swap identity facts a save must pin.
  */
-import type { FileIdentity, FileReadResult } from '@adea-ai/types/dev-runtime'
+import type { FileReadResult } from '@adea-ai/types/dev-runtime'
 
 export type LineEnding = 'lf' | 'crlf'
 
@@ -158,9 +158,4 @@ export function readResultFromBytes(
     eol,
     encoding,
   }
-}
-
-/** The identity a save pins: everything the provider's CAS check compares. */
-export function saveIdentity(identity: FileIdentity): FileIdentity {
-  return { ...identity }
 }

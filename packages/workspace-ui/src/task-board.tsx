@@ -397,8 +397,15 @@ export function TaskBoard(props: Props) {
           </For>
         </div>
       </Show>
-      <Show when={selected()}>
-        {(task) => <TaskDetail {...props} task={task()} onClose={() => props.onSelect(null)} />}
+      {/* Keyed: the detail panel's entire editor state — title, objective,
+          kind, priority, agent, room, dependencies, and the `version` it
+          writes back — is initialised from `task` once at setup. An UNKEYED
+          Show reuses that instance when `selected()` changes, so selecting a
+          different task while the drawer is open left task A's draft in task
+          B's panel, and the save would write A's content onto B. Keying
+          remounts on task change, which is what the state actually assumes. */}
+      <Show when={selected()} keyed>
+        {(task) => <TaskDetail {...props} task={task} onClose={() => props.onSelect(null)} />}
       </Show>
     </section>
   )

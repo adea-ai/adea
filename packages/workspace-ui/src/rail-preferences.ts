@@ -54,10 +54,6 @@ const VIEW_LABELS: Record<string, string> = {
   dev: 'Dev view',
 }
 
-export function railItemLabel(item: RailItem): string {
-  return VIEW_LABELS[item.id] ?? item.label
-}
-
 function normalizeRecord(raw: unknown): RailPreferencesV1 | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined
   const record = raw as Record<string, unknown>
