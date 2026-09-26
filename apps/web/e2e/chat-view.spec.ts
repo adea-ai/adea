@@ -375,3 +375,37 @@ test('restores an earlier reading position when the canonical Chat surface remou
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:remount')))
   await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(90)
 })
+
+test('follows appended runtime rows only while the reader keeps follow intent', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await page.setViewportSize({ width: 900, height: 420 })
+  await openChatFixture(page, 'streaming')
+  const transcript = page.getByLabel('Conversation transcript')
+  const distance = () =>
+    transcript.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop)
+  await expect
+    .poll(() => transcript.evaluate((node) => node.scrollHeight - node.clientHeight))
+    .toBeGreaterThan(100)
+  await expect.poll(distance).toBeLessThanOrEqual(2)
+
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
+  await expect(page.locator('article.dev-chat__row')).toHaveCount(6)
+  await expect.poll(distance).toBeLessThanOrEqual(2)
+
+  // A small upward movement inside the visibility threshold still revokes
+  // follow intent. The next runtime event must preserve that native offset.
+  const parked = await transcript.evaluate((node) => {
+    node.scrollTop -= 30
+    node.dispatchEvent(new Event('scroll'))
+    return node.scrollTop
+  })
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
+  await expect(page.locator('article.dev-chat__row')).toHaveCount(7)
+  await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(parked)
+  await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
+  await expect.poll(distance).toBeLessThanOrEqual(2)
+  await expect(transcript).toBeFocused()
+  expect(errors).toEqual([])
+})
