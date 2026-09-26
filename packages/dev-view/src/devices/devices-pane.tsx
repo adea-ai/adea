@@ -59,11 +59,14 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
       setError('no active runtime session')
       return
     }
-    execute<DeviceSession>('dev.device.start', {
-      inventoryId: item.id,
-      expectedGeneration: item.generation,
-      runtimeSessionId,
-    })
+    // `dev.device.start` binds a `device_inventory` resource, so the command
+    // MUST carry it — `buildDevCommand` throws without one, which made every
+    // inventory-row start fail locally before any request was sent.
+    execute<DeviceSession>(
+      'dev.device.start',
+      { inventoryId: item.id, expectedGeneration: item.generation, runtimeSessionId },
+      { kind: 'device_inventory', id: item.id, generation: item.generation }
+    )
       .then(() => {
         setError(undefined)
         void refetchSessions()
@@ -79,10 +82,24 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
       setError('no active runtime session')
       return
     }
-    execute<DeviceSession>('dev.device.start', {
-      inventoryId: 'responsive',
-      runtimeSessionId,
-    })
+    // The responsive row is an inventory entry like any other: it needs the
+    // same resource binding and generation, not a hardcoded id and no binding.
+    const responsive = (inventory()?.items ?? []).find(
+      (entry: { id: string; generation: number }) => entry.id === 'responsive'
+    )
+    if (!responsive) {
+      setError('the responsive device inventory entry is not available')
+      return
+    }
+    execute<DeviceSession>(
+      'dev.device.start',
+      {
+        inventoryId: responsive.id,
+        expectedGeneration: responsive.generation,
+        runtimeSessionId,
+      },
+      { kind: 'device_inventory', id: responsive.id, generation: responsive.generation }
+    )
       .then(() => {
         setError(undefined)
         void refetchSessions()
