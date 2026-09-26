@@ -37,7 +37,7 @@ export function ThemeToggle(props: { class?: string }) {
             variant={theme() === option.value ? 'default' : 'ghost'}
             size="icon-sm"
             onClick={() => setTheme(option.value)}
-            class="rounded-full"
+            class="workspace-theme-toggle-option"
           >
             <option.icon class="size-4" aria-hidden="true" />
           </Button>
