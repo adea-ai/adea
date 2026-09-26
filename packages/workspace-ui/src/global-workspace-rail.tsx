@@ -1,5 +1,5 @@
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { Button } from '@adea-ai/app-ui/components/ui/button'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { Separator } from '@adea-ai/app-ui/components/ui/separator'
 import {
   Tooltip,
