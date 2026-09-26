@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 
 import { resolveDesktopFirstRun } from '../src/lib/desktop-first-run-chat'
+import type { ChatConversation, ChatConversationModel } from '@adea-ai/dev-view/chat/model'
+import {
+  attachFirstRunConversationIfCurrent,
+  createDesktopChatLifecycleFence,
+} from '../src/lib/desktop-chat-host'
 import type { AgentSummary } from '@adea-ai/types'
 
 const projection = {
@@ -94,5 +99,66 @@ describe('desktop first-run authority projection', () => {
 
     expect(resolved.facts.identity).toBe('guest')
     expect(resolved.facts.modelAccess).toBe('none')
+  })
+
+  test('does not attach a deferred onboarding creation from a replaced scope', async () => {
+    const lifecycle = createDesktopChatLifecycleFence()
+    const created = { runtimeSessionId: 'runtime-session-1' } as ChatConversation
+    let attachCalls = 0
+    let resolveAttach: ((conversation: ChatConversation) => void) | undefined
+    const model = {
+      attach: async () => {
+        attachCalls += 1
+        return new Promise<ChatConversation>((resolve) => {
+          resolveAttach = resolve
+        })
+      },
+    } as unknown as ChatConversationModel
+    let attached = 0
+    const firstRequest = lifecycle.begin()
+
+    attachFirstRunConversationIfCurrent({
+      created,
+      currentModel: () => model,
+      lifecycle,
+      model,
+      onAttached: () => {
+        attached += 1
+      },
+      request: firstRequest,
+    })
+    expect(attachCalls).toBe(1)
+
+    lifecycle.invalidate()
+    resolveAttach?.(created)
+    await Promise.resolve()
+    expect(attached).toBe(0)
+
+    // A callback arriving from the old onboarding instance after a new scope
+    // starts must be rejected before it calls the new model or attaches.
+    const nextRequest = lifecycle.begin()
+    attachFirstRunConversationIfCurrent({
+      created,
+      currentModel: () => model,
+      lifecycle,
+      model,
+      onAttached: () => {
+        attached += 1
+      },
+      request: firstRequest,
+    })
+    expect(attachCalls).toBe(1)
+
+    attachFirstRunConversationIfCurrent({
+      created,
+      currentModel: () => model,
+      lifecycle,
+      model,
+      onAttached: () => {
+        attached += 1
+      },
+      request: nextRequest,
+    })
+    expect(attachCalls).toBe(2)
   })
 })

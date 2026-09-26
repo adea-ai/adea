@@ -142,6 +142,11 @@ Acceptance criteria:
       fallback-only sessions show the truthful label + jump-to-terminal.
 - [ ] The composer is disabled-with-reason (not hidden) for non-owned input
       authority, awaiting-approval holds, and disconnected sessions.
+- [ ] The typed composer draft writes to the canonical session model through
+      the scoped desktop Chat host. Same-session Chat remounts and
+      resume-as-new-generation preserve it; account/workspace/runtime-node
+      changes isolate it; deferred send completion is fenced by session,
+      generation, and draft revision, preserving drafts after failures.
 - [ ] Chat's initial graph contains no xterm/CodeMirror/browser code
       (spec performance budget); the dev-view chunk ratchet stays green or is
       re-ratcheted with measurement in the same PR.

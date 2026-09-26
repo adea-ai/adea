@@ -400,6 +400,12 @@ describe('ChatConversationModel', () => {
     await model.list()
     model.remember(current, scrollback)
     model.setDraft(current.id, 'unfinished composer draft')
+    expect(model.draftRevision(current.id)).toBe(1)
+    expect(model.setDraftIfCurrent(current.id, current.generation, 'late clear', 0)).toBeUndefined()
+    expect(
+      model.setDraftIfCurrent(current.id, current.generation + 1, 'late old generation')
+    ).toBeUndefined()
+    expect(model.project().conversations[0]?.draft).toBe('unfinished composer draft')
 
     const snapshot = () => {
       const conversation = model.project().conversations[0]

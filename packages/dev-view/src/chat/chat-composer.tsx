@@ -13,6 +13,19 @@ import {
 
 export type ChatInputAuthority = 'chat' | 'dev' | 'none'
 
+export type ChatDraftIdentity = Readonly<Pick<ChatConversation, 'runtimeSessionId' | 'generation'>>
+
+/**
+ * Updates the canonical session draft. `expectedRevision` is supplied only
+ * when an async send is completing; the host must reject the clear if another
+ * composer has written a newer draft in the meantime.
+ */
+export type ChatDraftChange = (
+  draft: string,
+  identity: ChatDraftIdentity,
+  expectedRevision?: number
+) => void
+
 export type ChatComposerProps = Readonly<{
   conversation: ChatConversation
   authority?: ChatInputAuthority
@@ -22,6 +35,8 @@ export type ChatComposerProps = Readonly<{
   onSend?: (text: string) => void | Promise<void>
   onSteer?: (text: string) => void | Promise<void>
   onStop?: () => void | Promise<void>
+  onDraftChange?: ChatDraftChange
+  draftRevision?: number
   mode?: ComposerMode
   agentProfile?: ComposerAgentProfile
   agentProfiles?: readonly ComposerAgentProfile[]
@@ -58,6 +73,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   const [resolvedLocation, setResolvedLocation] = createSignal<string | undefined>(undefined)
   const [resolving, setResolving] = createSignal(false)
   const [resolutionStatus, setResolutionStatus] = createSignal<string>()
+  let localDraftRevision = 0
   const authority = () => props.authority ?? 'chat'
   const connected = () => props.connected ?? true
   const disabledReason = () =>
@@ -117,11 +133,27 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
     event.preventDefault()
     const text = draft().trim()
     if (disabled() || text.length === 0) return
+    const submittedIdentity: ChatDraftIdentity = {
+      runtimeSessionId: props.conversation.runtimeSessionId,
+      generation: props.conversation.generation,
+    }
+    const submittedDraftRevision = props.draftRevision ?? 0
+    const submittedLocalDraftRevision = localDraftRevision
     setSending(true)
     try {
       if (submitMode === 'steer') await props.onSteer?.(text)
       else await props.onSend?.(text)
-      setDraft('')
+      if (
+        props.conversation.runtimeSessionId === submittedIdentity.runtimeSessionId &&
+        props.conversation.generation === submittedIdentity.generation &&
+        localDraftRevision === submittedLocalDraftRevision &&
+        (props.draftRevision ?? 0) === submittedDraftRevision
+      ) {
+        setDraft('')
+        props.onDraftChange?.('', submittedIdentity, submittedDraftRevision)
+      }
+    } catch (error) {
+      setResolutionStatus(error instanceof Error ? error.message : 'Message could not be sent.')
     } finally {
       setSending(false)
     }
@@ -208,7 +240,15 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         disabled={disabled()}
         aria-describedby="dev-chat-composer-status"
         placeholder="Send a message to the runtime"
-        onInput={(event) => setDraft(event.currentTarget.value)}
+        onInput={(event) => {
+          localDraftRevision += 1
+          const nextDraft = event.currentTarget.value
+          setDraft(nextDraft)
+          props.onDraftChange?.(nextDraft, {
+            runtimeSessionId: props.conversation.runtimeSessionId,
+            generation: props.conversation.generation,
+          })
+        }}
       />
       <p id="dev-chat-composer-status" role="status">
         <Show when={disabledReason()} fallback="Input is sent with the current runtime generation.">
