@@ -258,30 +258,69 @@ describe('workspace event client', () => {
     expect(diagnostics.some((entry) => entry.event === 'gap')).toBe(true)
   })
 
+  // The server mints a FRESH signed cursor on the resync frame. This test used
+  // to be titled "resumes from the fresh cursor" while asserting only
+  // invalidation, a diagnostic, and a sequence — never the token — and its
+  // fixture id had no `.`, so `readCursorToken` would have rejected it anyway.
+  // It therefore passed against code that threw the fresh cursor away.
   test('resync_required refetches current state and resumes from the fresh cursor', async () => {
     const { client, invalidated } = fakeQueryClient()
     const storage = memoryStorage()
     const diagnostics: Array<{ event: string; reason?: string }> = []
+    // Start from a STALE token, which is the situation that triggers a resync.
+    storage.setItem(`adea:workspace-events-resume:${workspaceId}`, 'U1NNTEw.QVRF')
+    const scheduler = manualScheduler()
+    const requested: string[] = []
+    let connection = 0
 
     const subscription = createWorkspaceEventSubscription({
-      fetchImpl: streamFetch([
-        frame({ reason: 'cursor-behind-retained-window' }, 'fresh-cursor', 'resync_required'),
-        frame(envelope(12, 'room.updated')),
-      ]),
+      fetchImpl: (async (target: string) => {
+        requested.push(target)
+        connection += 1
+        if (connection === 1) {
+          const encoder = new TextEncoder()
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  frame(
+                    { reason: 'cursor-behind-retained-window' },
+                    'RlJFU0g.Q1VSUg==',
+                    'resync_required'
+                  )
+                )
+              )
+              controller.close()
+            },
+          })
+          return new Response(body, { status: 200 })
+        }
+        return new Response(null, { status: 204 })
+      }) as unknown as typeof fetch,
       onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
       queryClient: client,
-      schedule: immediateScheduler([]),
+      schedule: scheduler.schedule,
       storage,
       url,
       workspaceId,
     })
 
     await new Promise((resolve) => setTimeout(resolve, 20))
+    // Drive the reconnect so the re-presented cursor is observable.
+    await scheduler.fire()
     subscription.stop()
 
     expect(invalidated[0]).toBe(JSON.stringify(['workspaces', workspaceId]))
     expect(diagnostics.some((entry) => entry.reason === 'server')).toBe(true)
-    expect(subscription.appliedSequence()).toBe(12)
+    // The stale token was REPLACED by the one the server minted on the resync
+    // frame — the ONLY place a fresh cursor can come from in this stream.
+    expect(storage.getItem(`adea:workspace-events-resume:${workspaceId}`)).toBe('RlJFU0g.Q1VSUg==')
+    // The first connection presented the stale token...
+    expect(requested[0]).toContain(encodeURIComponent('U1NNTEw.QVRF'))
+    // ...and the reconnect after the resync presented the fresh one, so the
+    // server can accept it instead of rejecting the same token again.
+    expect(requested[1]).toContain(encodeURIComponent('RlJFU0g.Q1VSUg=='))
+    expect(requested[1]).not.toContain(encodeURIComponent('U1NNTEw.QVRF'))
   })
 
   test('appends the cursor to a relative stream URL without parsing it as absolute', async () => {
