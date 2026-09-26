@@ -79,6 +79,27 @@ function immediateScheduler(scheduled: number[]) {
   }
 }
 
+/**
+ * Captures scheduled reconnects so the test can drive them, and settles the
+ * async connect before returning.
+ */
+function manualScheduler() {
+  const pending: Array<() => void> = []
+  return {
+    schedule: (run: () => void) => {
+      pending.push(run)
+      return () => undefined
+    },
+    async fire(): Promise<void> {
+      const run = pending.shift()
+      if (!run) return
+      run()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    },
+    pendingCount: () => pending.length,
+  }
+}
+
 describe('workspace event client', () => {
   test('parses SSE frames with ids, events, data, and retry guidance', () => {
     const frames = parseEventFrames(
@@ -172,7 +193,12 @@ describe('workspace event client', () => {
   test('resumes from the stored cursor and ignores replayed events', async () => {
     const { client, invalidated } = fakeQueryClient()
     const storage = memoryStorage()
+    // Both halves of a returning client's state: the highest sequence it has
+    // APPLIED (for gap detection) and the signed cursor it will RESUME from.
+    // A signed cursor is `base64url(payload).base64url(signature)`; the route
+    // refuses anything else, so a bare sequence is not a resumable cursor.
     storage.setItem(`adea:workspace-events-cursor:${workspaceId}`, '5')
+    storage.setItem(`adea:workspace-events-resume:${workspaceId}`, 'QUJD.SEFG')
     let requestedUrl = ''
 
     const subscription = createWorkspaceEventSubscription({
@@ -199,7 +225,7 @@ describe('workspace event client', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     subscription.stop()
 
-    expect(requestedUrl).toContain('cursor=5')
+    expect(requestedUrl).toContain(`cursor=${encodeURIComponent('QUJD.SEFG')}`)
     expect(subscription.appliedSequence()).toBe(6)
     // The duplicate delivery of sequence 5 changed nothing.
     expect(invalidated).toHaveLength(1)
@@ -263,7 +289,7 @@ describe('workspace event client', () => {
     // absolute URL; the subscription must not assume otherwise.
     const { client } = fakeQueryClient()
     const storage = memoryStorage()
-    storage.setItem(`adea:workspace-events-cursor:${workspaceId}`, '4')
+    storage.setItem(`adea:workspace-events-resume:${workspaceId}`, 'QUJD.SEFH')
     const requested: string[] = []
 
     const subscription = createWorkspaceEventSubscription({
@@ -281,7 +307,82 @@ describe('workspace event client', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     subscription.stop()
 
-    expect(requested[0]).toBe(`/api/v1/workspaces/${workspaceId}/events?cursor=4`)
+    expect(requested[0]).toBe(`/api/v1/workspaces/${workspaceId}/events?cursor=QUJD.SEFH`)
+  })
+
+  // The regression this file previously pinned in the WRONG shape: the client
+  // stored the numeric `workspace_sequence` and sent it back as `?cursor=<n>`,
+  // which the route can only answer `cursor-malformed` for, so every reconnect
+  // became a full resync. The frame's `id:` is the signed replay cursor and is
+  // what must be persisted and re-presented.
+  test('persists the signed frame cursor and re-presents it after a drop', async () => {
+    const { client } = fakeQueryClient()
+    const storage = memoryStorage()
+    const requested: string[] = []
+    const scheduler = manualScheduler()
+    let connection = 0
+
+    const subscription = createWorkspaceEventSubscription({
+      fetchImpl: (async (target: string) => {
+        requested.push(target)
+        connection += 1
+        if (connection === 1) {
+          const encoder = new TextEncoder()
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(frame(envelope(1), 'Q1.QQ')))
+              controller.close()
+            },
+          })
+          return new Response(body, { status: 200 })
+        }
+        return new Response(null, { status: 204 })
+      }) as unknown as typeof fetch,
+      queryClient: client,
+      schedule: scheduler.schedule,
+      storage,
+      url,
+      workspaceId,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    // Drive the reconnect the stream ending scheduled.
+    await scheduler.fire()
+    subscription.stop()
+
+    // The first connection has no cursor to present.
+    expect(requested[0]).not.toContain('cursor=')
+    // The frame's `id:` is stored, not the event sequence.
+    expect(storage.getItem(`adea:workspace-events-resume:${workspaceId}`)).toBe('Q1.QQ')
+    expect(storage.getItem(`adea:workspace-events-cursor:${workspaceId}`)).toBe('1')
+    // The reconnect after the drop carries the token the route can decode.
+    expect(requested[1]).toContain(`cursor=${encodeURIComponent('Q1.QQ')}`)
+  })
+
+  test('never presents a bare sequence as a cursor', async () => {
+    // A stored numeric cursor from an older build must not be replayed as a
+    // token; the client resyncs once instead of asking the route to refuse.
+    const { client } = fakeQueryClient()
+    const storage = memoryStorage()
+    storage.setItem(`adea:workspace-events-cursor:${workspaceId}`, '9')
+    const requested: string[] = []
+
+    const subscription = createWorkspaceEventSubscription({
+      fetchImpl: (async (target: string) => {
+        requested.push(target)
+        return new Response(null, { status: 204 })
+      }) as unknown as typeof fetch,
+      queryClient: client,
+      schedule: immediateScheduler([]),
+      storage,
+      url,
+      workspaceId,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    subscription.stop()
+
+    for (const target of requested) expect(target).not.toContain('cursor=9')
   })
 
   test('reconnects with backoff when the stream ends or refuses', async () => {

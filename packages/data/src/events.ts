@@ -191,6 +191,13 @@ export function createWorkspaceEventSubscription(
   } = options
   const now = options.now ?? (() => Date.now())
   const cursorKey = `adea:workspace-events-cursor:${workspaceId}`
+  // The replay cursor is the server's opaque, HMAC-signed token from the frame's
+  // `id:` — NOT the event sequence. The two are tracked separately: the token
+  // is what the route accepts on reconnect, the sequence is what gap detection
+  // compares. Storing the sequence and sending it back as `?cursor=<n>` made
+  // every reconnect fail server-side as `cursor-malformed`, so the retained
+  // window was never replayed and every reconnect became a full resync.
+  const cursorTokenKey = `adea:workspace-events-resume:${workspaceId}`
 
   let stopped = false
   let controller: AbortController | undefined
@@ -203,6 +210,26 @@ export function createWorkspaceEventSubscription(
     const stored = storage?.getItem(cursorKey)
     const parsed = stored ? Number(stored) : 0
     return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : 0
+  }
+
+  /** The signed token to present on reconnect, or '' when none was ever sent. */
+  function readCursorToken(): string {
+    const stored = storage?.getItem(cursorTokenKey)
+    // A cursor is a `base64url(payload).base64url(signature)` pair. Reject
+    // anything else rather than presenting a value the route must refuse.
+    return stored && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(stored) ? stored : ''
+  }
+
+  let resumeCursor = readCursorToken()
+
+  function persistCursorToken(token: string): void {
+    if (!token) return
+    resumeCursor = token
+    try {
+      storage?.setItem(cursorTokenKey, token)
+    } catch {
+      // Persistence is best effort: private modes and quotas skip it.
+    }
   }
 
   function persistCursor(sequence: number): void {
@@ -284,6 +311,11 @@ export function createWorkspaceEventSubscription(
       throw new StreamUnavailable(frame.data)
     }
     if (frame.event !== 'workspace.event') return
+    // The frame's `id:` is the signed replay cursor. Record it before applying
+    // so a drop between the two still resumes from a position the route
+    // accepts; replaying one already-applied event is harmless because the
+    // client discards sequences it has seen (`workspaceSequence <= applied`).
+    if (frame.id) persistCursorToken(frame.id)
     try {
       applyEvent(JSON.parse(frame.data) as WorkspaceEventEnvelope)
     } catch {
@@ -295,14 +327,13 @@ export function createWorkspaceEventSubscription(
   async function connect(): Promise<void> {
     controller = new AbortController()
     const signal = controller.signal
-    const cursor = readCursor()
+    const cursor = resumeCursor
     // The stream URL may be relative (same-origin web) or absolute (desktop
     // against the cloud origin), so the cursor is appended rather than parsed
     // through URL(): a relative path is not a valid absolute URL in a browser.
-    const target =
-      cursor > 0
-        ? `${url}${url.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(String(cursor))}`
-        : url
+    const target = cursor
+      ? `${url}${url.includes('?') ? '&' : '?'}cursor=${encodeURIComponent(cursor)}`
+      : url
 
     let connectedAt = 0
     try {

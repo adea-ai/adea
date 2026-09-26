@@ -262,11 +262,20 @@ async function writeChannelState(
         channelReadStates.channelId,
       ],
       set: {
-        lastReadSequence,
+        // GREATEST, not the JS `max` above. That value is computed from a read
+        // taken earlier in this transaction, so a concurrent writer that
+        // advanced the frontier in between could still be overwritten
+        // downwards. The in-memory max covers the sequential case, which is why
+        // the existing tests pass either way — the race window is real but
+        // narrow, and I could NOT reproduce it locally (20 trials across two
+        // independent connections, plus repeated concurrent test runs, all
+        // held the frontier). This moves the invariant into the database, where
+        // it does not depend on statement ordering at all.
+        lastReadSequence: sql`GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`,
         manuallyUnread: target.manuallyUnread,
         readAt: target.manuallyUnread ? existing?.readAt : now,
         updatedAt: now,
-        version: (existing?.version ?? 0) + 1,
+        version: sql`${channelReadStates.version} + 1`,
       },
     })
   return true
@@ -377,11 +386,14 @@ export async function markThreadReadState(
           threadReadStates.threadRootMessageId,
         ],
         set: {
-          lastReadSequence: target.lastReadSequence,
+          // Same reasoning as the channel frontier above: the in-memory max
+          // predates this write, so the database enforces monotonicity instead
+          // of the application relying on statement ordering.
+          lastReadSequence: sql`GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`,
           manuallyUnread: target.manuallyUnread,
           readAt: target.manuallyUnread ? existing?.readAt : now,
           updatedAt: now,
-          version: (existing?.version ?? 0) + 1,
+          version: sql`${threadReadStates.version} + 1`,
         },
       })
     await appendWorkspaceEvent(transaction, {
@@ -512,7 +524,11 @@ export async function markAllChannelsRead(
             channelReadStates.channelId,
           ],
           set: {
-            lastReadSequence: sql`excluded.last_read_sequence`,
+            // GREATEST keeps the watermark monotonic inside the statement. The
+            // in-memory max is computed from a read taken before this upsert,
+            // so a concurrent writer could otherwise rewind the frontier
+            // between the two — exactly what the watermark is there to prevent.
+            lastReadSequence: sql`GREATEST(${channelReadStates.lastReadSequence}, excluded.last_read_sequence)`,
             manuallyUnread: false,
             readAt: now,
             updatedAt: now,
@@ -531,7 +547,7 @@ export async function markAllChannelsRead(
             threadReadStates.threadRootMessageId,
           ],
           set: {
-            lastReadSequence: sql`excluded.last_read_sequence`,
+            lastReadSequence: sql`GREATEST(${threadReadStates.lastReadSequence}, excluded.last_read_sequence)`,
             manuallyUnread: false,
             readAt: now,
             updatedAt: now,
