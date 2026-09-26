@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '#components/ui/dialog'
+} from '@adea-ai/ui/components/ui/dialog'
 
 export type SharedDesktopUpdate = Readonly<{
   available_version: string | null
@@ -181,7 +181,7 @@ export function VersionDialog(props: {
   const busyFromSnapshot = () => isUpdateBusy(update())
 
   return (
-    <Dialog open={open()} onOpenChange={setOpen}>
+    <Dialog open={open()} modal={false} onOpenChange={setOpen}>
       <Show when={props.open === undefined}>
         <DialogTrigger
           as={Button}

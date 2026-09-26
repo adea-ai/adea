@@ -5,7 +5,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '@adea-ai/app-ui/components/ui/dialog'
+} from '@adea-ai/ui/components/ui/dialog'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 
 /**
@@ -53,7 +53,7 @@ export function ModalDialog(props: {
 
   return (
     <Show when={props.open}>
-      <Dialog open onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
+      <Dialog open modal={false} onOpenChange={(nextOpen) => !nextOpen && props.onClose()}>
         {/* The title element also registers its id for `aria-labelledby`
             through a mount effect; if that registration is ever lost (a
             remount racing its effect under load) the dialog would render

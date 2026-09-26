@@ -34,16 +34,4 @@ export {
 } from './components/version-dialog'
 export { Card, CardContent } from './components/ui/card'
 export { Spinner } from './components/ui/spinner'
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
-} from './components/ui/dialog'
 export { cn } from './lib/utils'

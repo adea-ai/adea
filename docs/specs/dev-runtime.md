@@ -3692,6 +3692,13 @@ is temporarily named `@adea-ai/app-ui` so the published package can be consumed
 without a second package alias; app-specific shell styles and legacy compatibility
 variants remain there until the broader package migration is reviewed.
 
+The web host imports the published structural CSS contract before the app adapter.
+Because that contract intentionally sets the document text scale to 14px, the
+Adea shell adapter restores the existing 16px root used by its rem-authored rail,
+workspace surfaces, and dialogs. This preserves the accepted 64px rail and host
+geometry while the published controls remain the component authority; the
+compatibility rule is app-scoped and does not change the published package.
+
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
 quarantined — byte-for-byte, with a reason and capture time — into a separate

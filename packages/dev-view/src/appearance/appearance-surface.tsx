@@ -20,7 +20,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@adea-ai/app-ui/components/ui/dialog'
+} from '@adea-ai/ui/components/ui/dialog'
 import { createMemo, createSignal, onCleanup, onMount, Show, untrack } from 'solid-js'
 
 import { draftVariants } from './composition'
@@ -181,7 +181,11 @@ export function AppearancePanel() {
     <Show
       when={!libraryOpen()}
       fallback={
-        <Dialog open onOpenChange={(open: boolean) => !open && setLibraryOpen(false)}>
+        <Dialog
+          open
+          modal={false}
+          onOpenChange={(open: boolean) => !open && setLibraryOpen(false)}
+        >
           <DialogContent class="max-w-md" aria-describedby="theme-library-description">
             <DialogHeader>
               <DialogTitle>Manage themes</DialogTitle>
