@@ -11,6 +11,8 @@ const DEFAULT_CODE_TTL_MS = 60_000
 export type DesktopAuthorizationCodeRecord = Readonly<{
   codeChallenge: string
   codeDigest: string
+  /** Provider email, carried through the exchange to the session record. */
+  email: string | null
   expiresAt: number
   nonce: string
   providerExpiresAt: number
@@ -27,6 +29,8 @@ export interface DesktopAuthorizationCodeStore {
 
 export type DesktopAuthorizationCodeIssue = Readonly<{
   codeChallenge: string
+  /** Provider email, persisted with the code so the allowlist survives exchange. */
+  email: string | null
   nonce: string
   providerExpiresAt: number
   providerSessionId: string
@@ -36,6 +40,8 @@ export type DesktopAuthorizationCodeIssue = Readonly<{
 }>
 
 export type DesktopSessionRecord = Readonly<{
+  /** Provider email the account allowlist is expressed in; null if unknown. */
+  email: string | null
   credentialDigest: string
   expiresAt: number
   providerExpiresAt: number
@@ -63,6 +69,8 @@ export interface DesktopSessionStore {
 }
 
 export type DesktopSessionPrincipal = Readonly<{
+  /** Provider email, carried so the allowlist can be re-checked at resolve. */
+  email: string | null
   providerExpiresAt: number
   providerSessionId: string
   userId: string
@@ -124,6 +132,7 @@ export function createDesktopAuthorizationCodeBroker({
       }
 
       return issueSession({
+        email: record.email,
         providerExpiresAt: record.providerExpiresAt,
         providerSessionId: record.providerSessionId,
         userId: record.userId,
@@ -142,10 +151,16 @@ export function createDesktopAuthorizationCodeBroker({
         throw new Error('Desktop authorization provider session expired')
       }
 
+      // Bounded like every other persisted field, so a hostile provider profile
+      // cannot inflate a row the exchange path reads back.
+      if (input.email != null && (input.email.length < 1 || input.email.length > 320)) {
+        throw new Error('Desktop authorization email is invalid')
+      }
       const code = randomBytes(32).toString('base64url')
       await store.save({
         codeChallenge: input.codeChallenge,
         codeDigest: digest(code),
+        email: input.email ?? null,
         expiresAt: now() + ttlMs,
         nonce: input.nonce,
         providerExpiresAt: input.providerExpiresAt,
@@ -207,6 +222,7 @@ export function createDesktopSessionService({
       const credential = randomBytes(32).toString('base64url')
       const record: DesktopSessionRecord = Object.freeze({
         credentialDigest: digest(credential),
+        email: principal.email,
         expiresAt: issuedAt + ttlMs,
         providerExpiresAt: principal.providerExpiresAt,
         providerSessionId: principal.providerSessionId,
@@ -248,6 +264,7 @@ export function createDesktopSessionService({
       })
       return record
         ? Object.freeze({
+            email: record.email,
             providerExpiresAt: record.providerExpiresAt,
             providerSessionId: record.providerSessionId,
             userId: record.userId,

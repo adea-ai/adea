@@ -39,6 +39,12 @@ export async function resolveWorkspacePrincipal(
   if (request.headers.get('authorization')?.startsWith('Desktop ')) {
     try {
       const principal = await resolveDesktopSessionPrincipal(request)
+      // The allowlist gates DESKTOP sessions too, not just cookie sessions. It
+      // used to be checked only at issuance, so tightening ADEA_ALLOWED_EMAILS
+      // left every already-issued desktop session working until it expired. A
+      // session with no recorded email is DENIED while an allowlist is
+      // configured: a record predating the column must not become a way past it.
+      if (principal && !isAllowedEmail(principal.email)) return null
       return principal
         ? Object.freeze({
             clearTemporaryCredential: false,

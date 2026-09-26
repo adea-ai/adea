@@ -49,7 +49,13 @@ export function desktopSessionService() {
 export async function resolveDesktopSessionPrincipal(request: Request) {
   const credential = parseDesktopSessionRequest(request, desktopTrustedOrigins())
   const principal = await desktopSessionService().resolve(credential)
-  return principal ? Object.freeze({ kind: 'user' as const, userId: principal.userId }) : null
+  return principal
+    ? Object.freeze({
+        email: principal.email,
+        kind: 'user' as const,
+        userId: principal.userId,
+      })
+    : null
 }
 
 export function desktopAuthorizationBroker() {

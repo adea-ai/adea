@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/solid-router'
+import { isSameOriginRequest } from '../../../server/same-origin'
 import { withRequestScope } from '../../../server/request-scope'
 import path from 'node:path'
 
@@ -48,27 +49,6 @@ function validVector(value: unknown, length: number): value is number[] {
     value.length === length &&
     value.every((entry) => typeof entry === 'number' && Number.isFinite(entry))
   )
-}
-
-function isSameOrigin(request: Request, requestUrl: URL): boolean {
-  const origin = request.headers.get('origin')
-  if (!origin) return false
-  const allowedOrigins = new Set([requestUrl.origin])
-  const forwardedProtocol = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim()
-  const protocol = forwardedProtocol || requestUrl.protocol.slice(0, -1)
-  for (const headerName of ['host', 'x-forwarded-host']) {
-    for (const host of (request.headers.get(headerName) ?? '')
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean)) {
-      allowedOrigins.add(`${protocol}://${host}`)
-    }
-  }
-  try {
-    return allowedOrigins.has(new URL(origin).origin)
-  } catch {
-    return false
-  }
 }
 
 function isRoomDesignerDocument(
@@ -133,7 +113,7 @@ async function post(request: Request) {
   if (process.env.NODE_ENV !== 'development') return new Response(null, { status: 404 })
 
   const requestUrl = new URL(request.url)
-  if (!isSameOrigin(request, requestUrl)) {
+  if (!isSameOriginRequest(request, requestUrl)) {
     return Response.json({ error: 'Scene editor saves must be same-origin.' }, { status: 403 })
   }
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {

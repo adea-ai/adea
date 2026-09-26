@@ -51,6 +51,11 @@ async function get(request: Request) {
 
     const callback = await desktopAuthorizationBroker().issue({
       ...authorization,
+      // Carried onto the session so the allowlist can be re-checked when the
+      // session is RESOLVED, not only when it is issued. Without it, tightening
+      // ADEA_ALLOWED_EMAILS left every already-issued desktop session working
+      // until it expired.
+      email: authentication.profile.email ?? null,
       providerExpiresAt: Date.parse(authentication.session.expiresAt),
       providerSessionId: authentication.session.id,
       userId: principal.userId,

@@ -17,6 +17,11 @@ export const desktopAuthorizationCodes = appSchema.table(
       withTimezone: true,
     }).notNull(),
     providerSessionId: text('provider_session_id').notNull(),
+    // The provider email the allowlist is expressed in. Carried so the account
+    // allowlist can be re-checked at RESOLVE time, not only at issuance: without
+    // it, tightening ADEA_ALLOWED_EMAILS left every already-issued desktop
+    // session working until it expired.
+    email: text('email'),
     redirectUri: text('redirect_uri').notNull(),
     userId: uuid('user_id')
       .notNull()
@@ -45,6 +50,10 @@ export const desktopSessions = appSchema.table(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     providerSessionId: text('provider_session_id').notNull(),
+    // Null for sessions issued before this column existed. When an allowlist is
+    // configured a null email is DENIED, not skipped, so an old record fails
+    // closed rather than becoming a way around the allowlist.
+    email: text('email'),
     providerExpiresAt: timestamp('provider_expires_at', {
       mode: 'date',
       withTimezone: true,

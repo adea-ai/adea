@@ -6,6 +6,8 @@ import { desktopAuthorizationCodes, desktopSessions, users } from './schema'
 export type StoredDesktopAuthorizationCode = Readonly<{
   codeChallenge: string
   codeDigest: string
+  /** Provider email the account allowlist is expressed in. */
+  email: string | null
   expiresAt: number
   nonce: string
   providerExpiresAt: number
@@ -16,6 +18,8 @@ export type StoredDesktopAuthorizationCode = Readonly<{
 
 export type StoredDesktopSession = Readonly<{
   credentialDigest: string
+  /** Provider email; null for sessions issued before the column existed. */
+  email: string | null
   expiresAt: number
   providerExpiresAt: number
   providerSessionId: string
@@ -37,6 +41,7 @@ function authorizationCodeFromRow(
     nonce: row.nonce,
     providerExpiresAt: row.providerExpiresAt.valueOf(),
     providerSessionId: row.providerSessionId,
+    email: row.email,
     redirectUri: row.redirectUri,
     userId: row.userId,
   })
@@ -45,6 +50,7 @@ function authorizationCodeFromRow(
 function sessionFromRow(row: typeof desktopSessions.$inferSelect): StoredDesktopSession {
   return Object.freeze({
     credentialDigest: row.credentialDigest,
+    email: row.email,
     expiresAt: row.expiresAt.valueOf(),
     providerExpiresAt: row.providerExpiresAt.valueOf(),
     providerSessionId: row.providerSessionId,
@@ -82,6 +88,7 @@ export async function createDesktopSessionRecord(
 ): Promise<void> {
   await database.insert(desktopSessions).values({
     credentialDigest: record.credentialDigest,
+    email: record.email,
     expiresAt: new Date(record.expiresAt),
     providerExpiresAt: new Date(record.providerExpiresAt),
     providerSessionId: record.providerSessionId,

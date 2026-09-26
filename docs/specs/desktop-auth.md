@@ -97,6 +97,14 @@ verification.
 - Expired, revoked, or malformed sessions are cleared.
 - Sign-out and user-session revocation do **not** delete or revoke the separate
   RuntimeNode device credential.
+- The account allowlist (`ADEA_ALLOWED_EMAILS`) gates device sessions as well as
+  browser sessions, and it is checked when a session is **resolved**, not only
+  when one is issued. The provider email is recorded on the authorization code
+  and carried onto the session, so tightening the allowlist stops already-issued
+  device sessions immediately instead of leaving them working for their full 30
+  days. A session whose email is absent — one issued before the column existed —
+  is **denied** while an allowlist is configured, so an old record is never a
+  way past the allowlist. With no allowlist configured the check is a no-op.
 
 ## IPC contract
 

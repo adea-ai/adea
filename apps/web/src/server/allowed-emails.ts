@@ -4,6 +4,12 @@
  * workspace principal and guest (temporary) sessions are disabled. Unset or
  * empty restores the default open behavior.
  *
+ * Applies to EVERY session kind, browser and desktop alike, and is checked at
+ * RESOLVE time rather than only at issuance: a desktop session records the
+ * provider email, so tightening this list stops already-issued device sessions
+ * immediately. A session with no email on record is denied while the allowlist
+ * is configured, so a record predating the email column cannot be a way past it.
+ *
  * Read per call: on Workers the environment is request-scoped, and keeping the
  * read inside the functions makes dashboard edits take effect on the next
  * request without a redeploy.
