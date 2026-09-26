@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.60.2](https://github.com/adea-ai/adea/compare/v0.60.1...v0.60.2) (2026-09-26)
+
+
+### Bug Fixes
+
+* **security:** real owner approval for computer-use consent, plus contract-coverage and chat perf ([#714](https://github.com/adea-ai/adea/issues/714)) ([c0003b2](https://github.com/adea-ai/adea/commit/c0003b278e2874e5bccbf5f035502aa4a8c5ff3d))
+
 ## [0.60.1](https://github.com/adea-ai/adea/compare/v0.60.0...v0.60.1) (2026-09-25)
 
 
