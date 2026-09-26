@@ -962,13 +962,29 @@ export function FilesPane(props: FilesPaneProps): JSX.Element {
                   <div
                     class={cn('dev-files__row', { 'dev-files__row--dir': row.hasChildren })}
                     data-depth={Math.min(row.depth, 8)}
-                    onFocus={() =>
-                      setFocusedRow(
-                        rows().findIndex(
-                          (candidate) => candidate.node.relativePath === row.node.relativePath
-                        )
-                      )
+                    // The container claims `role="tree"`, so each row has to be
+                    // a real tree item. Without these, a screen reader announced
+                    // a tree and then exposed no items, no depth, and no
+                    // expanded state — the structure was invisible to anyone
+                    // not looking at the pixels.
+                    role="treeitem"
+                    aria-level={row.depth + 1}
+                    // No aria-selected: this tree has no selection model, only
+                    // a focused row, and inventing one here would be a feature.
+                    aria-expanded={
+                      row.hasChildren ? expanded().has(row.node.relativePath) : undefined
                     }
+                    onFocus={() => {
+                      // Index within the WINDOW, not the whole flattened list.
+                      // `rows()` is up to 100k entries on a large worktree, so
+                      // resolving a path back to its index by scanning it made
+                      // every Tab O(n) over the entire tree.
+                      const windowStart = rowSlice().start
+                      const offset = windowedRows().findIndex(
+                        (candidate) => candidate.node.relativePath === row.node.relativePath
+                      )
+                      if (offset !== -1) setFocusedRow(windowStart + offset)
+                    }}
                   >
                     <Show
                       when={row.hasChildren}

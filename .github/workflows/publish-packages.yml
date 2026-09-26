@@ -68,7 +68,12 @@ jobs:
       - name: Build published packages
         # The tarballs must contain dist/ output: the exports map serves
         # dist types and entry points to registry consumers.
-        run: bunx turbo run build --filter=@adea-ai/ui --filter=@adea-ai/asset-manifests --filter=@adea-ai/audio --filter=@adea-ai/spatial-protocol
+        #
+        # `@adea-ai/ui` is deliberately absent. It is not in `PUBLISH_PACKAGES`
+        # and not in the `paths` filter above, so building it here produced a
+        # tarball nothing consumed on every run. The removal has to be complete
+        # across all three lists; this is the third.
+        run: bunx turbo run build --filter=@adea-ai/asset-manifests --filter=@adea-ai/audio --filter=@adea-ai/spatial-protocol
 
       - name: Publish changed packages
         env:
