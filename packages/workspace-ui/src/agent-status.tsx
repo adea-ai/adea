@@ -1,5 +1,5 @@
 import type { AgentSummary } from '@adea-ai/types'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/app-ui/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 
 function StatusChip(props: { detail: string; label: string; tone: string }) {

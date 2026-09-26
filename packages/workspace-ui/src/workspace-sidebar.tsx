@@ -27,7 +27,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@adea-ai/app-ui/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/app-ui/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceNavigation } from './workspace-model'
@@ -355,7 +355,7 @@ export function WorkspaceSidebar(props: Props) {
               Mark all read
               <kbd>⇧⌘A</kbd>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Mark all read (Mod+Shift+A)</TooltipContent>
+            <TooltipContent placement="bottom">Mark all read (Mod+Shift+A)</TooltipContent>
           </Tooltip>
         </div>
 

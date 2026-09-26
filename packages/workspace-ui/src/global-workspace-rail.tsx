@@ -6,7 +6,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@adea-ai/app-ui/components/ui/tooltip'
+} from '@adea-ai/ui/components/ui/tooltip'
 import {
   Bell,
   BriefcaseBusiness,
@@ -62,7 +62,7 @@ function RailAction(props: RailActionProps) {
       >
         <props.icon aria-hidden="true" />
       </TooltipTrigger>
-      <TooltipContent side="right">{props.label}</TooltipContent>
+      <TooltipContent placement="right">{props.label}</TooltipContent>
     </Tooltip>
   )
 }
@@ -151,7 +151,7 @@ export function GlobalWorkspaceRail(props: {
   })
 
   return (
-    <TooltipProvider>
+    <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
       <nav class="global-rail" aria-label="Global navigation">
         <div class="global-rail__workspace" ref={setWorkspaceMenu}>
           <Tooltip>
@@ -168,7 +168,7 @@ export function GlobalWorkspaceRail(props: {
             >
               <WorkspaceMark workspace={props.activeWorkspace} />
             </TooltipTrigger>
-            <TooltipContent side="right">Switch workspace</TooltipContent>
+            <TooltipContent placement="right">Switch workspace</TooltipContent>
           </Tooltip>
           <Show when={workspaceMenuOpen()}>
             <div class="global-rail__workspace-menu" id={workspaceMenuId} role="menu">

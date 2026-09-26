@@ -1,4 +1,4 @@
-import { TooltipProvider } from '@adea-ai/app-ui/components/ui/tooltip'
+import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
 import {
   ConventionalWorkspaceShell,
   type WorkspaceDeepLink,
@@ -16,7 +16,7 @@ export function ConventionalWorkspaceEntry(props: {
   services: WorkspacePlatformServices
 }) {
   return (
-    <TooltipProvider>
+    <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
       <ConventionalWorkspaceShell
         deepLink={props.deepLink}
         manageSettings={props.manageSettings ?? true}
