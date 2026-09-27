@@ -3781,6 +3781,8 @@ icons. Virtual, Chat and Dev are bundled and enabled by default. Kanban and
 Source control are compiled optional destinations, enabled explicitly. Kanban
 mounts the existing task board through a route-scoped surface without changing
 the previous Chat surface. Library retains rail reorder and reset controls.
+Chat’s central conversation surface uses the canonical theme background in
+both light and dark modes, rather than imposing a separate grayscale palette.
 Each reorder moves one enabled app by one visible rail slot, skipping disabled
 and unknown entries while preserving their stored slots; boundary controls are
 disabled relative to that same enabled order, independently of Library filters.

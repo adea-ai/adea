@@ -1497,3 +1497,32 @@ test('themed shell and Library remain usable across desktop and narrow layouts',
   )
   await page.screenshot({ path: testInfo.outputPath('virtual-dark-mobile.png') })
 })
+
+test('Chat conversation surface follows the shared light and dark theme background', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const surface = page.locator('#workspace-main')
+  await expect(surface).toBeVisible()
+  for (const mode of ['Light', 'Dark']) {
+    await page.getByRole('button', { name: 'User settings', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+    await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
+    const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
+    await appearance
+      .getByRole('radiogroup', { name: 'Appearance mode', exact: true })
+      .getByText(mode, { exact: true })
+      .click()
+    await appearance.getByRole('button', { name: 'Save', exact: true }).click()
+    await page.keyboard.press('Escape')
+    await expect(settings).toBeHidden()
+    await expect(page.locator('html')).toHaveAttribute('data-appearance-mode', mode.toLowerCase())
+    const colors = await surface.evaluate((element) => ({
+      conversation: getComputedStyle(element).backgroundColor,
+      workspace: getComputedStyle(element.closest('.conventional-workspace')!).backgroundColor,
+    }))
+    expect(colors.conversation).toBe(colors.workspace)
+  }
+})

@@ -190,9 +190,9 @@
   --cw-surface-muted: var(--muted);
   --cw-sidebar: var(--card);
   --cw-sidebar-hover: var(--muted);
-  /* The conversation surface sits a step away from the sidebar/card tone so
-     the chat area reads as its own region. */
-  --cw-main: oklch(0.985 0 0);
+  /* The shared background separates the conversation from elevated cards
+     while retaining the selected palette in every appearance mode. */
+  --cw-main: var(--background);
   --cw-text: var(--foreground);
   --cw-muted: var(--muted-foreground);
   --cw-border: var(--border);
@@ -1637,10 +1637,9 @@
   background: color-mix(in srgb, var(--cw-priority-high-tint) 12%, transparent);
   color: var(--cw-priority-high);
 }
-/* Dark mode recesses the conversation surface below the elevated sidebars. */
+/* Dark-mode status contrast stays independent of conversation depth. */
 .dark .conventional-workspace,
 .dark .conventional-dialog {
-  --cw-main: oklch(0.145 0 0);
   --cw-priority-high: #ffb86b;
   --cw-warning-foreground: #ffd28a;
   --cw-warning-surface: #3a2b14;
