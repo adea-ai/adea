@@ -3,29 +3,63 @@ import { createEffect, createSignal, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 
+type PrivateContentIdentity = Readonly<{
+  contentRefId: string
+  resolver: PrivateContentResolver
+  workspaceId: string
+}>
+
+type PrivateContentResolution = PrivateContentIdentity &
+  Readonly<{ status: 'loading' | 'failed' } | { plaintext: string; status: 'resolved' }>
+
+function samePrivateContentIdentity(left: PrivateContentIdentity, right: PrivateContentIdentity) {
+  return (
+    left.resolver === right.resolver &&
+    left.workspaceId === right.workspaceId &&
+    left.contentRefId === right.contentRefId
+  )
+}
+
 export function TaskObjective(props: {
   privateContent?: PrivateContentResolver
   task: TaskSummary
 }) {
-  const [resolved, setResolved] = createSignal<string | null>(null)
-  const [failed, setFailed] = createSignal(false)
+  const [resolution, setResolution] = createSignal<PrivateContentResolution>()
+  const currentIdentity = (): PrivateContentIdentity | undefined => {
+    const contentRefId = props.task.objectiveContentRefId
+    const resolver = props.privateContent
+    if (!contentRefId || props.task.objective || !resolver) return
+    return { contentRefId, resolver, workspaceId: props.task.workspaceId }
+  }
+  const currentResolution = () => {
+    const identity = currentIdentity()
+    const value = resolution()
+    return identity && value && samePrivateContentIdentity(identity, value) ? value : undefined
+  }
+  const resolved = () => {
+    const value = currentResolution()
+    return value?.status === 'resolved' ? value.plaintext : null
+  }
+  const failed = () => currentResolution()?.status === 'failed'
 
   createEffect(() => {
     let active = true
     onCleanup(() => {
       active = false
     })
-    setResolved(null)
-    setFailed(false)
-    const contentRefId = props.task.objectiveContentRefId
-    if (!contentRefId || props.task.objective || !props.privateContent) return
-    void props.privateContent
-      .read({ contentId: contentRefId, workspaceId: props.task.workspaceId })
+    const identity = currentIdentity()
+    if (!identity) {
+      setResolution(undefined)
+      return
+    }
+    setResolution({ ...identity, status: 'loading' })
+    void identity.resolver
+      .read({ contentId: identity.contentRefId, workspaceId: identity.workspaceId })
       .then(({ plaintext }) => {
-        if (active) setResolved(plaintext)
+        if (active) setResolution({ ...identity, plaintext, status: 'resolved' })
       })
       .catch(() => {
-        if (active) setFailed(true)
+        if (active) setResolution({ ...identity, status: 'failed' })
       })
   })
 
