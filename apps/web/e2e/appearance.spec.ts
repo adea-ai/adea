@@ -61,9 +61,11 @@ test.describe('appearance', () => {
     await expect(page.locator('html')).toHaveClass(/dark/)
 
     await editor(panel).getByText('Adea Dark', { exact: true }).click()
-    await page.getByRole('option', { name: 'Slate Dark' }).click()
+    await page.getByRole('menuitemradio', { name: 'Slate Dark', exact: true }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
-    await expect(editor(panel).getByRole('button', { name: 'Dark theme Slate Dark' })).toBeVisible()
+    await expect(editor(panel).getByRole('button', { name: 'Dark theme', exact: true })).toHaveText(
+      'Slate Dark'
+    )
 
     await panel.getByRole('button', { name: 'Save' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'slate-dark')
