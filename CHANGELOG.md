@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.2](https://github.com/adea-ai/adea/compare/v0.62.1...v0.62.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **dev-runtime:** resolve devices from verified inventory metadata ([#769](https://github.com/adea-ai/adea/issues/769)) ([ac1b465](https://github.com/adea-ai/adea/commit/ac1b465b5dbff0b0bfb2575c56c0ac8bf3e10b73))
+
 ## [0.62.1](https://github.com/adea-ai/adea/compare/v0.62.0...v0.62.1) (2026-09-27)
 
 
