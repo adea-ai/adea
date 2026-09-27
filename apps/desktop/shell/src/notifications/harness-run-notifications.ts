@@ -51,8 +51,8 @@ export function requestNativeChatNotification(
 }
 
 /**
- * Compares bounded durable HarnessRun snapshots on the shell publish path.
- * `RunHistoryStore.list()` already enforces its 200-run retention bound.
+ * Compares durable HarnessRun snapshots on the shell publish path.
+ * The store targets 200 retained runs but never evicts active runs.
  */
 export function createHarnessRunNotificationPublisher(input: {
   readRuns: () => readonly HarnessRun[]

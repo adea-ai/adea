@@ -1381,12 +1381,13 @@ component journeys. Returning-session coverage observes the actual component
 through a synthetic bridge and verifies presentation clearing while attaching
 and on disposal; this is separate from native notification delivery.
 
-The desktop shell derives notification intents from the canonical bounded
+The desktop shell derives notification intents from the canonical
 `RunHistoryStore.list()` snapshot. It seeds a baseline after host composition
 and compares snapshots only after the harness has durably recorded a
 `run.status` transition, published as `dev.harness.updated` with
-`kind: 'run.status'`. The store's existing 200-run retention bound applies;
-the notification path owns no second run index or event watcher. It advances
+`kind: 'run.status'`. The store targets 200 retained records by dropping old
+terminal runs; active runs are never evicted, so this is not a hard snapshot
+size ceiling. The notification path owns no second run index or event watcher. It advances
 the baseline even when focus suppresses a request or the native request fails,
 so a transition is never replayed later as a new alert.
 
