@@ -10370,17 +10370,17 @@
         "website/src/pages/chat/groupDisplayItems.ts"
       ],
       "sourceReview": "Full ChatMessageList, messageRenderers, TurnBlock and CollapsibleToolGroup read; groupDisplayItems grouping and stable-reconciliation boundary inspected. Nearest embed grouping, durable/pinned disclosure and row-memo tests read. Remaining dependency/helper tests require review before copying their algorithms.",
-      "currentImplementation": "Adea packages/dev-view/src/chat/chat-transcript.tsx retains flat bounded projected rows. Shared UI MessageRow has no turn/tool composition and a user-delivery claim that must not be substituted for runtime evidence. No adapted turn/tool equivalent found in the inspected shared source.",
+      "currentImplementation": "Published UI0.68.0 supplies TranscriptComposition, stable keyed rows, host-controlled disclosure and evidence-bound tool composition. Adea adopts stable row identity through packages/dev-view/src/chat/transcript-composition.ts and chat-transcript.tsx; opaque native payloads stay visible and unfolded. Native tool identity/phase/synthesis/final-answer producers remain unproven; see docs/evidence/donor-ui-runtime-event-boundary.md.",
       "destination": "adea-ai/ui host-neutral conversation composition; Adea canonical runtime projection and service callbacks stay application-owned.",
       "license": "Apache-2.0; preserve Amazon copyright, exact selected source attribution and NOTICE before porting.",
       "readiness": {
         "sourceReviewed": "selected_composition_and_nearest_invariants; helper_review_pending",
         "reusePermitted": "Apache-2.0_with_attribution",
-        "behaviorPorted": "pending",
-        "libraryReady": "pending",
-        "consumerMounted": "pending",
-        "functionalEndToEnd": "pending",
-        "packagedApplicationEvidence": "pending"
+        "behaviorPorted": "shared_library_port_merged_UI50; application_keyed_rows_adopted_ab149e26",
+        "libraryReady": "published_UI0.68.0; producer-specific_fold_eligibility_application_owned",
+        "consumerMounted": "production_ChatTranscript_import_ab149e26; full_real_runtime_route_acceptance_pending",
+        "functionalEndToEnd": "headless_production-style_keyed_row_regression_pass; native_runtime_producer_and_real_session_route_pending",
+        "packagedApplicationEvidence": "pending; no native structured-event acceptance inferred"
       },
       "requiredBehavior": [
         "Explicit disclosure choice survives incidental running/idle frames and host remount.",
@@ -10459,6 +10459,28 @@
       "evidence": "Historical appearance journey14tests and headed conventional visual15tests passed in isolated fixtures. Mandatory headless conventional visual run at4af56ce7 passed9behavior cases and reported6Darwin snapshot mismatches; classification pending and headed run is not current visual acceptance. At4af56ce7 production JS1658243 exceeds1623000 by35243; no cap raised.",
       "limits": "This does not establish whole-app shared design-system removal, packaged native behavior, Cortana migration or full donor acceptance.",
       "reviewFollowUp": "Independent MAX review found account/version dialog triggers lost aria-expanded highlight after adopting published Button. Sanctioned state hook and actual toggle regression remain required."
+    },
+    "latestVerifiedCheckpoint": {
+      "checkedApplicationHead": "ab149e26b1e5fa886ca1eade8e41da34f9bfe4c2",
+      "uiVersion": "0.68.0",
+      "uiReleaseCommit": "0bd703fdeb618c9d76720113caf7e934f3056c58",
+      "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36292545234",
+      "uiRegistryIntegrity": "sha512-Cv2BjKCfd+3HXij6TRmqNDaTcPnypxenvXDIiKXkCbXGsvHo0DH2ljdSP1TJuvZXnIaSkqn7scwHvNMzF4/zsg==",
+      "applicationEvidence": {
+        "publishedDependencies": "apps/web, packages/ui, packages/workspace-ui and packages/dev-view pin the actual npm UI0.68.0 artifact; no source alias qualification.",
+        "transcriptRegression": "apps/web/e2e/chat-transcript-composition.spec.ts fails with previous positional renderer and passes with published keyed rows: prepend preserves focus/draft/DOM identity; canonical session/generation reset clears response drafts; opaque hints do not hide rows.",
+        "focusedValidation": "Dev suite 354 tests / 1124 assertions; Dev, private UI and workspace UI types pass; focused lint/format/docs-boundary pass. Existing shadcn visually-hidden contract diagnostic remains.",
+        "pendingValidation": "Web typecheck interrupted under concurrent compiler load; new normal production build, unchanged bundle guard and final independent review pending.",
+        "lastProductionBudget": "Earlier ae26f52e actual published UI0.67.1 build: 1639555 client JavaScript bytes vs 1623000 cap. This historical measurement does not qualify ab149e26."
+      },
+      "releaseBoundary": "UI0.68.0 includes transcript composition but not pending appearance PR43 or atomic paste/editor PR48. Actual releases containing those changes remain required for their consumer qualification.",
+      "residualSourceCheck": {
+        "715": "deriveChatNotifications and publishChatNotifications still have no production caller or shell sink; model tests do not establish delivery.",
+        "718": "BrowserPane mounted through dev-workspace-entry; annotate only toggles local state and Escape cancels. No production renderer calls dev.browser.annotate or dev.browser.inspect.",
+        "735": "BrowserPane still discards screenshot result; Back/Forward/Reload refetch targets; system-browser control has no handler. Existing engine and contract tests do not prove these rendered controls.",
+        "719": "Issue-level acceptance reconciliation remains in progress; issue closure and passing fixtures are not real runtime acceptance."
+      },
+      "limits": "Historical records remain separate. Publication, fixture/browser regressions and source reachability do not establish full donor fidelity, native live-session continuity or complete Cortana migration."
     }
   }
 }
