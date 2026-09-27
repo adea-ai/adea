@@ -25,12 +25,19 @@ reload recovery, and canonical Chat reading restoration. This is local productio
 composition with mocked transport, not packaged macOS acceptance. Actual Settings-driven dark/light desktop and narrow-layout screenshots pass.
 Native traffic lights, dragging and fullscreen remain outstanding. The actual
 published-package production build succeeds but the total client JavaScript guard
-fails (1,706,381 bytes against 1,623,000 after allowing unused strict-decoder
-table construction to be tree-shaken); the cap remains unchanged, and this
+fails; the cap remains unchanged, and this
 checkpoint does not authorize marking the migration ready or complete.
 
-The decoder table remains public and strict on every server/native consumer.
-Its pure initializer only builds closures over the operation registry; it does
-not execute a decoder or host effect. The existing strict decoder suite passes
-76 tests / 457 assertions. All-disabled Library recovery also focuses its own
-search field and keeps same-route navigation idempotent.
+A clean canonical CLI build at the Search/focus checkpoint measured 1,718,369
+bytes, still above the 1,623,000-byte cap. This supersedes the instrumented build's
+1,706,381-byte estimate: that diagnostic runner did not disable config auto-load,
+so it cannot qualify the standard build. The attempted pure decoder-table
+annotation did not improve the canonical output and was removed. All-disabled
+Library recovery focuses its own search field and keeps same-route navigation
+idempotent.
+
+Returning desktop Chat now shares Dev's canonical selected session and donor
+contextual sidebar. Three focused browser cases mount the actual desktop Chat
+entry with a typed runtime transport: draft retention across Dev remount,
+late-selection fencing, and refused-attach retry. These are local composition
+checks, not packaged daily-driver certification or input-authority acceptance.

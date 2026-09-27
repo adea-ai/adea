@@ -80,3 +80,11 @@
   :is(.conventional-mobile-menu, .workspace-scene-caption) {
   display: none;
 }
+
+/* The contextual hierarchy remains beside the canonical runtime Chat. */
+.workspace-runtime-chat {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}

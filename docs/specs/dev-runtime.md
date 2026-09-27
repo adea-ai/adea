@@ -1388,7 +1388,16 @@ The initial UI projection and adapter are implemented in
 surface only after the authenticated runtime projection, ready worktree list,
 and workspace `AgentProfile` list resolve from their owning authorities;
 missing records leave the existing Chat surface in place and never create a
-synthetic launch context. The current desktop API has no Control Plane model-
+synthetic launch context. Returning desktop Chat instead attaches the selected live canonical session
+from the authenticated runtime projection and paged session registry. It shares
+Dev's project/session selection and the donor contextual hierarchy, including
+its common collapse state. It does not require first-run worktrees, workspace
+AgentProfiles or managed-Pi install facts to read an existing conversation.
+Selection, scope replacement and unmount fence every deferred attachment;
+failures keep a visible canonical retry state rather than silently substituting
+team chat. View switches use read/stream operations only and cannot create,
+launch or resume a session. First-run creation refreshes that same hierarchy.
+The current desktop API has no Control Plane model-
 entitlement projection, so signed-in onboarding stays at an explicit
 model-access gate and guest onboarding requires sign-in; no client-side
 entitlement is inferred from identity or profile data. Packaged first-run

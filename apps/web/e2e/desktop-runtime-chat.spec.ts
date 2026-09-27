@@ -1,0 +1,72 @@
+import { expect, test } from '@playwright/test'
+import { resolve } from 'node:path'
+
+async function mount(page: import('@playwright/test').Page) {
+  const path = '/__desktop-runtime-chat'
+  await page.route('**' + path, (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<html><head><style>html,body,#harness-root{margin:0;height:100%;}#harness-root>.dev-workspace__body{height:100%;}</style></head><body><div id="harness-root"></div></body></html>',
+    })
+  )
+  await page.goto(path)
+  const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/desktop-runtime-chat-harness-app.tsx')
+  await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + entry}'` })
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+}
+
+test('returning desktop Chat mounts canonical sessions and retains draft through Dev remount', async ({
+  page,
+}) => {
+  const errors: string[] = []
+  page.on('pageerror', (error) => errors.push(error.message))
+  await mount(page)
+  await expect(page.getByRole('complementary', { name: 'Projects and sessions' })).toBeVisible()
+  await page.evaluate(() => window.desktopRuntimeChatHarness.saveDraft('Scoped unfinished draft'))
+  await page.evaluate(() => window.desktopRuntimeChatHarness.unmount())
+  await expect(page.getByText('Dev surface', { exact: true })).toBeVisible()
+  await page.evaluate(() => window.desktopRuntimeChatHarness.remount())
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  const report = await page.evaluate(() => window.desktopRuntimeChatHarness.report())
+  expect(report.draft).toBe('Scoped unfinished draft')
+  expect(report.closes).toBeGreaterThan(0)
+  expect(
+    report.calls.every((operation) =>
+      ['dev.project.list', 'dev.group.list', 'dev.session.list', 'dev.session.events'].includes(
+        operation
+      )
+    )
+  ).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('late desktop Chat attach cannot replace a newer selected session', async ({ page }) => {
+  await mount(page)
+  await page.evaluate(() => {
+    window.desktopRuntimeChatHarness.delayNextAttach()
+    window.desktopRuntimeChatHarness.selectSecond()
+  })
+  await expect(page.getByText('Opening conversation…')).toBeVisible()
+  await page.evaluate(() => window.desktopRuntimeChatHarness.selectFirst())
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  await page.evaluate(() => window.desktopRuntimeChatHarness.resolveAttach())
+  await expect(page.getByRole('heading', { name: 'First canonical session' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Second canonical session' })).toHaveCount(0)
+})
+
+test('refused returning Chat stays in canonical recovery and retries without launching', async ({
+  page,
+}) => {
+  await mount(page)
+  await page.evaluate(() => {
+    window.desktopRuntimeChatHarness.refuseAttach(true)
+    window.desktopRuntimeChatHarness.selectSecond()
+  })
+  await expect(
+    page.getByText('This conversation is unavailable. Retry or select another session.')
+  ).toBeVisible()
+  await expect(page.getByText('Legacy team chat')).toHaveCount(0)
+  await page.evaluate(() => window.desktopRuntimeChatHarness.refuseAttach(false))
+  await page.getByRole('button', { name: 'Retry conversation' }).click()
+  await expect(page.getByRole('heading', { name: 'Second canonical session' })).toBeVisible()
+})

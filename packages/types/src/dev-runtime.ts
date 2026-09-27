@@ -4233,24 +4233,21 @@ export function decodeDevReply(value: unknown): DevReply {
   return value as DevReply
 }
 
-// Building the closed-over lookup invokes no decoder or host effect. Keep it
-// removable when a client imports registry metadata without protocol validators.
-export const devOperationDecoders = /* @__PURE__ */ (() =>
-  Object.freeze(
-    Object.fromEntries(
-      devOperations.map((operation) => [
-        operation,
-        Object.freeze({
-          request: (value: unknown) => decodeRequestBody(operation, value),
-          reply: (value: unknown) => {
-            const reply = decodeDevReply(value)
-            if (reply.operation !== operation) fail('reply.operation', `expected ${operation}`)
-            return reply
-          },
-        }),
-      ])
-    )
-  ))() as Readonly<
+export const devOperationDecoders = Object.freeze(
+  Object.fromEntries(
+    devOperations.map((operation) => [
+      operation,
+      Object.freeze({
+        request: (value: unknown) => decodeRequestBody(operation, value),
+        reply: (value: unknown) => {
+          const reply = decodeDevReply(value)
+          if (reply.operation !== operation) fail('reply.operation', `expected ${operation}`)
+          return reply
+        },
+      }),
+    ])
+  )
+) as Readonly<
   Record<
     DevOperation,
     Readonly<{
