@@ -26,4 +26,24 @@ test('plugin loading reports progress outside busy decorative placeholders', asy
   expect(await element!.evaluate((node) => node.isConnected)).toBe(true)
   await expect(dialog.locator('.plugins-browser__skeleton')).toHaveCount(0)
   await expect(dialog.getByText('No matching plugins')).toBeVisible()
+  const filter = dialog.getByRole('button', { name: 'Filter', exact: true })
+  await filter.click()
+  await expect(page.getByRole('menu')).toBeVisible()
+  await page.getByRole('menuitemradio', { name: 'Skills', exact: true }).click()
+  await expect(page.getByRole('menuitemradio', { name: 'Skills', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true'
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(filter).toHaveAttribute('aria-pressed', 'true')
+  await filter.click()
+  await expect(page.getByRole('menuitemradio', { name: 'Skills', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true'
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(dialog).toBeVisible()
+  await expect(filter).toBeFocused()
 })

@@ -161,26 +161,6 @@
 
 .global-account-menu {
   min-width: 15rem;
-  padding: 0.4rem;
-  border-radius: 0.75rem;
-}
-
-.global-account-menu [data-slot='dropdown-menu-item'] {
-  min-height: 2.25rem;
-  gap: 0.65rem;
-  padding: 0.45rem 0.55rem;
-  font-size: 0.86rem;
-}
-
-.global-account-menu [data-slot='dropdown-menu-item'] svg {
-  width: 1.05rem;
-  height: 1.05rem;
-  color: var(--muted-foreground);
-}
-
-.global-account-menu [data-slot='dropdown-menu-item']:not([data-disabled]):hover svg,
-.global-account-menu [data-slot='dropdown-menu-item']:focus svg {
-  color: currentColor;
 }
 
 .conventional-workspace,
@@ -509,14 +489,6 @@
   width: 2rem;
   height: 2rem;
   flex-shrink: 0;
-}
-.conventional-channel-actions [data-slot='dropdown-menu-trigger'],
-.conventional-room-actions [data-slot='dropdown-menu-trigger'] {
-  background: var(--cw-sidebar-hover);
-}
-.conventional-channel-actions [data-slot='dropdown-menu-trigger']:hover,
-.conventional-room-actions [data-slot='dropdown-menu-trigger']:hover {
-  background: color-mix(in srgb, var(--cw-sidebar-hover) 70%, var(--cw-text));
 }
 .conventional-room-actions button svg,
 .conventional-channel-actions button svg {

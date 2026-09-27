@@ -9,7 +9,7 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@adea-ai/app-ui/components/ui/dropdown-menu'
+} from '@adea-ai/ui/components/ui/dropdown-menu'
 import {
   Empty,
   EmptyDescription,
@@ -92,7 +92,12 @@ function PluginFilterMenu(props: {
           <span class="plugins-filter__dot" aria-hidden="true" />
         </Show>
       </DropdownMenuTrigger>
-      <DropdownMenuContent class="plugins-filter" align="start">
+      <DropdownMenuContent
+        hideArrow
+        placement="bottom-start"
+        gutter={4}
+        class="plugins-filter max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
+      >
         <DropdownMenuGroup>
           <DropdownMenuLabel>Type</DropdownMenuLabel>
           <DropdownMenuRadioGroup
