@@ -10550,7 +10550,7 @@
       "reviewFollowUp": "Independent MAX review found account/version dialog triggers lost aria-expanded highlight after adopting published Button. Sanctioned state hook and actual toggle regression remain required."
     },
     "latestVerifiedCheckpoint": {
-      "checkedApplicationHead": "02c64099",
+      "checkedApplicationHead": "bfa19a48ac531c66febb593e368646f319046598",
       "uiVersion": "0.71.4",
       "themesVersion": "0.6.1",
       "uiReleaseCommit": "2aa5d585e337e8a201a029e6476bd55b72da40ab",
@@ -10559,19 +10559,20 @@
       "applicationEvidence": {
         "publishedDependencies": "All four Adea UI consumers pin the actual npm UI0.71.4 archive; Themes resolves once at0.6.1. No local source alias qualification.",
         "appearanceRegression": "Published ModalDialog preserves mounted editor, unsaved preview and focus on Close/Escape; final corner-control containment is checked after entrance animations. Last copied Dialog and unused direct Kobalte dependency removed.",
-        "focusedValidation": "Current runtime source passed web/desktop builds, 15 affected dependency/typecheck tasks, 26 layout/boundary tests and eight docs/build-boundary tests. Corrected mobile320/768/200%zoom and focus assertions pass; full Dev/history acceptance is still incomplete. Gate-only correction at02c64099 passed six combined-budget regressions and four docs checks. Prior appearance and broader test counts remain in checkpoint history, not claimed as rerun.",
+        "focusedValidation": "At bfa19a48 canonical web build, Dev types, scoped lint/format, docs4/4 and full Dev browser18/18 pass. Desktop artifact smoke and prior broader package/layout/appearance suites are historical evidence retained below, not rerun for this slice.",
         "productionBudget": {
-          "clientJavaScriptBytes": 1539127,
+          "clientJavaScriptBytes": 1539018,
           "clientJavaScriptBudget": 1623000,
           "clientJavaScriptFiles": 69,
           "clientJavaScriptFileBudget": 72,
-          "devEntryBytes": 80012,
+          "devEntryBytes": 79903,
           "devRendererBytes": 34209,
-          "combinedDevBytes": 114221,
+          "combinedDevBytes": 114112,
           "devChunkBudget": 86016,
           "status": "Client aggregate guard passes; unchanged combined Dev allowance fails. Independent MAX review rejected applying the cap separately after immediate-load splitting. PR760 remains draft."
         },
-        "nativeArtifactSmoke": "Canonical desktop SPA actual emitted artifact loads native entry once and retries refused bootstrap without remount. Synthetic bridge only; not a real PTY or cloud-authority acceptance."
+        "nativeArtifactSmoke": "Previous ce533d48 canonical desktop artifact smoke passed with a synthetic bridge; not rerun at bfa19a48 and not real PTY/cloud authority acceptance.",
+        "freshSessionLayout": "One initial terminal leaf; selecting a file creates/reuses the editor. Explicit splits and restored documents unchanged. Independent MAX review clean at bfa19a48."
       },
       "residualSourceCheck": {
         "715": "Notification derive/publish helpers still lack a production caller or shell sink.",
@@ -10580,17 +10581,17 @@
         "719": "Recursive issue/PR semantics, donor fidelity and real-runtime acceptance remain in progress."
       },
       "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration.",
-      "runtimeBuildSourceHead": "ce533d482c54f4f4fdf3937635aaa2aedcc72517",
-      "currentIndependentReview": "MAX review atce533d48 found the Dev cap was effectively relaxed. The gate now sums entry and renderer against the original allowance; six regressions pass and actual artifact fails as expected. No other source issue found; same-workspace Product collapse passed three repeats and full18-test rerun without a state fix; earlier transient cause remains unexplained.",
+      "runtimeBuildSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
+      "currentIndependentReview": "MAX review of bfa19a48 found no actionable issue: one-leaf fallback preserves explicit splits, editor creation/reuse and ready saved-layout restoration. Combined Dev budget remains failing; no allowance change.",
       "separateReleaseProgress": {
         "uiPublisher": "UI87 merged; real UI0.71.5 publish run36333613463 passed trusted publishing and consumer-archive confirmation. Adea remains pinned to qualified0.71.4 until a coherent new consumer adoption.",
         "themes": "Themes0.6.2 published; UI destructive-role consumer and Cortana migration still require qualification.",
-        "dialog": "UI89 packed Dialog geometry is now part of existing Appearance PR/release jobs; MAX review clean, current-head CI/merge/release pending."
+        "dialog": "UI89 squashmerged eaf149f451c039542144bd01e46fd3a10076e2c1 after required current-head checks passed. Source and generated registry payload aligned; normal npm release still pending."
       },
       "currentBrowserEvidence": {
-        "runtimeSourceHead": "ce533d482c54f4f4fdf3937635aaa2aedcc72517",
-        "fullDev": "18/18 passed in26s after all temporary diagnostics removed; test-results/.last-run.json statuspassed with no failedTests.",
-        "focused": "4/4 responsive/focus cases passed; exact history case passed3/3 repeats.",
+        "runtimeSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
+        "fullDev": "18/18 passed in37.8s after one-terminal default change, including explicit split/resize/move/undo and persisted55% ratio after reload.",
+        "focused": "Prior ce533d48 responsive/focus4/4 and exact history3/3 repeat evidence retained in history; full suite rerun at bfa19a48 includes those cases.",
         "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
       }
     },
@@ -10646,6 +10647,51 @@
           "719": "Recursive issue/PR semantics, donor fidelity and real-runtime acceptance remain in progress."
         },
         "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration."
+      },
+      {
+        "checkedApplicationHead": "02c64099",
+        "uiVersion": "0.71.4",
+        "themesVersion": "0.6.1",
+        "uiReleaseCommit": "2aa5d585e337e8a201a029e6476bd55b72da40ab",
+        "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36328803921",
+        "uiRegistryIntegrity": "sha512-Y4DDzzCA4N2QVW6MWr7rJCTN3Il7wXuDcC9t9z0V4/IzQJ1d2fkKQfslgHGvNm8HSsTeL9VSdbp/njYjk7K2Wg==",
+        "applicationEvidence": {
+          "publishedDependencies": "All four Adea UI consumers pin the actual npm UI0.71.4 archive; Themes resolves once at0.6.1. No local source alias qualification.",
+          "appearanceRegression": "Published ModalDialog preserves mounted editor, unsaved preview and focus on Close/Escape; final corner-control containment is checked after entrance animations. Last copied Dialog and unused direct Kobalte dependency removed.",
+          "focusedValidation": "Current runtime source passed web/desktop builds, 15 affected dependency/typecheck tasks, 26 layout/boundary tests and eight docs/build-boundary tests. Corrected mobile320/768/200%zoom and focus assertions pass; full Dev/history acceptance is still incomplete. Gate-only correction at02c64099 passed six combined-budget regressions and four docs checks. Prior appearance and broader test counts remain in checkpoint history, not claimed as rerun.",
+          "productionBudget": {
+            "clientJavaScriptBytes": 1539127,
+            "clientJavaScriptBudget": 1623000,
+            "clientJavaScriptFiles": 69,
+            "clientJavaScriptFileBudget": 72,
+            "devEntryBytes": 80012,
+            "devRendererBytes": 34209,
+            "combinedDevBytes": 114221,
+            "devChunkBudget": 86016,
+            "status": "Client aggregate guard passes; unchanged combined Dev allowance fails. Independent MAX review rejected applying the cap separately after immediate-load splitting. PR760 remains draft."
+          },
+          "nativeArtifactSmoke": "Canonical desktop SPA actual emitted artifact loads native entry once and retries refused bootstrap without remount. Synthetic bridge only; not a real PTY or cloud-authority acceptance."
+        },
+        "residualSourceCheck": {
+          "715": "Notification derive/publish helpers still lack a production caller or shell sink.",
+          "terminal": "Production DevWorkspaceEntry still renders only the development fixture or placeholder. Exact terminal identity, separate read/write grants, generation/cursor reconnect fences, measured outbound queue and live TerminalPane caller remain required.",
+          "browser": "Binary browser relay PR773 is merged and released in Adea0.62.4. BrowserPane pixel projection and native host redaction/renderer qualification remain incomplete; transport does not prove pixel acceptance.",
+          "719": "Recursive issue/PR semantics, donor fidelity and real-runtime acceptance remain in progress."
+        },
+        "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration.",
+        "runtimeBuildSourceHead": "ce533d482c54f4f4fdf3937635aaa2aedcc72517",
+        "currentIndependentReview": "MAX review atce533d48 found the Dev cap was effectively relaxed. The gate now sums entry and renderer against the original allowance; six regressions pass and actual artifact fails as expected. No other source issue found; same-workspace Product collapse passed three repeats and full18-test rerun without a state fix; earlier transient cause remains unexplained.",
+        "separateReleaseProgress": {
+          "uiPublisher": "UI87 merged; real UI0.71.5 publish run36333613463 passed trusted publishing and consumer-archive confirmation. Adea remains pinned to qualified0.71.4 until a coherent new consumer adoption.",
+          "themes": "Themes0.6.2 published; UI destructive-role consumer and Cortana migration still require qualification.",
+          "dialog": "UI89 packed Dialog geometry is now part of existing Appearance PR/release jobs; MAX review clean, current-head CI/merge/release pending."
+        },
+        "currentBrowserEvidence": {
+          "runtimeSourceHead": "ce533d482c54f4f4fdf3937635aaa2aedcc72517",
+          "fullDev": "18/18 passed in26s after all temporary diagnostics removed; test-results/.last-run.json statuspassed with no failedTests.",
+          "focused": "4/4 responsive/focus cases passed; exact history case passed3/3 repeats.",
+          "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
+        }
       }
     ]
   }
