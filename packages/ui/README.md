@@ -19,7 +19,8 @@ respects reduced motion. Existing layout hooks remain at their callers. Capabili
 labels use published Badge with the same default, secondary, outline, and
 destructive semantics; the private Badge implementation is removed. Plugin empty states use published
 Empty composition, with caller layout preserving flexible list sizing; the
-private Empty copy is removed.
+private Empty copy is removed. Remaining Field composition uses the published
+Label, retaining native `for` associations and disabled-group behavior.
 
 ## Theming contract: CSS custom properties are the only color surface
 

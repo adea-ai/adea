@@ -2,7 +2,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { createMemo, Show, splitProps, type ComponentProps, type JSX } from 'solid-js'
 
 import { cn } from '#lib/utils'
-import { Label } from '#components/ui/label'
+import { Label } from '@adea-ai/ui/components/ui/label'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 
 function FieldSet(props: ComponentProps<'fieldset'>) {
