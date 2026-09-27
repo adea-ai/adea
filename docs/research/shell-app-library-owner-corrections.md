@@ -22,8 +22,15 @@ canonicalizes all-disabled recovery links before enablement.
 
 Focused headless browser checks cover these routes, back/forward branching,
 reload recovery, and canonical Chat reading restoration. This is local production
-composition with mocked transport, not packaged macOS acceptance. Native traffic
-lights, dragging, fullscreen and theme screenshots remain outstanding. The actual
+composition with mocked transport, not packaged macOS acceptance. Actual Settings-driven dark/light desktop and narrow-layout screenshots pass.
+Native traffic lights, dragging and fullscreen remain outstanding. The actual
 published-package production build succeeds but the total client JavaScript guard
-fails (1,716,971 bytes against 1,623,000); the cap remains unchanged, and this
+fails (1,706,381 bytes against 1,623,000 after allowing unused strict-decoder
+table construction to be tree-shaken); the cap remains unchanged, and this
 checkpoint does not authorize marking the migration ready or complete.
+
+The decoder table remains public and strict on every server/native consumer.
+Its pure initializer only builds closures over the operation registry; it does
+not execute a decoder or host effect. The existing strict decoder suite passes
+76 tests / 457 assertions. All-disabled Library recovery also focuses its own
+search field and keeps same-route navigation idempotent.

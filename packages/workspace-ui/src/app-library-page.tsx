@@ -10,7 +10,7 @@ import {
   Map,
   MessageSquareText,
 } from 'lucide-solid'
-import { createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, Show } from 'solid-js'
 import type { RailPreferencesV1 } from './rail-preferences'
 import { enabledWorkspaceApps, workspaceApps, type WorkspaceAppId } from './workspace-apps'
 
@@ -24,12 +24,17 @@ const APP_ICONS = {
 
 /** Build-owned apps, separate from the external extensions marketplace. */
 export function AppLibraryPage(props: {
+  focusSearch?: boolean
   preferences: RailPreferencesV1
   onSetEnabled(id: WorkspaceAppId, enabled: boolean): void
   onOpen(id: WorkspaceAppId): void
   onReorder(id: WorkspaceAppId, direction: 'down' | 'up'): void
   onReset(): void
 }) {
+  let searchInput: HTMLInputElement | undefined
+  createEffect(() => {
+    if (props.focusSearch) searchInput?.focus()
+  })
   const [enabledOnly, setEnabledOnly] = createSignal(false)
   const [search, setSearch] = createSignal('')
   const enabled = () => new Set(enabledWorkspaceApps(props.preferences).map((app) => app.id))
@@ -49,6 +54,7 @@ export function AppLibraryPage(props: {
         <label class="workspace-app-library__search">
           <span class="visually-hidden">Search apps</span>
           <Input
+            ref={(element) => (searchInput = element)}
             type="search"
             placeholder="Search apps"
             value={search()}

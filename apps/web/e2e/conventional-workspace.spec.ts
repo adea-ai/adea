@@ -1240,6 +1240,11 @@ test('App Library enables views separately from Plugins and remains reachable wi
   await expect(rail.getByRole('button', { name: 'Virtual view', exact: true })).toHaveCount(0)
   await page.reload()
   await expect(library).toBeVisible()
+  await page
+    .getByLabel('Workspace toolbar')
+    .getByRole('button', { name: 'Search workspace', exact: true })
+    .click()
+  await expect(library.getByRole('searchbox', { name: 'Search apps', exact: true })).toBeFocused()
   await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
   await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
   await expect(page.locator('.conventional-workspace')).toBeVisible()
@@ -1362,4 +1367,46 @@ test('Kanban leaves the prior Chat surface intact and Library keeps reorder/rese
       .getAttribute('aria-label')
   ).toBe('Virtual view')
   await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
+})
+
+test('themed shell and Library remain usable across desktop and narrow layouts', async ({
+  page,
+}, testInfo) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat&app=library')
+  const library = page.getByRole('main', { name: 'App Library' })
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await expect(library).toBeVisible()
+  const light = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await page.screenshot({ path: testInfo.outputPath('library-light-desktop.png') })
+  await page.getByRole('button', { name: 'User settings', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  await settings.getByRole('tab', { name: 'Appearance', exact: true }).click()
+  const appearance = settings.getByRole('region', { name: 'Appearance', exact: true })
+  await appearance
+    .getByRole('radiogroup', { name: 'Appearance mode', exact: true })
+    .getByText('Dark', { exact: true })
+    .click()
+  await appearance.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  const dark = await toolbar.evaluate((element) => getComputedStyle(element).backgroundColor)
+  expect(dark).not.toBe(light)
+  await page.screenshot({ path: testInfo.outputPath('library-dark-desktop.png') })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(library.getByRole('searchbox', { name: 'Search apps', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('library-dark-mobile.png') })
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'Virtual view', exact: true })
+    .click()
+  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar', exact: true }).click()
+  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeHidden()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true
+  )
+  await page.screenshot({ path: testInfo.outputPath('virtual-dark-mobile.png') })
 })
