@@ -22,7 +22,6 @@ import {
   uint64Pattern,
   uuidPattern,
 } from './dev-runtime-validation-internal'
-import type { DataClassification, RuntimeEvent, RuntimeEventKind } from './dev-runtime-wire'
 export {
   dataClassifications,
   decodeCbor,

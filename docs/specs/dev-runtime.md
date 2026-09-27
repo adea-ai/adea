@@ -12,6 +12,7 @@ Read this page before touching any routed Dev Runtime path in `AGENTS.md`.
 - Durable workspace events: [workspace events](./workspace-events.md)
 - Donor boundary: [source audit](../research/dev-view-donor-audit.md)
 - Exact command registry: [Dev Runtime operations](./dev-runtime-operations.json)
+- Browser caller and frame-transport boundary: [browser caller gaps](../research/dev-browser-caller-gaps.md)
 - Threat model: [Dev View threat model](../security/dev-view-threat-model.md)
 - Delivery order: [M12 implementation plan](../plans/m12-dev-view.md)
 
@@ -3335,6 +3336,16 @@ focus or substitute a target-list refresh. The current operation contract has no
 back/forward history commands, so those controls remain disabled and must not
 present a target refresh as browser history.
 
+The browser pane's DOM inspector uses an explicit CSS selector against the
+active page target. It sends `dev.browser.inspect` with the selected target ID,
+the lane's expected generation, and a lane-resource binding; it does not claim
+to pick an element from preview pixels. A returned inspection may show the
+element role, accessible name, and bounds. Selector-based DOM inspection is
+separate from screenshot display, coordinate annotation, and live frame
+subscription. Results are cleared when the lane, target, selector, or emulated
+viewport changes. The current caller/transport gap and bounded amendment are
+recorded in the [browser caller gap note](../research/dev-browser-caller-gaps.md).
+
 Cookie import is opt-in, source/profile/origin scoped, previewed, encrypted at
 rest, and atomic: any write/cancel failure rolls back the whole import. Maximum
 10,000 cookies and 16 MiB serialized input. Preserve partition/SameSite
@@ -3391,13 +3402,15 @@ until the packaged host exposes an authorized BrowserView seam. Packaged
 macOS CEF evidence remains a required #537/#426 acceptance gate.
 
 When the CDP target contains iframes, `Page.getFrameTree` supplies child-frame
-targets and `Page.createIsolatedWorld` gives element picking a frame-specific
-execution context. The picker can therefore inspect same-origin and
-cross-origin iframe DOM through the authorized CDP target without injecting a
-page script. Screencast frames remain compositor output for the whole page;
-they include iframe pixels but carry no separate iframe byte stream. A future
-requirement for per-frame capture or frame-specific redaction needs a host
-adapter that exposes OOPIF capture identities and coordinate transforms.
+targets and `Page.createIsolatedWorld` gives selector-based inspection a
+frame-specific execution context. `dev.browser.inspect` can therefore query
+same-origin and cross-origin iframe DOM through the authorized CDP target
+without injecting a page script. This host operation does not provide
+preview-pixel click picking. Screencast frames remain compositor output for the
+whole page; they include iframe pixels but carry no separate iframe byte
+stream. A future requirement for per-frame capture or frame-specific redaction
+needs a host adapter that exposes OOPIF capture identities and coordinate
+transforms.
 
 Profile directories remain immutable and owner-only, but Bun's Chrome backend
 does not expose a process-per-`dataStore` guarantee. The engine refuses to
