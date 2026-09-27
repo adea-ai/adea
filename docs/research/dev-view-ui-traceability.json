@@ -10592,15 +10592,28 @@
           "run": "https://github.com/adea-ai/ui/actions/runs/36336628666",
           "integrity": "sha512-doh5hrporsdr9LRpw0t+xCXs+kwpNEzPTHp63SP7/6VjrwV15eQUA6F3b94e4oQtX1j12Ore9fQ/8rl7vUO01A==",
           "registryMetadataVerified": true,
-          "limits": "No consumer pin or source alias changed; actual registry tarball geometry/license follow-up is separately owned."
+          "limits": "Actual installed npm0.71.6 archive passed corner-control geometry under compiled and Solid conditions in Chromium and WebKit (4/4), Apache LICENSE and donor NOTICE checks. Adea consumer pin remains0.71.4 pending coherent adoption."
         },
-        "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198 after required current-head checks passed. Bare-root brand/Overview/navigation/catalogue browser regression passed locally; Pages deployment for this head pending. Previously deployed branded root/navigation verified separately."
+        "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198; Pages run36337510253 deployed exact-main artifact10937174938 from successful Design System run36337198198. Live headless bare-root200, Adea UI — Storybook branding, Overview/Conventions navigation,31 variants/16 families/6 named accents and registry/button200; zero browser/request errors. Browser/server stopped."
       },
       "currentBrowserEvidence": {
         "runtimeSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
         "fullDev": "18/18 passed in37.8s after one-terminal default change, including explicit split/resize/move/undo and persisted55% ratio after reload.",
         "focused": "Prior ce533d48 responsive/focus4/4 and exact history3/3 repeat evidence retained in history; full suite rerun at bfa19a48 includes those cases.",
         "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
+      },
+      "pendingMetadataIntegration": {
+        "sourceCommit": "48391e6a",
+        "status": "Not release-qualified; generated same-module metadata retention increased actual eager bundle. Separate generated pure runtime entry follow-up in progress.",
+        "validation": "Types build and63 focused metadata/platform/command tests (739 assertions) pass; formatting passes. Canonical web build passes after resolving imports while preserving existing lazy layout/fixture declarations.",
+        "productionBudget": {
+          "devEntryBytes": 95018,
+          "devRendererBytes": 34209,
+          "combinedDevBytes": 129227,
+          "devChunkBudget": 86016,
+          "status": "FAIL; no threshold change."
+        },
+        "attempts": "First local conflict resolution accidentally omitted lazy declarations; corrected before push and rebuilt. First gate detected missing renderer chunk. No claim that initial attempt qualified."
       }
     },
     "verifiedCheckpointHistory": [
