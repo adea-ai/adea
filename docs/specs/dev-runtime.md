@@ -2782,8 +2782,9 @@ any mismatch, overrun, or post-mint drift discards the temp and reports
 
 The signed desktop stream relay preserves canonical server `heartbeat` and
 `resync` frames. The renderer validates their exact keys, UTC observation time,
-canonical decimal cursor, and registered resync reason through the same pure
-`dev-runtime-control` decoder used by `decodeDevStreamFrame`; malformed controls
+canonical decimal cursor within the uint64 range, and registered resync reason
+through the same pure
+`dev-runtime-control` decoder used by `decodeDevStreamFrame`; rollover calendar timestamps and malformed controls
 fail the relay instead of refreshing terminal liveness. This decoder does not
 load the operation registry. Outgoing relay commands remain direction-bound.
 
