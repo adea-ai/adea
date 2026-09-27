@@ -125,8 +125,9 @@ describe('desktop packaging and single-UI client boundary', () => {
 
     expect(manifest.scripts['shell:client:build']).toBe('bun scripts/client.mjs')
     expect(manifest.scripts['shell:build']).toBe('bun scripts/shell.mjs build')
-    // The desktop lane no longer owns a client dependency graph.
-    expect(manifest.dependencies).toBeUndefined()
+    // The desktop host may depend on its shared runtime contract package, but
+    // it does not own a separate client dependency graph.
+    expect(manifest.dependencies).toEqual({ '@adea-ai/dev-view': 'workspace:*' })
     expect(manifest.devDependencies).toBeUndefined()
     // The client build is the web app's own build pipeline, filtered to build
     // the workspace packages the web app consumes first.
