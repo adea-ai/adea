@@ -74,3 +74,56 @@ test('BrowserPane port click navigates directly and binds the lane; history stay
     },
   })
 })
+
+test('BrowserPane inspects a CSS selector on the active page with a generation-bound command', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.route('**' + BROWSER_PANE_HARNESS_PATH, (route) =>
+    route.fulfill({ contentType: 'text/html', body: browserPaneHarnessHtml() })
+  )
+  await page.goto(BROWSER_PANE_HARNESS_PATH)
+  await page.addScriptTag({ type: 'module', content: browserPaneHarnessModuleSource() })
+
+  const pane = page.getByRole('region', { name: 'Browser' })
+  const selector = pane.getByRole('textbox', { name: 'CSS selector' })
+  const inspect = pane.getByRole('button', { name: 'Inspect selector' })
+  await expect(pane).toBeVisible()
+  await expect(inspect).toBeDisabled()
+
+  await selector.fill('button[data-action="send"]')
+  await expect(inspect).toBeEnabled()
+  await inspect.click()
+
+  const inspections = () =>
+    page.evaluate(() =>
+      window.browserPaneHarness
+        .report()
+        .commands.filter((command) => command.operation === 'dev.browser.inspect')
+    )
+  await expect.poll(async () => (await inspections()).length).toBe(1)
+  expect(await inspections()).toEqual([
+    {
+      operation: 'dev.browser.inspect',
+      body: {
+        browserLaneId: 'browser-pane-fixture-lane',
+        expectedGeneration: 7,
+        targetId: 'browser-pane-fixture-target',
+        selector: 'button[data-action="send"]',
+      },
+      resource: {
+        kind: 'browser_lane',
+        id: 'browser-pane-fixture-lane',
+        generation: 7,
+      },
+    },
+  ])
+
+  const result = pane.getByRole('status', { name: 'Inspection result' })
+  await expect(result).toContainText('button')
+  await expect(result).toContainText('Submit request')
+  await expect(result).toContainText('x 12 · y 24 · width 80 · height 32')
+
+  await pane.getByRole('button', { name: 'iPhone 15 Pro' }).click()
+  await expect(result).toHaveCount(0)
+})

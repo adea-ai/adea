@@ -11,6 +11,7 @@
  * and docs/research/dev-view-donor-audit.md.
  */
 import type {
+  BrowserInspection,
   BrowserLane,
   BrowserTarget,
   DevError,
@@ -93,6 +94,15 @@ export function BrowserPane(props: BrowserPaneProps) {
   const [presetId, setPresetId] = createSignal<ResponsivePresetId>('responsive')
   const [orientation, setOrientation] = createSignal<ResponsiveOrientation>('portrait')
   const [zoomScale, setZoomScale] = createSignal(1)
+  const [inspectionSelector, setInspectionSelector] = createSignal('')
+  const [inspectionResult, setInspectionResult] = createSignal<{
+    laneId: string
+    generation: number
+    targetId: string
+    value: BrowserInspection
+  }>()
+  const [inspectionBusy, setInspectionBusy] = createSignal(false)
+  let latestInspectionRequest = 0
 
   async function execute<T>(
     operation: Parameters<typeof buildDevCommand>[0]['operation'],
@@ -121,6 +131,23 @@ export function BrowserPane(props: BrowserPaneProps) {
     const items = lanes()?.items ?? []
     const current = items.find((lane) => lane.id === activeLaneId())
     return current ?? items[0]
+  }
+
+  const activePageTarget = () => {
+    const lane = activeLane()
+    if (!lane) return undefined
+    return targets()?.items.find(
+      (target) =>
+        target.type === 'page' &&
+        target.browserLaneId === lane.id &&
+        target.generation === lane.generation
+    )
+  }
+
+  function invalidateInspection(): void {
+    latestInspectionRequest += 1
+    setInspectionBusy(false)
+    setInspectionResult(undefined)
   }
 
   const [targets, { refetch: refetchTargets }] = createResource(activeLane, async (lane) => {
@@ -182,6 +209,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   }
 
   function dispatchNavigation(request: BrowserNavigationRequest): void {
+    invalidateInspection()
     execute<{
       browserLaneId: string
       targetId: string
@@ -211,6 +239,54 @@ export function BrowserPane(props: BrowserPaneProps) {
     const url = currentUrl()
     if (!url) return
     navigateToUrl(url)
+  }
+
+  function inspectSelector(event: SubmitEvent): void {
+    event.preventDefault()
+    const lane = activeLane()
+    const target = activePageTarget()
+    const selector = inspectionSelector().trim()
+    if (!lane || !target || targets.loading || selector.length === 0 || selector.length > 512)
+      return
+
+    const requestId = ++latestInspectionRequest
+    setInspectionBusy(true)
+    setInspectionResult(undefined)
+    setError(undefined)
+    execute<BrowserInspection>(
+      'dev.browser.inspect',
+      {
+        browserLaneId: lane.id,
+        expectedGeneration: lane.generation,
+        targetId: target.id,
+        selector,
+      },
+      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
+    )
+      .then((value) => {
+        if (requestId !== latestInspectionRequest) return
+        const currentLane = activeLane()
+        const currentTarget = activePageTarget()
+        if (
+          currentLane?.id !== lane.id ||
+          currentLane.generation !== lane.generation ||
+          currentTarget?.id !== target.id ||
+          inspectionSelector().trim() !== selector
+        )
+          return
+        setInspectionResult({
+          laneId: lane.id,
+          generation: lane.generation,
+          targetId: target.id,
+          value,
+        })
+      })
+      .catch((reply) => {
+        if (requestId === latestInspectionRequest) setError(commandError(reply))
+      })
+      .finally(() => {
+        if (requestId === latestInspectionRequest) setInspectionBusy(false)
+      })
   }
 
   async function createLane(kind: BrowserLane['kind']): Promise<void> {
@@ -252,6 +328,7 @@ export function BrowserPane(props: BrowserPaneProps) {
   function takeoverOrRelease(): void {
     const lane = activeLane()
     if (!lane) return
+    invalidateInspection()
     const operation =
       lane.automationOwner === 'human_takeover' ? 'dev.browser.release' : 'dev.browser.takeover'
     execute<BrowserLane>(
@@ -296,6 +373,7 @@ export function BrowserPane(props: BrowserPaneProps) {
     nextPreset: ResponsivePresetId,
     nextOrientation: ResponsiveOrientation
   ): void {
+    invalidateInspection()
     setPresetId(nextPreset)
     setOrientation(nextOrientation)
     const lane = activeLane()
@@ -505,6 +583,7 @@ export function BrowserPane(props: BrowserPaneProps) {
                     'dev-utility-tab--selected': lane.id === activeLane()?.id,
                   })}
                   onClick={() => {
+                    invalidateInspection()
                     setActiveLaneId(lane.id)
                     void refetchTargets()
                     void refetchDiagnostics()
@@ -590,6 +669,79 @@ export function BrowserPane(props: BrowserPaneProps) {
               </div>
             )}
           </For>
+
+          <p class="dev-browser__section-title">Inspect</p>
+          <form class="dev-browser__inspect" onSubmit={inspectSelector}>
+            <label class="dev-browser__inspect-label" for="dev-browser-inspection-selector">
+              CSS selector
+            </label>
+            <input
+              id="dev-browser-inspection-selector"
+              type="text"
+              aria-label="CSS selector"
+              maxLength={512}
+              autocomplete="off"
+              spellcheck={false}
+              value={inspectionSelector()}
+              onInput={(event) => {
+                setInspectionSelector(event.currentTarget.value)
+                invalidateInspection()
+              }}
+            />
+            <p class="dev-browser__row-meta">
+              Queries the active page by selector; this does not pick from the preview.
+            </p>
+            <button
+              type="submit"
+              class="dev-button"
+              disabled={
+                !activeLane() ||
+                !activePageTarget() ||
+                targets.loading ||
+                inspectionSelector().trim().length === 0 ||
+                inspectionSelector().trim().length > 512 ||
+                inspectionBusy()
+              }
+            >
+              {inspectionBusy() ? 'Inspecting…' : 'Inspect selector'}
+            </button>
+          </form>
+          <Show
+            when={(() => {
+              const result = inspectionResult()
+              const lane = activeLane()
+              const target = activePageTarget()
+              return result &&
+                lane?.id === result.laneId &&
+                lane.generation === result.generation &&
+                target?.id === result.targetId
+                ? result
+                : undefined
+            })()}
+          >
+            {(state) => (
+              <div
+                class="dev-browser__inspection-result"
+                role="status"
+                aria-label="Inspection result"
+              >
+                <Show when={state().value.nodeId} fallback={<span>No matching element.</span>}>
+                  <span>
+                    {state().value.role ?? 'Element'}
+                    {state().value.name ? ` · ${state().value.name}` : ''}
+                  </span>
+                  <Show when={state().value.bounds}>
+                    {(bounds) => (
+                      <span>
+                        x {bounds().x} · y {bounds().y} · width {bounds().width} · height{' '}
+                        {bounds().height}
+                      </span>
+                    )}
+                  </Show>
+                </Show>
+              </div>
+            )}
+          </Show>
 
           <p class="dev-browser__section-title">Responsive</p>
           <div class="dev-browser__actions">

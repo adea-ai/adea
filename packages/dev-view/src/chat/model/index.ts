@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime'
+import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
 import type {
   DevRuntimePage,
   DevStreamFrame,
