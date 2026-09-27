@@ -5,7 +5,11 @@
  * preference schema, provider preview/persistence, native transparency policy,
  * accepted compatibility IDs, and declared-license theme-library flow.
  */
-import { AppearanceEditor, type AppearanceDraft } from '@adea-ai/ui/components/composites/appearance-editor'
+import {
+  AppearanceEditor,
+  type AppearanceDraft,
+  type AppearanceEditorProps,
+} from '@adea-ai/ui/components/composites/appearance-editor'
 import {
   accentPresets,
   accentPresetById,
@@ -157,10 +161,22 @@ export function AppearancePanel() {
   const editorView = (
     <AppearanceEditor
       draft={publishedDraft()}
-      lightTheme={appearanceThemeForPreview(miniatures().light, editor.draft().accent)}
-      darkTheme={appearanceThemeForPreview(miniatures().dark, editor.draft().accent)}
+      // This editor reads only picker identity and five preview colors; its
+      // published types stay broad for the full theme-library consumers.
+      lightTheme={
+        appearanceThemeForPreview(
+          miniatures().light,
+          editor.draft().accent
+        ) as unknown as AppearanceEditorProps['lightTheme']
+      }
+      darkTheme={
+        appearanceThemeForPreview(
+          miniatures().dark,
+          editor.draft().accent
+        ) as unknown as AppearanceEditorProps['darkTheme']
+      }
       resolvedAppearance={appearance.resolvedMode()}
-      themes={appearanceThemeRecords}
+      themes={appearanceThemeRecords as unknown as AppearanceEditorProps['themes']}
       accentOptions={appearanceAccentOptions}
       customAccentValue={customAccent() || '#2563eb'}
       customAccentError={accentStatus()}
@@ -181,11 +197,7 @@ export function AppearancePanel() {
     <Show
       when={!libraryOpen()}
       fallback={
-        <Dialog
-          open
-          modal={false}
-          onOpenChange={(open: boolean) => !open && setLibraryOpen(false)}
-        >
+        <Dialog open modal={false} onOpenChange={(open: boolean) => !open && setLibraryOpen(false)}>
           <DialogContent class="max-w-md" aria-describedby="theme-library-description">
             <DialogHeader>
               <DialogTitle>Manage themes</DialogTitle>
