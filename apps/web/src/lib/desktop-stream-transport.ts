@@ -18,9 +18,15 @@
 // transfer ceiling check is the pane's, but a refused relay bind surfaces as
 // a typed `DevError` (never a string), so open/save falls back cleanly.
 import type { DevError, DevStreamFrame, DevStreamGrant } from '@adea-ai/types/dev-runtime'
+import {
+  assertDevStreamRelayEnvelope,
+  decodeDevStreamRelayBase64,
+  type DevStreamVideoRelayChunk,
+} from '@adea-ai/types/dev-runtime-video'
 import type { DevStreamTransport, DevStreamTransportSocket } from '@adea-ai/dev-view/platform'
 
 import type { DesktopShell } from './desktop-bridge'
+import { createBrowserVideoReassembler } from './browser-video-reassembly'
 
 /** The signed event the shell relay publishes relay frames on. */
 export const FILE_STREAM_RELAY_EVENT = 'desktop_file_stream'
@@ -45,6 +51,7 @@ export type RelayFrame =
   | { type: 'opened'; protocol: string; generation: number; nextSequence: string }
   | { type: 'data'; sequence: string; bytes: string }
   | { type: 'input'; sequence: string; generation: number; bytes: string }
+  | DevStreamVideoRelayChunk
   | { type: 'ack'; throughSequence: string; availableCreditBytes: number }
   | { type: 'error'; error: DevError }
   | { type: 'close'; code: string; reason?: string }
@@ -53,14 +60,15 @@ function relayError(code: string, message: string): { error: DevError } {
   return {
     error: {
       code: code as DevError['code'],
-      retryable: code === 'capability_unavailable' || code === 'token_expired',
+      retryable:
+        code === 'capability_unavailable' || code === 'token_expired' || code === 'timeout',
       message,
     },
   }
 }
 
 /** Decodes one relay frame from the event payload into a `DevStreamFrame`. */
-export function fromRelayFrame(payload: RelayFrame): DevStreamFrame {
+export function fromRelayFrame(payload: RelayFrame, maxFrameBytes = 64 * 1024): DevStreamFrame {
   switch (payload.type) {
     case 'opened':
       return {
@@ -73,11 +81,7 @@ export function fromRelayFrame(payload: RelayFrame): DevStreamFrame {
       return {
         type: 'data',
         sequence: payload.sequence,
-        bytes: new Uint8Array(
-          atob(payload.bytes)
-            .split('')
-            .map((char) => char.charCodeAt(0))
-        ),
+        bytes: decodeDevStreamRelayBase64(payload.bytes, maxFrameBytes),
       }
     case 'ack':
       return {
@@ -90,11 +94,7 @@ export function fromRelayFrame(payload: RelayFrame): DevStreamFrame {
         type: 'input',
         sequence: payload.sequence,
         generation: payload.generation,
-        bytes: new Uint8Array(
-          atob(payload.bytes)
-            .split('')
-            .map((char) => char.charCodeAt(0))
-        ),
+        bytes: decodeDevStreamRelayBase64(payload.bytes, maxFrameBytes),
       }
     case 'error':
       return { type: 'error', error: payload.error }
@@ -104,6 +104,8 @@ export function fromRelayFrame(payload: RelayFrame): DevStreamFrame {
         code: payload.code as Extract<DevStreamFrame, { type: 'close' }>['code'],
         ...(payload.reason !== undefined ? { reason: payload.reason } : {}),
       }
+    case 'video_chunk':
+      throw new Error('video chunks must be reassembled before delivery')
     default:
       throw new Error('unknown relay frame kind')
   }
@@ -149,6 +151,20 @@ export function createDesktopStreamTransport(options: {
     let settled = false
     let bound = false
     let disposeEventSource: (() => void) | undefined
+    const videoReassembler =
+      grant.protocol === 'browser-frames-v1' && grant.direction === 'read'
+        ? createBrowserVideoReassembler({
+            generation: grant.resource.generation,
+            maxFrameBytes: grant.maxFrameBytes,
+            onTimeout: () =>
+              fail(
+                relayError(
+                  'timeout',
+                  'the browser video frame did not complete before the reassembly deadline'
+                ).error
+              ),
+          })
+        : undefined
     const queued: DevStreamFrame[] = []
 
     const socket: DevStreamTransportSocket = {
@@ -186,6 +202,7 @@ export function createDesktopStreamTransport(options: {
     }
 
     async function teardown(): Promise<void> {
+      videoReassembler?.close()
       const unsubscribe = disposeEventSource
       disposeEventSource = undefined
       try {
@@ -216,6 +233,7 @@ export function createDesktopStreamTransport(options: {
               bytes: toBase64(frame.bytes),
             }
       try {
+        assertDevStreamRelayEnvelope({ streamId: grant.grantId, frame: framePayload })
         const result = (await bridge.invoke(RELAY_COMMANDS.frame, {
           channelId: bindIdentity?.channelId,
           clientCredentialId: bindIdentity?.clientCredentialId,
@@ -244,16 +262,36 @@ export function createDesktopStreamTransport(options: {
       if (settled) return
       const event = payload as { streamId?: unknown; frame?: RelayFrame } | undefined
       if (!event || event.streamId !== grant.grantId || !event.frame) return
-      let frame: DevStreamFrame
       try {
-        frame = fromRelayFrame(event.frame)
+        assertDevStreamRelayEnvelope({ streamId: event.streamId, frame: event.frame })
+        if (event.frame.type === 'video_chunk') {
+          if (!videoReassembler) throw new Error('video chunks arrived on a non-browser stream')
+          const frame = videoReassembler.push(event.frame)
+          if (frame) handlers.onFrame(frame)
+          return
+        }
       } catch {
         fail(relayError('invalid_state', 'the relay delivered a malformed frame').error)
+        return
+      }
+      let frame: DevStreamFrame
+      try {
+        frame = fromRelayFrame(event.frame, grant.maxFrameBytes)
+      } catch {
+        fail(relayError('invalid_state', 'the relay delivered a malformed frame').error)
+        return
+      }
+      if (
+        frame.type === 'opened' &&
+        (frame.protocol !== grant.protocol || frame.generation !== grant.resource.generation)
+      ) {
+        fail(relayError('stale_generation', 'the relay opened a stale stream').error)
         return
       }
       if (frame.type === 'close') {
         settled = true
         bound = false
+        videoReassembler?.close()
         void teardown()
       }
       handlers.onFrame(frame)

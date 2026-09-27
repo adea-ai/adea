@@ -78,6 +78,8 @@ const frame = (sequence: number, bytes = 10) => ({
   sequence: String(sequence),
   generation: 1,
   viewportSequence: sequence,
+  width: 1280,
+  height: 720,
   keyframe: sequence === 1,
   bytes: new Uint8Array(bytes),
 })

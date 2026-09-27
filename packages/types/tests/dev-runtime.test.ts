@@ -19,6 +19,10 @@ import {
   decodeDevStreamAttach,
   decodeDevStreamFrame,
   decodeDevStreamGrant,
+  decodeDevStreamRelayBase64,
+  decodeDevStreamRelayVideoChunk,
+  encodeDevStreamVideoRelayChunks,
+  assertDevStreamRelayEnvelope,
   decodeRuntimeEvent,
   devCommandProofMessage,
   devOperationDefinitions,
@@ -901,7 +905,17 @@ describe('Dev Runtime authenticated channel (M10 #33)', () => {
     const frames = [
       { type: 'opened', protocol: 'terminal-bytes-v1', generation: 1, nextSequence: '0' },
       { type: 'data', sequence: '1', bytes: new Uint8Array([1, 2, 3]) },
-      { type: 'video', sequence: '2', timestampMs: 12, keyframe: true, bytes: new Uint8Array([9]) },
+      {
+        type: 'video',
+        sequence: '2',
+        timestampMs: 12,
+        generation: 1,
+        viewportSequence: 3,
+        width: 1280,
+        height: 720,
+        keyframe: true,
+        bytes: new Uint8Array([9]),
+      },
       { type: 'input', sequence: '3', generation: 1, bytes: new Uint8Array([4]) },
       { type: 'gesture', sequence: '4', generation: 1, gesture: { kind: 'tap', x: 0.5, y: 0.5 } },
       {
@@ -956,6 +970,52 @@ describe('Dev Runtime authenticated channel (M10 #33)', () => {
     expect(() =>
       decodeDevStreamFrame({ type: 'data', sequence: '1', bytes: new Uint8Array([1]), extra: 1 })
     ).toThrow('unknown key')
+  })
+
+  test('encodes and strictly validates bounded browser video relay chunks', () => {
+    const frame = {
+      type: 'video',
+      sequence: '42',
+      timestampMs: 1234,
+      generation: 7,
+      viewportSequence: 9,
+      width: 1280,
+      height: 720,
+      keyframe: true,
+      bytes: Uint8Array.from({ length: 65_537 }, (_, index) => index % 251),
+    } as const
+    const chunks = encodeDevStreamVideoRelayChunks(frame)
+    expect(chunks).toHaveLength(2)
+    expect(chunks[0]).toMatchObject({
+      type: 'video_chunk',
+      generation: 7,
+      sequence: '42',
+      viewportSequence: 9,
+      width: 1280,
+      height: 720,
+      chunkIndex: 0,
+      chunkCount: 2,
+      byteOffset: 0,
+      totalBytes: 65_537,
+    })
+    expect(decodeDevStreamRelayVideoChunk(chunks[0])).toEqual(chunks[0])
+    expect(decodeDevStreamRelayBase64(chunks[0]?.bytes, 64 * 1024)).toHaveLength(64 * 1024)
+    expect(decodeDevStreamRelayBase64(chunks[1]?.bytes, 64 * 1024)).toHaveLength(1)
+    for (const chunk of chunks) assertDevStreamRelayEnvelope({ streamId: 'grant', frame: chunk })
+
+    expect(() => decodeDevStreamRelayVideoChunk({ ...chunks[0], bytes: 'AQ=!' })).toThrow('base64')
+    expect(() => decodeDevStreamRelayBase64('AB==', 64)).toThrow('canonical base64 padding')
+    expect(() => decodeDevStreamRelayVideoChunk({ ...chunks[0], byteOffset: 1 })).toThrow('offset')
+    expect(() =>
+      encodeDevStreamVideoRelayChunks({
+        ...frame,
+        bytes: new Uint8Array(8 * 1024 * 1024 + 1),
+      })
+    ).toThrow('8 MiB')
+    expect(() => decodeDevStreamRelayVideoChunk({ ...chunks[0], width: 4097 })).toThrow('width')
+    expect(() => assertDevStreamRelayEnvelope({ payload: 'x'.repeat(128 * 1024) })).toThrow(
+      '128 KiB'
+    )
   })
 
   test('strictly decodes the capability snapshot including client-preference grants', () => {

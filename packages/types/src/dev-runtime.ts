@@ -22,6 +22,19 @@ import {
   uint64Pattern,
   uuidPattern,
 } from './dev-runtime-validation-internal'
+import { decodeDevStreamVideoFrame } from './dev-runtime-video'
+export {
+  BROWSER_VIDEO_DIMENSION_MAX,
+  BROWSER_VIDEO_FRAME_BYTES_MAX,
+  BROWSER_VIDEO_RELAY_CHUNK_BYTES_MAX,
+  BROWSER_VIDEO_RELAY_CHUNKS_MAX,
+  DEV_STREAM_RELAY_ENVELOPE_BYTES_MAX,
+  assertDevStreamRelayEnvelope,
+  decodeDevStreamRelayBase64,
+  decodeDevStreamRelayVideoChunk,
+  encodeDevStreamVideoRelayChunks,
+} from './dev-runtime-video'
+export type { DevStreamVideoRelayChunk } from './dev-runtime-video'
 export {
   dataClassifications,
   decodeCbor,
@@ -3993,6 +4006,10 @@ export type DevStreamFrame =
       type: 'video'
       sequence: string
       timestampMs: number
+      generation: number
+      viewportSequence: number
+      width: number
+      height: number
       keyframe: boolean
       bytes: Uint8Array
     }>
@@ -4201,12 +4218,7 @@ export function decodeDevStreamFrame(value: unknown): DevStreamFrame {
     return value as DevStreamFrame
   }
   if (type === 'video') {
-    exactKeys(item, ['type', 'sequence', 'timestampMs', 'keyframe', 'bytes'], [], 'stream frame')
-    uint64String(item.sequence, 'stream frame.sequence')
-    integerValue(item.timestampMs, 'stream frame.timestampMs', 0)
-    if (typeof item.keyframe !== 'boolean') fail('stream frame.keyframe', 'expected boolean')
-    if (!(item.bytes instanceof Uint8Array)) fail('stream frame.bytes', 'expected Uint8Array')
-    return value as DevStreamFrame
+    return decodeDevStreamVideoFrame(value)
   }
   if (type === 'input') {
     exactKeys(item, ['type', 'sequence', 'generation', 'bytes'], [], 'stream frame')

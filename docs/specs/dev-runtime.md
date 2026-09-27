@@ -1790,7 +1790,17 @@ type DevStreamFrame =
       nextSequence: string
     }
   | { type: 'data'; sequence: string; bytes: Uint8Array }
-  | { type: 'video'; sequence: string; timestampMs: number; keyframe: boolean; bytes: Uint8Array }
+  | {
+      type: 'video'
+      sequence: string
+      timestampMs: number
+      generation: number
+      viewportSequence: number
+      width: number
+      height: number
+      keyframe: boolean
+      bytes: Uint8Array
+    }
   | { type: 'input'; sequence: string; generation: number; bytes: Uint8Array }
   | { type: 'gesture'; sequence: string; generation: number; gesture: DeviceGesture }
   | { type: 'resize'; sequence: string; generation: number; cols: number; rows: number }
@@ -1821,12 +1831,30 @@ byte-offset sequences — the first chunk lands exactly on the grant's
 offset + bytes length), so gaps, replays, and overlaps are all refused typed —
 while byte-less `gesture`/`resize` frames keep strictly increasing event
 sequences that never fall behind bytes already consumed. `data`/`input` bytes
-are never JSON/base64-transcoded. Browser/device
+on the authenticated WebSocket are never JSON/base64-transcoded. Browser/device
 video uses `video`; terminal output uses `data`; control frames are canonical
 CBOR with a 64 KiB maximum unless the grant's lower bound applies. Server output
 pauses when credit is zero; client input never exceeds the grant and subsystem
 queue caps. Reconnect obtains a new grant and starts from the last acknowledged
 sequence/checkpoint; it never reuses attach proof or guesses continuity.
+
+The desktop renderer's signed `desktop_file_stream` event bridge is a JSON
+relay, so browser video crossing that leg is split into strict `video_chunk`
+envelopes rather than sending a whole image through a command or event. Each
+chunk carries the authenticated generation, monotonic frame sequence,
+viewport sequence, timestamp, keyframe flag, pixel dimensions, total byte
+length, index/count, byte offset, and canonical base64 bytes. Raw chunks are
+at most 64 KiB; the complete frame is at most 8 MiB and 128 chunks; the
+serialized envelope is at most 128 KiB; dimensions are at most 4096×4096.
+Offsets and metadata must remain contiguous and stable. The web transport
+holds at most one incomplete frame per attached stream and drops partial state
+on timeout, close, or generation mismatch. A reassembly timeout reports a
+retryable typed `timeout` and tears down the relay so the caller can obtain a
+fresh grant and attach again. The consumer runs only after a complete frame
+passes reassembly; partial chunks are never acknowledged. Input remains a
+separate write-direction grant. This transport does not authorize pixels for
+display: BrowserPane remains closed to image projection while host redaction
+provenance is `redacted: false`.
 
 On the desktop shell the channel rides one loopback WebSocket
 (`/__adea/channel`) upgraded only for a request that passed the trusted-origin

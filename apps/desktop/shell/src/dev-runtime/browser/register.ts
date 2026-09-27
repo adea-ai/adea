@@ -218,6 +218,7 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
       resource: { kind: string; id: string; generation: number }
       direction: 'read' | 'write'
       fromSequence?: string
+      maxFrameBytes?: number
     }) =>
       input.authority.mintStreamGrant({
         identity: req.identity,
@@ -226,6 +227,7 @@ export function registerBrowserDeviceRuntime(input: BrowserDeviceRuntimeInput) {
         resource: req.resource,
         direction: req.direction,
         fromSequence: req.fromSequence,
+        maxFrameBytes: req.maxFrameBytes,
       })
 
   const browser = createBrowserProviders({

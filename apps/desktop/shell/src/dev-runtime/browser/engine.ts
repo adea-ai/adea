@@ -400,14 +400,23 @@ export function createBunWebViewLaneEngine(
     }
     if (bytes.byteLength === 0 || bytes.byteLength > 8 * 1024 * 1024) return
     state.frameSequence += 1n
-    const metadata = data.metadata
-    const keyframe = Boolean(
-      metadata && typeof metadata === 'object' && (metadata as { isKeyFrame?: unknown }).isKeyFrame
-    )
+    const metadata =
+      data.metadata && typeof data.metadata === 'object'
+        ? (data.metadata as Record<string, unknown>)
+        : undefined
+    const dimension = (key: 'deviceWidth' | 'deviceHeight', fallback: number): number => {
+      const value = metadata?.[key]
+      return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1 && value <= 4096
+        ? value
+        : fallback
+    }
+    const keyframe = Boolean(metadata?.isKeyFrame)
     const frame = {
       sequence: state.frameSequence.toString(10),
       generation: state.lane.generation,
       viewportSequence: state.viewportSequence,
+      width: dimension('deviceWidth', state.lane.viewport.width),
+      height: dimension('deviceHeight', state.lane.viewport.height),
       keyframe,
       bytes,
     }
@@ -922,6 +931,10 @@ export function createBunWebViewLaneEngine(
                   type: 'video',
                   sequence: frame.sequence,
                   timestampMs: now(),
+                  generation: frame.generation,
+                  viewportSequence: frame.viewportSequence,
+                  width: frame.width,
+                  height: frame.height,
                   keyframe: frame.keyframe,
                   bytes: frame.bytes,
                 })

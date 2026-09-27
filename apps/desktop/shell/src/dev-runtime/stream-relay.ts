@@ -21,9 +21,17 @@ import type { ChannelAuthority, ChannelIdentity } from './channel/authority'
 import type { StreamProvider } from './channel/server'
 import { createStreamInbound, type StreamCloseCode } from './channel/wire'
 import type {
+  DevStreamVideoRelayChunk,
   DevError,
   DevStreamFrame,
   DevStreamGrant,
+} from '../../../../../packages/types/src/dev-runtime'
+import {
+  assertDevStreamRelayEnvelope,
+  decodeDevStreamFrame,
+  decodeDevStreamRelayBase64,
+  DEV_STREAM_RELAY_ENVELOPE_BYTES_MAX,
+  encodeDevStreamVideoRelayChunks,
 } from '../../../../../packages/types/src/dev-runtime'
 
 /** The signed event every relay stream publishes its frames on. Payloads are
@@ -32,7 +40,7 @@ export const FILE_STREAM_RELAY_EVENT = 'desktop_file_stream'
 
 // Relay payload bound: file grants mint 64 KiB frames; base64 inflates 4/3.
 // Oversize payloads are refused before the inbound validator sees them.
-export const RELAY_FRAME_BYTES_MAX = 128 * 1024
+export const RELAY_FRAME_BYTES_MAX = DEV_STREAM_RELAY_ENVELOPE_BYTES_MAX
 
 // Grace beyond the 60 s attach expiry: an in-flight transfer legitimately
 // outlives its grant's attach window; abandonment (client gone, frames
@@ -44,6 +52,7 @@ export type RelayFrame =
   | { type: 'opened'; protocol: string; generation: number; nextSequence: string }
   | { type: 'data'; sequence: string; bytes: string }
   | { type: 'input'; sequence: string; generation: number; bytes: string }
+  | DevStreamVideoRelayChunk
   | { type: 'ack'; throughSequence: string; availableCreditBytes: number }
   | { type: 'error'; error: DevError }
   | { type: 'close'; code: StreamCloseCode; reason?: string }
@@ -64,10 +73,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 function fromBase64(text: unknown, bound: number): Uint8Array {
-  if (typeof text !== 'string') throw new Error('relay frame payload is missing')
-  const bytes = new Uint8Array(Buffer.from(text, 'base64'))
-  if (bytes.byteLength > bound) throw new Error('relay frame payload exceeds the bound')
-  return bytes
+  return decodeDevStreamRelayBase64(text, bound)
 }
 
 /** Encodes one stream frame for the relay legs (server→client direction may
@@ -107,6 +113,15 @@ export function toRelayFrame(frame: DevStreamFrame): RelayFrame {
     default:
       throw new Error(`relay frames do not carry ${(frame as { type: string }).type} frames`)
   }
+}
+
+/** Splits only complete browser frames; input/write authority stays separate. */
+export function toRelayFrames(streamId: string, frame: DevStreamFrame): RelayFrame[] {
+  const valid = decodeDevStreamFrame(frame)
+  const frames: RelayFrame[] =
+    valid.type === 'video' ? [...encodeDevStreamVideoRelayChunks(valid)] : [toRelayFrame(valid)]
+  for (const relayFrame of frames) assertDevStreamRelayEnvelope({ streamId, frame: relayFrame })
+  return frames
 }
 
 /** Decodes one client→server relay frame; refuses unknown kinds and oversize
@@ -197,6 +212,11 @@ export function createFileStreamRelay(input: {
   const now = input.now ?? Date.now
   const sessions = new Map<string, RelaySession>()
 
+  function publishFrame(streamId: string, frame: DevStreamFrame): void {
+    for (const relayFrame of toRelayFrames(streamId, frame))
+      input.publish(FILE_STREAM_RELAY_EVENT, { streamId, frame: relayFrame })
+  }
+
   function teardown(session: RelaySession, announceAbandon: boolean): void {
     sessions.delete(session.grant.grantId)
     session.inbound.markClosed()
@@ -209,9 +229,10 @@ export function createFileStreamRelay(input: {
     // An abandoned stream announces its teardown so a still-listening client
     // settles typed instead of waiting forever.
     try {
-      input.publish(FILE_STREAM_RELAY_EVENT, {
-        streamId: session.grant.grantId,
-        frame: toRelayFrame({ type: 'close', code: 'expired', reason: 'relay stream abandoned' }),
+      publishFrame(session.grant.grantId, {
+        type: 'close',
+        code: 'expired',
+        reason: 'relay stream abandoned',
       })
     } catch {
       /* subscriber vanished mid-write */
@@ -231,9 +252,10 @@ export function createFileStreamRelay(input: {
 
   function publishClose(session: RelaySession, code: StreamCloseCode, reason?: string): void {
     try {
-      input.publish(FILE_STREAM_RELAY_EVENT, {
-        streamId: session.grant.grantId,
-        frame: toRelayFrame({ type: 'close', code, ...(reason !== undefined ? { reason } : {}) }),
+      publishFrame(session.grant.grantId, {
+        type: 'close',
+        code,
+        ...(reason !== undefined ? { reason } : {}),
       })
     } catch {
       /* subscriber vanished mid-write */
@@ -280,12 +302,7 @@ export function createFileStreamRelay(input: {
           clientCredentialId: identity.clientCredentialId,
         },
         inbound: createStreamInbound(grant),
-        send: (frame) => {
-          input.publish(FILE_STREAM_RELAY_EVENT, {
-            streamId: grant.grantId,
-            frame: toRelayFrame(frame),
-          })
-        },
+        send: (frame) => publishFrame(grant.grantId, frame),
         close: (code, reason) => {
           if (!sessions.has(grant.grantId)) return
           teardown(session, false)
@@ -319,6 +336,7 @@ export function createFileStreamRelay(input: {
       }
       let decoded: DevStreamFrame
       try {
+        assertDevStreamRelayEnvelope({ streamId, frame })
         decoded = fromRelayFrame(frame, session.grant.maxFrameBytes)
       } catch (error) {
         session.close(

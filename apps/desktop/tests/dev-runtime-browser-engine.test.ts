@@ -128,7 +128,7 @@ class FakeWebView implements BrowserWebView {
     this.dispatch('Page.screencastFrame', {
       sessionId: 9,
       data: Buffer.from(bytes).toString('base64'),
-      metadata: { isKeyFrame: true },
+      metadata: { isKeyFrame: true, deviceWidth: 1920, deviceHeight: 1080 },
     })
   }
 }
@@ -345,6 +345,10 @@ describe('live Bun WebView/CDP browser engine', () => {
     expect(frames.find((frame) => frame.type === 'video')).toMatchObject({
       type: 'video',
       sequence: '1',
+      generation: browserLane.generation,
+      viewportSequence: 1,
+      width: 1920,
+      height: 1080,
       keyframe: true,
     })
 
