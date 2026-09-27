@@ -1,3 +1,4 @@
+import { createMemo } from 'solid-js'
 import type { AgentSummary } from '@adea-ai/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
@@ -44,36 +45,36 @@ export function agentStatusModel(agent: AgentSummary) {
 }
 
 export function AgentStatusBadge(props: { agent: AgentSummary }) {
-  const status = agentStatusModel(props.agent)
+  const status = createMemo(() => agentStatusModel(props.agent))
   return (
     <StatusChip
       detail="Persisted Agent lifecycle and AgentProfile configuration"
-      label={status.configuration.label}
-      tone={status.configuration.tone}
+      label={status().configuration.label}
+      tone={status().configuration.tone}
     />
   )
 }
 
 export function AgentStatus(props: { agent: AgentSummary; compact?: boolean }) {
-  const status = agentStatusModel(props.agent)
+  const status = createMemo(() => agentStatusModel(props.agent))
   return (
     <div
       class={`conventional-agent-status${props.compact ? ' conventional-agent-status--compact' : ''}`}
     >
       <StatusChip
         detail="Persisted Agent lifecycle and AgentProfile configuration"
-        label={status.configuration.label}
-        tone={status.configuration.tone}
+        label={status().configuration.label}
+        tone={status().configuration.tone}
       />
       <StatusChip
-        detail={status.runtime.detail}
-        label={status.runtime.label}
-        tone={status.runtime.tone}
+        detail={status().runtime.detail}
+        label={status().runtime.label}
+        tone={status().runtime.tone}
       />
       <StatusChip
-        detail={status.execution.detail}
-        label={status.execution.label}
-        tone={status.execution.tone}
+        detail={status().execution.detail}
+        label={status().execution.label}
+        tone={status().execution.tone}
       />
     </div>
   )

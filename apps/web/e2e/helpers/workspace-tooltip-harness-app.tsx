@@ -1,7 +1,8 @@
 import '../../src/start/globals.css'
 import { render } from 'solid-js/web'
+import { createSignal } from 'solid-js'
 import { TooltipProvider } from '@adea-ai/ui/components/ui/tooltip'
-import { AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
+import { AgentStatus, AgentStatusBadge } from '../../../../packages/workspace-ui/src/agent-status'
 import type { AgentSummary } from '@adea-ai/types'
 
 const agent: AgentSummary = {
@@ -14,10 +15,28 @@ const agent: AgentSummary = {
   presentationMetadata: {},
   profile: { id: 'synthetic-profile', state: 'available', version: '1' },
 }
+const [currentAgent, setCurrentAgent] = createSignal(agent)
+
 render(
   () => (
     <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
-      <AgentStatusBadge agent={agent} />
+      <section aria-label="Status badge">
+        <AgentStatusBadge agent={currentAgent()} />
+      </section>
+      <section aria-label="Status details">
+        <AgentStatus agent={currentAgent()} compact />
+      </section>
+      <button
+        onClick={() =>
+          setCurrentAgent({ ...agent, profile: { ...agent.profile, state: 'missing' } })
+        }
+      >
+        Invalidate profile
+      </button>
+      <button onClick={() => setCurrentAgent({ ...agent, lifecycleState: 'archived' })}>
+        Archive agent
+      </button>
+      <button onClick={() => setCurrentAgent(agent)}>Restore agent</button>
       <button>Next action</button>
     </TooltipProvider>
   ),
