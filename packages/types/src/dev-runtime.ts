@@ -23,6 +23,9 @@ import {
   uint64String,
   uuidPattern,
 } from './dev-runtime-validation-internal'
+import { devErrorCodes, type DevError, type DevErrorCode } from './dev-runtime-errors'
+export { devErrorCodes } from './dev-runtime-errors'
+export type { DevError, DevErrorCode } from './dev-runtime-errors'
 import { decodeDevStreamControlFrame } from './dev-runtime-control'
 export { decodeDevStreamControlFrame } from './dev-runtime-control'
 export type { DevStreamControlFrame } from './dev-runtime-control'
@@ -97,94 +100,6 @@ export type DevCommand<
   capabilities: readonly DevCapability[]
   resource?: DevResourceBinding
   body: T
-}>
-
-export const devErrorCodes = [
-  'unauthenticated',
-  'unauthorized',
-  'workspace_unavailable',
-  'runtime_node_unavailable',
-  'runtime_node_revoked',
-  'capability_denied',
-  'channel_unauthenticated',
-  'channel_unauthorized',
-  'token_expired',
-  'replay_rejected',
-  'not_found',
-  'identity_mismatch',
-  'stale_generation',
-  'stale_version',
-  'invalid_state',
-  'unsupported_version',
-  'corrupt_state',
-  'already_completed',
-  'idempotency_conflict',
-  'unauthorized_root',
-  'path_escape',
-  'path_denied',
-  'symlink_rejected',
-  'special_file_rejected',
-  'file_changed',
-  'not_git_repo',
-  'gitdir_unproven',
-  'remote_unavailable',
-  'base_not_found',
-  'name_collision',
-  'path_collision',
-  'bootstrap_denied',
-  'bootstrap_failed',
-  'dirty',
-  'unpushed',
-  'behind',
-  'conflicted',
-  'protected_branch',
-  'external_ownership',
-  'dangerous_path',
-  'nested_worktree',
-  'lock_timeout',
-  'unsupported_capability',
-  'capability_unavailable',
-  'unavailable',
-  'limit_exceeded',
-  'spawn_failed',
-  'auth_required',
-  'incompatible',
-  'sidecar_incompatible',
-  'profile_scope_denied',
-  'remote_host_untrusted',
-  'force_push_denied',
-  'timeout',
-  'cancelled',
-  'backpressure',
-  'sequence_gap',
-  'resync_required',
-  'checkpoint_corrupt',
-  'crash_loop',
-  'delivery_ambiguous',
-  'navigation_blocked',
-  'ssrf_blocked',
-  'permission_denied',
-  'cookie_import_failed',
-  'rate_limited',
-  'remote_changed',
-  'branch_protected',
-  'leased',
-  'ownership_unproven',
-  'plan_stale',
-  'cleanup_blocked',
-  'cleanup_partial',
-  'recovery_required',
-  'rollback_failed',
-] as const
-
-export type DevErrorCode = (typeof devErrorCodes)[number]
-export type DevError = Readonly<{
-  code: DevErrorCode
-  retryable: boolean
-  message: string
-  remediation?: Readonly<{ action: string; parameters?: Readonly<Record<string, string>> }>
-  currentVersion?: number
-  observedAt?: string
 }>
 
 export type DevReply<K extends DevOperation = DevOperation, T = unknown> =

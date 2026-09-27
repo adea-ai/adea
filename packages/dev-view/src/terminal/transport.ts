@@ -9,7 +9,8 @@
 // the explicit checkpoint resync flow (never a silent counter advance), and
 // delivery rides the authenticated terminal-bytes-v1 grant the M10 channel
 // issued — availability mechanics are not authorization.
-import { devErrorCodes, type DevError, type DevStreamFrame } from '@adea-ai/types/dev-runtime'
+import { devErrorCodes, type DevError } from '@adea-ai/types/dev-runtime-errors'
+import type { DevStreamFrame } from '@adea-ai/types/dev-runtime'
 
 export type TerminalConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed'
 

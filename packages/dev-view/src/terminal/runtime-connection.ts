@@ -287,9 +287,9 @@ export function createTerminalRuntimeConnection(
 
   async function execute(
     operation: TerminalOperation,
-    selected: TerminalRecord,
     body: Record<string, unknown>,
-    resource?: { kind: string; id: string; generation: number }
+    resource?: { kind: string; id: string; generation: number },
+    selected: TerminalRecord = captured
   ): Promise<unknown> {
     let command: DevCommand
     try {
@@ -329,7 +329,7 @@ export function createTerminalRuntimeConnection(
         limit: terminalListPageSize,
         ...(cursor !== undefined ? { cursor } : {}),
       }
-      const value = await execute('dev.terminal.list', captured, body)
+      const value = await execute('dev.terminal.list', body)
       if (!isCurrent(attempt)) return undefined
       if (!isRecord(value) || !Array.isArray(value.items)) {
         fail('unsupported_version', 'The runtime returned an invalid terminal list page.')
@@ -600,14 +600,14 @@ export function createTerminalRuntimeConnection(
     try {
       const value = await execute(
         'dev.terminal.resize',
-        attempt.record,
         {
           terminalId: attempt.record.id,
           expectedGeneration: request.generation,
           cols: request.cols,
           rows: request.rows,
         },
-        { kind: 'terminal', id: attempt.record.id, generation: request.generation }
+        { kind: 'terminal', id: attempt.record.id, generation: request.generation },
+        attempt.record
       )
       const resized = immutableTerminal(value)
       if (!sameTerminalIdentity(resized, captured)) fail('identity_mismatch')
@@ -764,27 +764,27 @@ export function createTerminalRuntimeConnection(
         }
         const readValue = await execute(
           'dev.terminal.attach',
-          selected,
           {
             terminalId: selected.id,
             expectedGeneration: selected.generation,
             direction: 'read',
             fromSequence: readFromSequence,
           },
-          resource
+          resource,
+          selected
         )
         if (!isCurrent(attempt)) return
         const readGrant = validateGrant(readValue, selected, 'read', readFromSequence)
         const writeValue = await execute(
           'dev.terminal.input',
-          selected,
           {
             terminalId: selected.id,
             expectedGeneration: selected.generation,
             direction: 'write',
             fromSequence: writeFromSequence,
           },
-          resource
+          resource,
+          selected
         )
         if (!isCurrent(attempt)) return
         const writeGrant = validateGrant(writeValue, selected, 'write', writeFromSequence)
