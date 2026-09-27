@@ -14,9 +14,7 @@ const e2eDatabaseEnvironment = process.env.DATABASE_URL
       DATABASE_MIGRATION_URL:
         'postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable',
     }
-const headless = process.env.PLAYWRIGHT_HEADLESS
-  ? process.env.PLAYWRIGHT_HEADLESS === '1'
-  : process.platform !== 'darwin'
+const headless = process.env.PLAYWRIGHT_HEADLESS ? process.env.PLAYWRIGHT_HEADLESS === '1' : true
 
 export default defineConfig({
   testDir: 'apps/web/e2e',
