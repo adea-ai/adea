@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.5](https://github.com/adea-ai/adea/compare/v0.61.4...v0.61.5) (2026-09-27)
+
+
+### Bug Fixes
+
+* **ci:** make desktop path selection fail closed ([#758](https://github.com/adea-ai/adea/issues/758)) ([c7b8ae8](https://github.com/adea-ai/adea/commit/c7b8ae80a070c989cb351bdd420213f42cd3b45e))
+
 ## [0.61.4](https://github.com/adea-ai/adea/compare/v0.61.3...v0.61.4) (2026-09-26)
 
 
