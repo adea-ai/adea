@@ -54,9 +54,11 @@ and dimensions at most 4096×4096. The web transport strictly validates and
 reassembles contiguous chunks with stable metadata, monotonic sequence, and
 the grant's generation before it invokes a frame consumer. It holds at most
 one incomplete frame per attached stream and discards partial state on
-timeout, close, or generation mismatch. It does not emit credit for partial
-chunks; the consumer's existing read-grant ACK remains a separate client
-action after full-frame acceptance.
+timeout, close, or generation mismatch. A reassembly timeout reports a
+retryable typed `timeout` and tears down the relay so the caller can obtain a
+fresh grant and attach again. It does not emit credit for partial chunks; the
+consumer's existing read-grant ACK remains a separate client action after
+full-frame acceptance.
 
 There is a second release blocker for pixel display: screenshot and annotation
 provenance is explicitly `redacted: false`. Until the host classifies and

@@ -1847,12 +1847,14 @@ length, index/count, byte offset, and canonical base64 bytes. Raw chunks are
 at most 64 KiB; the complete frame is at most 8 MiB and 128 chunks; the
 serialized envelope is at most 128 KiB; dimensions are at most 4096×4096.
 Offsets and metadata must remain contiguous and stable. The web transport
-holds at most one incomplete frame per attached stream, drops it on timeout,
-close, or generation mismatch, and invokes the consumer only after a complete
-frame passes reassembly. It does not acknowledge partial chunks. Input remains
-a separate write-direction grant. This transport does not authorize pixels
-for display: BrowserPane remains closed to image projection while host
-redaction provenance is `redacted: false`.
+holds at most one incomplete frame per attached stream and drops partial state
+on timeout, close, or generation mismatch. A reassembly timeout reports a
+retryable typed `timeout` and tears down the relay so the caller can obtain a
+fresh grant and attach again. The consumer runs only after a complete frame
+passes reassembly; partial chunks are never acknowledged. Input remains a
+separate write-direction grant. This transport does not authorize pixels for
+display: BrowserPane remains closed to image projection while host redaction
+provenance is `redacted: false`.
 
 On the desktop shell the channel rides one loopback WebSocket
 (`/__adea/channel`) upgraded only for a request that passed the trusted-origin

@@ -7,7 +7,7 @@
  * proofs, falls back typed when the surface is absent, and round-trips large
  * files through the pure client model.
  */
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, jest, test } from 'bun:test'
 
 import {
   BROWSER_VIDEO_FRAME_BYTES_MAX,
@@ -16,6 +16,7 @@ import {
   type DevStreamGrant,
 } from '@adea-ai/types/dev-runtime'
 import { readFileViaStream, writeFileViaStream } from '@adea-ai/dev-view/files/file-stream'
+import { BROWSER_VIDEO_REASSEMBLY_TIMEOUT_MS } from '../src/lib/browser-video-reassembly'
 
 import {
   createDesktopStreamTransport,
@@ -357,6 +358,55 @@ describe('createDesktopStreamTransport', () => {
     socket.close(1000, 'test complete')
     await Bun.sleep(0)
     expect(fake.listenerCount()).toBe(0)
+  })
+
+  test('fails and closes a browser stream when an incomplete frame times out without ack', async () => {
+    jest.useFakeTimers()
+    try {
+      const grant = makeGrant('read', 'browser-frames-v1')
+      const fake = fakeShell([grant])
+      const transport = createDesktopStreamTransport({ bridge: fake.bridge })
+      if (!transport) throw new Error('transport missing')
+      const received: DevStreamFrame[] = []
+      const closes: Array<{ code: number; reason: string }> = []
+      transport.connect(grant, {
+        onFrame: (frame) => received.push(frame),
+        onClose: (code, reason) => closes.push({ code, reason }),
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      const chunks = encodeDevStreamVideoRelayChunks({
+        type: 'video',
+        sequence: '12',
+        timestampMs: 100,
+        generation: grant.resource.generation,
+        viewportSequence: 3,
+        width: 1280,
+        height: 720,
+        keyframe: true,
+        bytes: new Uint8Array(65_537),
+      })
+      fake.publishRelayFrame(grant.grantId, chunks[0])
+      expect(received.some((frame) => frame.type === 'video')).toBe(false)
+      jest.advanceTimersByTime(BROWSER_VIDEO_REASSEMBLY_TIMEOUT_MS)
+
+      expect(received).toContainEqual({
+        type: 'error',
+        error: expect.objectContaining({ code: 'timeout', retryable: true }),
+      })
+      expect(closes).toEqual([{ code: 1008, reason: 'timeout' }])
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(fake.clientFrames.some((entry) => entry.frame.type === 'ack')).toBe(false)
+      expect(fake.settled).toContain(grant.grantId)
+      expect(fake.listenerCount()).toBe(0)
+    } finally {
+      jest.clearAllTimers()
+      jest.useRealTimers()
+    }
   })
 
   test('falls back typed when the bridge predates the relay surface', () => {

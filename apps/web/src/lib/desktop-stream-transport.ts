@@ -62,7 +62,8 @@ function relayError(code: string, message: string): { error: DevError } {
   return {
     error: {
       code: code as DevError['code'],
-      retryable: code === 'capability_unavailable' || code === 'token_expired',
+      retryable:
+        code === 'capability_unavailable' || code === 'token_expired' || code === 'timeout',
       message,
     },
   }
@@ -157,6 +158,13 @@ export function createDesktopStreamTransport(options: {
         ? createBrowserVideoReassembler({
             generation: grant.resource.generation,
             maxFrameBytes: grant.maxFrameBytes,
+            onTimeout: () =>
+              fail(
+                relayError(
+                  'timeout',
+                  'the browser video frame did not complete before the reassembly deadline'
+                ).error
+              ),
           })
         : undefined
     const queued: DevStreamFrame[] = []

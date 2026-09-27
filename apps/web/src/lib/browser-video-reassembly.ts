@@ -38,6 +38,7 @@ export function createBrowserVideoReassembler(options: {
   generation: number
   maxFrameBytes?: number
   timeoutMs?: number
+  onTimeout?: () => void
   setTimer?: (callback: () => void, delayMs: number) => unknown
   clearTimer?: (timer: unknown) => void
 }) {
@@ -95,6 +96,7 @@ export function createBrowserVideoReassembler(options: {
           if (partial === current) {
             partial = undefined
             current.timer = undefined
+            options.onTimeout?.()
           }
         }, timeoutMs)
         partial = current

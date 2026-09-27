@@ -58,8 +58,12 @@ describe('browser video relay reassembly', () => {
 
   test('bounds one incomplete frame and discards it on timeout or close', () => {
     let expire: (() => void) | undefined
+    let timeouts = 0
     const reassembler = createBrowserVideoReassembler({
       generation: 7,
+      onTimeout: () => {
+        timeouts += 1
+      },
       setTimer: (callback) => {
         expire = callback
         return callback
@@ -73,6 +77,7 @@ describe('browser video relay reassembly', () => {
     const timedOut = expire
     timedOut?.()
     expect(reassembler.pending).toBe(false)
+    expect(timeouts).toBe(1)
     expect(() => reassembler.push(chunks[1])).toThrow('start at offset zero')
     expect(reassembler.push(encodeDevStreamVideoRelayChunks(video('2'))[0])).toBeUndefined()
     reassembler.close()
