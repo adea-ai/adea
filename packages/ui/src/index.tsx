@@ -6,19 +6,6 @@ export {
   type ResolvedTheme,
   type Theme,
 } from './components/theme-provider'
-export {
-  Drawer,
-  DrawerClose,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerOverlay,
-  DrawerPortal,
-  DrawerSwipeHandle,
-  DrawerTitle,
-  DrawerTrigger,
-} from './components/ui/drawer'
 export { AccountDrawer, type AccountDrawerProps } from './components/account-drawer'
 export { WorkspaceBrand, type WorkspaceBrandProps } from './components/workspace-brand'
 export { WorkspaceLogo } from './components/workspace-logo'

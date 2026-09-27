@@ -936,7 +936,7 @@ test('browses the verified registry marketplace and submits an exact install req
   await expect(plugins.getByText('No plugins added yet')).toBeVisible()
 })
 
-test('navigates direct, group, thread, and Task detail surfaces', async ({ page }) => {
+test('navigates direct, group, and thread surfaces', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Research Agent', exact: true }).click()
@@ -963,11 +963,50 @@ test('navigates direct, group, thread, and Task detail surfaces', async ({ page 
     .toEqual({ documentScroll: 0, workspaceScroll: 0 })
   await expect(page).toHaveScreenshot('workspace-thread.png', { animations: 'disabled' })
   await page.getByRole('button', { name: 'Close thread' }).click()
+})
 
+test('opens responsive Task detail and restores focus on dismissal', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/')
   await page.getByRole('button', { name: 'Tasks', exact: true }).click()
-  await page.getByRole('button', { name: /Launch planning/ }).click()
+  const taskTrigger = page.getByRole('button', { name: /Launch planning/ })
+  await taskTrigger.click()
   await expect(page.getByRole('heading', { name: 'Launch planning' })).toBeVisible()
+  const detail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
+  await expect(detail).toHaveAttribute('data-side', 'right')
+  await expect(page.locator('[class*="bg-scrim/50"]')).toHaveCount(1)
+  await expect(detail.locator('.conventional-detail-panel')).toHaveCSS('overflow-y', 'auto')
+  const rootFontSize = await page
+    .locator('html')
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize))
+  expect(
+    await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
+  ).toBeCloseTo(29 * rootFontSize, 1)
   await expect(page).toHaveScreenshot('workspace-task-detail.png', { animations: 'disabled' })
+
+  await page.setViewportSize({ width: 390, height: 480 })
+  expect(
+    await detail.evaluate((element) => Number.parseFloat(getComputedStyle(element).width))
+  ).toBeCloseTo(366.6, 0)
+  const detailBody = detail.locator('.conventional-detail-panel')
+  await expect
+    .poll(() => detailBody.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true)
+  await detailBody.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await expect.poll(() => detailBody.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  await page.keyboard.press('Escape')
+  await expect(detail).toHaveCount(0)
+  await expect(taskTrigger).toBeFocused()
+
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await taskTrigger.click()
+  const reopenedDetail = page.getByRole('dialog', { name: 'Launch planning', exact: true })
+  await reopenedDetail.getByRole('button', { name: 'Close Task detail' }).click()
+  await expect(reopenedDetail).toHaveCount(0)
+  await expect(taskTrigger).toBeFocused()
 })
 
 test('supports narrow navigation, keyboard search, and dark mode', async ({ page }) => {

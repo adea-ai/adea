@@ -139,7 +139,7 @@
     "@adea-ai/state": "workspace:*",
     "@adea-ai/themes": "0.5.0",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.70.1",
+    "@adea-ai/ui": "0.70.2",
     "@codemirror/commands": "^6.8.1",
     "@codemirror/language": "^6.11.0",
     "@codemirror/search": "^6.5.11",

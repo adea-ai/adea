@@ -51,6 +51,10 @@
   --ring: var(--hq-shell-focus);
 }
 
+.workspace-account-drawer__content {
+  width: min(24rem, 90vw);
+}
+
 .workspace-brand__mark {
   display: inline-flex;
   flex: 0 0 auto;

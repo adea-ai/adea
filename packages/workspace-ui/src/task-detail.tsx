@@ -24,10 +24,10 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Drawer,
-  DrawerClose,
+  DrawerCloseButton,
   DrawerContent,
   DrawerTitle,
-} from '@adea-ai/app-ui/components/ui/drawer'
+} from '@adea-ai/ui/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -221,21 +221,24 @@ export function TaskDetail(props: Props) {
   return (
     <Drawer
       open
-      swipeDirection="right"
+      side="right"
       onOpenChange={(open) => {
         if (!open) void handleClose()
       }}
     >
-      <DrawerContent style={{ '--drawer-content-width': 'min(29rem, 94vw)' }}>
+      <DrawerContent class="conventional-task-detail-drawer__content">
         <div class="conventional-detail-panel">
           <header>
             <div>
               <span>Task detail</span>
               <DrawerTitle class="sr-only">{props.task.title}</DrawerTitle>
             </div>
-            <DrawerClose class="conventional-detail-panel__close" aria-label="Close Task detail">
+            <DrawerCloseButton
+              class="conventional-detail-panel__close"
+              aria-label="Close Task detail"
+            >
               <X aria-hidden="true" />
-            </DrawerClose>
+            </DrawerCloseButton>
           </header>
           <label>
             Title

@@ -1623,6 +1623,9 @@
   padding: 1.2rem;
   background: var(--cw-surface);
 }
+.conventional-task-detail-drawer__content {
+  width: min(29rem, 94vw);
+}
 .conventional-detail-panel > header {
   display: flex;
   align-items: center;

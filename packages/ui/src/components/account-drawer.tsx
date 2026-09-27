@@ -5,13 +5,13 @@ import { Portal } from 'solid-js/web'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   Drawer,
-  DrawerClose,
+  DrawerCloseButton,
   DrawerContent,
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
-} from '#components/ui/drawer'
+} from '@adea-ai/ui/components/ui/drawer'
 import { ThemeToggle } from './theme-toggle'
 
 export type AccountDrawerProps = {
@@ -32,7 +32,9 @@ export function AccountDrawer(props: AccountDrawerProps) {
     setTriggerTarget(props.triggerTargetId ? document.getElementById(props.triggerTargetId) : null)
   )
 
-  const trigger = (
+  // Corvu reads trigger context when the component is created, so build it
+  // only after the Drawer root has established that context.
+  const renderTrigger = () => (
     <DrawerTrigger
       as={Button}
       variant="outline"
@@ -47,12 +49,15 @@ export function AccountDrawer(props: AccountDrawerProps) {
   )
 
   return (
-    <Drawer swipeDirection="right">
-      <Show when={triggerTarget()} fallback={<div class="fixed right-4 top-4 z-40">{trigger}</div>}>
-        <Portal mount={triggerTarget()!}>{trigger}</Portal>
+    <Drawer side="right">
+      <Show
+        when={triggerTarget()}
+        fallback={<div class="fixed right-4 top-4 z-40">{renderTrigger()}</div>}
+      >
+        <Portal mount={triggerTarget()!}>{renderTrigger()}</Portal>
       </Show>
-      <DrawerContent class="w-[min(24rem,90vw)]">
-        <DrawerHeader class="border-b px-5 pb-4 pt-5 text-left">
+      <DrawerContent class="workspace-account-drawer__content">
+        <DrawerHeader>
           <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
             <div class="flex min-w-0 items-center gap-3">
               <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
@@ -99,15 +104,16 @@ export function AccountDrawer(props: AccountDrawerProps) {
                   : 'Sign in or create an account to keep this workspace across devices.'}
               </p>
             </div>
-            <DrawerClose
+            <DrawerCloseButton
               as={Button}
               variant={props.authenticated ? 'outline' : 'default'}
               class="shrink-0"
+              aria-label={props.authenticated ? 'Sign out' : 'Sign in'}
               disabled={props.busy}
               onClick={props.authenticated ? props.onSignOut : props.onSignIn}
             >
               {props.authenticated ? 'Sign out' : 'Sign in'}
-            </DrawerClose>
+            </DrawerCloseButton>
           </section>
         </div>
       </DrawerContent>

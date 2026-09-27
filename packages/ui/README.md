@@ -31,6 +31,12 @@ private menu implementation and its appearance overrides are removed. The
 remaining `lib/utils` compatibility path re-exports the shared class merger so
 token-derived size overrides follow the shared design-system contract.
 
+Account and task detail drawers use the published Drawer, retaining their
+controlled state, actions, keyboard dismissal, and focus restoration. Named
+layout hooks bound their widths; the shared component supplies the scrim,
+scrolling surface, and outward drag behavior. The copied Drawer and its private
+exports and direct dependency have been removed.
+
 ## Theming contract: CSS custom properties are the only color surface
 
 Components in this package never contain a color literal. Colors come from the
