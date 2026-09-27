@@ -4,7 +4,37 @@ import {
   devRuntimeTransportMethods,
   devStreamProtocolDefinitions,
 } from './dev-runtime-registry'
+import { decodeRegistryDto } from './dev-runtime-registry-dto'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
+import {
+  decodeScope,
+  exactKeys,
+  fail,
+  finiteNumber,
+  gitShaPattern,
+  integerValue,
+  literal,
+  objectPrototype,
+  record,
+  sha256Pattern,
+  stringValue,
+  timestamp,
+  uint64Pattern,
+  uuidPattern,
+} from './dev-runtime-validation-internal'
+export {
+  dataClassifications,
+  decodeCbor,
+  decodeRuntimeEvent,
+  encodeCbor,
+  runtimeEventKinds,
+} from './dev-runtime-wire'
+export type {
+  DataClassification,
+  RuntimeEvent,
+  RuntimeEventKind,
+  RuntimeEventProvenance,
+} from './dev-runtime-wire'
 
 export {
   devOperationDefinitions,
@@ -930,76 +960,6 @@ export type ShellProfile = Readonly<{
   version: number
 }>
 
-export const runtimeEventKinds = [
-  'session.created',
-  'session.starting',
-  'session.ready',
-  'session.disconnected',
-  'session.resumed',
-  'session.completed',
-  'session.failed',
-  'session.cancelled',
-  'run.created',
-  'run.starting',
-  'run.ready',
-  'run.disconnected',
-  'run.resumed',
-  'run.completed',
-  'run.failed',
-  'run.cancelled',
-  'turn.user_input',
-  'turn.assistant_delta',
-  'turn.assistant_message',
-  'turn.result',
-  'tool.requested',
-  'tool.started',
-  'tool.progress',
-  'tool.completed',
-  'tool.failed',
-  'approval.requested',
-  'approval.resolved',
-  'approval.expired',
-  'question.requested',
-  'question.resolved',
-  'question.expired',
-  'file.observed',
-  'checkpoint.observed',
-  'subagent.observed',
-  'usage.observed',
-  'terminal.command_started',
-  'terminal.command_finished',
-  'terminal.cwd_changed',
-  'terminal.transcript_reference',
-  'capability.degraded',
-  'capability.restored',
-] as const
-export type RuntimeEventKind = (typeof runtimeEventKinds)[number]
-export const dataClassifications = [
-  'public',
-  'workspace_metadata',
-  'workspace_private',
-  'credential',
-  'restricted_local',
-] as const
-export type DataClassification = (typeof dataClassifications)[number]
-
-export type RuntimeEvent = Readonly<{
-  schemaVersion: 1
-  eventId: string
-  runtimeSessionId: string
-  harnessRunId?: string
-  generation: number
-  seq: string
-  occurredAt: string
-  receivedAt: string
-  source: 'native' | 'acp' | 'authenticated_hook' | 'terminal_fallback' | 'host'
-  sourceEventId: string
-  confidence: 'authoritative' | 'bounded_projection' | 'untrusted_hint'
-  classification: DataClassification
-  kind: RuntimeEventKind
-  payload: unknown
-}>
-
 export type DevRuntimePage<T> = Readonly<{
   items: readonly T[]
   nextCursor?: string
@@ -1449,12 +1409,6 @@ export function decodeDevMutationPlan(value: unknown): MutationPlan {
   return decodeMutationPlan(value)
 }
 
-const objectPrototype = Object.prototype
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/
-const uint64Pattern = /^(?:0|[1-9]\d*)$/
-const sha256Pattern = /^[0-9a-f]{64}$/
-const gitShaPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
 // Stable provider-scoped identifiers minted by the GitHub provider slice
 // (#423): `gh:<owner>/<repo>#<number>` for PRs/issues, `ghm:` for milestones.
 const githubPullRequestIdPattern = /^gh:[A-Za-z0-9-]{1,100}\/[A-Za-z0-9._-]{1,100}#\d{1,9}$/
@@ -1474,63 +1428,6 @@ const authorityBodyKeys = new Set([
   'clientCredentialId',
   'proof',
 ])
-
-function fail(path: string, message: string): never {
-  throw new TypeError(`${path}: ${message}`)
-}
-
-function record(value: unknown, path: string): Record<string, unknown> {
-  if (
-    value === null ||
-    typeof value !== 'object' ||
-    Array.isArray(value) ||
-    (Object.getPrototypeOf(value) !== objectPrototype && Object.getPrototypeOf(value) !== null)
-  ) {
-    fail(path, 'expected object')
-  }
-  return value as Record<string, unknown>
-}
-
-function exactKeys(
-  value: Record<string, unknown>,
-  required: readonly string[],
-  optional: readonly string[],
-  path: string
-) {
-  const allowed = new Set([...required, ...optional])
-  for (const key of Object.keys(value)) if (!allowed.has(key)) fail(`${path}.${key}`, 'unknown key')
-  for (const key of required) if (!(key in value)) fail(`${path}.${key}`, 'required')
-}
-
-function stringValue(value: unknown, path: string, min = 0, max = Number.POSITIVE_INFINITY) {
-  if (typeof value !== 'string' || value.length < min || value.length > max)
-    fail(path, `expected string length ${min}..${max}`)
-  return value
-}
-
-function integerValue(
-  value: unknown,
-  path: string,
-  min = Number.MIN_SAFE_INTEGER,
-  max = Number.MAX_SAFE_INTEGER
-) {
-  if (!Number.isSafeInteger(value) || (value as number) < min || (value as number) > max)
-    fail(path, `expected integer ${min}..${max}`)
-  return value as number
-}
-
-function finiteNumber(value: unknown, path: string, min = -Infinity, max = Infinity) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max)
-    fail(path, `expected finite number ${min}..${max}`)
-  return value
-}
-
-function timestamp(value: unknown, path: string) {
-  const text = stringValue(value, path)
-  if (!timestampPattern.test(text) || Number.isNaN(Date.parse(text)))
-    fail(path, 'expected UTC timestamp')
-  return text
-}
 
 function splitTopLevel(source: string, separator: string): string[] {
   const parts: string[] = []
@@ -1602,6 +1499,17 @@ const cleanupSteps = [
 export type CleanupStepKind = (typeof cleanupSteps)[number]
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  if (
+    name === 'FileIdentity' ||
+    name === 'RootBookmark' ||
+    name === 'CredentialRef' ||
+    name === 'Project' ||
+    name === 'ProjectRepoBinding' ||
+    name === 'RedactedRemote' ||
+    name === 'Repo' ||
+    name === 'RepoInspection'
+  )
+    return decodeRegistryDto(name, value, path)
   if (name === 'ArchiveRecord') {
     const item = record(value, path)
     exactKeys(
@@ -2235,18 +2143,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
   if (name === 'CleanupStepKind') return literal(value, cleanupSteps, path)
   if (name === 'LeaseOwnerKind')
     return literal(value, ['terminal', 'harness', 'browser', 'device', 'server', 'editor'], path)
-  if (name === 'FileIdentity') {
-    const item = record(value, path)
-    exactKeys(item, ['mtimeNs', 'size'], ['device', 'inode', 'birthtimeNs', 'contentSha256'], path)
-    for (const key of ['mtimeNs', 'size', 'device', 'inode', 'birthtimeNs'] as const)
-      if (item[key] !== undefined) stringValue(item[key], `${path}.${key}`)
-    if (
-      item.contentSha256 !== undefined &&
-      !sha256Pattern.test(stringValue(item.contentSha256, `${path}.contentSha256`))
-    )
-      fail(`${path}.contentSha256`, 'expected sha256')
-    return value
-  }
   if (name === 'WorkspacePath') {
     const item = record(value, path)
     exactKeys(item, ['worktreeId', 'rootIdentity', 'relativePath'], [], path)
@@ -2806,50 +2702,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.baseRef !== undefined) stringValue(item.baseRef, `${path}.baseRef`, 1)
     return value
   }
-  if (name === 'RootBookmark') {
-    const item = record(value, path)
-    exactKeys(
-      item,
-      [
-        'id',
-        'scope',
-        'label',
-        'kind',
-        'canonicalRoot',
-        'rootIdentity',
-        'state',
-        'generation',
-        'version',
-      ],
-      [],
-      path
-    )
-    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected lowercase UUID')
-    decodeScope(item.scope, `${path}.scope`)
-    stringValue(item.label, `${path}.label`, 1, 128)
-    literal(item.kind, ['directory', 'repository'], `${path}.kind`)
-    const canonicalRoot = stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
-    if (canonicalRoot.includes('\0')) fail(`${path}.canonicalRoot`, 'expected path without NUL')
-    namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
-    literal(item.state, ['active', 'stale', 'revoked'], `${path}.state`)
-    integerValue(item.generation, `${path}.generation`, 0)
-    integerValue(item.version, `${path}.version`, 1)
-    return value
-  }
-  if (name === 'CredentialRef') {
-    const item = record(value, path)
-    exactKeys(item, ['id', 'scope', 'label', 'host', 'kind', 'state', 'version'], [], path)
-    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected lowercase UUID')
-    decodeScope(item.scope, `${path}.scope`)
-    stringValue(item.label, `${path}.label`, 1, 128)
-    stringValue(item.host, `${path}.host`, 1, 253)
-    literal(item.kind, ['git_https', 'github_token', 'ssh_key', 'other'], `${path}.kind`)
-    literal(item.state, ['ready', 'expired', 'revoked', 'unknown'], `${path}.state`)
-    integerValue(item.version, `${path}.version`, 1)
-    return value
-  }
   if (name === 'HarnessModel') {
     const item = record(value, path)
     exactKeys(item, ['id', 'displayName', 'capabilities'], [], path)
@@ -3249,112 +3101,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
     if (item.colorToken !== undefined) stringValue(item.colorToken, `${path}.colorToken`, 1, 64)
     return value
   }
-  if (name === 'Project') {
-    const item = record(value, path)
-    exactKeys(
-      item,
-      ['id', 'scope', 'name', 'groupIds', 'repoIds', 'lifecycle', 'version'],
-      [
-        'repos',
-        'preferredRuntimeNodeId',
-        'defaultBaseRef',
-        'bootstrapWorkflowId',
-        'defaultHarnessId',
-      ],
-      path
-    )
-    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected lowercase UUID')
-    decodeScope(item.scope, `${path}.scope`)
-    stringValue(item.name, `${path}.name`, 1, 128)
-    validateType('string[]<=32', item.groupIds, `${path}.groupIds`)
-    validateType('string[]<=128', item.repoIds, `${path}.repoIds`)
-    if (item.repos !== undefined) {
-      if (!Array.isArray(item.repos)) fail(`${path}.repos`, 'expected array')
-      if ((item.repos as unknown[]).length > 128) fail(`${path}.repos`, 'array exceeds 128')
-      ;(item.repos as unknown[]).forEach((entry, index) =>
-        namedType('ProjectRepoBinding', entry, `${path}.repos[${index}]`)
-      )
-    }
-    if (item.preferredRuntimeNodeId !== undefined)
-      stringValue(item.preferredRuntimeNodeId, `${path}.preferredRuntimeNodeId`, 1, 256)
-    if (item.defaultBaseRef !== undefined)
-      stringValue(item.defaultBaseRef, `${path}.defaultBaseRef`, 1, 256)
-    if (item.bootstrapWorkflowId !== undefined)
-      stringValue(item.bootstrapWorkflowId, `${path}.bootstrapWorkflowId`, 1, 256)
-    if (item.defaultHarnessId !== undefined)
-      stringValue(item.defaultHarnessId, `${path}.defaultHarnessId`, 1, 256)
-    literal(
-      item.lifecycle,
-      ['importing', 'cloning', 'scanning', 'ready', 'archived', 'failed'],
-      `${path}.lifecycle`
-    )
-    integerValue(item.version, `${path}.version`, 1)
-    return value
-  }
-  if (name === 'ProjectRepoBinding') {
-    const item = record(value, path)
-    exactKeys(item, ['repoId', 'rootBookmarkId', 'canonicalRoot'], [], path)
-    if (!uuidPattern.test(stringValue(item.repoId, `${path}.repoId`)))
-      fail(`${path}.repoId`, 'expected lowercase UUID')
-    if (!uuidPattern.test(stringValue(item.rootBookmarkId, `${path}.rootBookmarkId`)))
-      fail(`${path}.rootBookmarkId`, 'expected lowercase UUID')
-    stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
-    return value
-  }
-  // Repository registry DTOs (#398 follow-up). `host` is a proven remote
-  // host (never empty when the remote is present); `ownerPath`/`displayUrl`
-  // may legitimately be empty for pathless or unparseable remotes.
-  if (name === 'RedactedRemote') {
-    const item = record(value, path)
-    exactKeys(item, ['provider', 'host', 'ownerPath', 'displayUrl'], [], path)
-    literal(item.provider, ['github', 'gitlab', 'other'], `${path}.provider`)
-    stringValue(item.host, `${path}.host`, 1, 253)
-    stringValue(item.ownerPath, `${path}.ownerPath`, 0, 1024)
-    stringValue(item.displayUrl, `${path}.displayUrl`, 0, 2048)
-    return value
-  }
-  if (name === 'Repo') {
-    const item = record(value, path)
-    exactKeys(
-      item,
-      ['id', 'scope', 'kind', 'lifecycle', 'canonicalRoot', 'projectIds', 'version'],
-      ['gitCommonDirIdentity', 'remote', 'defaultRef'],
-      path
-    )
-    if (!uuidPattern.test(stringValue(item.id, `${path}.id`)))
-      fail(`${path}.id`, 'expected lowercase UUID')
-    decodeScope(item.scope, `${path}.scope`)
-    literal(item.kind, ['git', 'folder'], `${path}.kind`)
-    literal(
-      item.lifecycle,
-      ['authorizing', 'ready', 'unavailable', 'stale', 'refreshing'],
-      `${path}.lifecycle`
-    )
-    const canonicalRoot = stringValue(item.canonicalRoot, `${path}.canonicalRoot`, 1, 4096)
-    if (canonicalRoot.includes('\0')) fail(`${path}.canonicalRoot`, 'expected path without NUL')
-    if (item.gitCommonDirIdentity !== undefined)
-      namedType('FileIdentity', item.gitCommonDirIdentity, `${path}.gitCommonDirIdentity`)
-    if (item.remote !== undefined) namedType('RedactedRemote', item.remote, `${path}.remote`)
-    if (item.defaultRef !== undefined) stringValue(item.defaultRef, `${path}.defaultRef`, 1, 256)
-    validateType('string[]<=128', item.projectIds, `${path}.projectIds`)
-    integerValue(item.version, `${path}.version`, 1)
-    return value
-  }
-  if (name === 'RepoInspection') {
-    const item = record(value, path)
-    exactKeys(item, ['repo', 'rootIdentity', 'dirty', 'observedAt'], ['headRef', 'headSha'], path)
-    namedType('Repo', item.repo, `${path}.repo`)
-    namedType('FileIdentity', item.rootIdentity, `${path}.rootIdentity`)
-    if (item.headRef !== undefined) stringValue(item.headRef, `${path}.headRef`, 1, 256)
-    if (item.headSha !== undefined) {
-      if (!gitShaPattern.test(stringValue(item.headSha, `${path}.headSha`)))
-        fail(`${path}.headSha`, 'expected git sha')
-    }
-    if (typeof item.dirty !== 'boolean') fail(`${path}.dirty`, 'expected boolean')
-    timestamp(item.observedAt, `${path}.observedAt`)
-    return value
-  }
   if (name === 'ProjectScanEntry') {
     const item = record(value, path)
     exactKeys(
@@ -3444,11 +3190,6 @@ function namedType(name: string, value: unknown, path: string): unknown {
   fail(path, `unknown named type ${name}`)
 }
 
-function literal(value: unknown, allowed: readonly unknown[], path: string): unknown {
-  if (!allowed.includes(value)) fail(path, `expected ${allowed.map(String).join('|')}`)
-  return value
-}
-
 function validateObjectType(type: string, value: unknown, path: string) {
   const item = record(value, path)
   const fields = splitTopLevel(type.slice(1, -1), ';')
@@ -3536,15 +3277,6 @@ function validateType(type: string, value: unknown, path: string): unknown {
   }
   if (trimmed === 'uint64') return integerValue(value, path, 0)
   return namedType(trimmed, value, path)
-}
-
-function decodeScope(value: unknown, path = 'scope'): Scope {
-  const item = record(value, path)
-  exactKeys(item, ['accountId', 'workspaceId', 'runtimeNodeId'], [], path)
-  for (const key of ['accountId', 'workspaceId', 'runtimeNodeId'] as const)
-    if (!uuidPattern.test(stringValue(item[key], `${path}.${key}`)))
-      fail(`${path}.${key}`, 'expected lowercase UUID')
-  return value as Scope
 }
 
 /** Strict decoder for the M10-minted authorized-root grant DTO. */
@@ -4017,101 +3749,6 @@ function decodeError(value: unknown, path = 'error'): DevError {
     }
   }
   return value as DevError
-}
-
-function validateEventPayload(value: unknown, path: string, depth = 0): void {
-  if (depth > 32) fail(path, 'maximum nesting depth exceeded')
-  if (typeof value === 'string') {
-    stringValue(value, path, 0, 65_536)
-    return
-  }
-  if (value === null || typeof value === 'boolean') return
-  if (typeof value === 'number') {
-    finiteNumber(value, path)
-    return
-  }
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) => validateEventPayload(entry, `${path}[${index}]`, depth + 1))
-    return
-  }
-  const item = record(value, path)
-  for (const [key, entry] of Object.entries(item)) {
-    stringValue(key, `${path} key`, 1, 256)
-    validateEventPayload(entry, `${path}.${key}`, depth + 1)
-  }
-}
-
-export type RuntimeEventProvenance = Readonly<{
-  /** Source derived from the authenticated transport/adapter, never event JSON. */
-  source: RuntimeEvent['source']
-}>
-
-export function decodeRuntimeEvent(
-  value: unknown,
-  provenance: RuntimeEventProvenance
-): RuntimeEvent {
-  const item = record(value, 'event')
-  exactKeys(
-    item,
-    [
-      'schemaVersion',
-      'eventId',
-      'runtimeSessionId',
-      'generation',
-      'seq',
-      'occurredAt',
-      'receivedAt',
-      'source',
-      'sourceEventId',
-      'confidence',
-      'classification',
-      'kind',
-      'payload',
-    ],
-    ['harnessRunId'],
-    'event'
-  )
-  if (item.schemaVersion !== 1) fail('event.schemaVersion', 'expected 1')
-  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const)
-    stringValue(item[key], `event.${key}`, 1, 256)
-  if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
-  integerValue(item.generation, 'event.generation', 0)
-  if (!uint64Pattern.test(stringValue(item.seq, 'event.seq')))
-    fail('event.seq', 'expected uint64 string')
-  timestamp(item.occurredAt, 'event.occurredAt')
-  timestamp(item.receivedAt, 'event.receivedAt')
-  literal(
-    item.source,
-    ['native', 'acp', 'authenticated_hook', 'terminal_fallback', 'host'],
-    'event.source'
-  )
-  if (item.source !== provenance.source)
-    fail('event.source', 'does not match authenticated transport provenance')
-  literal(
-    item.confidence,
-    ['authoritative', 'bounded_projection', 'untrusted_hint'],
-    'event.confidence'
-  )
-  literal(item.classification, dataClassifications, 'event.classification')
-  literal(item.kind, runtimeEventKinds, 'event.kind')
-  if (item.source === 'terminal_fallback') {
-    if (item.confidence === 'authoritative')
-      fail('event.confidence', 'terminal fallback cannot be authoritative')
-    const fallbackKinds: readonly RuntimeEventKind[] = [
-      'turn.assistant_delta',
-      'turn.assistant_message',
-      'terminal.command_started',
-      'terminal.command_finished',
-      'terminal.cwd_changed',
-      'terminal.transcript_reference',
-    ]
-    if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
-      fail('event.kind', 'terminal fallback cannot synthesize this event kind')
-  }
-  validateEventPayload(item.payload, 'event.payload')
-  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
-    fail('event.payload', 'maximum encoded size exceeded')
-  return value as RuntimeEvent
 }
 
 function isPairedCommitOperation(operation: DevOperation): boolean {
@@ -4769,271 +4406,4 @@ export function devStreamAttachProofMessage(input: {
     input.attach.nonce,
     input.attach.fromSequence,
   ])
-}
-
-// ─── Canonical CBOR (RFC 8949 deterministic encoding subset) ────────────────
-//
-// Bulk-stream control frames are canonical CBOR with a 64 KiB maximum. This
-// subset covers the frame vocabulary — unsigned/negative integers, floats,
-// booleans, null, byte and text strings, arrays, and text-keyed maps — and
-// refuses anything else (tags, indefinite lengths, non-shortest heads,
-// duplicate or unsorted map keys) instead of guessing.
-
-const cborEncoder = new TextEncoder()
-const cborDecoder = new TextDecoder('utf-8', { fatal: true })
-
-function cborHead(major: number, length: number | bigint): Uint8Array {
-  const value = BigInt(length)
-  const head: number[] = []
-  let info: number
-  let bytes: number[] = []
-  if (value < 24n) info = Number(value)
-  else if (value <= 0xffn) {
-    info = 24
-    bytes = [Number(value)]
-  } else if (value <= 0xffffn) {
-    info = 25
-    for (let shift = 8; shift >= 0; shift -= 8) bytes.push(Number((value >> BigInt(shift)) & 0xffn))
-  } else if (value <= 0xffff_ffffn) {
-    info = 26
-    for (let shift = 24; shift >= 0; shift -= 8)
-      bytes.push(Number((value >> BigInt(shift)) & 0xffn))
-  } else {
-    info = 27
-    for (let shift = 56; shift >= 0; shift -= 8)
-      bytes.push(Number((value >> BigInt(shift)) & 0xffn))
-  }
-  head.push((major << 5) | info, ...bytes)
-  return Uint8Array.from(head)
-}
-
-function shortestFloat(value: number): Uint8Array {
-  const buffer = new ArrayBuffer(8)
-  const view = new DataView(buffer)
-  for (const [head, write, read] of [
-    [0xf9, 'setFloat16', 'getFloat16'],
-    [0xfa, 'setFloat32', 'getFloat32'],
-  ] as const) {
-    view[write](0, value, false)
-    if (view[read](0, false) === value) {
-      const size = head === 0xf9 ? 2 : 4
-      const out = new Uint8Array(1 + size)
-      out[0] = head
-      out.set(new Uint8Array(buffer, 0, size), 1)
-      return out
-    }
-  }
-  view.setFloat64(0, value, false)
-  const out = new Uint8Array(9)
-  out[0] = 0xfb
-  out.set(new Uint8Array(buffer, 0, 8), 1)
-  return out
-}
-
-export function encodeCbor(value: unknown): Uint8Array {
-  const chunks: Uint8Array[] = []
-  const encode = (input: unknown): void => {
-    if (input === null) {
-      chunks.push(Uint8Array.from([0xf6]))
-      return
-    }
-    if (typeof input === 'boolean') {
-      chunks.push(Uint8Array.from([input ? 0xf5 : 0xf4]))
-      return
-    }
-    if (typeof input === 'bigint') {
-      if (input >= 0n) chunks.push(cborHead(0, input))
-      else chunks.push(cborHead(1, -1n - input))
-      return
-    }
-    if (typeof input === 'number') {
-      if (Number.isSafeInteger(input)) {
-        if (input >= 0) chunks.push(cborHead(0, input))
-        else chunks.push(cborHead(1, -1 - input))
-        return
-      }
-      if (Number.isFinite(input)) {
-        chunks.push(shortestFloat(input))
-        return
-      }
-      fail('cbor', 'numbers must be finite')
-    }
-    if (typeof input === 'string') {
-      const bytes = cborEncoder.encode(input)
-      chunks.push(cborHead(3, bytes.byteLength), bytes)
-      return
-    }
-    if (input instanceof Uint8Array) {
-      chunks.push(cborHead(2, input.byteLength), input)
-      return
-    }
-    if (Array.isArray(input)) {
-      chunks.push(cborHead(4, input.length))
-      for (const entry of input) encode(entry)
-      return
-    }
-    if (typeof input === 'object') {
-      if (Object.getPrototypeOf(input) !== objectPrototype && Object.getPrototypeOf(input) !== null)
-        fail('cbor', 'expected a plain object')
-      const entries = Object.entries(input as Record<string, unknown>)
-      const encoded = entries
-        .map(([key, entry]) => ({ key: encodeCbor(key), value: encodeCbor(entry) }))
-        .toSorted((left, right) => {
-          const shorter = Math.min(left.key.byteLength, right.key.byteLength)
-          for (let index = 0; index < shorter; index += 1) {
-            const delta = left.key[index]! - right.key[index]!
-            if (delta !== 0) return delta
-          }
-          return left.key.byteLength - right.key.byteLength
-        })
-      chunks.push(cborHead(5, encoded.length))
-      for (const entry of encoded) {
-        chunks.push(entry.key, entry.value)
-      }
-      return
-    }
-    fail('cbor', `cannot encode ${typeof input}`)
-  }
-  encode(value)
-  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
-  const out = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    out.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return out
-}
-
-export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: number } {
-  let offset = 0
-  const read = (count: number): bigint => {
-    if (offset + count > bytes.byteLength) fail('cbor', 'truncated input')
-    let value = 0n
-    for (let index = 0; index < count; index += 1) value = (value << 8n) | BigInt(bytes[offset++]!)
-    return value
-  }
-  const head = (): { major: number; value: bigint } => {
-    if (offset >= bytes.byteLength) fail('cbor', 'truncated input')
-    const first = bytes[offset++]!
-    const major = first >> 5
-    const info = first & 0x1f
-    if (info < 24) return { major, value: BigInt(info) }
-    if (info === 24) {
-      const value = read(1)
-      if (value < 24n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    if (info === 25) {
-      const value = read(2)
-      if (value < 256n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    if (info === 26) {
-      const value = read(4)
-      if (value < 65_536n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    if (info === 27) {
-      const value = read(8)
-      if (value < 4_294_967_296n) fail('cbor', 'non-shortest integer head')
-      return { major, value }
-    }
-    fail('cbor', `unsupported additional information ${info}`)
-  }
-  const decode = (): unknown => {
-    if (offset >= bytes.byteLength) fail('cbor', 'truncated input')
-    const first = bytes[offset]!
-    // Major 7's "value" is a simple value or raw float bits, not a
-    // length, so the integer shortest-form rules do not apply to it.
-    if (first >> 5 === 7) {
-      offset += 1
-      const info = first & 0x1f
-      if (info === 20) return false
-      if (info === 21) return true
-      if (info === 22) return null
-      if (info === 25 || info === 26 || info === 27) {
-        const width = info === 25 ? 2 : info === 26 ? 4 : 8
-        const bits = read(width)
-        const scratch = new ArrayBuffer(8)
-        const view = new DataView(scratch)
-        for (let index = 0; index < width; index += 1)
-          view.setUint8(index, Number((bits >> BigInt(8 * (width - 1 - index))) & 0xffn))
-        const parsed =
-          info === 25
-            ? view.getFloat16(0, false)
-            : info === 26
-              ? view.getFloat32(0, false)
-              : view.getFloat64(0, false)
-        if (!Number.isFinite(parsed)) fail('cbor', 'floats must be finite')
-        return parsed
-      }
-      fail('cbor', `unsupported simple value ${info}`)
-    }
-    const { major, value } = head()
-    if (major === 0) {
-      if (value > BigInt(Number.MAX_SAFE_INTEGER)) return value
-      return Number(value)
-    }
-    if (major === 1) {
-      const result = -1n - value
-      return result >= BigInt(Number.MIN_SAFE_INTEGER) && result <= BigInt(Number.MAX_SAFE_INTEGER)
-        ? Number(result)
-        : result
-    }
-    if (major === 2) {
-      const length = Number(value)
-      if (offset + length > bytes.byteLength) fail('cbor', 'truncated byte string')
-      const out = bytes.slice(offset, offset + length)
-      offset += length
-      return out
-    }
-    if (major === 3) {
-      const length = Number(value)
-      if (offset + length > bytes.byteLength) fail('cbor', 'truncated text string')
-      const slice = bytes.subarray(offset, offset + length)
-      offset += length
-      try {
-        return cborDecoder.decode(slice)
-      } catch {
-        return fail('cbor', 'invalid UTF-8 text string')
-      }
-    }
-    if (major === 4) {
-      const length = Number(value)
-      const out: unknown[] = []
-      for (let index = 0; index < length; index += 1) out.push(decode())
-      return out
-    }
-    if (major === 5) {
-      const length = Number(value)
-      const out: Record<string, unknown> = {}
-      let previousKey: Uint8Array | undefined
-      for (let index = 0; index < length; index += 1) {
-        const keyStart = offset
-        const key = decode()
-        const keyBytes = bytes.slice(keyStart, offset)
-        if (typeof key !== 'string') fail('cbor', 'map keys must be text strings')
-        if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
-          fail('cbor', 'map keys are not canonically ordered')
-        previousKey = keyBytes
-        if (key in out) fail('cbor', 'duplicate map key')
-        out[key] = decode()
-      }
-      return out
-    }
-    if (major === 6) fail('cbor', 'tags are not part of the frame vocabulary')
-    return fail('cbor', `unsupported major type ${major}`)
-  }
-  const value = decode()
-  return { value, byteLength: offset }
-}
-
-function compareBytes(left: Uint8Array, right: Uint8Array): number {
-  const shorter = Math.min(left.byteLength, right.byteLength)
-  for (let index = 0; index < shorter; index += 1) {
-    const delta = left[index]! - right[index]!
-    if (delta !== 0) return delta
-  }
-  return left.byteLength - right.byteLength
 }
