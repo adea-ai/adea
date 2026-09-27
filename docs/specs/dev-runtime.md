@@ -1846,6 +1846,30 @@ stream, discard queued input, report typed `delivery_ambiguous`, and never retry
 those bytes automatically. The pane presents safe copy derived from the error
 code rather than rendering host-provided error text.
 
+The renderer's terminal adapter is constructed from the exact selected
+`TerminalRecord` and never discovers a replacement by taking the first ready
+terminal. The first commands use that captured record's scope and bind its
+terminal ID and generation; the runtime session remains part of the selected
+record identity. On reconnect, the adapter lists only that runtime session,
+requires one exact terminal ID in the same scope, and mints fresh read and
+write grants for its current generation. The read grant starts at the terminal
+transport's current output cursor if its generation is unchanged; after a
+generation change, it starts at that generation's `0` anchor. The write grant
+has its own byte-offset cursor, initialized from its grant and advanced only
+after the local write socket accepts a frame. The output cursor is never reused
+for input. Larger renderer writes are split into frames no larger than the
+write grant's `maxFrameBytes`. Each grant must match the requested protocol,
+direction, scope, terminal resource, generation, and cursor; both grants must
+use the same channel and distinct grant IDs. Each `opened` frame must match its
+grant's protocol, generation, and cursor before the pane is told the socket is
+open. The adapter routes ACKs only to the read stream and byte input only to
+the write stream. Resize uses the registered `dev.terminal.resize` control
+operation bound to the same terminal generation, never a read grant. The
+adapter requires measured relay buffering and refuses a stream provider that
+cannot report it; it does not assume an empty queue. While the paired grants
+open, it retains at most 1 MiB and 256 read frames; overflow is retryable
+backpressure, so the next read grant restarts from the unchanged output cursor.
+
 The desktop renderer's signed `desktop_file_stream` event bridge is a JSON
 relay, so browser video crossing that leg is split into strict `video_chunk`
 envelopes rather than sending a whole image through a command or event. Each
