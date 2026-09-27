@@ -21,6 +21,9 @@
     "apps/desktop": {
       "name": "@adea-ai/desktop",
       "version": "0.45.1",
+      "dependencies": {
+        "@adea-ai/dev-view": "workspace:*",
+      },
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
