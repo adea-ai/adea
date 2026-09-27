@@ -10586,7 +10586,15 @@
       "separateReleaseProgress": {
         "uiPublisher": "UI87 merged; real UI0.71.5 publish run36333613463 passed trusted publishing and consumer-archive confirmation. Adea remains pinned to qualified0.71.4 until a coherent new consumer adoption.",
         "themes": "Themes0.6.2 published; UI destructive-role consumer and Cortana migration still require qualification.",
-        "dialog": "UI89 squashmerged eaf149f451c039542144bd01e46fd3a10076e2c1 after required current-head checks passed. Source and generated registry payload aligned; normal npm release still pending."
+        "dialog": "UI89 squashmerged eaf149f451c039542144bd01e46fd3a10076e2c1 with source/registry aligned; Release Please92 merged a0ed7ee139c90ddf8722ad54ed73d7a62b666198. UI0.71.6 real trusted publish36336628666 and consumer archive confirmation passed. Adea remains on actual UI0.71.4 pending coherent consumer qualification.",
+        "dialogPublication": {
+          "version": "0.71.6",
+          "run": "https://github.com/adea-ai/ui/actions/runs/36336628666",
+          "integrity": "sha512-doh5hrporsdr9LRpw0t+xCXs+kwpNEzPTHp63SP7/6VjrwV15eQUA6F3b94e4oQtX1j12Ore9fQ/8rl7vUO01A==",
+          "registryMetadataVerified": true,
+          "limits": "No consumer pin or source alias changed; actual registry tarball geometry/license follow-up is separately owned."
+        },
+        "storybook": "UI91 squashmerged6cf5c5d324fb7fdee2d88876b785bcb2e13e9198 after required current-head checks passed. Bare-root brand/Overview/navigation/catalogue browser regression passed locally; Pages deployment for this head pending. Previously deployed branded root/navigation verified separately."
       },
       "currentBrowserEvidence": {
         "runtimeSourceHead": "bfa19a48ac531c66febb593e368646f319046598",
