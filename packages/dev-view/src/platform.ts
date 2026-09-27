@@ -59,6 +59,8 @@ export type DevWorkspaceProjection = Readonly<{
           | 'cancelled'
           | 'archived'
         generation?: number
+        /** The session primary PTY; absence never selects another terminal. */
+        terminalId?: string
       }>[]
     }>[]
   }>[]

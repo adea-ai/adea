@@ -353,7 +353,7 @@ async function executeOperation(
   return reply.value as { items: readonly Record<string, unknown>[] }
 }
 
-function toProjection(
+export function toProjection(
   groupsReply: { items: readonly Record<string, unknown>[] },
   projectsReply: { items: readonly Record<string, unknown>[] },
   sessionsReply: { items: readonly Record<string, unknown>[] }
@@ -385,6 +385,14 @@ function toProjection(
       // into active/ready". `ready` is now only the fallback for a lifecycle
       // this build does not recognise.
       state: raw.archived === true ? 'archived' : canonicalSessionState(raw.lifecycle),
+      ...(typeof raw.terminalId === 'string' && raw.terminalId.length > 0
+        ? { terminalId: raw.terminalId }
+        : {}),
+      ...(typeof raw.generation === 'number' &&
+      Number.isSafeInteger(raw.generation) &&
+      raw.generation >= 0
+        ? { generation: raw.generation }
+        : {}),
     })
     sessionsByProject.set(projectId, sessions)
   }

@@ -4,7 +4,11 @@
 // it: `packages/dev-view/tests` contains no `.tsx` test at all.
 import { describe, expect, test } from 'bun:test'
 
-import { CANONICAL_SESSION_STATES, canonicalSessionState } from '../src/lib/desktop-dev-runtime'
+import {
+  CANONICAL_SESSION_STATES,
+  canonicalSessionState,
+  toProjection,
+} from '../src/lib/desktop-dev-runtime'
 
 describe('session state projection', () => {
   // Every lifecycle `RuntimeSession` can carry must survive the projection. It
@@ -32,5 +36,46 @@ describe('session state projection', () => {
     expect(canonicalSessionState('active')).toBe('active')
     expect(canonicalSessionState('Active')).toBe('ready')
     expect(canonicalSessionState('FAILED')).toBe('ready')
+  })
+})
+
+function project(session: Record<string, unknown>) {
+  return toProjection(
+    { items: [{ id: 'group', projectIds: ['project'] }] },
+    { items: [{ id: 'project' }] },
+    {
+      items: [
+        {
+          id: 'session',
+          projectId: 'project',
+          worktreeId: 'worktree',
+          lifecycle: 'active',
+          ...session,
+        },
+      ],
+    }
+  ).groups[0]!.projects[0]!.sessions[0]!
+}
+
+describe('selected session terminal identity', () => {
+  test('preserves the primary terminal and session generation supplied by the runtime', () => {
+    expect(project({ terminalId: 'primary-terminal', generation: 7 })).toMatchObject({
+      terminalId: 'primary-terminal',
+      generation: 7,
+      worktreeId: 'worktree',
+    })
+    expect(project({ terminalId: 'primary-terminal', generation: 0 }).generation).toBe(0)
+  })
+
+  test('does not invent a primary terminal or generation for older projections', () => {
+    expect(project({})).not.toHaveProperty('terminalId')
+    expect(project({})).not.toHaveProperty('generation')
+  })
+
+  test('does not promote malformed optional identity fields into usable authority', () => {
+    for (const terminalId of ['', 7, null, {}])
+      expect(project({ terminalId })).not.toHaveProperty('terminalId')
+    for (const generation of [-1, 1.5, NaN, Infinity, '7', null])
+      expect(project({ generation })).not.toHaveProperty('generation')
   })
 })

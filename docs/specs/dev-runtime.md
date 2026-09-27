@@ -1270,6 +1270,20 @@ A session may own several terminals through splits.
 `dev.terminal.list` enumerates every terminal a session or worktree owns,
 including split leaves and terminals re-created after a restart.
 
+The desktop workspace projection preserves the session's optional primary
+`terminalId` and canonical session generation. A terminal pane resolves its
+explicit primary or split-leaf terminal ID through `dev.terminal.list`, filtered
+by the selected session and worktree. It requires exactly one matching record
+with the same account/workspace/node scope, session, and worktree; it never
+selects the first unrelated terminal or creates a PTY as recovery. Session
+and terminal generations are separate identities: stream grants use the resolved
+terminal record's generation. Resolution scans at most 64 pages of 500 records,
+rejects duplicate IDs, off-scope/session/worktree rows, repeated cursors,
+oversized pages, ended/faulted terminals,
+and retires pending results when the selection's abort signal is cancelled.
+This selection resolver is preparatory application code; a production terminal
+mount and its packaged stream journey remain separate acceptance evidence.
+
 ### Runtime session and harness run
 
 ```text
