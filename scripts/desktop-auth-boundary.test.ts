@@ -125,8 +125,9 @@ describe('desktop packaging and single-UI client boundary', () => {
 
     expect(manifest.scripts['shell:client:build']).toBe('bun scripts/client.mjs')
     expect(manifest.scripts['shell:build']).toBe('bun scripts/shell.mjs build')
-    // The desktop lane no longer owns a client dependency graph.
-    expect(manifest.dependencies).toBeUndefined()
+    // The desktop host may depend on its shared runtime contract package, but
+    // it does not own a separate client dependency graph.
+    expect(manifest.dependencies).toEqual({ '@adea-ai/dev-view': 'workspace:*' })
     expect(manifest.devDependencies).toBeUndefined()
     // The client build is the web app's own build pipeline, filtered to build
     // the workspace packages the web app consumes first.
@@ -145,6 +146,53 @@ describe('desktop packaging and single-UI client boundary', () => {
     // The client is always served from the bundle; no remote application URL.
     expect(shellRunner).not.toContain('ADEA_WEB_URL')
     expect(clientBuild).not.toContain('ADEA_WEB_URL')
+  })
+
+  test('keeps the host notification contract out of the client module graph', async () => {
+    const loadedModules = new Set<string>()
+    const entrypoint = join(
+      root,
+      'apps/desktop/shell/src/notifications/harness-run-notifications.ts'
+    )
+    const result = await Bun.build({
+      entrypoints: [entrypoint],
+      target: 'bun',
+      write: false,
+      plugins: [
+        {
+          name: 'desktop-notification-host-boundary',
+          setup(build) {
+            build.onLoad({ filter: /.*/ }, ({ path }) => {
+              loadedModules.add(path.replaceAll('\\', '/'))
+              return undefined
+            })
+          },
+        },
+      ],
+    })
+
+    expect(result.success).toBe(true)
+    const normalizedEntry = entrypoint.replaceAll('\\', '/')
+    const graph = [...loadedModules]
+    expect(graph).toContain(normalizedEntry)
+    expect(graph).toContain(
+      join(root, 'packages/dev-view/src/chat/notifications/notification-model.ts').replaceAll(
+        '\\',
+        '/'
+      )
+    )
+    expect(
+      graph.filter((path) =>
+        /(?:^|\/)(?:apps\/web|packages\/(?:ui|workspace-ui))(?:\/|$)|(?:^|\/)(?:solid-js|@kobalte\/core|@adea-ai\/(?:ui|workspace-ui)|xterm(?:-headless)?|@xterm)(?:\/|$)|\.(?:css|scss|less)$/.test(
+          path
+        )
+      )
+    ).toEqual([])
+
+    const bundle = (await Promise.all(result.outputs.map((output) => output.text()))).join('\n')
+    expect(bundle).not.toMatch(
+      /(?:from\s*|import\()\s*["'](?:solid-js|@kobalte\/core|@adea-ai\/(?:ui|workspace-ui)|xterm(?:-headless)?|@xterm)/
+    )
   })
 
   test('has no desktop-only component or stylesheet fork', async () => {
