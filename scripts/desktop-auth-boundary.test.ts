@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { createCommandSurface } from '../apps/desktop/shell/src/commands'
 
@@ -282,9 +282,27 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(webVersion).toContain('@adea-ai/app-ui/components/version-dialog')
     expect(webVersion).toContain('isDesktopRuntime')
     expect(navigation).toContain('<VersionDialog')
-    expect(sharedVersion).toContain('What changed in this release')
-    expect(sharedVersion).toContain('Installed changelog')
-    expect(sharedVersion).toContain('View releases')
+    expect(sharedVersion).toContain('@adea-ai/ui/components/composites/update-dialog')
+    expect(sharedVersion).toContain('<UpdateDialog')
+    expect(sharedVersion).toContain('createUpdateDialogAdapter')
+    // The public component now owns the complete presentation. Keep the same
+    // changelog/release assertions against the actual installed consumer entry.
+    const consumerEntry = Bun.resolveSync(
+      '@adea-ai/ui/components/composites/update-dialog',
+      join(root, 'packages/ui')
+    )
+    const publishedEntry = await readFile(consumerEntry, 'utf8')
+    const componentImport = /import\s*\{\s*UpdateDialog\s*\}\s*from\s*["'](\.\/[^"']+)["']/.exec(
+      publishedEntry
+    )
+    expect(componentImport).not.toBeNull()
+    const publishedVersion = await readFile(
+      new URL(componentImport![1], pathToFileURL(consumerEntry)),
+      'utf8'
+    )
+    expect(publishedVersion).toContain('What changed in this release')
+    expect(publishedVersion).toContain('Installed changelog')
+    expect(publishedVersion).toContain('View releases')
     expect(existsSync(join(root, 'apps/desktop/src/version-dialog.tsx'))).toBe(false)
   })
 
