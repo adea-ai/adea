@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { plainTextFromMarkdown } from '../src/lib/version-notes'
+import { plainTextFromMarkdown } from '@adea-ai/ui/lib/version-notes'
 
 describe('version notes', () => {
   test('renders release markdown as plain readable text', () => {
