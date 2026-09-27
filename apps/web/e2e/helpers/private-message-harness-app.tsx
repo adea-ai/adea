@@ -1,8 +1,10 @@
 import '../../src/start/globals.css'
-import type { MessageSummary } from '@adea-ai/types'
-import { createSignal } from 'solid-js'
+import type { MessageSummary, TaskSummary } from '@adea-ai/types'
+import { createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { MessageRow } from '../../../../packages/workspace-ui/src/message-row'
+import { TaskObjective } from '../../../../packages/workspace-ui/src/private-task-objective'
+import type { PrivateContentResolver } from '../../../../packages/workspace-ui/src/platform'
 
 function message(id: string): MessageSummary {
   return {
@@ -22,11 +24,31 @@ function message(id: string): MessageSummary {
 }
 
 function Harness() {
+  const objective = new URLSearchParams(window.location.search).get('surface') === 'objective'
   const [current, setCurrent] = createSignal(message('first'))
   const pending = new Map<
     string,
     { resolve(value: { plaintext: string }): void; reject(error: Error): void }
   >()
+  const privateContent: PrivateContentResolver = {
+    read: ({ contentId }) =>
+      new Promise((resolve, reject) => pending.set(contentId, { resolve, reject })),
+  }
+  const task = (): TaskSummary => ({
+    id: current().id,
+    workspaceId: current().workspaceId,
+    title: 'Fixture task',
+    objectiveContentRefId: current().id,
+    artifactRefs: [],
+    dependencyIds: [],
+    conversation: {},
+    creator: { kind: 'user', userId: 'fixture-user' },
+    lifecycleState: 'created',
+    priority: 'normal',
+    version: 1,
+    createdAt: current().createdAt,
+    updatedAt: current().updatedAt,
+  })
   return (
     <>
       <button type="button" onClick={() => setCurrent(message('second'))}>
@@ -50,15 +72,21 @@ function Harness() {
       >
         Resolve current
       </button>
-      <MessageRow
-        message={current()}
-        agents={new Map()}
-        artifacts={new Map()}
-        privateContent={{
-          read: ({ contentId }) =>
-            new Promise((resolve, reject) => pending.set(contentId, { resolve, reject })),
-        }}
-      />
+      <Show
+        when={objective}
+        fallback={
+          <MessageRow
+            message={current()}
+            agents={new Map()}
+            artifacts={new Map()}
+            privateContent={privateContent}
+          />
+        }
+      >
+        <div data-message-id={current().id}>
+          <TaskObjective task={task()} privateContent={privateContent} />
+        </div>
+      </Show>
     </>
   )
 }
