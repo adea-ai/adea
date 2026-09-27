@@ -1,10 +1,10 @@
+import type { DevStreamFrame } from '@adea-ai/types/dev-runtime'
 import {
   BROWSER_VIDEO_FRAME_BYTES_MAX,
   BROWSER_VIDEO_RELAY_CHUNK_BYTES_MAX,
   decodeDevStreamRelayBase64,
   decodeDevStreamRelayVideoChunk,
-  type DevStreamFrame,
-} from '@adea-ai/types/dev-runtime'
+} from '@adea-ai/types/dev-runtime-video'
 
 export const BROWSER_VIDEO_REASSEMBLY_TIMEOUT_MS = 5_000
 

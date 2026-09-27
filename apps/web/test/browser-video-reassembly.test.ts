@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   BROWSER_VIDEO_FRAME_BYTES_MAX,
   encodeDevStreamVideoRelayChunks,
-} from '@adea-ai/types/dev-runtime'
+} from '@adea-ai/types/dev-runtime-video'
 import { createBrowserVideoReassembler } from '../src/lib/browser-video-reassembly'
 
 function video(sequence: string, byteLength = 65_537) {

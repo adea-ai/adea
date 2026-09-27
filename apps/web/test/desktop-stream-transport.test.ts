@@ -9,12 +9,11 @@
  */
 import { describe, expect, jest, test } from 'bun:test'
 
+import { type DevStreamFrame, type DevStreamGrant } from '@adea-ai/types/dev-runtime'
 import {
   BROWSER_VIDEO_FRAME_BYTES_MAX,
   encodeDevStreamVideoRelayChunks,
-  type DevStreamFrame,
-  type DevStreamGrant,
-} from '@adea-ai/types/dev-runtime'
+} from '@adea-ai/types/dev-runtime-video'
 import { readFileViaStream, writeFileViaStream } from '@adea-ai/dev-view/files/file-stream'
 import { BROWSER_VIDEO_REASSEMBLY_TIMEOUT_MS } from '../src/lib/browser-video-reassembly'
 

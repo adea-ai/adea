@@ -17,14 +17,12 @@
 // Client-side bounds honored here regardless of host behaviour: one 64 MiB
 // transfer ceiling check is the pane's, but a refused relay bind surfaces as
 // a typed `DevError` (never a string), so open/save falls back cleanly.
+import type { DevError, DevStreamFrame, DevStreamGrant } from '@adea-ai/types/dev-runtime'
 import {
   assertDevStreamRelayEnvelope,
   decodeDevStreamRelayBase64,
-  type DevError,
-  type DevStreamFrame,
-  type DevStreamGrant,
   type DevStreamVideoRelayChunk,
-} from '@adea-ai/types/dev-runtime'
+} from '@adea-ai/types/dev-runtime-video'
 import type { DevStreamTransport, DevStreamTransportSocket } from '@adea-ai/dev-view/platform'
 
 import type { DesktopShell } from './desktop-bridge'
