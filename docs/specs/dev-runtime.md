@@ -2053,6 +2053,16 @@ Defaults:
 - owner-only directories/files, atomic metadata/checkpoint rename, checksum,
   quarantine on corruption.
 
+For `terminal-bytes-v1` read streams, the host emits a canonical heartbeat only
+after the authenticated sidecar answers a current terminal snapshot probe for
+the same terminal generation. At most one probe may be outstanding per read
+stream; close, resync, exit, generation change, sidecar disconnect, and runtime
+disposal cancel its timer. The heartbeat cursor is the latest output chunk
+sequence (the empty-stream anchor is `0`); it is not a byte offset and does not
+claim that the PTY process is healthy. A read-grant client receives these host
+heartbeats and sends only ACK frames; it MUST NOT send heartbeat frames on the
+read grant. The generic 30-second SSE keepalive is not terminal liveness.
+
 Attach supplies `sinceSeq`. Covered data replays exactly once in order. When
 the memory ring cannot cover `sinceSeq`, a contiguous durable checkpoint chain
 that bridges the gap to the ring replays seamlessly (also exactly once, in

@@ -89,6 +89,8 @@ export type SidecarClient = {
       checkpointSequence: string
     }) => void
     onExited?: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+    /** Called once when the authenticated sidecar connection is lost. */
+    onClose?: () => void
   }): void
   checkpoint(terminalId: string): Promise<SidecarResult<{ checkpoint: unknown }>>
   list(): Promise<SidecarResult<{ terminals: unknown[] }>>
@@ -125,6 +127,7 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
       checkpointSequence: string
     }) => void
     onExited?: (notice: { terminalId: string; generation: number; exitCode: number | null }) => void
+    onClose?: () => void
   } = {
     onDataFrame: options.onDataFrame,
     onResync: options.onResync,
@@ -135,8 +138,27 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
     { resolve: (result: SidecarResult<unknown>) => void; timer: ReturnType<typeof setTimeout> }
   >()
   let closed = false
+  let closeNotified = false
+  const deliveredCloseHandlers = new Set<() => void>()
   let resolved = false
   let resolveConnectRef: ((result: SidecarConnectResult) => void) | null = null
+
+  function notifyCloseHandler(handler: (() => void) | undefined): void {
+    if (!handler || deliveredCloseHandlers.has(handler)) return
+    deliveredCloseHandlers.add(handler)
+    try {
+      handler()
+    } catch {
+      /* connection teardown cannot be blocked by an observer */
+    }
+  }
+
+  function notifyClose(): void {
+    if (closeNotified) return
+    closeNotified = true
+    notifyCloseHandler(events.onClose)
+    notifyCloseHandler(options.onClose)
+  }
 
   function fail(code: string, message: string): void {
     if (closed || resolved) return
@@ -296,16 +318,23 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
                 generation: number
                 exitCode: number | null
               }) => void
+              onClose?: () => void
             }) {
               if (handlers.onDataFrame !== undefined) events.onDataFrame = handlers.onDataFrame
               if (handlers.onResync !== undefined) events.onResync = handlers.onResync
               if (handlers.onExited !== undefined) events.onExited = handlers.onExited
+              if (handlers.onClose !== undefined) {
+                events.onClose = handlers.onClose
+                if (closed) notifyCloseHandler(handlers.onClose)
+              }
             },
             close() {
+              if (closed) return
               closed = true
               for (const entry of pending.values()) clearTimeout(entry.timer)
               pending.clear()
               duplex.close()
+              notifyClose()
             },
             isClosed: () => closed,
           },
@@ -343,7 +372,7 @@ export function connectSidecarClient(options: SidecarClientOptions): Promise<Sid
     duplex.onClose(() => {
       closed = true
       unsubscribe()
-      options.onClose?.()
+      notifyClose()
     })
 
     function request<T>(

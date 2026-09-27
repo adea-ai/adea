@@ -33,6 +33,7 @@ type HarnessOptions = {
     frame: DevStreamFrame
   }>
   connectFailures?: unknown[]
+  heartbeatMode?: 'bidirectional' | 'server_only'
   sendFailures?: Array<{
     attempt: number
     type: DevStreamFrame['type']
@@ -118,6 +119,7 @@ function makeHarness(
 
   const transport = createTerminalTransport({
     connect,
+    heartbeatMode: harnessOptions.heartbeatMode,
     onOutput: (sequence, bytes) => output.push({ sequence, text: new TextDecoder().decode(bytes) }),
     onConnectionState: (state) => states.push(state),
     onConnectionError: (error) => errors.push(error),
@@ -456,6 +458,33 @@ describe('terminal transport', () => {
       expect(harness.sockets.length).toBeGreaterThanOrEqual(2)
       harness.transport.dispose()
     }
+  })
+
+  test('server-only heartbeat mode listens and enforces timeout without sending a client heartbeat', async () => {
+    const harness = makeHarness(
+      { heartbeatIntervalMs: 10, heartbeatUnhealthyAfterMs: 50 },
+      { heartbeatMode: 'server_only' }
+    )
+    harness.transport.start('0')
+    await Bun.sleep(18)
+
+    expect(harness.server!.frames.filter((frame) => frame.type === 'heartbeat')).toHaveLength(0)
+    harness.server!.deliver({
+      type: 'heartbeat',
+      observedAt: new Date().toISOString(),
+      throughSequence: '0',
+    })
+    await Bun.sleep(25)
+    expect(harness.contexts).toHaveLength(1)
+
+    // Listening continues in server-only mode: when the host stops sending
+    // heartbeats, the client still times out and requests a fresh grant.
+    await Bun.sleep(55)
+    expect(harness.contexts.length).toBeGreaterThanOrEqual(2)
+    expect(harness.sockets.flatMap((socket) => socket.frames)).not.toContainEqual(
+      expect.objectContaining({ type: 'heartbeat' })
+    )
+    harness.transport.dispose()
   })
 
   test('retryable stream errors reconnect with the same cursor and generation', async () => {

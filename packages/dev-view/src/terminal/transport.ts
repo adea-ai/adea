@@ -43,6 +43,8 @@ export type TerminalTransportOptions = {
     handlers: TerminalStreamHandlers,
     context: TerminalAttachContext
   ) => TerminalStreamSocket
+  /** Read grants receive host heartbeats and may send only acknowledgements. */
+  heartbeatMode?: 'bidirectional' | 'server_only'
   /** Delivers replayed and live output to the renderer, in order. */
   onOutput: (sequence: string, bytes: Uint8Array) => void
   onConnectionState?: (state: TerminalConnectionState) => void
@@ -373,6 +375,7 @@ export function createTerminalTransport(options: TerminalTransportOptions) {
         })
         return
       }
+      if (options.heartbeatMode === 'server_only') return
       try {
         active.send({
           type: 'heartbeat',
