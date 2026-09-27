@@ -1,6 +1,6 @@
-/** Generated from the isolated @adea-ai/themes 0.6.1 records. */
+/** Generated from the isolated @adea-ai/themes 0.6.2 records. */
 export const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const
-export const CANONICAL_THEME_VERSION = '0.6.1' as const
+export const CANONICAL_THEME_VERSION = '0.6.2' as const
 export const CANONICAL_THEME_COLOR_VALUES = [
   '#e3e9f4',
   '#393f4f',
@@ -118,37 +118,37 @@ export const CANONICAL_THEME_COLOR_VALUES = [
 export const CANONICAL_THEME_DATA = {
   'adea-light': [
     ['Adea Light', 'light', 'adea', 'Adea'],
-    '0121314521267189::4',
+    '012131452126718809::4',
     ';<=89>4?@ABCDEFGH5',
     '?9>B4I@8>I?498@>',
   ],
   'adea-dark': [
     ['Adea Dark', 'dark', 'adea', 'Adea'],
-    'JKLKMKNJLKLOPKQRSSN',
+    'JKLKMKNJLKLOPKQQJRSSN',
     'KTUQRVNWXYZ[\\]^_`a',
     'WRVbNcXQVcWNRQXV',
   ],
   'slate-light': [
     ['Slate Light', 'light', 'slate', 'Slate'],
-    'defefeedgeghgeijkkl',
+    'defefeedgeghgeiidjkkl',
     'mnoipqrstuuvwxyz{m',
     'spqurutiqusrpitq',
   ],
   'slate-dark': [
     ['Slate Dark', 'dark', 'slate', 'Slate'],
-    'e|}|}|ge~|~~|l',
+    'e|}|}|ge~|~~|el',
     '\\]Xu',
     '\\]X]\\X]',
   ],
   'contrast-light': [
     ['High Contrast Light', 'light', 'contrast', 'High Contrast'],
-    'ffffi',
+    'ffffiif',
     'mnoipqrstuuvwxyz{m',
     'spqurutiqusrpitq',
   ],
   'contrast-dark': [
     ['High Contrast Dark', 'dark', 'contrast', 'High Contrast'],
-    'ffffff',
+    'ffffff',
     '\\]Xu',
     '\\]X]\\X]',
   ],

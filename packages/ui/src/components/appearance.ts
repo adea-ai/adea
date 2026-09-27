@@ -385,6 +385,8 @@ export type ThemeColors = Readonly<{
   accent: string
   accentForeground: string
   destructive: string
+  destructiveAction: string
+  destructiveActionForeground: string
   success: string
   border: string
   input: string

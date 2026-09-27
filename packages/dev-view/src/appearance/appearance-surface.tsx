@@ -191,7 +191,7 @@ export function AppearancePanel() {
         onClose={() => setLibraryOpen(false)}
         title="Manage themes"
         description="Import a local theme into your library or keep it linked to its source."
-        class="relative conventional-dialog max-w-md"
+        class="conventional-dialog max-w-md"
       >
         <div class="grid gap-3 text-sm">
           <p class="text-muted-foreground">

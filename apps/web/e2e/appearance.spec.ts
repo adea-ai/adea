@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { resolve } from 'node:path'
 
 /**
  * The appearance editor lives in the settings dialog's Appearance section (the
@@ -345,3 +346,86 @@ test('cancel reverts the draft and the OS reduced-motion preference keeps the pa
   await expect(page.locator('html')).toHaveClass(/dark/)
   await reopened.getByRole('button', { name: 'Cancel' }).click()
 })
+
+// Contrast IDs remain supported persisted preferences even though the compact
+// picker shows the current Adea and Slate families only.
+for (const [selectedMode, themeId] of [
+  ['light', 'adea-light'],
+  ['light', 'slate-light'],
+  ['light', 'contrast-light'],
+  ['dark', 'adea-dark'],
+  ['dark', 'slate-dark'],
+  ['dark', 'contrast-dark'],
+] as const) {
+  test(`published destructive actions retain normal and hover contrast for persisted ${themeId}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      ({ mode, id }) => {
+        window.localStorage.setItem(
+          'appearance',
+          JSON.stringify({
+            version: 2,
+            mode,
+            lightThemeId: mode === 'light' ? id : 'adea-light',
+            darkThemeId: mode === 'dark' ? id : 'adea-dark',
+            accent: 'theme',
+            surface: 'opaque',
+            reduceTransparency: false,
+          })
+        )
+      },
+      { mode: selectedMode, id: themeId }
+    )
+    await page.goto('/?view=chat')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', themeId)
+    const panel = await openAppearance(page)
+    const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/destructive-action-probe.tsx')
+    await page.addScriptTag({ type: 'module', content: `import '${'/@fs' + entry}'` })
+    const button = page.getByRole('button', { name: 'Destructive action probe', exact: true })
+    for (const hover of [false, true]) {
+      if (hover) await button.hover()
+      else await panel.getByRole('heading', { name: 'Appearance', exact: true }).hover()
+      await expect
+        .poll(
+          () =>
+            button.evaluate((element) => {
+              const style = getComputedStyle(element)
+              // Canvas normalizes CSS Color 4 (including hover color-mix)
+              // into rendered sRGB channels before the WCAG calculation.
+              const context = document.createElement('canvas').getContext('2d')!
+              const renderedChannels = (color: string) => {
+                context.clearRect(0, 0, 1, 1)
+                context.fillStyle = color
+                context.fillRect(0, 0, 1, 1)
+                const values = Array.from(context.getImageData(0, 0, 1, 1).data)
+                return [...values.slice(0, 3), values[3]! / 255]
+              }
+              const foreground = renderedChannels(style.color)
+              const background = renderedChannels(style.backgroundColor)
+              const canvas = renderedChannels(
+                getComputedStyle(element.parentElement!).backgroundColor
+              )
+              const alpha = background[3] ?? 1
+              const opaque = background
+                .slice(0, 3)
+                .map((value, index) => value * alpha + canvas[index]! * (1 - alpha))
+              // This function runs in the browser realm, so it must stay inside evaluate.
+              // oxlint-disable-next-line unicorn/consistent-function-scoping
+              const luminance = (channels: number[]) =>
+                channels
+                  .map((value) => {
+                    const channel = value / 255
+                    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+                  })
+                  .reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index]!, 0)
+              const front = luminance(foreground.slice(0, 3)),
+                back = luminance(opaque)
+              return (Math.max(front, back) + 0.05) / (Math.min(front, back) + 0.05)
+            }),
+          { message: `${themeId} ${hover ? 'hover' : 'normal'} action contrast` }
+        )
+        .toBeGreaterThanOrEqual(4.5)
+    }
+  })
+}

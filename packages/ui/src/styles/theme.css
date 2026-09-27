@@ -21,6 +21,8 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-action: var(--destructive-action);
+  --color-destructive-action-foreground: var(--destructive-action-foreground);
   --color-success: var(--success);
   --color-scrim: var(--scrim);
   --color-scrim-foreground: var(--scrim-foreground);
@@ -78,6 +80,8 @@
   --accent: #c1c9d6;
   --accent-foreground: #393f4f;
   --destructive: #a32425;
+  --destructive-action: #a32425;
+  --destructive-action-foreground: #e3e9f4;
   --success: #006219;
   /* Theme-invariant dark glass for overlays and on-screen controls
      (Tailwind slate-950). Same value in light and dark themes; the
@@ -172,6 +176,8 @@
   --accent: #232b3f;
   --accent-foreground: #b4bcca;
   --destructive: #ff7b72;
+  --destructive-action: #ff7b72;
+  --destructive-action-foreground: #0f141f;
   --success: #3fb950;
   --border: #333844;
   --input: #333844;

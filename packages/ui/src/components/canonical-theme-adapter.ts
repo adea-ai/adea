@@ -23,7 +23,7 @@ type CanonicalThemeRecord = readonly [
 ]
 
 const COLOR_KEYS =
-  'background foreground card cardForeground popover popoverForeground primary primaryForeground secondary secondaryForeground muted mutedForeground accent accentForeground destructive success border input ring'.split(
+  'background foreground card cardForeground popover popoverForeground primary primaryForeground secondary secondaryForeground muted mutedForeground accent accentForeground destructive destructiveAction destructiveActionForeground success border input ring'.split(
     ' '
   )
 const EDITOR_KEYS =

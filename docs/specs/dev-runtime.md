@@ -1374,6 +1374,13 @@ opaque runtime payloads provide no validated call phase, interaction eligibility
 synthesis or final-answer boundary; rows therefore stay visible and unfolded.
 Payload hints and run completion cannot authorize grouping or hide an action.
 
+Adea's six persisted appearance IDs use the installed published theme package
+for generated palette data. The generator records that package's actual version.
+Solid destructive actions carry a separate generated fill/foreground pair from
+`shadcnDestructiveProjection`; theme switching and the pre-paint provider apply
+and clear those tokens with the rest of the palette. Canonical status hues,
+terminal ANSI colors, and editor roles retain their published projections.
+
 ### Desktop Chat presentation notifications
 
 The canonical `test:e2e` gate includes returning-session and first-run Chat

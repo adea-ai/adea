@@ -387,6 +387,10 @@ describe('document application', () => {
     // The custom variant really did write tokens inline.
     expect(dataset.theme).toBe('slate-dark')
     expect(style['--background']).toBeDefined()
+    expect(style['--destructive-action']).toBe(custom.variant.colors.destructiveAction)
+    expect(style['--destructive-action-foreground']).toBe(
+      custom.variant.colors.destructiveActionForeground
+    )
     const writtenWhileCustom = Object.keys(style).length
     expect(writtenWhileCustom).toBeGreaterThan(0)
 
@@ -413,6 +417,11 @@ describe('document application', () => {
     applyAppearanceToDocument(document as unknown as Document, state)
     expect(dataset.theme).toBe('slate-dark')
     expect(style['--background']).toBe('#0f172a')
+    const variant = state.variant
+    expect(style['--destructive-action']).toBe(variant.colors.destructiveAction)
+    expect(style['--destructive-action-foreground']).toBe(
+      variant.colors.destructiveActionForeground
+    )
     // Terminal ANSI and editor roles come from the same manifest.
     expect(style['--terminal-background']).toBe(state.variant.terminal.background)
     expect(style['--terminal-ansi-red']).toBe(state.variant.terminal.ansi[1])

@@ -10,7 +10,7 @@ import {
   parseColor,
   oklchToHex,
 } from '@adea-ai/themes/oklch'
-import { shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
+import { shadcnVariables, shadcnDestructiveProjection } from '@adea-ai/themes/adapters/shadcn'
 
 import { builtinThemeRegistry, validateThemeRegistry } from '../src/components/appearance'
 import {
@@ -54,7 +54,7 @@ function cssBlock(css: string, selector: string): Record<string, string> {
 describe('published Adea theme adapter', () => {
   test('records the generated package provenance', () => {
     expect(CANONICAL_THEME_PACKAGE).toBe('@adea-ai/themes')
-    expect(CANONICAL_THEME_VERSION).toBe('0.6.1')
+    expect(CANONICAL_THEME_VERSION).toBe('0.6.2')
   })
 
   test('generates every saved theme ID from the published catalogue', () => {
@@ -63,7 +63,7 @@ describe('published Adea theme adapter', () => {
     expect(CANONICAL_THEME_COLOR_VALUES.length).toBeGreaterThan(0)
     for (const record of Object.values(CANONICAL_THEME_DATA)) {
       expect(record[0]).toHaveLength(4)
-      expect(record[1]).toHaveLength(19)
+      expect(record[1]).toHaveLength(21)
       expect(record[2]).toHaveLength(18)
       expect(record[3]).toHaveLength(16)
       for (const encoded of record.slice(1)) {
@@ -303,4 +303,20 @@ describe('published Adea theme adapter', () => {
       }
     }
   })
+})
+
+test('retains the published solid destructive action pair for every saved theme', () => {
+  for (const id of CANONICAL_THEME_IDS) {
+    const theme = getTheme(id)!
+    const action = shadcnDestructiveProjection(theme)
+    const tokens = canonicalThemeCssTokens(id)
+    expect(tokens['--destructive-action']).toBe(hex(action.fill))
+    expect(tokens['--destructive-action-foreground']).toBe(hex(action.foreground))
+    const variant = canonicalThemeVariant(id)
+    expect(variant.colors.destructiveAction).toBe(hex(action.fill))
+    expect(variant.colors.destructiveActionForeground).toBe(hex(action.foreground))
+    expect(
+      canonicalContrastRatio(parseColor(action.fill)!, parseColor(action.foreground)!)
+    ).toBeGreaterThanOrEqual(4.5)
+  }
 })

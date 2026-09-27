@@ -1,11 +1,15 @@
 import { chartSeries, editorRolesHex, getTheme, type AdeaThemeRecord } from '@adea-ai/themes'
 import { oklchToHex, parseColor } from '@adea-ai/themes/oklch'
-import { shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
+import { shadcnVariables, shadcnDestructiveProjection } from '@adea-ai/themes/adapters/shadcn'
 import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
 
 const OUTPUT = new URL('../src/components/canonical-theme-data.ts', import.meta.url)
 const CSS_OUTPUT = new URL('../src/components/canonical-theme-css-data.ts', import.meta.url)
 const CHECK_ONLY = Bun.argv.includes('--check')
+const themePackage = await Bun.file(
+  new URL('../package.json', import.meta.resolve('@adea-ai/themes'))
+).json()
+const themeVersion: string = themePackage.version
 const EDITOR_ROLES = [
   'keyword',
   'string',
@@ -40,6 +44,8 @@ const SHADCN_TO_COLOR = {
   accent: 'accent',
   'accent-foreground': 'accentForeground',
   destructive: 'destructive',
+  'destructive-action': 'destructiveAction',
+  'destructive-action-foreground': 'destructiveActionForeground',
   success: 'success',
   border: 'border',
   input: 'input',
@@ -86,7 +92,12 @@ function publishedTheme(id: string): AdeaThemeRecord {
 }
 
 function makeRecord(theme: AdeaThemeRecord) {
-  const shadcn = shadcnVariables(theme)
+  const action = shadcnDestructiveProjection(theme)
+  const shadcn = {
+    ...shadcnVariables(theme),
+    '--destructive-action': action.fill,
+    '--destructive-action-foreground': action.foreground,
+  }
   const colors = Object.fromEntries(
     Object.entries(SHADCN_TO_COLOR).map(([name, property]) => [
       property,
@@ -213,8 +224,8 @@ const encodedVariants = Object.fromEntries(
 const cssTokens = Object.fromEntries(
   Object.entries(records).map(([id, record]) => [id, record.cssTokens])
 )
-const source = `/** Generated from the isolated @adea-ai/themes 0.6.1 records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '0.6.1' as const\nexport const CANONICAL_THEME_COLOR_VALUES = ${JSON.stringify(colors)} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(encodedVariants, null, 2)} as const\n`
-const cssSource = `/** Generated from the isolated @adea-ai/themes 0.6.1 records. */\nexport const CANONICAL_THEME_CSS_DATA = ${JSON.stringify(cssTokens, null, 2)} as const satisfies Record<string, Readonly<Record<string, string>>>\n\nexport function canonicalThemeCssTokens(id: keyof typeof CANONICAL_THEME_CSS_DATA): Record<string, string> {\n  return Object.freeze({ ...CANONICAL_THEME_CSS_DATA[id] })\n}\n`
+const source = `/** Generated from the isolated @adea-ai/themes ${themeVersion} records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '${themeVersion}' as const\nexport const CANONICAL_THEME_COLOR_VALUES = ${JSON.stringify(colors)} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(encodedVariants, null, 2)} as const\n`
+const cssSource = `/** Generated from the isolated @adea-ai/themes ${themeVersion} records. */\nexport const CANONICAL_THEME_CSS_DATA = ${JSON.stringify(cssTokens, null, 2)} as const satisfies Record<string, Readonly<Record<string, string>>>\n\nexport function canonicalThemeCssTokens(id: keyof typeof CANONICAL_THEME_CSS_DATA): Record<string, string> {\n  return Object.freeze({ ...CANONICAL_THEME_CSS_DATA[id] })\n}\n`
 
 function formatGenerated(generatedSource: string, output: URL): string {
   const result = Bun.spawnSync({
