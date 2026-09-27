@@ -108,6 +108,9 @@ test('Dev rail history, hierarchy, separator, focus, and utility controls are de
   await group.click()
   await expect(group).toHaveAttribute('aria-expanded', 'false')
 
+  await expect(page.locator('[data-pane-id]')).toHaveCount(1)
+  await expect(page.getByRole('region', { name: 'editor pane' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Split pane' }).click()
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await separator.focus()
   await page.keyboard.press('ArrowRight')
@@ -205,12 +208,14 @@ test('center panes move by keyboard while keeping one primary session', async ({
   await page.goto('/?view=dev&devE2e=preserved')
 
   const panes = page.locator('[data-pane-id]')
-  await expect(panes).toHaveCount(2, { timeout: 30_000 })
+  await expect(panes).toHaveCount(1, { timeout: 30_000 })
+  await page.getByRole('button', { name: 'Split pane' }).click()
+  await expect(panes).toHaveCount(2)
   await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-terminal')
 
   await page.getByRole('region', { name: 'terminal pane' }).click()
   await page.keyboard.press('ControlOrMeta+Alt+ArrowRight')
-  await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-editor')
+  await expect(panes.first()).toHaveAttribute('data-pane-id', 'dev-pane-1')
   await expect(page.getByRole('region', { name: 'terminal pane' })).toBeFocused()
 
   await page.keyboard.press('ControlOrMeta+Alt+ArrowLeft')
@@ -224,6 +229,8 @@ test('the Dev shell restores the session layout document after a reload', async 
   await page.setViewportSize({ width: 1280, height: 900 })
   await openDevView(page, '/?view=dev&devE2e=preserved')
 
+  await expect(page.locator('[data-pane-id]')).toHaveCount(1)
+  await page.getByRole('button', { name: 'Split pane' }).click()
   const separator = page.getByRole('separator', { name: 'Resize workspace panes' })
   await separator.focus()
   await page.keyboard.press('ArrowRight')

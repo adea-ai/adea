@@ -1211,6 +1211,10 @@ when either cap would be exceeded. Ratios are finite and clamp to `[0.1, 0.9]`.
 Leaf IDs are unique, utility panes do not count as center leaves, and closing the
 last leaf restores one terminal placeholder. The center model and stable ID-keyed
 renderer are consumed from the published `@adea-ai/ui` split-layout entries.
+A fresh session starts with one terminal leaf. Selecting a file creates an
+editor beside the focused pane when no editor exists, and later files reuse
+that editor. Explicit splitting remains available, and saved split layouts
+restore unchanged; the initial view does not reserve an empty editor pane.
 Adea injects terminal/editor leaf payloads, the final terminal placeholder,
 scoped preference decoding/storage, keyboard move commands, and 5% resize
 snapping. Shared UI owns constrained separators, internal pane drag payloads,

@@ -265,14 +265,9 @@ const defaultUtilityPreferences = (): DevUtilityPreference[] =>
 
 const initialLayout = () =>
   createLayoutState<PaneLeaf>({
-    kind: 'split',
-    id: 'dev-root',
-    direction: 'row',
-    ratio: 0.5,
-    children: [
-      { kind: 'leaf', id: 'dev-terminal', pane: 'terminal' },
-      { kind: 'leaf', id: 'dev-editor', pane: 'editor' },
-    ],
+    kind: 'leaf',
+    id: 'dev-terminal',
+    pane: 'terminal',
   })
 
 const snapUtilitySize = (size: number) => {
@@ -686,8 +681,8 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     )
     schedulePreferences()
   }
-  /** #399: focus the editor leaf, splitting from the focused pane when the
-   *  initial layout was closed. Keeps one editor leaf; files replace in it. */
+  /** #399: selecting a file opens an editor beside the focused pane. Keep
+   *  one editor leaf; later file selections replace its content. */
   const openFileInEditorLeaf = (file: {
     worktreeId: string
     generation: number
