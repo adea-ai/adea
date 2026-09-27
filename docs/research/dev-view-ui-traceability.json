@@ -10581,11 +10581,17 @@
       },
       "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration.",
       "runtimeBuildSourceHead": "ce533d482c54f4f4fdf3937635aaa2aedcc72517",
-      "currentIndependentReview": "MAX review atce533d48 found the Dev cap was effectively relaxed. The gate now sums entry and renderer against the original allowance; six regressions pass and actual artifact fails as expected. No other source issue found; same-workspace Product collapse remains under investigation.",
+      "currentIndependentReview": "MAX review atce533d48 found the Dev cap was effectively relaxed. The gate now sums entry and renderer against the original allowance; six regressions pass and actual artifact fails as expected. No other source issue found; same-workspace Product collapse passed three repeats and full18-test rerun without a state fix; earlier transient cause remains unexplained.",
       "separateReleaseProgress": {
         "uiPublisher": "UI87 merged; real UI0.71.5 publish run36333613463 passed trusted publishing and consumer-archive confirmation. Adea remains pinned to qualified0.71.4 until a coherent new consumer adoption.",
         "themes": "Themes0.6.2 published; UI destructive-role consumer and Cortana migration still require qualification.",
         "dialog": "UI89 packed Dialog geometry is now part of existing Appearance PR/release jobs; MAX review clean, current-head CI/merge/release pending."
+      },
+      "currentBrowserEvidence": {
+        "runtimeSourceHead": "ce533d482c54f4f4fdf3937635aaa2aedcc72517",
+        "fullDev": "18/18 passed in26s after all temporary diagnostics removed; test-results/.last-run.json statuspassed with no failedTests.",
+        "focused": "4/4 responsive/focus cases passed; exact history case passed3/3 repeats.",
+        "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
       }
     },
     "verifiedCheckpointHistory": [
