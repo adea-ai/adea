@@ -7,8 +7,8 @@ const assets = path.join(root, 'apps/web/dist/client/start-assets')
 
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
 const DEV_LAYOUT_MARKER = 'terminal-bytes-v1 stream'
-// The 84 KiB ratchet carries the named Wave K surfaces; keep it unchanged for
-// both the Dev route entry and its nested central-layout renderer.
+// The 84 KiB ratchet covers the Dev route entry plus its nested central-layout
+// renderer together; splitting the feature cannot increase the available size.
 const DEV_CHUNK_BUDGET_BYTES = 84 * 1024
 
 function dynamicImports(source) {
@@ -37,13 +37,20 @@ function findUniqueChunk(chunks, predicate, label) {
   return matches[0]
 }
 
-function assertChunkBudget(chunk, label) {
-  if (!Number.isSafeInteger(chunk.bytes) || chunk.bytes < 0) {
-    throw new Error(`Invalid size for ${label} chunk ${chunk.file}: ${chunk.bytes}`)
+function assertCombinedBudget(entry, layout) {
+  for (const [chunk, label] of [
+    [entry, 'Dev View entry'],
+    [layout, 'Dev View layout renderer'],
+  ]) {
+    if (!Number.isSafeInteger(chunk.bytes) || chunk.bytes < 0) {
+      throw new Error(`Invalid size for ${label} chunk ${chunk.file}: ${chunk.bytes}`)
+    }
   }
-  if (chunk.bytes > DEV_CHUNK_BUDGET_BYTES) {
+  const totalBytes = entry.bytes + layout.bytes
+  if (!Number.isSafeInteger(totalBytes)) throw new Error('Invalid combined Dev View chunk size')
+  if (totalBytes > DEV_CHUNK_BUDGET_BYTES) {
     throw new Error(
-      `${label} chunk ${chunk.file} is ${chunk.bytes} bytes; budget is ${DEV_CHUNK_BUDGET_BYTES} bytes`
+      `Dev View entry ${entry.file} (${entry.bytes} bytes) plus layout renderer ${layout.file} (${layout.bytes} bytes) totals ${totalBytes} bytes; budget is ${DEV_CHUNK_BUDGET_BYTES} bytes`
     )
   }
 }
@@ -92,8 +99,8 @@ function assertNotEagerlyImported(chunks, entry, layout) {
 
 /**
  * Inspect emitted Dev chunks by semantic markers rather than hashed filenames.
- * Both markers must remain unique, and the Dev entry must own the renderer's
- * dynamic import so a nested split cannot silently evade the 84 KiB ratchet.
+ * Both markers must remain unique, the Dev entry must own the renderer's
+ * dynamic import, and their combined output must meet the 84 KiB ratchet.
  */
 export function inspectDevViewChunks(chunks) {
   const entry = findUniqueChunk(
@@ -119,8 +126,7 @@ export function inspectDevViewChunks(chunks) {
     )
   }
 
-  assertChunkBudget(entry, 'Dev View entry')
-  assertChunkBudget(layout, 'Dev View layout renderer')
+  assertCombinedBudget(entry, layout)
   assertNotEagerlyImported(chunks, entry, layout)
   return { entry, layout }
 }
@@ -136,8 +142,9 @@ async function main() {
     }))
   )
   const { entry, layout } = inspectDevViewChunks(contents)
+  const totalBytes = entry.bytes + layout.bytes
   console.log(
-    `Dev View entry: ${entry.file} (${entry.bytes} bytes); layout renderer: ${layout.file} (${layout.bytes} bytes)`
+    `Dev View entry: ${entry.file} (${entry.bytes} bytes); layout renderer: ${layout.file} (${layout.bytes} bytes); combined: ${totalBytes} bytes`
   )
 }
 

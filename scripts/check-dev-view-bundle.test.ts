@@ -22,19 +22,24 @@ function layoutRenderer(bytes: number) {
   }
 }
 
-test('rejects an over-budget Dev entry even when its lazy layout renderer is small', () => {
-  expect(() =>
-    inspectDevViewChunks([
-      devEntry(maxBytes + 1),
-      layoutRenderer(34_209),
-      { file: 'workspace-mount.js', bytes: 10, source: '' },
-    ])
-  ).toThrow('Dev View entry chunk src-entry.js is 86017 bytes; budget is 86016 bytes')
+test('rejects an over-budget combined route when both chunks individually fit', () => {
+  expect(() => inspectDevViewChunks([devEntry(80_012), layoutRenderer(34_209)])).toThrow(
+    'Dev View entry src-entry.js (80012 bytes) plus layout renderer layout-view.js (34209 bytes) totals 114221 bytes; budget is 86016 bytes'
+  )
 })
 
-test('rejects an over-budget lazy layout renderer', () => {
-  expect(() => inspectDevViewChunks([devEntry(80_012), layoutRenderer(maxBytes + 1)])).toThrow(
-    'Dev View layout renderer chunk layout-view.js is 86017 bytes; budget is 86016 bytes'
+test('accepts an entry and renderer whose combined size equals the unchanged cap', () => {
+  expect(inspectDevViewChunks([devEntry(50_000), layoutRenderer(maxBytes - 50_000)])).toMatchObject(
+    {
+      entry: { bytes: 50_000 },
+      layout: { bytes: maxBytes - 50_000 },
+    }
+  )
+})
+
+test('rejects when the renderer pushes a within-budget entry over the combined cap', () => {
+  expect(() => inspectDevViewChunks([devEntry(80_012), layoutRenderer(6_005)])).toThrow(
+    'Dev View entry src-entry.js (80012 bytes) plus layout renderer layout-view.js (6005 bytes) totals 86017 bytes; budget is 86016 bytes'
   )
 })
 
@@ -42,7 +47,7 @@ test('fails closed when the Dev entry does not dynamically import the measured r
   expect(() =>
     inspectDevViewChunks([
       {
-        ...devEntry(80_012),
+        ...devEntry(40_000),
         source: 'const a="Developer workspace panes";const b="No runtime projects available.";',
       },
       layoutRenderer(34_209),
@@ -55,7 +60,7 @@ test('fails closed when the Dev entry does not dynamically import the measured r
 test('allows lazy imports from the initial shell', () => {
   expect(() =>
     inspectDevViewChunks([
-      devEntry(80_012),
+      devEntry(40_000),
       layoutRenderer(34_209),
       {
         file: 'workspace-navigation-entry-abc.js',
@@ -70,7 +75,7 @@ test('allows lazy imports from the initial shell', () => {
 test('rejects an initial shell chunk that statically imports the Dev entry', () => {
   expect(() =>
     inspectDevViewChunks([
-      devEntry(80_012),
+      devEntry(40_000),
       layoutRenderer(34_209),
       {
         file: 'workspace-navigation-entry-abc.js',

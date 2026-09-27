@@ -37,12 +37,17 @@ authority and this table records the number it enforces.
 | -------------------------------------- | ------------------------------------- | ------------------------------------------- | ----------------------- |
 | Client JS bytes                        | ≤ 1,600,000                           | `bun run --cwd apps/web start:check-bundle` | 1,597,600 (**99.85 %**) |
 | Client JS files                        | ≤ 72                                  | same                                        | 68                      |
-| Dev View lazy chunk                    | ≤ 86,016 B                            | `bun scripts/check-dev-view-bundle.mjs`     | 73,030                  |
+| Dev View lazy entry and renderer       | ≤ 86,016 B                            | `bun scripts/check-dev-view-bundle.mjs`     | 73,030                  |
 | Local TTFB (p50, built Worker)         | ≤ 300 ms                              | `bun run test:performance:web`              | 3.3 ms                  |
 | LCP (pinned Chromium, loopback)        | ≤ 4,000 ms                            | same                                        | 108 ms                  |
 | CLS (same run)                         | ≤ 0.15                                | same                                        | 0                       |
 | Worst scripted interaction (INP proxy) | ≤ 500 ms                              | same                                        | 24 ms                   |
 | Build tree carries no non-deploy file  | except the plugin's local `.dev.vars` | same                                        | `server/.dev.vars` only |
+
+The Dev View byte ratchet covers the lazy entry and its immediately mounted
+central renderer together. When that implementation is split across emitted
+chunks, the checker sums them against the same 86,016-byte allowance. Deferring
+a chunk that still loads on every Dev mount does not increase the budget.
 
 ## Go/no-go gates
 
