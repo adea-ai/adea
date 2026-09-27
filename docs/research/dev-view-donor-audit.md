@@ -830,7 +830,7 @@ are distinct from packaged application acceptance.
 
 Adea `ChatTranscript` mounts the shared keyed renderer through
 `packages/dev-view/src/chat/transcript-composition.ts`. The host supplies stable
-row IDs and canonical session/generation reset scope. Opaque runtime payloads
+row IDs and canonical session/generation reset scope. Rows backed by opaque runtime payloads
 stay visible and unfolded: the production native harness has no structured
 assistant/tool event producer that proves call identity, phase, synthesis or
 final-answer boundaries. See the [runtime event boundary](../evidence/donor-ui-runtime-event-boundary.md)
