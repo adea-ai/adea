@@ -16,6 +16,7 @@ import type {
   MutationPlan,
   ScreenshotRef,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { BROWSER_VIDEO_FRAME_BYTES_MAX } from '../../../../../../packages/types/src/dev-runtime'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { ChannelIdentity } from '../channel/authority'
@@ -176,6 +177,7 @@ export type BrowserProvidersInput = Readonly<{
     resource: { kind: 'browser_lane'; id: string; generation: number }
     direction: 'read' | 'write'
     fromSequence?: string
+    maxFrameBytes?: number
   }) => DevStreamGrant
   diagnostics?: Map<string, LaneDiagnostics>
   /** Resolves a hostname to addresses for the SSRF/rebinding check. */
@@ -734,6 +736,7 @@ export function createBrowserProviders(input: BrowserProvidersInput) {
         scope: command.scope,
         resource: { kind: 'browser_lane', id: lane.id, generation: lane.generation },
         direction: 'read',
+        maxFrameBytes: BROWSER_VIDEO_FRAME_BYTES_MAX,
         fromSequence:
           typeof requestBody.fromSequence === 'string' ? requestBody.fromSequence : undefined,
       })

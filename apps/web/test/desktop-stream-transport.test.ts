@@ -9,7 +9,12 @@
  */
 import { describe, expect, test } from 'bun:test'
 
-import type { DevStreamFrame, DevStreamGrant } from '@adea-ai/types/dev-runtime'
+import {
+  BROWSER_VIDEO_FRAME_BYTES_MAX,
+  encodeDevStreamVideoRelayChunks,
+  type DevStreamFrame,
+  type DevStreamGrant,
+} from '@adea-ai/types/dev-runtime'
 import { readFileViaStream, writeFileViaStream } from '@adea-ai/dev-view/files/file-stream'
 
 import {
@@ -28,18 +33,21 @@ const scope = {
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
 
-function makeGrant(direction: 'read' | 'write'): DevStreamGrant {
+function makeGrant(
+  direction: 'read' | 'write',
+  protocol: DevStreamGrant['protocol'] = 'file-bytes-v1'
+): DevStreamGrant {
   return {
     schemaVersion: 1,
     grantId: '00000000-0000-4000-8000-00000000fe01',
-    protocol: 'file-bytes-v1',
+    protocol,
     channelId: CHANNEL,
     scope,
     resource: { kind: 'workspace_root', id: 'wt-1', generation: 4 },
     direction,
     fromSequence: '0',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    maxFrameBytes: 64 * 1024,
+    maxFrameBytes: protocol === 'browser-frames-v1' ? BROWSER_VIDEO_FRAME_BYTES_MAX : 64 * 1024,
   }
 }
 
@@ -256,6 +264,9 @@ function fakeShell(grants: DevStreamGrant[], options?: FakeOptions) {
       if (session) session.writeLength = byteLength
     },
     listenerCount: () => listeners.size,
+    publishRelayFrame(streamId: string, frame: unknown): void {
+      for (const listener of listeners) listener({ streamId, frame })
+    },
   }
 }
 
@@ -303,6 +314,49 @@ describe('createDesktopStreamTransport', () => {
     expect(inputs.length).toBe(Math.ceil(content.byteLength / grant.maxFrameBytes))
     expect(fake.inputReceipts.at(-1)?.received).toBe(content.byteLength)
     expect(fake.settled).toContain(grant.grantId)
+  })
+
+  test('reassembles authenticated browser chunks before exposing video to the consumer', async () => {
+    const grant = makeGrant('read', 'browser-frames-v1')
+    const fake = fakeShell([grant])
+    const transport = createDesktopStreamTransport({ bridge: fake.bridge })
+    if (!transport) throw new Error('transport missing')
+    const received: DevStreamFrame[] = []
+    const socket = transport.connect(grant, {
+      onFrame: (frame) => received.push(frame),
+      onClose: () => {},
+    })
+    await Bun.sleep(0)
+
+    const frame = {
+      type: 'video' as const,
+      sequence: '11',
+      timestampMs: 99,
+      generation: grant.resource.generation,
+      viewportSequence: 3,
+      width: 1280,
+      height: 720,
+      keyframe: true,
+      bytes: Uint8Array.from({ length: 65_537 }, (_, index) => index % 251),
+    }
+    const chunks = encodeDevStreamVideoRelayChunks(frame)
+    expect(chunks).toHaveLength(2)
+    fake.publishRelayFrame(grant.grantId, chunks[0])
+    expect(received.some((item) => item.type === 'video')).toBe(false)
+    expect(fake.clientFrames.some((item) => item.frame.type === 'ack')).toBe(false)
+
+    fake.publishRelayFrame(grant.grantId, chunks[1])
+    expect(received.find((item) => item.type === 'video')).toEqual(frame)
+    socket.send({
+      type: 'ack',
+      throughSequence: frame.sequence,
+      availableCreditBytes: frame.bytes.byteLength,
+    })
+    await Bun.sleep(0)
+    expect(fake.clientFrames.some((item) => item.frame.type === 'ack')).toBe(true)
+    socket.close(1000, 'test complete')
+    await Bun.sleep(0)
+    expect(fake.listenerCount()).toBe(0)
   })
 
   test('falls back typed when the bridge predates the relay surface', () => {

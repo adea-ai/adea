@@ -14,7 +14,7 @@ export const devStreamProtocolDefinitions = {
     directions: ['read', 'write'],
   },
   'browser-frames-v1': {
-    data: 'raw encoded image Uint8Array plus canonical-CBOR control',
+    data: 'raw encoded image Uint8Array plus canonical-CBOR control; desktop JSON relay uses bounded video_chunk envelopes',
     directions: ['read', 'write'],
   },
   'desktop-frames-v1': {

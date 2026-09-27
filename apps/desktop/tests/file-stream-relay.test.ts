@@ -14,6 +14,8 @@ import {
   devCommandProofMessage,
   devOperationDefinitions,
   devStreamAttachProofMessage,
+  BROWSER_VIDEO_FRAME_BYTES_MAX,
+  decodeDevStreamRelayBase64,
   type DevCommand,
   type DevOperation,
   type DevStreamGrant,
@@ -21,6 +23,7 @@ import {
 } from '../../../packages/types/src/dev-runtime'
 
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
+import type { StreamProvider } from '../shell/src/dev-runtime/channel/server'
 import { registerFilesRuntime } from '../shell/src/dev-runtime/files/register'
 import { directoryIdentity } from '../shell/src/dev-runtime/worktrees/identity'
 import {
@@ -72,7 +75,7 @@ function filesResource(expected = generation) {
 type Published = { streamId: string; frame: RelayFrame }
 
 function harness() {
-  const providers = new Map<string, (session: never) => void>()
+  const providers = new Map<string, StreamProvider>()
   const authority = createChannelAuthority({
     shellHost: '127.0.0.1',
     shellOrigin: 'https://127.0.0.1:4789',
@@ -82,7 +85,7 @@ function harness() {
     scope,
     gateway: {
       registerStreamHandler: (protocol, provider) => {
-        providers.set(protocol, provider as unknown as (session: never) => void)
+        providers.set(protocol, provider)
       },
     },
     resolveWorktree: (worktreeId) => {
@@ -233,12 +236,14 @@ function harness() {
   return {
     authority,
     relay,
+    providers,
     identity,
     execute,
     makeCommand,
     signAttach,
     openRelay,
     frames,
+    publishedEvents: () => published,
     dataBytes,
     ackAll,
     mintForeignGrant: () =>
@@ -355,6 +360,51 @@ describe('file-stream relay (grant → attach → bytes → ack → close)', () 
     expect(after.mtimeNs).not.toBe(before.mtimeNs)
   })
 
+  test('authenticated browser stream publishes bounded base64 video chunks', async () => {
+    const state = harness()
+    const frameBytes = Uint8Array.from({ length: 65_537 }, (_, index) => index % 251)
+    state.providers.set('browser-frames-v1', (session) => {
+      session.send({
+        type: 'video',
+        sequence: '1',
+        timestampMs: Date.now(),
+        generation,
+        viewportSequence: 4,
+        width: 1280,
+        height: 720,
+        keyframe: true,
+        bytes: frameBytes,
+      })
+    })
+    const grant = state.authority.mintStreamGrant({
+      identity: state.identity,
+      protocol: 'browser-frames-v1',
+      scope,
+      resource: { kind: 'browser_lane', id: 'lane-1', generation },
+      direction: 'read',
+      maxFrameBytes: BROWSER_VIDEO_FRAME_BYTES_MAX,
+    })
+    expect((await state.openRelay(grant)).status).toBe('granted')
+
+    const relayFrames = state.frames(grant.grantId)
+    const chunks = relayFrames.filter((frame) => frame.type === 'video_chunk')
+    expect(chunks).toHaveLength(2)
+    expect(relayFrames.some((frame) => frame.type === 'video')).toBe(false)
+    expect(relayFrames.some((frame) => frame.type === 'ack')).toBe(false)
+    expect(chunks.map((chunk) => (chunk.type === 'video_chunk' ? chunk.chunkIndex : -1))).toEqual([
+      0, 1,
+    ])
+    expect(
+      chunks.map((chunk) =>
+        chunk.type === 'video_chunk'
+          ? decodeDevStreamRelayBase64(chunk.bytes, 64 * 1024)
+          : new Uint8Array()
+      )
+    ).toEqual([frameBytes.slice(0, 64 * 1024), frameBytes.slice(64 * 1024)])
+    for (const payload of state.publishedEvents())
+      expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThanOrEqual(128 * 1024)
+  })
+
   test('write offset discipline closes gapped and replayed chunks typed', async () => {
     const state = harness()
     const root = fixtureRoot()
@@ -415,6 +465,41 @@ describe('file-stream relay (grant → attach → bytes → ack → close)', () 
       code: 'incompatible',
     })
     expect(readFileSync(join(root, relativePath))).toEqual(original)
+  })
+
+  test('rejects malformed base64 before a write provider receives bytes', async () => {
+    const state = harness()
+    const relativePath = 'assets/malformed-base64.bin'
+    const original = Buffer.from('preserve me')
+    writeFileSync(join(fixtureRoot(), relativePath), original)
+    const grant = await grantFor(state, 'dev.files.writeStream', {
+      worktreeId: WORKTREE_ID,
+      path: wsPath(relativePath),
+      expectedIdentity: await statIdentity(state, relativePath),
+      byteLength: '3',
+      contentSha256: createHash('sha256')
+        .update(Buffer.from([1, 2, 3]))
+        .digest('hex'),
+      eolPolicy: 'preserve',
+      direction: 'write',
+    })
+    expect((await state.openRelay(grant)).status).toBe('granted')
+    const result = state.relay.frame({
+      identity: state.identity,
+      streamId: grant.grantId,
+      frame: {
+        type: 'input',
+        sequence: '0',
+        generation: grant.resource.generation,
+        bytes: 'AQI=garbage',
+      },
+    })
+    expect(result).toMatchObject({ status: 'refused', code: 'unsupported_version' })
+    expect(state.frames(grant.grantId).at(-1)).toMatchObject({
+      type: 'close',
+      code: 'incompatible',
+    })
+    expect(readFileSync(join(fixtureRoot(), relativePath))).toEqual(original)
   })
 
   test('attach is single-use and proof-verified', async () => {

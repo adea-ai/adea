@@ -12,6 +12,8 @@ export type ScreencastFrame = Readonly<{
   sequence: string
   generation: number
   viewportSequence: number
+  width: number
+  height: number
   keyframe: boolean
   bytes: Uint8Array
 }>
@@ -115,6 +117,15 @@ export function createLaneScreencast(
       if (frame.generation <= 0) return 'rejected'
       if (frame.bytes.byteLength === 0) return 'rejected'
       if (frame.bytes.byteLength > budget.maxFrameBytes) return 'rejected'
+      if (
+        !Number.isSafeInteger(frame.width) ||
+        frame.width < 1 ||
+        frame.width > budget.maxWidth ||
+        !Number.isSafeInteger(frame.height) ||
+        frame.height < 1 ||
+        frame.height > budget.maxHeight
+      )
+        return 'rejected'
       if (frame.viewportSequence < pendingViewportSequence) return 'rejected'
       pendingViewportSequence = frame.viewportSequence
 

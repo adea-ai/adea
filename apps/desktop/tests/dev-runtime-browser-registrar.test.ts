@@ -294,6 +294,7 @@ describe('production registrar composition', () => {
       direction: string
       fromSequence: string
       expiresAt: string
+      maxFrameBytes: number
       resource: { kind: string; id: string; generation: number }
     }
     expect(grant.protocol).toBe('browser-frames-v1')
@@ -306,6 +307,7 @@ describe('production registrar composition', () => {
     })
     expect(grant.fromSequence).toBe('0')
     expect(grant.expiresAt > new Date().toISOString()).toBe(true)
+    expect(grant.maxFrameBytes).toBe(8 * 1024 * 1024)
   })
 
   test('input grants mint write-direction grants bound to the same generation', async () => {
