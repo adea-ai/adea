@@ -30,6 +30,7 @@ on:
       - 'scripts/desktop-shell-changes.mjs'
       - 'scripts/check-desktop-origins.mjs'
       - 'scripts/test-suite-boundary.test.ts'
+      - 'bun.lock'
       - '.github/workflows/desktop-shell.yml'
   pull_request:
     branches: [main]
