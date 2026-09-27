@@ -8,6 +8,8 @@ const desktopPaths = [
   /^apps\/web\/src\/components\/desktop-[^/]+\.tsx$/,
   /^apps\/web\/src\/components\/workspace-navigation[^/]*\.tsx$/,
   /^apps\/web\/src\/components\/version-dialog\.tsx$/,
+  /^packages\/dev-view\/src\/dev-workspace-entry\.tsx$/,
+  /^packages\/dev-view\/src\/terminal\/fixture-terminal-pane\.tsx$/,
   /^scripts\/desktop-[^/]+\.test\.ts$/,
   /^scripts\/check-desktop-origins\.mjs$/,
   /^scripts\/check-desktop-client-browser\.mjs$/,

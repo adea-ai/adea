@@ -116,6 +116,8 @@ test(
       ['scripts/desktop-shell-changes.mjs', 'export const changed = true\n'],
       ['scripts/desktop-shell-changes.test.ts', 'test("changed", () => {})\n'],
       ['scripts/check-desktop-client-browser.mjs', 'export const changed = true\n'],
+      ['packages/dev-view/src/dev-workspace-entry.tsx', 'export const changed = true\n'],
+      ['packages/dev-view/src/terminal/fixture-terminal-pane.tsx', 'export const changed = true\n'],
     ] as const
 
     withRepository((repository) => {
