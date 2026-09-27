@@ -80,6 +80,15 @@
   padding: 1rem;
 }
 
+.dev-chat__composition [data-slot='transcript-rows'] {
+  gap: 0.75rem;
+}
+
+.dev-chat__composition [data-slot='transcript-row-content'] {
+  display: flex;
+  flex-direction: column;
+}
+
 .dev-chat__row {
   display: grid;
   max-width: min(48rem, 100%);

@@ -1348,6 +1348,12 @@ events preserve the parked offset until the reader explicitly resumes following.
 The jump control returns to the latest event and focuses the native transcript.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
+The published shared TranscriptComposition owns keyed row rendering, with the
+canonical session/generation as its explicit reset scope. The host clears local
+question answers on scope reset and retains response-authority checks. Current
+opaque runtime payloads provide no validated call phase, interaction eligibility,
+synthesis or final-answer boundary; rows therefore stay visible and unfolded.
+Payload hints and run completion cannot authorize grouping or hide an action.
 Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the

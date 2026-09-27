@@ -207,6 +207,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             <>
               <ChatTranscript
                 events={transcript().events}
+                resetKey={`${readingIdentity.runtimeSessionId}:${readingIdentity.generation}`}
                 projection={props.conversation.projection}
                 transcript={transcript()}
                 onResolveApproval={props.onResolveApproval}

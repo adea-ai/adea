@@ -1,14 +1,18 @@
-import { Index, Show, createMemo, createSignal, type JSX } from 'solid-js'
+import { Show, createEffect, createMemo, createSignal, on, type JSX } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { ConversationSurface } from '@adea-ai/ui/components/conversation'
+import { TranscriptComposition } from '@adea-ai/ui/components/conversation/transcript-composition'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
 import type { TranscriptAccumulator } from './model'
+import { runtimeTranscriptRows } from './transcript-composition'
 
 export type ChatTranscriptProps = Readonly<{
   events: readonly RuntimeEvent[]
+  /** Canonical session and generation scope; never inferred from display content. */
+  resetKey: string
   projection?: RuntimeSession['projection']
   transcript?: TranscriptAccumulator
   onResolveApproval?: (
@@ -42,6 +46,12 @@ function runtimeEventText(item: ChatTranscriptItem): string {
 
 export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   const [answers, setAnswers] = createSignal<Record<string, string>>({})
+  createEffect(
+    on(
+      () => props.resetKey,
+      () => setAnswers({})
+    )
+  )
   // Memoized, not a plain accessor: the projection walks the whole retained
   // window (up to CHAT_EVENT_RETENTION_LIMIT events) and both the empty-state
   // check below and the list read it, so an unmemoized accessor projected the
@@ -54,6 +64,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
   )
   const availability = () => props.transcript?.availability
   const retention = () => props.transcript?.retention
+  const rows = createMemo(() => runtimeTranscriptRows(items()))
 
   return (
     <ConversationSurface
@@ -100,16 +111,19 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
           when={items().length > 0}
           fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
         >
-          <Index each={items()}>
-            {(item) => (
+          <TranscriptComposition
+            class="dev-chat__composition"
+            rows={rows()}
+            resetKey={props.resetKey}
+            renderRow={(rowProps) => (
               <ChatTranscriptRow
-                item={item()}
+                item={rowProps.row.value}
                 answers={answers}
                 setAnswers={setAnswers}
                 props={props}
               />
             )}
-          </Index>
+          />
         </Show>
       </div>
     </ConversationSurface>
