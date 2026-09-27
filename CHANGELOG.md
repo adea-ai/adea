@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.62.0](https://github.com/adea-ai/adea/compare/v0.61.7...v0.62.0) (2026-09-27)
+
+
+### Features
+
+* **dev-view:** add selector-based browser inspection ([#765](https://github.com/adea-ai/adea/issues/765)) ([e0a27c8](https://github.com/adea-ai/adea/commit/e0a27c8fc7108da3b5cba658ff841b0fc0ada5b1))
+
 ## [0.61.7](https://github.com/adea-ai/adea/compare/v0.61.6...v0.61.7) (2026-09-27)
 
 
