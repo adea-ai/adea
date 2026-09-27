@@ -18,7 +18,6 @@ import {
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
-import { SerializeAddon } from '@xterm/addon-serialize'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 // xterm's own structural stylesheet: the pane depends on the `.xterm`,
@@ -195,10 +194,8 @@ export function TerminalPane(props: TerminalPaneProps) {
       activeMatchColorOverviewRuler: theme.cursor,
     }
   }
-  const serialize = new SerializeAddon()
   terminal.loadAddon(fit)
   terminal.loadAddon(searchAddon)
-  terminal.loadAddon(serialize)
 
   const transport = createTerminalTransport({
     connect: props.connect,
