@@ -91,7 +91,19 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
   > = {
     'dev.device.list': (command) => {
       const verified = input.verifiedInventory()
-      const items = [...(verified.ios?.items ?? []), ...(verified.android?.items ?? [])]
+      const items = [
+        {
+          id: 'responsive',
+          kind: 'responsive',
+          name: 'Responsive viewport',
+          platform: 'responsive',
+          state: 'available',
+          generation: 1,
+          observedAt: new Date().toISOString(),
+        },
+        ...(verified.ios?.items ?? []),
+        ...(verified.android?.items ?? []),
+      ]
       const req = body(command)
       const kind = typeof req.kind === 'string' ? req.kind : undefined
       return {
@@ -109,7 +121,15 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
           typeof req.runtimeSessionId === 'string' ? req.runtimeSessionId : undefined,
         kind: typeof req.kind === 'string' ? (req.kind as 'responsive') : undefined,
       })
-      return { items, observedAt: new Date().toISOString() }
+      return {
+        items: items.filter(
+          (session) =>
+            session.scope.accountId === command.scope.accountId &&
+            session.scope.workspaceId === command.scope.workspaceId &&
+            session.scope.runtimeNodeId === command.scope.runtimeNodeId
+        ),
+        observedAt: new Date().toISOString(),
+      }
     },
     'dev.device.start': async (command) => {
       const req = body(command)
@@ -121,8 +141,14 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
           'start requires inventory and session ids'
         )
       // The responsive lane never owns a process and is always available.
-      if (inventoryId === 'responsive')
+      if (inventoryId === 'responsive') {
+        if (req.expectedGeneration !== 1)
+          throw new DevCommandProviderError(
+            'stale_generation',
+            'responsive inventory generation moved'
+          )
         return input.sessions.startResponsive(command.scope, runtimeSessionId)
+      }
       const platform = inventoryPlatformHint(inventoryId)
       const verified = input.verifiedInventory()
       const inventory = platform === 'ios' ? verified.ios : verified.android

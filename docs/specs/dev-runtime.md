@@ -4789,6 +4789,19 @@ can distinguish intentional spec evolution from drift:
   `capability_unavailable` at the provider layer until the channel-identity
   grant-minting seam and the #400 agent-event attachment land; agent-event attachment remains explicitly unavailable for #422 closure.
 
+- **2026-09-27 — responsive inventory and scoped device sessions.**
+  `dev.device.list` includes the process-free `responsive` inventory item at
+  generation 1, even without simulator tooling. Kind filtering and limits
+  apply to that item exactly as they do to verified host inventory. A
+  responsive start binds the advertised inventory generation and refuses a
+  stale one. `dev.device.sessions` returns only records matching the command's
+  account, workspace and runtime node, in addition to its session/kind filters.
+  The signed-channel list → resource-bound start → scoped sessions → stop path
+  is pinned by `apps/desktop/tests/dev-runtime-browser-registrar.test.ts`;
+  provider regressions are pinned by `dev-runtime-devices-engine.test.ts`.
+  This does not establish a responsive pixel stream or make the pane's local
+  preset/rotation controls a host viewport operation.
+
 - **2026-09-26 — contracted operations with no host adapter, recorded.**
   `dev.project.clone` and `dev.worktree.cleanupJobs` are declared in the
   normative registry but no shell provider registers them, so the registrar
