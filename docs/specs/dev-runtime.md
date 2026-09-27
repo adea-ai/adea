@@ -986,6 +986,11 @@ type ScreenshotRef = {
   id: string
   scope: Scope
   ownerId: string
+  laneKind: 'human_embedded' | 'task_owned' | 'user_context' | 'device'
+  profileId?: string
+  origin: string
+  viewport: { width: number; height: number; deviceScaleFactor: number }
+  redacted: boolean
   contentType: 'image/png' | 'image/jpeg' | 'image/webp'
   byteLength: string
   width: number
@@ -3345,6 +3350,17 @@ separate from screenshot display, coordinate annotation, and live frame
 subscription. Results are cleared when the lane, target, selector, or emulated
 viewport changes. The current caller/transport gap and bounded amendment are
 recorded in the [browser caller gap note](../research/dev-browser-caller-gaps.md).
+
+The BrowserPane screenshot action binds `dev.browser.screenshot` to the
+selected lane generation and current page target. It may display only metadata
+from the returned `ScreenshotRef`: reference ID, dimensions, content type,
+expiry, and the exact host-provided `redacted` boolean. The caller does not
+request or display screenshot bytes. Runtime instance, scope, session, lane ID
+and generation, target/navigation, or emulated-viewport changes clear the
+displayed result and make pending success and error replies inert; unmount does
+the same for pending replies. This metadata-only result is not a pixel preview
+and does not authorize rendering bytes when `redacted` is false. Annotation
+still has its separate control capability and provenance contract.
 
 Cookie import is opt-in, source/profile/origin scoped, previewed, encrypted at
 rest, and atomic: any write/cancel failure rolls back the whole import. Maximum
