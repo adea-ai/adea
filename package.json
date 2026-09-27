@@ -18,7 +18,7 @@
     "test": "bun run test:unit",
     "test:unit": "turbo run test && bun run test:coverage",
     "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/types/tests/execution-location.test.ts scripts/*.test.ts --coverage",
-    "test:bundle:dev-view": "bun run --cwd apps/web build && bun scripts/check-dev-view-bundle.mjs",
+    "test:bundle:dev-view": "bun run --cwd apps/web build && node scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
     "typecheck": "turbo run typecheck",
     "db:health": "node scripts/database-health.mjs",

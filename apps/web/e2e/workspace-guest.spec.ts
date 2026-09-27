@@ -37,8 +37,11 @@ test('a guest can use a workspace before opening the optional persistence flow',
 
   const workspaceTrigger = page.getByRole('button', { name: /Switch workspace/ })
   await workspaceTrigger.click()
-  const workspaceMenu = page.getByRole('menu')
+  const workspaceMenu = page.getByRole('menu', { name: /Switch workspace/ })
   await expect(workspaceMenu).toBeVisible({ timeout: 20_000 })
+  await workspaceMenu.evaluate((menu) =>
+    Promise.allSettled(menu.getAnimations({ subtree: true }).map((animation) => animation.finished))
+  )
   const workspaceMenuPosition = await workspaceMenu.evaluate((menu) => {
     const menuBox = menu.getBoundingClientRect()
     const triggerBox = document
@@ -47,15 +50,20 @@ test('a guest can use a workspace before opening the optional persistence flow',
     return {
       menuLeft: menuBox.left,
       menuTop: menuBox.top,
-      triggerLeft: triggerBox.left,
-      triggerBottom: triggerBox.bottom,
+      triggerRight: triggerBox.right,
+      triggerTop: triggerBox.top,
     }
   })
-  // Pixel positions vary by renderer (headless CI vs GPU browsers); allow a
-  // small tolerance so the assertions check alignment, not sub-pixel output.
-  expect(workspaceMenuPosition.menuLeft).toBeCloseTo(workspaceMenuPosition.triggerLeft, -1)
-  expect(workspaceMenuPosition.menuTop).toBeCloseTo(workspaceMenuPosition.triggerBottom, -1)
-  await page.keyboard.press('Escape')
+  // The picker opens right-start with a 4px gutter. Allow sub-pixel differences
+  // between renderers while checking the intended placement.
+  expect(
+    Math.abs(workspaceMenuPosition.menuLeft - workspaceMenuPosition.triggerRight - 4)
+  ).toBeLessThanOrEqual(1)
+  expect(
+    Math.abs(workspaceMenuPosition.menuTop - workspaceMenuPosition.triggerTop)
+  ).toBeLessThanOrEqual(1)
+  await workspaceTrigger.click()
+  await expect(workspaceMenu).toBeHidden()
 
   for (const viewport of [
     { width: 1280, height: 800 },
@@ -76,7 +84,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   }
 
   await userMenu.click()
-  const accountMenu = page.getByRole('menu')
+  const accountMenu = page.getByRole('menu', { name: 'User settings' })
   // The menu enters with a zoom/fade animation that transforms its box; wait
   // for it to settle before measuring the final position.
   await accountMenu.evaluate((menu) =>

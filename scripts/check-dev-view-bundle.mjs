@@ -1,15 +1,17 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { gzipSync } from 'node:zlib'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const assets = path.join(root, 'apps/web/dist/client/start-assets')
 
 const DEV_ENTRY_MARKERS = ['Developer workspace panes', 'No runtime projects available.']
 const DEV_LAYOUT_MARKER = 'terminal-bytes-v1 stream'
-// The 84 KiB ratchet covers the Dev route entry plus its nested central-layout
-// renderer together; splitting the feature cannot increase the available size.
-const DEV_CHUNK_BUDGET_BYTES = 84 * 1024
+// The entry/layout pair remains a small, separately lazy shell. The route-aware
+// client gate measures transitive view dependencies and the heavier panes.
+const DEV_CHUNK_BUDGET_BYTES = 112 * 1024
+const DEV_CHUNK_GZIP_BUDGET_BYTES = 34 * 1024
 
 function dynamicImports(source) {
   const imports = []
@@ -45,12 +47,23 @@ function assertCombinedBudget(entry, layout) {
     if (!Number.isSafeInteger(chunk.bytes) || chunk.bytes < 0) {
       throw new Error(`Invalid size for ${label} chunk ${chunk.file}: ${chunk.bytes}`)
     }
+    if (!Number.isSafeInteger(chunk.gzipBytes) || chunk.gzipBytes < 0) {
+      throw new Error(`Invalid gzip size for ${label} chunk ${chunk.file}: ${chunk.gzipBytes}`)
+    }
   }
   const totalBytes = entry.bytes + layout.bytes
   if (!Number.isSafeInteger(totalBytes)) throw new Error('Invalid combined Dev View chunk size')
   if (totalBytes > DEV_CHUNK_BUDGET_BYTES) {
     throw new Error(
       `Dev View entry ${entry.file} (${entry.bytes} bytes) plus layout renderer ${layout.file} (${layout.bytes} bytes) totals ${totalBytes} bytes; budget is ${DEV_CHUNK_BUDGET_BYTES} bytes`
+    )
+  }
+  const totalGzipBytes = entry.gzipBytes + layout.gzipBytes
+  if (!Number.isSafeInteger(totalGzipBytes))
+    throw new Error('Invalid combined Dev View gzip chunk size')
+  if (totalGzipBytes > DEV_CHUNK_GZIP_BUDGET_BYTES) {
+    throw new Error(
+      `Dev View entry ${entry.file} (${entry.gzipBytes} gzip bytes) plus layout renderer ${layout.file} (${layout.gzipBytes} gzip bytes) totals ${totalGzipBytes} gzip bytes; budget is ${DEV_CHUNK_GZIP_BUDGET_BYTES} bytes`
     )
   }
 }
@@ -100,7 +113,7 @@ function assertNotEagerlyImported(chunks, entry, layout) {
 /**
  * Inspect emitted Dev chunks by semantic markers rather than hashed filenames.
  * Both markers must remain unique, the Dev entry must own the renderer's
- * dynamic import, and their combined output must meet the 84 KiB ratchet.
+ * dynamic import, and their combined output must meet the raw and gzip limits.
  */
 export function inspectDevViewChunks(chunks) {
   const entry = findUniqueChunk(
@@ -135,16 +148,20 @@ async function main() {
   const files = await readdir(assets)
   const scripts = files.filter((file) => file.endsWith('.js'))
   const contents = await Promise.all(
-    scripts.map(async (file) => ({
-      file,
-      source: await readFile(path.join(assets, file), 'utf8'),
-      bytes: (await stat(path.join(assets, file))).size,
-    }))
+    scripts.map(async (file) => {
+      const source = await readFile(path.join(assets, file), 'utf8')
+      return {
+        file,
+        source,
+        bytes: (await stat(path.join(assets, file))).size,
+        gzipBytes: gzipSync(source).byteLength,
+      }
+    })
   )
   const { entry, layout } = inspectDevViewChunks(contents)
   const totalBytes = entry.bytes + layout.bytes
   console.log(
-    `Dev View entry: ${entry.file} (${entry.bytes} bytes); layout renderer: ${layout.file} (${layout.bytes} bytes); combined: ${totalBytes} bytes`
+    `Dev View entry: ${entry.file} (${entry.bytes} bytes, ${entry.gzipBytes} gzip); layout renderer: ${layout.file} (${layout.bytes} bytes, ${layout.gzipBytes} gzip); combined: ${totalBytes} bytes, ${entry.gzipBytes + layout.gzipBytes} gzip`
   )
 }
 

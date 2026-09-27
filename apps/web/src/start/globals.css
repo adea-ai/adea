@@ -18,6 +18,13 @@
 @source '../../../../packages/workspace-ui/node_modules/@adea-ai/ui/src/components';
 @source '../../../../packages/workspace-ui/node_modules/@adea-ai/ui/src/lib';
 
+/* Adea's shell spacing is authored in rem against the historical 16px root.
+   The published UI structural base intentionally defaults the document to
+   its 14px text-sm scale, so keep the app shell's existing geometry stable. */
+html {
+  font-size: 16px;
+}
+
 :root {
   --browser-auth-error: #b42318;
 }
