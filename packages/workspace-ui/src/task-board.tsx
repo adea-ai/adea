@@ -17,7 +17,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js'
 import { Dynamic } from 'solid-js/web'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/app-ui/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@adea-ai/ui/components/ui/tooltip'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { keyedRows } from './keyed-rows'
 import { TaskDetail } from './task-detail'
@@ -126,7 +126,9 @@ function PriorityTag(props: { priority: TaskSummary['priority'] }) {
       >
         <Icon aria-hidden="true" />
       </TooltipTrigger>
-      <TooltipContent>{props.priority}</TooltipContent>
+      <TooltipContent hideArrow placement="top" gutter={4} data-slot="tooltip-content">
+        {props.priority}
+      </TooltipContent>
     </Tooltip>
   )
 }

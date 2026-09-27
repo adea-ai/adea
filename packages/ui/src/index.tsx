@@ -29,7 +29,6 @@ export {
   type SharedDesktopUpdate,
   type VersionDialogAdapter,
 } from './components/version-dialog'
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip'
 export {
   Dialog,
   DialogClose,

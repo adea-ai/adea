@@ -8,8 +8,7 @@ behavior stay in their owning packages. The Solid stack is recorded in
 [decision 0007](../../docs/decisions/0007-solid-tanstack-start.md).
 
 The unused local Toggle, ToggleGroup, RadioGroup, Tabs, Card, and Spinner copies
-and their private exports have been removed. Remaining local overlays, fields,
-and workspace controls are migration work: preserve their current focus,
+and their private exports have been removed. Remaining local overlays and workspace controls are migration work: preserve their current focus,
 inertness, and placement contracts while replacing them with shared components.
 
 Workspace dividers and plugin loading placeholders now use published Separator
@@ -21,7 +20,10 @@ destructive semantics; the private Badge implementation is removed. Plugin empty
 Empty composition, with caller layout preserving flexible list sizing; the
 private Empty copy is removed. Room and conversation forms compose published Label and Input with native form
 validation and published Alert for request failures. The private Field variant
-system is removed; native `for` associations and form data remain at the domain callers.
+system is removed; native `for` associations and form data remain at the domain callers. Shared Tooltip now supplies the
+workspace status and toolbar hints. The host keeps its 200/300/300 ms timing,
+arrow-free placement, and informational pointer transparency; the private Tooltip
+implementation and unused class-variance-authority dependency are removed.
 
 ## Theming contract: CSS custom properties are the only color surface
 
