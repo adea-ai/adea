@@ -63,7 +63,13 @@ function resourceFor(operation: string, body: Record<string, unknown>): DevComma
   }
 }
 
-async function makeHarness(platform: NodeJS.Platform = 'darwin') {
+async function makeHarness(
+  platform: NodeJS.Platform = 'darwin',
+  options: {
+    now?: () => number
+    scheduleHeartbeat?: (tick: () => void, intervalMs: number) => () => void
+  } = {}
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-terminal-channel-'))
   dataDirs.push(dataDir)
   const runtimeRoot = join(dataDir, 'dev-runtime')
@@ -114,6 +120,8 @@ async function makeHarness(platform: NodeJS.Platform = 'darwin') {
     scope,
     runtimeRoot,
     resolveWorktreeRoot: (id) => (id === worktreeId ? '/tmp/adea-test-worktree' : null),
+    now: options.now,
+    scheduleHeartbeat: options.scheduleHeartbeat,
   })
 
   // A real handshake: identity + secret for HMAC-proved frames.
@@ -438,6 +446,224 @@ describe('terminal runtime over the m10 gate', () => {
     harness.fake.processes[0]!.emit(new Uint8Array([0x62, 0x79, 0x65]))
     await Bun.sleep(15)
     expect(stream.frames.filter((frame) => frame.type === 'data')).toHaveLength(2)
+  })
+
+  test('read heartbeat probes a live sidecar snapshot and reports the output chunk cursor', async () => {
+    let tick: (() => void) | undefined
+    let stopped = false
+    let scheduledInterval = 0
+    const fixedNow = Date.parse('2026-09-27T15:30:00.000Z')
+    const harness = await makeHarness('darwin', {
+      now: () => fixedNow,
+      scheduleHeartbeat: (callback, intervalMs) => {
+        tick = callback
+        scheduledInterval = intervalMs
+        return () => {
+          stopped = true
+        }
+      },
+    })
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!reply.ok) throw new Error('attach failed')
+    const stream = harness.openStream(decodeDevStreamGrant(reply.value))
+    await Bun.sleep(20)
+
+    expect(scheduledInterval).toBe(TERMINAL_LIMITS.heartbeatIntervalMs)
+    expect(tick).toBeFunction()
+    tick!()
+    await Bun.sleep(15)
+    expect(stream.frames.filter((frame) => frame.type === 'heartbeat')).toEqual([
+      {
+        type: 'heartbeat',
+        observedAt: '2026-09-27T15:30:00.000Z',
+        throughSequence: '0',
+      },
+    ])
+
+    harness.fake.processes[0]!.emit(new Uint8Array([1]))
+    await Bun.sleep(8)
+    harness.fake.processes[0]!.emit(new Uint8Array([2]))
+    await Bun.sleep(20)
+    expect(stream.frames.filter((frame) => frame.type === 'data')).toHaveLength(2)
+    tick!()
+    await Bun.sleep(15)
+
+    expect(
+      stream.frames
+        .filter((frame) => frame.type === 'heartbeat')
+        .map((frame) => (frame.type === 'heartbeat' ? frame.throughSequence : null))
+    ).toEqual(['0', '1'])
+
+    harness.registration.dispose()
+    expect(stopped).toBe(true)
+    const frameCount = stream.frames.length
+    tick!()
+    await Bun.sleep(5)
+    expect(stream.frames).toHaveLength(frameCount)
+  })
+
+  test('heartbeat probe retires a read stream when the live snapshot changes generation', async () => {
+    let tick: (() => void) | undefined
+    let stopped = false
+    const harness = await makeHarness('darwin', {
+      scheduleHeartbeat: (callback) => {
+        tick = callback
+        return () => {
+          stopped = true
+        }
+      },
+    })
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!reply.ok) throw new Error('attach failed')
+    const stream = harness.openStream(decodeDevStreamGrant(reply.value))
+    await Bun.sleep(20)
+    harness.sidecar.list = async () => ({
+      ok: true,
+      value: {
+        terminals: [
+          {
+            terminalId,
+            lifecycle: 'running',
+            health: 'healthy',
+            nextSeq: '0',
+            generation: 2,
+            subscriberCount: 1,
+          },
+        ],
+      },
+    })
+
+    tick!()
+    await Bun.sleep(5)
+
+    expect(stream.frames.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'stale_generation', retryable: false },
+    })
+    expect(stream.closes).toContain('stale_generation: terminal snapshot changed')
+    expect(stopped).toBe(true)
+    harness.registration.dispose()
+  })
+
+  test('heartbeat probes do not overlap and a failed probe closes with a typed timeout', async () => {
+    let tick: (() => void) | undefined
+    let stopped = false
+    let resolveList: ((result: Awaited<ReturnType<SidecarClient['list']>>) => void) | undefined
+    let listCalls = 0
+    const harness = await makeHarness('darwin', {
+      scheduleHeartbeat: (callback) => {
+        tick = callback
+        return () => {
+          stopped = true
+        }
+      },
+    })
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!reply.ok) throw new Error('attach failed')
+    const stream = harness.openStream(decodeDevStreamGrant(reply.value))
+    await Bun.sleep(20)
+    harness.sidecar.list = () => {
+      listCalls += 1
+      return new Promise((resolve) => {
+        resolveList = resolve
+      })
+    }
+
+    tick!()
+    tick!()
+    expect(listCalls).toBe(1)
+    resolveList?.({
+      ok: true,
+      value: {
+        terminals: [
+          {
+            terminalId,
+            lifecycle: 'running',
+            health: 'healthy',
+            nextSeq: '0',
+            generation: 1,
+            subscriberCount: 1,
+          },
+        ],
+      },
+    })
+    await Bun.sleep(5)
+    expect(stream.frames.filter((frame) => frame.type === 'heartbeat')).toHaveLength(1)
+
+    harness.sidecar.list = async () => ({
+      ok: false,
+      code: 'timeout',
+      message: 'sidecar probe timeout',
+    })
+    tick!()
+    await Bun.sleep(5)
+    expect(stream.frames.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'timeout', retryable: true },
+    })
+    expect(stream.frames.filter((frame) => frame.type === 'heartbeat')).toHaveLength(1)
+    expect(stopped).toBe(true)
+    harness.registration.dispose()
+  })
+
+  test('sidecar disconnect retires read heartbeat and late close observers run once', async () => {
+    let tick: (() => void) | undefined
+    let stopped = false
+    const harness = await makeHarness('darwin', {
+      scheduleHeartbeat: (callback) => {
+        tick = callback
+        return () => {
+          stopped = true
+        }
+      },
+    })
+    const terminalId = await harness.createTerminal()
+    const reply = await harness.execute('dev.terminal.attach', {
+      terminalId,
+      expectedGeneration: 1,
+      direction: 'read',
+      fromSequence: '0',
+    })
+    if (!reply.ok) throw new Error('attach failed')
+    const stream = harness.openStream(decodeDevStreamGrant(reply.value))
+    await Bun.sleep(20)
+    harness.sidecar.close()
+    expect(stopped).toBe(true)
+    expect(stream.frames.at(-1)).toMatchObject({
+      type: 'error',
+      error: { code: 'unavailable', retryable: false },
+    })
+    const frameCount = stream.frames.length
+    tick!()
+    await Bun.sleep(5)
+    expect(stream.frames).toHaveLength(frameCount)
+
+    let closeCount = 0
+    const lateObserver = () => {
+      closeCount += 1
+    }
+    harness.sidecar.setEvents({ onClose: lateObserver })
+    harness.sidecar.setEvents({ onClose: lateObserver })
+    expect(closeCount).toBe(1)
+    harness.registration.dispose()
   })
 
   test('an attach below the ring replays the durable bridge exactly once in order', async () => {

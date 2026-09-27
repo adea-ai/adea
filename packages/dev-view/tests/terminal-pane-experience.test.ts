@@ -19,6 +19,7 @@ import {
   shellSelectionPresentation,
 } from '../src/terminal/shell-fallback'
 import { isImeComposing, routePaneKey } from '../src/terminal/pane-keys'
+import { terminalConnectionErrorMessage } from '../src/terminal/connection-errors'
 import {
   createSearchState,
   searchClose,
@@ -30,6 +31,20 @@ import {
   searchStep,
   searchToggleCaseSensitive,
 } from '../src/terminal/search-model'
+
+describe('terminal connection error feedback', () => {
+  test('explains generation drops and ambiguous input without exposing host messages', () => {
+    expect(terminalConnectionErrorMessage('stale_generation')).toContain(
+      'Queued input from the previous generation was discarded'
+    )
+    expect(terminalConnectionErrorMessage('delivery_ambiguous')).toContain(
+      'Input may have reached the terminal and was not retried'
+    )
+    expect(terminalConnectionErrorMessage('runtime_node_unavailable')).toBe(
+      'The terminal runtime is unavailable.'
+    )
+  })
+})
 
 function profile(id: string, label: string, argv0: string): ShellProfile {
   return {

@@ -36,7 +36,8 @@
 }
 
 .dev-terminal-pane-status[data-state='reconnecting'],
-.dev-terminal-pane-status[data-state='closed'] {
+.dev-terminal-pane-status[data-state='closed'],
+.dev-terminal-pane-status[data-error] {
   color: var(--destructive);
 }
 

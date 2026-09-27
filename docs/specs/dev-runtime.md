@@ -1284,6 +1284,18 @@ and retires pending results when the selection's abort signal is cancelled.
 This selection resolver is preparatory application code; a production terminal
 mount and its packaged stream journey remain separate acceptance evidence.
 
+The renderer's terminal connection adapter captures an exact `TerminalRecord`,
+never the first item returned by a session query. Each attach mints distinct
+read and input grants with matching scope, terminal identity and generation;
+both authenticated stream headers must arrive before output is presented.
+Read streams send ACKs and accept host heartbeats; input byte offsets are owned
+by the adapter and continue only within the same terminal generation. Reconnect
+revalidates the captured terminal across the session-filtered terminal pages,
+with at most 64 pages of 500 records. A larger page or continuing cursor after
+that bound fails closed with `limit_exceeded` before stream grants are minted.
+Closing or replacing its socket retires that attempt: a late page reply cannot
+request another page or mint grants, and late frames cannot reach the new pane.
+
 ### Runtime session and harness run
 
 ```text
@@ -1979,6 +1991,38 @@ CBOR with a 64 KiB maximum unless the grant's lower bound applies. Server output
 pauses when credit is zero; client input never exceeds the grant and subsystem
 queue caps. Reconnect obtains a new grant and starts from the last acknowledged
 sequence/checkpoint; it never reuses attach proof or guesses continuity.
+If a newly authenticated `opened` frame changes the terminal generation, the
+client may continue reading from that frame's generation-scoped cursor, but it
+MUST discard queued input from the old generation and report typed
+`stale_generation`; later writes use only the newly authenticated generation.
+If a client input send throws, delivery is ambiguous; the client MUST close the
+stream, discard queued input, report typed `delivery_ambiguous`, and never retry
+those bytes automatically. The pane presents safe copy derived from the error
+code rather than rendering host-provided error text.
+
+The renderer's terminal adapter is constructed from the exact selected
+`TerminalRecord` and never discovers a replacement by taking the first ready
+terminal. The first commands use that captured record's scope and bind its
+terminal ID and generation; the runtime session remains part of the selected
+record identity. On reconnect, the adapter lists only that runtime session,
+requires one exact terminal ID in the same scope, and mints fresh read and
+write grants for its current generation. The read grant starts at the terminal
+transport's current output cursor if its generation is unchanged; after a
+generation change, it starts at that generation's `0` anchor. The write grant
+has its own byte-offset cursor, initialized from its grant and advanced only
+after the local write socket accepts a frame. The output cursor is never reused
+for input. Larger renderer writes are split into frames no larger than the
+write grant's `maxFrameBytes`. Each grant must match the requested protocol,
+direction, scope, terminal resource, generation, and cursor; both grants must
+use the same channel and distinct grant IDs. Each `opened` frame must match its
+grant's protocol, generation, and cursor before the pane is told the socket is
+open. The adapter routes ACKs only to the read stream and byte input only to
+the write stream. Resize uses the registered `dev.terminal.resize` control
+operation bound to the same terminal generation, never a read grant. The
+adapter requires measured relay buffering and refuses a stream provider that
+cannot report it; it does not assume an empty queue. While the paired grants
+open, it retains at most 1 MiB and 256 read frames; overflow is retryable
+backpressure, so the next read grant restarts from the unchanged output cursor.
 
 The desktop relay exposes measured `bufferedAmount` for its locally retained
 JSON-safe frames, including frames waiting for attach and in-flight invokes.
@@ -2200,6 +2244,16 @@ Defaults:
 - checkpoint at most every 5 seconds and at least every 1 MiB while active;
 - owner-only directories/files, atomic metadata/checkpoint rename, checksum,
   quarantine on corruption.
+
+For `terminal-bytes-v1` read streams, the host emits a canonical heartbeat only
+after the authenticated sidecar answers a current terminal snapshot probe for
+the same terminal generation. At most one probe may be outstanding per read
+stream; close, resync, exit, generation change, sidecar disconnect, and runtime
+disposal cancel its timer. The heartbeat cursor is the latest output chunk
+sequence (the empty-stream anchor is `0`); it is not a byte offset and does not
+claim that the PTY process is healthy. A read-grant client receives these host
+heartbeats and sends only ACK frames; it MUST NOT send heartbeat frames on the
+read grant. The generic 30-second SSE keepalive is not terminal liveness.
 
 Attach supplies `sinceSeq`. Covered data replays exactly once in order. When
 the memory ring cannot cover `sinceSeq`, a contiguous durable checkpoint chain
