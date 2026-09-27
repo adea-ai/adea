@@ -24,6 +24,7 @@ import {
 import {
   createDeviceSessionRegistry,
   DeviceSessionError,
+  RESPONSIVE_DEVICE_INVENTORY_ID,
   type DeviceProcessIdentity,
 } from '../shell/src/dev-runtime/devices/device-sessions'
 
@@ -81,9 +82,16 @@ describe('inventory parsing', () => {
   test('parses AVD lists and drops log-prefix lines (orca fixture)', () => {
     expect(
       parseAvdList(
-        ['Pixel_7', '', 'Pixel_Tablet', 'WARNING  something', 'No AVD specified'].join('\n')
+        [
+          'Pixel_7',
+          '',
+          'responsive',
+          'Pixel_Tablet',
+          'WARNING  something',
+          'No AVD specified',
+        ].join('\n')
       )
-    ).toEqual(['Pixel_7', 'Pixel_Tablet'])
+    ).toEqual(['Pixel_7', 'responsive', 'Pixel_Tablet'])
   })
 
   test('merges running devices with shutdown AVDs (orca fixture)', () => {
@@ -178,8 +186,29 @@ describe('device session registry', () => {
   test('responsive sessions always start and own no process', () => {
     const sessions = createDeviceSessionRegistry()
     const session = sessions.startResponsive(scope, sessionId)
-    expect(session).toMatchObject({ kind: 'responsive', state: 'attached', startedByAdea: false })
+    expect(session).toMatchObject({
+      inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
+      kind: 'responsive',
+      state: 'attached',
+      startedByAdea: false,
+    })
     expect(() => sessions.planStop(session.id, 1, 'confirm')).toThrow(/responsive/)
+  })
+
+  test('start refuses verified inventory that collides with the reserved responsive ID', () => {
+    const sessions = createDeviceSessionRegistry()
+    const inventory = sessions.setInventory([inventoryItem({ id: RESPONSIVE_DEVICE_INVENTORY_ID })])
+
+    expectCode(
+      () =>
+        sessions.planStart(scope, {
+          runtimeSessionId: sessionId,
+          inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
+          expectedGeneration: 4,
+          inventory,
+        }),
+      'identity_mismatch'
+    )
   })
 
   test('start binds to verified inventory IDs and generations only', () => {
@@ -191,7 +220,6 @@ describe('device session registry', () => {
         inventoryId: 'not-in-inventory',
         expectedGeneration: 4,
         inventory,
-        platform: 'ios',
       })
     ).toThrow(/verified inventory/)
     const { session, launch } = sessions.planStart(scope, {
@@ -199,7 +227,6 @@ describe('device session registry', () => {
       inventoryId: inventoryItem().id,
       expectedGeneration: 4,
       inventory,
-      platform: 'ios',
     })
     expect(launch).toEqual({
       argv: simctlBootArgv(inventoryItem().id),
@@ -214,9 +241,82 @@ describe('device session registry', () => {
           inventoryId: inventoryItem().id,
           expectedGeneration: 3,
           inventory,
-          platform: 'ios',
         }),
       'stale_generation'
+    )
+  })
+
+  test('planStart derives its platform from the uniquely verified inventory entry', () => {
+    const sessions = createDeviceSessionRegistry()
+    const inventoryId = '00000000-0000-4000-8000-000000000123'
+    const item = {
+      id: inventoryId,
+      kind: 'android_emulator' as const,
+      name: 'UUIDNamedAVD',
+      platform: 'android',
+      state: 'available' as const,
+      generation: 4,
+      observedAt: '2026-09-27T00:00:00.000Z',
+    }
+    const inventory = sessions.setInventory([item])
+
+    const { session, launch } = sessions.planStart(scope, {
+      runtimeSessionId: sessionId,
+      inventoryId,
+      expectedGeneration: 4,
+      inventory,
+    })
+
+    expect(session.kind).toBe('android_emulator')
+    expect(launch).toEqual({
+      argv: emulatorBootArgv(item.name),
+      executable: 'emulator',
+      inventoryId,
+    })
+  })
+
+  test('planStart refuses a duplicated opaque ID in verified inventory', () => {
+    const sessions = createDeviceSessionRegistry()
+    const id = 'shared-opaque-id'
+    const inventory = sessions.setInventory([
+      inventoryItem({ id }),
+      {
+        id,
+        kind: 'android_emulator',
+        name: 'Opaque AVD',
+        platform: 'android',
+        state: 'available',
+        generation: 4,
+        observedAt: '2026-09-27T00:00:00.000Z',
+      },
+    ])
+
+    expectCode(
+      () =>
+        sessions.planStart(scope, {
+          runtimeSessionId: sessionId,
+          inventoryId: id,
+          expectedGeneration: 4,
+          inventory,
+        }),
+      'identity_mismatch'
+    )
+  })
+
+  test('planStart refuses verified rows whose kind and platform disagree', () => {
+    const sessions = createDeviceSessionRegistry()
+    const item = { ...inventoryItem({ id: 'opaque-simulator' }), platform: 'android' }
+    const inventory = sessions.setInventory([item])
+
+    expectCode(
+      () =>
+        sessions.planStart(scope, {
+          runtimeSessionId: sessionId,
+          inventoryId: item.id,
+          expectedGeneration: item.generation,
+          inventory,
+        }),
+      'identity_mismatch'
     )
   })
 
@@ -244,7 +344,6 @@ describe('device session registry', () => {
       inventoryId: 'Pixel_Tablet',
       expectedGeneration: 4,
       inventory,
-      platform: 'android',
     })
     sessions.markLaunched(session.id, identity)
     expectCode(
@@ -274,7 +373,6 @@ describe('device session registry', () => {
       inventoryId: inventoryItem().id,
       expectedGeneration: 4,
       inventory,
-      platform: 'ios',
     })
     const adopted = sessions.markLaunched(session.id, undefined)
     expect(adopted.startedByAdea).toBe(false)

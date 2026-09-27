@@ -16,6 +16,33 @@ import { DeviceSessionError, emulatorBootArgv, simctlBootArgv } from './inventor
 
 export { DeviceSessionError }
 
+/** Reserved host-owned inventory identity for the process-free responsive lane. */
+export const RESPONSIVE_DEVICE_INVENTORY_ID = 'adea:responsive'
+
+/** Host inventory IDs must never shadow the synthetic responsive inventory row. */
+export function assertNoResponsiveInventoryIdCollision(
+  items: readonly DeviceInventoryItem[]
+): void {
+  if (items.some((item) => item.id === RESPONSIVE_DEVICE_INVENTORY_ID))
+    throw new DeviceSessionError(
+      'identity_mismatch',
+      `verified host inventory uses reserved id ${RESPONSIVE_DEVICE_INVENTORY_ID}`
+    )
+}
+
+/** Opaque host IDs must resolve to exactly one inventory row before start. */
+export function assertUniqueDeviceInventoryIds(items: readonly DeviceInventoryItem[]): void {
+  const ids = new Set<string>()
+  for (const item of items) {
+    if (ids.has(item.id))
+      throw new DeviceSessionError(
+        'identity_mismatch',
+        'verified host inventory contains an ambiguous device id'
+      )
+    ids.add(item.id)
+  }
+}
+
 // ── Session registry ────────────────────────────────────────────────────────
 
 export type DeviceProcessIdentity = Readonly<{
@@ -95,7 +122,7 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
         id: randomId(),
         scope,
         runtimeSessionId,
-        inventoryId: 'responsive',
+        inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
         inventoryLabel: 'Responsive viewport',
         kind: 'responsive',
         state: 'attached',
@@ -118,18 +145,25 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
         inventoryId: string
         expectedGeneration: number
         inventory: VerifiedInventory
-        platform: 'ios' | 'android'
       }>
     ): Readonly<{
       session: DeviceSessionRecord
       launch: Readonly<{ argv: readonly string[]; executable: string; inventoryId: string }>
     }> {
-      const item = input.inventory.items.find((entry) => entry.id === input.inventoryId)
-      if (!item)
+      assertNoResponsiveInventoryIdCollision(input.inventory.items)
+      assertUniqueDeviceInventoryIds(input.inventory.items)
+      const matchingItems = input.inventory.items.filter((entry) => entry.id === input.inventoryId)
+      if (matchingItems.length === 0)
         throw new DeviceSessionError(
           'identity_mismatch',
           `inventory id ${input.inventoryId} is not in the verified inventory`
         )
+      if (matchingItems.length !== 1)
+        throw new DeviceSessionError(
+          'identity_mismatch',
+          'inventory id is ambiguous in the verified inventory'
+        )
+      const item = matchingItems[0]!
       if (inventoryGenerations.get(input.inventoryId) !== input.expectedGeneration)
         throw new DeviceSessionError('stale_generation', 'inventory generation moved')
       if (item.kind === 'physical')
@@ -137,7 +171,17 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
           'unsupported_capability',
           'physical devices require a separate pairing grant'
         )
-      if (input.platform === 'ios' && item.state !== 'available' && item.state !== 'offline')
+      if (
+        (item.kind !== 'ios_simulator' && item.kind !== 'android_emulator') ||
+        (item.kind === 'ios_simulator' && item.platform !== 'ios') ||
+        (item.kind === 'android_emulator' && item.platform !== 'android')
+      )
+        throw new DeviceSessionError(
+          'identity_mismatch',
+          'verified device kind and platform do not agree'
+        )
+      const platform = item.platform
+      if (platform === 'ios' && item.state !== 'available' && item.state !== 'offline')
         throw new DeviceSessionError('invalid_state', `device is ${item.state}`)
       const record: DeviceSessionRecord = {
         id: randomId(),
@@ -145,7 +189,7 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
         runtimeSessionId: input.runtimeSessionId,
         inventoryId: item.id,
         inventoryLabel: item.name,
-        kind: input.platform === 'ios' ? 'ios_simulator' : 'android_emulator',
+        kind: item.kind,
         state: 'starting',
         generation: 1,
         startedByAdea: true,
@@ -153,7 +197,7 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
       }
       save(record)
       const launch =
-        input.platform === 'ios'
+        platform === 'ios'
           ? { argv: simctlBootArgv(item.id), executable: 'xcrun', inventoryId: item.id }
           : {
               argv: emulatorBootArgv(item.name),
