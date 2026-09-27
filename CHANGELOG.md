@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.61.6](https://github.com/adea-ai/adea/compare/v0.61.5...v0.61.6) (2026-09-27)
+
+
+### Tests
+
+* avoid repeated full-tree color scans ([#761](https://github.com/adea-ai/adea/issues/761)) ([1466003](https://github.com/adea-ai/adea/commit/14660034d24e47ac4d1f3d4c7cc01a3af50b6730))
+
 ## [0.61.5](https://github.com/adea-ai/adea/compare/v0.61.4...v0.61.5) (2026-09-27)
 
 
