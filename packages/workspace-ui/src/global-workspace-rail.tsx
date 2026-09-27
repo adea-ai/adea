@@ -1,5 +1,12 @@
 import type { WorkspaceSummary } from '@adea-ai/types'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { Button, type ButtonProps } from '@adea-ai/ui/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@adea-ai/ui/components/ui/dropdown-menu'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
 import {
   Tooltip,
@@ -19,7 +26,7 @@ import {
   Plug,
   Search,
 } from 'lucide-solid'
-import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from 'solid-js'
+import { createEffect, For, onCleanup } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
 import { keyedRows } from './keyed-rows'
@@ -81,6 +88,17 @@ function WorkspaceMark(props: { workspace?: WorkspaceSummary }) {
   return <Icon aria-hidden="true" />
 }
 
+// Both published primitives need to decorate the same button. This tiny
+// polymorphic bridge composes their trigger props; menu state and keyboard
+// behavior remain owned by the published DropdownMenu.
+type WorkspaceTooltipButtonProps = Omit<ButtonProps, 'type'> & {
+  type?: 'button' | 'reset' | 'submit'
+}
+
+function WorkspaceTooltipButton(props: WorkspaceTooltipButtonProps) {
+  return <TooltipTrigger as={Button} {...props} />
+}
+
 export function GlobalWorkspaceRail(props: {
   account: Readonly<{
     authenticated: boolean
@@ -115,27 +133,20 @@ export function GlobalWorkspaceRail(props: {
     () => props.workspaces,
     (workspace) => workspace.id
   )
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = createSignal(false)
-  const workspaceMenuId = createUniqueId()
-  const [workspaceMenu, setWorkspaceMenu] = createSignal<HTMLDivElement>()
 
   createEffect(() => {
-    if (!workspaceMenuOpen()) return
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!workspaceMenu()?.contains(event.target as Node)) setWorkspaceMenuOpen(false)
+    const openSearchWithShortcut = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.shiftKey ||
+        event.key.toLowerCase() !== 'k'
+      ) {
+        return
+      }
+      event.preventDefault()
+      props.onOpenSearch()
     }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setWorkspaceMenuOpen(false)
-    }
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    document.addEventListener('keydown', closeOnEscape)
-    onCleanup(() => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      document.removeEventListener('keydown', closeOnEscape)
-    })
-  })
-
-  createEffect(() => {
     const openSettingsWithShortcut = (event: KeyboardEvent) => {
       if (
         !(event.metaKey || event.ctrlKey) ||
@@ -155,54 +166,55 @@ export function GlobalWorkspaceRail(props: {
       props.onOpenSettings()
     }
 
+    window.addEventListener('keydown', openSearchWithShortcut, { capture: true })
     window.addEventListener('keydown', openSettingsWithShortcut, { capture: true })
-    onCleanup(() =>
+    onCleanup(() => {
+      window.removeEventListener('keydown', openSearchWithShortcut, { capture: true })
       window.removeEventListener('keydown', openSettingsWithShortcut, { capture: true })
-    )
+    })
   })
 
   return (
     <TooltipProvider openDelay={200} closeDelay={300} skipDelayDuration={300}>
       <nav class="global-rail" aria-label="Global navigation">
-        <div class="global-rail__workspace" ref={setWorkspaceMenu}>
-          <Tooltip>
-            <TooltipTrigger
-              as={Button}
-              variant="default"
-              size="icon-lg"
-              class="global-rail__workspace-trigger"
-              aria-controls={workspaceMenuId}
-              aria-expanded={workspaceMenuOpen()}
-              aria-haspopup="menu"
-              aria-label={`Switch workspace, current ${activeWorkspaceLabel()}`}
-              onClick={() => setWorkspaceMenuOpen((open) => !open)}
+        <div class="global-rail__workspace">
+          <DropdownMenu modal={false} placement="right-start" gutter={4}>
+            <Tooltip>
+              <DropdownMenuTrigger
+                as={WorkspaceTooltipButton}
+                variant="default"
+                size="icon-lg"
+                class="global-rail__workspace-trigger"
+                aria-label={`Switch workspace, current ${activeWorkspaceLabel()}`}
+              >
+                <WorkspaceMark workspace={props.activeWorkspace} />
+              </DropdownMenuTrigger>
+              <TooltipContent hideArrow placement="right" gutter={4} data-slot="tooltip-content">
+                Switch workspace
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent
+              hideArrow
+              class="global-rail__workspace-menu max-h-(--kb-popper-available-height) overflow-x-hidden overflow-y-auto"
             >
-              <WorkspaceMark workspace={props.activeWorkspace} />
-            </TooltipTrigger>
-            <TooltipContent hideArrow placement="right" gutter={4} data-slot="tooltip-content">
-              Switch workspace
-            </TooltipContent>
-          </Tooltip>
-          <Show when={workspaceMenuOpen()}>
-            <div class="global-rail__workspace-menu" id={workspaceMenuId} role="menu">
-              <For each={workspaceRows()}>
-                {(entry) => (
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={entry.item().id === props.activeWorkspace?.id}
-                    onClick={() => {
-                      props.onWorkspaceChange(entry.item())
-                      setWorkspaceMenuOpen(false)
-                    }}
-                  >
-                    <WorkspaceMark workspace={entry.item()} />
-                    <span class="global-rail__workspace-name">{entry.item().name}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
+              <DropdownMenuRadioGroup
+                value={props.activeWorkspace?.id ?? ''}
+                onChange={(id) => {
+                  const workspace = props.workspaces.find((entry) => entry.id === id)
+                  if (workspace) props.onWorkspaceChange(workspace)
+                }}
+              >
+                <For each={workspaceRows()}>
+                  {(entry) => (
+                    <DropdownMenuRadioItem value={entry.item().id} closeOnSelect>
+                      <WorkspaceMark workspace={entry.item()} />
+                      <span class="global-rail__workspace-name">{entry.item().name}</span>
+                    </DropdownMenuRadioItem>
+                  )}
+                </For>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         <div class="global-rail__search">

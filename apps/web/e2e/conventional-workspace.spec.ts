@@ -1066,6 +1066,29 @@ test('operates unread actions and deep-linked search entirely by keyboard', asyn
   expect((await unreadRequest).postDataJSON()).toEqual({ action: 'unread' })
 })
 
+test('global rail opens workspace search from Virtual and Dev', async ({ page }) => {
+  await mockWorkspace(page)
+  await page.goto('/?view=virtual')
+  await expect(page.getByRole('button', { name: 'Switch workspace' })).toBeVisible({
+    timeout: 20_000,
+  })
+
+  const searchDialog = page.getByRole('dialog', { name: 'Search workspace' })
+  await page.keyboard.press('Control+k')
+  await expect(searchDialog).toBeVisible({ timeout: 20_000 })
+  await expect(page).toHaveURL(/view=chat/)
+  await page.keyboard.press('Escape')
+  await expect(searchDialog).toBeHidden()
+
+  await page.goto('/?view=dev&devE2e=preserved')
+  await expect(page.getByRole('button', { name: 'Dev view', exact: true })).toBeVisible({
+    timeout: 20_000,
+  })
+  await page.keyboard.press('Control+k')
+  await expect(searchDialog).toBeVisible({ timeout: 20_000 })
+  await expect(page).toHaveURL(/view=chat/)
+})
+
 test('retains drafts across navigation and reloads at supported breakpoints', async ({ page }) => {
   await mockWorkspace(page)
   await page.goto('/')

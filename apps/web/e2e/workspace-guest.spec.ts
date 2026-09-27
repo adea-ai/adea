@@ -184,6 +184,36 @@ test('settings opens over chat without changing the current view', async ({ page
   await expect(page).toHaveURL(/view=chat/)
 })
 
+test('workspace search shortcut focuses the disabled-chat App Library search', async ({ page }) => {
+  await page.route('**/api/workspaces/bootstrap', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        activeWorkspace: workspace,
+        principal: { temporary: true },
+        workspaces: [workspace],
+      },
+    })
+  })
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'adea:rail-preferences:v1',
+      JSON.stringify({
+        version: 1,
+        order: ['virtual', 'chat', 'dev'],
+        hidden: ['virtual', 'chat', 'dev'],
+      })
+    )
+  })
+
+  await page.goto('/?app=library')
+  await expect(page.getByRole('heading', { name: 'App Library' })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole('button', { name: 'Enable Chat' })).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('searchbox', { name: 'Search apps' })).toBeFocused()
+  await expect(page).toHaveURL(/app=library/)
+})
+
 test('desktop authentication ends on a clear browser success page', async ({ page }) => {
   const callback =
     'adea://auth/callback?code=one-time-code&nonce=nonce-value-12345&state=state-value-12345'

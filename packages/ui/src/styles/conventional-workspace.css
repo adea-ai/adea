@@ -62,49 +62,8 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary-foreground) 18%, transparent);
 }
 
-.global-rail__workspace {
-  position: relative;
-}
-
 .global-rail__workspace-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 130;
-  display: grid;
-  gap: 0.2rem;
   width: 15rem;
-  padding: 0.35rem;
-  border: 1px solid var(--border);
-  border-radius: 0.65rem;
-  background: var(--popover);
-  color: var(--popover-foreground);
-  box-shadow: var(--hq-shell-shadow-popover);
-}
-
-.global-rail__workspace-menu > button {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.55rem;
-  align-items: center;
-  width: 100%;
-  min-height: 2.4rem;
-  padding: 0.4rem 0.5rem;
-  border: 0;
-  border-radius: 0.4rem;
-  color: inherit;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.global-rail__workspace-menu > button:hover,
-.global-rail__workspace-menu > button:focus-visible,
-.global-rail__workspace-menu > button[aria-checked='true'] {
-  background: var(--accent);
-  color: var(--accent-foreground);
-  outline: none;
 }
 
 .global-rail__workspace-name {

@@ -150,7 +150,12 @@ export function ConventionalWorkspaceShell(props: {
         event.target instanceof HTMLElement &&
         Boolean(event.target.closest('[role="dialog"]'))
       const editable = editableTarget && !targetInClosingDialog
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k') {
+      if (
+        !event.defaultPrevented &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'k'
+      ) {
         event.preventDefault()
         setDialog('search')
       }
