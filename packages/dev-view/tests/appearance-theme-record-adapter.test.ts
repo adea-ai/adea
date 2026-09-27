@@ -11,6 +11,7 @@ import {
 import {
   accentPresets as localAccentPresets,
   builtinThemeRegistry,
+  deriveAccentRoles,
 } from '@adea-ai/app-ui/components/appearance'
 
 describe('published AppearanceEditor theme adapter', () => {
@@ -35,6 +36,21 @@ describe('published AppearanceEditor theme adapter', () => {
     expect(adapted.colors.background).toBe(slate.colors.background)
     expect(adapted.colors.surface).toBe(slate.colors.card)
     expect(adapted.tags).toContain('compatibility')
+  })
+
+  test('maps custom accent roles while preserving the compatibility theme baseline', () => {
+    const slate = builtinThemeRegistry.find((theme) => theme.id === 'slate-dark')!
+    const baseline = appearanceThemeForPreview(slate, 'theme')
+    const accent = '#2563eb'
+    const expectedAccent = deriveAccentRoles(accent, slate)
+    const adapted = appearanceThemeForPreview(slate, accent)
+
+    expect(adapted.colors.accent).toBe(expectedAccent.primary)
+    expect(adapted.colors.accentForeground).toBe(expectedAccent.onPrimary)
+    expect(adapted.colors.background).toBe(baseline.colors.background)
+    expect(adapted.colors.foreground).toBe(baseline.colors.foreground)
+    expect(adapted.colors.surface).toBe(baseline.colors.surface)
+    expect(adapted.colors.border).toBe(baseline.colors.border)
   })
 
   test('rejects raw invalid accents and normalizes accepted values', () => {
