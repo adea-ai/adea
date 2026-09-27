@@ -2780,6 +2780,13 @@ identity, preserves reviewed permissions, and renames atomically into place;
 any mismatch, overrun, or post-mint drift discards the temp and reports
 `file_changed` — the target is never partially written.
 
+The signed desktop stream relay preserves canonical server `heartbeat` and
+`resync` frames. The renderer validates their exact keys, UTC observation time,
+canonical decimal cursor, and registered resync reason through the same pure
+`dev-runtime-control` decoder used by `decodeDevStreamFrame`; malformed controls
+fail the relay instead of refreshing terminal liveness. This decoder does not
+load the operation registry. Outgoing relay commands remain direction-bound.
+
 Client attach (desktop stream relay): the desktop renderer activates the bulk
 stream through `DevRuntimeService.streams()` without binding a second
 WebSocket — the launch bootstrap is consumed once per page, every handshake
