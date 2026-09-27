@@ -39,7 +39,8 @@ exports and direct dependency have been removed.
 
 VersionDialog is a thin Adea adapter to the published UpdateDialog. It maps
 native update snapshots and forwards install version checks without owning the
-generic renderer or release-note formatter. The private Dialog remains while
+generic renderer or release-note formatter. Controlled callers forward the
+persistent opener accessor to the shared focus-restoration contract. The private Dialog remains while
 appearance compositions still depend on it.
 
 Workspace dialogs use the published ModalDialog with their existing non-modal

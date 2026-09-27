@@ -104,7 +104,7 @@ export function GlobalWorkspaceRail(props: {
     authenticated: boolean
     busy?: boolean
     label: string
-    onOpenUpdates?: () => void
+    onOpenUpdates?: (opener: HTMLButtonElement | undefined) => void
     onSignIn: () => void
     onSignOut: () => void
     platform: 'desktop' | 'web'

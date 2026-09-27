@@ -18,6 +18,10 @@ focus the App Library search when Chat is disabled. Workspace selection uses
 the published dropdown radio menu: arrow keys move between workspaces, Enter
 selects one, and Escape closes the menu and restores focus to its trigger.
 
+The account menu opens Updates after its menu focus cycle closes. It supplies
+the persistent rail button through the host adapter to the published dialog
+so closing Updates restores focus without retaining a removed menu item.
+
 ## Loading state
 
 `WorkspaceSkeleton` renders six published `Skeleton` controls with app-owned

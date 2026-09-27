@@ -231,7 +231,7 @@ export type WorkspaceNavigationAccount = Readonly<{
   authenticated: boolean
   busy: boolean
   label: string
-  onOpenUpdates?(): void
+  onOpenUpdates?(opener: HTMLButtonElement | undefined): void
   onSignIn(): void
   onSignOut(): void | Promise<void>
 }>
@@ -257,6 +257,7 @@ export type WorkspaceNavigationProps = Readonly<{
 // the preference (contributions from other builds) never reach the rail.
 
 export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
+  const [updatesOpener, setUpdatesOpener] = createSignal<HTMLButtonElement>()
   const [toolbarMount, setToolbarMount] = createSignal<HTMLDivElement>()
   const [roomDesignerEnabled, setRoomDesignerEnabled] = createSignal(props.roomDesigner ?? false)
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
@@ -574,7 +575,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           label: props.account.label,
           onSignIn: props.account.onSignIn,
           onSignOut: () => void props.account.onSignOut(),
-          ...(props.account.onOpenUpdates ? { onOpenUpdates: props.account.onOpenUpdates } : {}),
+          ...(props.account.onOpenUpdates
+            ? {
+                onOpenUpdates: (opener: HTMLButtonElement | undefined) => {
+                  setUpdatesOpener(opener)
+                  props.account.onOpenUpdates?.(opener)
+                },
+              }
+            : {}),
           platform: props.platform,
         }}
         onOpenNotifications={() => openSettings('input-notifications')}
@@ -739,7 +747,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         />
       </Show>
       <Show when={props.updates}>
-        {(updates) => <VersionDialog open={updates().open} onOpenChange={updates().onOpenChange} />}
+        {(updates) => (
+          <VersionDialog
+            open={updates().open}
+            onOpenChange={updates().onOpenChange}
+            restoreFocusRef={updatesOpener}
+          />
+        )}
       </Show>
     </div>
   )
