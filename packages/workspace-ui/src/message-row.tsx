@@ -8,7 +8,7 @@ import {
   RotateCcw,
   Trash2,
 } from 'lucide-solid'
-import { createEffect, createSignal, For, Show } from 'solid-js'
+import { createEffect, createSignal, For, onCleanup, Show } from 'solid-js'
 
 import type { PrivateContentResolver } from './platform'
 import { ConversationAvatar } from './conversation-avatar'
@@ -24,34 +24,65 @@ function senderLabel(message: MessageSummary, agents: ReadonlyMap<string, AgentS
   return (agentId ? agents.get(agentId)?.name : undefined) ?? 'Agent'
 }
 
-function MessageBody(props: { message: MessageSummary; privateContent?: PrivateContentResolver }) {
-  const [resolvedBody, setResolvedBody] = createSignal<string | null>(null)
-  const [resolutionState, setResolutionState] = createSignal<'idle' | 'loading' | 'unavailable'>(
-    'idle'
+type PrivateContentIdentity = Readonly<{
+  contentRefId: string
+  resolver: PrivateContentResolver
+  workspaceId: string
+}>
+
+type PrivateContentResolution = PrivateContentIdentity &
+  Readonly<{ status: 'loading' | 'unavailable' } | { plaintext: string; status: 'resolved' }>
+
+function samePrivateContentIdentity(left: PrivateContentIdentity, right: PrivateContentIdentity) {
+  return (
+    left.resolver === right.resolver &&
+    left.workspaceId === right.workspaceId &&
+    left.contentRefId === right.contentRefId
   )
+}
+
+function MessageBody(props: { message: MessageSummary; privateContent?: PrivateContentResolver }) {
+  const [resolution, setResolution] = createSignal<PrivateContentResolution>()
+  const currentIdentity = (): PrivateContentIdentity | undefined => {
+    const contentRefId = props.message.bodyContentRefId
+    const resolver = props.privateContent
+    if (!contentRefId || props.message.bodyText || !resolver) return
+    return { contentRefId, resolver, workspaceId: props.message.workspaceId }
+  }
+  const currentResolution = () => {
+    const identity = currentIdentity()
+    const value = resolution()
+    return identity && value && samePrivateContentIdentity(identity, value) ? value : undefined
+  }
+  const resolvedBody = () => {
+    const value = currentResolution()
+    return value?.status === 'resolved' ? value.plaintext : null
+  }
+  const resolutionState = () => {
+    if (!props.privateContent) return 'unavailable'
+    return currentResolution()?.status === 'unavailable' ? 'unavailable' : 'loading'
+  }
 
   createEffect(() => {
     let active = true
-    setResolvedBody(null)
-    const contentRefId = props.message.bodyContentRefId
-    if (!contentRefId || props.message.bodyText || !props.privateContent) {
-      setResolutionState('idle')
+    onCleanup(() => {
+      active = false
+    })
+    const identity = currentIdentity()
+    if (!identity) {
+      setResolution(undefined)
       return
     }
-    setResolutionState('loading')
-    void props.privateContent
-      .read({ contentId: contentRefId, workspaceId: props.message.workspaceId })
+    setResolution({ ...identity, status: 'loading' })
+    void identity.resolver
+      .read({ contentId: identity.contentRefId, workspaceId: identity.workspaceId })
       .then(({ plaintext }) => {
         if (!active) return
-        setResolvedBody(plaintext)
-        setResolutionState('idle')
+        setResolution({ ...identity, plaintext, status: 'resolved' })
       })
       .catch(() => {
-        if (active) setResolutionState('unavailable')
+        if (active) setResolution({ ...identity, status: 'unavailable' })
       })
-    return () => {
-      active = false
-    }
   })
 
   return (
