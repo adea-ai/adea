@@ -1,3 +1,4 @@
+import { createEffect, onCleanup } from 'solid-js'
 import { invoke, isDesktopRuntime } from './desktop-bridge'
 
 export type ChatPresentationSource = 'chat' | 'dev'
@@ -59,4 +60,15 @@ export function setDesktopChatPresentation(
   return source === 'chat'
     ? desktopChatPresentation.setChatSession(runtimeSessionId)
     : desktopChatPresentation.setDevSession(runtimeSessionId)
+}
+
+/** Bind one mounted surface to the shared presentation hint and clear it on disposal. */
+export function bindDesktopChatPresentation(
+  source: ChatPresentationSource,
+  runtimeSessionId: () => string | undefined
+): void {
+  createEffect(() => {
+    void setDesktopChatPresentation(source, runtimeSessionId())
+  })
+  onCleanup(() => void setDesktopChatPresentation(source, undefined))
 }

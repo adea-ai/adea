@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.0](https://github.com/adea-ai/adea/compare/v0.62.6...v0.63.0) (2026-09-27)
+
+
+### Features
+
+* **desktop:** request notifications for harness run transitions ([#779](https://github.com/adea-ai/adea/issues/779)) ([b96fec4](https://github.com/adea-ai/adea/commit/b96fec4a546a69331834170661f8b90b0fc15fc8))
+
 ## [0.62.6](https://github.com/adea-ai/adea/compare/v0.62.5...v0.62.6) (2026-09-27)
 
 

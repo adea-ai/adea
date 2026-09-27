@@ -839,7 +839,7 @@ describe('observed run status through the gate (#400)', () => {
     )
   }
 
-  test('connects durable run.status observations to value-free native requests', async () => {
+  test('requests only a fixed native notification for an unfocused durable run transition', async () => {
     let shell: Boot | undefined
     let windowFocused = false
     let focusedSessionId: string | undefined
@@ -870,15 +870,13 @@ describe('observed run status through the gate (#400)', () => {
       const { session, run } = await launchFirst(shell, channel)
       const runId = String(run.id)
 
-      // A mounted selected conversation suppresses this durable transition.
+      // The selected session is suppressed while its native window is focused.
       focusedSessionId = session.id
       windowFocused = true
       okValue(await channel.execute(statusCommand(session, runId, 'working')))
       okValue(await channel.execute(statusCommand(session, runId, 'awaiting_input')))
       expect(requests).toEqual([])
 
-      // Once unfocused, only a later canonical transition requests a generic
-      // notification. The snapshot contains no run/session display content.
       focusedSessionId = undefined
       windowFocused = false
       okValue(await channel.execute(statusCommand(session, runId, 'working')))

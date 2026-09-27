@@ -51,8 +51,9 @@ export function requestNativeChatNotification(
 }
 
 /**
- * Compares durable HarnessRun snapshots on the shell publish path.
- * The store targets 200 retained runs but never evicts active runs.
+ * Compares the durable HarnessRun snapshots on the shell publish path.
+ * `RunHistoryStore` retains up to 200 terminal records per scope, but active
+ * records are never evicted, so the snapshot is not a hard 200-record cap.
  */
 export function createHarnessRunNotificationPublisher(input: {
   readRuns: () => readonly HarnessRun[]

@@ -96,6 +96,35 @@ describe('desktop shell command surface', () => {
     }
   })
 
+  test('accepts an ephemeral chat-presentation hint without exposing it as command authority', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    const received: Array<string | undefined> = []
+    try {
+      const invoke = createCommandSurface(dataDir, {
+        onChatPresentation: (focusedSessionId) => received.push(focusedSessionId),
+      })
+      expect(invoke('desktop_chat_presentation', { focusedSessionId: 'session-1' })).toEqual({
+        ok: true,
+        value: null,
+      })
+      expect(invoke('desktop_chat_presentation', { focusedSessionId: 'x'.repeat(129) })).toEqual({
+        ok: true,
+        value: null,
+      })
+      expect(invoke('desktop_chat_presentation', { focusedSessionId: '' })).toEqual({
+        ok: true,
+        value: null,
+      })
+      expect(invoke('desktop_chat_presentation', { focusedSessionId: 42 })).toEqual({
+        ok: true,
+        value: null,
+      })
+      expect(received).toEqual(['session-1', undefined, undefined, undefined])
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('reports the packaged app version instead of a placeholder', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
     try {

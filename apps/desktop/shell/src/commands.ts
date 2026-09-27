@@ -308,9 +308,9 @@ export function createCommandSurface(
       macPermissions.snapshot({ force: args?.force === true }),
     desktop_permissions_open_settings: (args) =>
       macPermissions.openSettings(String(args?.permissionId ?? '')),
-    // Ephemeral UI presentation only. The signed legacy invoke gate protects
-    // this hint; the host validates its session against the current projection
-    // and never uses it as command or input authority.
+    // Ephemeral presentation only. The signed legacy invoke gate protects
+    // this hint; the host validates the session against its current scoped
+    // projection and never treats it as command or input authority.
     desktop_chat_presentation: (args) => {
       const candidate = args?.focusedSessionId
       options?.onChatPresentation?.(

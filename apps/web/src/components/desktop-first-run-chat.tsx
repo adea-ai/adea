@@ -21,7 +21,7 @@ import {
   createFirstRunConversationHandler,
   type DesktopChatModelHost,
 } from '../lib/desktop-chat-host'
-import { setDesktopChatPresentation } from '../lib/desktop-chat-presentation'
+import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { resolveDesktopFirstRun, type DesktopFirstRunWorktree } from '../lib/desktop-first-run-chat'
 
 type WorktreePage = Readonly<{ items: readonly DesktopFirstRunWorktree[] }>
@@ -129,10 +129,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   // Only a mounted canonical Chat conversation is reported. Conventional
   // workspace/team chat remains a separate domain and never fabricates a
   // runtime session selection.
-  createEffect(() => {
-    void setDesktopChatPresentation('chat', conversation()?.runtimeSessionId)
-  })
-  onCleanup(() => void setDesktopChatPresentation('chat', undefined))
+  bindDesktopChatPresentation('chat', () => conversation()?.runtimeSessionId)
 
   createEffect(() => {
     // These reads make auth/workspace changes start a fresh scoped load even

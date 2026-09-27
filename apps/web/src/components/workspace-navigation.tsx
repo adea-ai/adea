@@ -2,7 +2,7 @@
 // entry feeds it the cookie bootstrap, the desktop entry feeds it the shell
 // session bootstrap. Anything desktop-only is a flag-guarded surface
 // (`updates`, account handlers, `platform`), never a forked render tree.
-import { createEffect, createSignal, onCleanup, untrack, Show, type JSX } from 'solid-js'
+import { createEffect, createSignal, untrack, Show, type JSX } from 'solid-js'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { settledData, useAgentListQuery } from '@adea-ai/data'
@@ -33,8 +33,8 @@ import {
 import { WorkspaceTopBar } from './workspace-top-bar'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
+import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { isDesktopRuntime } from '../lib/desktop-bridge'
-import { setDesktopChatPresentation } from '../lib/desktop-chat-presentation'
 import { VersionDialog } from './version-dialog'
 import lazyComponent from './lazy-component'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -314,16 +314,16 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // The selected Dev session is a presentation hint only. Chat reports its
   // visible canonical conversation from DesktopFirstRunChat; the conventional
   // team Chat surface does not imply a RuntimeSession selection.
-  createEffect(() => {
-    const focusedSessionId = view() === 'dev' ? (devSelectedSessionId() ?? undefined) : undefined
-    void setDesktopChatPresentation('dev', focusedSessionId)
-  })
-  onCleanup(() => void setDesktopChatPresentation('dev', undefined))
   const scene = () => {
     const value = currentSearch().scene
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
   }
   const currentSearch = () => search() as WorkspaceSearch
+  // Dev selection is presentation-only. Chat reports its visible canonical
+  // conversation separately; leaving Dev clears only this source.
+  bindDesktopChatPresentation('dev', () =>
+    view() === 'dev' ? (devSelectedSessionId() ?? undefined) : undefined
+  )
   // The ChatView visual fixture selector (#536 evidence lane). Only a DEV
   // build mounts the fixture; the param is inert in production.
   const chatVisualState = (): 'attention' | 'conversation' | 'reconnect' | 'streaming' => {

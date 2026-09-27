@@ -144,11 +144,24 @@ itself pinned by `apps/desktop/tests/shell-channel.test.ts` and the identity
 binding and gate ordering by
 `apps/desktop/tests/dev-runtime-composition.test.ts`.
 
-`desktop_chat_presentation` is an ephemeral presentation hint on the same
-signed `/__adea/invoke` handler surface. The shell resolves the reported
-session against its current scoped projection; the hint is never command or
-input authority and is cleared when the mounted surface is disposed. It
-contains no notification text and cannot request an arbitrary native action.
+`desktop_chat_presentation` is a signed, ephemeral presentation hint. Its
+optional runtime-session ID is accepted only when it resolves in the current
+host's authenticated, non-archived projection. It never grants input or
+command authority. A host recomposition preserves this hint only when the
+authenticated scope is unchanged and the new host projection still resolves
+the same non-archived session; an unbind, scope change, or invalid session
+clears it. The shell derives notification intent only from canonical
+durable `run.status` transitions and suppresses notifications when the desktop
+window is focused with a selected runtime session. Native requests contain only the fixed title
+`Adea` and body `A conversation needs your attention.`; an API call returning
+is not a delivery receipt. Missing or throwing notification APIs do not alter
+the durable run transition.
+
+The shell imports the pure `@adea-ai/dev-view/chat/notifications` contract for
+this host-only derivation. This is a runtime contract dependency, not a second
+desktop client graph: the client remains the web workspace build. Keep the
+notification subpath free of UI, styling, and browser modules; the desktop
+boundary test bundles the real shell notification entry to check that graph.
 
 ## Pinned by
 
