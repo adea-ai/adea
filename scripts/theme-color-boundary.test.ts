@@ -70,12 +70,8 @@ describe('theme color contract', () => {
   })
 })
 
-/** Re-scan with one baseline entry, to assert the file really carries that many. */
+/** The full-tree test checks scope; count each baseline file directly here. */
 async function scanThemeColorsWithEntry(rootPath, entry) {
-  const { offBaseline } = await scanThemeColors(rootPath)
-  const found = offBaseline.find((candidate) => candidate.file === entry.file)
-  if (found) return { violations: found.found }
-  // Inside the baseline, the count is not reported; count it directly.
   const source = await Bun.file(`${rootPath}${entry.file}`).text()
   return {
     violations: scanSource(source, entry.file).reduce(
