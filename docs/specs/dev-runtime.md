@@ -4924,6 +4924,12 @@ can distinguish intentional spec evolution from drift:
   `apps/desktop/tests/dev-runtime-browser-registrar.test.ts`; provider and
   registry collision regressions are pinned by
   `dev-runtime-devices-engine.test.ts` and `dev-runtime-devices.test.ts`.
+  Host inventory IDs are opaque: start never guesses a platform from an ID's
+  spelling. It resolves the requested ID to exactly one row in the combined
+  verified inventory and derives the launch path from that row's matching
+  `kind` and `platform`; a duplicate host ID makes list and start fail closed
+  with `identity_mismatch`. The caller-provided expected inventory generation
+  is still checked before a session is planned.
   This does not establish a responsive pixel stream or make the pane's local
   preset/rotation controls a host viewport operation.
 

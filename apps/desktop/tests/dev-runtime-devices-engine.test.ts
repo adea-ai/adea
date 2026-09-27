@@ -4,17 +4,29 @@
 // host tooling stays typed-unavailable instead of pretending success. The
 // scripted runner keeps every case deterministic in CI.
 import { describe, expect, test } from 'bun:test'
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
 
-import type { DevCommand, DeviceInventoryItem } from '../../../packages/types/src/dev-runtime'
-import { devOperationDefinitions } from '../../../packages/types/src/dev-runtime'
+import type {
+  DevCommand,
+  DevOperation,
+  DeviceInventoryItem,
+} from '../../../packages/types/src/dev-runtime'
+import {
+  devCommandProofMessage,
+  devOperationDefinitions,
+} from '../../../packages/types/src/dev-runtime'
 
+import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import { createDeviceSessionRegistry } from '../shell/src/dev-runtime/devices/device-sessions'
 import {
   createHostDeviceEngine,
   type DeviceEngine,
   type DeviceRunner,
 } from '../shell/src/dev-runtime/devices/engine'
-import { createDeviceProviders } from '../shell/src/dev-runtime/devices/providers'
+import {
+  createDeviceProviders,
+  deviceProviderError,
+} from '../shell/src/dev-runtime/devices/providers'
 import { createScreenshotStore } from '../shell/src/dev-runtime/browser/screenshots'
 import { emulatorBootArgv, simctlBootArgv } from '../shell/src/dev-runtime/devices/inventory'
 
@@ -439,6 +451,285 @@ describe('device providers with a live engine', () => {
       inventoryId: 'responsive',
       platform: 'android',
     })
+  })
+
+  test('a UUID-shaped Android inventory ID follows its verified platform', async () => {
+    const inventoryId = '00000000-0000-4000-8000-000000000123'
+    const launches: Array<Parameters<DeviceEngine['executeLaunch']>[0]> = []
+    const engine: DeviceEngine = {
+      ...fakeDeviceEngine,
+      executeLaunch: async (launch) => {
+        launches.push(launch)
+        return fakeDeviceEngine.executeLaunch(launch)
+      },
+    }
+    const { providers } = providersHarness(engine, {
+      ios: [],
+      android: [
+        {
+          id: inventoryId,
+          kind: 'android_emulator',
+          name: 'UUIDNamedAVD',
+          platform: 'android',
+          state: 'available',
+          generation: 3,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+    })
+
+    const session = (await providers['dev.device.start']!(
+      deviceCommand('dev.device.start', {
+        inventoryId,
+        expectedGeneration: 3,
+        runtimeSessionId: sessionId,
+      })
+    )) as { inventoryId: string; kind: string; state: string }
+
+    expect(session).toMatchObject({
+      inventoryId,
+      kind: 'android_emulator',
+      state: 'attached',
+    })
+    expect(launches).toHaveLength(1)
+    expect(launches[0]).toMatchObject({
+      executable: 'emulator',
+      argv: ['-avd', 'UUIDNamedAVD', '-no-window', '-no-snapshot', '-no-boot-anim'],
+      platform: 'android',
+    })
+  })
+
+  test('a non-UUID iOS inventory ID follows its verified platform', async () => {
+    const inventoryId = 'simulator-opaque-7'
+    const launches: Array<Parameters<DeviceEngine['executeLaunch']>[0]> = []
+    const engine: DeviceEngine = {
+      ...fakeDeviceEngine,
+      executeLaunch: async (launch) => {
+        launches.push(launch)
+        return fakeDeviceEngine.executeLaunch(launch)
+      },
+    }
+    const { providers } = providersHarness(engine, {
+      ios: [
+        {
+          id: inventoryId,
+          kind: 'ios_simulator',
+          name: 'Opaque Simulator',
+          platform: 'ios',
+          state: 'available',
+          generation: 3,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+      android: [],
+    })
+
+    const session = (await providers['dev.device.start']!(
+      deviceCommand('dev.device.start', {
+        inventoryId,
+        expectedGeneration: 3,
+        runtimeSessionId: sessionId,
+      })
+    )) as { inventoryId: string; kind: string; state: string }
+
+    expect(session).toMatchObject({ inventoryId, kind: 'ios_simulator', state: 'attached' })
+    expect(launches).toHaveLength(1)
+    expect(launches[0]).toMatchObject({
+      executable: 'xcrun',
+      argv: ['simctl', 'boot', inventoryId],
+      platform: 'ios',
+    })
+  })
+
+  test('ambiguous opaque inventory IDs fail closed instead of selecting a platform', async () => {
+    const inventoryId = 'shared-opaque-id'
+    const launches: Array<Parameters<DeviceEngine['executeLaunch']>[0]> = []
+    const engine: DeviceEngine = {
+      ...fakeDeviceEngine,
+      executeLaunch: async (launch) => {
+        launches.push(launch)
+        return fakeDeviceEngine.executeLaunch(launch)
+      },
+    }
+    const { providers } = providersHarness(engine, {
+      ios: [
+        {
+          id: inventoryId,
+          kind: 'ios_simulator',
+          name: 'Opaque Simulator',
+          platform: 'ios',
+          state: 'available',
+          generation: 3,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+      android: [
+        {
+          id: inventoryId,
+          kind: 'android_emulator',
+          name: 'Opaque AVD',
+          platform: 'android',
+          state: 'available',
+          generation: 3,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(
+      thrownCode(() => providers['dev.device.list']!(deviceCommand('dev.device.list', {})))
+    ).toBe('identity_mismatch')
+    await expect(
+      providers['dev.device.start']!(
+        deviceCommand('dev.device.start', {
+          inventoryId,
+          expectedGeneration: 3,
+          runtimeSessionId: sessionId,
+        })
+      )
+    ).rejects.toMatchObject({ code: 'identity_mismatch' })
+    expect(launches).toHaveLength(0)
+  })
+
+  test('signed resource-bound starts use verified platform and recover after launch failure', async () => {
+    const inventoryId = '00000000-0000-4000-8000-000000000456'
+    const launches: Array<Parameters<DeviceEngine['executeLaunch']>[0]> = []
+    let failFirstLaunch = true
+    const engine: DeviceEngine = {
+      ...fakeDeviceEngine,
+      executeLaunch: async (launch) => {
+        launches.push(launch)
+        if (failFirstLaunch) {
+          failFirstLaunch = false
+          throw new Error('scripted emulator launch failure')
+        }
+        return fakeDeviceEngine.executeLaunch(launch)
+      },
+    }
+    const { sessions, providers } = providersHarness(engine, {
+      ios: [],
+      android: [
+        {
+          id: inventoryId,
+          kind: 'android_emulator',
+          name: 'UUIDNamedAVD',
+          platform: 'android',
+          state: 'available',
+          generation: 7,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+    })
+    const authority = createChannelAuthority({
+      shellHost: '127.0.0.1',
+      shellOrigin: 'https://127.0.0.1:4789',
+    })
+    for (const operation of ['dev.device.list', 'dev.device.start'] as const) {
+      const provider = providers[operation]!
+      authority.registerCommandProvider(operation, async (command) => {
+        try {
+          return await provider(command)
+        } catch (error) {
+          throw deviceProviderError(error)
+        }
+      })
+    }
+    const bootstrap = authority.issueLaunchBootstrap()
+    const now = Date.now()
+    const handshake = authority.handshake(
+      {
+        schemaVersion: 1,
+        method: 'dev.runtime.handshake.v1',
+        requestId: randomUUID(),
+        bootstrap,
+        supportedProtocolVersions: ['1'],
+        nonce: randomBytes(16).toString('base64url'),
+        issuedAt: new Date(now - 1000).toISOString(),
+        expiresAt: new Date(now + 30_000).toISOString(),
+      },
+      { trusted: true }
+    )
+    expect(handshake.ok).toBe(true)
+    if (!handshake.ok) throw new Error('channel handshake refused')
+    const identity = {
+      channelId: handshake.channelId,
+      clientCredentialId: handshake.clientCredentialId,
+    }
+    const secret = Buffer.from(handshake.clientSecret, 'base64url')
+    const issue = (
+      operation: DevOperation,
+      body: Record<string, unknown>,
+      resource?: DevCommand['resource']
+    ): DevCommand => ({
+      schemaVersion: 1,
+      operation,
+      requestId: randomUUID(),
+      nonce: randomBytes(16).toString('base64url'),
+      issuedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      scope,
+      capabilities: devOperationDefinitions[operation].capabilities,
+      ...(resource ? { resource } : {}),
+      body,
+    })
+    const execute = (command: DevCommand) => {
+      const proof = createHmac('sha256', secret)
+        .update(
+          devCommandProofMessage({
+            channelId: identity.channelId,
+            clientCredentialId: identity.clientCredentialId,
+            command,
+          }),
+          'utf8'
+        )
+        .digest('base64url')
+      return authority.execute(
+        {
+          channelId: identity.channelId,
+          clientCredentialId: identity.clientCredentialId,
+          command,
+          proof,
+        },
+        { trusted: true }
+      )
+    }
+
+    const listed = await execute(issue('dev.device.list', {}))
+    expect(listed.ok).toBe(true)
+    if (!listed.ok) throw new Error('signed inventory list failed')
+    const listedItem = (listed.value as { items: { id: string; generation: number }[] }).items.find(
+      (item) => item.id === inventoryId
+    )!
+
+    const startCommand = (expectedGeneration: number) =>
+      issue(
+        'dev.device.start',
+        { inventoryId, expectedGeneration, runtimeSessionId: sessionId },
+        { kind: 'device_inventory', id: inventoryId, generation: expectedGeneration }
+      )
+    const stale = await execute(startCommand(listedItem.generation - 1))
+    expect(stale).toMatchObject({ ok: false, error: { code: 'stale_generation' } })
+
+    const failed = await execute(startCommand(listedItem.generation))
+    expect(failed).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    expect(sessions.list({ runtimeSessionId: sessionId }).map((item) => item.state)).toEqual([
+      'stopped',
+    ])
+
+    const recovered = await execute(startCommand(listedItem.generation))
+    expect(recovered.ok).toBe(true)
+    if (!recovered.ok) throw new Error('retry after launch failure did not recover')
+    expect(recovered.value).toMatchObject({
+      inventoryId,
+      kind: 'android_emulator',
+      state: 'attached',
+      startedByAdea: true,
+    })
+    expect(launches.map((launch) => launch.platform)).toEqual(['android', 'android'])
+    expect(sessions.list({ runtimeSessionId: sessionId }).map((item) => item.state)).toEqual([
+      'stopped',
+      'attached',
+    ])
   })
 
   test('reserved responsive inventory ID collisions fail closed in list', () => {

@@ -15,6 +15,7 @@ import {
   DeviceSessionError,
   RESPONSIVE_DEVICE_INVENTORY_ID,
   assertNoResponsiveInventoryIdCollision,
+  assertUniqueDeviceInventoryIds,
   type DeviceSessionRegistry,
   type VerifiedInventory,
 } from './device-sessions'
@@ -90,10 +91,9 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
 
   function verifiedInventory() {
     const verified = input.verifiedInventory()
-    assertNoResponsiveInventoryIdCollision([
-      ...(verified.ios?.items ?? []),
-      ...(verified.android?.items ?? []),
-    ])
+    const items = [...(verified.ios?.items ?? []), ...(verified.android?.items ?? [])]
+    assertNoResponsiveInventoryIdCollision(items)
+    assertUniqueDeviceInventoryIds(items)
     return verified
   }
 
@@ -161,22 +161,16 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
           )
         return input.sessions.startResponsive(command.scope, runtimeSessionId)
       }
-      const platform = inventoryPlatformHint(inventoryId)
-      const inventory = platform === 'ios' ? verified.ios : verified.android
-      if (!inventory)
-        throw new DevCommandProviderError(
-          'capability_unavailable',
-          platform === 'ios'
-            ? 'Xcode Simulator tools are unavailable; install full Xcode and select it with xcode-select'
-            : 'Android SDK not found; install Android Studio and set ANDROID_HOME',
-          true
-        )
+      const inventory: VerifiedInventory = {
+        items: [...(verified.ios?.items ?? []), ...(verified.android?.items ?? [])],
+        observedAt:
+          verified.ios?.observedAt ?? verified.android?.observedAt ?? new Date().toISOString(),
+      }
       const { session, launch } = input.sessions.planStart(command.scope, {
         runtimeSessionId,
         inventoryId,
         expectedGeneration: Number(req.expectedGeneration ?? 0),
         inventory,
-        platform,
       })
       if (!engine) {
         // Check before any state was committed beyond the plan row; roll the
@@ -301,13 +295,6 @@ export function createDeviceProviders(input: DeviceProvidersInput) {
       engine = next
     },
   }
-}
-
-function inventoryPlatformHint(inventoryId: string): 'ios' | 'android' {
-  // iOS inventory IDs are UDIDs (UUID-shaped); Android serials/AVD names are not.
-  return /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(inventoryId)
-    ? 'ios'
-    : 'android'
 }
 
 export function deviceProviderError(error: unknown): DevCommandProviderError {
