@@ -1534,6 +1534,16 @@ group/project reordering is accessible through pointer drag and keyboard
 `dev.group.reorder`/`dev.project.reorder` commands; a refused reorder reverts
 to the authoritative projection.
 
+The sidebar's project filter is a local presentation projection. It trims the
+query and performs a case-insensitive substring match against group names,
+project names, and session titles. A group or project name match reveals that
+entire subtree; a session-title match retains only the matching sessions and
+their group/project ancestors. While a query is active, those ancestors render
+expanded even when their stored collapse IDs are set, so collapsed navigation
+cannot hide a match. Clearing the query restores the full projection and the
+unchanged collapse state. Typing or clearing the filter MUST NOT issue runtime
+commands, change selected canonical IDs, or mutate stored collapse state.
+
 ### Browser lane
 
 ```text
@@ -4949,7 +4959,12 @@ files in the same commit:
   `packages/dev-view/tests/selection.test.ts` pins selection enforcement
   (scope, generation, revocation, freshness, archive recovery);
   `packages/dev-view/tests/sidebar-reorder.test.ts` pins the pointer and
-  keyboard reorder model; `packages/dev-view/tests/archive-shelf-model.test.ts`
+  keyboard reorder model;
+  `packages/dev-view/tests/sidebar-navigation-filter.test.ts` pins the
+  non-mutating group/project/session filter projection;
+  `apps/web/e2e/dev-sidebar-search.spec.ts` pins filtering and collapse-state
+  restoration through the returning Chat runtime harness;
+  `packages/dev-view/tests/archive-shelf-model.test.ts`
   pins the restore flow, the destructive-delete confirmation gate, and the
   explicit `dev.session.delete` handoff;
   `apps/desktop/tests/project-session-register.test.ts` pins the durable
