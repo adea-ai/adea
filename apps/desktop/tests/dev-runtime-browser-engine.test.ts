@@ -27,6 +27,7 @@ class FakeWebView implements BrowserWebView {
   readonly cdpCalls: { method: string; params?: Record<string, unknown> }[] = []
   readonly options: Parameters<BrowserWebViewFactory>[0]
   private nextUrl: string | undefined
+  boxModelError: Error | undefined
 
   constructor(options: Parameters<BrowserWebViewFactory>[0]) {
     this.options = options
@@ -78,6 +79,7 @@ class FakeWebView implements BrowserWebView {
       return { nodeId: 2 } as T
     }
     if (method === 'DOM.describeNode') return { node: { attributes: ['role', 'button'] } } as T
+    if (method === 'DOM.getBoxModel' && this.boxModelError) throw this.boxModelError
     if (method === 'DOM.getBoxModel')
       return { model: { border: [1, 2, 21, 2, 21, 12, 1, 12] } } as T
     if (method === 'DOM.requestNode') return { nodeId: 3 } as T
@@ -273,6 +275,31 @@ describe('live Bun WebView/CDP browser engine', () => {
         selector: '[',
       })
     ).rejects.toThrow('invalid CSS selector')
+  })
+
+  test('returns matched elements without bounds when CDP has no box model', async () => {
+    const views: FakeWebView[] = []
+    const engine = createBunWebViewLaneEngine({ webViewFactory: fakeFactory(views) })
+    const browserLane = lane()
+    await engine.navigate(browserLane, 'https://example.test/', { admitHop: admission })
+    const view = views[0]
+    if (!view) throw new Error('expected fake WebView')
+
+    view.boxModelError = new Error('Protocol error (DOM.getBoxModel): Could not compute box model.')
+    await expect(
+      engine.inspect(browserLane, {
+        targetId: `browser-target-${browserLane.id}`,
+        selector: 'script',
+      })
+    ).resolves.toEqual({ nodeId: '2', role: 'button', name: 'Example' })
+
+    view.boxModelError = new Error('CDP connection closed')
+    await expect(
+      engine.inspect(browserLane, {
+        targetId: `browser-target-${browserLane.id}`,
+        selector: 'button',
+      })
+    ).rejects.toThrow('CDP connection closed')
   })
 
   test('refuses simultaneous reuse of one persistent profile and releases the lease on close', async () => {

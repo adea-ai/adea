@@ -262,6 +262,10 @@ function assertSafeSelector(selector: string): string {
   return selector
 }
 
+function isUnavailableBoxModelError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('Could not compute box model')
+}
+
 async function inspectFrame(
   view: BrowserWebView,
   laneId: string,
@@ -775,12 +779,17 @@ export function createBunWebViewLaneEngine(
           nodeId: found.nodeId,
         }
       )
-      const box = await state.view.cdp<{ model?: { border?: number[]; content?: number[] } }>(
-        'DOM.getBoxModel',
-        {
-          nodeId: found.nodeId,
-        }
-      )
+      let box: { model?: { border?: number[]; content?: number[] } } = {}
+      try {
+        box = await state.view.cdp<{ model?: { border?: number[]; content?: number[] } }>(
+          'DOM.getBoxModel',
+          {
+            nodeId: found.nodeId,
+          }
+        )
+      } catch (error) {
+        if (!isUnavailableBoxModelError(error)) throw error
+      }
       const attributes = described.node?.attributes ?? []
       const roleIndex = attributes.indexOf('role')
       const ariaIndex = attributes.indexOf('aria-label')
