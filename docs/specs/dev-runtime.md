@@ -3271,6 +3271,14 @@ the gate fails closed (lane crashed, typed `ssrf_blocked`).
 Downloads/uploads, clipboard, camera, microphone, geolocation, notifications,
 popups, and certificate exceptions are lane-specific and default denied.
 
+The browser pane sends URL entry, port-preview selection, and reload through
+`dev.browser.navigate`, binding the request to the selected lane and its current
+generation. A port-preview row must pass the host's Adea-ownership and listening
+checks, then navigate its explicit requested URL; it must not depend on URL-field
+focus or substitute a target-list refresh. The current operation contract has no
+back/forward history commands, so those controls remain disabled and must not
+present a target refresh as browser history.
+
 Cookie import is opt-in, source/profile/origin scoped, previewed, encrypted at
 rest, and atomic: any write/cancel failure rolls back the whole import. Maximum
 10,000 cookies and 16 MiB serialized input. Preserve partition/SameSite

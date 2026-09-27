@@ -37,6 +37,11 @@ import type { DevRuntimeService } from '../platform'
 import { resolveAnnotationSubmission, resolveAnnotationShortcut } from './annotation-model'
 import { buildDevCommand } from './command'
 import { CookieImportPanel } from './cookie-import-panel'
+import {
+  buildBrowserNavigationRequest,
+  buildPortNavigationRequest,
+  type BrowserNavigationRequest,
+} from './navigation-model'
 import { isPreviewableRow, mergeServers, type PreviewableServer } from './ports-model'
 import { MiniPreview } from './mini-preview'
 import {
@@ -168,36 +173,44 @@ export function BrowserPane(props: BrowserPaneProps) {
       configuredUrls: [],
     })
 
+  const portNavigationRequest = (row: PreviewableServer) =>
+    buildPortNavigationRequest(row, lanes()?.items ?? [], activeLane())
+
   function currentUrl(): string {
     const target = targets()?.items[0]
     return target?.url ?? ''
   }
 
-  function submitUrl(): void {
-    const value = urlFocused() ? urlDraft().trim() : ''
-    setUrlFocused(false)
-    if (!value) return
-    const lane = activeLane()
-    if (!lane) return
+  function dispatchNavigation(request: BrowserNavigationRequest): void {
     execute<{
       browserLaneId: string
       targetId: string
       finalUrl: string
       status?: number
-    }>(
-      'dev.browser.navigate',
-      {
-        browserLaneId: lane.id,
-        expectedGeneration: lane.generation,
-        url: value,
-      },
-      { kind: 'browser_lane', id: lane.id, generation: lane.generation }
-    )
+    }>(request.operation, request.body, request.resource)
       .then(() => {
         setError(undefined)
         void refetchTargets()
       })
       .catch((reply) => setError(commandError(reply)))
+  }
+
+  function navigateToUrl(value: string, lane = activeLane()): void {
+    setUrlFocused(false)
+    const request = buildBrowserNavigationRequest(value, lane)
+    if (!request) return
+    dispatchNavigation(request)
+  }
+
+  function submitUrl(): void {
+    const value = urlFocused() ? urlDraft() : ''
+    navigateToUrl(value)
+  }
+
+  function reloadCurrentPage(): void {
+    const url = currentUrl()
+    if (!url) return
+    navigateToUrl(url)
   }
 
   async function createLane(kind: BrowserLane['kind']): Promise<void> {
@@ -341,18 +354,18 @@ export function BrowserPane(props: BrowserPaneProps) {
           <button
             type="button"
             class="dev-icon-button"
-            aria-label="Back"
-            disabled={!activeLane()}
-            onClick={() => refetchTargets()}
+            aria-label="Back (unavailable: browser history is not supported)"
+            title="Browser history is not supported by this runtime"
+            disabled
           >
             <ArrowLeft aria-hidden="true" />
           </button>
           <button
             type="button"
             class="dev-icon-button"
-            aria-label="Forward"
-            disabled={!activeLane()}
-            onClick={() => refetchTargets()}
+            aria-label="Forward (unavailable: browser history is not supported)"
+            title="Browser history is not supported by this runtime"
+            disabled
           >
             <ArrowRight aria-hidden="true" />
           </button>
@@ -360,8 +373,8 @@ export function BrowserPane(props: BrowserPaneProps) {
             type="button"
             class="dev-icon-button"
             aria-label="Reload"
-            disabled={!activeLane()}
-            onClick={() => refetchTargets()}
+            disabled={!activeLane() || !currentUrl()}
+            onClick={reloadCurrentPage}
           >
             <RotateCw aria-hidden="true" />
           </button>
@@ -538,11 +551,13 @@ export function BrowserPane(props: BrowserPaneProps) {
               <button
                 type="button"
                 class="dev-browser__row"
-                disabled={!isPreviewableRow(row)}
+                disabled={!portNavigationRequest(row)}
                 onClick={() => {
-                  if (row.preview) setActiveLaneId(row.preview.browserLaneId)
-                  setUrlDraft(row.requestedUrl)
-                  submitUrl()
+                  const request = portNavigationRequest(row)
+                  if (!request) return
+                  setActiveLaneId(request.lane.id)
+                  setUrlFocused(false)
+                  dispatchNavigation(request)
                 }}
               >
                 <span class="dev-browser__row-main">
