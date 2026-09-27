@@ -17,6 +17,13 @@ export const IOS_CAPABILITY_GUIDANCE =
 export const ANDROID_CAPABILITY_GUIDANCE =
   'Android SDK not found. Install Android Studio and set ANDROID_HOME.'
 
+/** The responsive host-owned row is identified by kind, not by its opaque ID. */
+export function findResponsiveInventoryItem(
+  items: readonly DeviceInventoryItem[]
+): DeviceInventoryItem | undefined {
+  return items.find((item) => item.kind === 'responsive')
+}
+
 /**
  * Groups the verified inventory for display. Responsive ships first and
  * always works; iOS/Android render unavailable guidance truthfully when

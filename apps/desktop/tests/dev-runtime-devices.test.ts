@@ -24,6 +24,7 @@ import {
 import {
   createDeviceSessionRegistry,
   DeviceSessionError,
+  RESPONSIVE_DEVICE_INVENTORY_ID,
   type DeviceProcessIdentity,
 } from '../shell/src/dev-runtime/devices/device-sessions'
 
@@ -81,9 +82,16 @@ describe('inventory parsing', () => {
   test('parses AVD lists and drops log-prefix lines (orca fixture)', () => {
     expect(
       parseAvdList(
-        ['Pixel_7', '', 'Pixel_Tablet', 'WARNING  something', 'No AVD specified'].join('\n')
+        [
+          'Pixel_7',
+          '',
+          'responsive',
+          'Pixel_Tablet',
+          'WARNING  something',
+          'No AVD specified',
+        ].join('\n')
       )
-    ).toEqual(['Pixel_7', 'Pixel_Tablet'])
+    ).toEqual(['Pixel_7', 'responsive', 'Pixel_Tablet'])
   })
 
   test('merges running devices with shutdown AVDs (orca fixture)', () => {
@@ -178,8 +186,30 @@ describe('device session registry', () => {
   test('responsive sessions always start and own no process', () => {
     const sessions = createDeviceSessionRegistry()
     const session = sessions.startResponsive(scope, sessionId)
-    expect(session).toMatchObject({ kind: 'responsive', state: 'attached', startedByAdea: false })
+    expect(session).toMatchObject({
+      inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
+      kind: 'responsive',
+      state: 'attached',
+      startedByAdea: false,
+    })
     expect(() => sessions.planStop(session.id, 1, 'confirm')).toThrow(/responsive/)
+  })
+
+  test('start refuses verified inventory that collides with the reserved responsive ID', () => {
+    const sessions = createDeviceSessionRegistry()
+    const inventory = sessions.setInventory([inventoryItem({ id: RESPONSIVE_DEVICE_INVENTORY_ID })])
+
+    expectCode(
+      () =>
+        sessions.planStart(scope, {
+          runtimeSessionId: sessionId,
+          inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
+          expectedGeneration: 4,
+          inventory,
+          platform: 'android',
+        }),
+      'identity_mismatch'
+    )
   })
 
   test('start binds to verified inventory IDs and generations only', () => {
