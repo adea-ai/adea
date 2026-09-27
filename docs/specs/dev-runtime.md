@@ -1281,8 +1281,14 @@ terminal record's generation. Resolution scans at most 64 pages of 500 records,
 rejects duplicate IDs, off-scope/session/worktree rows, repeated cursors,
 oversized pages, ended/faulted terminals,
 and retires pending results when the selection's abort signal is cancelled.
-This selection resolver is preparatory application code; a production terminal
-mount and its packaged stream journey remain separate acceptance evidence.
+The production `DevWorkspaceEntry` mounts this resolver through the lazy
+`RuntimeTerminalPane`, after the current scope's attach and input capabilities
+are verified. Explicit split-leaf bindings take priority; only the first
+unbound terminal leaf may use the session's projected primary terminal. Stable
+identity prevents focus and ratio changes from reattaching the stream. Failed
+resolution exposes a retry that repeats lookup without creating a terminal.
+Mounted entry tests qualify that composition; packaged native stream delivery
+remains a separate acceptance lane.
 
 The renderer's terminal connection adapter captures an exact `TerminalRecord`,
 never the first item returned by a session query. Each attach mints distinct
@@ -2586,6 +2592,12 @@ history deletion.
 The terminal ships a styled default profile using theme tokens for font,
 cursor, padding, opacity, and colors; a "system terminal" opt-out leaves the
 host terminal untouched.
+
+The mounted xterm renderer reads the canonical `--terminal-*` roles, including
+all sixteen ANSI slots, from its surface. Palette changes update the existing
+renderer and search decorations without reattaching its stream or replacing
+its output, selection, focus, or editor draft. A bounded ancestor-attribute
+observer batches updates into one animation frame and disconnects on disposal.
 
 A bottom editor supports multiline input, history search, palette sources, and
 send-to-active-terminal; pasting multiline or control-character text requires

@@ -12,6 +12,8 @@
 // restart: the pane's transport reconnects with a fresh grant and a bumped
 // generation, exactly as it would against a restarted sidecar.
 import { render } from 'solid-js/web'
+// Production provides canonical terminal roles through this theme stylesheet.
+import '@adea-ai/app-ui/theme.css'
 
 import { TerminalPane, type TerminalPaneProps } from '@adea-ai/dev-view/terminal'
 import type { DevStreamFrame, ShellProfile } from '@adea-ai/types/dev-runtime'

@@ -85,6 +85,7 @@ import {
   type TerminalStreamSocket,
 } from './transport'
 import { terminalConnectionErrorMessage } from './connection-errors'
+import { observeTerminalTheme } from './theme-binding'
 import './terminal-pane.css'
 
 export type TerminalPaneProps = {
@@ -135,21 +136,8 @@ export type TerminalPaneProps = {
   onClose?: () => void
 }
 
-const THEME = {
-  cursor: '#e6e6e6',
-  cursorAccent: '#111111',
-  selectionBackground: '#3b4252',
-} as const
-
 /** One encoder for every input path: typing runs per keystroke. */
 const ENCODER = new TextEncoder()
-
-const SEARCH_DECORATIONS = {
-  matchBackground: '#3b4252',
-  matchOverviewRuler: '#88c0d0',
-  activeMatchBackground: '#4c566a',
-  activeMatchColorOverviewRuler: '#ebcb8b',
-} as const
 
 export function TerminalPane(props: TerminalPaneProps) {
   const [surface, setSurface] = createSignal<HTMLDivElement | null>(null)
@@ -182,7 +170,6 @@ export function TerminalPane(props: TerminalPaneProps) {
   )
 
   const terminal = new Terminal({
-    theme: THEME,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     allowProposedApi: true,
     // OSC 8 hyperlinks open only through the consented seam below.
@@ -194,6 +181,20 @@ export function TerminalPane(props: TerminalPaneProps) {
   })
   const fit = new FitAddon()
   const searchAddon = new SearchAddon()
+  const searchDecorations = () => {
+    const theme = terminal.options.theme
+    if (!theme?.cursor || !theme.selectionBackground) return undefined
+    const selection = /^#[\da-f]{6}$/i.test(theme.selectionBackground)
+      ? theme.selectionBackground
+      : undefined
+    return {
+      matchBackground: selection,
+      matchOverviewRuler: theme.cursor,
+      activeMatchBackground: selection,
+      activeMatchBorder: theme.cursor,
+      activeMatchColorOverviewRuler: theme.cursor,
+    }
+  }
   const serialize = new SerializeAddon()
   terminal.loadAddon(fit)
   terminal.loadAddon(searchAddon)
@@ -313,7 +314,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   ): void {
     const options = {
       caseSensitive: state.caseSensitive,
-      decorations: SEARCH_DECORATIONS,
+      decorations: searchDecorations(),
       noScroll: false,
     }
     if (direction === 'next') void searchAddon.findNext(state.query, options)
@@ -398,6 +399,30 @@ export function TerminalPane(props: TerminalPaneProps) {
     const element = surface()
     if (!element) return
     terminal.open(element)
+    onCleanup(
+      observeTerminalTheme(element, (theme) => {
+        terminal.options.theme = theme
+        const currentSearch = search()
+        if (currentSearch.open && currentSearch.query) {
+          const selection = terminal.getSelectionPosition()
+          const viewportLine = terminal.buffer.active.viewportY
+          searchAddon.findNext(currentSearch.query, {
+            caseSensitive: currentSearch.caseSensitive,
+            decorations: searchDecorations(),
+            incremental: true,
+          })
+          if (selection)
+            terminal.select(
+              selection.start.x,
+              selection.start.y,
+              (selection.end.y - selection.start.y) * terminal.cols +
+                selection.end.x -
+                selection.start.x
+            )
+          terminal.scrollToLine(viewportLine)
+        }
+      })
+    )
     terminal.focus()
     // The resize observer must actually observe the surface: without this the
     // fit/refit ladder never runs and props.resize can never fire (found by

@@ -112,6 +112,61 @@ test.describe('terminal pane (real xterm surface)', () => {
     expect(pageErrors).toEqual([])
   })
 
+  test('canonical palette changes preserve terminal output, editor draft and stream identity', async ({
+    page,
+  }) => {
+    const pane = await openHarness(page)
+    const editor = pane.getByLabel('Compose terminal input')
+    await editor.fill('unsent draft')
+    await page.evaluate(() => window.__adeaTerminalPaneHarness.write('theme-selection-marker\r\n'))
+    const selectionTarget = pane.locator('.xterm-rows').getByText('theme-selection-marker')
+    await expect(selectionTarget).toBeVisible()
+    const selectionBox = (await selectionTarget.boundingBox())!
+    await page.mouse.dblclick(
+      selectionBox.x + selectionBox.width / 2,
+      selectionBox.y + selectionBox.height / 2
+    )
+    const copy = pane.locator('.dev-terminal-copy-button').first()
+    await expect(copy).toBeEnabled()
+    const viewport = pane.locator('.xterm-viewport')
+    await pane.locator('.xterm-helper-textarea').evaluate((element) => {
+      element.setAttribute('data-theme-owner-proof', 'original')
+    })
+    for (const [background, foreground] of [
+      ['#f1f5f9', '#111827'],
+      ['#111827', '#f1f5f9'],
+    ]) {
+      await page.evaluate(
+        ({ background: paletteBackground, foreground: paletteForeground }) => {
+          document.documentElement.style.setProperty('--terminal-background', paletteBackground!)
+          document.documentElement.style.setProperty('--terminal-foreground', paletteForeground!)
+          document.documentElement.style.setProperty('--terminal-cursor', paletteForeground!)
+          document.documentElement.style.setProperty('--terminal-selection', '#2563eb')
+        },
+        { background, foreground }
+      )
+      await expect(viewport).toHaveCSS(
+        'background-color',
+        background === '#f1f5f9' ? 'rgb(241, 245, 249)' : 'rgb(17, 24, 39)'
+      )
+      await expect(pane.locator('.xterm-helper-textarea')).toHaveAttribute(
+        'data-theme-owner-proof',
+        'original'
+      )
+      await expect(pane.locator('.xterm-rows')).toContainText(
+        'scripted sidecar attached (generation 1)'
+      )
+      await expect(editor).toHaveValue('unsent draft')
+      await expect(copy).toBeEnabled()
+      await expect(pane.locator('.xterm-helper-textarea')).toBeFocused()
+      expect((await report(page)).sockets).toBe(1)
+    }
+    await copy.click()
+    expect((await report(page)).copies).toEqual(['theme-selection-marker'])
+    expect(consoleErrors).toEqual([])
+    expect(pageErrors).toEqual([])
+  })
+
   test('compose input reaches the wire as input bytes and echoes into the pane', async ({
     page,
   }) => {
