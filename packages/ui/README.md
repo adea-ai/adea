@@ -12,6 +12,11 @@ and their private exports have been removed. Remaining local overlays, fields,
 and workspace controls are migration work: preserve their current focus,
 inertness, and placement contracts while replacing them with shared components.
 
+Workspace dividers and plugin loading placeholders now use published Separator
+and Skeleton directly. The loading region owns its busy announcement; the shared
+Skeleton hides each decorative placeholder from assistive technology and
+respects reduced motion. Existing layout hooks remain at their callers.
+
 ## Theming contract: CSS custom properties are the only color surface
 
 Components in this package never contain a color literal. Colors come from the

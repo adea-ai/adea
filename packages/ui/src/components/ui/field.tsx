@@ -3,7 +3,7 @@ import { createMemo, Show, splitProps, type ComponentProps, type JSX } from 'sol
 
 import { cn } from '#lib/utils'
 import { Label } from '#components/ui/label'
-import { Separator } from '#components/ui/separator'
+import { Separator } from '@adea-ai/ui/components/ui/separator'
 
 function FieldSet(props: ComponentProps<'fieldset'>) {
   const [local, rest] = splitProps(props, ['class'])

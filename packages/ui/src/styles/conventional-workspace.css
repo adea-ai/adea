@@ -2131,6 +2131,8 @@
   flex: 1;
   overflow: auto;
   padding: 0.8rem 1.25rem 1.25rem;
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
 }
 .plugins-navigation {
   display: flex;
