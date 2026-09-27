@@ -1,10 +1,21 @@
 import '../../src/start/globals.css'
 import type { MessageSummary, TaskSummary } from '@adea-ai/types'
-import { createSignal, Show } from 'solid-js'
+import { createRenderEffect, createSignal, Show } from 'solid-js'
 import { render } from 'solid-js/web'
 import { MessageRow } from '../../../../packages/workspace-ui/src/message-row'
 import { TaskObjective } from '../../../../packages/workspace-ui/src/private-task-objective'
 import type { PrivateContentResolver } from '../../../../packages/workspace-ui/src/platform'
+
+function SwitchObservation(props: { currentId: string; oldContent: string }) {
+  const [observation, setObservation] = createSignal('waiting')
+  createRenderEffect(() => {
+    if (props.currentId !== 'second') return
+    const currentSurface = document.querySelector('[data-message-id="second"]')
+    if (currentSurface)
+      setObservation(currentSurface.textContent?.includes(props.oldContent) ? 'stale' : 'clear')
+  })
+  return <output data-testid="switch-observation">{observation()}</output>
+}
 
 function message(id: string): MessageSummary {
   return {
@@ -57,7 +68,11 @@ function Harness() {
       </button>
       <button
         type="button"
-        onClick={() => pending.get('first')?.resolve({ plaintext: 'Old private body' })}
+        onClick={() =>
+          pending.get('first')?.resolve({
+            plaintext: objective ? 'Old private objective' : 'Old private body',
+          })
+        }
       >
         Resolve old
       </button>
@@ -69,7 +84,11 @@ function Harness() {
       </button>
       <button
         type="button"
-        onClick={() => pending.get('second')?.resolve({ plaintext: 'Current private body' })}
+        onClick={() =>
+          pending.get('second')?.resolve({
+            plaintext: objective ? 'Current private objective' : 'Current private body',
+          })
+        }
       >
         Resolve current
       </button>
@@ -88,6 +107,10 @@ function Harness() {
           <TaskObjective task={task()} privateContent={privateContent} />
         </div>
       </Show>
+      <SwitchObservation
+        currentId={current().id}
+        oldContent={objective ? 'Old private objective' : 'Old private body'}
+      />
     </>
   )
 }
