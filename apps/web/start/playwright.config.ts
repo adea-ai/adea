@@ -25,7 +25,11 @@ if (url.hostname === 'adea.dev' || url.hostname.endsWith('.adea.dev')) {
 
 export default defineConfig({
   testDir: '..',
-  testMatch: ['e2e/workspace-guest.spec.ts', 'start/browser/*.e2e.ts'],
+  testMatch: [
+    'e2e/workspace-guest.spec.ts',
+    'e2e/version-dialog.spec.ts',
+    'start/browser/*.e2e.ts',
+  ],
   // No webServer block: never launch the current Next host accidentally and
   // report its results as a Start proof. The isolated gateway must be running.
   timeout: 90_000,
