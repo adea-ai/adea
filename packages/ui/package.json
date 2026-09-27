@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/app-ui",
-  "version": "0.61.6",
+  "version": "0.61.7",
   "private": true,
   "description": "Shared UI kit for Adea: Kobalte/corvu-backed Solid primitives, workspace shells, and theme styles.",
   "keywords": [
