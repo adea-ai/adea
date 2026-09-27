@@ -9667,11 +9667,11 @@
     }
   ],
   "nextActions": [
-    "Resolve optional-heavy-feature root export compatibility before advancing UI PR #16.",
-    "Complete recursive amendment/PR evidence review and per-unit source/test/license/dependency comparisons.",
-    "Finish standalone appearance distribution and host adapter verification; then migrate the accepted appearance surface without removing the old system before replacement consumers pass.",
-    "Validate the shared scope in packed, composed-story, accessibility, SSR/browser, and performance fixtures before application migration.",
-    "Migrate Adea by coherent verified slices, then Cortana; delete only superseded systems whose replacements are proved."
+    "Finish optional SplitLayout resize dependency cost and immutable-artifact parallel publisher verification without changing performance caps.",
+    "Fix remaining Adea Dev chunk/file-count guards, keep PRs current with main, then run required current-head CI and merge qualified slices.",
+    "Complete actual terminal caller, browser renderer/privacy and notification delivery integration; prove real runtime boundaries separately from fixtures.",
+    "Qualify the pending destructive-role Themes release against the actual published UI, then complete UI and Cortana consumer migration; preserve the manual-accessibility waiver boundary.",
+    "Complete recursive amendment/PR evidence review and per-unit pinned-source/test/license/dependency comparisons; retain separate readiness dimensions."
   ],
   "selectedUnitEvidence": [
     {
@@ -10550,26 +10550,58 @@
       "reviewFollowUp": "Independent MAX review found account/version dialog triggers lost aria-expanded highlight after adopting published Button. Sanctioned state hook and actual toggle regression remain required."
     },
     "latestVerifiedCheckpoint": {
-      "checkedApplicationHead": "ab149e26b1e5fa886ca1eade8e41da34f9bfe4c2",
-      "uiVersion": "0.68.0",
-      "uiReleaseCommit": "0bd703fdeb618c9d76720113caf7e934f3056c58",
-      "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36292545234",
-      "uiRegistryIntegrity": "sha512-Cv2BjKCfd+3HXij6TRmqNDaTcPnypxenvXDIiKXkCbXGsvHo0DH2ljdSP1TJuvZXnIaSkqn7scwHvNMzF4/zsg==",
+      "checkedApplicationHead": "c692959acb644e0f53b71766591a95b55bc98266",
+      "uiVersion": "0.71.4",
+      "themesVersion": "0.6.1",
+      "uiReleaseCommit": "2aa5d585e337e8a201a029e6476bd55b72da40ab",
+      "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36328803921",
+      "uiRegistryIntegrity": "sha512-Y4DDzzCA4N2QVW6MWr7rJCTN3Il7wXuDcC9t9z0V4/IzQJ1d2fkKQfslgHGvNm8HSsTeL9VSdbp/njYjk7K2Wg==",
       "applicationEvidence": {
-        "publishedDependencies": "apps/web, packages/ui, packages/workspace-ui and packages/dev-view pin the actual npm UI0.68.0 artifact; no source alias qualification.",
-        "transcriptRegression": "apps/web/e2e/chat-transcript-composition.spec.ts fails with previous positional renderer and passes with published keyed rows: prepend preserves focus/draft/DOM identity; canonical session/generation reset clears response drafts; opaque hints do not hide rows.",
-        "focusedValidation": "Dev suite 354 tests / 1124 assertions; Dev, private UI and workspace UI types pass; focused lint/format/docs-boundary pass. Existing shadcn visually-hidden contract diagnostic remains.",
-        "pendingValidation": "Web typecheck interrupted under concurrent compiler load; new normal production build, unchanged bundle guard and final independent review pending.",
-        "lastProductionBudget": "Earlier ae26f52e actual published UI0.67.1 build: 1639555 client JavaScript bytes vs 1623000 cap. This historical measurement does not qualify ab149e26."
+        "publishedDependencies": "All four Adea UI consumers pin the actual npm UI0.71.4 archive; Themes resolves once at0.6.1. No local source alias qualification.",
+        "appearanceRegression": "Published ModalDialog preserves mounted editor, unsaved preview and focus on Close/Escape; final corner-control containment is checked after entrance animations. Last copied Dialog and unused direct Kobalte dependency removed.",
+        "focusedValidation": "All15 current appearance/App Library journeys, scoped typecheck5/5, lint/format and exact-source web/desktop builds pass. Independent MAX review clean at c692959a. Prior bddc2fd checkpoint passed30 type tasks, UI52, Dev357, docs4, colors4 and20 combined browser journeys; those historical counts are not claimed as rerun at c692959a.",
+        "productionBudget": {
+          "clientJavaScriptBytes": 1541681,
+          "clientJavaScriptBudget": 1623000,
+          "clientJavaScriptFiles": 74,
+          "clientJavaScriptFileBudget": 72,
+          "devChunkBytes": 113973,
+          "devChunkBudget": 86016,
+          "status": "Two unchanged guards fail; PR760 remains draft."
+        },
+        "nativeArtifactSmoke": "Canonical desktop SPA actual emitted artifact loads native entry once and retries refused bootstrap without remount. Synthetic bridge only; not a real PTY or cloud-authority acceptance."
       },
-      "releaseBoundary": "UI0.68.0 includes transcript composition but not pending appearance PR43 or atomic paste/editor PR48. Actual releases containing those changes remain required for their consumer qualification.",
       "residualSourceCheck": {
-        "715": "deriveChatNotifications and publishChatNotifications still have no production caller or shell sink; model tests do not establish delivery.",
-        "718": "BrowserPane mounted through dev-workspace-entry; annotate only toggles local state and Escape cancels. No production renderer calls dev.browser.annotate or dev.browser.inspect.",
-        "735": "BrowserPane still discards screenshot result; Back/Forward/Reload refetch targets; system-browser control has no handler. Existing engine and contract tests do not prove these rendered controls.",
-        "719": "Issue-level acceptance reconciliation remains in progress; issue closure and passing fixtures are not real runtime acceptance."
+        "715": "Notification derive/publish helpers still lack a production caller or shell sink.",
+        "terminal": "Production DevWorkspaceEntry still renders only the development fixture or placeholder. Exact terminal identity, separate read/write grants, generation/cursor reconnect fences, measured outbound queue and live TerminalPane caller remain required.",
+        "browser": "Current BrowserPane source has inspect and screenshot handlers with scope/redaction validation; this supersedes older no-handler notes. Actual video relay PR773 and native renderer/privacy acceptance remain separate pending gates.",
+        "719": "Recursive issue/PR semantics, donor fidelity and real-runtime acceptance remain in progress."
       },
-      "limits": "Historical records remain separate. Publication, fixture/browser regressions and source reachability do not establish full donor fidelity, native live-session continuity or complete Cortana migration."
-    }
+      "limits": "Package publication, synthetic browser tests and clean review do not establish complete guide acceptance, native PTY/pixels, manual accessibility or Cortana migration."
+    },
+    "verifiedCheckpointHistory": [
+      {
+        "checkedApplicationHead": "ab149e26b1e5fa886ca1eade8e41da34f9bfe4c2",
+        "uiVersion": "0.68.0",
+        "uiReleaseCommit": "0bd703fdeb618c9d76720113caf7e934f3056c58",
+        "uiPublishRun": "https://github.com/adea-ai/ui/actions/runs/36292545234",
+        "uiRegistryIntegrity": "sha512-Cv2BjKCfd+3HXij6TRmqNDaTcPnypxenvXDIiKXkCbXGsvHo0DH2ljdSP1TJuvZXnIaSkqn7scwHvNMzF4/zsg==",
+        "applicationEvidence": {
+          "publishedDependencies": "apps/web, packages/ui, packages/workspace-ui and packages/dev-view pin the actual npm UI0.68.0 artifact; no source alias qualification.",
+          "transcriptRegression": "apps/web/e2e/chat-transcript-composition.spec.ts fails with previous positional renderer and passes with published keyed rows: prepend preserves focus/draft/DOM identity; canonical session/generation reset clears response drafts; opaque hints do not hide rows.",
+          "focusedValidation": "Dev suite 354 tests / 1124 assertions; Dev, private UI and workspace UI types pass; focused lint/format/docs-boundary pass. Existing shadcn visually-hidden contract diagnostic remains.",
+          "pendingValidation": "Web typecheck interrupted under concurrent compiler load; new normal production build, unchanged bundle guard and final independent review pending.",
+          "lastProductionBudget": "Earlier ae26f52e actual published UI0.67.1 build: 1639555 client JavaScript bytes vs 1623000 cap. This historical measurement does not qualify ab149e26."
+        },
+        "releaseBoundary": "UI0.68.0 includes transcript composition but not pending appearance PR43 or atomic paste/editor PR48. Actual releases containing those changes remain required for their consumer qualification.",
+        "residualSourceCheck": {
+          "715": "deriveChatNotifications and publishChatNotifications still have no production caller or shell sink; model tests do not establish delivery.",
+          "718": "BrowserPane mounted through dev-workspace-entry; annotate only toggles local state and Escape cancels. No production renderer calls dev.browser.annotate or dev.browser.inspect.",
+          "735": "BrowserPane still discards screenshot result; Back/Forward/Reload refetch targets; system-browser control has no handler. Existing engine and contract tests do not prove these rendered controls.",
+          "719": "Issue-level acceptance reconciliation remains in progress; issue closure and passing fixtures are not real runtime acceptance."
+        },
+        "limits": "Historical records remain separate. Publication, fixture/browser regressions and source reachability do not establish full donor fidelity, native live-session continuity or complete Cortana migration."
+      }
+    ]
   }
 }
