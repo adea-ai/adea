@@ -1,5 +1,8 @@
 import { describe, it } from 'bun:test'
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import lazyComponent from '../src/components/lazy-component'
 import forbiddenModuleFixtures from './start-client-denylist.json'
 import { evaluateEntryAccess } from '../src/lib/entry-access-policy.mjs'
@@ -11,6 +14,7 @@ import {
   PUBLIC_ENV_NAMES,
   PRIVATE_ENV_NAMES,
 } from '../start/client-policy.mjs'
+import { writeLocalWorkerConfig } from '../start/local-worker-config.mjs'
 
 const origin = 'https://adea-start.test'
 const request = (path = '/', options: RequestInit = {}) => new Request(`${origin}${path}`, options)
@@ -69,6 +73,26 @@ describe('the existing early-access policy', () => {
     }
   })
 })
+
+describe('local Worker config updates', () => {
+  it('atomically replaces the file without exposing a partial config or leftovers', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'adea-start-config-'))
+    const path = join(directory, 'host.json')
+    try {
+      await writeLocalWorkerConfig(path, { vars: { ADEA_ALLOWED_EMAILS: 'allowed@example.test' } })
+      await writeLocalWorkerConfig(path, { vars: { AUTH_TRUSTED_ORIGINS: 'https://127.0.0.1' } })
+
+      assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+        vars: { AUTH_TRUSTED_ORIGINS: 'https://127.0.0.1' },
+      })
+      assert.deepEqual(await readdir(directory), ['host.json'])
+      assert.equal((await stat(path)).mode & 0o077, 0)
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('dynamic response policy', () => {
   it('marks every dynamic response private and unindexed', async () => {
     for (const response of [
