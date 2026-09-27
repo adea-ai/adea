@@ -61,3 +61,21 @@ the unchanged 1,623,000-byte cap. Full affected unit suites pass 570 tests
 review found no remaining blocker in the returning-Chat slice. Three returning
 Chat browser cases now use production styles without a fixture height override
 and verify full-height layout and contextual sidebar paint.
+
+The integrated metadata/search/reorder checkpoint at `ae26f52e` builds through
+the normal production pipeline with actual npm UI `0.67.1` and measures
+1,639,555 client JavaScript bytes. The unchanged cap is 1,623,000, leaving
+16,555 bytes unresolved. Browser code now consumes generated lean operation
+metadata and shared strict wire/DTO codecs; the full request DSL remains in
+server validation. Registry/strict-decoding and docs checks pass 41 tests
+(507 assertions). This supersedes the earlier 1,721,429-byte measurement for
+the current integrated source, without changing the performance contract.
+
+Library reorder now crosses disabled/unknown entries by one enabled rail slot,
+preserving their stored positions. Its actual browser regression covers
+disable, move, boundary controls, reload and re-enable. Returning Chat sidebar
+search filters canonical group/project/session labels locally, reveals matching
+ancestors and restores prior collapse state; its browser regression preserves
+selected identity and the runtime operation log. Both regressions pass headlessly.
+The combined filter/rail/docs focused suite passes 30 tests (86 assertions).
+Independent MAX review finds no blocker in either correction.
