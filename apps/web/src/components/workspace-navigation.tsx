@@ -679,6 +679,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                 }
               >
                 <RoomDesignerWorkspace
+                  client={props.client}
+                  onOpenChat={() => changeView('chat')}
                   initialCharacter={props.virtualProps.initialCharacter}
                   initialScene={scene()}
                   onClose={() => setRoomDesignerRoute(false)}

@@ -1223,6 +1223,24 @@ test('integrated chrome keeps the global rail while Virtual navigation collapses
   expect(bounds).toEqual({ sameWidth: true, below: true })
 })
 
+test('Virtual room designer keeps the contextual sidebar and global rail', async ({ page }) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=virtual&roomDesigner=1')
+  const sidebar = page.getByRole('complementary', { name: 'Virtual navigation' })
+  await expect(page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })).toBeVisible()
+  await expect(sidebar).toBeVisible()
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  await expect(sidebar).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  await sidebar.getByRole('button', { name: 'Open conversations' }).click()
+  await expect(page.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+})
+
 test('collapsed Chat navigation is absent from keyboard and accessibility navigation', async ({
   page,
 }) => {

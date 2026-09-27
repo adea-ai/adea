@@ -3756,6 +3756,8 @@ collapsed after an external or BFCache return. The left cluster controls the
 contextual sidebar; Dev's existing utility controls mount in the right cluster.
 The outer rail remains visible in every view, including focus mode. Virtual
 has its own contextual room navigation, independent of engine entitlement.
+The room-designer entry retains that navigation and its common toolbar controls
+even when the private engine is unavailable.
 Collapsed contextual navigation is excluded from keyboard focus and the
 accessibility tree at desktop and narrow widths; collapsing its grid column
 alone is insufficient.

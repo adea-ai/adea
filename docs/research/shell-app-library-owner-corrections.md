@@ -31,7 +31,12 @@ while the guest service is unavailable. Window dragging and production backend
 acceptance are not attested by this fixture. A native accessibility inspection
 found clipped Chat navigation still focusable when collapsed; the regression
 fails before the visibility fix and passes afterward at desktop and narrow
-widths. The actual
+widths. Final packaged WKWebView inspection confirms that the closed Chat sidebar
+is absent from its accessibility tree and returns on expansion. The test app and
+loopback fixture are stopped, with both listening ports verified closed.
+The room-designer entry also retains Virtual's contextual sidebar; its browser
+regression verifies collapse/expansion, persistent rail and return to Chat.
+The actual
 published-package production build succeeds but the total client JavaScript guard
 fails; the cap remains unchanged, and this
 checkpoint does not authorize marking the migration ready or complete.
