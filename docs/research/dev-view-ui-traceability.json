@@ -10370,7 +10370,7 @@
         "website/src/pages/chat/groupDisplayItems.ts"
       ],
       "sourceReview": "Full ChatMessageList, messageRenderers, TurnBlock and CollapsibleToolGroup read; groupDisplayItems grouping and stable-reconciliation boundary inspected. Nearest embed grouping, durable/pinned disclosure and row-memo tests read. Remaining dependency/helper tests require review before copying their algorithms.",
-      "currentImplementation": "Published UI0.68.0 supplies TranscriptComposition, stable keyed rows, host-controlled disclosure and evidence-bound tool composition. Adea adopts stable row identity through packages/dev-view/src/chat/transcript-composition.ts and chat-transcript.tsx; opaque native payloads stay visible and unfolded. Native tool identity/phase/synthesis/final-answer producers remain unproven; see docs/evidence/donor-ui-runtime-event-boundary.md.",
+      "currentImplementation": "Published UI0.68.0 supplies TranscriptComposition, stable keyed rows, host-controlled disclosure and evidence-bound tool composition. Adea adopts stable row identity through packages/dev-view/src/chat/transcript-composition.ts and chat-transcript.tsx; rows backed by opaque native payloads stay visible and unfolded; raw payload contents are not exposed. Native tool identity/phase/synthesis/final-answer producers remain unproven; see docs/evidence/donor-ui-runtime-event-boundary.md.",
       "destination": "adea-ai/ui host-neutral conversation composition; Adea canonical runtime projection and service callbacks stay application-owned.",
       "license": "Apache-2.0; preserve Amazon copyright, exact selected source attribution and NOTICE before porting.",
       "readiness": {
