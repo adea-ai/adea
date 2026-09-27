@@ -115,7 +115,6 @@ jobs:
         run: |
           set -euo pipefail
           bun test \
-            --timeout 30000 \
             scripts/desktop-shell-changes.test.ts \
             scripts/desktop-boot-boundary.test.ts \
             scripts/desktop-ipc-boundary.test.ts \
