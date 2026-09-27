@@ -268,7 +268,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // Rail customization is a device-local versioned preference with unknown-
   // contribution preservation; a corrupt record falls back without deleting
   // the unread value.
-  const [librarySearchRequested, setLibrarySearchRequested] = createSignal(false)
+  const [librarySearchRequest, setLibrarySearchRequest] = createSignal(0)
+  const [librarySearchRequestHandled, setLibrarySearchRequestHandled] = createSignal(0)
   const [railPreferences, setRailPreferences] = createSignal<RailPreferencesV1>(
     defaultRailPreferences,
     { equals: false }
@@ -494,7 +495,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const changeApp = (id: WorkspaceAppId, replace = false) => {
     const destination = resolveWorkspaceApp(railPreferences(), id)
     if (!destination || destination.id !== id) return
-    setLibrarySearchRequested(false)
+    setLibrarySearchRequestHandled(librarySearchRequest())
     workspaceStore.getState().setGlobalPanel(null)
     if (requestedAppId() === id && currentSearch().app !== 'library') return
     void navigate({
@@ -543,7 +544,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   }
   const openSearch = () => {
     if (resolveWorkspaceApp(railPreferences(), 'chat')?.id !== 'chat') {
-      setLibrarySearchRequested(true)
+      setLibrarySearchRequest((request) => request + 1)
       openAppLibrary()
       return
     }
@@ -602,7 +603,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           when={!libraryOpen()}
           fallback={
             <AppLibraryPage
-              focusSearch={librarySearchRequested()}
+              focusSearchRequest={librarySearchRequest()}
+              focusSearchRequestHandled={librarySearchRequestHandled()}
+              onFocusSearchRequestHandled={(request) =>
+                setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
+              }
               preferences={railPreferences()}
               onSetEnabled={(id, enabled) =>
                 persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))

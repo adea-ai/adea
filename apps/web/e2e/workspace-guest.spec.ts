@@ -184,7 +184,9 @@ test('settings opens over chat without changing the current view', async ({ page
   await expect(page).toHaveURL(/view=chat/)
 })
 
-test('workspace search shortcut focuses the disabled-chat App Library search', async ({ page }) => {
+test('workspace search shortcut repeatedly focuses the disabled-chat App Library search', async ({
+  page,
+}) => {
   await page.route('**/api/workspaces/bootstrap', async (route) => {
     await route.fulfill({
       contentType: 'application/json',
@@ -212,6 +214,25 @@ test('workspace search shortcut focuses the disabled-chat App Library search', a
   await page.keyboard.press('Control+k')
   await expect(page.getByRole('searchbox', { name: 'Search apps' })).toBeFocused()
   await expect(page).toHaveURL(/app=library/)
+
+  const search = page.getByRole('searchbox', { name: 'Search apps' })
+  await page.getByRole('button', { name: 'Enable Chat' }).focus()
+  await expect(page.getByRole('button', { name: 'Enable Chat' })).toBeFocused()
+  await page.keyboard.press('Control+k')
+  await expect(search).toBeFocused()
+
+  const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Enable Virtual' }).click()
+  await library.getByRole('button', { name: 'Open Virtual' }).click()
+  await expect(page.getByRole('status', { name: 'Virtual view unavailable' })).toBeVisible({
+    timeout: 20_000,
+  })
+  await page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name: 'App Library', exact: true })
+    .click()
+  await expect(library).toBeVisible()
+  await expect(search).not.toBeFocused()
 })
 
 test('desktop authentication ends on a clear browser success page', async ({ page }) => {

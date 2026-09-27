@@ -24,7 +24,9 @@ const APP_ICONS = {
 
 /** Build-owned apps, separate from the external extensions marketplace. */
 export function AppLibraryPage(props: {
-  focusSearch?: boolean
+  focusSearchRequest: number
+  focusSearchRequestHandled: number
+  onFocusSearchRequestHandled(request: number): void
   preferences: RailPreferencesV1
   onSetEnabled(id: WorkspaceAppId, enabled: boolean): void
   onOpen(id: WorkspaceAppId): void
@@ -33,7 +35,11 @@ export function AppLibraryPage(props: {
 }) {
   let searchInput: HTMLInputElement | undefined
   createEffect(() => {
-    if (props.focusSearch) searchInput?.focus()
+    const request = props.focusSearchRequest
+    if (request > props.focusSearchRequestHandled && searchInput) {
+      searchInput.focus()
+      props.onFocusSearchRequestHandled(request)
+    }
   })
   const [enabledOnly, setEnabledOnly] = createSignal(false)
   const [search, setSearch] = createSignal('')
