@@ -30,9 +30,7 @@ const sourceRoots = readdirSync(join(root, 'packages'), { withFileTypes: true })
   .map((entry) => join('packages', entry.name, 'src'))
 sourceRoots.push('apps/web/src')
 
-const localFiles = sourceRoots.flatMap((directory) =>
-  filesUnder(join(root, directory), /\.tsx?$/)
-)
+const localFiles = sourceRoots.flatMap((directory) => filesUnder(join(root, directory), /\.tsx?$/))
 
 const importedNames = new Set<string>(
   localFiles
@@ -146,9 +144,7 @@ while (pendingPublishedFiles.length > 0) {
       if (name) publishedImportedNames.add(name)
     }
   }
-  for (const [, specifier] of source.matchAll(
-    /(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]/g
-  )) {
+  for (const [, specifier] of source.matchAll(/(?:from\s+|import\s*\(\s*)['"]([^'"]+)['"]/g)) {
     const dependency = publishedDependency(file, specifier, entry.publishedSourceRoot)
     if (dependency) {
       pendingPublishedFiles.push({

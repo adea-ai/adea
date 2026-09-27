@@ -5,7 +5,10 @@
  * preference schema, provider preview/persistence, native transparency policy,
  * accepted compatibility IDs, and declared-license theme-library flow.
  */
-import { AppearanceEditor, type AppearanceDraft } from '@adea-ai/ui/components/composites/appearance-editor'
+import {
+  AppearanceEditor,
+  type AppearanceDraft,
+} from '@adea-ai/ui/components/composites/appearance-editor'
 import {
   accentPresets,
   accentPresetById,

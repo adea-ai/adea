@@ -22,7 +22,12 @@ import {
 import { createMemo, createSignal, For, Show } from 'solid-js'
 
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Drawer, DrawerClose, DrawerContent, DrawerTitle } from '@adea-ai/app-ui/components/ui/drawer'
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerTitle,
+} from '@adea-ai/app-ui/components/ui/drawer'
 import {
   DropdownMenu,
   DropdownMenuContent,
