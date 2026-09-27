@@ -16,7 +16,7 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from '@adea-ai/app-ui/components/ui/empty'
+} from '@adea-ai/ui/components/ui/empty'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
@@ -262,7 +262,7 @@ function PluginListState(props: {
     <Show
       when={props.status === 'loading'}
       fallback={
-        <Empty role="alert">
+        <Empty class="min-h-0 min-w-0 flex-1" role="alert">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <Blocks aria-hidden="true" />
@@ -300,7 +300,7 @@ function PluginListState(props: {
 
 function PluginsEmpty(props: { query: string; tab: PluginTab }) {
   return (
-    <Empty>
+    <Empty class="min-h-0 min-w-0 flex-1">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Blocks aria-hidden="true" />
@@ -498,7 +498,7 @@ function PluginDetail(props: {
 
 function NavigationMissing() {
   return (
-    <Empty>
+    <Empty class="min-h-0 min-w-0 flex-1">
       <EmptyHeader>
         <EmptyMedia variant="icon">
           <Blocks aria-hidden="true" />

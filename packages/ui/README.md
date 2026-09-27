@@ -17,7 +17,9 @@ and Skeleton directly. The persistent plugin count status reports loading and co
 busy placeholder region. The shared Skeleton hides each decorative placeholder from assistive technology and
 respects reduced motion. Existing layout hooks remain at their callers. Capability and plugin status
 labels use published Badge with the same default, secondary, outline, and
-destructive semantics; the private Badge implementation is removed.
+destructive semantics; the private Badge implementation is removed. Plugin empty states use published
+Empty composition, with caller layout preserving flexible list sizing; the
+private Empty copy is removed.
 
 ## Theming contract: CSS custom properties are the only color surface
 
