@@ -1,7 +1,5 @@
-import adeaDarkTheme from '@adea-ai/themes/themes/adea-dark'
-import adeaLightTheme from '@adea-ai/themes/themes/adea-light'
-import { chartSeries, syntaxRolesHex } from '@adea-ai/themes'
-import { oklchToHex, parseColor, repairContrast } from '@adea-ai/themes/oklch'
+import { chartSeries, editorRolesHex, getTheme, type AdeaThemeRecord } from '@adea-ai/themes'
+import { oklchToHex, parseColor } from '@adea-ai/themes/oklch'
 import { shadcnVariables } from '@adea-ai/themes/adapters/shadcn'
 import { toXtermTheme } from '@adea-ai/themes/adapters/xterm'
 
@@ -73,12 +71,26 @@ function hex(value: string, role: string): string {
   return oklchToHex(parsed)
 }
 
-function makeRecord(theme: typeof adeaLightTheme) {
+function colorValue(value: string, role: string): string {
+  // The published shadcn projection retains source-authored alpha on borders
+  // and inputs. Keep that CSS value byte-for-byte; every other palette value is
+  // normalized to the existing hex runtime contract.
+  if (value.startsWith('rgba(')) return value
+  return hex(value, role)
+}
+
+function publishedTheme(id: string): AdeaThemeRecord {
+  const theme = getTheme(id)
+  if (!theme) throw new Error(`published @adea-ai/themes is missing ${id}`)
+  return theme
+}
+
+function makeRecord(theme: AdeaThemeRecord) {
   const shadcn = shadcnVariables(theme)
   const colors = Object.fromEntries(
     Object.entries(SHADCN_TO_COLOR).map(([name, property]) => [
       property,
-      hex(shadcn[`--${name}`]!, `--${name}`),
+      colorValue(shadcn[`--${name}`]!, `--${name}`),
     ])
   )
   const terminal = toXtermTheme(theme)
@@ -100,18 +112,7 @@ function makeRecord(theme: typeof adeaLightTheme) {
     terminal.brightCyan,
     terminal.brightWhite,
   ]
-  const editorBackground = parseColor(colors.background)
-  if (!editorBackground) throw new Error(`canonical ${theme.id} has no editor background`)
-  const syntax = syntaxRolesHex(theme)
-  const editor = Object.fromEntries(
-    EDITOR_ROLES.map((role) => {
-      const foreground = parseColor(syntax[role])
-      if (!foreground) throw new Error(`canonical ${theme.id} is missing editor.${role}`)
-      const repaired = repairContrast(foreground, editorBackground, 4.5)
-      if (!repaired.satisfied) throw new Error(`cannot repair editor.${role} in ${theme.id}`)
-      return [role, oklchToHex(repaired.color)]
-    })
-  )
+  const editor = editorRolesHex(theme)
   const charts = Object.fromEntries(
     chartSeries(theme).map((value, index) => [`chart${index + 1}`, hex(value, `chart${index + 1}`)])
   )
@@ -135,7 +136,7 @@ function makeRecord(theme: typeof adeaLightTheme) {
   const cssTokens: Record<string, string> = Object.fromEntries(
     Object.keys(SHADCN_TO_COLOR).map((name) => [
       `--${name}`,
-      hex(shadcn[`--${name}`]!, `--${name}`),
+      colorValue(shadcn[`--${name}`]!, `--${name}`),
     ])
   )
   Object.assign(cssTokens, {
@@ -158,8 +159,12 @@ function makeRecord(theme: typeof adeaLightTheme) {
 }
 
 const records = {
-  'adea-light': makeRecord(adeaLightTheme),
-  'adea-dark': makeRecord(adeaDarkTheme),
+  'adea-light': makeRecord(publishedTheme('adea-light')),
+  'adea-dark': makeRecord(publishedTheme('adea-dark')),
+  'slate-light': makeRecord(publishedTheme('slate-light')),
+  'slate-dark': makeRecord(publishedTheme('slate-dark')),
+  'contrast-light': makeRecord(publishedTheme('contrast-light')),
+  'contrast-dark': makeRecord(publishedTheme('contrast-dark')),
 }
 const variants = Object.fromEntries(
   Object.entries(records).map(([id, record]) => {
@@ -167,7 +172,7 @@ const variants = Object.fromEntries(
     return [
       id,
       [
-        [variant.name, variant.appearance],
+        [variant.name, variant.appearance, variant.familyId, variant.familyName],
         Object.values(variant.colors),
         [variant.terminal.cursor, variant.terminal.selection, ...variant.terminal.ansi],
         Object.values(variant.editor),
@@ -181,8 +186,8 @@ const colors = Array.from(
       record.slice(1).flatMap((values) => values as string[])
     )
   )
-).map((value) => value.slice(1))
-const colorIndex = new Map(colors.map((value, index) => [`#${value}`, index]))
+)
+const colorIndex = new Map(colors.map((value, index) => [value, index]))
 const compactVariants = Object.fromEntries(
   Object.entries(variants).map(([id, record]) => [
     id,
@@ -208,8 +213,8 @@ const encodedVariants = Object.fromEntries(
 const cssTokens = Object.fromEntries(
   Object.entries(records).map(([id, record]) => [id, record.cssTokens])
 )
-const source = `/** Generated from the isolated @adea-ai/themes 0.5.0 records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '0.5.0' as const\nexport const CANONICAL_THEME_COLORS = ${JSON.stringify(colors.join(''))} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(encodedVariants, null, 2)} as const\n`
-const cssSource = `/** Generated from the isolated @adea-ai/themes 0.5.0 records. */\nexport const CANONICAL_THEME_CSS_DATA = ${JSON.stringify(cssTokens, null, 2)} as const satisfies Record<string, Readonly<Record<string, string>>>\n\nexport function canonicalThemeCssTokens(id: keyof typeof CANONICAL_THEME_CSS_DATA): Record<string, string> {\n  return Object.freeze({ ...CANONICAL_THEME_CSS_DATA[id] })\n}\n`
+const source = `/** Generated from the isolated @adea-ai/themes 0.6.1 records. */\nexport const CANONICAL_THEME_PACKAGE = '@adea-ai/themes' as const\nexport const CANONICAL_THEME_VERSION = '0.6.1' as const\nexport const CANONICAL_THEME_COLOR_VALUES = ${JSON.stringify(colors)} as const\nexport const CANONICAL_THEME_DATA = ${JSON.stringify(encodedVariants, null, 2)} as const\n`
+const cssSource = `/** Generated from the isolated @adea-ai/themes 0.6.1 records. */\nexport const CANONICAL_THEME_CSS_DATA = ${JSON.stringify(cssTokens, null, 2)} as const satisfies Record<string, Readonly<Record<string, string>>>\n\nexport function canonicalThemeCssTokens(id: keyof typeof CANONICAL_THEME_CSS_DATA): Record<string, string> {\n  return Object.freeze({ ...CANONICAL_THEME_CSS_DATA[id] })\n}\n`
 
 function formatGenerated(generatedSource: string, output: URL): string {
   const result = Bun.spawnSync({

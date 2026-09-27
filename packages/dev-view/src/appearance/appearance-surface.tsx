@@ -38,9 +38,7 @@ import {
 // here only as a narrow UI projection so importing the catalogue barrel cannot
 // ship every theme adapter into the appearance chunk. A parity test compares
 // these fields against @adea-ai/themes' canonical ACCENTS.
-const appearanceAccentOptions = Object.freeze(
-  accentPresets.map((accent) => ({ ...accent, description: `${accent.label} accent.` }))
-)
+const appearanceAccentOptions = Object.freeze(accentPresets.map((accent) => ({ ...accent })))
 
 function customAccentValue(accent: string): string {
   return accent === 'theme' || accentPresetById(accent) ? '' : accent

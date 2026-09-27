@@ -3777,19 +3777,23 @@ OS; pinned modes do not. Accent affects only semantic accent/interactive roles
 and must pass contrast validation. OS or user reduced transparency forces
 opaque. Browser content is not recolored. Terminal ANSI and CodeMirror
 syntax/diff/search roles come from the same manifest and update without remount.
-The bundled `adea-light` and `adea-dark` records are sourced from the published
+The bundled `adea-light`, `adea-dark`, `slate-light`, `slate-dark`,
+`contrast-light`, and `contrast-dark` records are sourced from the published
 `@adea-ai/themes` catalogue and adapted into this manifest's CSS, terminal,
 editor, and chart roles; the preference IDs and pre-paint document authority
-remain Adea-owned. Compatibility variants without catalogue records stay
-bundled locally until their role mappings are reviewed.
+remain Adea-owned. Palette normalization, accents, contrast math, and shadcn
+projection remain catalogue-owned. Generated editor roles use the published
+quantized-hex contrast projection, while the syntax API retains its quieter
+comment role. Unknown stored theme IDs fall back to the default of the same
+appearance in both the pre-paint script and the mounted provider.
 
 The appearance surface uses the controlled `AppearanceEditor` from the published
 `@adea-ai/ui` package. Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package
 is temporarily named `@adea-ai/app-ui` so the published package can be consumed
-without a second package alias; app-specific shell styles and legacy compatibility
-variants remain there until the broader package migration is reviewed.
+without a second package alias; app-specific shell styles and preference/host
+adapters remain there until the broader package migration is reviewed.
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is

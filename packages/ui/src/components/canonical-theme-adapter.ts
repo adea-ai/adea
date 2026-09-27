@@ -1,11 +1,26 @@
 import type { ThemeVariant } from './appearance'
-import { CANONICAL_THEME_COLORS, CANONICAL_THEME_DATA } from './canonical-theme-data'
+import { CANONICAL_THEME_COLOR_VALUES, CANONICAL_THEME_DATA } from './canonical-theme-data'
 
-/** The published IDs that are also accepted by Adea's v2 preference schema. */
+/** Published IDs retained by Adea's v2 appearance preferences. */
+export const CANONICAL_THEME_IDS = [
+  'adea-light',
+  'adea-dark',
+  'slate-light',
+  'slate-dark',
+  'contrast-light',
+  'contrast-dark',
+] as const
+
+/** The original Adea pair remains the built-in CSS default. */
 export const CANONICAL_ADEA_THEME_IDS = ['adea-light', 'adea-dark'] as const
 
-type CanonicalAdeaThemeId = (typeof CANONICAL_ADEA_THEME_IDS)[number]
-type CanonicalThemeRecord = readonly [readonly [string, string], string, string, string]
+type CanonicalThemeId = (typeof CANONICAL_THEME_IDS)[number]
+type CanonicalThemeRecord = readonly [
+  readonly [string, string, string, string],
+  string,
+  string,
+  string,
+]
 
 const COLOR_KEYS =
   'background foreground card cardForeground popover popoverForeground primary primaryForeground secondary secondaryForeground muted mutedForeground accent accentForeground destructive success border input ring'.split(
@@ -19,12 +34,15 @@ const EDITOR_KEYS =
 function palette(values: string) {
   return Array.from(values, (value) => {
     const index = value.charCodeAt(0) - 48
-    return '#' + CANONICAL_THEME_COLORS.slice(index * 6, index * 6 + 6)
+    const color = CANONICAL_THEME_COLOR_VALUES[index]
+    if (!color) throw new Error(`generated theme color index ${index} is missing`)
+    return color
   })
 }
 
-function makeVariant(record: CanonicalThemeRecord, id: CanonicalAdeaThemeId): ThemeVariant {
+function makeVariant(record: CanonicalThemeRecord, id: CanonicalThemeId): ThemeVariant {
   const [metadata, colorValues, terminalValues, editorValues] = record
+  const [name, appearance, familyId, familyName] = metadata
   const colorsValues = palette(colorValues)
   const terminalColorValues = palette(terminalValues)
   const editorColorValues = palette(editorValues)
@@ -49,10 +67,10 @@ function makeVariant(record: CanonicalThemeRecord, id: CanonicalAdeaThemeId): Th
   })
   return Object.freeze({
     id,
-    familyId: 'adea',
-    familyName: 'Adea',
-    name: metadata[0]!,
-    appearance: metadata[1] as ThemeVariant['appearance'],
+    familyId,
+    familyName,
+    name,
+    appearance: appearance as ThemeVariant['appearance'],
     colors,
     terminal: Object.freeze({
       background: colors.background,
@@ -67,11 +85,15 @@ function makeVariant(record: CanonicalThemeRecord, id: CanonicalAdeaThemeId): Th
 }
 
 /** Convert one generated published record into Adea's established runtime shape. */
-export function canonicalThemeVariant(id: CanonicalAdeaThemeId): ThemeVariant {
-  return makeVariant(CANONICAL_THEME_DATA[id] as unknown as CanonicalThemeRecord, id)
+export function canonicalThemeVariant(id: CanonicalThemeId): ThemeVariant {
+  const record = CANONICAL_THEME_DATA[id] as unknown as CanonicalThemeRecord
+  return makeVariant(record, id)
 }
 
-export const canonicalAdeaThemeRegistry: readonly ThemeVariant[] = Object.freeze([
-  canonicalThemeVariant('adea-light'),
-  canonicalThemeVariant('adea-dark'),
-])
+export const canonicalThemeRegistry: readonly ThemeVariant[] = Object.freeze(
+  CANONICAL_THEME_IDS.map(canonicalThemeVariant)
+)
+
+export const canonicalAdeaThemeRegistry: readonly ThemeVariant[] = Object.freeze(
+  CANONICAL_ADEA_THEME_IDS.map(canonicalThemeVariant)
+)

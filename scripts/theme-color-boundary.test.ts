@@ -61,11 +61,17 @@ describe('theme color contract', () => {
     }
   })
 
-  test('the declared token layer is where literals are allowed to live', async () => {
+  test('the token layer and generated palettes are where literals are allowed', async () => {
     expect(TOKEN_FILES).toContain('packages/ui/src/styles/theme.css')
+    expect(TOKEN_FILES).toContain('packages/ui/src/components/canonical-theme-data.ts')
+    expect(TOKEN_FILES).not.toContain('packages/ui/src/components/appearance.ts')
     for (const file of TOKEN_FILES) {
       const source = await Bun.file(`${root}${file}`).text()
-      expect(source).toContain('--')
+      if (file.endsWith('.css') || file.endsWith('canonical-theme-css-data.ts')) {
+        expect(source).toContain('--')
+      } else {
+        expect(source).toContain('Generated from the isolated @adea-ai/themes')
+      }
     }
   })
 })

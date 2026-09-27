@@ -534,6 +534,28 @@ describe('the no-flash preload script', () => {
     expect(dark.classes.has('dark')).toBe(true)
   })
 
+  test('unknown stored theme ids pre-paint the same default as the mounted provider', () => {
+    for (const appearance of ['light', 'dark'] as const) {
+      const themeId = appearance === 'dark' ? 'adea-dark' : 'adea-light'
+      const expected = resolveThemeVariant(
+        builtinThemeRegistry,
+        { lightThemeId: 'removed-light-theme', darkThemeId: 'removed-dark-theme' },
+        appearance
+      )
+      const { dataset } = runScript({
+        [APPEARANCE_STORAGE_KEY]: JSON.stringify({
+          version: 2,
+          mode: appearance,
+          lightThemeId: 'removed-light-theme',
+          darkThemeId: 'removed-dark-theme',
+        }),
+      })
+
+      expect(expected.id).toBe(themeId)
+      expect(dataset.theme).toBe(expected.id)
+    }
+  })
+
   test('reduced transparency pre-paints the opaque surface', () => {
     const { dataset } = runScript(
       {

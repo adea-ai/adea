@@ -46,8 +46,6 @@ describe('published AppearanceEditor theme adapter', () => {
 
   test('keeps the app accent projection byte-for-byte aligned with the published catalogue', () => {
     expect(localAccentPresets).toHaveLength(ACCENTS.length)
-    expect(localAccentPresets).toEqual(
-      ACCENTS.map(({ id, label, light, dark }) => ({ id, label, light, dark }))
-    )
+    expect(localAccentPresets).toEqual(ACCENTS)
   })
 })
