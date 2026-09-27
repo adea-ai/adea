@@ -2447,7 +2447,7 @@ The contextual sidebar's Add Project disclosure loads its form and requests
 authorized roots/groups only when first opened. After that first open, collapsing
 the disclosure preserves the mounted form's scan results, confirmations, and
 group draft; reopening does not repeat those initial requests. Closing the
-disclosure never imports projects or runs bootstrap commands.
+disclosure never initiates project imports or bootstrap commands.
 
 Scanner defaults:
 

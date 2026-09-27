@@ -228,7 +228,11 @@
         "apps/desktop/shell/src/dev-runtime/projects/**",
         "packages/dev-view/src/sidebar/project-tree.tsx",
         "packages/dev-view/src/sidebar/project-row.tsx",
-        "packages/dev-view/src/sidebar/worktree-row.tsx"
+        "packages/dev-view/src/sidebar/worktree-row.tsx",
+        "packages/dev-view/src/sidebar/add-project-panel.tsx",
+        "packages/dev-view/src/sidebar/add-project-form.tsx",
+        "packages/dev-view/src/sidebar/scan-preview-model.ts",
+        "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx"
       ],
       "units": [
         {
