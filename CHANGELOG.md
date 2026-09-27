@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.63.1](https://github.com/adea-ai/adea/compare/v0.63.0...v0.63.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **dev-runtime:** fence authenticated terminal connections ([#780](https://github.com/adea-ai/adea/issues/780)) ([e61de79](https://github.com/adea-ai/adea/commit/e61de792345839e8a4389e2e7675fb3f952ce098))
+
 ## [0.63.0](https://github.com/adea-ai/adea/compare/v0.62.6...v0.63.0) (2026-09-27)
 
 
