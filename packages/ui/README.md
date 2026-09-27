@@ -15,7 +15,9 @@ inertness, and placement contracts while replacing them with shared components.
 Workspace dividers and plugin loading placeholders now use published Separator
 and Skeleton directly. The persistent plugin count status reports loading and completion outside the
 busy placeholder region. The shared Skeleton hides each decorative placeholder from assistive technology and
-respects reduced motion. Existing layout hooks remain at their callers.
+respects reduced motion. Existing layout hooks remain at their callers. Capability and plugin status
+labels use published Badge with the same default, secondary, outline, and
+destructive semantics; the private Badge implementation is removed.
 
 ## Theming contract: CSS custom properties are the only color surface
 
