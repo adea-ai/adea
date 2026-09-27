@@ -25,6 +25,12 @@ workspace status and toolbar hints. The host keeps its 200/300/300 ms timing,
 arrow-free placement, and informational pointer transparency; the private Tooltip
 implementation and unused class-variance-authority dependency are removed.
 
+Workspace action and filter menus use published DropdownMenu, preserving their
+placement, scroll bounds, action callbacks, and retained radio selections. The
+private menu implementation and its appearance overrides are removed. The
+remaining `lib/utils` compatibility path re-exports the shared class merger so
+token-derived size overrides follow the shared design-system contract.
+
 ## Theming contract: CSS custom properties are the only color surface
 
 Components in this package never contain a color literal. Colors come from the
