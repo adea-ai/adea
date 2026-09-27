@@ -281,7 +281,7 @@ function PluginListState(props: {
         </Empty>
       }
     >
-      <div class="plugins-browser__skeleton" aria-label="Loading plugins" aria-busy="true">
+      <div class="plugins-browser__skeleton" aria-busy="true">
         <For each={previewSkeletons}>
           {() => (
             <div>
@@ -748,8 +748,10 @@ export function PluginsDialog(props: {
                       onInput={(event) => setQuery(event.currentTarget.value)}
                     />
                   </label>
-                  <span class="plugins-browser__count" aria-live="polite">
-                    {visible().length} {visible().length === 1 ? 'plugin' : 'plugins'}
+                  <span class="plugins-browser__count" role="status">
+                    {status() === 'loading'
+                      ? 'Loading plugins'
+                      : `${visible().length} ${visible().length === 1 ? 'plugin' : 'plugins'}`}
                   </span>
                 </div>
                 <TabsContent value={tab()} class="plugins-browser__list">
