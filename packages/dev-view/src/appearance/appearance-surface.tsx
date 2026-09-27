@@ -16,15 +16,8 @@ import {
 } from '@adea-ai/app-ui/components/appearance'
 import { useTheme } from '@adea-ai/app-ui/components/theme-provider'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@adea-ai/app-ui/components/ui/dialog'
-import { createMemo, createSignal, onCleanup, onMount, Show, untrack } from 'solid-js'
+import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import { createMemo, createSignal, onCleanup, onMount, untrack } from 'solid-js'
 
 import { draftVariants } from './composition'
 import { createAppearanceEditor } from './editor'
@@ -179,36 +172,7 @@ export function AppearancePanel() {
   )
 
   return (
-    <Show
-      when={!libraryOpen()}
-      fallback={
-        <Dialog open onOpenChange={(open: boolean) => !open && setLibraryOpen(false)}>
-          <DialogContent class="max-w-md" aria-describedby="theme-library-description">
-            <DialogHeader>
-              <DialogTitle>Manage themes</DialogTitle>
-              <DialogDescription id="theme-library-description">
-                Import a local theme into your library or keep it linked to its source.
-              </DialogDescription>
-            </DialogHeader>
-            <div class="grid gap-3 px-6 pb-6 text-sm">
-              <p class="text-muted-foreground">
-                Custom themes must declare an explicit license and provenance; Adea never infers
-                redistribution permission from a “User supplied” marker.
-              </p>
-              <p class="text-muted-foreground">
-                Imports activate through the signed App Library pipeline; M12 ships the built-in
-                set.
-              </p>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setLibraryOpen(false)}>
-                Close
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      }
-    >
+    <>
       <section aria-label="Appearance" class="grid gap-6">
         <header class="flex items-start gap-3">
           <div>
@@ -221,6 +185,29 @@ export function AppearancePanel() {
         </header>
         {editorView}
       </section>
-    </Show>
+      <ModalDialog
+        modal={false}
+        open={libraryOpen()}
+        onClose={() => setLibraryOpen(false)}
+        title="Manage themes"
+        description="Import a local theme into your library or keep it linked to its source."
+        class="relative conventional-dialog max-w-md"
+      >
+        <div class="grid gap-3 text-sm">
+          <p class="text-muted-foreground">
+            Custom themes must declare an explicit license and provenance; Adea never infers
+            redistribution permission from a “User supplied” marker.
+          </p>
+          <p class="text-muted-foreground">
+            Imports activate through the signed App Library pipeline; M12 ships the built-in set.
+          </p>
+        </div>
+        <footer class="flex justify-end">
+          <Button type="button" variant="outline" onClick={() => setLibraryOpen(false)}>
+            Close
+          </Button>
+        </footer>
+      </ModalDialog>
+    </>
   )
 }

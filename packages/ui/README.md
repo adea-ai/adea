@@ -40,8 +40,13 @@ exports and direct dependency have been removed.
 VersionDialog is a thin Adea adapter to the published UpdateDialog. It maps
 native update snapshots and forwards install version checks without owning the
 generic renderer or release-note formatter. Controlled callers forward the
-persistent opener accessor to the shared focus-restoration contract. The private Dialog remains while
-appearance compositions still depend on it.
+persistent opener accessor to the shared focus-restoration contract.
+
+The theme-library contract view also uses the published ModalDialog. It keeps
+the live appearance editor mounted beneath the nested dialog and restores its
+Manage themes opener after Close or Escape without closing Settings or losing
+the unsaved preview. The final copied Dialog primitives, private exports, and
+unused direct Kobalte dependency have been removed.
 
 Workspace dialogs use the published ModalDialog with their existing non-modal
 Kobalte mode and product layout hooks. Shared background containment restores

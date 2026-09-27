@@ -3795,6 +3795,13 @@ is temporarily named `@adea-ai/app-ui` so the published package can be consumed
 without a second package alias; app-specific shell styles and preference/host
 adapters remain there until the broader package migration is reviewed.
 
+The declared-license theme-library view uses the published `ModalDialog`,
+including its nested-layer inertness and focus restoration. Opening it keeps
+the appearance editor mounted beneath the dialog, so live preview and the
+uncommitted draft survive Close and Escape; dismissal restores focus to
+Manage themes without closing the containing Settings dialog. No application
+copy of the dialog primitives remains.
+
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
 quarantined — byte-for-byte, with a reason and capture time — into a separate

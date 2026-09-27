@@ -179,26 +179,55 @@ test.describe('appearance', () => {
     await expect(mode.getByRole('radio', { name: 'Dark' })).toBeChecked()
   })
 
-  test('the theme library row opens behind the declared-license contract', async ({ page }) => {
-    const panel = await openAppearance(page)
-    // An unsaved draft must survive the contract view round-trip.
-    await modeGroup(panel).getByText('Dark', { exact: true }).click()
-    await expect(page.locator('html')).toHaveClass(/dark/)
-    await panel.getByRole('button', { name: 'Manage themes' }).click()
+  for (const dismiss of ['Close', 'Escape'] as const) {
+    test(`the theme library preserves the preview and restores focus after ${dismiss}`, async ({
+      page,
+    }) => {
+      const panel = await openAppearance(page)
+      // An unsaved draft and the live editor must survive the nested dialog.
+      await modeGroup(panel).getByText('Dark', { exact: true }).click()
+      await expect(page.locator('html')).toHaveClass(/dark/)
+      const editorElement = await panel.elementHandle()
+      const manage = panel.getByRole('button', { name: 'Manage themes' })
+      await manage.click()
 
-    const library = page.getByRole('dialog', { name: 'Manage themes' })
-    await expect(library).toBeVisible()
-    await expect(library.getByText('declare an explicit license and provenance')).toBeVisible()
-    await expect(library.getByText('signed App Library pipeline')).toBeVisible()
+      const library = page.getByRole('dialog', { name: 'Manage themes' })
+      await expect(library).toBeVisible()
+      await expect(library.getByText('declare an explicit license and provenance')).toBeVisible()
+      await expect(library.getByText('signed App Library pipeline')).toBeVisible()
+      expect(await editorElement!.evaluate((element) => element.isConnected)).toBe(true)
+      // Entrance transforms temporarily establish a containing block. Check
+      // the final layout so the corner control cannot drift to the viewport.
+      await library.evaluate(async (element) => {
+        await Promise.all(element.getAnimations().map((animation) => animation.finished))
+      })
+      expect(
+        await library.evaluate((element) => {
+          const bounds = element.getBoundingClientRect()
+          const close = element.querySelector('button[aria-label="Close"]')?.getBoundingClientRect()
+          return (
+            close !== undefined &&
+            close.left >= bounds.left &&
+            close.top >= bounds.top &&
+            close.right <= bounds.right &&
+            close.bottom <= bounds.bottom
+          )
+        })
+      ).toBe(true)
 
-    await library.getByRole('button', { name: 'Close', exact: true }).click()
-    await expect(library).toBeHidden()
-    // The appearance panel returns with the draft intact and still uncommitted.
-    await expect(panel).toBeVisible()
-    await expect(page.locator('html')).toHaveClass(/dark/)
-    await expect(modeGroup(panel).getByRole('radio', { name: 'Dark' })).toBeChecked()
-    expect(await page.evaluate(() => window.localStorage.getItem('appearance'))).toBeNull()
-  })
+      if (dismiss === 'Escape') await page.keyboard.press('Escape')
+      else
+        await library.locator('footer').getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(library).toBeHidden()
+      await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toBeVisible()
+      await expect(manage).toBeFocused()
+      await expect(panel).toBeVisible()
+      await expect(page.locator('html')).toHaveClass(/dark/)
+      await expect(modeGroup(panel).getByRole('radio', { name: 'Dark' })).toBeChecked()
+      expect(await page.evaluate(() => window.localStorage.getItem('appearance'))).toBeNull()
+      await editorElement!.dispose()
+    })
+  }
 
   test('the legacy single theme key migrates without flash or deletion', async ({ page }) => {
     await page.addInitScript(() => {
