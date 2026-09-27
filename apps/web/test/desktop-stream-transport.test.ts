@@ -440,3 +440,230 @@ describe('createDesktopStreamTransport', () => {
     })
   })
 })
+
+describe('desktop stream relay backlog and disposal', () => {
+  test('measures queued and in-flight bytes and retains the submitted input snapshot', async () => {
+    const grant = makeGrant('write')
+    const fake = fakeShell([grant])
+    fake.serveWrite(grant.grantId, 128)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      invoke: (async (command, args) => {
+        if (command === 'desktop_file_stream_frame') await held
+        return fake.bridge.invoke(command, args)
+      }) as DesktopShell['invoke'],
+    }
+    const transport = createDesktopStreamTransport({ bridge })!
+    const socket = transport.connect(grant, { onFrame: () => {}, onClose: () => {} })
+    const bytes = new Uint8Array(64).fill(7)
+    socket.send({ type: 'input', sequence: '0', generation: 4, bytes })
+    bytes.fill(9)
+    expect(socket.bufferedAmount).toBeGreaterThan(64)
+    await Bun.sleep(0)
+    expect(socket.bufferedAmount).toBeGreaterThan(64)
+    expect(fake.clientFrames).toHaveLength(0)
+    release()
+    await Bun.sleep(0)
+    expect(socket.bufferedAmount).toBe(0)
+    const payload = fake.clientFrames[0]!.frame as unknown as { bytes: string }
+    expect(fromBase64(payload.bytes)).toEqual(new Uint8Array(64).fill(7))
+    socket.close(1000, 'test complete')
+    await Bun.sleep(0)
+    expect(fake.listenerCount()).toBe(0)
+  })
+
+  test('bounds terminal input queued before attach with the canonical backpressure error', async () => {
+    const grant = makeGrant('write', 'terminal-bytes-v1')
+    const fake = fakeShell([grant])
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      streamAttachProof: async (request) => {
+        await held
+        return fake.bridge.streamAttachProof!(request)
+      },
+    }
+    const frames: DevStreamFrame[] = []
+    const socket = createDesktopStreamTransport({ bridge })!.connect(grant, {
+      onFrame: (frame) => frames.push(frame),
+      onClose: () => {},
+    })
+    for (let index = 0; index < 17; index += 1) {
+      socket.send({
+        type: 'input',
+        sequence: String(index * 65536),
+        generation: 4,
+        bytes: new Uint8Array(65536),
+      })
+    }
+    expect(frames).toContainEqual({
+      type: 'error',
+      error: expect.objectContaining({ code: 'backpressure', retryable: false }),
+    })
+    expect(socket.open).toBe(false)
+    expect(socket.bufferedAmount).toBe(0)
+    release()
+    await Bun.sleep(0)
+    expect(fake.openAttaches).toHaveLength(0)
+    expect(fake.listenerCount()).toBe(0)
+    expect(fake.clientFrames).toHaveLength(0)
+  })
+
+  test('a close while event subscription is pending disposes the late subscription without opening', async () => {
+    const grant = makeGrant('read')
+    const fake = fakeShell([grant])
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      listen: (async (event, handler) => {
+        const unsubscribe = await fake.bridge.listen(event, handler)
+        await held
+        return unsubscribe
+      }) as DesktopShell['listen'],
+    }
+    const socket = createDesktopStreamTransport({ bridge })!.connect(grant, {
+      onFrame: () => {},
+      onClose: () => {},
+    })
+    await Bun.sleep(0)
+    expect(fake.listenerCount()).toBe(1)
+    socket.close(1000, 'view disposed')
+    release()
+    await Bun.sleep(0)
+    expect(fake.listenerCount()).toBe(0)
+    expect(fake.openAttaches).toHaveLength(0)
+  })
+  test('a late host open after local close is retired and never flushes retained input', async () => {
+    const grant = makeGrant('write')
+    const fake = fakeShell([grant])
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      invoke: (async (command, args) => {
+        if (command === 'desktop_file_stream_open') await held
+        return fake.bridge.invoke(command, args)
+      }) as DesktopShell['invoke'],
+    }
+    const socket = createDesktopStreamTransport({ bridge })!.connect(grant, {
+      onFrame: () => {},
+      onClose: () => {},
+    })
+    socket.send({ type: 'input', sequence: '0', generation: 4, bytes: new Uint8Array(64) })
+    await Bun.sleep(0)
+    socket.close(1000, 'view disposed')
+    release()
+    await Bun.sleep(0)
+    expect(fake.openAttaches).toHaveLength(1)
+    expect(fake.settled.filter((id) => id === grant.grantId)).toHaveLength(2)
+    expect(fake.clientFrames).toHaveLength(0)
+    expect(fake.listenerCount()).toBe(0)
+    expect(socket.bufferedAmount).toBe(0)
+  })
+
+  test('close prevents queued deliveries behind an in-flight invoke from reaching the host', async () => {
+    const grant = makeGrant('write')
+    const fake = fakeShell([grant])
+    fake.serveWrite(grant.grantId, 192)
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      invoke: (async (command, args) => {
+        if (command === 'desktop_file_stream_frame') await held
+        return fake.bridge.invoke(command, args)
+      }) as DesktopShell['invoke'],
+    }
+    const socket = createDesktopStreamTransport({ bridge })!.connect(grant, {
+      onFrame: () => {},
+      onClose: () => {},
+    })
+    await Bun.sleep(0)
+    for (let index = 0; index < 3; index += 1) {
+      socket.send({
+        type: 'input',
+        sequence: String(index * 64),
+        generation: 4,
+        bytes: new Uint8Array(64),
+      })
+    }
+    await Bun.sleep(0)
+    socket.close(1000, 'view disposed')
+    release()
+    await Bun.sleep(0)
+    expect(fake.clientFrames).toHaveLength(1)
+    expect(socket.bufferedAmount).toBe(0)
+    expect(fake.listenerCount()).toBe(0)
+  })
+  test('zero-byte terminal inputs cannot create an unbounded pre-attach relay queue', async () => {
+    const grant = makeGrant('write', 'terminal-bytes-v1')
+    const fake = fakeShell([grant])
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      streamAttachProof: async (request) => {
+        await held
+        return fake.bridge.streamAttachProof!(request)
+      },
+    }
+    const frames: DevStreamFrame[] = []
+    const socket = createDesktopStreamTransport({ bridge })!.connect(grant, {
+      onFrame: (frame) => frames.push(frame),
+      onClose: () => {},
+    })
+    for (let index = 0; index < 4097; index += 1)
+      socket.send({ type: 'input', sequence: '0', generation: 4, bytes: new Uint8Array() })
+    expect(socket.open).toBe(false)
+    expect(frames).toContainEqual({
+      type: 'error',
+      error: expect.objectContaining({ code: 'backpressure' }),
+    })
+    release()
+    await Bun.sleep(0)
+    expect(socket.bufferedAmount).toBe(0)
+  })
+
+  test('local listeners are removed even when native close never resolves', async () => {
+    const grant = makeGrant('read')
+    const fake = fakeShell([grant])
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const bridge: DesktopShell = {
+      ...fake.bridge,
+      invoke: (async (command, args) => {
+        if (command === 'desktop_file_stream_close') await held
+        return fake.bridge.invoke(command, args)
+      }) as DesktopShell['invoke'],
+    }
+    const socket = createDesktopStreamTransport({ bridge })!.connect(grant, {
+      onFrame: () => {},
+      onClose: () => {},
+    })
+    await Bun.sleep(0)
+    expect(fake.listenerCount()).toBe(1)
+    socket.close(1000, 'view disposed')
+    const listenerCountBeforeHostReply = fake.listenerCount()
+    release()
+    await Bun.sleep(0)
+    expect(listenerCountBeforeHostReply).toBe(0)
+  })
+})
