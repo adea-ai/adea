@@ -819,12 +819,24 @@ a native sidecar, packaged runtime or production credentials.
 ### Transcript composition continuation
 
 The pinned KiroCrew `ChatMessageList`, `messageRenderers`, `TurnBlock` and
-`CollapsibleToolGroup` source review identifies a remaining #532 composition
-gap: the current Adea transcript renders flat bounded rows, and shared
-`MessageRow` alone does not implement donor turn/tool disclosure. Its generic
-user delivery presentation also cannot prove a runtime event was delivered.
-The source manifest and selected-unit inventory now record the exact handoff,
-nearest grouping, disclosure-pin, durable disclosure and row-memo tests.
+`CollapsibleToolGroup` review identified the #532 turn/tool disclosure gap.
+Shared `MessageRow` alone did not implement that composition, and generic user
+delivery presentation could not prove runtime delivery. UI PR #50 now supplies
+`TranscriptComposition`, grouping and folding at commit
+`bb3a5d9a362cb30a920c33ce834772f63183c51d`; the current Adea branch consumes
+public `@adea-ai/ui@0.70.2`. Its packed transcript lane covers compiled and Solid
+entries, Chromium/WebKit interactions and native Node SSR. Those library checks
+are distinct from packaged application acceptance.
+
+Adea `ChatTranscript` mounts the shared keyed renderer through
+`packages/dev-view/src/chat/transcript-composition.ts`. The host supplies stable
+row IDs and canonical session/generation reset scope. Opaque runtime payloads
+stay visible and unfolded: the production native harness has no structured
+assistant/tool event producer that proves call identity, phase, synthesis or
+final-answer boundaries. See the [runtime event boundary](../evidence/donor-ui-runtime-event-boundary.md)
+for the source evidence and #717's remaining native/real-session gates. The
+source manifest retains the exact donor units and nearest tests, while the
+selected-unit inventory separates library readiness from consumer acceptance.
 
 Retain the donor's distinction between its embed and dashboard grouping. A
 user disclosure choice survives incidental idle frames; durable disclosure
@@ -834,5 +846,6 @@ payloads cannot disappear behind a tool fold. Default tool-only folds unmount
 noninteractive tool rows, while interim/collapseAll retains hidden prose; this
 is an explicit lifecycle distinction, not a blanket mounted-content guarantee.
 Runtime identities, redaction, completion evidence, response promises and
-privileged callbacks remain app-owned. This is a source handoff; implementation,
-packed contracts and actual product acceptance remain pending.
+privileged callbacks remain app-owned. Production tool folding and packaged
+native acceptance remain pending; the shared port and keyed consumer adoption
+are already implemented.
