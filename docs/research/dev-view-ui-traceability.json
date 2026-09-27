@@ -8554,7 +8554,39 @@
       },
       "acceptanceCriterion": "Real navigation, ports, screenshots with usable results, viewport/device actions, annotation, cookie review, mini-preview and full-width/dock interactions.",
       "ownerObservation": "Side-by-side Browser/Devices must be discoverable and independently controllable.",
-      "reconciliationPlan": "Reconcile #718/#734/#735: engine/static contracts are not mounted functional controls."
+      "reconciliationPlan": "Reconcile #718/#734/#735: engine/static contracts are not mounted functional controls.",
+      "boundedConsumerEvidence": {
+        "asOf": "2026-09-27",
+        "scope": "These scoped fixes do not establish the full Browser/Devices acceptance criterion or shared-library extraction.",
+        "productionMount": {
+          "entry": "packages/dev-view/src/dev-workspace-entry.tsx",
+          "browser": "lazy BrowserPane in the Browser/Devices group",
+          "devices": "lazy DevicesPane in the same utility group"
+        },
+        "screenshot": {
+          "commit": "b07a13cd",
+          "status": "implemented_in_draft_Adea_PR760; not_merged_or_packaged",
+          "component": "packages/dev-view/src/browser/browser-pane.tsx",
+          "action": "Screenshot -> dev.browser.screenshot through buildDevCommand and the injected DevRuntimeService",
+          "result": "Displays ScreenshotRef ID, dimensions, content type, expiry and exact host redacted boolean. No image bytes or pixel preview are displayed.",
+          "recovery": "Typed host errors, newer capture retention and late success/error fencing on scope/session/lane generation/target/viewport changes and disposal.",
+          "rendererEvidence": "apps/web/e2e/dev-browser-pane.spec.ts: nine headless BrowserPane cases passed behind a deterministic command boundary on the authored source; not a real native pixel-delivery or packaged application test.",
+          "remaining": "Screenshot bytes, redaction implementation, live frame relay, coordinate annotation and floating pixel preview remain unverified or missing; see docs/research/dev-browser-caller-gaps.md."
+        },
+        "responsiveDeviceInventory": {
+          "pullRequest": "https://github.com/adea-ai/adea/pull/767",
+          "mergeCommit": "1ecc3d7fa5648094f8292d2c20d6deba3187c817",
+          "status": "merged; required_current_head_CI_passed",
+          "contract": "Native inventory includes the process-free adea:responsive entry. A real Android AVD named responsive remains an Android entry; host collisions with the reserved ID fail closed.",
+          "authority": "Signed production channel verifies account/workspace/runtime-node scope and expected device resource generation for list/start/session-list/stop.",
+          "tests": [
+            "apps/desktop/tests/dev-runtime-devices.test.ts",
+            "apps/desktop/tests/dev-runtime-devices-engine.test.ts"
+          ],
+          "remaining": "This does not prove device pixel streaming, viewport/preset application, all SDK/platform capability paths or packaged acceptance. Opaque-ID platform inference and duplicate host IDs are under a separate regression investigation."
+        },
+        "readiness": "Full donor-unit review, shared chrome extraction, actual native visual actions and packaged evidence remain separate pending stages."
+      }
     },
     {
       "id": "423-github",
