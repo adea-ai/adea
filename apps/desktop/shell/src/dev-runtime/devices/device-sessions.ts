@@ -16,6 +16,20 @@ import { DeviceSessionError, emulatorBootArgv, simctlBootArgv } from './inventor
 
 export { DeviceSessionError }
 
+/** Reserved host-owned inventory identity for the process-free responsive lane. */
+export const RESPONSIVE_DEVICE_INVENTORY_ID = 'adea:responsive'
+
+/** Host inventory IDs must never shadow the synthetic responsive inventory row. */
+export function assertNoResponsiveInventoryIdCollision(
+  items: readonly DeviceInventoryItem[]
+): void {
+  if (items.some((item) => item.id === RESPONSIVE_DEVICE_INVENTORY_ID))
+    throw new DeviceSessionError(
+      'identity_mismatch',
+      `verified host inventory uses reserved id ${RESPONSIVE_DEVICE_INVENTORY_ID}`
+    )
+}
+
 // ── Session registry ────────────────────────────────────────────────────────
 
 export type DeviceProcessIdentity = Readonly<{
@@ -95,7 +109,7 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
         id: randomId(),
         scope,
         runtimeSessionId,
-        inventoryId: 'responsive',
+        inventoryId: RESPONSIVE_DEVICE_INVENTORY_ID,
         inventoryLabel: 'Responsive viewport',
         kind: 'responsive',
         state: 'attached',
@@ -124,6 +138,7 @@ export function createDeviceSessionRegistry(options: DeviceSessionRegistryOption
       session: DeviceSessionRecord
       launch: Readonly<{ argv: readonly string[]; executable: string; inventoryId: string }>
     }> {
+      assertNoResponsiveInventoryIdCollision(input.inventory.items)
       const item = input.inventory.items.find((entry) => entry.id === input.inventoryId)
       if (!item)
         throw new DeviceSessionError(

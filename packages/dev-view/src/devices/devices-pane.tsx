@@ -19,7 +19,7 @@ import {
   type ResponsiveOrientation,
   type ResponsivePresetId,
 } from '../browser/responsive-presets'
-import { groupDeviceInventory } from './device-model'
+import { findResponsiveInventoryItem, groupDeviceInventory } from './device-model'
 import '../browser/browser-pane.css'
 
 export type DeviceInventoryPage = { items: readonly DeviceInventoryItem[] }
@@ -84,9 +84,7 @@ export function DevicesPane(props: { runtime: DevRuntimeService; runtimeSessionI
     }
     // The responsive row is an inventory entry like any other: it needs the
     // same resource binding and generation, not a hardcoded id and no binding.
-    const responsive = (inventory()?.items ?? []).find(
-      (entry: { id: string; generation: number }) => entry.id === 'responsive'
-    )
+    const responsive = findResponsiveInventoryItem(inventory()?.items ?? [])
     if (!responsive) {
       setError('the responsive device inventory entry is not available')
       return

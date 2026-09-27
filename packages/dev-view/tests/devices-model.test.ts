@@ -1,7 +1,7 @@
 // Devices pane model: inventory grouping with typed capability guidance.
 import { describe, expect, test } from 'bun:test'
 
-import { groupDeviceInventory } from '../src/devices/device-model'
+import { findResponsiveInventoryItem, groupDeviceInventory } from '../src/devices/device-model'
 
 const item = (
   overrides: Partial<{ id: string; kind: string; name: string; state: string }> = {}
@@ -9,13 +9,25 @@ const item = (
   id: overrides.id ?? 'udid-1',
   kind: (overrides.kind ?? 'ios_simulator') as never,
   name: overrides.name ?? 'iPhone 16',
-  platform: overrides.kind === 'android_emulator' ? 'android' : 'ios',
+  platform:
+    overrides.kind === 'android_emulator'
+      ? 'android'
+      : overrides.kind === 'responsive'
+        ? 'responsive'
+        : 'ios',
   state: (overrides.state ?? 'available') as never,
   generation: 0,
   observedAt: '2026-09-18T12:00:00.000Z',
 })
 
 describe('device inventory grouping', () => {
+  test('responsive inventory lookup uses kind when a host ID resembles the old responsive ID', () => {
+    const android = item({ id: 'responsive', kind: 'android_emulator' })
+    const responsive = item({ id: 'adea:responsive', kind: 'responsive' })
+
+    expect(findResponsiveInventoryItem([android, responsive])).toBe(responsive)
+  })
+
   test('responsive ships first; iOS and Android lists follow', () => {
     const groups = groupDeviceInventory(
       [item(), item({ id: 'emulator-5554', kind: 'android_emulator', name: 'Pixel_8' })],

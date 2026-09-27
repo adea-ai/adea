@@ -5,7 +5,7 @@
 // scripted runner keeps every case deterministic in CI.
 import { describe, expect, test } from 'bun:test'
 
-import type { DevCommand } from '../../../packages/types/src/dev-runtime'
+import type { DevCommand, DeviceInventoryItem } from '../../../packages/types/src/dev-runtime'
 import { devOperationDefinitions } from '../../../packages/types/src/dev-runtime'
 
 import { createDeviceSessionRegistry } from '../shell/src/dev-runtime/devices/device-sessions'
@@ -269,13 +269,19 @@ function deviceCommand(
   }
 }
 
-function providersHarness(engine: DeviceEngine | undefined) {
+function providersHarness(
+  engine: DeviceEngine | undefined,
+  inventoryItems: Readonly<{
+    ios?: readonly DeviceInventoryItem[]
+    android?: readonly DeviceInventoryItem[]
+  }> = {}
+) {
   const sessions = createDeviceSessionRegistry({
     // The registrar wires the same probe: stop re-checks the launch identity
     // through the engine (device-scoped for iOS, pid-live for Android).
     probeProcess: (identity) => (engine ? engine.probe(identity) : identity.pid > 0),
   })
-  const inventory = sessions.setInventory([
+  const iosItems = inventoryItems.ios ?? [
     {
       id: UDID,
       kind: 'ios_simulator',
@@ -283,7 +289,10 @@ function providersHarness(engine: DeviceEngine | undefined) {
       platform: 'ios',
       state: 'available',
       generation: 3,
+      observedAt: '2026-09-27T00:00:00.000Z',
     },
+  ]
+  const androidItems = inventoryItems.android ?? [
     {
       id: 'Pixel_Tablet',
       kind: 'android_emulator',
@@ -291,12 +300,17 @@ function providersHarness(engine: DeviceEngine | undefined) {
       platform: 'android',
       state: 'available',
       generation: 3,
+      observedAt: '2026-09-27T00:00:00.000Z',
     },
-  ])
+  ]
+  const allItems = [...iosItems, ...androidItems]
+  const observed = sessions.setInventory(allItems)
+  const iosInventory = { items: iosItems, observedAt: observed.observedAt }
+  const androidInventory = { items: androidItems, observedAt: observed.observedAt }
   const store = createScreenshotStore({ scope })
   const { providers } = createDeviceProviders({
     sessions,
-    verifiedInventory: () => ({ ios: inventory, android: inventory }),
+    verifiedInventory: () => ({ ios: iosInventory, android: androidInventory }),
     iosInputHint: 'simctl exposes no tap',
     ...(engine ? { engine } : {}),
     screenshotRecorder: store,
@@ -343,7 +357,7 @@ describe('device providers with a live engine', () => {
       items: { id: string; kind: string; generation: number; state: string }[]
     }
     const responsive = page.items.find((item) => item.kind === 'responsive')
-    expect(responsive).toMatchObject({ id: 'responsive', generation: 1, state: 'available' })
+    expect(responsive).toMatchObject({ id: 'adea:responsive', generation: 1, state: 'available' })
     const session = await providers['dev.device.start']!(
       deviceCommand('dev.device.start', {
         inventoryId: responsive!.id,
@@ -351,7 +365,7 @@ describe('device providers with a live engine', () => {
         runtimeSessionId: sessionId,
       })
     )
-    expect(session).toMatchObject({ inventoryId: 'responsive', state: 'attached', scope })
+    expect(session).toMatchObject({ inventoryId: 'adea:responsive', state: 'attached', scope })
     const limited = providers['dev.device.list']!(
       deviceCommand('dev.device.list', { limit: 1 })
     ) as { items: { kind: string }[] }
@@ -367,12 +381,121 @@ describe('device providers with a live engine', () => {
     await expect(
       providers['dev.device.start']!(
         deviceCommand('dev.device.start', {
-          inventoryId: 'responsive',
+          inventoryId: 'adea:responsive',
           expectedGeneration: 2,
           runtimeSessionId: sessionId,
         })
       )
     ).rejects.toMatchObject({ code: 'stale_generation' })
+  })
+
+  test('an Android AVD named responsive still starts through the Android launch path', async () => {
+    const launches: Array<Parameters<DeviceEngine['executeLaunch']>[0]> = []
+    const engine: DeviceEngine = {
+      ...fakeDeviceEngine,
+      executeLaunch: async (launch) => {
+        launches.push(launch)
+        return fakeDeviceEngine.executeLaunch(launch)
+      },
+    }
+    const { providers } = providersHarness(engine, {
+      ios: [],
+      android: [
+        {
+          id: 'responsive',
+          kind: 'android_emulator',
+          name: 'responsive',
+          platform: 'android',
+          state: 'available',
+          generation: 1,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+    })
+    const page = providers['dev.device.list']!(deviceCommand('dev.device.list', {})) as {
+      items: { id: string; kind: string; generation: number }[]
+    }
+    const avd = page.items.find(
+      (item) => item.id === 'responsive' && item.kind === 'android_emulator'
+    )
+    expect(page.items.filter((item) => item.id === 'responsive')).toHaveLength(1)
+    const session = (await providers['dev.device.start']!(
+      deviceCommand('dev.device.start', {
+        inventoryId: avd!.id,
+        expectedGeneration: avd!.generation,
+        runtimeSessionId: sessionId,
+      })
+    )) as { inventoryId: string; kind: string; state: string; startedByAdea: boolean }
+
+    expect(session).toMatchObject({
+      inventoryId: 'responsive',
+      kind: 'android_emulator',
+      state: 'attached',
+      startedByAdea: true,
+    })
+    expect(launches).toHaveLength(1)
+    expect(launches[0]).toMatchObject({
+      executable: 'emulator',
+      inventoryId: 'responsive',
+      platform: 'android',
+    })
+  })
+
+  test('reserved responsive inventory ID collisions fail closed in list', () => {
+    const { providers } = providersHarness(undefined, {
+      ios: [],
+      android: [
+        {
+          id: 'adea:responsive',
+          kind: 'android_emulator',
+          name: 'malformed AVD collision',
+          platform: 'android',
+          state: 'available',
+          generation: 1,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(
+      thrownCode(() => providers['dev.device.list']!(deviceCommand('dev.device.list', {})))
+    ).toBe('identity_mismatch')
+  })
+
+  test('reserved responsive inventory ID collisions fail closed in start', async () => {
+    const launches: Array<Parameters<DeviceEngine['executeLaunch']>[0]> = []
+    const engine: DeviceEngine = {
+      ...fakeDeviceEngine,
+      executeLaunch: async (launch) => {
+        launches.push(launch)
+        return fakeDeviceEngine.executeLaunch(launch)
+      },
+    }
+    const { providers } = providersHarness(engine, {
+      ios: [],
+      android: [
+        {
+          id: 'adea:responsive',
+          kind: 'android_emulator',
+          name: 'malformed AVD collision',
+          platform: 'android',
+          state: 'available',
+          generation: 1,
+          observedAt: '2026-09-27T00:00:00.000Z',
+        },
+      ],
+    })
+
+    await expect(
+      providers['dev.device.start']!(
+        deviceCommand('dev.device.start', {
+          inventoryId: 'adea:responsive',
+          expectedGeneration: 1,
+          runtimeSessionId: sessionId,
+        })
+      )
+    ).rejects.toMatchObject({ code: 'identity_mismatch' })
+    expect(launches).toHaveLength(0)
   })
 
   test('session listing stays inside the command account, workspace and runtime node', () => {
