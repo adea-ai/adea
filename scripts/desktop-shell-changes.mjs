@@ -10,6 +10,7 @@ const desktopPaths = [
   /^apps\/web\/src\/components\/version-dialog\.tsx$/,
   /^scripts\/desktop-[^/]+\.test\.ts$/,
   /^scripts\/check-desktop-origins\.mjs$/,
+  /^scripts\/check-desktop-client-browser\.mjs$/,
   /^scripts\/test-suite-boundary\.test\.ts$/,
   /^scripts\/desktop-shell-changes\.mjs$/,
   /^bun\.lock$/,

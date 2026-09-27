@@ -14,4 +14,7 @@ full desktop bootstrap requires the canonical desktop build and cloud origin.
 `bun run test:browser:desktop-client` builds that client and checks entry/retry
 with a synthetic bridge on an isolated loopback server. It does not certify
 native authority, a real PTY, or cloud bootstrap.
+The Desktop shell CI lane runs the same artifact smoke on desktop changes;
+its change selector includes the smoke script itself. The check also rejects
+test-terminal code in the packaged desktop module evidence.
 `start:check-bundle` verifies the web output excludes those native-only modules.

@@ -40,7 +40,7 @@
     "test:soak": "bun run test:soak:dev-runtime",
     "test:scale:dev-runtime": "bun scripts/test-dev-runtime-scale.mjs",
     "test:scale": "bun run test:scale:dev-runtime",
-    "test:browser:desktop-client": "bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
+    "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

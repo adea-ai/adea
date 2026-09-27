@@ -8,6 +8,21 @@ import { chromium, expect } from '@playwright/test'
 
 const client = fileURLToPath(new URL('../apps/web/dist-desktop/client/', import.meta.url))
 await readFile(resolve(client, 'index.html')) // Missing artifact is a failure, never a skip.
+const evidenceRoot = new URL('../apps/web/dist-desktop/.checks/', import.meta.url)
+const modules = JSON.parse(await readFile(new URL('client-modules.json', evidenceRoot), 'utf8'))
+const renderedModules = JSON.parse(
+  await readFile(new URL('client-rendered-modules.json', evidenceRoot), 'utf8')
+)
+expect(Array.isArray(modules) && modules.length > 0).toBe(true)
+expect(modules.every((id) => typeof id === 'string')).toBe(true)
+expect(Array.isArray(renderedModules) && renderedModules.length > 0).toBe(true)
+expect(renderedModules.every((id) => typeof id === 'string' && modules.includes(id))).toBe(true)
+expect(renderedModules.some((id) => id.endsWith('/terminal/fixture-terminal-pane.tsx'))).toBe(false)
+for (const component of ['desktop-workspace-entry', 'desktop-first-run-chat']) {
+  expect(
+    renderedModules.some((id) => id.endsWith(`/apps/web/src/components/${component}.tsx`))
+  ).toBe(true)
+}
 const contentTypes = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -92,10 +107,13 @@ try {
   expect(errors).toEqual([])
   console.log('PASS: packaged native entry loaded once; refused bootstrap retries without remount')
 } finally {
-  await browser?.close()
-  await new Promise((complete) => {
-    server.close(complete)
-    server.closeAllConnections()
-  })
-  console.log('Owned packaged-client fixture closed')
+  try {
+    await browser?.close()
+  } finally {
+    await new Promise((complete) => {
+      server.close(complete)
+      server.closeAllConnections()
+    })
+    console.log('Owned packaged-client fixture closed')
+  }
 }
