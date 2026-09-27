@@ -27,6 +27,7 @@ on:
       - 'apps/web/src/components/workspace-navigation*.tsx'
       - 'apps/web/src/components/version-dialog.tsx'
       - 'scripts/desktop-*.test.ts'
+      - 'scripts/desktop-shell-changes.mjs'
       - 'scripts/check-desktop-origins.mjs'
       - 'scripts/test-suite-boundary.test.ts'
       - '.github/workflows/desktop-shell.yml'
@@ -61,33 +62,16 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: read
     steps:
-      - name: Detect desktop changes
-        id: changes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            echo "desktop=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[].filename')"
-          if grep -qE '^(apps/desktop/|apps/web/(vite\.desktop\.config\.ts|src/lib/desktop-.*\.ts|src/components/(desktop-.*\.tsx|workspace-navigation.*\.tsx|version-dialog\.tsx))|scripts/(desktop-[a-z-]*\.test\.ts|check-desktop-origins\.mjs|test-suite-boundary\.test\.ts)$|bun\.lock$|\.github/workflows/desktop-shell\.yml$)' <<< "$changed"; then
-            echo "desktop=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "desktop=false" >> "$GITHUB_OUTPUT"
-            echo "No desktop changes in this pull request; the desktop steps are skipped."
-          fi
-
-      - name: Checkout
-        if: steps.changes.outputs.desktop == 'true'
+      - name: Checkout event commits for the immutable diff
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
+
+      - name: Detect desktop changes
+        id: changes
+        run: node scripts/desktop-shell-changes.mjs
 
       - name: Install Bun
         if: steps.changes.outputs.desktop == 'true'
@@ -131,6 +115,8 @@ jobs:
         run: |
           set -euo pipefail
           bun test \
+            --timeout 30000 \
+            scripts/desktop-shell-changes.test.ts \
             scripts/desktop-boot-boundary.test.ts \
             scripts/desktop-ipc-boundary.test.ts \
             scripts/desktop-auth-boundary.test.ts \

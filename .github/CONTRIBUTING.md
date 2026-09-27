@@ -215,7 +215,10 @@ A required check must report on **every** pull request, so `Desktop shell` runs
 unconditionally: it detects whether the desktop workspace changed and skips the
 build steps when it did not, concluding successfully in seconds. Requiring a
 path-filtered workflow instead would leave every pull request that touches none
-of its paths waiting for a check that never runs.
+of its paths waiting for a check that never runs. The selector compares the
+immutable event commit trees with rename detection disabled, so deleting or
+renaming a matched desktop input still runs the gate. If the event refs cannot
+be validated or read, it runs the full desktop checks.
 
 Draft pull requests do not start validation unless `draft_protection: false` is configured. The lightweight Draft Guard converts ordinary pull requests opened or reopened while ready back to draft; it never checks out pull-request code and it excludes Release Please version heads, whose release workflow owns their state. Marking a pull request ready for review starts the applicable validation tier, and each new commit on a ready pull request reruns that tier for the current head. Draft updates allocate no validation runner while protection is enabled. Converting a pull request to draft runs only the lightweight cancellation control.
 
