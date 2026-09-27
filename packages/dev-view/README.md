@@ -9,6 +9,10 @@ behind the authenticated Dev Runtime contracts in `@adea-ai/types/dev-runtime`.
 The default service is intentionally unavailable; it never fabricates runtime
 data or treats the generic desktop invoke bridge as authorization.
 
+The sidebar's Add Project form loads on first open. Collapsing it afterward
+keeps the form mounted, preserving its scan, confirmation, and group draft
+without repeating the initial authorized-root/group requests.
+
 Normative design and implementation constraints are in:
 
 - [`../../docs/specs/dev-runtime.md`](../../docs/specs/dev-runtime.md)

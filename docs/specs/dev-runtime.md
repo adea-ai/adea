@@ -2443,6 +2443,12 @@ authenticated GitHub selection, monorepo package, and known external worktree.
 It displays host, canonical identity, duplicate state, and authorization before
 mutation.
 
+The contextual sidebar's Add Project disclosure loads its form and requests
+authorized roots/groups only when first opened. After that first open, collapsing
+the disclosure preserves the mounted form's scan results, confirmations, and
+group draft; reopening does not repeat those initial requests. Closing the
+disclosure never imports projects or runs bootstrap commands.
+
 Scanner defaults:
 
 - parse declared workspaces/config rather than every `package.json`;
