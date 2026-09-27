@@ -13,3 +13,10 @@ calls its host-owned `onOpenSearch` action, so the host can open Chat search or
 focus the App Library search when Chat is disabled. Workspace selection uses
 the published dropdown radio menu: arrow keys move between workspaces, Enter
 selects one, and Escape closes the menu and restores focus to its trigger.
+
+## Loading state
+
+`WorkspaceSkeleton` renders six published `Skeleton` controls with app-owned
+layout sizing. Their decorative bars stay hidden from assistive technology;
+the labelled busy container describes the loading state. Motion uses the
+shared reduced-motion contract.

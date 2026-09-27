@@ -1,6 +1,7 @@
 import { AlertTriangle, Inbox, RefreshCw } from 'lucide-solid'
 import { For, Show, type JSX } from 'solid-js'
 import { ApiClientError } from '@adea-ai/api-client'
+import { Skeleton } from '@adea-ai/ui/components/ui/skeleton'
 
 export function WorkspaceSkeleton(props: { label?: string }) {
   return (
@@ -9,7 +10,9 @@ export function WorkspaceSkeleton(props: { label?: string }) {
       aria-busy="true"
       aria-label={props.label ?? 'Loading workspace'}
     >
-      <For each={Array.from({ length: 6 })}>{() => <span />}</For>
+      <For each={Array.from({ length: 6 })}>
+        {() => <Skeleton class="conventional-skeleton__bar" />}
+      </For>
     </div>
   )
 }

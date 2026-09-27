@@ -2657,17 +2657,14 @@
   border-radius: 0.4rem;
   background: var(--cw-surface);
 }
-.conventional-skeleton > div {
+.conventional-skeleton__bar {
   width: min(26rem, 75vw);
   height: 0.8rem;
-  border-radius: 999px;
-  background: var(--cw-surface-muted);
-  animation: conventional-pulse 1.5s ease-in-out infinite;
 }
-.conventional-skeleton > div:nth-child(2) {
+.conventional-skeleton__bar:nth-child(2) {
   width: min(20rem, 60vw);
 }
-.conventional-skeleton > div:nth-child(3) {
+.conventional-skeleton__bar:nth-child(3) {
   width: min(23rem, 68vw);
 }
 .visually-hidden {
