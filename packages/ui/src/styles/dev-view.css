@@ -458,11 +458,6 @@
   font-size: 0.75rem;
 }
 
-.workspace-frame:has(.dev-workspace--focus) {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.workspace-frame:has(.dev-workspace--focus) > .global-rail,
 .dev-workspace--focus .dev-sidebar,
 .dev-workspace--focus .dev-utility,
 .dev-workspace--focus .dev-utility-splitter {
@@ -694,4 +689,19 @@
   font-size: 0.8125rem;
   line-height: 1.5;
   color: var(--dev-muted);
+}
+
+/* Context navigation collapses at desktop widths as well as in its drawer. */
+@media (min-width: 48.001rem) {
+  .dev-sidebar:not(.dev-sidebar--open) {
+    display: none;
+  }
+}
+.workspace-frame .dev-sidebar-toggle {
+  display: none;
+}
+
+/* Dedicated Source control retains the common contextual project sidebar. */
+.dev-workspace--source-control-app .dev-sidebar.dev-sidebar--open {
+  display: flex;
 }

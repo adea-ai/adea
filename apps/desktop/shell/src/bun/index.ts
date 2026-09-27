@@ -505,6 +505,8 @@ if (!server) {
 // oxlint-disable-next-line no-new
 new BrowserWindow({
   title: 'Adea',
+  // The client draws themed chrome; native macOS controls remain native.
+  titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
   url: `http://127.0.0.1:${PORT}/`,
   frame: { width: 1280, height: 840, x: 120, y: 90 },
 })

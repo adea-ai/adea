@@ -10,6 +10,7 @@ import '../globals.css'
  * deep links survive a view or scene switch.
  */
 export type WorkspaceSearch = {
+  app?: 'kanban' | 'source-control' | 'library'
   channel?: string
   /** Development-only ChatView visual fixture selector (#536 evidence lane). */
   chatE2e?: string

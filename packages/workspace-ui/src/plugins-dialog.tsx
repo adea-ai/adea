@@ -684,7 +684,7 @@ export function PluginsDialog(props: {
       description="Browse and manage apps, providers, and skills available to your agents."
       onClose={close}
       open={props.open}
-      title="App Library"
+      title="Plugins"
     >
       <Show
         when={selected()}
@@ -695,7 +695,7 @@ export function PluginsDialog(props: {
             value={tab()}
             onChange={(value) => value && setTab(value as PluginTab)}
           >
-            <TabsList variant="line" aria-label="App Library view" class="plugins-browser__tabs">
+            <TabsList variant="line" aria-label="Plugins view" class="plugins-browser__tabs">
               <TabsTrigger value="marketplace">Discover</TabsTrigger>
               <TabsTrigger value="yours">Installed</TabsTrigger>
               <Show when={props.navigation}>

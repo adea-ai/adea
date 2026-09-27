@@ -131,7 +131,9 @@ test.describe('appearance', () => {
     await hex.fill('not-a-color')
     await hex.blur()
     await expect(hex).toHaveValue('not-a-color')
-    await expect(editor(panel).getByText('“not-a-color” is not a hex color such as #2563eb.')).toBeVisible()
+    await expect(
+      editor(panel).getByText('“not-a-color” is not a hex color such as #2563eb.')
+    ).toBeVisible()
 
     await hex.fill('#2563eb')
     await hex.blur()
@@ -158,7 +160,9 @@ test.describe('appearance', () => {
     const panel = await openAppearance(page)
     await panel.getByRole('switch', { name: 'Reduce transparency' }).press('Space')
     await expect(page.locator('html')).toHaveAttribute('data-reduce-transparency', 'true')
-    await expect(panel.getByText('Prefer solid surfaces, including during live preview.')).toBeVisible()
+    await expect(
+      panel.getByText('Prefer solid surfaces, including during live preview.')
+    ).toBeVisible()
     await panel.getByRole('button', { name: 'Save' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-reduce-transparency', 'true')
   })
@@ -205,88 +209,43 @@ test.describe('appearance', () => {
   })
 })
 
-async function openNavigationTab(page: Page) {
-  const rail = page.getByRole('navigation', { name: 'Global navigation' })
-  const library = page.getByRole('dialog', { name: 'App Library' })
-  // The App Library panel is code-split and fetched on first open. A cold dev
-  // server transforms that chunk on demand and may re-run the dependency
-  // optimizer mid-import, which can outlive the default expect timeout or
-  // reload the page and drop the panel state — so retry the open until the
-  // panel settles instead of trusting a single click.
-  await expect(async () => {
-    await rail.getByRole('button', { name: 'App Library' }).click()
-    await expect(library).toBeVisible()
-  }).toPass({ timeout: 30_000 })
-  await library.getByRole('tab', { name: /Navigation/ }).click()
-  return { rail, library }
-}
-
-test.describe('rail customization', () => {
-  // The first rail test after a cold dev-server boot also pays for the
-  // on-demand module transforms of the whole workspace shell (the page
-  // navigation alone can take half a minute), which does not fit the default
-  // per-test budget.
-  test.setTimeout(180_000)
-
+test.describe('App Library navigation', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      window.localStorage.removeItem('adea:rail-preferences:v1')
+      if (sessionStorage.getItem('adea:library-scenario') === '1') return
+      localStorage.removeItem('adea:rail-preferences:v1')
+      sessionStorage.setItem('adea:library-scenario', '1')
     })
     await page.goto('/?view=chat')
-    await expect(page.getByRole('main')).toBeVisible()
   })
 
-  test('optional views hide, stay recoverable, and Reset Navigation restores them', async ({
-    page,
-  }) => {
+  test('disabled views remain recoverable through the separate Library', async ({ page }) => {
     const rail = page.getByRole('navigation', { name: 'Global navigation' })
-    // The rail renders once the workspace shell hydrates; on a cold dev server
-    // the shell's on-demand module transforms can push that past half a minute
-    // (60s matches the boot-latency budget the other specs use for rail waits).
-    await expect(rail.getByRole('button', { name: 'Virtual view' })).toBeVisible({
-      timeout: 60_000,
-    })
-
-    let { library } = await openNavigationTab(page)
-    const virtualRow = library
-      .getByRole('listitem')
-      .filter({ has: page.getByText('Virtual view', { exact: true }) })
-    await virtualRow.getByRole('checkbox').uncheck()
-    await expect(virtualRow.getByRole('checkbox')).not.toBeChecked()
-
-    await library.getByRole('button', { name: 'Reset Navigation' }).click()
-    await expect(virtualRow.getByRole('checkbox')).toBeChecked()
-    await page.keyboard.press('Escape')
-    await expect(library).toBeHidden()
-
-    // Hide Dev for real this time, then prove it is recoverable.
-    ;({ library } = await openNavigationTab(page))
-    const devRow = library
-      .getByRole('listitem')
-      .filter({ has: page.getByText('Dev view', { exact: true }) })
-    await devRow.getByRole('checkbox').uncheck()
-    await page.keyboard.press('Escape')
-    await expect(library).toBeHidden()
-    await expect(rail.getByRole('button', { name: 'Dev view' })).toBeHidden()
-
-    ;({ library } = await openNavigationTab(page))
-    await devRow.getByRole('checkbox').check()
-    await page.keyboard.press('Escape')
-    await expect(library).toBeHidden()
-    await expect(rail.getByRole('button', { name: 'Dev view' })).toBeVisible()
+    await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+    const library = page.getByRole('main', { name: 'App Library' })
+    await library.getByRole('button', { name: 'Disable Dev', exact: true }).click()
+    await expect(rail.getByRole('button', { name: 'Dev view', exact: true })).toHaveCount(0)
+    await page.reload()
+    await expect(library.getByRole('button', { name: 'Enable Dev', exact: true })).toBeVisible()
+    await library.getByRole('button', { name: 'Enable Dev', exact: true }).click()
+    await expect(rail.getByRole('button', { name: 'Dev view', exact: true })).toBeVisible()
   })
 
-  test('the active view cannot disappear even when its entry is hidden', async ({ page }) => {
+  test('a disabled requested view selects an enabled destination', async ({ page }) => {
     const rail = page.getByRole('navigation', { name: 'Global navigation' })
-    const { library } = await openNavigationTab(page)
-    const chatRow = library
-      .getByRole('listitem')
-      .filter({ has: page.getByText('Chat view', { exact: true }) })
-    await chatRow.getByRole('checkbox').uncheck()
-    await page.keyboard.press('Escape')
-    await expect(library).toBeHidden()
-    // Chat is the active view; the rail keeps it rendered.
-    await expect(rail.getByRole('button', { name: 'Chat view' })).toBeVisible()
+    await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+    const library = page.getByRole('main', { name: 'App Library' })
+    await library.getByRole('button', { name: 'Disable Chat', exact: true }).click()
+    await page.goto('/?view=chat')
+    await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+    await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+    await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+    await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
+    await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
   })
 })
 

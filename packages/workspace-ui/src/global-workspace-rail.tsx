@@ -12,6 +12,8 @@ import {
   BriefcaseBusiness,
   Code2,
   Home,
+  LayoutGrid,
+  GitBranch,
   Map,
   MessageSquareText,
   Plug,
@@ -22,17 +24,22 @@ import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from
 import { AccountMenu } from './account-menu'
 import { keyedRows } from './keyed-rows'
 import type { WorkspaceView } from './workspace-view-toggle'
+import type { WorkspaceAppId } from './workspace-apps'
 
 const VIEW_ICONS: Record<string, typeof Home> = {
   virtual: Map,
   chat: MessageSquareText,
   dev: Code2,
+  kanban: LayoutGrid,
+  'source-control': GitBranch,
 }
 
 const VIEW_LABELS: Record<string, string> = {
   virtual: 'Virtual view',
   chat: 'Chat view',
   dev: 'Dev view',
+  kanban: 'Kanban',
+  'source-control': 'Source control',
 }
 
 type RailActionProps = {
@@ -84,19 +91,21 @@ export function GlobalWorkspaceRail(props: {
   }>
   activeWorkspace?: WorkspaceSummary
   /** The visible view entries, already ordered and filtered by rail preferences. */
-  views: readonly WorkspaceView[]
+  views: readonly WorkspaceAppId[]
   onOpenNotifications: () => void
   onOpenAbout: () => void
   onOpenPlugins: () => void
+  onOpenAppLibrary: () => void
+  libraryActive?: boolean
   onOpenSearch: () => void
   onOpenSettings: () => void
   onWorkspaceChange: (workspace: WorkspaceSummary) => void
-  onViewChange: (view: WorkspaceView) => void
+  onViewChange: (view: WorkspaceAppId) => void
   /** Fires when the user hovers or focuses a view button — prefetch the target. */
   onViewIntent?: (view: WorkspaceView) => void
   /** Fires on hover/focus of a panel's entry point — prefetch its dialog chunk. */
   onPanelIntent?: (panel: 'about' | 'plugins' | 'settings') => void
-  view: WorkspaceView
+  view: WorkspaceAppId
   workspaces: readonly WorkspaceSummary[]
 }) {
   const activeWorkspaceLabel = () => props.activeWorkspace?.name ?? 'Loading'
@@ -209,11 +218,20 @@ export function GlobalWorkspaceRail(props: {
                   icon={Icon}
                   label={VIEW_LABELS[view] ?? view}
                   onClick={() => props.onViewChange(view)}
-                  onIntent={() => props.onViewIntent?.(view)}
+                  onIntent={() => {
+                    if (view === 'virtual' || view === 'chat' || view === 'dev')
+                      props.onViewIntent?.(view)
+                  }}
                 />
               )
             }}
           </For>
+          <RailAction
+            icon={LayoutGrid}
+            label="App Library"
+            active={props.libraryActive}
+            onClick={props.onOpenAppLibrary}
+          />
           <RailAction
             disabled
             icon={Bell}
@@ -226,7 +244,7 @@ export function GlobalWorkspaceRail(props: {
           <RailAction
             disabled={!props.activeWorkspace}
             icon={Plug}
-            label="App Library"
+            label="Plugins"
             onClick={props.onOpenPlugins}
             onIntent={() => props.onPanelIntent?.('plugins')}
           />

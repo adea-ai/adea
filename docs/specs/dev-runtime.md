@@ -1340,8 +1340,12 @@ output; it does not create another transcript or session authority.
 Inline approval/question and terminal-jump controls use published shared Button
 and Input primitives; runtime event projection and authorized response callbacks
 remain application-owned.
-The mounted transcript restores that snapshot and reports scrolling and cleanup
-through the host callback, carrying the immutable mounted session identity.
+The mounted transcript uses the published shared ConversationSurface to restore
+that snapshot and report native scrolling and cleanup through the host callback,
+carrying the immutable mounted session identity. Shared follow intent stops on
+upward reader movement even inside the jump-control visibility threshold; new
+events preserve the parked offset until the reader explicitly resumes following.
+The jump control returns to the latest event and focuses the native transcript.
 During append-only streaming, existing transcript row DOM nodes stay mounted so
 the live region adds only the new row instead of replaying prior announcements.
 Chat attaches an existing session by walking the legal paged
@@ -3733,18 +3737,45 @@ Theme imports are deferred until signed App Library support and require a known
 license/provenance or explicit `unknown/unverified`; “User supplied” does not
 prove redistribution permission.
 
-M12 App Library can activate only a bundled first-party entry ID after existing
-catalog signature/digest/install-plan checks. Trust resolves through a
-**compiled** trusted first-party entry registry — the build's own list of
-shipped entry IDs, each bound to the view it mounts and carrying a build-time
-entry digest the catalog record must echo verbatim. An arbitrary non-empty
-`bundledEntryId` from a plugin manifest is never trusted by itself. Activation
-is fail-closed and ordered: installation, registry membership
-(`untrusted-entry`), entry-digest integrity (`integrity-failure`), verified
-install-plan shape (`plan-unverified`), and catalog source revision (`stale`).
+The workspace shell has one themed top bar, built from the published `TopBar`.
+On macOS the pinned Electrobun window uses `hiddenInset`: native close,
+minimize and expand controls stay native while the client uses their row.
+Interactive controls opt out of the drag region. Back/Forward use the host
+router's guarded history and only advertise proven router positions; a push
+truncates the Forward branch. A tab-local watermark survives reloads but is
+collapsed after an external or BFCache return. The left cluster controls the
+contextual sidebar; Dev's existing utility controls mount in the right cluster.
+The outer rail remains visible in every view, including focus mode. Virtual
+has its own contextual room navigation, independent of engine entitlement.
+
+[Owner correction #757](../research/shell-app-library-owner-corrections.md)
+separates **App Library** from the external **Plugins** marketplace. Library is
+an always-reachable full-screen destination directly below the rail's app
+icons. Virtual, Chat and Dev are bundled and enabled by default. Kanban and
+Source control are compiled optional destinations, enabled explicitly. Kanban
+mounts the existing task board through a route-scoped surface without changing
+the previous Chat surface. Library retains rail reorder and reset controls.
+Source control projects the selected runtime
+session into the existing source-control surface at full width, without
+rewriting the Dev pane preferences. Code browsing remains available in Dev.
+
+Enablement reuses the versioned rail order/hidden record, preserving unknown
+IDs and quarantined data. An optional app is enabled only when its compiled
+ID is explicitly in that record's order and is not hidden. Disabling an active
+app resolves to another enabled app; if every app is disabled, Library remains
+available to re-enable them. Enablement never installs external code, deletes
+app data, replaces a RuntimeSession, or stops its harness. External metadata
+cannot register or retarget a workspace destination.
+
+The historical plugin contribution resolver remains fail-closed for its
+external catalog records: installation, compiled entry membership,
+entry-digest integrity, verified install-plan shape and source revision are
+still required. These external-plugin checks are not prerequisites for
+bundled app enablement. Installable community modules require an actual
+verified installation lifecycle before they may appear as usable destinations.
 No downloaded JS, `eval`, remote module URL, arbitrary postinstall, or empty
-placeholder view. Optional rail items can hide/reorder, but active/core
-Chat/Dev/Virtual remain recoverable via App Library or Reset Navigation.
+placeholder view is permitted. Cortana installation/activation remains
+unshipped scope; Library does not pretend a plugin installation enables it.
 
 ## macOS permissions onboarding
 

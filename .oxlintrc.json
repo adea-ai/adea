@@ -1,18 +1,10 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "jsPlugins": [
-    "@shadcn/lint"
-  ],
+  "jsPlugins": ["@shadcn/lint"],
   "settings": {
     "shadcn": {
-      "ui": [
-        "@adea-ai/app-ui/components",
-        "@adea-ai/ui/components",
-        "@adea-ai/workspace-ui"
-      ],
-      "componentImports": [
-        "^#components/"
-      ],
+      "ui": ["@adea-ai/app-ui/components", "@adea-ai/ui/components", "@adea-ai/workspace-ui"],
+      "componentImports": ["^#components/"],
       "note": "Design-system rules cover both @adea-ai/app-ui (Adea legacy adapters) and @adea-ai/ui (published shared components). See packages/ui/src/styles/theme.css for colors."
     }
   },
@@ -82,7 +74,8 @@
           "__adeaAgentSim",
           "__adeaDesktop",
           "__adeaTerminalPaneHarness",
-          "__agentHqSound"
+          "__agentHqSound",
+          "__TSR_index"
         ]
       }
     ],
@@ -112,9 +105,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "packages/ui/src/components/**"
-      ],
+      "files": ["packages/ui/src/components/**"],
       "rules": {
         "shadcn/no-restyle": "off",
         "shadcn/no-arbitrary-values": "off",

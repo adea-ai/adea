@@ -33,7 +33,7 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(page.getByRole('button', { name: 'Open character designer' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open user menu for Sign in' })).toHaveCount(0)
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
-  await expect(page.locator('.workspace-topbar')).toHaveCount(0)
+  await expect(page.getByLabel('Workspace toolbar')).toBeVisible()
 
   const workspaceTrigger = page.getByRole('button', { name: /Switch workspace/ })
   await workspaceTrigger.click()

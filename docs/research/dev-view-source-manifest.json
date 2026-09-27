@@ -133,7 +133,10 @@
         "packages/dev-view/src/layout/**",
         "packages/dev-view/src/sidebar/dev-sidebar-shell.tsx",
         "packages/dev-view/src/sidebar/archive-shelf.tsx",
-        "packages/ui/src/styles/dev-view.css"
+        "packages/ui/src/styles/dev-view.css",
+        "apps/web/src/components/workspace-top-bar.tsx",
+        "apps/web/src/lib/workspace-history.ts",
+        "apps/web/test/workspace-history.test.ts"
       ],
       "units": [
         {
@@ -166,6 +169,15 @@
           "source": ["Muxy/Models/Workspace/SplitNode.swift"],
           "tests": ["Tests/MuxyTests/Models/Workspace/SplitNodeTests.swift"],
           "action": "Translate invariants and all applicable test cases to TypeScript. The shared model checkpoint reuses the existing Adea strict-binary adaptation; native TabArea/TerminalTab projection and geometry/rendering acceptance remain separate from pure operations. Translate the reviewed areaFrames fractional geometry to a Map keyed by opaque identity, retaining row/column offsets and exact node references while applying accepted 0.1\u20130.9 ratio repair. Native UI is not copied. Keep leaf DOM separate from changing branch-controller ancestry; prove owner/value/caret/focus retention in Chromium and WebKit."
+        },
+        {
+          "donor": "kirocrew",
+          "source": [
+            "website/src/lib/routeHistoryPosition.ts",
+            "website/src/components/NavHistoryArrows.tsx"
+          ],
+          "tests": ["website/src/test/NavHistoryArrows.test.tsx"],
+          "action": "Translate the proven history frontier and PUSH truncation algorithm to TanStack entry indices with instance-local Solid ownership and blocker-aware router traversal. Retain reload watermarks, invalidate BFCache restoration assumptions, and disable arrows when bookkeeping is invalid. Native window chrome is host-owned; this is not a completion claim for packaged native drag/window-control acceptance."
         }
       ]
     },

@@ -510,8 +510,11 @@ async function mockConnectedWorkspace(page: Page) {
   const mutableChannels = channels.map((channel) => ({ ...channel }))
 
   await page.addInitScript(() => {
-    localStorage.clear()
-    localStorage.setItem('theme', 'light')
+    if (!sessionStorage.getItem('adea:e2e-initialized')) {
+      localStorage.clear()
+      localStorage.setItem('theme', 'light')
+      sessionStorage.setItem('adea:e2e-initialized', 'true')
+    }
   })
   await page.route('**/api/workspaces/bootstrap', (route) =>
     route.fulfill({
@@ -797,7 +800,7 @@ test('toggles chat and virtual Room views without losing shared selection or dra
   )
 })
 
-test('keeps the App Library unavailable until workspace bootstrap completes', async ({ page }) => {
+test('keeps Plugins unavailable until workspace bootstrap completes', async ({ page }) => {
   let releaseBootstrap!: () => void
   const bootstrapBlocked = new Promise<void>((resolve) => {
     releaseBootstrap = resolve
@@ -815,7 +818,7 @@ test('keeps the App Library unavailable until workspace bootstrap completes', as
   })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  const pluginsButton = globalNavigation.getByRole('button', { name: 'App Library' })
+  const pluginsButton = globalNavigation.getByRole('button', { name: 'Plugins' })
   await expect(pluginsButton).toBeVisible()
   await expect(pluginsButton).toBeDisabled()
 
@@ -865,8 +868,8 @@ test('browses the verified registry marketplace and submits an exact install req
   })
   await page.goto('/?view=chat')
   const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
-  await globalNavigation.getByRole('button', { name: 'App Library' }).click()
-  const plugins = page.getByRole('dialog', { name: 'App Library' })
+  await globalNavigation.getByRole('button', { name: 'Plugins' }).click()
+  const plugins = page.getByRole('dialog', { name: 'Plugins' })
   await expect(plugins).toBeVisible()
   await expect(plugins.locator('.plugins-browser__count')).toHaveText(/^\d+ plugins$/)
 
@@ -1193,4 +1196,170 @@ test('the appearance section keeps the ported Zeron composition', async ({ page 
   // The three live mode cards: System renders the split light/dark miniature.
   await expect(panel.locator('[data-theme-miniature]')).toHaveCount(4)
   await expect(panel).toHaveScreenshot('appearance-panel-light.png', { animations: 'disabled' })
+})
+
+test('integrated chrome keeps the global rail while Virtual navigation collapses', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=virtual')
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await expect(toolbar).toBeVisible()
+  const navigation = page.getByRole('complementary', { name: 'Virtual navigation' })
+  await expect(navigation).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Collapse contextual sidebar' }).click()
+  await expect(navigation).toBeHidden()
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Expand contextual sidebar' }).click()
+  await expect(navigation).toBeVisible()
+  const bounds = await page.locator('.workspace-frame').evaluate((frame) => {
+    const bar = frame.querySelector('[data-slot="top-bar"]')!.getBoundingClientRect()
+    const rail = frame.querySelector('.global-rail')!.getBoundingClientRect()
+    return {
+      sameWidth: bar.width === frame.getBoundingClientRect().width,
+      below: rail.top >= bar.bottom,
+    }
+  })
+  expect(bounds).toEqual({ sameWidth: true, below: true })
+})
+
+test('App Library enables views separately from Plugins and remains reachable with all apps disabled', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await expect(library).toBeVisible()
+  for (const name of ['Virtual', 'Chat', 'Dev']) {
+    await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
+  }
+  await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveCount(0)
+  await expect(rail.getByRole('button', { name: 'Dev view', exact: true })).toHaveCount(0)
+  await expect(rail.getByRole('button', { name: 'Virtual view', exact: true })).toHaveCount(0)
+  await page.reload()
+  await expect(library).toBeVisible()
+  await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'Plugins', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Plugins', exact: true })).toBeVisible()
+  await expect(page.getByRole('main', { name: 'App Library' })).toHaveCount(0)
+})
+
+test('top bar history traverses app destinations and truncates a forward branch', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const toolbar = page.getByLabel('Workspace toolbar')
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await expect(page.getByRole('main', { name: 'App Library' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: 'Forward', exact: true })).toBeEnabled()
+  await toolbar.getByRole('button', { name: 'Forward', exact: true }).click()
+  await expect(page.getByRole('main', { name: 'App Library' })).toBeVisible()
+  await toolbar.getByRole('button', { name: 'Back', exact: true }).click()
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
+  await expect(page.getByRole('complementary', { name: 'Virtual navigation' })).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: 'Forward', exact: true })).toBeDisabled()
+})
+
+test('optional apps open actual task and source control views without hiding the global rail', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
+  await expect(page).toHaveURL(/app=kanban/)
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await library.getByRole('button', { name: 'Enable Source control', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Source control', exact: true }).click()
+  await expect(page).toHaveURL(/app=source-control/)
+  await expect(page.locator('.dev-workspace--source-control-app')).toBeVisible()
+  await expect(page.locator('.dev-sidebar')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Source Control', exact: true })).toBeVisible()
+  await expect(rail).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore utility pane', exact: true })).toHaveCount(
+    0
+  )
+  await page
+    .getByLabel('Workspace toolbar')
+    .getByRole('button', { name: 'Collapse contextual sidebar' })
+    .click()
+  await expect(page.locator('.dev-sidebar')).toBeHidden()
+  await expect(rail).toBeVisible()
+})
+
+test('all-off stale links remain in Library while enabling the first app', async ({ page }) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  for (const name of ['Virtual', 'Chat', 'Dev'])
+    await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
+  await page.goto('/?view=dev')
+  await expect(page).toHaveURL(/app=library/)
+  await library.getByRole('button', { name: 'Enable Chat', exact: true }).click()
+  await expect(library).toBeVisible()
+  await expect(library.getByRole('button', { name: 'Open Chat', exact: true })).toBeVisible()
+  await library.getByRole('button', { name: 'Open Chat', exact: true }).click()
+  await expect(page.locator('.conventional-workspace')).toBeVisible()
+})
+
+test('Kanban leaves the prior Chat surface intact and Library keeps reorder/reset controls', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  const library = page.getByRole('main', { name: 'App Library' })
+  await library.getByRole('button', { name: 'Move Chat up', exact: true }).click()
+  expect(
+    await rail
+      .getByRole('group', { name: 'Workspace views' })
+      .getByRole('button')
+      .first()
+      .getAttribute('aria-label')
+  ).toBe('Chat view')
+  await page.reload()
+  expect(
+    await rail
+      .getByRole('group', { name: 'Workspace views' })
+      .getByRole('button')
+      .first()
+      .getAttribute('aria-label')
+  ).toBe('Chat view')
+  await library.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
+  await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Tasks', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  await library.getByRole('button', { name: 'Reset Navigation', exact: true }).click()
+  expect(
+    await rail
+      .getByRole('group', { name: 'Workspace views' })
+      .getByRole('button')
+      .first()
+      .getAttribute('aria-label')
+  ).toBe('Virtual view')
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
 })

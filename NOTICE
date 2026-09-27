@@ -254,3 +254,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Integrated workspace history (issue #757) contains portions substantially
+translated and modified from KiroCrew routeHistoryPosition.ts and
+NavHistoryArrows.tsx at 283e136c0f902e965a535a7c9548c57c7504fed0.
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+Licensed under the Apache License, Version 2.0, with the KiroCrew
+acknowledgments above retained.

@@ -53,6 +53,7 @@ export type WorkspaceDeepLink = Readonly<{
 export function ConventionalWorkspaceShell(props: {
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
+  taskBoardOnly?: boolean
   manageSettings?: boolean
   /** Called after a deep link applies — the host removes its params. */
   onConsumeDeepLink?: () => void
@@ -72,7 +73,13 @@ export function ConventionalWorkspaceShell(props: {
   const [searchTargetMessageId, setSearchTargetMessageId] = createSignal<string | null>(null)
   const [selectedArtifactId, setSelectedArtifactId] = createSignal<string | null>(null)
   const [sessionNoticeDismissed, setSessionNoticeDismissed] = createSignal(false)
-  const activeSurface = useWorkspaceState((state) => state.activeSurface)
+  const chatSurface = useWorkspaceState((state) => state.activeSurface)
+  const activeSurface = () => (props.taskBoardOnly ? 'tasks' : chatSurface())
+  const setSurface = (surface: 'agents' | 'conversation' | 'tasks') => {
+    if (props.taskBoardOnly && surface === 'tasks') return
+    workspaceStore.getState().setActiveSurface(surface)
+    if (props.taskBoardOnly) props.onViewChange?.('chat')
+  }
   const globalPanel = useWorkspaceState((state) => state.globalPanel)
   const collapsedRoomIds = useWorkspaceState((state) => state.collapsedRoomIds)
   const drafts = useWorkspaceState((state) => state.drafts)
@@ -96,7 +103,7 @@ export function ConventionalWorkspaceShell(props: {
     setSelectedArtifactId(null)
     setSearchTargetMessageId(null)
     controller.selectChannel(channelId, roomId)
-    workspaceStore.getState().setActiveSurface('conversation')
+    setSurface('conversation')
     // Selecting a conversation collapses the drawer only on narrow
     // viewports; at wider widths the sidebar stays as the user left it.
     if (window.matchMedia('(max-width: 48rem)').matches)
@@ -245,7 +252,7 @@ export function ConventionalWorkspaceShell(props: {
       setSearchTargetMessageId(query.message ?? null)
     } else if (taskId && controller.tasks.some(({ id }) => id === taskId)) {
       workspaceStore.getState().setSelectedTaskId(taskId)
-      workspaceStore.getState().setActiveSurface('tasks')
+      setSurface('tasks')
     } else return
     // Consume the deep link: it applies once. Leaving the params in the URL
     // would re-select the stale destination every time the channel list
@@ -271,7 +278,7 @@ export function ConventionalWorkspaceShell(props: {
     if (result.kind === 'agent') {
       setSelectedArtifactId(null)
       workspaceStore.getState().setSelectedAgentId(result.id)
-      workspaceStore.getState().setActiveSurface('agents')
+      setSurface('agents')
       return
     }
     if (result.kind === 'message' && result.channelId) {
@@ -286,7 +293,7 @@ export function ConventionalWorkspaceShell(props: {
     }
     workspaceStore.getState().setSelectedTaskId(result.id)
     setSelectedArtifactId(null)
-    workspaceStore.getState().setActiveSurface('tasks')
+    setSurface('tasks')
   }
 
   const signOut = async () => {
@@ -335,11 +342,11 @@ export function ConventionalWorkspaceShell(props: {
               onRenameChannel={controller.channelActions.rename}
               onOpenAgents={() => {
                 setSelectedArtifactId(null)
-                workspaceStore.getState().setActiveSurface('agents')
+                setSurface('agents')
               }}
               onOpenTasks={() => {
                 setSelectedArtifactId(null)
-                workspaceStore.getState().setActiveSurface('tasks')
+                setSurface('tasks')
               }}
               onMarkAllRead={() => void controller.readStateActions.markAllRead()}
               onChannelIntent={prefetchChannelMessages}
@@ -408,9 +415,7 @@ export function ConventionalWorkspaceShell(props: {
                               onOpenConversation={(task) =>
                                 void controller.taskActions
                                   .openConversation(task)
-                                  .then(() =>
-                                    workspaceStore.getState().setActiveSurface('conversation')
-                                  )
+                                  .then(() => setSurface('conversation'))
                               }
                               onQueue={controller.taskActions.queue}
                               onReview={controller.taskActions.review}
@@ -432,7 +437,7 @@ export function ConventionalWorkspaceShell(props: {
                             onCreate={controller.createAgent}
                             onMessage={async (agentId) => {
                               await controller.openAgentConversation(agentId)
-                              workspaceStore.getState().setActiveSurface('conversation')
+                              setSurface('conversation')
                             }}
                             onUpdate={async (agent, input) => {
                               if (
@@ -505,7 +510,7 @@ export function ConventionalWorkspaceShell(props: {
                         }
                         onOpenTask={(taskId) => {
                           workspaceStore.getState().setSelectedTaskId(taskId)
-                          workspaceStore.getState().setActiveSurface('tasks')
+                          setSurface('tasks')
                         }}
                         privateContent={services()?.privateContent}
                         onThreadChange={(messageId) =>
@@ -537,7 +542,7 @@ export function ConventionalWorkspaceShell(props: {
                       dismiss={() => setSelectedArtifactId(null)}
                       openTask={(taskId) => {
                         workspaceStore.getState().setSelectedTaskId(taskId)
-                        workspaceStore.getState().setActiveSurface('tasks')
+                        setSurface('tasks')
                         setSelectedArtifactId(null)
                       }}
                     />
@@ -598,7 +603,7 @@ export function ConventionalWorkspaceShell(props: {
                   onClose={() => setDialog(null)}
                   onOpenAgents={() => {
                     setSelectedArtifactId(null)
-                    workspaceStore.getState().setActiveSurface('agents')
+                    setSurface('agents')
                   }}
                   onSignIn={() => services()?.account?.onSignIn()}
                   onSignOut={() => void signOut()}

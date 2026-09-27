@@ -49,6 +49,7 @@ import {
   onCleanup,
   onMount,
 } from 'solid-js'
+import { Portal } from 'solid-js/web'
 
 import { buildDevCommand } from './browser/command'
 import { createDevKeyboardController } from './keyboard'
@@ -131,6 +132,8 @@ export type DevWorkspaceEntryProps = Readonly<{
   /** E2E/development fixtures only; production consumes the runtime projection. */
   groups?: readonly DevGroupFixture[]
   storage?: LayoutStorage
+  toolbarMount?: HTMLElement
+  appMode?: 'source-control'
 }>
 
 function toDevGroups(projection: DevWorkspaceProjection): readonly DevGroupFixture[] {
@@ -415,6 +418,9 @@ function createFixtureTerminalObservations() {
   }
 }
 
+const setCompactSidebarOpen = (open: boolean) =>
+  workspaceStore.getState().setMobileSidebarOpen(open)
+
 export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   let nextPaneId = 0
   const fixtureTerminalObservations = createFixtureTerminalObservations()
@@ -453,7 +459,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const collapsedGroupIds = useWorkspaceState((state) => state.collapsedDevGroupIds)
   const collapsedProjectIds = useWorkspaceState((state) => state.collapsedDevProjectIds)
   const focusMode = useWorkspaceState((state) => state.devFocusMode)
-  const [compactSidebarOpen, setCompactSidebarOpen] = createSignal(false)
+  const compactSidebarOpen = useWorkspaceState((state) => state.mobileSidebarOpen)
   const [utilityPreferences, setUtilityPreferences] = createSignal<readonly DevUtilityPreference[]>(
     defaultUtilityPreferences()
   )
@@ -614,8 +620,13 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
     if (hadRequest) setAnnouncement(RECOVERY_COPY[result.reason])
   })
 
-  const visiblePaneOf = (side: 'left' | 'right') =>
-    utilityPreferences().find((item) => item.side === side && item.visible)
+  const visiblePaneOf = (side: 'left' | 'right') => {
+    if (props.appMode === 'source-control') {
+      const item = utilityPreferences().find((entry) => entry.pane === 'source_control')
+      return side === item?.side ? { ...item, visible: true, fullWidth: true } : undefined
+    }
+    return utilityPreferences().find((item) => item.side === side && item.visible)
+  }
   const panesOfSide = (side: 'left' | 'right') =>
     utilityPreferences()
       .filter((item) => item.side === side)
@@ -1058,10 +1069,67 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
   const leftFullWidth = () => visiblePaneOf('left')?.fullWidth ?? false
   const rightFullWidth = () => visiblePaneOf('right')?.fullWidth ?? false
 
+  const utilityControls = () => (
+    <div class="dev-toolbar__utilities">
+      <Show when={!leftFullWidth() && props.appMode !== 'source-control'}>
+        <UtilityToolbarToggle
+          label="Files / SC"
+          icon={Files}
+          pressed={Boolean(visiblePaneOf('left'))}
+          onClick={() => toggleUtilityGroup(['files', 'source_control'])}
+        />
+      </Show>
+      <Show when={!rightFullWidth() && props.appMode !== 'source-control'}>
+        <UtilityToolbarToggle
+          label="Browser / Devices"
+          icon={Laptop}
+          pressed={
+            visiblePaneOf('right')?.pane === 'browser' || visiblePaneOf('right')?.pane === 'devices'
+          }
+          onClick={() => toggleUtilityGroup(['browser', 'devices'])}
+        />
+        <UtilityToolbarToggle
+          label="Agents / History"
+          icon={Users}
+          pressed={
+            visiblePaneOf('right')?.pane === 'agents' || visiblePaneOf('right')?.pane === 'history'
+          }
+          onClick={() => toggleUtilityGroup(['agents', 'history'])}
+        />
+        <button
+          type="button"
+          class="dev-icon-button"
+          aria-label="Runtime resources"
+          aria-pressed={resourcesSheetOpen()}
+          onClick={() => setResourcesSheetOpen(!resourcesSheetOpen())}
+        >
+          <Gauge aria-hidden="true" />
+        </button>
+      </Show>
+      <Show when={props.appMode !== 'source-control'}>
+        <button
+          type="button"
+          class="dev-icon-button"
+          aria-label={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
+          aria-pressed={focusMode()}
+          onClick={() => {
+            const next = !focusMode()
+            workspaceStore.getState().setDevFocusMode(next)
+            schedulePreferences()
+            setAnnouncement(next ? 'Focus mode enabled' : 'Focus mode disabled')
+          }}
+        >
+          <Maximize2 aria-hidden="true" />
+        </button>
+      </Show>
+    </div>
+  )
+
   return (
     <main
       class={cn('dev-workspace', {
-        'dev-workspace--focus': focusMode(),
+        'dev-workspace--source-control-app': props.appMode === 'source-control',
+        'dev-workspace--focus': focusMode() && props.appMode !== 'source-control',
         'dev-workspace--left-full': leftFullWidth(),
         'dev-workspace--right-full': rightFullWidth(),
       })}
@@ -1075,7 +1143,7 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           type="button"
           aria-label="Toggle projects sidebar"
           aria-expanded={compactSidebarOpen()}
-          onClick={() => setCompactSidebarOpen((value) => !value)}
+          onClick={() => setCompactSidebarOpen(!compactSidebarOpen())}
         >
           <Columns2 aria-hidden="true" />
         </button>
@@ -1122,57 +1190,9 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
           >
             <span>Undo close</span>
           </button>
-          <Show when={!leftFullWidth()}>
-            <UtilityToolbarToggle
-              label="Files / SC"
-              icon={Files}
-              pressed={Boolean(visiblePaneOf('left'))}
-              onClick={() => toggleUtilityGroup(['files', 'source_control'])}
-            />
+          <Show when={props.toolbarMount} fallback={utilityControls()}>
+            {(mount) => <Portal mount={mount()}>{utilityControls()}</Portal>}
           </Show>
-          <Show when={!rightFullWidth()}>
-            <UtilityToolbarToggle
-              label="Browser / Devices"
-              icon={Laptop}
-              pressed={
-                visiblePaneOf('right')?.pane === 'browser' ||
-                visiblePaneOf('right')?.pane === 'devices'
-              }
-              onClick={() => toggleUtilityGroup(['browser', 'devices'])}
-            />
-            <UtilityToolbarToggle
-              label="Agents / History"
-              icon={Users}
-              pressed={
-                visiblePaneOf('right')?.pane === 'agents' ||
-                visiblePaneOf('right')?.pane === 'history'
-              }
-              onClick={() => toggleUtilityGroup(['agents', 'history'])}
-            />
-            <button
-              type="button"
-              class="dev-icon-button"
-              aria-label="Runtime resources"
-              aria-pressed={resourcesSheetOpen()}
-              onClick={() => setResourcesSheetOpen(!resourcesSheetOpen())}
-            >
-              <Gauge aria-hidden="true" />
-            </button>
-          </Show>
-          <button
-            type="button"
-            class="dev-icon-button"
-            aria-label={focusMode() ? 'Exit focus mode' : 'Enter focus mode'}
-            aria-pressed={focusMode()}
-            onClick={() => {
-              const next = !focusMode()
-              workspaceStore.getState().setDevFocusMode(next)
-              schedulePreferences()
-              setAnnouncement(next ? 'Focus mode enabled' : 'Focus mode disabled')
-            }}
-          >
-            <Maximize2 aria-hidden="true" />
-          </button>
         </div>
       </header>
 
@@ -1272,7 +1292,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <Show when={visiblePaneOf('left')}>
           <UtilitySlot
             side="left"
-            panes={panesOfSide('left')}
+            fixedPane={props.appMode === 'source-control'}
+            panes={
+              props.appMode === 'source-control'
+                ? panesOfSide('left').filter((item) => item.pane === 'source_control')
+                : panesOfSide('left')
+            }
             visiblePane={visiblePaneOf('left')}
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
@@ -1369,7 +1394,12 @@ export function DevWorkspaceEntry(props: DevWorkspaceEntryProps) {
         <Show when={visiblePaneOf('right')}>
           <UtilitySlot
             side="right"
-            panes={panesOfSide('right')}
+            fixedPane={props.appMode === 'source-control'}
+            panes={
+              props.appMode === 'source-control'
+                ? panesOfSide('right').filter((item) => item.pane === 'source_control')
+                : panesOfSide('right')
+            }
             visiblePane={visiblePaneOf('right')}
             runtime={props.runtime}
             runtimeSessionId={selectedSession() || undefined}
@@ -1400,6 +1430,8 @@ function UtilityToolbarToggle(props: {
     <button
       type="button"
       class="dev-button dev-button--toggle"
+      aria-label={props.label}
+      title={props.label}
       aria-pressed={props.pressed}
       onClick={props.onClick}
     >
@@ -1490,6 +1522,7 @@ function PaneProviderState(props: {
 }
 
 function UtilitySlot(props: {
+  fixedPane?: boolean
   side: 'left' | 'right'
   panes: readonly DevUtilityPreference[]
   visiblePane: DevUtilityPreference | undefined
@@ -1700,27 +1733,29 @@ function UtilitySlot(props: {
       >
         <div class="dev-utility-panel__heading">
           <h2>{visibleItem()?.title}</h2>
-          <button
-            type="button"
-            class="dev-icon-button"
-            aria-label={
-              props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
-            }
-            aria-pressed={props.visiblePane?.fullWidth ?? false}
-            onClick={() =>
-              props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
-            }
-          >
-            <Maximize2 aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            class="dev-icon-button"
-            aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
-            onClick={props.onCollapse}
-          >
-            <X aria-hidden="true" />
-          </button>
+          <Show when={!props.fixedPane}>
+            <button
+              type="button"
+              class="dev-icon-button"
+              aria-label={
+                props.visiblePane?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
+              }
+              aria-pressed={props.visiblePane?.fullWidth ?? false}
+              onClick={() =>
+                props.onToggleFullWidth(props.visiblePane!.pane, !props.visiblePane!.fullWidth)
+              }
+            >
+              <Maximize2 aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              class="dev-icon-button"
+              aria-label={`Collapse ${sideLabel().toLowerCase()} utility slot`}
+              onClick={props.onCollapse}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </Show>
         </div>
         <Suspense fallback={<p class="dev-pane-state__line">Loading pane…</p>}>
           {paneBody(props.visiblePane!.pane)}

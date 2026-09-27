@@ -1,9 +1,11 @@
 .workspace-frame {
   --workspace-rail-width: 4rem;
+  --workspace-topbar-height: 3rem;
   position: fixed;
   inset: 0;
   display: grid;
   grid-template-columns: 4rem minmax(0, 1fr);
+  grid-template-rows: var(--workspace-topbar-height) minmax(0, 1fr);
   min-width: 20rem;
   height: 100svh;
   overflow: clip;
@@ -2862,4 +2864,128 @@
    its grid column instead of only sliding off-canvas on small screens. */
 .conventional-workspace:has(> .conventional-sidebar:not(.conventional-sidebar--open)) {
   grid-template-columns: 0 minmax(0, 1fr);
+}
+
+/* The common header is above every view and its collapsed outer rail. */
+.workspace-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  height: var(--workspace-topbar-height);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.workspace-frame > .global-rail {
+  grid-column: 1;
+  grid-row: 2;
+}
+.workspace-frame__surface {
+  grid-column: 2;
+  grid-row: 2;
+}
+.workspace-topbar__control,
+.workspace-topbar__view-actions {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.workspace-topbar__view-actions,
+.dev-toolbar__utilities {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.workspace-topbar__title {
+  text-align: center;
+}
+.workspace-topbar__view-actions .dev-button--toggle {
+  width: 2rem;
+  padding: 0;
+}
+.workspace-topbar__view-actions .dev-button--toggle span {
+  display: none;
+}
+.workspace-frame .conventional-mobile-menu {
+  display: none;
+}
+.workspace-app-library {
+  height: 100%;
+  overflow: auto;
+  padding: 2rem;
+}
+.workspace-app-library__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.workspace-app-library h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+.workspace-app-library p {
+  color: var(--muted-foreground);
+}
+.workspace-app-library__search {
+  width: 16rem;
+  max-width: 100%;
+}
+.workspace-app-library__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 2rem;
+  margin-block: 2rem;
+}
+.workspace-app-library__app {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+.workspace-app-library__app h2 {
+  margin: 0;
+  font-size: 0.875rem;
+}
+.workspace-app-library__app p {
+  margin: 0;
+  font-size: 0.75rem;
+}
+.workspace-app-library__app > span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.workspace-app-library__check {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: calc(50% + 1rem);
+  width: 1rem;
+  height: 1rem;
+  color: var(--primary);
+}
+.workspace-app-library__note {
+  max-width: 40rem;
+  font-size: 0.75rem;
+}
+@media (max-width: 48rem) {
+  .workspace-topbar {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .workspace-topbar__title {
+    display: none;
+  }
+  .workspace-topbar__actions {
+    grid-column: 3;
+  }
+  .workspace-frame .conventional-sidebar {
+    top: var(--workspace-topbar-height);
+  }
+  .workspace-frame .conventional-sidebar-scrim {
+    top: var(--workspace-topbar-height);
+  }
+  .workspace-app-library {
+    padding: 1rem;
+  }
+  .workspace-app-library__header {
+    flex-direction: column;
+  }
 }

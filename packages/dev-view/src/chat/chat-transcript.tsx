@@ -1,6 +1,7 @@
-import { Index, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
+import { Index, Show, createMemo, createSignal, type JSX } from 'solid-js'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
+import { ConversationSurface } from '@adea-ai/ui/components/conversation'
 import type { RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
 import { projectTranscriptEvents, type ChatTranscriptItem } from './presentation'
@@ -51,83 +52,67 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       props.projection ? { projection: props.projection } : undefined
     )
   )
-  let scroller: HTMLElement | undefined
-  const saveReadingPosition = () => {
-    if (!scroller) return
-    props.onReadingPositionChange?.({
-      top: scroller.scrollTop,
-      following: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop <= 80,
-    })
-  }
-  onMount(() => {
-    const previous = props.readingPosition
-    if (!scroller || !previous) return
-    scroller.scrollTop = previous.following
-      ? Math.max(0, scroller.scrollHeight - scroller.clientHeight)
-      : previous.top
-  })
-  onCleanup(saveReadingPosition)
   const availability = () => props.transcript?.availability
   const retention = () => props.transcript?.retention
 
   return (
-    <section
-      ref={(element) => {
-        scroller = element
-      }}
+    <ConversationSurface
       class="dev-chat__stream"
       aria-label="Conversation transcript"
       aria-live="polite"
-      onScroll={saveReadingPosition}
+      initialReadingPosition={props.readingPosition}
+      onReadingPositionChange={props.onReadingPositionChange}
     >
-      <Show when={availability()?.status === 'resync_required'}>
-        <div class="dev-chat__notice" role="alert">
-          <p>Transcript gap detected. Reconnect to recover the missing runtime events.</p>
-        </div>
-      </Show>
-      <Show when={availability()?.status === 'stale_generation'}>
-        <div class="dev-chat__notice" role="alert">
-          <p>This transcript belongs to an older runtime generation.</p>
-        </div>
-      </Show>
-      <Show when={retention()?.complete === false}>
-        <div class="dev-chat__notice" role="status">
-          <p>Transcript history is bounded; older events require a runtime checkpoint.</p>
-        </div>
-      </Show>
-      <Show when={props.projection === 'terminal_fallback'}>
-        <div class="dev-chat__notice" role="status">
-          <p>
-            Structured events unavailable; showing the terminal transcript projection.
-            <Show when={props.onJumpToTerminal}>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => props.onJumpToTerminal?.()}
-              >
-                Jump to terminal
-              </Button>
-            </Show>
-          </p>
-        </div>
-      </Show>
-      <Show
-        when={items().length > 0}
-        fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
-      >
-        <Index each={items()}>
-          {(item) => (
-            <ChatTranscriptRow
-              item={item()}
-              answers={answers}
-              setAnswers={setAnswers}
-              props={props}
-            />
-          )}
-        </Index>
-      </Show>
-    </section>
+      <div class="dev-chat__entries">
+        <Show when={availability()?.status === 'resync_required'}>
+          <div class="dev-chat__notice" role="alert">
+            <p>Transcript gap detected. Reconnect to recover the missing runtime events.</p>
+          </div>
+        </Show>
+        <Show when={availability()?.status === 'stale_generation'}>
+          <div class="dev-chat__notice" role="alert">
+            <p>This transcript belongs to an older runtime generation.</p>
+          </div>
+        </Show>
+        <Show when={retention()?.complete === false}>
+          <div class="dev-chat__notice" role="status">
+            <p>Transcript history is bounded; older events require a runtime checkpoint.</p>
+          </div>
+        </Show>
+        <Show when={props.projection === 'terminal_fallback'}>
+          <div class="dev-chat__notice" role="status">
+            <p>
+              Structured events unavailable; showing the terminal transcript projection.
+              <Show when={props.onJumpToTerminal}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => props.onJumpToTerminal?.()}
+                >
+                  Jump to terminal
+                </Button>
+              </Show>
+            </p>
+          </div>
+        </Show>
+        <Show
+          when={items().length > 0}
+          fallback={<p class="dev-chat__empty">No runtime events yet.</p>}
+        >
+          <Index each={items()}>
+            {(item) => (
+              <ChatTranscriptRow
+                item={item()}
+                answers={answers}
+                setAnswers={setAnswers}
+                props={props}
+              />
+            )}
+          </Index>
+        </Show>
+      </div>
+    </ConversationSurface>
   )
 }
 

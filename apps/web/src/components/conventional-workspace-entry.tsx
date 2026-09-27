@@ -10,6 +10,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 export function ConventionalWorkspaceEntry(props: {
   client: AgentHqApiClient
   deepLink?: () => WorkspaceDeepLink
+  taskBoardOnly?: boolean
   manageSettings?: boolean
   onConsumeDeepLink?: () => void
   onViewChange: (view: WorkspaceView) => void
@@ -18,6 +19,7 @@ export function ConventionalWorkspaceEntry(props: {
   return (
     <TooltipProvider>
       <ConventionalWorkspaceShell
+        taskBoardOnly={props.taskBoardOnly}
         deepLink={props.deepLink}
         manageSettings={props.manageSettings ?? true}
         onConsumeDeepLink={props.onConsumeDeepLink}
