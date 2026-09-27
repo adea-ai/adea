@@ -1,0 +1,98 @@
+# Browser caller and frame-transport gaps (#718/#735)
+
+This note records the boundaries between the browser operations already
+implemented by Dev Runtime and the BrowserPane callers. It distinguishes DOM
+inspection from preview pixels so that a selector query is not presented as a
+visual picker.
+
+## Existing typed operations
+
+- `dev.browser.inspect` is a `dev.browser.read` operation bound to a
+  `browser_lane` resource. Its strict body carries `browserLaneId`,
+  `expectedGeneration`, `targetId`, and an optional selector. The host verifies
+  lane scope and generation; the CDP engine limits selectors to 512 characters
+  and a safe CSS-selector grammar on both page and frame targets. Invalid CSS
+  reported by CDP surfaces as an error instead of being confused with a
+  no-match result. `BrowserInspection` returns the target, optional node ID,
+  role, name, and bounds.
+- `dev.browser.attach` grants a read-direction `browser-frames-v1` stream bound
+  to the lane resource and generation. `dev.browser.input` is a separate
+  write-direction stream requiring `dev.browser.control`; attaching for read
+  does not grant input authority.
+- `dev.browser.screenshot` returns a `ScreenshotRef`, not image bytes. The host
+  store retains bounded bytes, but the BrowserPane currently discards the
+  reference. `dev.browser.annotate` requires `dev.browser.control`, captures a
+  screenshot, and returns an annotation reference; capture provenance currently
+  says `redacted: false` because no redaction pass runs.
+
+## Caller status
+
+The BrowserPane selector inspector calls `dev.browser.inspect` for the active
+page target only when target lane ID and generation match the selected lane.
+Its command includes the same generation-bound resource, and a late result is
+discarded if the lane, target, selector, or emulated viewport changes. It
+displays the returned role, name, and bounds, or an explicit no-match result.
+This is a DOM query; it does not infer a target from pixels or claim
+click-to-pick support.
+
+The BrowserPane does not yet consume `dev.browser.attach` or render a live
+frame. Its floating preview remains a placeholder. The Screenshot button
+captures metadata but does not display bytes; the annotation affordance does
+not yet submit a coordinate annotation. These controls need the stream/image
+boundary below before they can be truthful visual tools.
+
+## Broken frame producer-consumer path
+
+The CDP engine publishes `DevStreamFrame` values with `type: 'video'` and a
+complete encoded image, up to the existing 8 MiB frame budget. The screencast
+pacer already limits publication to 15 FPS by default, 30 maximum, 4096×4096,
+one in-flight plus the newest complete frame, and 240 input events per second.
+However, both JSON relay unions (`stream-relay.ts` in the shell and
+`desktop-stream-transport.ts` in the web client) omit `video`; the shell relay
+codec's default branch rejects it. The client has no video-to-image consumer.
+`RELAY_FRAME_BYTES_MAX` currently bounds decoded client-to-shell base64 payloads
+in `fromRelayFrame`; it does not bound host-to-web video because `toRelayFrame`
+rejects `video` before encoding. A whole image in a command reply would also
+turn the control plane into a data path, while an outbound relay frame needs an
+explicit size limit before it can safely carry video.
+
+There is a second release blocker for pixel display: screenshot and annotation
+provenance is explicitly `redacted: false`. Until the host classifies and
+redacts captured page pixels, the UI must not project those pixels as a trusted
+preview or claim that annotation coordinates correspond to a reviewed image.
+
+## Smallest bounded amendment
+
+Keep the existing `browser-frames-v1` grant and its read/write capability
+separation. Extend the **stream relay frame** codec with a strict video-chunk
+representation rather than adding image bytes to DevCommand replies or
+workspace events. Apply a 128 KiB serialized-envelope cap in both relay
+directions. A 64 KiB raw chunk expands to about 88 KiB after base64, leaving
+room for the small header. Every chunk should bind to the already-authenticated
+stream generation and carry a frame sequence, chunk index/count or byte offset,
+total frame length, timestamp, viewport sequence, keyframe flag, dimensions,
+and bytes. The host must include the existing viewport sequence and dimensions
+in this relay envelope so a completed frame cannot be mistaken for the current
+emulation.
+
+The shell encoder and web decoder must enforce the same rules: raw chunk at
+most 64 KiB; total frame at most the existing 8 MiB; dimensions at most
+4096×4096; no more than 128 chunks per frame; contiguous offsets and stable
+metadata; monotonic frame sequence; exact generation match; and rejection of
+duplicates, gaps, malformed lengths, stale generations, and oversize values.
+Reassembly must hold at most one incomplete frame per stream, discard it on
+timeout/close/generation change, and preserve the existing one-in-flight plus
+one-newest publication bound. Credit/acknowledgment should advance only after
+the complete frame is accepted by the renderer; partial chunks must not be
+acknowledged as a rendered frame. Raw image bytes must stay out of logs and
+durable events.
+
+Only after an explicit host redaction/classification result authorizes display
+should the BrowserPane attach the read grant, decode a complete frame, and
+render it. Input and annotation still require their independent control grant,
+current lane generation, and existing input rate limit. Tests should cover
+strict codec parity, bounded reassembly and cleanup, stale-generation refusal,
+slow-consumer backpressure, renderer acknowledgment, and the mounted pane's
+attach/unsubscribe lifecycle. Until that transport and redaction gate exist,
+selector-based DOM inspection is the supported inspection surface; screenshots
+and visual annotations remain unavailable in the pane.

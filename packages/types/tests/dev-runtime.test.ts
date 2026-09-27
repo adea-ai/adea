@@ -29,6 +29,19 @@ import {
   devStreamGrantProofMessage,
   encodeCbor,
 } from '../src/dev-runtime'
+import { devOperationMetadata } from '../src/dev-runtime-metadata'
+import {
+  decodeCbor as decodeBrowserWireCbor,
+  decodeRuntimeEvent as decodeBrowserWireEvent,
+  encodeCbor as encodeBrowserWireCbor,
+} from '../src/dev-runtime-wire'
+import {
+  decodeCredentialRef as decodeRegistryCredentialRef,
+  decodeProject as decodeRegistryProject,
+  decodeRepo as decodeRegistryRepo,
+  decodeRepoInspection as decodeRegistryRepoInspection,
+  decodeRootBookmark as decodeRegistryRootBookmark,
+} from '../src/dev-runtime-registry-dto'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -78,6 +91,13 @@ describe('Dev Runtime operation registry', () => {
     // only when an operation is deliberately added, and the decoder-key check
     // below is what keeps the list and the decoders in step.
     expect(devOperations).toHaveLength(165)
+    expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
+    for (const operation of devOperations) {
+      expect(devOperationMetadata[operation]).toEqual({
+        capabilities: devOperationDefinitions[operation].capabilities,
+        resource: devOperationDefinitions[operation].resource,
+      })
+    }
     expect(devRuntimeTransportMethods).toEqual({
       handshake: 'dev.runtime.handshake.v1',
       execute: 'dev.runtime.execute.v1',
@@ -204,6 +224,14 @@ describe('Dev Runtime operation registry', () => {
     expect(() => workspacePathRequest('..\\secret')).toThrow('normalized relative path')
     expect(() => workspacePathRequest('C:\\secret')).toThrow('normalized relative path')
     expect(workspacePathRequest('src/index.ts')).toMatchObject({ limit: 10 })
+  })
+})
+
+describe('Dev Runtime browser-safe wire exports', () => {
+  test('the main package re-exports the same canonical event and CBOR codecs', () => {
+    expect(decodeCbor).toBe(decodeBrowserWireCbor)
+    expect(decodeRuntimeEvent).toBe(decodeBrowserWireEvent)
+    expect(encodeCbor).toBe(encodeBrowserWireCbor)
   })
 })
 
@@ -445,7 +473,11 @@ describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
 
   test('strictly decodes root bookmarks', () => {
     expect(decodeRootBookmark(rootBookmark)).toEqual(rootBookmark)
+    expect(decodeRegistryRootBookmark(rootBookmark)).toEqual(rootBookmark)
     expect(() => decodeRootBookmark({ ...rootBookmark, extra: true })).toThrow('unknown key')
+    expect(() => decodeRegistryRootBookmark({ ...rootBookmark, extra: true })).toThrow(
+      'unknown key'
+    )
     expect(() => decodeRootBookmark({ ...rootBookmark, id: 'bookmark-1' })).toThrow('UUID')
     expect(() => decodeRootBookmark({ ...rootBookmark, kind: 'symlink' })).toThrow('repository')
     expect(() => decodeRootBookmark({ ...rootBookmark, state: 'expired' })).toThrow('state')
@@ -465,7 +497,11 @@ describe('M10 grant DTOs (RootBookmark, CredentialRef)', () => {
 
   test('strictly decodes credential references without secret material', () => {
     expect(decodeCredentialRef(credentialRef)).toEqual(credentialRef)
+    expect(decodeRegistryCredentialRef(credentialRef)).toEqual(credentialRef)
     expect(() => decodeCredentialRef({ ...credentialRef, secret: 'hunter2' })).toThrow(
+      'unknown key'
+    )
+    expect(() => decodeRegistryCredentialRef({ ...credentialRef, secret: 'hunter2' })).toThrow(
       'unknown key'
     )
     expect(() => decodeCredentialRef({ ...credentialRef, id: 'ref-1' })).toThrow('UUID')
@@ -1043,6 +1079,7 @@ describe('repository registry DTOs (#398 follow-up)', () => {
 
   test('strictly decodes the Repo record with an optional redacted remote', () => {
     expect(decodeRepo(repo)).toEqual(repo)
+    expect(decodeRegistryRepo(repo)).toEqual(repo)
     // Optional fields may be absent (folder workspaces carry neither).
     expect(decodeRepo({ ...repo, remote: undefined, defaultRef: undefined })).toEqual({
       ...repo,
@@ -1050,6 +1087,7 @@ describe('repository registry DTOs (#398 follow-up)', () => {
       defaultRef: undefined,
     })
     expect(() => decodeRepo({ ...repo, extra: true })).toThrow('unknown key')
+    expect(() => decodeRegistryRepo({ ...repo, extra: true })).toThrow('unknown key')
     expect(() => decodeRepo({ ...repo, id: 'repo-1' })).toThrow('UUID')
     expect(() => decodeRepo({ ...repo, kind: 'symlink' })).toThrow('git')
     expect(() => decodeRepo({ ...repo, lifecycle: 'refreshing' })).not.toThrow()
@@ -1076,7 +1114,11 @@ describe('repository registry DTOs (#398 follow-up)', () => {
       observedAt: '2026-09-20T12:00:00.000Z',
     }
     expect(decodeRepoInspection(inspection)).toEqual(inspection)
+    expect(decodeRegistryRepoInspection(inspection)).toEqual(inspection)
     expect(() => decodeRepoInspection({ ...inspection, extra: true })).toThrow('unknown key')
+    expect(() => decodeRegistryRepoInspection({ ...inspection, extra: true })).toThrow(
+      'unknown key'
+    )
     expect(() => decodeRepoInspection({ ...inspection, headSha: 'ZZZ' })).toThrow('git sha')
     expect(() => decodeRepoInspection({ ...inspection, dirty: 'no' })).toThrow('boolean')
     expect(() => decodeRepoInspection({ ...inspection, observedAt: 'yesterday' })).toThrow(
@@ -1131,6 +1173,8 @@ describe('repository registry DTOs (#398 follow-up)', () => {
       lifecycle: 'archived',
       version: 2,
     }
+    expect(decodeRegistryProject(project)).toEqual(project)
+    expect(() => decodeRegistryProject({ ...project, extra: true })).toThrow('unknown key')
     for (const operation of ['dev.project.update', 'dev.project.archive'] as const) {
       const reply = {
         schemaVersion: 1,

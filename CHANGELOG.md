@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.62.0](https://github.com/adea-ai/adea/compare/v0.61.7...v0.62.0) (2026-09-27)
+
+
+### Features
+
+* **dev-view:** add selector-based browser inspection ([#765](https://github.com/adea-ai/adea/issues/765)) ([e0a27c8](https://github.com/adea-ai/adea/commit/e0a27c8fc7108da3b5cba658ff841b0fc0ada5b1))
+
+## [0.61.7](https://github.com/adea-ai/adea/compare/v0.61.6...v0.61.7) (2026-09-27)
+
+
+### Bug Fixes
+
+* navigate browser ports through browser lane ([#763](https://github.com/adea-ai/adea/issues/763)) ([4a81577](https://github.com/adea-ai/adea/commit/4a81577cb6fa0b6f7174b91e7362518d28c2467e))
+
+## [0.61.6](https://github.com/adea-ai/adea/compare/v0.61.5...v0.61.6) (2026-09-27)
+
+
+### Tests
+
+* avoid repeated full-tree color scans ([#761](https://github.com/adea-ai/adea/issues/761)) ([1466003](https://github.com/adea-ai/adea/commit/14660034d24e47ac4d1f3d4c7cc01a3af50b6730))
+
 ## [0.61.5](https://github.com/adea-ai/adea/compare/v0.61.4...v0.61.5) (2026-09-27)
 
 

@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/web",
-  "version": "0.61.5",
+  "version": "0.62.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -36,7 +36,7 @@
     "@adea-ai/data": "workspace:*",
     "@adea-ai/db": "workspace:*",
     "@adea-ai/dev-view": "workspace:*",
-    "@adea-ai/ui": "0.65.0",
+    "@adea-ai/ui": "0.70.2",
     "@adea-ai/spatial-protocol": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",

@@ -13,6 +13,7 @@ import {
   resizePreviewMiniPlayer,
 } from '../src/browser/mini-preview-layout'
 import { canonicalKey, isPreviewableRow, mergeServers } from '../src/browser/ports-model'
+import { buildPortNavigationRequest } from '../src/browser/navigation-model'
 import {
   isPickedElementPayload,
   isPreviewAnnotationPayload,
@@ -230,6 +231,46 @@ describe('ports menu merge (t3code ports)', () => {
     ).toBe(true)
     expect(isPreviewableRow(scannerServer(3000, { owner: 'unknown' }) as never)).toBe(false)
     expect(isPreviewableRow(scannerServer(3000, { health: 'stale' }) as never)).toBe(false)
+  })
+
+  test('port preview builds an explicit generation-bound navigation request without URL focus', () => {
+    const lanes = [
+      { id: 'lane-preview', generation: 8 },
+      { id: 'lane-active', generation: 4 },
+    ]
+    const requestedUrl = 'http://localhost:5173/nested/page?mode=preview#details'
+    const row = mergeServers({
+      scanner: [
+        scannerServer(5173, {
+          url: requestedUrl,
+          preview: { browserLaneId: 'lane-preview', url: requestedUrl },
+        }),
+      ],
+      configuredUrls: [],
+    })[0]
+
+    expect(buildPortNavigationRequest(row, lanes, lanes[1])).toEqual({
+      operation: 'dev.browser.navigate',
+      lane: lanes[0],
+      body: {
+        browserLaneId: 'lane-preview',
+        expectedGeneration: 8,
+        url: requestedUrl,
+      },
+      resource: { kind: 'browser_lane', id: 'lane-preview', generation: 8 },
+    })
+  })
+
+  test('port preview stays inert without its bound lane or proven ownership', () => {
+    const row = mergeServers({ scanner: [scannerServer(5173)], configuredUrls: [] })[0]
+    expect(buildPortNavigationRequest(row, [], undefined)).toBeNull()
+    expect(
+      buildPortNavigationRequest(
+        { ...row, owner: 'external' },
+        [{ id: 'lane-active', generation: 4 }],
+        { id: 'lane-active', generation: 4 }
+      )
+    ).toBeNull()
   })
 })
 

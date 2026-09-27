@@ -3,7 +3,7 @@
 // nonces come from a cryptographic RNG, and every command carries the
 // 60-second expiry the M10 gate enforces.
 import type { DevCapability, DevCommand, DevOperation, Scope } from '@adea-ai/types/dev-runtime'
-import { devOperationDefinitions } from '@adea-ai/types/dev-runtime'
+import { devOperationMetadata } from '@adea-ai/types/dev-runtime-metadata'
 
 export type BuildDevCommandInput = {
   operation: DevOperation
@@ -30,7 +30,7 @@ export function buildDevCommand(
       return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
     })
   const issuedAt = now()
-  const definition = devOperationDefinitions[input.operation]
+  const definition = devOperationMetadata[input.operation]
   const capabilities = [...definition.capabilities] as DevCapability[]
   // The registry lists capabilities already in ascending code-point order;
   // sort defensively so the gate's exact-equality check can never trip on a

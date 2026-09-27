@@ -128,6 +128,44 @@
   flex-direction: column;
 }
 
+.dev-browser__inspect {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem 0.35rem;
+}
+
+.dev-browser__inspect-label {
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.dev-browser__inspect input {
+  min-width: 0;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.8rem;
+}
+
+.dev-browser__inspect input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ring) 72%, transparent);
+  outline-offset: 1px;
+}
+
+.dev-browser__inspection-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.3rem 0.5rem;
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+
 .dev-browser__diagnostics {
   display: flex;
   min-height: 5rem;

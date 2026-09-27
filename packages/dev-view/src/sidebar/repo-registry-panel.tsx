@@ -39,7 +39,7 @@ import {
   decodeRepo,
   decodeRepoInspection,
   decodeRootBookmark,
-} from '@adea-ai/types/dev-runtime'
+} from '@adea-ai/types/dev-runtime-registry-dto'
 import { For, Show, createSignal, onMount } from 'solid-js'
 
 import { buildDevCommand } from '../browser/command'
