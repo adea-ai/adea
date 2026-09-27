@@ -10603,17 +10603,25 @@
         "limits": "Earlier Product collapse assertion failed once; no reproducible reset or permanent state fix. Not a packaged native/real PTY qualification."
       },
       "pendingMetadataIntegration": {
-        "sourceCommit": "48391e6a",
-        "status": "Not release-qualified; generated same-module metadata retention increased actual eager bundle. Separate generated pure runtime entry follow-up in progress.",
-        "validation": "Types build and63 focused metadata/platform/command tests (739 assertions) pass; formatting passes. Canonical web build passes after resolving imports while preserving existing lazy layout/fixture declarations.",
+        "sourceCommit": "5244735c",
+        "status": "Generated pure per-operation entry removes eager aggregate retention. Library/production build evidence proves16,007B entry reduction versus79,903B; combined Dev gate still fails.",
+        "validation": "Types build, generator--check,69 focused tests (913 assertions), formatting and canonical web build pass. No new real-runtime or packaged acceptance claim.",
         "productionBudget": {
-          "devEntryBytes": 95018,
+          "clientJavaScriptFiles": 70,
+          "clientJavaScriptBytes": 1554360,
+          "devEntryBytes": 63896,
           "devRendererBytes": 34209,
-          "combinedDevBytes": 129227,
+          "combinedDevBytes": 98105,
           "devChunkBudget": 86016,
-          "status": "FAIL; no threshold change."
+          "status": "FAIL12,089B over; original gate unchanged."
         },
-        "attempts": "First local conflict resolution accidentally omitted lazy declarations; corrected before push and rebuilt. First gate detected missing renderer chunk. No claim that initial attempt qualified."
+        "attempts": "Same-module first integration48391e6a produced129,227B combined; superseded by generated separate modules. Original failed integration evidence remains in history/commits."
+      },
+      "relayPrerequisite": {
+        "sourceCommit": "e496de0a",
+        "status": "Measured and bounded desktop relay backlog; no TerminalPane production mount or PTY acceptance claim.",
+        "validation": "Five initial regression tests plus two review regressions pass (14/14,54 assertions); complete web143/143,463 assertions; web types pass after rebuilding dependent dev-view dist; lint,format,docs4/4 pass.",
+        "behavior": "Snapshots queued input;1MiB encoded terminal queue+4096frame bound covers ACK/emptyinput; immediate local listener cleanup; lateproof/subscription/open fenced; already-invokedinput may have delivered, laterqueuedinvokesdiscarded."
       }
     },
     "verifiedCheckpointHistory": [
