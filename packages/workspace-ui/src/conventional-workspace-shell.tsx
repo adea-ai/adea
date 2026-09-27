@@ -1,6 +1,6 @@
 import { createApiClient } from '@adea-ai/api-client'
 import { AlertTriangle, X } from 'lucide-solid'
-import { createEffect, createSignal, lazy, on, Show, Suspense } from 'solid-js'
+import { createEffect, createSignal, lazy, on, onCleanup, Show, Suspense } from 'solid-js'
 import { settledData, usePrefetchChannelMessages } from '@adea-ai/data'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 
@@ -125,7 +125,7 @@ export function ConventionalWorkspaceShell(props: {
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
-    return () => window.removeEventListener('hashchange', openDeepLinkedSettings)
+    onCleanup(() => window.removeEventListener('hashchange', openDeepLinkedSettings))
   })
 
   createEffect(() => {
@@ -133,10 +133,10 @@ export function ConventionalWorkspaceShell(props: {
     updateOnlineStatus()
     window.addEventListener('online', updateOnlineStatus)
     window.addEventListener('offline', updateOnlineStatus)
-    return () => {
+    onCleanup(() => {
       window.removeEventListener('online', updateOnlineStatus)
       window.removeEventListener('offline', updateOnlineStatus)
-    }
+    })
   })
 
   createEffect(() => {
@@ -211,7 +211,7 @@ export function ConventionalWorkspaceShell(props: {
     // Capture workspace shortcuts before a portalled dialog's focus trap can
     // stop propagation while it restores focus after closing.
     window.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+    onCleanup(() => window.removeEventListener('keydown', onKeyDown, { capture: true }))
   })
 
   createEffect(() => {

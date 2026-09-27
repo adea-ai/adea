@@ -1789,3 +1789,55 @@ test('Chat conversation surface follows the shared light and dark theme backgrou
     expect(colors.conversation).toBe(colors.workspace)
   }
 })
+
+test('repeated Chat and Library transitions release workspace event listeners', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const tracked = new Set(['hashchange', 'online', 'offline', 'keydown'])
+    const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>()
+    const originalAdd = window.addEventListener.bind(window)
+    const originalRemove = window.removeEventListener.bind(window)
+    window.addEventListener = (type, listener, options) => {
+      if (listener && tracked.has(type)) {
+        const id = type + ':' + Boolean(typeof options === 'boolean' ? options : options?.capture)
+        const entries = listeners.get(id) ?? new Set<EventListenerOrEventListenerObject>()
+        entries.add(listener)
+        listeners.set(id, entries)
+        if (typeof options === 'object' && options.signal) {
+          options.signal.addEventListener('abort', () => entries.delete(listener), { once: true })
+        }
+      }
+      originalAdd(type, listener, options)
+    }
+    window.removeEventListener = (type, listener, options) => {
+      const id = type + ':' + Boolean(typeof options === 'boolean' ? options : options?.capture)
+      if (listener) listeners.get(id)?.delete(listener)
+      originalRemove(type, listener, options)
+    }
+    Object.defineProperty(window, 'workspaceListenerCounts', {
+      value: () => Object.fromEntries([...listeners].map(([id, entries]) => [id, entries.size])),
+    })
+  })
+  await mockWorkspace(page)
+  await page.goto('/?view=chat')
+  const rail = page.getByRole('navigation', { name: 'Global navigation' })
+  const cycle = async () => {
+    await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'App Library', exact: true })).toBeVisible()
+    await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
+    await expect(page.getByRole('complementary', { name: 'Workspace navigation' })).toBeVisible()
+  }
+  // Warm lazy destinations once before comparing retained listeners.
+  await cycle()
+  const counts = () =>
+    page.evaluate(() => {
+      const read = Reflect.get(window, 'workspaceListenerCounts')
+      if (typeof read !== 'function') throw new Error('Listener instrumentation is missing')
+      return read()
+    })
+  const baseline = await counts()
+  await cycle()
+  await cycle()
+  await expect.poll(counts).toEqual(baseline)
+})
